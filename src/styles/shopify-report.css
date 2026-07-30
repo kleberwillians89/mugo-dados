@@ -1,0 +1,821 @@
+.shopifyReportPage{
+  display: grid;
+  gap: clamp(20px, 3vw, 32px);
+  min-height: 100%;
+  align-content: start;
+  padding-bottom: 8px;
+  overflow-x: clip;
+}
+
+.shopifyHero{
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 420px);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.shopifyHeroCopy,
+.shopifyFilterCard,
+.shopifyKpiCard,
+.shopifyChartCard,
+.shopifyListCard,
+.shopifyTechnicalCard,
+.shopifyFeedbackCard,
+.shopifyEmptyCard,
+.shopifyTableWrap{
+  border: 1px solid rgba(26,23,24,.12);
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 22px 60px rgba(26,23,24,.08);
+  border-radius: 24px;
+}
+
+.shopifyHeroCopy{
+  padding: 28px 30px;
+  min-height: 220px;
+  background:
+    radial-gradient(540px 240px at 0% 0%, rgba(215,219,106,.32), transparent 68%),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(249,247,243,.96));
+}
+
+.shopifyPageEyebrow,
+.shopifyMiniLabel,
+.shopifySectionEyebrow{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.48);
+}
+
+.shopifyPageTitle{
+  margin: 12px 0 8px;
+  font-size: clamp(2.1rem, 4vw, 3.35rem);
+  line-height: .98;
+  letter-spacing: -.04em;
+  color: #1a1718;
+}
+
+.shopifyPageSubtitle{
+  margin: 0;
+  max-width: 620px;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: rgba(26,23,24,.68);
+}
+
+.shopifyHeroMeta{
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.shopifyQuickNav{
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shopifyQuickNavLink{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(26,23,24,.12);
+  background: rgba(255,255,255,.72);
+  color: rgba(26,23,24,.72);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.shopifyQuickNavLink:hover{
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(26,23,24,.08);
+  transform: translateY(-1px);
+}
+
+.shopifyHeroTimestamp{
+  font-size: 13px;
+  color: rgba(26,23,24,.55);
+}
+
+.shopifyFilterCard{
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-height: 220px;
+}
+
+.shopifyFilterField{
+  display: grid;
+  gap: 6px;
+}
+
+.shopifyFilterField span{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.5);
+}
+
+.shopifyRefreshButton{
+  margin-top: 6px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.shopifyTextInput{
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(26,23,24,.1);
+  padding: 0 12px;
+  background: rgba(255,255,255,.92);
+  color: rgba(26,23,24,.82);
+  font-weight: 700;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.shopifyTextInput::placeholder{
+  color: rgba(26,23,24,.4);
+}
+
+.shopifyTextInput:focus,
+.shopifyFilterCard .select:focus{
+  outline: none;
+  border-color: rgba(26,23,24,.22);
+  box-shadow: 0 0 0 4px rgba(215,219,106,.18);
+  background: #fff;
+}
+
+.shopifySection{
+  display: grid;
+  gap: 18px;
+  scroll-margin-top: 20px;
+}
+
+.shopifySectionHeader{
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.shopifySectionAction{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.shopifySectionStatus{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.shopifySectionTitle{
+  margin: 6px 0 6px;
+  font-size: 1.45rem;
+  line-height: 1.08;
+  letter-spacing: -.03em;
+  color: #1a1718;
+}
+
+.shopifySectionDescription{
+  margin: 0;
+  max-width: 760px;
+  color: rgba(26,23,24,.62);
+  line-height: 1.65;
+}
+
+.shopifyKpiGrid{
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shopifyKpiCard{
+  padding: 20px 20px 18px;
+  min-height: 148px;
+  display: grid;
+  align-content: start;
+  gap: 0;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.shopifyKpiCard.isAccent{
+  background:
+    radial-gradient(280px 140px at 10% 0%, rgba(215,219,106,.26), transparent 72%),
+    rgba(255,255,255,.98);
+  border-color: rgba(26,23,24,.18);
+}
+
+.shopifyKpiLabel{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.52);
+}
+
+.shopifyKpiValue{
+  margin-top: 18px;
+  font-size: clamp(1.9rem, 2.5vw, 2.6rem);
+  line-height: .96;
+  letter-spacing: -.04em;
+  font-weight: 1000;
+  color: #1a1718;
+}
+
+.shopifyKpiHint{
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(26,23,24,.58);
+}
+
+.shopifyKpiCard:hover,
+.shopifyChartCard:hover,
+.shopifyListCard:hover,
+.shopifyTechnicalCard:hover,
+.shopifyExecutiveCard:hover,
+.shopifyFilterPanel:hover,
+.shopifyTableWrap:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 26px 64px rgba(26,23,24,.1);
+}
+
+.shopifyKpiHint.isPlaceholder{
+  opacity: 0;
+}
+
+.shopifyChartGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shopifyChartCard{
+  padding: 18px 18px 12px;
+  min-height: 300px;
+  display: grid;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.shopifyChartCardHead{
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.shopifyChartDescription{
+  margin: 8px 0 0;
+  color: rgba(26,23,24,.58);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.shopifyChartValue{
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -.03em;
+  color: #1a1718;
+}
+
+.shopifyChartViewport{
+  height: 236px;
+}
+
+.shopifyTableWrap{
+  overflow: auto;
+  max-height: min(52vh, 480px);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  border-radius: 22px;
+  border: 1px solid rgba(26,23,24,.08);
+  background: rgba(255,255,255,.97);
+}
+
+.shopifyTable{
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shopifyTable thead th{
+  padding: 16px 18px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.48);
+  border-bottom: 1px solid rgba(26,23,24,.08);
+  background: rgba(249,247,243,.9);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+}
+
+.shopifyTable tbody td{
+  padding: 16px 18px;
+  color: rgba(26,23,24,.86);
+  border-top: 1px solid rgba(26,23,24,.06);
+  vertical-align: top;
+  transition: background .16s ease;
+}
+
+.shopifyTable tbody tr:hover td{
+  background: rgba(249,247,243,.86);
+}
+
+.shopifyTable tbody tr:nth-child(even) td{
+  background: rgba(250,248,244,.58);
+}
+
+.shopifyTableTitle{
+  font-weight: 800;
+  color: #1a1718;
+}
+
+.shopifyTableSubtle{
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 6px;
+  color: rgba(26,23,24,.52);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shopifyStatusPill{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(26,23,24,.10);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.shopifyStatusPill.is-positive{
+  color: #205c34;
+  background: rgba(32,92,52,.08);
+  border-color: rgba(32,92,52,.16);
+}
+
+.shopifyStatusPill.is-warning{
+  color: #8a6228;
+  background: rgba(199,152,48,.12);
+  border-color: rgba(199,152,48,.18);
+}
+
+.shopifyStatusPill.is-danger{
+  color: #93343f;
+  background: rgba(147,52,63,.08);
+  border-color: rgba(147,52,63,.14);
+}
+
+.shopifyStatusPill.is-neutral{
+  color: rgba(26,23,24,.68);
+  background: rgba(26,23,24,.04);
+  border-color: rgba(26,23,24,.12);
+}
+
+.shopifySecondaryGrid{
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr);
+  align-items: start;
+}
+
+.shopifySecondaryGrid > div{
+  display: grid;
+  gap: 16px;
+}
+
+.shopifyListCard,
+.shopifyTechnicalCard{
+  padding: 18px;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.shopifyListHead{
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.shopifyListRows,
+.shopifyWebhookRows{
+  display: grid;
+  gap: 10px;
+}
+
+.shopifyListRow,
+.shopifyWebhookRow{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(26,23,24,.08);
+  transition: transform .16s ease;
+}
+
+.shopifyListRow:first-child,
+.shopifyWebhookRow:first-child{
+  border-top: 0;
+  padding-top: 0;
+}
+
+.shopifyListRank{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(215,219,106,.2);
+  color: #1a1718;
+  font-weight: 900;
+}
+
+.shopifyListBody{
+  min-width: 0;
+}
+
+.shopifyListMetric{
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+  color: rgba(26,23,24,.62);
+}
+
+.shopifyListMetric strong{
+  font-size: 1rem;
+  color: #1a1718;
+}
+
+.shopifyListRow:hover,
+.shopifyWebhookRow:hover{
+  transform: translateX(2px);
+}
+
+.shopifyTechnicalStats{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.shopifyTechnicalStat{
+  border: 1px solid rgba(26,23,24,.08);
+  border-radius: 18px;
+  background: rgba(248,246,242,.9);
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.shopifyTechnicalStat span{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.48);
+}
+
+.shopifyTechnicalStat strong{
+  color: #1a1718;
+  line-height: 1.4;
+}
+
+.shopifyWebhookMain{
+  min-width: 0;
+}
+
+.shopifyWebhookMeta{
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.shopifyTechnicalErrors{
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(26,23,24,.08);
+  display: grid;
+  gap: 10px;
+}
+
+.shopifyTechnicalError{
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(147,52,63,.12);
+  background: rgba(147,52,63,.05);
+  color: rgba(26,23,24,.72);
+}
+
+.shopifyFeedbackCard,
+.shopifyEmptyCard{
+  padding: 22px 24px;
+  color: rgba(26,23,24,.72);
+  line-height: 1.6;
+  min-height: 124px;
+  display: grid;
+  align-content: center;
+}
+
+.shopifyFeedbackCard.isError{
+  border-color: rgba(147,52,63,.18);
+  background: rgba(147,52,63,.05);
+}
+
+.shopifyShellActions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.shopifyCustomerSummaryGrid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shopifyCustomerFeatureGrid{
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+  gap: 16px;
+}
+
+.shopifyExecutiveCard,
+.shopifyFilterPanel{
+  border: 1px solid rgba(26,23,24,.12);
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 22px 60px rgba(26,23,24,.08);
+  border-radius: 24px;
+  padding: 18px;
+  min-height: 100%;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.shopifyExecutiveList{
+  display: grid;
+  gap: 14px;
+}
+
+.shopifyExecutiveItem{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.shopifyExecutiveItem p{
+  margin: 0;
+  color: rgba(26,23,24,.72);
+  line-height: 1.65;
+}
+
+.shopifyExecutiveDot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 8px;
+  background: linear-gradient(135deg, #d7db6a, #c7b299);
+}
+
+.shopifyCustomerFilters{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.shopifyCustomerSkeleton{
+  display: grid;
+  gap: 16px;
+}
+
+.shopifyFilterPanel .shopifyListHead{
+  align-items: start;
+}
+
+.shopifySkeletonLayout{
+  display: grid;
+  gap: 18px;
+}
+
+.shopifySkeletonHero{
+  height: 180px;
+  border-radius: 28px;
+}
+
+.shopifySkeletonGrid{
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shopifySkeletonCharts{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shopifySkeletonCard{
+  height: 148px;
+  border-radius: 24px;
+}
+
+.shopifySkeletonChart{
+  height: 300px;
+  border-radius: 24px;
+}
+
+.shopifySkeletonTable{
+  height: 320px;
+  border-radius: 24px;
+}
+
+.skeletonBlock{
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(255,255,255,.72), rgba(242,240,236,.98), rgba(255,255,255,.72));
+}
+
+.skeletonBlock::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.72), transparent);
+  animation: shopifySkeletonSweep 1.4s ease infinite;
+}
+
+@keyframes shopifySkeletonSweep{
+  to{
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 1320px){
+  .shopifyKpiGrid,
+  .shopifySkeletonGrid,
+  .shopifyCustomerSummaryGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px){
+  .shopifyHero,
+  .shopifySecondaryGrid,
+  .shopifyChartGrid,
+  .shopifySkeletonCharts,
+  .shopifyCustomerFeatureGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 780px){
+  .shopifyKpiGrid,
+  .shopifyTechnicalStats,
+  .shopifySkeletonGrid,
+  .shopifyCustomerSummaryGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shopifyCustomerFilters{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shopifySectionHeader,
+  .shopifyChartCardHead,
+  .shopifyListRow,
+  .shopifyWebhookRow{
+    grid-template-columns: 1fr;
+  }
+
+  .shopifySectionStatus{
+    justify-content: flex-start;
+  }
+
+  .shopifyWebhookMeta,
+  .shopifyListMetric{
+    justify-items: start;
+    text-align: left;
+  }
+
+  .shopifyTable{
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .shopifyTableWrap{
+    max-height: none;
+  }
+}
+
+@media (max-width: 560px){
+  .shopifyHeroCopy,
+  .shopifyFilterCard,
+  .shopifyKpiCard,
+  .shopifyChartCard,
+  .shopifyListCard,
+  .shopifyTechnicalCard,
+  .shopifyFeedbackCard,
+  .shopifyEmptyCard{
+    border-radius: 20px;
+  }
+
+  .shopifyKpiGrid,
+  .shopifyTechnicalStats,
+  .shopifySkeletonGrid,
+  .shopifyCustomerSummaryGrid,
+  .shopifyCustomerFilters{
+    grid-template-columns: 1fr;
+  }
+
+  .shopifyShellActions,
+  .shopifyHeroMeta,
+  .shopifyQuickNav{
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .shopifyShellActions .btn,
+  .shopifyShellActions .btnLogout,
+  .shopifyRefreshButton,
+  .shopifyFilterCard .select,
+  .shopifyTextInput{
+    width: 100%;
+  }
+
+  .shopifySectionAction{
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .shopifyHero{
+    gap: 14px;
+  }
+
+  .shopifyHeroCopy,
+  .shopifyFilterCard,
+  .shopifyKpiCard,
+  .shopifyChartCard,
+  .shopifyListCard,
+  .shopifyTechnicalCard,
+  .shopifyFeedbackCard,
+  .shopifyEmptyCard,
+  .shopifyTableWrap,
+  .shopifyExecutiveCard,
+  .shopifyFilterPanel{
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .shopifyHeroCopy,
+  .shopifyFilterCard{
+    min-height: 0;
+  }
+
+  .shopifyPageTitle{
+    font-size: clamp(1.9rem, 9vw, 2.7rem);
+  }
+
+  .shopifyPageSubtitle,
+  .shopifySectionDescription,
+  .shopifyChartDescription{
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .shopifyChartViewport{
+    height: 210px;
+  }
+
+  .shopifyTable thead th,
+  .shopifyTable tbody td{
+    padding: 14px 12px;
+  }
+}

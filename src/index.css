@@ -1,0 +1,50 @@
+/* RESET LIMPO */
+* { box-sizing: border-box; }
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+html{
+  color-scheme: light;
+}
+
+body{
+  margin: 0;
+  display: block; /* importante: NÃO flex */
+  background: #f5f5f5;
+  color: #0a0d10;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+
+.clientSwitcher {
+  position: fixed;
+  z-index: 1000;
+  top: 14px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 79, 110, .16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 8px 28px rgba(21, 39, 49, .12);
+  backdrop-filter: blur(12px);
+}
+.clientSwitcherLabel { font-size: 11px; font-weight: 700; color: #5b6770; text-transform: uppercase; }
+.clientSwitcher select { min-width: 130px; border: 0; background: transparent; color: #004f6e; font-weight: 800; outline: none; }
+.clientSwitcherLock { font-size: 11px; color: #54806a; }
+@media (max-width: 760px) {
+  .clientSwitcher { top: auto; right: 12px; bottom: 12px; left: 12px; justify-content: center; }
+  .clientSwitcherLock { display: none; }
+}

@@ -1,0 +1,874 @@
+/* src/styles/dashboard.css */
+
+.cardMetricHighlight{
+  border-color: rgba(123,45,59,.32) !important;
+  box-shadow: 0 20px 42px rgba(91,31,42,.13), 0 10px 24px rgba(48,31,33,.06) !important;
+}
+
+.dashHeader{
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 18px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: none;
+  min-width: 0;
+}
+
+.dashHeaderSummary{
+  flex: 1 1 440px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+
+.dashHeaderBrand{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashHeaderClientLabel,
+.dashHeaderPeriodLabel,
+.dashHeaderConnectionLabel{
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(10,13,16,.55);
+}
+
+.dashHeaderStatusRow{
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
+}
+
+.dashHeaderStatusChip{
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(91,31,42,.12);
+  background: rgba(255,255,255,.7);
+  color: rgba(29,27,26,.66);
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.dashHeaderStatusChip.isConnected{
+  border-color: rgba(91,31,42,.18);
+  background: rgba(91,31,42,.1);
+  color: #5b1f2a;
+}
+
+.dashHeaderStatusChip.isRefreshing{
+  border-color: rgba(139,58,74,.22);
+  background: rgba(139,58,74,.1);
+  color: #6e2230;
+}
+
+.dashHeaderConnectionSelect{
+  width: 100%;
+  min-width: 0;
+}
+
+.dashHeaderMenu{
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dashHeaderFilters{
+  flex: 0 1 180px;
+  min-width: 160px;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr);
+  gap: 10px;
+}
+
+.dashHeaderField{
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dashHeader .select{
+  border-color: rgba(91,31,42,.14);
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 8px 18px rgba(48,31,33,.06);
+}
+
+.dashHeader .btn{
+  min-width: 112px;
+  min-height: 38px;
+}
+
+.dashHeaderActions{
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btnLogout{
+  background: linear-gradient(135deg, #1d1b1a, #312325);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.14);
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  cursor: pointer;
+  transition: transform .15s ease, opacity .15s ease, box-shadow .15s ease;
+  box-shadow: 0 12px 28px rgba(38,27,27,.16);
+}
+
+.btnLogout:hover{
+  transform: translateY(-1px);
+  opacity: .94;
+}
+
+.btnLogout:active{
+  transform: translateY(0px);
+  opacity: .9;
+}
+
+.cardsGrid .card{
+  overflow: hidden;
+}
+
+.cardHead{
+  flex-wrap: wrap;
+}
+
+.cardHead > div:first-child{
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.cardHead .pillGrowth{
+  flex: 0 0 auto;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+.metricHeaderActions{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.metricGranularityToggle{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.metricGranularityBtn{
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.metricGranularityBtn.isActive{
+  background: rgba(91,31,42,.1);
+  border-color: rgba(91,31,42,.24);
+  color: #5b1f2a;
+}
+
+.dashboardSectionMeta{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboardTimestamp{
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(10,13,16,.56);
+}
+
+.organicSourceHeader{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.organicWaitingState{
+  border: 1px solid rgba(91,31,42,.13);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(91,31,42,.08), rgba(255,255,255,.84));
+  color: rgba(10,13,16,.68);
+  padding: 12px 14px;
+  line-height: 1.45;
+}
+
+.organicMetricGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.organicMetricCard{
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(91,31,42,.11);
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(251,248,244,.92));
+  box-shadow: 0 14px 32px rgba(48,31,33,.06);
+  align-content: space-between;
+  min-height: 112px;
+}
+
+.organicMetricCard span{
+  color: rgba(10,13,16,.56);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.organicMetricCard strong{
+  color: #5b1f2a;
+  font-size: clamp(1.1rem, 1.5vw, 1.52rem);
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.organicMediaShelfIntro{
+  display: grid;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.organicMediaShelf{
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.organicMediaCard{
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  border: 1px solid rgba(91,31,42,.12);
+  border-radius: 20px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 18px 38px rgba(48,31,33,.09);
+}
+
+.organicMediaPreview{
+  aspect-ratio: 4 / 5;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(91,31,42,.1), rgba(221,210,195,.28));
+}
+
+.organicMediaPreview .mediaThumb{
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.organicMediaCardBody{
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+
+.organicMediaCardHead,
+.organicMediaStats{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.organicMediaCardHead{
+  justify-content: space-between;
+  color: rgba(10,13,16,.52);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.organicMediaCaption{
+  color: rgba(10,13,16,.78);
+  line-height: 1.4;
+  min-height: 2.8em;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.organicMediaStats span{
+  display: grid;
+  gap: 2px;
+  flex: 1 1 64px;
+  color: rgba(10,13,16,.52);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.organicMediaStats strong{
+  color: #5b1f2a;
+  font-size: 15px;
+}
+
+.organicMediaLink{
+  width: fit-content;
+  color: #5b1f2a;
+  font-weight: 900;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(91,31,42,.25);
+}
+
+.fbitsSalesPanel{
+  display: grid;
+  gap: 14px;
+  overflow: hidden;
+  border-color: rgba(91,31,42,.13);
+  background:
+    radial-gradient(620px 220px at 0% 0%, rgba(123,45,59,.12), transparent 70%),
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(251,248,244,.94));
+}
+
+.fbitsSalesPanel.is-compact{
+  gap: 12px;
+}
+
+.fbitsSalesPanel.is-compact .sectionHeader .p{
+  max-width: 560px;
+}
+
+.fbitsSalesPanel.is-compact .fbitsSalesGrid{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fbitsSalesLoading{
+  min-height: 76px;
+  display: grid;
+  align-items: center;
+  border-radius: 14px;
+  border: 1px dashed rgba(91,31,42,.18);
+  padding: 14px;
+  color: rgba(10,13,16,.62);
+}
+
+.fbitsSalesGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fbitsSalesCard{
+  min-width: 0;
+  min-height: 128px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(91,31,42,.1);
+  padding: 14px;
+  background: rgba(255,255,255,.92);
+}
+
+.fbitsSalesCard.isPrimary{
+  border-color: rgba(91,31,42,.24);
+  background: linear-gradient(145deg, rgba(91,31,42,.12), rgba(255,255,255,.96));
+}
+
+.fbitsSalesCard span{
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(10,13,16,.58);
+}
+
+.fbitsSalesCard strong{
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #5b1f2a;
+  font-size: 1.48rem;
+  line-height: 1.06;
+}
+
+.fbitsSalesCard small{
+  color: rgba(10,13,16,.56);
+  line-height: 1.4;
+}
+
+.fbitsZeroState{
+  border: 1px solid rgba(91,31,42,.16);
+  border-radius: 14px;
+  background: rgba(251,248,244,.86);
+  padding: 12px 14px;
+  color: rgba(26,23,24,.68);
+  line-height: 1.5;
+}
+
+.fbitsDetailHint,
+.fbitsDetailEmpty{
+  border: 1px solid rgba(91,31,42,.12);
+  border-radius: 14px;
+  background: rgba(255,255,255,.72);
+  padding: 12px 14px;
+  color: rgba(10,13,16,.62);
+  line-height: 1.45;
+}
+
+.fbitsDetailGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fbitsDetailCard{
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(91,31,42,.11);
+  border-radius: 18px;
+  background: rgba(255,255,255,.9);
+  box-shadow: 0 14px 30px rgba(48,31,33,.06);
+}
+
+.fbitsDetailHead{
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.fbitsTableWrap{
+  min-width: 0;
+  max-height: 360px;
+  overflow-x: auto;
+}
+
+.fbitsTable{
+  min-width: 520px;
+}
+
+.fbitsTable td{
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.fbitsFilters,
+.paidFilters{
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 12px;
+}
+
+.fbitsFilters label,
+.paidFilters label{
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fbitsFilters span,
+.paidFilters span{
+  color: rgba(10,13,16,.56);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.fbitsItemsWrap{
+  border-top: 1px solid rgba(91,31,42,.1);
+  padding-top: 10px;
+}
+
+.fbitsProductCell{
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fbitsProductCell img,
+.fbitsProductCell span{
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: rgba(91,31,42,.08);
+  border: 1px solid rgba(91,31,42,.12);
+}
+
+.paidFilters{
+  margin: 14px 0;
+}
+
+@media (max-width: 1280px){
+  .fbitsSalesGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .fbitsDetailGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px){
+  .organicMetricGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fbitsSalesGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fbitsSalesPanel.is-compact .fbitsSalesGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fbitsDetailGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px){
+  .organicMetricGrid{
+    grid-template-columns: 1fr;
+  }
+  .organicMetricCard{
+    min-height: 0;
+  }
+  .fbitsSalesGrid{
+    grid-template-columns: 1fr;
+  }
+  .fbitsSalesPanel.is-compact .fbitsSalesGrid{
+    grid-template-columns: 1fr;
+  }
+  .fbitsSalesCard{
+    min-height: 0;
+  }
+  .fbitsFilters,
+  .paidFilters{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1080px){
+  .dashHeader{
+    width: 100%;
+    gap: 10px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashHeaderSummary{
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+    flex-wrap: wrap;
+  }
+  .dashHeaderConnectionSelect{
+    min-width: 0;
+    width: 100%;
+  }
+  .dashHeaderStatusRow{
+    justify-content: flex-start;
+  }
+  .dashHeaderMenu{
+    width: 100%;
+    flex-basis: auto;
+    align-items: stretch;
+  }
+  .dashHeaderFilters{
+    flex: 1 1 100%;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dashHeaderActions{
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+  .dashHeader .btn,
+  .dashHeader .btnGhost,
+  .dashHeader .btnLogout{
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+  .dashHeaderPeriod{
+    width: 100%;
+  }
+  .metricHeaderActions{
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .dashboardSectionMeta{
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px){
+  .dashHeader{
+    padding: 10px 12px;
+  }
+  .dashHeaderSummary{
+    display: flex;
+    gap: 8px;
+    align-items: start;
+  }
+  .dashHeaderBrand,
+  .dashHeaderStatusRow{
+    grid-column: 1;
+  }
+  .dashHeaderMenu{
+    display: grid;
+    padding-top: 2px;
+    grid-template-columns: 1fr;
+  }
+  .dashHeaderFilters,
+  .dashHeaderActions{
+    grid-template-columns: 1fr;
+  }
+  .dashHeaderFilters{
+    min-width: 0;
+  }
+  .dashHeader .btn,
+  .dashHeader .btnGhost,
+  .dashHeader .btnLogout,
+  .dashHeader .select{
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .dashHeaderClientLabel,
+  .dashHeaderPeriodLabel,
+  .dashHeaderConnectionLabel{
+    font-size: 10px;
+  }
+}
+
+.ga4SectionCard{
+  display: grid;
+  gap: 18px;
+}
+
+.ga4SectionBody{
+  display: grid;
+  gap: 18px;
+}
+
+.ga4SummaryGrid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ga4SummaryCard{
+  min-height: 108px;
+  border: 1px solid rgba(91,31,42,.11);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(251,248,244,.92));
+  padding: 14px 16px;
+  display: grid;
+  align-content: space-between;
+  gap: 10px;
+  box-shadow: 0 14px 30px rgba(48,31,33,.06);
+}
+
+.ga4SummaryCard strong{
+  font-size: 1.42rem;
+  line-height: 1.05;
+  color: #5b1f2a;
+}
+
+.ga4SummaryHint{
+  font-size: 12px;
+  color: rgba(10,13,16,.58);
+}
+
+.ga4JourneyCard{
+  border: 1px solid rgba(91,31,42,.11);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(251,248,244,.94));
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.ga4JourneyHead{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ga4JourneyGrid{
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ga4JourneyStep{
+  min-height: 118px;
+  border-radius: 16px;
+  border: 1px solid rgba(91,31,42,.1);
+  background: rgba(255,255,255,.88);
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.ga4JourneyStep strong{
+  font-size: 1.32rem;
+  line-height: 1.05;
+}
+
+.ga4JourneyHint{
+  font-size: 12px;
+  color: rgba(10,13,16,.56);
+}
+
+.ga4JourneyRate{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(91,31,42,.1);
+  color: #5b1f2a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ga4GroupsGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ga4GroupCard{
+  border: 1px solid rgba(91,31,42,.11);
+  border-radius: 18px;
+  background: rgba(255,255,255,.94);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ga4GroupHead{
+  display: grid;
+  gap: 10px;
+}
+
+.ga4GroupSummary{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ga4GroupSummary span{
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(91,31,42,.12);
+  background: rgba(91,31,42,.06);
+  color: rgba(10,13,16,.68);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ga4TableWrap{
+  max-height: 280px;
+}
+
+.ga4GroupTable tbody tr:hover{
+  background: rgba(91,31,42,.05);
+}
+
+.ga4InlineNotice{
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(91,31,42,.16);
+  background: rgba(91,31,42,.07);
+}
+
+.skeletonTall{
+  min-height: 260px;
+  border-radius: 16px;
+}
+
+@media (max-width: 1200px){
+  .ga4SummaryGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ga4JourneyGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ga4GroupsGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px){
+  .ga4SummaryGrid,
+  .ga4JourneyGrid{
+    grid-template-columns: 1fr;
+  }
+
+  .ga4SummaryCard,
+  .ga4JourneyStep{
+    min-height: 0;
+  }
+}

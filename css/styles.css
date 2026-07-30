@@ -1,0 +1,97 @@
+/* 1) Reset de altura para centrar no flex */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* 2) Fonte e background geral */
+body {
+  font-family: 'Roboto Mono', monospace;
+  background-color: #f8f9fa;
+}
+
+/* 3) Card com cantos arredondados */
+.card {
+  border: none;
+  border-radius: 1rem;
+}
+
+/* 4) Logo principal maior no topo */
+.logo-top {
+  display: flex;
+  justify-content: center;
+}
+.logo-principal {
+  max-height: 120px;  /* ajuste para ficar mais visível */
+  width: auto;
+}
+
+/* 5) Inputs estilo */
+.custom-input {
+  background-color: #eef2f5;
+  border: none;
+}
+
+/* 6) Botão Entrar no verde da marca */
+.btn-entrar {
+  background-color: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+}
+.btn-entrar:hover {
+  background-color: #27642a;
+}
+
+/* 7) Botão social apenas PNG */
+.btn-social {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.btn-social img {
+  height: 48px;
+  width: auto;
+  display: block;
+}
+
+
+/* === Tela 2 === */
+/* === Tela 2: fundo verde === */
+.screen2 {
+  background-color: #2e7d32;  /* mesmo verde da marca */
+  border-radius: 1rem;
+  max-width: 380px;
+  width: 100%;
+}
+
+/* Foto circular */
+.user-photo {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 3px solid #fff;
+}
+
+/* Texto */
+.welcome-text {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 1.25rem;
+  color: #ffffff;
+}
+
+/* Botões de menu verdes */
+.btn-menu {
+  background-color: #2e7d32;   /* verde da marca */
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.btn-menu:hover {
+  background-color: #27642a;   /* hover um pouco mais escuro */
+}

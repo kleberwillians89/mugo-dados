@@ -1,0 +1,57 @@
+/* src/styles/mugo.tokens.css */
+
+/* ============================================================
+   TOKENS MUGÔ (base do visual premium)
+   - Centraliza cores, sombras, radius e tipografia
+   - Evita "quebrar" a UI quando muda um componente
+   ============================================================ */
+
+   :root{
+    /* Paleta base */
+    --bg: #cbbba0;                 /* bege */
+    --mugo-blue: #0c4160;          /* petróleo */
+    --gold: #c69a2c;               /* dourado */
+    --red: #b2222f;                /* vermelho */
+    --gray: #5f6b73;               /* cinza */
+    --white: #ffffff;
+  
+    /* Texto */
+    --ink: #0a0d10;
+    --text: rgba(10,13,16,.90);
+    --muted: rgba(10,13,16,.62);
+  
+    /* Superfícies */
+    --cardA: rgba(255,255,255,.58);
+    --cardB: rgba(255,255,255,.42);
+    --stroke: rgba(12,65,96,.18);
+  
+    /* Radius */
+    --radius: 18px;
+    --radius-lg: 18px;
+    --radius-xl: 22px;
+  
+    /* Shadows */
+    --shadow-sm: 0 10px 30px rgba(10,13,16,.10);
+    --shadow: 0 18px 60px rgba(10,13,16,.14);
+  
+    /* Gradients (opcional pro futuro) */
+    --grad-hero:
+      radial-gradient(1200px 700px at 15% 10%, rgba(12,65,96,.06), transparent 60%),
+      radial-gradient(1100px 700px at 80% 30%, rgba(199,152,48,.08), transparent 60%),
+      var(--bg);
+  }
+  
+  /* Acessibilidade básica: foco visível sem destruir estética */
+  :root :focus-visible{
+    outline: 2px solid rgba(199,152,48,.60);
+    outline-offset: 2px;
+    border-radius: 10px;
+  }
+  
+  /* Scrollbar discreta (opcional) */
+  *::-webkit-scrollbar{ height: 10px; width: 10px; }
+  *::-webkit-scrollbar-thumb{
+    background: rgba(12,65,96,.20);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track{ background: rgba(255,255,255,.30); }

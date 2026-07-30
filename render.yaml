@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: mugo-dados-api
+    env: python
+    plan: starter
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_api.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-meta-token-refresh
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "15 */6 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py token-refresh
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-instagram-organic-sync
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "10 6,12,18,23 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py organic-sync --limit 60
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-meta-ads-sync-hourly
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "5 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py ads-sync-hourly --days 3
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-ga4-sync
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "20 */3 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py ga4-sync --days 3
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2

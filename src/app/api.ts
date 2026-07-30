@@ -1,0 +1,1317 @@
+import type {
+  RefreshAllResponse,
+  DashboardResponse,
+  DashboardDailyRow,
+  DashboardPeriodTotals,
+  DashboardTotals,
+  ClientConnectionsResponse,
+  MetaDiscoverAssetsResponse,
+  MetaOauthStartResponse,
+  CommentsResponse,
+  NotesResponse,
+  NoteItem,
+  Ga4CampaignRow,
+  Ga4ChannelRow,
+  Ga4CommerceJourney,
+  Ga4CollectionResponse,
+  Ga4EventGroup,
+  Ga4EventGroupItem,
+  Ga4EventRow,
+  Ga4ReportResponse,
+  FbitsOrdersResponse,
+  FbitsOrdersSummaryResponse,
+  ShopifyCustomersResponse,
+  ShopifyReportResponse,
+  StoriesResponse,
+  MediaResponse,
+  MediaMonthlyResponse,
+  MonthsResponse,
+  PaidDashboardResponse,
+} from "./types";
+import type { Period } from "./PeriodContext";
+import { getSupabaseBootstrapError, isLocalAuthEnabled, supabase } from "./supabase";
+import {
+  getActiveClientConfigurationWarning,
+  getActiveClientId,
+} from "./activeClient";
+import { getSelectedPeriodRange } from "./periodRange";
+
+const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
+
+function resolveApiBase(): string {
+  if (!rawApiBase) {
+    // Em dev, usa proxy do Vite para evitar CORS.
+    return import.meta.env.DEV ? "" : "http://localhost:8000";
+  }
+
+  if (import.meta.env.DEV) {
+    try {
+      const parsed = new URL(rawApiBase);
+      const isLocalApi =
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
+        (parsed.port === "8000" || parsed.port === "");
+      if (isLocalApi) return "";
+    } catch {
+      // fallback para valor explícito
+    }
+  }
+
+  return rawApiBase;
+}
+
+const API_BASE = resolveApiBase();
+
+type JsonRecord = Record<string, unknown>;
+type PeriodQueryInput = Partial<Period> & { days?: number; month?: string };
+type RequestSignalOptions = {
+  signal?: AbortSignal;
+};
+type ClientRequestOptions = RequestSignalOptions & {
+  clientId?: string | null;
+};
+
+export type ClientMembership = {
+  client_id: string;
+  name: string;
+  role?: string | null;
+  created_at?: string | null;
+};
+
+export type ClientsResponse = {
+  ok: boolean;
+  clients: ClientMembership[];
+};
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" ? (value as JsonRecord) : {};
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function asString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return String(value);
+}
+
+function parseDateInput(value: string): Date | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const parsed = new Date(`${text}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function periodDaysFromRange(start: string, end: string, fallback: number): number {
+  const startDate = parseDateInput(start);
+  const endDate = parseDateInput(end);
+  if (!startDate || !endDate) return fallback;
+  const diff = endDate.getTime() - startDate.getTime();
+  if (!Number.isFinite(diff) || diff < 0) return fallback;
+  return Math.max(1, Math.floor(diff / 86_400_000) + 1);
+}
+
+function positiveInt(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.floor(n));
+}
+
+function buildPeriodParams(input: number | PeriodQueryInput | undefined, defaultDays: number): string {
+  const params = new URLSearchParams();
+
+  if (typeof input === "number") {
+    params.set("days", String(positiveInt(input, defaultDays)));
+    return params.toString();
+  }
+
+  const period = input || {};
+  const selectedRange =
+    period.start && period.end ? getSelectedPeriodRange(period) : null;
+  const start = asString(selectedRange?.start || period.start).trim();
+  const end = asString(selectedRange?.end || period.end).trim();
+  const month = asString(period.month).trim();
+  const days = positiveInt(period.days, defaultDays);
+
+  const hasRange = Boolean(start && end);
+
+  if (hasRange) {
+    params.set("start", start);
+    params.set("end", end);
+    params.set("days", String(days));
+    return params.toString();
+  }
+
+  if (month) {
+    params.set("month", month);
+    params.set("days", String(days));
+    return params.toString();
+  }
+
+  params.set("days", String(days));
+  return params.toString();
+}
+
+function pathWithPeriod(path: string, input: number | PeriodQueryInput | undefined, defaultDays: number): string {
+  return pathWithClientId(`${path}?${buildPeriodParams(input, defaultDays)}`, getActiveClientId());
+}
+
+function pathWithPeriodAndExtras(
+  path: string,
+  input: number | PeriodQueryInput | undefined,
+  defaultDays: number,
+  extras?: Record<string, string | number | boolean | null | undefined>
+): string {
+  const params = new URLSearchParams(buildPeriodParams(input, defaultDays));
+  for (const [key, value] of Object.entries(extras || {})) {
+    if (value === null || typeof value === "undefined") continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    params.set(key, String(value));
+  }
+  if (!params.has("client_id")) params.set("client_id", getActiveClientId());
+  return `${path}?${params.toString()}`;
+}
+
+function pathWithClientId(path: string, clientId?: string | null): string {
+  const cid = asString(clientId).trim();
+  if (!cid) return path;
+
+  const [base, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("client_id", cid);
+  return `${base}?${params.toString()}`;
+}
+
+async function getAccessToken(): Promise<string | null> {
+  if (isLocalAuthEnabled()) return null;
+  if (!supabase) {
+    throw new Error(
+      getSupabaseBootstrapError() ||
+        "Supabase Auth nao esta configurado no frontend."
+    );
+  }
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
+function toHeaders(init?: HeadersInit): Headers {
+  const h = new Headers();
+
+  if (!init) return h;
+
+  if (init instanceof Headers) {
+    init.forEach((v, k) => h.set(k, v));
+    return h;
+  }
+
+  if (Array.isArray(init)) {
+    for (const [k, v] of init) h.set(k, v);
+    return h;
+  }
+
+  for (const [k, v] of Object.entries(init)) {
+    if (typeof v !== "undefined") h.set(k, String(v));
+  }
+  return h;
+}
+
+async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = await getAccessToken();
+  if (!token && !isLocalAuthEnabled()) {
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
+
+  const headers = toHeaders(init.headers);
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const activeClientId = getActiveClientId();
+  if (activeClientId) headers.set("X-Client-Id", activeClientId);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    const warning = getActiveClientConfigurationWarning();
+    throw new Error(
+      [warning, "API indisponível no momento. Verifique se o backend está rodando."]
+        .filter(Boolean)
+        .join(" ")
+    );
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    try {
+      const j = txt ? (JSON.parse(txt) as JsonRecord) : null;
+      const errObj = asRecord(j?.error);
+      const detail =
+        asString(j?.detail) ||
+        asString(j?.message) ||
+        asString(errObj?.message);
+      console.warn("[api]", {
+        path,
+        status: res.status,
+        detail: detail || txt || null,
+      });
+    } catch {
+      console.warn("[api]", {
+        path,
+        status: res.status,
+        detail: txt || null,
+      });
+    }
+    throw new Error(
+      res.status === 401
+        ? "Sua sessão precisa ser renovada."
+        : "Não foi possível carregar os dados agora."
+    );
+  }
+
+  if (res.status === 204) return {} as T;
+  return (await res.json()) as T;
+}
+
+export async function listClients(): Promise<ClientsResponse> {
+  return http<ClientsResponse>("/api/clients");
+}
+
+function mapTotals(raw: unknown): DashboardTotals {
+  const r = asRecord(raw);
+  return {
+    impressions: asNumber(r.impressions),
+    reach: asNumber(r.reach),
+    total_interactions: asNumber(r.total_interactions ?? r.interactions),
+    website_clicks: asNumber(r.website_clicks ?? r.website_clicks_day),
+    profile_views: asNumber(r.profile_views),
+    accounts_engaged: asNumber(r.accounts_engaged),
+  };
+}
+
+function mapPeriodTotals(raw: unknown): DashboardPeriodTotals {
+  const r = asRecord(raw);
+  return {
+    impressions: asNumber(r.impressions),
+    reach: asNumber(r.reach),
+    total_interactions: asNumber(r.total_interactions ?? r.interactions),
+    website_clicks: asNumber(r.website_clicks ?? r.website_clicks_day),
+    profile_views: asNumber(r.profile_views),
+    accounts_engaged: asNumber(r.accounts_engaged),
+    followers_growth: asNumber(r.followers_growth),
+    followers_current: asNumber(r.followers_current ?? r.followers_count),
+  };
+}
+
+function mapDailyRows(rawRows: unknown[]): DashboardDailyRow[] {
+  return rawRows.map((row) => {
+    const r = asRecord(row);
+    return {
+      date: asString(r.date),
+      start: asString(r.start),
+      end: asString(r.end),
+      impressions: asNumber(r.impressions),
+      reach: asNumber(r.reach),
+      total_interactions: asNumber(r.total_interactions ?? r.interactions),
+      website_clicks: asNumber(r.website_clicks ?? r.website_clicks_day),
+      profile_views: asNumber(r.profile_views),
+      accounts_engaged: asNumber(r.accounts_engaged),
+      followers: asNumber(r.followers ?? r.followers_count),
+    };
+  });
+}
+
+function normalizeDashboard(raw: unknown, days: number): DashboardResponse {
+  const d = asRecord(raw);
+  const dailyRaw = Array.isArray(d.daily) ? d.daily : [];
+  const daily = mapDailyRows(dailyRaw);
+  const seriesRaw = asRecord(d.series);
+  const series = {
+    daily: mapDailyRows(
+      Array.isArray(seriesRaw.daily) ? (seriesRaw.daily as unknown[]) : dailyRaw
+    ),
+    weekly: mapDailyRows(
+      Array.isArray(seriesRaw.weekly) ? (seriesRaw.weekly as unknown[]) : []
+    ),
+    monthly: mapDailyRows(
+      Array.isArray(seriesRaw.monthly) ? (seriesRaw.monthly as unknown[]) : []
+    ),
+  };
+  const resolvedDaily = daily.length ? daily : series.daily;
+
+  const growthRaw = asRecord(d.monthly_growth_percent);
+  const periodGrowthRaw = asRecord(d.period_growth_percent);
+  const periodTotalsRaw = asRecord(d.period_totals);
+  const periodPreviousTotalsRaw = asRecord(d.period_previous_totals);
+  const coverageRaw = asRecord(d.coverage);
+  const start = asString(d.start);
+  const end = asString(d.end);
+  const resolvedDays = asNumber(d.days, periodDaysFromRange(start, end, days));
+  const hasPeriodTotals = Object.keys(periodTotalsRaw).length > 0;
+  const hasPreviousPeriodTotals = Object.keys(periodPreviousTotalsRaw).length > 0;
+  const periodTotals = hasPeriodTotals
+    ? mapPeriodTotals(periodTotalsRaw)
+    : {
+        ...mapTotals(d.totals_last_days),
+        followers_growth: asNumber(d.followers_growth_last_days),
+      };
+  const periodPreviousTotals = hasPreviousPeriodTotals
+    ? mapPeriodTotals(periodPreviousTotalsRaw)
+    : {
+        ...mapTotals(d.totals_previous_period),
+        followers_growth: asNumber(d.followers_growth_previous_period),
+      };
+
+  return {
+    ok: !!d.ok,
+    client_id: asString(d.client_id),
+    days: resolvedDays,
+    start,
+    end,
+    daily: resolvedDaily,
+    series,
+    period_totals: periodTotals,
+    period_previous_totals: periodPreviousTotals,
+    totals_last_days: mapTotals(periodTotals),
+    followers_growth_last_days: asNumber(periodTotals.followers_growth),
+    totals_previous_period: mapTotals(periodPreviousTotals),
+    followers_growth_previous_period: asNumber(periodPreviousTotals.followers_growth),
+    period_growth_percent: {
+      impressions: asNumber(periodGrowthRaw.impressions),
+      reach: asNumber(periodGrowthRaw.reach),
+      total_interactions: asNumber(periodGrowthRaw.total_interactions ?? periodGrowthRaw.interactions),
+      website_clicks: asNumber(periodGrowthRaw.website_clicks),
+      profile_views: asNumber(periodGrowthRaw.profile_views),
+      accounts_engaged: asNumber(periodGrowthRaw.accounts_engaged),
+      followers: asNumber(periodGrowthRaw.followers),
+    },
+    monthly_totals: mapTotals(d.monthly_totals),
+    last_month_totals: mapTotals(d.last_month_totals),
+    monthly_followers_growth: asNumber(d.monthly_followers_growth),
+    last_month_followers_growth: asNumber(d.last_month_followers_growth),
+    monthly_growth_percent: {
+      impressions: asNumber(growthRaw.impressions),
+      reach: asNumber(growthRaw.reach),
+      total_interactions: asNumber(growthRaw.total_interactions ?? growthRaw.interactions),
+      website_clicks: asNumber(growthRaw.website_clicks),
+      profile_views: asNumber(growthRaw.profile_views),
+      accounts_engaged: asNumber(growthRaw.accounts_engaged),
+      followers: asNumber(growthRaw.followers),
+    },
+    coverage:
+      Object.keys(coverageRaw).length > 0
+        ? {
+            covered_days: asNumber(coverageRaw.covered_days),
+            expected_days: asNumber(coverageRaw.expected_days),
+            is_partial: Boolean(coverageRaw.is_partial),
+            missing_days: asNumber(coverageRaw.missing_days),
+          }
+        : undefined,
+  };
+}
+
+function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
+  const report = asRecord(raw);
+  const period = asRecord(report.period);
+  const summary = asRecord(report.summary);
+  const trends = asRecord(report.trends);
+  const technical = asRecord(report.technical);
+
+  const daily = Array.isArray(trends.daily) ? trends.daily : [];
+  const recentOrders = Array.isArray(report.recent_orders) ? report.recent_orders : [];
+  const topProducts = Array.isArray(report.top_products) ? report.top_products : [];
+  const recentErrors = Array.isArray(technical.recent_errors) ? technical.recent_errors : [];
+  const recentWebhooks = Array.isArray(technical.recent_webhooks) ? technical.recent_webhooks : [];
+
+  return {
+    ok: Boolean(report.ok),
+    client_id: asString(report.client_id),
+    shop_domain: asString(report.shop_domain) || null,
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    summary: {
+      revenue_total: asNumber(summary.revenue_total),
+      orders: asNumber(summary.orders),
+      average_ticket: asNumber(summary.average_ticket),
+      customers: asNumber(summary.customers),
+      paid_orders: asNumber(summary.paid_orders),
+      cancelled_orders: asNumber(summary.cancelled_orders),
+      refunds_count: asNumber(summary.refunds_count),
+      refunded_amount: asNumber(summary.refunded_amount),
+    },
+    trends: {
+      daily: daily.map((row) => {
+        const item = asRecord(row);
+        return {
+          date: asString(item.date),
+          revenue: asNumber(item.revenue),
+          orders: asNumber(item.orders),
+          customers: asNumber(item.customers),
+          average_ticket: asNumber(item.average_ticket),
+        };
+      }),
+    },
+    recent_orders: recentOrders.map((row) => {
+      const item = asRecord(row);
+      return {
+        id: asString(item.id) || null,
+        shopify_order_id: asString(item.shopify_order_id),
+        order_number: asString(item.order_number) || null,
+        name: asString(item.name) || null,
+        customer_name: asString(item.customer_name, "Cliente não identificado"),
+        customer_email: asString(item.customer_email) || null,
+        financial_status: asString(item.financial_status) || null,
+        fulfillment_status: asString(item.fulfillment_status) || null,
+        total_price: asNumber(item.total_price),
+        currency: asString(item.currency, "BRL"),
+        created_at_shopify: asString(item.created_at_shopify) || null,
+        updated_at_shopify: asString(item.updated_at_shopify) || null,
+        items_count: asNumber(item.items_count),
+        shop_domain: asString(item.shop_domain) || null,
+      };
+    }),
+    top_products: topProducts.map((row) => {
+      const item = asRecord(row);
+      return {
+        product_id: asString(item.product_id) || null,
+        variant_id: asString(item.variant_id) || null,
+        title: asString(item.title, "Produto sem título"),
+        variant_title: asString(item.variant_title) || null,
+        vendor: asString(item.vendor) || null,
+        quantity_sold: asNumber(item.quantity_sold),
+        revenue: asNumber(item.revenue),
+      };
+    }),
+    technical: {
+      last_success_at: asString(technical.last_success_at) || null,
+      last_received_at: asString(technical.last_received_at) || null,
+      processed_count: asNumber(technical.processed_count),
+      error_count: asNumber(technical.error_count),
+      recent_errors: recentErrors.map((row) => {
+        const item = asRecord(row);
+        return {
+          id: asString(item.id) || null,
+          webhook_id: asString(item.webhook_id) || null,
+          topic: asString(item.topic) || null,
+          shop_domain: asString(item.shop_domain) || null,
+          received_at: asString(item.received_at) || null,
+          processed_at: asString(item.processed_at) || null,
+          status: asString(item.status) || null,
+          error_message: asString(item.error_message) || null,
+        };
+      }),
+      recent_webhooks: recentWebhooks.map((row) => {
+        const item = asRecord(row);
+        return {
+          id: asString(item.id) || null,
+          webhook_id: asString(item.webhook_id) || null,
+          topic: asString(item.topic) || null,
+          shop_domain: asString(item.shop_domain) || null,
+          received_at: asString(item.received_at) || null,
+          processed_at: asString(item.processed_at) || null,
+          status: asString(item.status) || null,
+          error_message: asString(item.error_message) || null,
+        };
+      }),
+    },
+  };
+}
+
+function normalizeShopifyCustomers(raw: unknown): ShopifyCustomersResponse {
+  const payload = asRecord(raw);
+  const period = asRecord(payload.period);
+  const summary = asRecord(payload.summary);
+  const topCustomer = asRecord(summary.top_customer);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    count: asNumber(payload.count),
+    summary: {
+      total_customers: asNumber(summary.total_customers),
+      recurring_customers: asNumber(summary.recurring_customers),
+      multi_order_customers: asNumber(summary.multi_order_customers),
+      top_customer: Object.keys(topCustomer).length
+        ? {
+            name: asString(topCustomer.name) || null,
+            email: asString(topCustomer.email) || null,
+            total_spent: asNumber(topCustomer.total_spent),
+            total_orders: asNumber(topCustomer.total_orders),
+            status: asString(topCustomer.status) || null,
+          }
+        : null,
+    },
+    items: items.map((row) => {
+      const item = asRecord(row);
+      return {
+        customer_key: asString(item.customer_key),
+        shopify_customer_id: asString(item.shopify_customer_id) || null,
+        name: asString(item.name, "Cliente não identificado"),
+        email: asString(item.email) || null,
+        total_orders: asNumber(item.total_orders),
+        total_spent: asNumber(item.total_spent),
+        average_ticket: asNumber(item.average_ticket),
+        last_purchase_at: asString(item.last_purchase_at) || null,
+        first_purchase_at: asString(item.first_purchase_at) || null,
+        status: asString(item.status, "new"),
+        all_time_orders: asNumber(item.all_time_orders),
+        shop_domain: asString(item.shop_domain) || null,
+      };
+    }),
+  };
+}
+
+function normalizeComments(raw: unknown): CommentsResponse {
+  const payload = asRecord(raw);
+  const comments = Array.isArray(payload.comments) ? payload.comments : [];
+  const topWords = Array.isArray(payload.top_words) ? payload.top_words : [];
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    connection_id: asString(payload.connection_id) || null,
+    days: asNumber(payload.days, 30),
+    start: asString(payload.start) || undefined,
+    end: asString(payload.end) || undefined,
+    limit: asNumber(payload.limit, 120),
+    offset: asNumber(payload.offset, 0),
+    has_more: Boolean(payload.has_more),
+    next_offset: payload.next_offset == null ? null : asNumber(payload.next_offset),
+    total: asNumber(payload.total),
+    comments: comments.map((row) => {
+      const item = asRecord(row);
+      return {
+        id: asNumber(item.id) || undefined,
+        client_id: asString(item.client_id),
+        media_id: asString(item.media_id),
+        comment_id: asString(item.comment_id),
+        text: asString(item.text) || undefined,
+        username: asString(item.username) || undefined,
+        timestamp: asString(item.timestamp) || undefined,
+      };
+    }),
+    top_words: topWords.map((row) => {
+      const item = asRecord(row);
+      return {
+        word: asString(item.word),
+        count: asNumber(item.count),
+      };
+    }),
+  };
+}
+
+function normalizeStories(raw: unknown): StoriesResponse {
+  const payload = asRecord(raw);
+  const stories = Array.isArray(payload.stories) ? payload.stories : [];
+  return {
+    ok: Boolean(payload.ok),
+    available: payload.available === false ? false : true,
+    client_id: asString(payload.client_id),
+    connection_id: asString(payload.connection_id) || null,
+    message: asString(payload.message) || undefined,
+    error: asString(payload.error) || null,
+    stories: stories.map((row) => {
+      const item = asRecord(row);
+      return {
+        id: asString(item.id),
+        media_type: asString(item.media_type) || undefined,
+        media_url: asString(item.media_url) || undefined,
+        thumbnail_url: asString(item.thumbnail_url) || undefined,
+        timestamp: asString(item.timestamp) || undefined,
+        permalink: asString(item.permalink) || undefined,
+      };
+    }),
+  };
+}
+
+function normalizeMedia(raw: unknown): MediaResponse {
+  const payload = asRecord(raw);
+  const media = Array.isArray(payload.media) ? payload.media : [];
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    connection_id: asString(payload.connection_id) || null,
+    days: asNumber(payload.days, 365),
+    start: asString(payload.start) || undefined,
+    end: asString(payload.end) || undefined,
+    limit: asNumber(payload.limit, 120),
+    offset: asNumber(payload.offset, 0),
+    has_more: Boolean(payload.has_more),
+    next_offset: payload.next_offset == null ? null : asNumber(payload.next_offset),
+    media: media.map((row) => {
+      const item = asRecord(row);
+      return {
+        id: asString(item.id),
+        media_type: asString(item.media_type),
+        media_product_type: asString(item.media_product_type),
+        caption: asString(item.caption) || null,
+        timestamp: asString(item.timestamp) || null,
+        permalink: asString(item.permalink) || null,
+        thumb_url: asString(item.thumb_url) || null,
+        thumbnail_url: asString(item.thumbnail_url) || null,
+        media_url: asString(item.media_url) || null,
+        insights: asRecord(item.insights),
+      };
+    }),
+  };
+}
+
+function normalizeMediaMonthly(raw: unknown): MediaMonthlyResponse {
+  const payload = asRecord(raw);
+  const months = Array.isArray(payload.months) ? payload.months : [];
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    connection_id: asString(payload.connection_id) || null,
+    days: asNumber(payload.days, 3650),
+    start: asString(payload.start) || undefined,
+    end: asString(payload.end) || undefined,
+    months: months.map((row) => {
+      const item = asRecord(row);
+      return {
+        month: asString(item.month),
+        posts: asNumber(item.posts),
+        reels: asNumber(item.reels),
+        reach: asNumber(item.reach),
+        views: asNumber(item.views),
+        interactions: asNumber(item.interactions),
+        profile_visits: asNumber(item.profile_visits),
+        likes: asNumber(item.likes),
+        comments: asNumber(item.comments),
+        shares: asNumber(item.shares),
+        saved: asNumber(item.saved),
+      };
+    }),
+  };
+}
+
+function normalizeNotes(raw: unknown): NotesResponse {
+  const payload = asRecord(raw);
+  const notes = Array.isArray(payload.notes) ? payload.notes : [];
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    connection_id: asString(payload.connection_id) || null,
+    limit: asNumber(payload.limit, 80),
+    available: payload.available === false ? false : true,
+    message: asString(payload.message) || undefined,
+    notes: notes.map((row) => {
+      const item = asRecord(row);
+      return {
+        id: asString(item.id),
+        client_id: asString(item.client_id),
+        title: asString(item.title),
+        body: asString(item.body),
+        created_at: asString(item.created_at),
+        updated_at: asString(item.updated_at),
+      };
+    }),
+  };
+}
+
+function normalizeGa4Channels(raw: unknown): Ga4CollectionResponse<Ga4ChannelRow> {
+  const payload = asRecord(raw);
+  const period = asRecord(payload.period);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    property_id: asString(payload.property_id),
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    count: asNumber(payload.count),
+    items: items.map((row) => {
+      const item = asRecord(row);
+      return {
+        source_medium: asString(item.source_medium),
+        source: asString(item.source) || null,
+        medium: asString(item.medium) || null,
+        sessions: asNumber(item.sessions),
+        active_users: asNumber(item.active_users),
+        total_users: asNumber(item.total_users),
+        event_count: asNumber(item.event_count),
+        ecommerce_purchases: asNumber(item.ecommerce_purchases),
+        purchase_revenue: asNumber(item.purchase_revenue),
+        total_revenue: asNumber(item.total_revenue),
+      };
+    }),
+  };
+}
+
+function normalizeGa4Campaigns(raw: unknown): Ga4CollectionResponse<Ga4CampaignRow> {
+  const payload = asRecord(raw);
+  const period = asRecord(payload.period);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    property_id: asString(payload.property_id),
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    count: asNumber(payload.count),
+    items: items.map((row) => {
+      const item = asRecord(row);
+      return {
+        campaign_name: asString(item.campaign_name, "(not set)"),
+        source_medium: asString(item.source_medium) || null,
+        source: asString(item.source) || null,
+        medium: asString(item.medium) || null,
+        sessions: asNumber(item.sessions),
+        active_users: asNumber(item.active_users),
+        total_users: asNumber(item.total_users),
+        event_count: asNumber(item.event_count),
+        ecommerce_purchases: asNumber(item.ecommerce_purchases),
+        purchase_revenue: asNumber(item.purchase_revenue),
+        total_revenue: asNumber(item.total_revenue),
+      };
+    }),
+  };
+}
+
+function normalizeGa4Events(raw: unknown): Ga4CollectionResponse<Ga4EventRow> {
+  const payload = asRecord(raw);
+  const period = asRecord(payload.period);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    property_id: asString(payload.property_id),
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    count: asNumber(payload.count),
+    items: items.map((row) => {
+      const item = asRecord(row);
+      return {
+        event_name: asString(item.event_name),
+        label: asString(item.label) || null,
+        description: asString(item.description) || null,
+        event_count: asNumber(item.event_count),
+        total_users: asNumber(item.total_users),
+        first_seen_at: asString(item.first_seen_at) || null,
+        last_seen_at: asString(item.last_seen_at) || null,
+      };
+    }),
+  };
+}
+
+function normalizeGa4EventGroupItem(raw: unknown): Ga4EventGroupItem {
+  const item = asRecord(raw);
+  return {
+    event_name: asString(item.event_name),
+    label: asString(item.label) || asString(item.event_name),
+    description: asString(item.description) || null,
+    event_count: asNumber(item.event_count),
+    total_users: asNumber(item.total_users),
+    first_seen_at: asString(item.first_seen_at) || null,
+    last_seen_at: asString(item.last_seen_at) || null,
+  };
+}
+
+function normalizeGa4EventGroup(raw: unknown): Ga4EventGroup {
+  const group = asRecord(raw);
+  const items = Array.isArray(group.items) ? group.items : [];
+  return {
+    key: asString(group.key),
+    title: asString(group.title),
+    description: asString(group.description),
+    total_events: asNumber(group.total_events),
+    total_users: asNumber(group.total_users),
+    items: items.map(normalizeGa4EventGroupItem),
+  };
+}
+
+function normalizeGa4CommerceJourney(raw: unknown): Ga4CommerceJourney {
+  const payload = asRecord(raw);
+  const summary = asRecord(payload.summary);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  return {
+    summary: {
+      view_item: asNumber(summary.view_item),
+      add_to_cart: asNumber(summary.add_to_cart),
+      begin_checkout: asNumber(summary.begin_checkout),
+      add_payment_info: asNumber(summary.add_payment_info),
+      purchase: asNumber(summary.purchase),
+      add_to_cart_rate: asNumber(summary.add_to_cart_rate),
+      checkout_rate: asNumber(summary.checkout_rate),
+      payment_info_rate: asNumber(summary.payment_info_rate),
+      purchase_rate: asNumber(summary.purchase_rate),
+      purchase_rate_from_view_item: asNumber(summary.purchase_rate_from_view_item),
+    },
+    items: items.map(normalizeGa4EventGroupItem),
+  };
+}
+
+function normalizeGa4Report(raw: unknown): Ga4ReportResponse {
+  const payload = asRecord(raw);
+  const period = asRecord(payload.period);
+  const summary = asRecord(payload.summary);
+  const funnel = asRecord(payload.funnel);
+  const trends = asRecord(payload.trends);
+  const meta = asRecord(payload.meta);
+  const dailyRows = Array.isArray(trends.daily) ? trends.daily : [];
+
+  return {
+    ok: Boolean(payload.ok),
+    client_id: asString(payload.client_id),
+    property_id: asString(payload.property_id),
+    period: {
+      start: asString(period.start),
+      end: asString(period.end),
+      days: asNumber(period.days, 30),
+    },
+    summary: {
+      sessions: asNumber(summary.sessions),
+      active_users: asNumber(summary.active_users),
+      total_users: asNumber(summary.total_users),
+      event_count: asNumber(summary.event_count),
+      purchases: asNumber(summary.purchases),
+      purchase_revenue: asNumber(summary.purchase_revenue),
+      total_revenue: asNumber(summary.total_revenue),
+      average_daily_active_users: asNumber(summary.average_daily_active_users),
+      average_daily_total_users: asNumber(summary.average_daily_total_users),
+    },
+    funnel: {
+      view_item: asNumber(funnel.view_item),
+      add_to_cart: asNumber(funnel.add_to_cart),
+      begin_checkout: asNumber(funnel.begin_checkout),
+      add_payment_info: asNumber(funnel.add_payment_info),
+      purchase: asNumber(funnel.purchase),
+    },
+    commerce_journey: normalizeGa4CommerceJourney(payload.commerce_journey),
+    behavior: normalizeGa4EventGroup(payload.behavior),
+    engagement: normalizeGa4EventGroup(payload.engagement),
+    merchandising: normalizeGa4EventGroup(payload.merchandising),
+    trends: {
+      daily: dailyRows.map((row) => {
+        const item = asRecord(row);
+        return {
+          date: asString(item.date),
+          sessions: asNumber(item.sessions),
+          active_users: asNumber(item.active_users),
+          total_users: asNumber(item.total_users),
+          event_count: asNumber(item.event_count),
+          ecommerce_purchases: asNumber(item.ecommerce_purchases),
+          purchase_revenue: asNumber(item.purchase_revenue),
+          total_revenue: asNumber(item.total_revenue),
+          view_item_count: asNumber(item.view_item_count),
+          add_to_cart_count: asNumber(item.add_to_cart_count),
+          begin_checkout_count: asNumber(item.begin_checkout_count),
+          purchase_count: asNumber(item.purchase_count),
+        };
+      }),
+    },
+    channels: normalizeGa4Channels({
+      ok: payload.ok,
+      client_id: payload.client_id,
+      property_id: payload.property_id,
+      period: payload.period,
+      count: Array.isArray(payload.channels) ? payload.channels.length : 0,
+      items: payload.channels,
+    }).items,
+    campaigns: normalizeGa4Campaigns({
+      ok: payload.ok,
+      client_id: payload.client_id,
+      property_id: payload.property_id,
+      period: payload.period,
+      count: Array.isArray(payload.campaigns) ? payload.campaigns.length : 0,
+      items: payload.campaigns,
+    }).items,
+    events: normalizeGa4Events({
+      ok: payload.ok,
+      client_id: payload.client_id,
+      property_id: payload.property_id,
+      period: payload.period,
+      count: Array.isArray(payload.events) ? payload.events.length : 0,
+      items: payload.events,
+    }).items,
+    meta: {
+      last_synced_at: asString(meta.last_synced_at) || null,
+      daily_rows: asNumber(meta.daily_rows),
+      channel_rows: asNumber(meta.channel_rows),
+      campaign_rows: asNumber(meta.campaign_rows),
+      event_rows: asNumber(meta.event_rows),
+    },
+  };
+}
+
+function clientClientPath(path: string): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `/api/clients/${encodeURIComponent(getActiveClientId())}${suffix}`;
+}
+
+export async function connectclienteMeta(
+  payload: { access_token: string; expires_at?: string | null; ig_user_id?: string | null }
+): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath("/connect_meta"), {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function startClientMetaOAuth(): Promise<MetaOauthStartResponse> {
+  return http<MetaOauthStartResponse>(
+    `/api/oauth/meta/start?client_id=${encodeURIComponent(getActiveClientId())}`
+  );
+}
+
+export async function discoverClientMetaAssets(
+  handoff: string
+): Promise<MetaDiscoverAssetsResponse> {
+  return http<MetaDiscoverAssetsResponse>(
+    `/api/oauth/meta/discover-assets?client_id=${encodeURIComponent(getActiveClientId())}&handoff=${encodeURIComponent(handoff)}`
+  );
+}
+
+export async function linkClientAssets(
+  payload: { handoff: string; instagram_ig_user_ids: string[]; ad_account_ids: string[] }
+): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath("/connections/link-assets"), {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listClientConnections(): Promise<ClientConnectionsResponse> {
+  return http<ClientConnectionsResponse>(clientClientPath("/connections"));
+}
+
+export async function disconnectClientConnection(connectionId: string): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath(`/connections/${encodeURIComponent(connectionId)}`), {
+    method: "DELETE",
+  });
+}
+
+export async function refreshAll(
+  limit = 40,
+  options?: { connectionId?: string | null; start?: string; end?: string }
+): Promise<RefreshAllResponse> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  const connectionId = String(options?.connectionId || "").trim();
+  const start = String(options?.start || "").trim();
+  const end = String(options?.end || "").trim();
+  if (connectionId) params.set("connection_id", connectionId);
+  if (start && end) {
+    params.set("start", start);
+    params.set("end", end);
+  }
+  return http<RefreshAllResponse>(`/api/ig/sync?${params.toString()}`, { method: "POST" });
+}
+
+export async function getDashboard(
+  period: number | PeriodQueryInput = 30,
+  options?: { connectionId?: string | null } & RequestSignalOptions
+): Promise<DashboardResponse> {
+  const fallbackDays = typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(
+    pathWithPeriodAndExtras("/api/dashboard", period, fallbackDays, {
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+  return normalizeDashboard(raw, fallbackDays);
+}
+
+export async function getAiSummary(period: number | PeriodQueryInput = 30): Promise<JsonRecord> {
+  return http<JsonRecord>(pathWithPeriod("/api/ai/summary", period, 30), { method: "POST" });
+}
+
+export async function getDashboardByMonth(month: string): Promise<DashboardResponse> {
+  const raw = await http<unknown>(`/api/dashboard?month=${encodeURIComponent(month)}`);
+  return normalizeDashboard(raw, 30);
+}
+
+export async function getAiSummaryByMonth(month: string): Promise<JsonRecord> {
+  return http<JsonRecord>(`/api/ai/summary?month=${encodeURIComponent(month)}`, { method: "POST" });
+}
+
+export async function getComments(
+  period: number | PeriodQueryInput = 0,
+  options?: {
+    limit?: number;
+    offset?: number;
+    includeMediaLinked?: boolean;
+    connectionId?: string | null;
+    signal?: AbortSignal;
+  }
+): Promise<CommentsResponse> {
+  const defaultDays = typeof period === "number" ? period : 30;
+  const raw = await http<unknown>(
+    pathWithPeriodAndExtras("/api/comments", period, defaultDays, {
+      limit: options?.limit,
+      offset: options?.offset,
+      include_media_linked: options?.includeMediaLinked ? "true" : null,
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+  return normalizeComments(raw);
+}
+
+export async function getStories(
+  period: number | PeriodQueryInput = 30,
+  options?: { limit?: number; connectionId?: string | null; signal?: AbortSignal }
+): Promise<StoriesResponse> {
+  const raw = await http<unknown>(
+    pathWithPeriodAndExtras("/api/ig/stories", period, 30, {
+      limit: options?.limit,
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+  return normalizeStories(raw);
+}
+
+export async function listMonths(): Promise<MonthsResponse> {
+  return http<MonthsResponse>(`/api/months`);
+}
+
+export async function listMonthsByConnection(
+  options?: { connectionId?: string | null }
+): Promise<MonthsResponse> {
+  const params = new URLSearchParams();
+  const connectionId = String(options?.connectionId || "").trim();
+  if (connectionId) params.set("connection_id", connectionId);
+  const suffix = params.toString();
+  return http<MonthsResponse>(`/api/months${suffix ? `?${suffix}` : ""}`);
+}
+
+export async function getMedia(
+  period: number | PeriodQueryInput = 365,
+  options?: { limit?: number; offset?: number; connectionId?: string | null; signal?: AbortSignal }
+): Promise<MediaResponse> {
+  const fallbackDays = typeof period === "number" ? positiveInt(period, 365) : positiveInt(period.days, 365);
+  const raw = await http<unknown>(
+    pathWithPeriodAndExtras("/api/media", period, fallbackDays, {
+      limit: options?.limit,
+      offset: options?.offset,
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+  return normalizeMedia(raw);
+}
+
+export async function getMediaMonthly(
+  period: number | PeriodQueryInput = 3650,
+  options?: { connectionId?: string | null; signal?: AbortSignal }
+): Promise<MediaMonthlyResponse> {
+  const raw = await http<unknown>(
+    pathWithPeriodAndExtras("/api/media/monthly", period, 3650, {
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+  return normalizeMediaMonthly(raw);
+}
+
+export async function getDashboardPaid(
+  period: number | PeriodQueryInput = 30,
+  options?: { connectionId?: string | null; signal?: AbortSignal }
+): Promise<PaidDashboardResponse> {
+  return http<PaidDashboardResponse>(
+    pathWithPeriodAndExtras("/api/dashboard/paid", period, 30, {
+      connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+}
+
+export async function getShopifyReport(
+  period: number | PeriodQueryInput = 30
+): Promise<ShopifyReportResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(pathWithPeriod("/api/shopify/report", period, fallbackDays));
+  return normalizeShopifyReport(raw);
+}
+
+export async function getShopifyCustomers(
+  period: number | PeriodQueryInput = 30
+): Promise<ShopifyCustomersResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(pathWithPeriod("/api/shopify/customers", period, fallbackDays));
+  return normalizeShopifyCustomers(raw);
+}
+
+export async function getFbitsOrdersSummary(
+  period: number | PeriodQueryInput = 30
+): Promise<FbitsOrdersSummaryResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  return http<FbitsOrdersSummaryResponse>(
+    pathWithPeriod("/api/fbits/dashboard", period, fallbackDays)
+  );
+}
+
+export async function getFbitsOrders(
+  period: number | PeriodQueryInput = 30
+): Promise<FbitsOrdersResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  return http<FbitsOrdersResponse>(pathWithPeriod("/api/fbits/orders", period, fallbackDays));
+}
+
+export async function syncFbits(
+  period?: PeriodQueryInput,
+  options?: { clientId?: string | null }
+): Promise<JsonRecord> {
+  const params = new URLSearchParams();
+  const start = asString(period?.start).trim();
+  const end = asString(period?.end).trim();
+  const days = positiveInt(period?.days, 30);
+  const clientId = asString(options?.clientId).trim() || getActiveClientId();
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  if (!start || !end) params.set("days", String(days));
+  if (clientId) params.set("client_id", clientId);
+  return http<JsonRecord>(`/api/fbits/sync?${params.toString()}`, {
+    method: "POST",
+  });
+}
+
+export async function getGa4Report(
+  period: number | PeriodQueryInput = 30,
+  options?: ClientRequestOptions
+): Promise<Ga4ReportResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(
+    pathWithClientId(pathWithPeriod("/api/google/ga4/report", period, fallbackDays), options?.clientId),
+    { signal: options?.signal }
+  );
+  return normalizeGa4Report(raw);
+}
+
+export async function getGa4Channels(
+  period: number | PeriodQueryInput = 30,
+  options?: ClientRequestOptions
+): Promise<Ga4CollectionResponse<Ga4ChannelRow>> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(
+    pathWithClientId(pathWithPeriod("/api/google/ga4/channels", period, fallbackDays), options?.clientId),
+    { signal: options?.signal }
+  );
+  return normalizeGa4Channels(raw);
+}
+
+export async function getGa4Campaigns(
+  period: number | PeriodQueryInput = 30,
+  options?: ClientRequestOptions
+): Promise<Ga4CollectionResponse<Ga4CampaignRow>> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(
+    pathWithClientId(pathWithPeriod("/api/google/ga4/campaigns", period, fallbackDays), options?.clientId),
+    { signal: options?.signal }
+  );
+  return normalizeGa4Campaigns(raw);
+}
+
+export async function getGa4Events(
+  period: number | PeriodQueryInput = 30,
+  options?: ClientRequestOptions
+): Promise<Ga4CollectionResponse<Ga4EventRow>> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const raw = await http<unknown>(
+    pathWithClientId(pathWithPeriod("/api/google/ga4/events", period, fallbackDays), options?.clientId),
+    { signal: options?.signal }
+  );
+  return normalizeGa4Events(raw);
+}
+
+export async function syncGa4(
+  period?: PeriodQueryInput,
+  options?: { clientId?: string | null }
+): Promise<JsonRecord> {
+  const params = new URLSearchParams();
+  const start = String(period?.start || "").trim();
+  const end = String(period?.end || "").trim();
+  const days = positiveInt(period?.days, 30);
+  const clientId = asString(options?.clientId).trim();
+  const resolvedClientId = clientId || getActiveClientId();
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  if (!start || !end) params.set("days", String(days));
+  if (resolvedClientId) params.set("client_id", resolvedClientId);
+  return http<JsonRecord>(`/api/google/ga4/sync?${params.toString()}`, {
+    method: "POST",
+  });
+}
+
+export async function syncAds(
+  period?: PeriodQueryInput,
+  options?: { connectionId?: string | null; clientId?: string | null }
+): Promise<JsonRecord> {
+  const resolvedClientId = String(options?.clientId || getActiveClientId()).trim();
+  const payload: JsonRecord = {};
+  const start = String(period?.start || "").trim();
+  const end = String(period?.end || "").trim();
+  const connectionId = String(options?.connectionId || "").trim();
+  if (resolvedClientId) payload.client_id = resolvedClientId;
+  if (start) payload.since = start;
+  if (end) payload.until = end;
+  if (connectionId) payload.connection_id = connectionId;
+  return http<JsonRecord>("/api/ads/sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listNotes(options?: { limit?: number; connectionId?: string | null }): Promise<NotesResponse> {
+  const params = new URLSearchParams();
+  if (typeof options?.limit === "number" && Number.isFinite(options.limit)) {
+    params.set("limit", String(Math.max(1, Math.floor(options.limit))));
+  }
+  const connectionId = String(options?.connectionId || "").trim();
+  if (connectionId) params.set("connection_id", connectionId);
+  const suffix = params.toString();
+  const raw = await http<unknown>(`/api/notes${suffix ? `?${suffix}` : ""}`);
+  return normalizeNotes(raw);
+}
+
+export async function createNote(payload: { title: string; body: string }): Promise<{ ok: boolean; note: NoteItem }> {
+  return http<{ ok: boolean; note: NoteItem }>(`/api/notes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateNote(
+  noteId: string,
+  payload: { title?: string; body?: string }
+): Promise<{ ok: boolean; note: NoteItem }> {
+  return http<{ ok: boolean; note: NoteItem }>(`/api/notes/${encodeURIComponent(noteId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}

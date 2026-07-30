@@ -1,0 +1,22 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Ajuste os caminhos abaixo para o seu servidor.
+APP_DIR=/opt/mugo-dados-metrics/server
+PYTHON_BIN=/opt/mugo-dados-metrics/.venv/bin/python
+LOG_DIR=/var/log/mugo-dados-metrics
+
+# Este arquivo continua útil para VPS/Linux e também espelha os comandos
+# que podem ser configurados como Cron Jobs separados no Render.
+
+# Renova tokens Meta a cada 6 horas.
+15 */6 * * * cd $APP_DIR && $PYTHON_BIN run_jobs.py token-refresh >> $LOG_DIR/token-refresh.log 2>&1
+
+# Atualiza orgânico do Instagram 4x por dia.
+10 6,12,18,23 * * * cd $APP_DIR && $PYTHON_BIN run_jobs.py organic-sync --limit 60 >> $LOG_DIR/organic-sync.log 2>&1
+
+# Reprocessa Ads em janela recente de 3 dias a cada hora.
+5 * * * * cd $APP_DIR && $PYTHON_BIN run_jobs.py ads-sync-hourly --days 3 >> $LOG_DIR/ads-sync.log 2>&1
+
+# Reprocessa GA4 em janela recente de 3 dias a cada 3 horas.
+20 */3 * * * cd $APP_DIR && $PYTHON_BIN run_jobs.py ga4-sync --days 3 >> $LOG_DIR/ga4-sync.log 2>&1

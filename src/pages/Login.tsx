@@ -1,0 +1,277 @@
+import { useEffect, useState, type FormEvent } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
+import "../styles/Login.css";
+
+import logoVideo from "../assets/Mugo-3dlogo-spinning.mp4";
+
+const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
+
+const PRODUCT_NAME = "Mugô Dados";
+const PANEL_NAME = "Inteligência para decisões mais claras";
+
+function maskEmail(value: string | null | undefined): string {
+  const email = String(value || "").trim();
+  if (!email) return "";
+  const [name, domain = ""] = email.split("@");
+  if (!domain) return `${email.slice(0, 2)}***`;
+  const prefix = name.length <= 2 ? `${name[0] || ""}*` : `${name.slice(0, 2)}***`;
+  return `${prefix}@${domain}`;
+}
+
+function authLoginDebug(event: string, payload?: Record<string, unknown>) {
+  if (!AUTH_DEBUG) return;
+  if (payload) {
+    console.info(`[auth-login] ${event}`, payload);
+    return;
+  }
+  console.info(`[auth-login] ${event}`);
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Erro inesperado no login.";
+}
+
+function withEmailHint(message: string): string {
+  const msg = message.toLowerCase();
+  if (msg.includes("email not confirmed") || msg.includes("invalid login credentials")) {
+    return `${message} Confira se esse e-mail ja foi cadastrado no Supabase Auth.`;
+  }
+  if (msg.includes("smtp") || msg.includes("email provider")) {
+    return [
+      message,
+      "No Supabase, confirme se o provider de e-mail esta habilitado e se o SMTP esta configurado.",
+    ].join(" ");
+  }
+  return message;
+}
+
+type Props = {
+  initialError?: string | null;
+  authChecking?: boolean;
+  onPasswordLoginSuccess?: (session: Session | null) => Promise<void> | void;
+  onLocalLogin?: () => void;
+};
+
+export default function Login({
+  initialError = null,
+  authChecking = false,
+  onPasswordLoginSuccess,
+  onLocalLogin,
+}: Props) {
+  const authConfigError = getSupabaseBootstrapError();
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [info, setInfo] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialError) return;
+    authLoginDebug("initial_error.updated", { initialError });
+    setErr(initialError);
+  }, [initialError]);
+
+  async function onPasswordLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (passwordLoading || authChecking) return;
+
+    if (!supabase || authConfigError) {
+      setErr(authConfigError || "Supabase Auth nao esta configurado no frontend.");
+      return;
+    }
+
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
+      setErr("Informe e-mail e senha para continuar.");
+      return;
+    }
+
+    setErr(null);
+    setInfo(null);
+    setPasswordLoading(true);
+
+    try {
+      const existing = await supabase.auth.getSession();
+      if (existing.error) {
+        authLoginDebug("precheck.getSession.error", {
+          message: existing.error.message,
+        });
+      }
+
+      const existingEmail = existing.data.session?.user?.email || null;
+      const switchingUser =
+        Boolean(existingEmail) &&
+        String(existingEmail).toLowerCase() !== cleanEmail.toLowerCase();
+
+      authLoginDebug("sign_in.attempt", {
+        email: maskEmail(cleanEmail),
+        hasExistingSession: !!existing.data.session,
+        existingSessionEmail: maskEmail(existingEmail),
+        switchingUser,
+      });
+
+      if (switchingUser) {
+        const signOutBeforeSwitch = await supabase.auth.signOut();
+        authLoginDebug("sign_in.pre_signout_switch_user", {
+          email: maskEmail(cleanEmail),
+          ok: !signOutBeforeSwitch.error,
+          error: signOutBeforeSwitch.error?.message || null,
+        });
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      if (error) {
+        authLoginDebug("sign_in.error", {
+          email: maskEmail(cleanEmail),
+          message: error.message,
+        });
+        throw error;
+      }
+
+      authLoginDebug("sign_in.success", {
+        email: maskEmail(cleanEmail),
+        hasSession: !!data.session,
+        userId: data.session?.user?.id || null,
+      });
+
+      setInfo("Login realizado com sucesso. Carregando o painel do cliente ativo...");
+      await onPasswordLoginSuccess?.(data.session ?? null);
+    } catch (error: unknown) {
+      const message = withEmailHint(toErrorMessage(error));
+      authLoginDebug("sign_in.catch", {
+        email: maskEmail(cleanEmail),
+        message,
+      });
+      setErr(message);
+    } finally {
+      setPasswordLoading(false);
+    }
+  }
+
+  const authUnavailable = Boolean(authConfigError);
+  const inputDisabled = passwordLoading || authChecking || authUnavailable;
+  const visibleError = err || authConfigError;
+  const localAuthAvailable = isLocalAuthAvailable();
+
+  function handleLocalLogin() {
+    enableLocalAuth();
+    setErr(null);
+    setInfo("Modo local ativo. Abrindo o painel do cliente ativo...");
+    onLocalLogin?.();
+  }
+
+  return (
+    <div className="loginPage">
+      <div className="loginShell">
+        <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô Dados">
+          <div className="loginBrandTopLogo">
+            <video
+              className="loginTopLogo"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+            >
+              <source src={logoVideo} type="video/mp4" />
+              Seu navegador nao suporta video.
+            </video>
+          </div>
+
+          <div className="loginBrandCopy">
+            <div className="loginBrandEyebrow">{PANEL_NAME}</div>
+            <h1>{PRODUCT_NAME}</h1>
+            <p className="loginBrandLead">
+              Painel analítico do cliente ativo para leitura de performance, mídia e operação.
+            </p>
+          </div>
+
+          <div className="loginBrandTags" aria-hidden="true">
+            <span>META</span>
+            <span>GOOGLE / GA4</span>
+          </div>
+        </section>
+
+        <section className="loginCard">
+          <div className="loginCardInner">
+            
+            <h2 className="loginTitle">Entrar no workspace</h2>
+            <p className="loginSubtitle">
+              Use seu acesso enviado pela Mugô Dados para abrir o painel privado.
+            </p>
+
+            {visibleError ? <div className="loginError">{visibleError}</div> : null}
+            {info ? <div className="loginInfo">{info}</div> : null}
+
+            <form onSubmit={onPasswordLogin}>
+              <div>
+                <label className="loginFieldLabel" htmlFor="email">
+                  E-mail
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="mugo.agencia@gmail.com"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={inputDisabled}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="loginFieldLabel" htmlFor="password">
+                  Senha
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="Sua senha"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={inputDisabled}
+                  required
+                />
+              </div>
+
+              <button type="submit" disabled={inputDisabled}>
+                {authUnavailable
+                  ? "Configuracao pendente"
+                  : passwordLoading || authChecking
+                    ? "Entrando..."
+                    : "Entrar no painel"}
+              </button>
+            </form>
+
+            {localAuthAvailable ? (
+              <button
+                className="loginLocalButton"
+                type="button"
+                onClick={handleLocalLogin}
+                disabled={passwordLoading || authChecking}
+              >
+                Entrar em modo local
+              </button>
+            ) : null}
+
+            <div className="loginHint">
+              Usuarios e senhas precisam ser provisionados no Supabase Auth antes do
+              primeiro acesso.
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

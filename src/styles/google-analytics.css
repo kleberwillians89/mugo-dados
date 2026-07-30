@@ -1,0 +1,615 @@
+.googleReportPage{
+  display: grid;
+  gap: clamp(20px, 3vw, 32px);
+  min-height: 100%;
+  align-content: start;
+  padding-bottom: 8px;
+  overflow-x: clip;
+}
+
+.googleHero{
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 420px);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.googleHeroCopy,
+.googleFilterCard,
+.googleKpiCard,
+.googleChartCard,
+.googleListCard,
+.googleFeedbackCard{
+  border: 1px solid rgba(26,23,24,.12);
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 22px 60px rgba(26,23,24,.08);
+  border-radius: 24px;
+}
+
+.googleHeroCopy{
+  padding: 28px 30px;
+  min-height: 220px;
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(123,45,59,.16), transparent 68%),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(251,248,244,.96));
+}
+
+.googlePageEyebrow,
+.googleMiniLabel{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.48);
+}
+
+.googlePageTitle{
+  margin: 12px 0 8px;
+  font-size: clamp(2.1rem, 4vw, 3.35rem);
+  line-height: .98;
+  letter-spacing: -.04em;
+  color: #1a1718;
+}
+
+.googlePageSubtitle{
+  margin: 0;
+  max-width: 640px;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: rgba(26,23,24,.68);
+}
+
+.googleHeroMeta{
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.googleQuickNav{
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.googleQuickNavLink{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(26,23,24,.12);
+  background: rgba(255,255,255,.72);
+  color: rgba(26,23,24,.72);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.googleQuickNavLink:hover{
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(26,23,24,.08);
+  transform: translateY(-1px);
+}
+
+.googleHeroTimestamp{
+  font-size: 13px;
+  color: rgba(26,23,24,.55);
+}
+
+.googleFilterCard{
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-height: 220px;
+}
+
+.googleFilterField{
+  display: grid;
+  gap: 6px;
+}
+
+.googleFilterField span{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.5);
+}
+
+.googleStatusLine{
+  margin-top: 2px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(26,23,24,.08);
+  background: rgba(248,246,242,.92);
+  color: rgba(26,23,24,.64);
+  line-height: 1.5;
+}
+
+.googleRefreshButton{
+  margin-top: 4px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.googleSection{
+  display: grid;
+  gap: 18px;
+  scroll-margin-top: 20px;
+}
+
+.googleSourceFilters{
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.googleSourceFilters.isCampaign{
+  grid-template-columns: minmax(220px, 420px);
+}
+
+.googleSourceFilters label{
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.googleSourceFilters span{
+  color: rgba(26,23,24,.52);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.googleCommercialSection{
+  padding: clamp(16px, 2vw, 22px);
+  border-radius: 28px;
+  border: 1px solid rgba(26,23,24,.1);
+  background:
+    radial-gradient(720px 240px at 0% 0%, rgba(123,45,59,.11), transparent 72%),
+    rgba(251,248,244,.72);
+}
+
+.googleCommercialSection .fbitsSalesPanel{
+  border-radius: 24px;
+}
+
+.googleKpiGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.googleKpiCard{
+  padding: 20px 20px 18px;
+  min-height: 148px;
+  display: grid;
+  align-content: start;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.googleKpiCard.isAccent{
+  background:
+    radial-gradient(240px 120px at 10% 0%, rgba(123,45,59,.16), transparent 72%),
+    rgba(255,255,255,.98);
+  border-color: rgba(91,31,42,.18);
+}
+
+.googleKpiLabel{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: rgba(26,23,24,.52);
+}
+
+.googleKpiValue{
+  margin-top: 18px;
+  font-size: clamp(1.85rem, 2.5vw, 2.55rem);
+  line-height: .96;
+  letter-spacing: -.04em;
+  font-weight: 1000;
+  color: #1a1718;
+}
+
+.googleKpiHint{
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(26,23,24,.58);
+}
+
+.googleChartGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.googleChartCard{
+  padding: 18px 18px 12px;
+  min-height: 300px;
+  display: grid;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.googleChartCardHead{
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.googleChartDescription{
+  margin: 8px 0 0;
+  color: rgba(26,23,24,.58);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.googleChartValue{
+  font-size: 1.45rem;
+  font-weight: 900;
+  letter-spacing: -.03em;
+  color: #1a1718;
+}
+
+.googleChartViewport{
+  height: 236px;
+}
+
+.googleChartEmptyState{
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: rgba(26,23,24,.58);
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(249,247,243,.88);
+}
+
+.googleSecondaryGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.googleListCard{
+  padding: 18px;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.googleListHead{
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.googleListRows{
+  display: grid;
+  gap: 10px;
+}
+
+.googleListRow{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(26,23,24,.08);
+  transition: transform .16s ease;
+}
+
+.googleListRow:first-child{
+  border-top: 0;
+  padding-top: 0;
+}
+
+.googleListRank{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(91,31,42,.12);
+  color: #5b1f2a;
+  font-weight: 900;
+}
+
+.googleListBody{
+  min-width: 0;
+}
+
+.googleTableTitle{
+  font-weight: 800;
+  color: #1a1718;
+}
+
+.googleTableSubtle{
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 6px;
+  color: rgba(26,23,24,.52);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.googleListMetric{
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+  color: rgba(26,23,24,.62);
+}
+
+.googleListMetric strong{
+  font-size: 1rem;
+  color: #1a1718;
+}
+
+.googleGroupCard{
+  padding: 18px;
+  overflow: visible;
+}
+
+.googleGroupCard .ga4TableWrap{
+  max-height: none;
+  overflow: visible;
+}
+
+.googleGroupCard .tableWrap thead th{
+  position: static;
+}
+
+.googleTableCard{
+  min-width: 0;
+}
+
+.googleDataTableWrap{
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: min(58vh, 520px);
+  border: 1px solid rgba(91,31,42,.1);
+  border-radius: 18px;
+  background: rgba(255,255,255,.96);
+  -webkit-overflow-scrolling: touch;
+}
+
+.googleDataTable{
+  min-width: 920px;
+}
+
+.googleDataTable th,
+.googleDataTable td{
+  white-space: nowrap;
+}
+
+.googleDataTable td:first-child{
+  white-space: normal;
+  min-width: 190px;
+}
+
+.googleFeedbackCard,
+.googleEmptyCard{
+  padding: 22px 24px;
+  color: rgba(26,23,24,.72);
+  line-height: 1.6;
+  min-height: 108px;
+  display: grid;
+  align-content: center;
+}
+
+.googleEmptyCard{
+  border: 1px dashed rgba(26,23,24,.12);
+  border-radius: 18px;
+  background: rgba(249,247,243,.82);
+}
+
+.googleFeedbackCard.isError{
+  border-color: rgba(147,52,63,.18);
+  background: rgba(147,52,63,.05);
+}
+
+.googleFeedbackCard.isWarning{
+  border-color: rgba(91,31,42,.18);
+  background: rgba(91,31,42,.07);
+}
+
+.googleShellActions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.googleSkeletonLayout{
+  display: grid;
+  gap: 16px;
+}
+
+.googleSkeletonHero{
+  min-height: 220px;
+  border-radius: 24px;
+}
+
+.googleSkeletonGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.googleSkeletonCard{
+  min-height: 148px;
+  border-radius: 24px;
+}
+
+.googleSkeletonCharts{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.googleSkeletonChart{
+  min-height: 300px;
+  border-radius: 24px;
+}
+
+.googleSkeletonTall{
+  min-height: 320px;
+  border-radius: 24px;
+}
+
+.googleKpiCard:hover,
+.googleChartCard:hover,
+.googleListCard:hover,
+.googleGroupCard:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 26px 64px rgba(26,23,24,.10);
+}
+
+.googleListRow:hover{
+  transform: translateX(2px);
+}
+
+@media (max-width: 1080px){
+  .googleSourceFilters{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .googleHero{
+    grid-template-columns: 1fr;
+  }
+
+  .googleFilterCard{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .googleStatusLine,
+  .googleRefreshButton{
+    grid-column: 1 / -1;
+  }
+
+  .googleKpiGrid,
+  .googleSkeletonGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .googleChartGrid,
+  .googleSecondaryGrid,
+  .googleSkeletonCharts{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px){
+  .googleSourceFilters,
+  .googleSourceFilters.isCampaign{
+    grid-template-columns: 1fr;
+  }
+  .googleHeroCopy,
+  .googleFilterCard,
+  .googleKpiCard,
+  .googleChartCard,
+  .googleListCard,
+  .googleFeedbackCard,
+  .googleEmptyCard{
+    border-radius: 20px;
+  }
+
+  .googleHeroCopy,
+  .googleFilterCard,
+  .googleChartCard,
+  .googleListCard,
+  .googleFeedbackCard,
+  .googleEmptyCard{
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .googleKpiGrid,
+  .googleSkeletonGrid{
+    grid-template-columns: 1fr;
+  }
+
+  .googlePageTitle{
+    font-size: clamp(1.9rem, 9vw, 2.7rem);
+  }
+
+  .googlePageSubtitle,
+  .googleChartDescription{
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .googleHeroMeta,
+  .googleQuickNav,
+  .googleShellActions{
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .googleShellActions .btn,
+  .googleShellActions .btnLogout{
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+  }
+
+  .googleChartCardHead{
+    flex-direction: column;
+  }
+
+  .googleShellActions{
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .googleListRow{
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .googleListMetric{
+    justify-items: start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 540px){
+  .googleHero{
+    gap: 14px;
+  }
+
+  .googleHeroCopy{
+    min-height: 0;
+    padding: 18px 16px;
+  }
+
+  .googleFilterCard{
+    min-height: 0;
+    padding: 16px;
+    grid-template-columns: 1fr;
+  }
+
+  .googleChartViewport{
+    height: 210px;
+  }
+
+  .googleRefreshButton,
+  .googleShellActions .btn,
+  .googleShellActions .btnLogout{
+    width: 100%;
+  }
+
+  .googleDataTable{
+    min-width: 760px;
+  }
+}
