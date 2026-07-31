@@ -38,6 +38,7 @@ from services.meta_oauth import (
     get_meta_oauth_settings,
     list_connections,
     read_discovery_handoff,
+    read_latest_discovery_handoff,
     resolve_meta_redirect_uri,
     save_pending_meta_authorization,
     save_connections,
@@ -197,6 +198,7 @@ async def api_oauth_meta_callback(
             access_token=str(token_data.get("access_token") or ""),
             expires_at=token_data.get("expires_at"),
             discovered=discovered,
+            handoff=handoff,
         )
 
         target = build_frontend_callback_redirect(
@@ -227,6 +229,21 @@ async def api_oauth_meta_discover_assets(
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
     try:
         data = await read_discovery_handoff(handoff=handoff, user_id=user_id, client_id=cid)
+        return {"ok": True, **data}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/oauth/meta/pending-assets")
+async def api_oauth_meta_pending_assets(
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    try:
+        data = await read_latest_discovery_handoff(user_id=user_id, client_id=cid)
         return {"ok": True, **data}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

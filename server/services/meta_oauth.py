@@ -439,14 +439,31 @@ async def _fetch_granted_scopes(access_token: str) -> List[str]:
     return scopes
 
 
+async def _fetch_business_managers(access_token: str) -> List[Dict[str, str]]:
+    try:
+        response = await _meta_get(
+            "/me/businesses",
+            {"fields": "id,name", "limit": 200, "access_token": access_token},
+        )
+    except Exception:
+        return []
+    return [
+        {"business_id": _safe_str(row.get("id")), "business_name": _safe_str(row.get("name"))}
+        for row in response.get("data") or []
+        if isinstance(row, dict) and _safe_str(row.get("id"))
+    ]
+
+
 async def discover_assets(access_token: str) -> Dict[str, Any]:
     identity = await fetch_instagram_identity(access_token)
     ad_accounts = await fetch_ad_accounts(access_token)
     scopes = await _fetch_granted_scopes(access_token)
+    business_managers = await _fetch_business_managers(access_token)
     return {
         "meta_user": identity.get("meta_user") or {},
         "instagram_accounts": identity.get("instagram_accounts") or [],
         "ad_accounts": ad_accounts,
+        "business_managers": business_managers,
         "scopes": scopes,
     }
 
@@ -467,7 +484,10 @@ async def create_discovery_handoff(
         "client_id": _safe_str(client_id),
         "encrypted_access_token": encrypt_secret(access_token),
         "expires_at": _safe_str(expires_at) or None,
-        "meta_user_json": _json_object(discovered.get("meta_user")),
+        "meta_user_json": {
+            **_json_object(discovered.get("meta_user")),
+            "business_managers": _json_array(discovered.get("business_managers")),
+        },
         "instagram_accounts_json": _json_array(discovered.get("instagram_accounts")),
         "ad_accounts_json": _json_array(discovered.get("ad_accounts")),
         "scopes_json": _json_array(discovered.get("scopes")),
@@ -486,6 +506,7 @@ async def save_pending_meta_authorization(
     access_token: str,
     expires_at: Optional[str],
     discovered: Dict[str, Any],
+    handoff: str,
 ) -> Dict[str, Any]:
     meta_user = _json_object(discovered.get("meta_user"))
     meta_user_id = _safe_str(meta_user.get("id"))
@@ -503,6 +524,7 @@ async def save_pending_meta_authorization(
         metadata={
             "integration_product": "meta",
             "selection_required": True,
+            "oauth_handoff": _safe_str(handoff),
             "discovered_instagram_count": len(_json_array(discovered.get("instagram_accounts"))),
             "discovered_ad_account_count": len(_json_array(discovered.get("ad_accounts"))),
         },
@@ -529,12 +551,34 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
         "handoff": _safe_str(item.get("handoff")),
         "client_id": _safe_str(item.get("client_id")),
         "meta_user": _json_object(item.get("meta_user_json")),
+        "business_managers": _json_array(_json_object(item.get("meta_user_json")).get("business_managers")),
         "pages": list(pages_by_id.values()),
         "instagram_accounts": instagram_accounts,
         "ad_accounts": _json_array(item.get("ad_accounts_json")),
         "scopes": _json_array(item.get("scopes_json")),
         "expires_at": item.get("expires_at"),
     }
+
+
+async def read_latest_discovery_handoff(*, user_id: str, client_id: str) -> Dict[str, Any]:
+    await _cleanup_handoffs()
+    rows = await sb_select(
+        _HANDOFF_TABLE,
+        filters={
+            "user_id": f"eq.{_safe_str(user_id)}",
+            "client_id": f"eq.{_safe_str(client_id)}",
+            "finalized_at": "is.null",
+        },
+        order="created_at.desc",
+        limit=1,
+    )
+    if not rows:
+        raise RuntimeError("Nenhuma seleção de ativos Meta pendente foi encontrada. Corrija a conexão para autorizar novamente.")
+    return await read_discovery_handoff(
+        handoff=_safe_str(rows[0].get("handoff")),
+        user_id=user_id,
+        client_id=client_id,
+    )
 
 
 async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -743,6 +787,7 @@ async def save_connections(
         metadata={
             "integration_product": "meta",
             "selection_required": False,
+            "oauth_handoff": None,
             "page_ids": sorted(pages_requested),
             "instagram_ig_user_ids": sorted(ig_requested),
             "ad_account_ids": sorted(ads_requested),

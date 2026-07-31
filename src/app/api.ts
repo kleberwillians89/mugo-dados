@@ -1296,6 +1296,12 @@ export async function discoverClientMetaAssets(
   );
 }
 
+export async function discoverPendingClientMetaAssets(): Promise<MetaDiscoverAssetsResponse> {
+  return http<MetaDiscoverAssetsResponse>(
+    `/api/oauth/meta/pending-assets?client_id=${encodeURIComponent(getActiveClientId())}`
+  );
+}
+
 export async function linkClientAssets(
   payload: {
     handoff: string;

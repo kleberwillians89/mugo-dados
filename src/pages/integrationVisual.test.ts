@@ -29,4 +29,11 @@ describe("professional integration states and official identity", () => {
     expect(css).toContain(".integrationLight.is-green");
     expect(css).toContain("prefers-reduced-motion");
   });
+
+  it("resumes Meta asset selection without starting a second OAuth flow", () => {
+    const onboarding = source("./Onboarding.tsx");
+    expect(onboarding).toContain("discoverPendingClientMetaAssets");
+    expect(onboarding).toContain("Selecionar ativos");
+    expect(onboarding).toContain('connectionState === "selection_required"');
+  });
 });

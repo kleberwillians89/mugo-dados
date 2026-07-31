@@ -486,6 +486,26 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         update.assert_not_awaited()
         delete.assert_not_awaited()
 
+    async def test_latest_pending_handoff_can_resume_after_reload(self):
+        pending_row = {"handoff": "handoff-latest"}
+        with (
+            patch.object(meta_oauth, "_cleanup_handoffs", AsyncMock()),
+            patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[pending_row])) as select,
+            patch.object(
+                meta_oauth,
+                "read_discovery_handoff",
+                AsyncMock(return_value={"handoff": "handoff-latest", "instagram_accounts": []}),
+            ) as read,
+        ):
+            result = await meta_oauth.read_latest_discovery_handoff(
+                user_id="user-amalie", client_id="amalie"
+            )
+        self.assertEqual(result["handoff"], "handoff-latest")
+        self.assertEqual(select.await_args.kwargs["filters"]["finalized_at"], "is.null")
+        read.assert_awaited_once_with(
+            handoff="handoff-latest", user_id="user-amalie", client_id="amalie"
+        )
+
     async def test_repeated_connection_row_finalize_updates_instead_of_inserting(self):
         row = {
             "client_id": "amalie",

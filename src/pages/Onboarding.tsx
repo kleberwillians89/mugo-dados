@@ -4,6 +4,7 @@ import {
   ApiError,
   disconnectGenericConnection,
   discoverClientMetaAssets,
+  discoverPendingClientMetaAssets,
   linkClientAssets,
   listClientConnections,
   listGenericConnections,
@@ -30,6 +31,7 @@ import type {
   MetaConnection,
   MetaDiscoverAssetsResponse,
   MetaDiscoveredAdAccount,
+  MetaDiscoveredBusinessManager,
   MetaDiscoveredInstagramAsset,
   MetaDiscoveredPageAsset,
 } from "../app/types";
@@ -85,7 +87,7 @@ function statusLabel(status: string): string {
 function connectionTone(status: string): "red" | "yellow" | "green" {
   const normalized = String(status || "").toLowerCase();
   if (["active", "connected", "updated"].includes(normalized)) return "green";
-  if (["selection_required", "connecting", "importing", "syncing", "awaiting_authorization"].includes(normalized)) return "yellow";
+  if (["selection_required", "connecting", "importing", "syncing", "awaiting_authorization", "authorizing"].includes(normalized)) return "yellow";
   return "red";
 }
 
@@ -184,6 +186,13 @@ export default function Onboarding({
 
   const configWarning = getActiveClientConfigurationWarning();
 
+  const prepareMetaAssets = useCallback((data: MetaDiscoverAssetsResponse) => {
+    setPendingAssets(data);
+    setSelectedIg(Object.fromEntries((data.instagram_accounts || []).map((item) => [String(item.ig_user_id || ""), true]).filter(([id]) => id)));
+    setSelectedPages(Object.fromEntries((data.pages || []).map((item) => [String(item.page_id || ""), true]).filter(([id]) => id)));
+    setSelectedAds(Object.fromEntries((data.ad_accounts || []).map((item) => [String(item.ad_account_id || ""), true]).filter(([id]) => id)));
+  }, []);
+
   const loadConnections = useCallback(async () => {
     const [response, genericResponse] = await Promise.all([
       listClientConnections(),
@@ -256,28 +265,7 @@ export default function Onboarding({
       if (oauthStatus === "success" && handoff) {
         preserveMetaRetry = true;
         const data = await discoverClientMetaAssets(handoff);
-        setPendingAssets(data);
-
-        const igMap: Record<string, boolean> = {};
-        for (const ig of data.instagram_accounts || []) {
-          const id = String(ig.ig_user_id || "").trim();
-          if (id) igMap[id] = true;
-        }
-        const pageMap: Record<string, boolean> = {};
-        for (const page of data.pages || []) {
-          const id = String(page.page_id || "").trim();
-          if (id) pageMap[id] = true;
-        }
-
-        const adMap: Record<string, boolean> = {};
-        for (const ad of data.ad_accounts || []) {
-          const id = String(ad.ad_account_id || "").trim();
-          if (id) adMap[id] = true;
-        }
-
-        setSelectedIg(igMap);
-        setSelectedPages(pageMap);
-        setSelectedAds(adMap);
+        prepareMetaAssets(data);
         await loadConnections();
         setOauthRetry(null);
         preserveMetaRetry = false;
@@ -329,7 +317,7 @@ export default function Onboarding({
     } finally {
       if (!preserveMetaRetry) clearOauthParamsFromUrl();
     }
-  }, [loadConnections]);
+  }, [loadConnections, prepareMetaAssets]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -380,12 +368,15 @@ export default function Onboarding({
   const dashboardReady = organicConnections.some(
     (connection) => String(connection.status || "").toLowerCase() === "active"
   );
+  const metaGenericConnection = genericConnections.find((item) => item.provider === "meta") || null;
+  const metaSelectionPending = String(metaGenericConnection?.status || "").toLowerCase() === "selection_required";
   const connectionSummary = useMemo(() => {
     const states = genericConnections.map((item) => connectionTone(item.status));
-    if (dashboardReady || paidConnections.length) states.push("green");
+    const hasGenericMeta = genericConnections.some((item) => item.provider === "meta");
+    if (!hasGenericMeta && (dashboardReady || paidConnections.length)) states.push("green");
     return {
       connected: states.filter((state) => state === "green").length,
-      pending: states.filter((state) => state === "yellow").length + (pendingAssets ? 1 : 0),
+      pending: states.filter((state) => state === "yellow").length + (!hasGenericMeta && pendingAssets ? 1 : 0),
       errors: states.filter((state) => state === "red").length,
     };
   }, [dashboardReady, genericConnections, paidConnections.length, pendingAssets]);
@@ -409,6 +400,23 @@ export default function Onboarding({
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao iniciar a integracao do cliente ativo."));
       setOauthLoading(false);
+    }
+  }
+
+  async function onResumeMetaSelection(connection: GenericConnection) {
+    const handoff = String(connection.metadata?.oauth_handoff || "").trim();
+    setSaving(true);
+    setErr(null);
+    try {
+      const data = handoff
+        ? await discoverClientMetaAssets(handoff)
+        : await discoverPendingClientMetaAssets();
+      prepareMetaAssets(data);
+      setInfo("Ativos Meta carregados. Revise a seleção e salve para concluir.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível carregar os ativos Meta autorizados."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -688,9 +696,15 @@ export default function Onboarding({
             <button className="btn btnGhost" type="button" disabled={loading} onClick={() => void onRefreshStatus()}>
               {loading ? "Atualizando..." : "Atualizar status"}
             </button>
-            <button className="btn btnGold" type="button" disabled={oauthLoading || !canManageConnections} onClick={() => void onStartOAuth()}>
-              {oauthLoading ? "Redirecionando..." : "Conectar com Facebook"}
-            </button>
+            {metaSelectionPending && metaGenericConnection ? (
+              <button className="btn btnGold" type="button" disabled={saving || !canManageConnections} onClick={() => void onResumeMetaSelection(metaGenericConnection)}>
+                {saving ? "Carregando ativos..." : "Selecionar ativos"}
+              </button>
+            ) : !metaGenericConnection || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(String(metaGenericConnection.status || "").toLowerCase()) ? (
+              <button className="btn btnGold" type="button" disabled={oauthLoading || !canManageConnections} onClick={() => void onStartOAuth()}>
+                {oauthLoading ? "Redirecionando..." : "Conectar com Meta"}
+              </button>
+            ) : null}
             <button className="btn btnPrimary" type="button" disabled={!dashboardReady} onClick={() => void onContinue()}>
               Abrir dashboard
             </button>
@@ -805,6 +819,10 @@ export default function Onboarding({
                     ? "Não conectado"
                     : unavailableIntegrationLabel(definition.availability);
               const actionable = definition.availability === "available";
+              const connectionState = String(connection?.status || "").toLowerCase();
+              const shouldAuthorize = actionable && (
+                !connection || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(connectionState)
+              );
               const tone = definition.availability === "platform_update_pending"
                 ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
@@ -858,7 +876,17 @@ export default function Onboarding({
                     />
                   </>
                 ) : null}
-                {actionable ? (
+                {definition.id === "meta" && connectionState === "selection_required" && connection ? (
+                  <button
+                    className="btn btnGhost"
+                    type="button"
+                    style={{ marginTop: 12 }}
+                    disabled={!canManageConnections || saving}
+                    onClick={() => void onResumeMetaSelection(connection)}
+                  >
+                    {saving ? "Carregando ativos..." : "Selecionar ativos"}
+                  </button>
+                ) : shouldAuthorize ? (
                   <button
                     className="btn btnGhost"
                     type="button"
@@ -874,7 +902,7 @@ export default function Onboarding({
                           : () => void onStartShopifyOAuth()
                     }
                   >
-                    {definition.actionLabel}
+                    {connectionState === "error" ? "Corrigir conexão" : ["expired", "token_expired", "reauth_required"].includes(connectionState) ? "Reconectar" : definition.actionLabel}
                   </button>
                 ) : null}
                 {connection ? (
@@ -965,6 +993,24 @@ export default function Onboarding({
             </div>
 
             <div className="onboardingAssets">
+              <div className="onboardingAssetBlock">
+                <div className="smallMuted">Gerenciadores de Negócios</div>
+                {(pendingAssets.business_managers || []).length === 0 ? (
+                  <div className="smallMuted">
+                    {(pendingAssets.scopes || []).includes("business_management")
+                      ? "A conta autorizada não possui acesso a um Gerenciador de Negócios."
+                      : "A permissão business_management não foi concedida."}
+                  </div>
+                ) : (
+                  <div className="onboardingChecks">
+                    {(pendingAssets.business_managers || []).map((business: MetaDiscoveredBusinessManager) => (
+                      <div key={business.business_id} className="smallMuted">
+                        {business.business_name || business.business_id} ({business.business_id})
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="onboardingAssetBlock">
                 <div className="smallMuted">Páginas do Facebook</div>
                 {(pendingAssets.pages || []).length === 0 ? (

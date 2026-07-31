@@ -28,7 +28,7 @@ from services.google_oauth import (
 from services.ga4_sync import sync_ga4_for_period
 from services.integration_errors import IntegrationError
 from services.oauth_state import consume_oauth_state
-from services.tenant import require_client_role, require_user_client_access, require_user_id
+from services.tenant import require_client_read, require_client_role, require_user_client_access, require_user_id
 
 router = APIRouter(prefix="/api/oauth/google", tags=["google-oauth"])
 
@@ -130,11 +130,7 @@ async def connections(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(
-        client_id or x_client_id,
-        authorization,
-        allowed_roles=("agency_admin", "client_admin", "viewer"),
-    )
+    cid = await require_client_read(client_id or x_client_id, authorization)
     rows = await list_generic_connections(cid)
     return {"ok": True, "connections": [row for row in rows if row.get("provider") in {"ga4", "google_ads"}]}
 
@@ -146,7 +142,7 @@ async def ga4_properties(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_read(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
     if not google_capabilities(row)["ga4_authorized"]:
         raise IntegrationError(
@@ -201,7 +197,7 @@ async def ga4_streams(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_read(client_id or x_client_id, authorization)
     return {"ok": True, "streams": await list_ga4_streams(cid, connection_id, property_id)}
 
 
@@ -212,7 +208,7 @@ async def ads_accounts(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_read(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
     if not google_capabilities(row)["ads_authorized"]:
         raise IntegrationError(
@@ -264,9 +260,7 @@ async def status(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(
-        client_id or x_client_id, authorization, allowed_roles=("agency_admin", "client_admin", "viewer")
-    )
+    cid = await require_client_read(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
     return {"ok": True, "connection": {k: v for k, v in row.items() if not k.startswith("encrypted")}}
 

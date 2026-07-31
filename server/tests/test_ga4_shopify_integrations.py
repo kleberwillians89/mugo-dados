@@ -73,7 +73,7 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             "scopes": ["https://www.googleapis.com/auth/adwords"],
         }
         with (
-            patch.object(google_routes, "require_client_role", AsyncMock(return_value="roove")),
+            patch.object(google_routes, "require_client_read", AsyncMock(return_value="roove")),
             patch.object(google_routes, "get_connection", AsyncMock(return_value=ads_only)),
             patch.object(google_routes, "list_ga4_properties", AsyncMock()) as list_properties,
         ):
@@ -85,6 +85,26 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(getattr(raised.exception, "code", ""), "GOOGLE_INSUFFICIENT_SCOPE")
         list_properties.assert_not_awaited()
+
+    async def test_ga4_property_discovery_uses_tenant_read_permission(self):
+        read_access = AsyncMock(return_value="roove")
+        properties = AsyncMock(return_value=[{"property": "properties/123"}])
+        with (
+            patch.object(google_routes, "require_client_read", read_access),
+            patch.object(
+                google_routes,
+                "get_connection",
+                AsyncMock(return_value=google_row()),
+            ),
+            patch.object(google_routes, "list_ga4_properties", properties),
+        ):
+            result = await google_routes.ga4_properties(
+                "google-connection",
+                client_id="roove",
+                authorization="Bearer safe",
+            )
+        self.assertEqual(result["properties"], [{"property": "properties/123"}])
+        read_access.assert_awaited_once_with("roove", "Bearer safe")
 
     async def test_ga4_selection_persists_property_account_and_name(self):
         with (
@@ -231,6 +251,7 @@ class MetaCallbackPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("meta_oauth=success", response.headers["location"])
         self.assertIn("handoff=safe-handoff", response.headers["location"])
         pending.assert_awaited_once()
+        self.assertEqual(pending.await_args.kwargs["handoff"], "safe-handoff")
 
     async def test_callback_never_redirects_success_when_persistence_fails(self):
         request = type("Request", (), {"url": type("URL", (), {"scheme": "https", "netloc": "api.example"})()})()

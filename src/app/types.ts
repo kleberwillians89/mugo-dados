@@ -575,6 +575,11 @@ export type MetaDiscoveredAdAccount = {
   currency?: string;
 };
 
+export type MetaDiscoveredBusinessManager = {
+  business_id: string;
+  business_name?: string;
+};
+
 export type MetaDiscoverAssetsResponse = {
   ok: boolean;
   handoff: string;
@@ -586,6 +591,7 @@ export type MetaDiscoverAssetsResponse = {
   pages: MetaDiscoveredPageAsset[];
   instagram_accounts: MetaDiscoveredInstagramAsset[];
   ad_accounts: MetaDiscoveredAdAccount[];
+  business_managers?: MetaDiscoveredBusinessManager[];
   scopes: string[];
   expires_at?: string | null;
 };
