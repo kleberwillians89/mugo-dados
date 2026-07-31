@@ -39,7 +39,8 @@ import {
   getActiveClientName,
   MUGO_APP_NAME,
 } from "../app/activeClient";
-const logo = "/mugo_logo1.png";
+import MugoLogo from "../components/MugoLogo";
+import "../components/mugo-logo.css";
 import {
   INTEGRATION_REGISTRY,
   unavailableIntegrationLabel,
@@ -651,7 +652,7 @@ export default function Onboarding({
     <div className="onboardingPage">
       <header className="onboardingTop">
         <div className="onboardingBrand">
-          <img src={logo} alt={getActiveClientName()} className="onboardingLogo" />
+          <MugoLogo variant="responsive" className="onboardingLogo" alt="Mugô" />
           <div>
             <div className="onboardingTitle">{MUGO_APP_NAME}</div>
             <div className="onboardingSub">Central de conexões da empresa ativa.</div>
@@ -792,7 +793,7 @@ export default function Onboarding({
               return (
               <div className={`onboardingConnBlock is-${tone}`} key={definition.id}>
                 <div className="integrationCardHeading">
-                  {logoSrc ? <img className="integrationOfficialLogo" src={logoSrc} alt="" /> : <span className="integrationLogoPlaceholder" aria-hidden="true" />}
+                  {logoSrc ? <img className="integrationOfficialLogo" src={logoSrc} alt={`${definition.name} logo`} /> : null}
                   <div>
                     <div className="h1">{definition.name}</div>
                     <div className="smallMuted">{definition.resources.join(" · ")}</div>

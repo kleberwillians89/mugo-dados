@@ -2,9 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
 import { INTEGRATION_REGISTRY } from "../app/integrationRegistry";
+import MugoLogo from "../components/MugoLogo";
+import "../components/mugo-logo.css";
 import "../styles/Login.css";
-
-const logo = "/mugo_logo1.png";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 
@@ -233,13 +233,7 @@ export default function Login({
     <div className="loginPage">
       <div className="loginShell">
         <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô Dados">
-          <div className="loginBrandTopLogo">
-            <img
-              className="loginTopLogo"
-              src={logo}
-              alt="Mugô Dados"
-            />
-          </div>
+          <MugoLogo variant="wordmark" className="loginBrandTopLogo loginTopLogo" alt="Mugô Dados" />
 
           <div className="loginBrandCopy">
             <div className="loginBrandEyebrow">{PANEL_NAME}</div>
@@ -252,7 +246,6 @@ export default function Login({
           <div className="loginEcosystem" aria-label="Ecossistema de integrações">
             {INTEGRATION_REGISTRY.map((provider) => (
               <div className="loginEcosystemItem" key={provider.id}>
-                <span aria-hidden="true">{provider.shortName.slice(0, 2).toUpperCase()}</span>
                 <div>
                   <strong>{provider.name}</strong>
                   <small>{provider.resources[0]}</small>

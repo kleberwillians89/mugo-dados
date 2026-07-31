@@ -60,21 +60,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 76px;
+  width: clamp(164px, 18vw, 220px);
   max-width: 100%;
   margin-bottom: 34px;
-  padding: 8px;
+  padding: 0;
   background: transparent;
-  border: 1px solid rgba(0,79,110,.16);
-  border-radius: 12px;
+  border: 0;
   box-shadow: none;
   overflow: hidden;
 }
 
 .loginTopLogo {
   display: block;
-  width: 100%;
-  height: 44px;
+  height: clamp(72px, 8vw, 92px);
   max-width: 100%;
   object-position: left center;
   object-fit: contain;
@@ -131,7 +129,6 @@
 
 .loginEcosystem{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:28px}
 .loginEcosystemItem{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 12px;border:1px solid #e0ddd7;border-radius:14px;background:rgba(255,255,255,.7)}
-.loginEcosystemItem>span{width:34px;height:34px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:#153f35;color:#fff;font-size:11px;font-weight:800;letter-spacing:.05em}
 .loginEcosystemItem div{display:grid;min-width:0}.loginEcosystemItem strong{font-size:13px;color:#25302b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.loginEcosystemItem small{font-size:11px;color:#748078;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* LADO DIREITO */

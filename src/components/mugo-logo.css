@@ -1,0 +1,5 @@
+.mugoLogo{display:inline-flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;background:transparent}
+.mugoLogo img{display:block;width:100%;height:100%;max-width:100%;object-fit:contain;object-position:center;background:transparent}
+.mugoLogo-wordmark img,.mugoLogo-wordmarkInverse img,.mugoLogoDesktop{transform:scale(2);transform-origin:center}
+.mugoLogoMobile{display:none!important}
+@media(max-width:720px){.mugoLogoResponsive .mugoLogoDesktop{display:none!important}.mugoLogoResponsive .mugoLogoMobile{display:block!important}}

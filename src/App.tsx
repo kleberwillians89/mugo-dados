@@ -17,6 +17,8 @@ import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
 import Login from "./pages/Login";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
+import MugoLogo from "./components/MugoLogo";
+import "./components/mugo-logo.css";
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -113,7 +115,7 @@ function AppLoading() {
   return (
     <main className="appBootShell" aria-busy="true" aria-live="polite">
       <header className="appBootHeader">
-        <span className="appBootMark" aria-hidden="true"><img src="/MUG%C3%94_LOGO5.png" alt="" /></span>
+        <MugoLogo variant="symbol" className="appBootMark" alt="" />
         <div><strong>{MUGO_APP_NAME}</strong><small>Preparando seu workspace</small></div>
       </header>
       <section className="appBootContent">
@@ -155,7 +157,7 @@ function PrimaryNavigation({
   return (
     <nav className="primaryNavigation" aria-label="Navegação principal">
       <div className="primaryNavigationInner">
-        <span className="primaryNavigationBrand"><img src="/mugo_logo1.png" alt="Mugô" /></span>
+        <MugoLogo variant="responsive" className="primaryNavigationBrand" />
         <div className="primaryNavigationLinks">
           {items.map((item) => (
             <button
