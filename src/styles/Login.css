@@ -35,10 +35,10 @@
   min-height: min(720px, calc(100dvh - 64px));
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
-  border-radius: 34px;
+  border-radius: 14px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.56);
-  box-shadow: 0 28px 70px rgba(5, 14, 24, 0.28);
+  box-shadow: 0 18px 46px rgba(5, 14, 24, 0.22);
   border: 1px solid rgba(255, 255, 255, 0.16);
   backdrop-filter: blur(14px);
 }
@@ -60,25 +60,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 92px;
+  width: 76px;
   max-width: 100%;
   margin-bottom: 34px;
-  padding: 14px;
+  padding: 8px;
   background: transparent;
-  border: 2px solid #b22234;
-  border-radius: 28px;
+  border: 1px solid rgba(0,79,110,.16);
+  border-radius: 12px;
   box-shadow: none;
   overflow: hidden;
 }
 
 .loginTopLogo {
   display: block;
-  width: 64px;
+  width: 58px;
   max-width: 100%;
   height: auto;
   object-fit: contain;
   background: transparent;
-  border-radius: 18px;
+  border-radius: 8px;
 }
 
 .loginBrandCopy {
@@ -97,8 +97,8 @@
 
 .loginBrandCopy h1 {
   margin: 0 0 18px;
-  font-size: clamp(44px, 5vw, 72px);
-  line-height: 0.95;
+  font-size: clamp(36px, 4vw, 56px);
+  line-height: 1.02;
   letter-spacing: 0;
   font-weight: 800;
   color: #b22234;

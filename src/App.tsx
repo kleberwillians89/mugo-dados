@@ -131,10 +131,16 @@ function PrimaryNavigation({
   route,
   platformAdmin,
   onOpen,
+  clients,
+  activeClientId,
+  onClientChange,
 }: {
   route: AppRoute;
   platformAdmin: boolean;
   onOpen: (route: AppRoute) => void;
+  clients?: ClientMembership[];
+  activeClientId?: string;
+  onClientChange?: (clientId: string) => void;
 }) {
   const items: Array<{ route: AppRoute; label: string }> = [
     { route: "dashboard", label: "Visão Geral" },
@@ -147,7 +153,7 @@ function PrimaryNavigation({
     <nav className="primaryNavigation" aria-label="Navegação principal">
       <div className="primaryNavigationInner">
         <strong>Mugô Dados</strong>
-        <div>
+        <div className="primaryNavigationLinks">
           {items.map((item) => (
             <button
               aria-current={route === item.route ? "page" : undefined}
@@ -160,6 +166,13 @@ function PrimaryNavigation({
             </button>
           ))}
         </div>
+        {clients && activeClientId && onClientChange ? (
+          <ClientSwitcher
+            clients={clients}
+            activeClientId={activeClientId}
+            onChange={onClientChange}
+          />
+        ) : null}
       </div>
     </nav>
   );
@@ -548,7 +561,14 @@ export default function App() {
   if (view === "setup") {
     return (
       <>
-        <PrimaryNavigation route="integrations" platformAdmin={platformAdmin} onOpen={openRoute} />
+        <PrimaryNavigation
+          route="integrations"
+          platformAdmin={platformAdmin}
+          onOpen={openRoute}
+          clients={clients}
+          activeClientId={activeClientId}
+          onClientChange={handleClientChange}
+        />
         <Suspense fallback={<AppLoading />}>
           <Onboarding
             isAuthenticated={!!session}
@@ -563,7 +583,14 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
-      <PrimaryNavigation route={route} platformAdmin={platformAdmin} onOpen={openRoute} />
+      <PrimaryNavigation
+        route={route}
+        platformAdmin={platformAdmin}
+        onOpen={openRoute}
+        clients={clients}
+        activeClientId={activeClientId}
+        onClientChange={handleClientChange}
+      />
       <Suspense fallback={<AppLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("dashboard")} />
@@ -575,11 +602,6 @@ export default function App() {
         />
       ) : (
       <>
-      <ClientSwitcher
-        clients={clients}
-        activeClientId={activeClientId}
-        onChange={handleClientChange}
-      />
       {route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${activeClientId}`}

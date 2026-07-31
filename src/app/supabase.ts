@@ -3,6 +3,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const url = String(import.meta.env.VITE_SUPABASE_URL || "").trim();
 const anon = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 const LOCAL_AUTH_STORAGE_KEY = "mugo_dados.local_auth";
+export const SUPABASE_AUTH_OPTIONS = {
+  persistSession: true,
+  autoRefreshToken: true,
+  detectSessionInUrl: true,
+} as const;
 
 function buildBootstrapError(): string | null {
   const missing: string[] = [];
@@ -21,7 +26,7 @@ let supabaseBootstrapError: string | null = buildBootstrapError();
 if (!supabaseBootstrapError) {
   try {
     supabaseClient = createClient(url, anon, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: SUPABASE_AUTH_OPTIONS,
     });
   } catch (error: unknown) {
     const detail =
