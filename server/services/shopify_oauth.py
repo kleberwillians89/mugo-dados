@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -24,6 +24,7 @@ from .shopify_config import shopify_admin_url
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
 SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products"]
+SHOPIFY_PRODUCTION_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback"
 SHOPIFY_WEBHOOK_TOPICS = [
     "orders/create",
     "orders/updated",
@@ -41,6 +42,40 @@ SHOPIFY_WEBHOOK_TOPICS = [
 
 def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
+
+
+def _is_production() -> bool:
+    return _env("APP_ENV").lower() in {"prod", "production"} or _env("RENDER").lower() == "true"
+
+
+def _validated_redirect_uri(value: str) -> str:
+    redirect_uri = str(value or "").strip()
+    if not redirect_uri:
+        raise RuntimeError("OAuth Shopify não configurado: redirect_uri")
+    parsed = urlsplit(redirect_uri)
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise RuntimeError("SHOPIFY_OAUTH_REDIRECT_URI deve ser uma URL de callback sem query ou fragmento.")
+    if parsed.path != "/api/oauth/shopify/callback" or redirect_uri.endswith("/"):
+        raise RuntimeError("SHOPIFY_OAUTH_REDIRECT_URI deve terminar exatamente em /api/oauth/shopify/callback.")
+    if _is_production() and redirect_uri != SHOPIFY_PRODUCTION_REDIRECT_URI:
+        raise RuntimeError(
+            "SHOPIFY_OAUTH_REDIRECT_URI de produção deve ser "
+            f"{SHOPIFY_PRODUCTION_REDIRECT_URI}."
+        )
+    if parsed.scheme == "https" and parsed.netloc:
+        return redirect_uri
+    if not _is_production() and parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}:
+        return redirect_uri
+    raise RuntimeError("SHOPIFY_OAUTH_REDIRECT_URI deve usar HTTPS (HTTP é permitido apenas em localhost).")
+
+
+def safe_oauth_configuration() -> Dict[str, str]:
+    config = settings()
+    client_id = config["client_id"]
+    return {
+        "redirect_uri": config["redirect_uri"],
+        "client_id_hint": f"...{client_id[-6:]}" if len(client_id) > 6 else "configured",
+    }
 
 
 def normalize_shop_domain(value: str) -> str:
@@ -275,7 +310,7 @@ def settings() -> Dict[str, str]:
     result = {
         "client_id": _env("SHOPIFY_CLIENT_ID"),
         "client_secret": _env("SHOPIFY_CLIENT_SECRET"),
-        "redirect_uri": _env("SHOPIFY_OAUTH_REDIRECT_URI"),
+        "redirect_uri": _validated_redirect_uri(_env("SHOPIFY_OAUTH_REDIRECT_URI")),
     }
     missing = [key for key, value in result.items() if not value]
     if missing:

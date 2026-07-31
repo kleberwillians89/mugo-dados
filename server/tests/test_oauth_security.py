@@ -223,7 +223,7 @@ class OAuthStateTests(unittest.IsolatedAsyncioTestCase):
                 await oauth_state.consume_oauth_state(state, provider="shopify")
 
 
-class ShopifySecurityTests(unittest.TestCase):
+class ShopifySecurityTests(unittest.IsolatedAsyncioTestCase):
     def test_invalid_domains_are_rejected(self):
         for value in ("evil.com", "https://shop.myshopify.com/path", "shop.myshopify.com.evil.com", ""):
             with self.assertRaises(RuntimeError):
@@ -231,17 +231,87 @@ class ShopifySecurityTests(unittest.TestCase):
         self.assertEqual(normalize_shop_domain("Minha-Loja.myshopify.com"), "minha-loja.myshopify.com")
 
     def test_callback_hmac(self):
-        os.environ["SHOPIFY_CLIENT_ID"] = "client"
-        os.environ["SHOPIFY_CLIENT_SECRET"] = "shopify-secret"
-        os.environ["SHOPIFY_OAUTH_REDIRECT_URI"] = "http://localhost/callback"
-        params = {"code": "code", "shop": "loja.myshopify.com", "state": "state", "timestamp": "1"}
-        message = "&".join(f"{key}={value}" for key, value in sorted(params.items()))
-        params["hmac"] = hmac.new(
-            b"shopify-secret", message.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-        self.assertTrue(verify_callback_hmac(params))
-        params["hmac"] = "invalid"
-        self.assertFalse(verify_callback_hmac(params))
+        with patch.dict(
+            os.environ,
+            {
+                "SHOPIFY_CLIENT_ID": "client",
+                "SHOPIFY_CLIENT_SECRET": "shopify-secret",
+                "SHOPIFY_OAUTH_REDIRECT_URI": "http://localhost:8000/api/oauth/shopify/callback",
+                "APP_ENV": "development",
+                "RENDER": "false",
+            },
+            clear=False,
+        ):
+            params = {"code": "code", "shop": "loja.myshopify.com", "state": "state", "timestamp": "1"}
+            message = "&".join(f"{key}={value}" for key, value in sorted(params.items()))
+            params["hmac"] = hmac.new(
+                b"shopify-secret", message.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+            self.assertTrue(verify_callback_hmac(params))
+            params["hmac"] = "invalid"
+            self.assertFalse(verify_callback_hmac(params))
+
+    def test_production_callback_is_exact_https_url(self):
+        with patch.dict(
+            os.environ,
+            {
+                "APP_ENV": "production",
+                "SHOPIFY_CLIENT_ID": "shopify-client-id",
+                "SHOPIFY_CLIENT_SECRET": "secret",
+                "SHOPIFY_OAUTH_REDIRECT_URI": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            },
+            clear=False,
+        ):
+            config = shopify_oauth.settings()
+        parsed = urlparse(config["redirect_uri"])
+        self.assertEqual(parsed.scheme, "https")
+        self.assertEqual(parsed.netloc, "api.dados.mugoagencia.com.br")
+        self.assertEqual(parsed.path, "/api/oauth/shopify/callback")
+        self.assertFalse(config["redirect_uri"].endswith("/"))
+
+    def test_incorrect_production_callback_fails_clearly(self):
+        invalid_values = (
+            "http://api.dados.mugoagencia.com.br/api/oauth/shopify/callback",
+            "https://dados.mugoagencia.com.br/api/oauth/shopify/callback",
+            "https://mugo-dados.onrender.com/api/oauth/shopify/callback",
+            "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback/",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {
+                    "APP_ENV": "production",
+                    "SHOPIFY_CLIENT_ID": "shopify-client-id",
+                    "SHOPIFY_CLIENT_SECRET": "secret",
+                    "SHOPIFY_OAUTH_REDIRECT_URI": value,
+                },
+                clear=False,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "SHOPIFY_OAUTH_REDIRECT_URI"):
+                    shopify_oauth.settings()
+
+    async def test_redirect_uri_is_encoded_once(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "APP_ENV": "production",
+                    "SHOPIFY_CLIENT_ID": "shopify-client-id",
+                    "SHOPIFY_CLIENT_SECRET": "secret",
+                    "SHOPIFY_OAUTH_REDIRECT_URI": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+                },
+                clear=False,
+            ),
+            patch.object(shopify_oauth, "create_oauth_state", AsyncMock(return_value="signed-state")),
+        ):
+            value = await shopify_oauth.authorization_url(
+                user_id="user-roove",
+                client_id="roove",
+                shop_domain="loja.myshopify.com",
+            )
+        query = parse_qs(urlparse(value).query)
+        self.assertEqual(query["redirect_uri"], [shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI])
+        self.assertNotIn("%25", value)
 
 
 class ShopifyTenantTests(unittest.IsolatedAsyncioTestCase):

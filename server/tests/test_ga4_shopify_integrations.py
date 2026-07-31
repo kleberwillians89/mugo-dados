@@ -15,6 +15,7 @@ if SERVER_DIR not in sys.path:
 
 import api_support
 from routes import google_oauth as google_routes
+from routes import shopify_oauth as shopify_routes
 from server.services import ga4_connections, shopify_oauth
 from server.services.generic_connections import google_capabilities
 from server.services.integration_errors import (
@@ -299,6 +300,57 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(context.shop_domain, "legacy.myshopify.com")
         self.assertEqual(context.auth_mode, "legacy")
+
+    async def test_valid_callback_persists_connection_and_starts_first_sync(self):
+        request = type(
+            "Request",
+            (),
+            {
+                "query_params": {
+                    "code": "secret-code",
+                    "state": "secret-state",
+                    "shop": "roove.myshopify.com",
+                    "hmac": "valid-hmac",
+                }
+            },
+        )()
+        session = {
+            "user_id": "user-roove",
+            "client_id": "roove",
+            "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            "context": {"shop_domain": "roove.myshopify.com"},
+        }
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(shopify_routes, "consume_oauth_state", AsyncMock(return_value=session)),
+            patch.object(
+                shopify_routes,
+                "safe_oauth_configuration",
+                return_value={"redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI},
+            ),
+            patch.object(shopify_routes, "require_user_client_access", AsyncMock()),
+            patch.object(
+                shopify_routes,
+                "exchange_code",
+                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders"}),
+            ),
+            patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Roove"})),
+            patch.object(shopify_routes, "register_webhooks", AsyncMock()),
+            patch.object(
+                shopify_routes,
+                "save_shopify_connection",
+                AsyncMock(return_value={"id": "shopify-connection"}),
+            ) as save,
+            patch.object(shopify_routes, "sync_shopify_connection", AsyncMock(return_value={"ok": True})) as sync,
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await shopify_routes.callback(request)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("shopify_oauth=success", response.headers["location"])
+        for secret in ("secret-code", "secret-state", "secret-token"):
+            self.assertNotIn(secret, response.headers["location"])
+        save.assert_awaited_once()
+        sync.assert_awaited_once_with(client_id="roove", connection_id="shopify-connection")
 
 
 class IntegrationErrorSafetyTests(unittest.TestCase):

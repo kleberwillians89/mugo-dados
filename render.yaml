@@ -10,6 +10,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2
+      - key: APP_ENV
+        value: production
+      - key: SHOPIFY_OAUTH_REDIRECT_URI
+        value: https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback
 
   - type: cron
     name: mugo-dados-meta-token-refresh

@@ -16,6 +16,7 @@ from services.shopify_oauth import (
     fetch_shop,
     normalize_shop_domain,
     register_webhooks,
+    safe_oauth_configuration,
     select_shopify_connection,
     sync_shopify_connection,
     save_shopify_connection,
@@ -41,6 +42,11 @@ async def start(
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
     domain = normalize_shop_domain(shop)
+    diagnostic = safe_oauth_configuration()
+    print(
+        "[shopify_oauth][authorize] "
+        f"redirect_uri={diagnostic['redirect_uri']} client_id={diagnostic['client_id_hint']}"
+    )
     return {
         "ok": True,
         "client_id": cid,
@@ -61,6 +67,9 @@ async def callback(request: Request):
         if not code or not state:
             raise RuntimeError("Callback Shopify sem code ou state.")
         session = await consume_oauth_state(state, provider="shopify")
+        configured_redirect = safe_oauth_configuration()["redirect_uri"]
+        if str(session.get("redirect_uri") or "").strip() != configured_redirect:
+            raise RuntimeError("A redirect_uri da sessão OAuth não corresponde à configuração Shopify ativa.")
         expected_shop = normalize_shop_domain(str((session.get("context") or {}).get("shop_domain") or ""))
         if shop_domain != expected_shop:
             raise RuntimeError("A loja retornada não corresponde à loja autorizada.")
@@ -72,6 +81,10 @@ async def callback(request: Request):
         await register_webhooks(shop_domain, str(token.get("access_token") or ""))
         connection = await save_shopify_connection(
             client_id=client_id, user_id=user_id, shop_domain=shop_domain, token=token, shop=shop
+        )
+        await sync_shopify_connection(
+            client_id=client_id,
+            connection_id=str(connection.get("id") or ""),
         )
         return RedirectResponse(
             _frontend_redirect({"shopify_oauth": "success", "connection_id": str(connection.get("id") or "")}),
