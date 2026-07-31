@@ -370,7 +370,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
           </button>
           {onOpenGoogleReport ? (
             <button className="btn btnGhost" onClick={onOpenGoogleReport} type="button">
-              Dados Google
+              Analytics
             </button>
           ) : null}
           <button className="btnLogout" onClick={() => onLogout()} type="button">

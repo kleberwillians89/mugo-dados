@@ -12,6 +12,7 @@ from services.generic_connections import (
     get_connection,
     list_generic_connections,
     update_connection_selection,
+    google_capabilities,
 )
 from services.google_oauth import (
     authorization_url,
@@ -24,6 +25,7 @@ from services.google_oauth import (
     save_google_authorization,
 )
 from services.ga4_sync import sync_ga4_for_period
+from services.integration_errors import IntegrationError
 from services.oauth_state import consume_oauth_state
 from services.tenant import require_client_role, require_user_client_access, require_user_id
 
@@ -35,15 +37,48 @@ def _frontend_redirect(params: Dict[str, str]) -> str:
     return f"{base}/?onboarding=1&{urlencode(params)}"
 
 
-@router.get("/start")
-async def start(
+async def _start_product(
+    product: str,
     client_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
-    return {"ok": True, "client_id": cid, "authorization_url": await authorization_url(user_id=user_id, client_id=cid)}
+    return {
+        "ok": True,
+        "client_id": cid,
+        "product": product,
+        "authorization_url": await authorization_url(user_id=user_id, client_id=cid, product=product),
+    }
+
+
+@router.get("/ga4/start")
+async def start_ga4(
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    return await _start_product("ga4", client_id, x_client_id, authorization)
+
+
+@router.get("/ads/start")
+async def start_ads(
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    return await _start_product("ads", client_id, x_client_id, authorization)
+
+
+@router.get("/start", deprecated=True)
+async def start_legacy(
+    product: str = Query(default="ga4"),
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    return await _start_product(product, client_id, x_client_id, authorization)
 
 
 @router.get("/callback")
@@ -62,14 +97,22 @@ async def callback(
         session = await consume_oauth_state(state, provider="google")
         user_id = str(session.get("user_id") or "")
         client_id = str(session.get("client_id") or "")
+        context = session.get("context") if isinstance(session.get("context"), dict) else {}
+        product = str(context.get("product") or "").strip().lower()
+        if product not in {"ga4", "ads"}:
+            raise RuntimeError("State OAuth Google sem produto válido.")
         await require_user_client_access(user_id, client_id)
         token = await exchange_code(code, str(session.get("redirect_uri") or ""))
         identity = await fetch_google_identity(str(token.get("access_token") or ""))
         connection = await save_google_authorization(
-            client_id=client_id, user_id=user_id, token=token, identity=identity
+            client_id=client_id, user_id=user_id, token=token, identity=identity, product=product
         )
         return RedirectResponse(
-            _frontend_redirect({"google_oauth": "success", "connection_id": str(connection.get("id") or "")}),
+            _frontend_redirect({
+                "google_oauth": "success",
+                "google_product": product,
+                "connection_id": str(connection.get("id") or ""),
+            }),
             status_code=302,
         )
     except Exception as exc:
@@ -102,6 +145,14 @@ async def ga4_properties(
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
+    row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ga4_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Analytics com o escopo analytics.readonly.",
+            status_code=403,
+            code="GOOGLE_INSUFFICIENT_SCOPE",
+            provider="google",
+        )
     return {"ok": True, "properties": await list_ga4_properties(cid, connection_id)}
 
 
@@ -115,6 +166,14 @@ async def select_ga4(
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
+    row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ga4_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Analytics com o escopo analytics.readonly.",
+            status_code=403,
+            code="GOOGLE_INSUFFICIENT_SCOPE",
+            provider="google",
+        )
     property_id = str(payload.get("property_id") or "").strip().removeprefix("properties/")
     if not property_id:
         raise HTTPException(status_code=400, detail="property_id é obrigatório.")
@@ -122,7 +181,12 @@ async def select_ga4(
         client_id=cid,
         connection_id=connection_id,
         user_id=user_id,
-        metadata_patch={"ga4_property_id": property_id, "ga4_stream_id": str(payload.get("stream_id") or "").strip() or None},
+        metadata_patch={
+            "ga4_property_id": property_id,
+            "ga4_account_id": str(payload.get("account_id") or "").strip() or None,
+            "ga4_property_name": str(payload.get("property_name") or "").strip() or None,
+            "ga4_stream_id": str(payload.get("stream_id") or "").strip() or None,
+        },
     )
     return {"ok": True, "connection": connection}
 
@@ -147,6 +211,14 @@ async def ads_accounts(
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
+    row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ads_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Ads com o escopo adwords.",
+            status_code=403,
+            code="GOOGLE_ADS_INSUFFICIENT_SCOPE",
+            provider="google",
+        )
     return {"ok": True, **(await list_google_ads_accounts(cid, connection_id))}
 
 
@@ -160,6 +232,14 @@ async def select_ads(
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
+    row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ads_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Ads com o escopo adwords.",
+            status_code=403,
+            code="GOOGLE_ADS_INSUFFICIENT_SCOPE",
+            provider="google",
+        )
     customer_id = str(payload.get("customer_id") or "").replace("-", "").strip()
     if not customer_id.isdigit():
         raise HTTPException(status_code=400, detail="customer_id do Google Ads inválido.")

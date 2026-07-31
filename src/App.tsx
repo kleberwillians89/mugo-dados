@@ -21,6 +21,7 @@ import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundar
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
+const loadEcommerce = () => import("./pages/Ecommerce");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
 const loadNotFound = () => import("./pages/NotFound");
@@ -28,6 +29,7 @@ const loadNotFound = () => import("./pages/NotFound");
 const Onboarding = lazy(loadOnboarding);
 const Dashboard = lazy(loadDashboard);
 const GoogleAnalytics = lazy(loadGoogleAnalytics);
+const Ecommerce = lazy(loadEcommerce);
 const Companies = lazy(loadCompanies);
 const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
@@ -144,7 +146,8 @@ function PrimaryNavigation({
 }) {
   const items: Array<{ route: AppRoute; label: string }> = [
     { route: "dashboard", label: "Visão Geral" },
-    { route: "google", label: "E-commerce e GA4" },
+    { route: "google", label: "Analytics" },
+    { route: "ecommerce", label: "E-commerce" },
     { route: "integrations", label: "Integrações" },
     { route: "intelligence", label: "Inteligência IA" },
   ];
@@ -613,6 +616,14 @@ export default function App() {
           isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("dashboard")}
+        />
+      ) : route === "ecommerce" ? (
+        <Ecommerce
+          key={`ecommerce:${activeClientId}`}
+          isAuthenticated={!!session || localMode}
+          onLogout={handleLogout}
+          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenGoogleReport={() => openRoute("google")}
         />
       ) : (
         <Dashboard

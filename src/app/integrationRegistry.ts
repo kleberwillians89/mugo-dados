@@ -4,7 +4,7 @@ export type IntegrationAvailability =
   | "platform_update_pending";
 
 export type IntegrationDefinition = {
-  id: "meta" | "google" | "shopify" | "merchant_center" | "tiktok" | "pinterest";
+  id: "meta" | "ga4" | "google_ads" | "shopify" | "fbits" | "merchant_center" | "tiktok" | "pinterest";
   name: string;
   shortName: string;
   category: "marketing" | "analytics" | "commerce";
@@ -21,14 +21,24 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDefinition[] = [
     providerIds: ["meta", "instagram"], actionLabel: "Conectar com Meta",
   },
   {
-    id: "google", name: "Google Analytics e Ads", shortName: "Google", category: "analytics",
-    availability: "available", resources: ["Google Analytics 4", "Google Ads"],
-    providerIds: ["ga4", "google_ads"], actionLabel: "Conectar com Google",
+    id: "ga4", name: "Google Analytics 4", shortName: "GA4", category: "analytics",
+    availability: "available", resources: ["Propriedades", "Comportamento", "Conversões"],
+    providerIds: ["ga4"], actionLabel: "Autorizar Google Analytics",
+  },
+  {
+    id: "google_ads", name: "Google Ads", shortName: "Ads", category: "marketing",
+    availability: "available", resources: ["Contas", "Campanhas", "Mídia paga"],
+    providerIds: ["google_ads"], actionLabel: "Autorizar Google Ads",
   },
   {
     id: "shopify", name: "Shopify", shortName: "Shopify", category: "commerce",
     availability: "available", resources: ["Pedidos", "Clientes", "Produtos"],
     providerIds: ["shopify"], actionLabel: "Conectar loja",
+  },
+  {
+    id: "fbits", name: "FBits", shortName: "FBits", category: "commerce",
+    availability: "configuration_unavailable", resources: ["Pedidos", "Clientes", "Produtos"],
+    providerIds: ["fbits"],
   },
   {
     id: "merchant_center", name: "Merchant Center", shortName: "Merchant", category: "commerce",

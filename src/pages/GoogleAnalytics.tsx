@@ -6,9 +6,7 @@ import type { ChartData, ChartOptions } from "chart.js";
 import Shell from "../components/Shell";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
-import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
-import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
-import { syncFbits, syncGa4 } from "../app/api";
+import { syncGa4 } from "../app/api";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import type {
@@ -453,18 +451,6 @@ export default function GoogleAnalytics({
     activeClientId: activeGa4ClientId,
     period: selectedRange,
   });
-  const {
-    fbitsData,
-    fbitsOrders,
-    fbitsError,
-    loadingFbits,
-    reloadFbits,
-  } = useDashboardFbits({
-    isAuthenticated,
-    activeClientId: activeGa4ClientId,
-    period: selectedRange,
-  });
-
   useEffect(() => {
     if (selectedGa4ClientId === activeGa4ClientId) return;
     setSelectedGa4ClientId(activeGa4ClientId);
@@ -673,34 +659,20 @@ export default function GoogleAnalytics({
     setRefreshError(null);
     setSyncing(true);
     try {
-      const syncResults = await Promise.allSettled([
-        syncGa4({
+      await syncGa4({
           start: selectedRange.start,
           end: selectedRange.end,
           days: periodDays,
         }, {
           clientId: activeGa4ClientId,
-        }),
-        syncFbits({
-          start: selectedRange.start,
-          end: selectedRange.end,
-          days: periodDays,
-        }, {
-          clientId: activeGa4ClientId,
-        }),
-      ]);
-      const rejectedSync = syncResults.find((result) => result.status === "rejected");
-      if (rejectedSync?.status === "rejected") {
-        console.warn("[google-refresh]", rejectedSync.reason);
-        setRefreshError("Falha parcial ao atualizar. Mantendo a última leitura disponível.");
-      }
-      await Promise.allSettled([reloadGa4({ force: true }), reloadFbits({ force: true })]);
+        });
+      await reloadGa4({ force: true });
     } catch (error: unknown) {
       setRefreshError(toErrorMessage(error));
     } finally {
       setSyncing(false);
     }
-  }, [activeGa4ClientId, periodDays, reloadFbits, reloadGa4, selectedRange.end, selectedRange.start]);
+  }, [activeGa4ClientId, periodDays, reloadGa4, selectedRange.end, selectedRange.start]);
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
@@ -755,10 +727,6 @@ export default function GoogleAnalytics({
               connected: Boolean(ga4Report),
               label: `${ga4Report ? "GA4 com dados" : "GA4 aguardando dados"}${lastSyncedLabel ? ` • ${lastSyncedLabel}` : ""}`,
             },
-            {
-              connected: Boolean(fbitsData?.connected),
-              label: `${fbitsData?.connected ? "E-commerce conectado" : "E-commerce aguardando dados"}`,
-            },
           ]}
         />
       }
@@ -768,7 +736,7 @@ export default function GoogleAnalytics({
         <section className="googleHero">
           <div className="googleHeroCopy">
             <div className="googlePageEyebrow">Google Analytics 4</div>
-            <h1 className="googlePageTitle">Dados Google</h1>
+            <h1 className="googlePageTitle">Google Analytics 4</h1>
             <p className="googlePageSubtitle">
               Visão clara do comportamento do site, da jornada comercial e dos sinais de merchandising da{" "}
               {activeGa4ClientName}. Dados provenientes do Google Analytics 4.
@@ -781,9 +749,6 @@ export default function GoogleAnalytics({
               </span>
             </div>
             <div className="googleQuickNav">
-              <a className="googleQuickNavLink" href="#google-sales">
-                Comercial
-              </a>
               <a className="googleQuickNavLink" href="#google-summary">
                 Comportamento
               </a>
@@ -871,16 +836,6 @@ export default function GoogleAnalytics({
             </div>
 
           </div>
-        </section>
-
-        <section className="googleSection googleCommercialSection" id="google-sales">
-          <div className="sectionHeader">
-            <div>
-              <div className="h1">Comercial</div>
-              <div className="p">Leitura oficial de vendas separada dos sinais de comportamento do GA4.</div>
-            </div>
-          </div>
-          <FbitsSalesPanel data={fbitsData} orders={fbitsOrders} loading={loadingFbits} error={fbitsError} />
         </section>
 
         {loadingGa4 && !ga4Report ? <GoogleAnalyticsSkeleton /> : null}

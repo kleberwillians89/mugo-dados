@@ -14,7 +14,9 @@ if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
 import api_support
+from routes import google_oauth as google_routes
 from server.services import ga4_connections, shopify_oauth
+from server.services.generic_connections import google_capabilities
 from server.services.integration_errors import (
     IntegrationError,
     from_httpx_error,
@@ -63,6 +65,80 @@ def shopify_row(
 
 
 class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ads_only_connection_stops_before_ga4_property_request(self):
+        ads_only = google_row() | {
+            "scopes": ["https://www.googleapis.com/auth/adwords"],
+        }
+        with (
+            patch.object(google_routes, "require_client_role", AsyncMock(return_value="roove")),
+            patch.object(google_routes, "get_connection", AsyncMock(return_value=ads_only)),
+            patch.object(google_routes, "list_ga4_properties", AsyncMock()) as list_properties,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                await google_routes.ga4_properties(
+                    "google-connection",
+                    client_id="roove",
+                    authorization="Bearer safe",
+                )
+        self.assertEqual(getattr(raised.exception, "code", ""), "GOOGLE_INSUFFICIENT_SCOPE")
+        list_properties.assert_not_awaited()
+
+    async def test_ga4_selection_persists_property_account_and_name(self):
+        with (
+            patch.object(google_routes, "require_client_role", AsyncMock(return_value="roove")),
+            patch.object(google_routes, "require_user_id", AsyncMock(return_value="user-roove")),
+            patch.object(
+                google_routes,
+                "get_connection",
+                AsyncMock(
+                    return_value=google_row()
+                    | {"scopes": ["https://www.googleapis.com/auth/analytics.readonly"]}
+                ),
+            ),
+            patch.object(
+                google_routes,
+                "update_connection_selection",
+                AsyncMock(return_value={"id": "google-connection"}),
+            ) as update,
+        ):
+            await google_routes.select_ga4(
+                "google-connection",
+                {
+                    "property_id": "properties/123456",
+                    "account_id": "accounts/789",
+                    "property_name": "Roove Web",
+                },
+                client_id="roove",
+                authorization="Bearer safe",
+            )
+        metadata = update.await_args.kwargs["metadata_patch"]
+        self.assertEqual(metadata["ga4_property_id"], "123456")
+        self.assertEqual(metadata["ga4_account_id"], "accounts/789")
+        self.assertEqual(metadata["ga4_property_name"], "Roove Web")
+
+    def test_ads_only_token_keeps_ga4_incomplete(self):
+        capabilities = google_capabilities(
+            google_row(
+                metadata={"google_ads_customer_id": "1234567890"},
+                status="connected",
+            )
+            | {"scopes": ["openid", "email", "https://www.googleapis.com/auth/adwords"]}
+        )
+        self.assertTrue(capabilities["ads_authorized"])
+        self.assertTrue(capabilities["ads_configured"])
+        self.assertEqual(capabilities["ads_status"], "connected")
+        self.assertFalse(capabilities["ga4_authorized"])
+        self.assertEqual(capabilities["ga4_status"], "authorization_required")
+
+    def test_ga4_scope_requires_property_before_connected(self):
+        capabilities = google_capabilities(
+            google_row()
+            | {"scopes": ["https://www.googleapis.com/auth/analytics.readonly"]}
+        )
+        self.assertTrue(capabilities["ga4_authorized"])
+        self.assertFalse(capabilities["ga4_configured"])
+        self.assertEqual(capabilities["ga4_status"], "property_required")
+
     async def test_ga4_property_comes_from_oauth_metadata(self):
         select = AsyncMock(
             return_value=[

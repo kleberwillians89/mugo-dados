@@ -18,12 +18,11 @@ from .integration_errors import IntegrationError, from_httpx_error
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_SCOPES = [
-    "openid",
-    "email",
-    "https://www.googleapis.com/auth/analytics.readonly",
-    "https://www.googleapis.com/auth/adwords",
-]
+GOOGLE_BASIC_SCOPES = ("openid", "email")
+GOOGLE_PRODUCT_SCOPES = {
+    "ga4": "https://www.googleapis.com/auth/analytics.readonly",
+    "ads": "https://www.googleapis.com/auth/adwords",
+}
 _REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
@@ -52,19 +51,29 @@ def settings() -> Dict[str, str]:
     return values
 
 
-async def authorization_url(*, user_id: str, client_id: str) -> str:
+def scopes_for_product(product: str) -> List[str]:
+    normalized = str(product or "").strip().lower()
+    product_scope = GOOGLE_PRODUCT_SCOPES.get(normalized)
+    if not product_scope:
+        raise RuntimeError("Produto Google inválido. Use ga4 ou ads.")
+    return [*GOOGLE_BASIC_SCOPES, product_scope]
+
+
+async def authorization_url(*, user_id: str, client_id: str, product: str) -> str:
     config = settings()
+    normalized_product = str(product or "").strip().lower()
     state = await create_oauth_state(
         provider="google",
         user_id=user_id,
         client_id=client_id,
         redirect_uri=config["redirect_uri"],
+        context={"product": normalized_product},
     )
     params = {
         "client_id": config["client_id"],
         "redirect_uri": config["redirect_uri"],
         "response_type": "code",
-        "scope": " ".join(GOOGLE_SCOPES),
+        "scope": " ".join(scopes_for_product(normalized_product)),
         "access_type": "offline",
         "include_granted_scopes": "true",
         "prompt": "consent",
@@ -105,19 +114,25 @@ async def fetch_google_identity(access_token: str) -> Dict[str, str]:
 
 
 async def save_google_authorization(
-    *, client_id: str, user_id: str, token: Dict[str, Any], identity: Dict[str, str]
+    *, client_id: str, user_id: str, token: Dict[str, Any], identity: Dict[str, str], product: str
 ) -> Dict[str, Any]:
     expires_at = (
         datetime.now(timezone.utc) + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
     ).isoformat()
+    normalized_product = str(product or "").strip().lower()
+    if normalized_product not in GOOGLE_PRODUCT_SCOPES:
+        raise RuntimeError("Produto Google inválido. Use ga4 ou ads.")
+    target_provider = "ga4" if normalized_product == "ga4" else "google_ads"
     existing = await sb_select(
         "integration_connections",
-        filters={"client_id": f"eq.{client_id}", "provider": "eq.ga4"},
-        limit=10,
+        filters={"client_id": f"eq.{client_id}"},
+        limit=100,
     )
+    google_existing = [row for row in existing if str(row.get("provider") or "") in {"ga4", "google_ads"}]
     other_active = [
         row
-        for row in existing
+        for row in google_existing
+        if str(row.get("provider") or "") == target_provider
         if str(row.get("external_key") or "") != identity["sub"]
         and str(row.get("status") or "") != "disconnected"
     ]
@@ -126,7 +141,16 @@ async def save_google_authorization(
             "Esta empresa já possui uma autorização Google. Desconecte-a antes de autorizar outra conta."
         )
     same_identity = next(
-        (row for row in existing if str(row.get("external_key") or "") == identity["sub"]),
+        (
+            row
+            for row in google_existing
+            if str(row.get("external_key") or "") == identity["sub"]
+            and str(row.get("provider") or "") == target_provider
+        ),
+        None,
+    )
+    token_source = same_identity or next(
+        (row for row in google_existing if str(row.get("external_key") or "") == identity["sub"]),
         None,
     )
     refresh_token = str(token.get("refresh_token") or "").strip()
@@ -137,14 +161,14 @@ async def save_google_authorization(
             if isinstance(same_identity.get("metadata"), dict)
             else {}
         )
-        if not refresh_token:
-            encrypted = str(same_identity.get("encrypted_token") or "").strip()
-            if encrypted:
-                try:
-                    previous_token = json.loads(decrypt_secret(encrypted))
-                    refresh_token = str(previous_token.get("refresh_token") or "").strip()
-                except (RuntimeError, TypeError, ValueError):
-                    refresh_token = ""
+    if not refresh_token:
+        encrypted = str((token_source or {}).get("encrypted_token") or "").strip()
+        if encrypted:
+            try:
+                previous_token = json.loads(decrypt_secret(encrypted))
+                refresh_token = str(previous_token.get("refresh_token") or "").strip()
+            except (RuntimeError, TypeError, ValueError):
+                refresh_token = ""
     if not refresh_token:
         raise RuntimeError(
             "Google não devolveu refresh_token. Revogue o acesso anterior e conecte novamente."
@@ -157,7 +181,7 @@ async def save_google_authorization(
     }
     return await upsert_connection(
         client_id=client_id,
-        provider="ga4",
+        provider=target_provider,
         external_key=identity["sub"],
         token_payload=json.dumps(safe_token),
         user_id=user_id,
@@ -168,6 +192,7 @@ async def save_google_authorization(
         scopes=str(token.get("scope") or "").split(),
         metadata={
             **previous_metadata,
+            "google_product": normalized_product,
             "google_email": identity["email"],
             "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN")),
         },

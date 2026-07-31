@@ -403,9 +403,43 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_product_oauth_requests_only_the_required_scope(self):
+        with (
+            patch.object(
+                google_oauth,
+                "settings",
+                return_value={
+                    "client_id": "google-client",
+                    "client_secret": "secret",
+                    "redirect_uri": "https://api.example.com/api/oauth/google/callback",
+                },
+            ),
+            patch.object(
+                google_oauth,
+                "create_oauth_state",
+                AsyncMock(return_value="signed-state"),
+            ) as create_state,
+        ):
+            ga4_url = await google_oauth.authorization_url(
+                user_id="user-amalie", client_id="amalie", product="ga4"
+            )
+            ads_url = await google_oauth.authorization_url(
+                user_id="user-amalie", client_id="amalie", product="ads"
+            )
+
+        ga4_scope = parse_qs(urlparse(ga4_url).query)["scope"][0]
+        ads_scope = parse_qs(urlparse(ads_url).query)["scope"][0]
+        self.assertIn("analytics.readonly", ga4_scope)
+        self.assertNotIn("adwords", ga4_scope)
+        self.assertIn("adwords", ads_scope)
+        self.assertNotIn("analytics.readonly", ads_scope)
+        self.assertEqual(create_state.await_args_list[0].kwargs["context"], {"product": "ga4"})
+        self.assertEqual(create_state.await_args_list[1].kwargs["context"], {"product": "ads"})
+
     async def test_reauthorization_preserves_existing_refresh_token_and_selection(self):
         existing = {
             "id": "connection-1",
+            "provider": "ga4",
             "external_key": "google-user-a",
             "status": "connected",
             "encrypted_token": "encrypted-existing-token",
@@ -429,6 +463,7 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                 user_id="user-amalie",
                 token={"access_token": "new-access", "expires_in": 3600},
                 identity={"sub": "google-user-a", "email": "a@example.com"},
+                product="ga4",
             )
 
         token_payload = upsert.await_args.kwargs["token_payload"]
@@ -444,7 +479,7 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             "sb_select",
             AsyncMock(
                 return_value=[
-                    {"external_key": "google-user-a", "status": "connected"}
+                    {"provider": "ga4", "external_key": "google-user-a", "status": "connected"}
                 ]
             ),
         ):
@@ -458,6 +493,7 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                         "expires_in": 3600,
                     },
                     identity={"sub": "google-user-b", "email": "b@example.com"},
+                    product="ga4",
                 )
 
     async def test_missing_developer_token_has_clear_pending_status(self):

@@ -1151,8 +1151,12 @@ export async function startClientMetaOAuth(): Promise<MetaOauthStartResponse> {
   );
 }
 
-export async function startGoogleOAuth(): Promise<{ ok: boolean; authorization_url: string }> {
-  return http<{ ok: boolean; authorization_url: string }>("/api/oauth/google/start");
+export async function startGoogleOAuth(
+  product: "ga4" | "ads"
+): Promise<{ ok: boolean; product: string; authorization_url: string }> {
+  return http<{ ok: boolean; product: string; authorization_url: string }>(
+    `/api/oauth/google/${product}/start`
+  );
 }
 
 export async function startShopifyOAuth(
@@ -1195,6 +1199,14 @@ export type GenericConnection = {
   historical_start?: string | null;
   historical_end?: string | null;
   metadata?: Record<string, unknown>;
+  capabilities?: {
+    ga4_authorized: boolean;
+    ga4_configured: boolean;
+    ga4_status: string;
+    ads_authorized: boolean;
+    ads_configured: boolean;
+    ads_status: string;
+  };
 };
 
 export async function listGenericConnections(): Promise<{
@@ -1225,11 +1237,16 @@ export async function listGoogleGa4Properties(
 
 export async function selectGoogleGa4Property(
   connectionId: string,
-  propertyId: string
+  propertyId: string,
+  details?: { accountId?: string; propertyName?: string }
 ): Promise<JsonRecord> {
   return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/select`, {
     method: "POST",
-    body: JSON.stringify({ property_id: propertyId }),
+    body: JSON.stringify({
+      property_id: propertyId,
+      account_id: details?.accountId,
+      property_name: details?.propertyName,
+    }),
   });
 }
 

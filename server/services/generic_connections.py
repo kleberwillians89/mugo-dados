@@ -18,7 +18,43 @@ def sanitize_connection(row: Dict[str, Any]) -> Dict[str, Any]:
         "historical_end", "last_error", "metadata", "created_at", "updated_at",
         "external_key", "scopes", "disconnected_at",
     }
-    return {key: row.get(key) for key in allowed}
+    sanitized = {key: row.get(key) for key in allowed}
+    if str(row.get("provider") or "") in {"ga4", "google_ads"}:
+        sanitized["capabilities"] = google_capabilities(row)
+    return sanitized
+
+
+def google_capabilities(row: Dict[str, Any]) -> Dict[str, Any]:
+    scopes = {
+        str(scope or "").strip().lower()
+        for scope in (row.get("scopes") or [])
+        if str(scope or "").strip()
+    }
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    has_ga4_scope = any(scope.endswith("/analytics.readonly") for scope in scopes)
+    has_ads_scope = any(scope.endswith("/adwords") for scope in scopes)
+    ga4_property_id = str(metadata.get("ga4_property_id") or "").strip()
+    ads_customer_id = str(metadata.get("google_ads_customer_id") or "").strip()
+    return {
+        "ga4_authorized": has_ga4_scope,
+        "ga4_configured": has_ga4_scope and bool(ga4_property_id),
+        "ga4_status": (
+            "connected"
+            if has_ga4_scope and ga4_property_id
+            else "property_required"
+            if has_ga4_scope
+            else "authorization_required"
+        ),
+        "ads_authorized": has_ads_scope,
+        "ads_configured": has_ads_scope and bool(ads_customer_id),
+        "ads_status": (
+            "connected"
+            if has_ads_scope and ads_customer_id
+            else "account_required"
+            if has_ads_scope
+            else "not_connected"
+        ),
+    }
 
 
 async def list_generic_connections(client_id: str) -> List[Dict[str, Any]]:

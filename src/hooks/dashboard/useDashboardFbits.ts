@@ -24,6 +24,25 @@ type FbitsCachePayload = {
   orders: FbitsOrdersResponse | null;
 };
 
+export function resolveCommerceConnection(connections: Array<{
+  provider: string;
+  status: string;
+  metadata?: Record<string, unknown>;
+}>) {
+  const activeCommerceConnections = connections.filter(
+    (connection) =>
+      ["shopify", "fbits"].includes(connection.provider) &&
+      ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
+  );
+  return (
+    activeCommerceConnections.find(
+      (connection) =>
+        connection.provider === "shopify" &&
+        Boolean(connection.metadata?.selected_for_reporting)
+    ) || activeCommerceConnections[0] || null
+  );
+}
+
 export default function useDashboardFbits({ isAuthenticated, activeClientId, period }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
   const rangeKey = useMemo(
@@ -67,17 +86,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setFbitsError(null);
     try {
       const connectionResponse = await listGenericConnections();
-      const activeCommerceConnections = connectionResponse.connections.filter(
-        (connection) =>
-          ["shopify", "fbits"].includes(connection.provider) &&
-          ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
-      );
-      const commerceConnection =
-        activeCommerceConnections.find(
-          (connection) =>
-            connection.provider === "shopify" &&
-            Boolean(connection.metadata?.selected_for_reporting)
-        ) || activeCommerceConnections[0];
+      const commerceConnection = resolveCommerceConnection(connectionResponse.connections);
       if (!commerceConnection) {
         const empty: FbitsOrdersSummaryResponse = {
           ok: true,

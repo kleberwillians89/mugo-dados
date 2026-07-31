@@ -83,7 +83,7 @@ export default function DashboardHeader({
               onClick={onOpenGoogleAnalytics}
               type="button"
             >
-              Google e comércio
+              Analytics
             </button>
           ) : null}
           {onRefresh ? (
