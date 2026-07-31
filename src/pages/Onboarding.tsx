@@ -37,6 +37,10 @@ import {
   MUGO_APP_NAME,
 } from "../app/activeClient";
 import logo from "../assets/mugo-logo.svg";
+import {
+  INTEGRATION_REGISTRY,
+  unavailableIntegrationLabel,
+} from "../app/integrationRegistry";
 import "../styles/onboarding.css";
 
 type Props = {
@@ -60,11 +64,14 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function statusLabel(status: string): string {
-  if (status === "active") return "Ativa";
-  if (status === "needs_reauth") return "Reconectar";
-  if (status === "error") return "Erro";
-  if (status === "disconnected") return "Desconectada";
-  return status || "-";
+  const normalized = String(status || "").toLowerCase();
+  if (["active", "connected", "updated"].includes(normalized)) return "Conectado";
+  if (["connecting", "importing", "syncing"].includes(normalized)) return "Sincronizando";
+  if (["needs_reauth", "reauth_required", "token_expired", "stale"].includes(normalized)) return "Requer atenção";
+  if (["error", "sync_error"].includes(normalized)) return "Erro";
+  if (normalized === "disconnected") return "Não conectado";
+  if (normalized === "selection_required") return "Seleção de conta pendente";
+  return normalized ? "Não conectado" : "Não conectado";
 }
 
 function isOrganicConnection(connection: MetaConnection): boolean {
@@ -130,7 +137,12 @@ export default function Onboarding({
   const [oauthLoading, setOauthLoading] = useState(false);
   const [shopifyDomain, setShopifyDomain] = useState("");
   const activeRole = getActiveClient()?.role || "viewer";
-  const canManageConnections = activeRole === "agency_admin" || activeRole === "client_admin" || activeRole === "owner" || activeRole === "admin";
+  const canManageConnections =
+    activeRole === "platform_admin" ||
+    activeRole === "agency_admin" ||
+    activeRole === "client_admin" ||
+    activeRole === "owner" ||
+    activeRole === "admin";
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -601,33 +613,41 @@ export default function Onboarding({
             </div>
           </div>
           <div className="onboardingConnections">
-            {[
-              ["Instagram e Meta Ads", dashboardReady || paidConnections.length ? "Conectada" : "Não configurada"],
-              ["Google Ads e GA4", "Não configurada"],
-              ["Shopify", "Não configurada"],
-              ["TikTok", "Aguardando atualização da plataforma"],
-              ["Pinterest", "Aguardando atualização da plataforma"],
-              ["FBits", "Legado preservado"],
-            ].map(([name, defaultStatus]) => {
-              const providers =
-                name === "Google Ads e GA4"
-                  ? ["ga4", "google_ads"]
-                  : name === "Shopify"
-                    ? ["shopify"]
-                    : [];
-              const connection = genericConnections.find((item) => providers.includes(item.provider));
-              const status = connection?.status || defaultStatus;
+            {INTEGRATION_REGISTRY.map((definition) => {
+              const connection = genericConnections.find((item) =>
+                definition.providerIds.includes(item.provider)
+              );
+              const metaConnected =
+                definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
+              const status = connection
+                ? statusLabel(connection.status)
+                : metaConnected
+                  ? "Conectado"
+                  : definition.availability === "available"
+                    ? "Não conectado"
+                    : unavailableIntegrationLabel(definition.availability);
+              const actionable = definition.availability === "available";
               return (
-              <div className="onboardingConnBlock" key={name}>
-                <div className="h1">{name}</div>
-                <div className="pill pillSoft" style={{ marginTop: 10 }}>{status}</div>
+              <div className="onboardingConnBlock" key={definition.id}>
+                <div className="integrationCardHeading">
+                  <span className="integrationMonogram" aria-hidden="true">
+                    {definition.shortName.slice(0, 2).toUpperCase()}
+                  </span>
+                  <div>
+                    <div className="h1">{definition.name}</div>
+                    <div className="smallMuted">{definition.resources.join(" · ")}</div>
+                  </div>
+                </div>
+                <div className={`pill ${status === "Erro" || status === "Requer atenção" ? "pillDanger" : "pillSoft"}`} style={{ marginTop: 10 }}>
+                  {status}
+                </div>
                 {connection?.account_name ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {connection.account_name}<br />
                     Última sincronização: {fmtDate(connection.last_sync_at)}
                   </div>
                 ) : null}
-                {name === "Shopify" ? (
+                {definition.id === "shopify" ? (
                   <input
                     type="text"
                     value={shopifyDomain}
@@ -637,30 +657,26 @@ export default function Onboarding({
                     style={{ marginTop: 12, width: "100%" }}
                   />
                 ) : null}
-                {name === "Instagram e Meta Ads" || name === "Google Ads e GA4" || name === "Shopify" ? (
+                {actionable ? (
                   <button
                     className="btn btnGhost"
                     type="button"
                     style={{ marginTop: 12 }}
                     disabled={!canManageConnections || oauthLoading}
                     onClick={
-                      name === "Instagram e Meta Ads"
+                      definition.id === "meta"
                         ? () => void onStartOAuth()
-                        : name === "Google Ads e GA4"
+                        : definition.id === "google"
                           ? () => void onStartGoogleOAuth()
                           : () => void onStartShopifyOAuth()
                     }
                   >
-                    {name === "Instagram e Meta Ads"
-                      ? "Conectar com Facebook"
-                      : name === "Google Ads e GA4"
-                        ? "Conectar com Google"
-                        : "Conectar minha loja"}
+                    {definition.actionLabel}
                   </button>
                 ) : null}
                 {connection ? (
                   <div className="onboardingConnActions" style={{ marginTop: 10 }}>
-                    {name === "Google Ads e GA4" ? (
+                    {definition.id === "google" ? (
                       <>
                         <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving} onClick={() => void onManageGoogle(connection)}>
                           Selecionar contas

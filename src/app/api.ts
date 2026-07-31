@@ -38,11 +38,12 @@ import {
 import { getSelectedPeriodRange } from "./periodRange";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
+const productionApiBase = "https://mugo-dados.onrender.com";
 
 function resolveApiBase(): string {
   if (!rawApiBase) {
     // Em dev, usa proxy do Vite para evitar CORS.
-    return import.meta.env.DEV ? "" : "http://localhost:8000";
+    return import.meta.env.DEV ? "" : productionApiBase;
   }
 
   if (import.meta.env.DEV) {
@@ -70,6 +71,20 @@ type RequestSignalOptions = {
 type ClientRequestOptions = RequestSignalOptions & {
   clientId?: string | null;
 };
+
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  retryable: boolean;
+
+  constructor(message: string, options: { status: number; code?: string; retryable?: boolean }) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options.status;
+    this.code = options.code || "API_ERROR";
+    this.retryable = options.retryable ?? (options.status === 429 || options.status >= 500);
+  }
+}
 
 export type ClientMembership = {
   client_id: string;
@@ -241,33 +256,49 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const activeClientId = getActiveClientId();
   if (activeClientId) headers.set("X-Client-Id", activeClientId);
 
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort("timeout"), 25_000);
+  const originalSignal = init.signal;
+  const abortFromCaller = () => controller.abort(originalSignal?.reason);
+  originalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
       headers,
+      signal: controller.signal,
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
     const warning = getActiveClientConfigurationWarning();
-    throw new Error(
+    throw new ApiError(
       [warning, "API indisponível no momento. Verifique se o backend está rodando."]
         .filter(Boolean)
-        .join(" ")
+        .join(" "),
+      { status: 0, code: controller.signal.aborted ? "REQUEST_TIMEOUT" : "NETWORK_ERROR", retryable: true }
     );
+  } finally {
+    window.clearTimeout(timeoutId);
+    originalSignal?.removeEventListener("abort", abortFromCaller);
   }
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
+    let detail = "";
+    let code = "";
+    let retryable = res.status === 429 || res.status >= 500;
     try {
       const j = txt ? (JSON.parse(txt) as JsonRecord) : null;
       const errObj = asRecord(j?.error);
-      const detail =
+      detail =
         asString(j?.detail) ||
         asString(j?.message) ||
         asString(errObj?.message);
+      code = asString(j?.code) || asString(errObj?.code);
+      if (typeof j?.retryable === "boolean") retryable = j.retryable;
       console.warn("[api]", {
         path,
         status: res.status,
@@ -284,10 +315,17 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
       clearTenantBrowserState();
       await supabase?.auth.signOut().catch(() => undefined);
     }
-    throw new Error(
+    throw new ApiError(
       res.status === 401
         ? "Sua sessão precisa ser renovada."
-        : "Não foi possível carregar os dados agora."
+        : res.status === 403
+          ? detail || "Você não tem acesso a esta empresa."
+          : res.status === 404
+            ? detail || "O recurso solicitado não foi encontrado."
+            : res.status === 429
+              ? "Muitas solicitações. Aguarde um momento e tente novamente."
+              : detail || "Não foi possível carregar os dados agora.",
+      { status: res.status, code: code || `HTTP_${res.status}`, retryable }
     );
   }
 
@@ -318,6 +356,27 @@ export async function createPlatformCompany(payload: {
 
 export async function openPlatformCompany(clientId: string): Promise<{ ok: boolean; company: PlatformCompany }> {
   return http(`/api/platform/companies/${encodeURIComponent(clientId)}/access`, { method: "POST" });
+}
+
+export async function updatePlatformCompany(
+  clientId: string,
+  payload: Partial<Pick<PlatformCompany, "name" | "trade_name" | "cnpj" | "status">>
+): Promise<{ ok: boolean; company: PlatformCompany }> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createClientInvitation(payload: {
+  client_id: string;
+  email: string;
+  role: "owner" | "agency_admin" | "client_admin" | "viewer";
+}): Promise<{ ok: true; invitation: { id: string; email: string; role: string } }> {
+  return http("/api/invitations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 function mapTotals(raw: unknown): DashboardTotals {

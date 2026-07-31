@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
+  createClientInvitation,
   createPlatformCompany,
   listPlatformCompanies,
+  updatePlatformCompany,
   type PlatformCompany,
 } from "../app/api";
 import "../styles/companies.css";
@@ -21,6 +23,12 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
   const [form, setForm] = useState({
     name: "", trade_name: "", cnpj: "", responsible_email: "",
   });
+  const [invite, setInvite] = useState({
+    client_id: "",
+    email: "",
+    role: "viewer" as "owner" | "agency_admin" | "client_admin" | "viewer",
+  });
+  const [inviteMessage, setInviteMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,6 +54,35 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível criar a empresa.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleCompanyStatus(company: PlatformCompany) {
+    setError("");
+    try {
+      await updatePlatformCompany(company.id, {
+        status: company.status === "inactive" ? "active" : "inactive",
+      });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a empresa.");
+    }
+  }
+
+  async function submitInvitation(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setInviteMessage("");
+    try {
+      await createClientInvitation(invite);
+      setInvite((current) => ({ ...current, email: "" }));
+      setInviteMessage("Convite enviado com segurança.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível enviar o convite.");
     } finally {
       setSaving(false);
     }
@@ -84,6 +121,42 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
       </section>
 
       <section className="companiesCard">
+        <h2>Convidar usuário</h2>
+        <p>O acesso será limitado à empresa e ao papel selecionados.</p>
+        <form className="companiesForm" onSubmit={submitInvitation}>
+          <label>Empresa
+            <select required value={invite.client_id}
+              onChange={(event) => setInvite({ ...invite, client_id: event.target.value })}>
+              <option value="">Selecione</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.trade_name || company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>E-mail<input required type="email" value={invite.email}
+            onChange={(event) => setInvite({ ...invite, email: event.target.value })} /></label>
+          <label>Papel
+            <select value={invite.role}
+              onChange={(event) => setInvite({
+                ...invite,
+                role: event.target.value as typeof invite.role,
+              })}>
+              <option value="viewer">Leitura</option>
+              <option value="client_admin">Administrador do cliente</option>
+              <option value="agency_admin">Administrador da agência</option>
+              <option value="owner">Responsável</option>
+            </select>
+          </label>
+          <button className="btn btnPrimary" disabled={saving || !invite.client_id}>
+            {saving ? "Enviando..." : "Enviar convite"}
+          </button>
+        </form>
+        {inviteMessage && <p className="companiesSuccess" role="status">{inviteMessage}</p>}
+      </section>
+
+      <section className="companiesCard">
         <div className="companiesListTitle">
           <h2>Empresas cadastradas</h2>
           <button className="btn" onClick={() => void load()} disabled={loading}>Atualizar</button>
@@ -98,7 +171,14 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
                   <td>{company.responsible_email || "—"}</td>
                   <td><span className="companiesStatus">{company.status}</span></td>
                   <td>{company.invitation_status || "—"}</td>
-                  <td><button className="btn" onClick={() => onOpenCompany(company)}>Abrir para suporte</button></td>
+                  <td>
+                    <div className="companiesRowActions">
+                      <button className="btn" onClick={() => onOpenCompany(company)}>Abrir para suporte</button>
+                      <button className="btn" onClick={() => void toggleCompanyStatus(company)}>
+                        {company.status === "inactive" ? "Ativar" : "Inativar"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>

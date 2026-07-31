@@ -9,6 +9,7 @@ from services.platform_admin import (
     is_platform_admin,
     list_platform_companies,
     require_platform_admin,
+    update_platform_company,
 )
 from services.ig_supabase import sb_rpc, sb_select
 from services.tenant import require_user_id
@@ -36,6 +37,19 @@ async def platform_create_company(
     actor_user_id = await require_platform_admin(authorization)
     try:
         return await create_platform_company(actor_user_id, payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{client_id}")
+async def platform_update_company(
+    client_id: str,
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    actor_user_id = await require_platform_admin(authorization)
+    try:
+        return await update_platform_company(actor_user_id, client_id, payload)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

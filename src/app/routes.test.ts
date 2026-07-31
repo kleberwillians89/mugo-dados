@@ -11,4 +11,8 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/")).toBe("dashboard");
     expect(getAppRouteFromPath("/google")).toBe("google");
   });
+
+  it("distinguishes an unknown URL from the dashboard", () => {
+    expect(getAppRouteFromPath("/rota-inexistente")).toBe("not_found");
+  });
 });

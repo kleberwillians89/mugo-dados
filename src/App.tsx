@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   disableLocalAuth,
@@ -6,7 +6,7 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { getPlatformProfile, listClients, listClientConnections, listPlatformCompanies, openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
+import { getPlatformProfile, listClients, listPlatformCompanies, openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
@@ -16,11 +16,19 @@ import { clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClien
 import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
 import Login from "./pages/Login";
-import Onboarding from "./pages/Onboarding";
-import Dashboard from "./pages/Dashboard";
-import GoogleAnalytics from "./pages/GoogleAnalytics";
-import Companies from "./pages/Companies";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
+
+const loadOnboarding = () => import("./pages/Onboarding");
+const loadDashboard = () => import("./pages/Dashboard");
+const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
+const loadCompanies = () => import("./pages/Companies");
+const loadNotFound = () => import("./pages/NotFound");
+
+const Onboarding = lazy(loadOnboarding);
+const Dashboard = lazy(loadDashboard);
+const GoogleAnalytics = lazy(loadGoogleAnalytics);
+const Companies = lazy(loadCompanies);
+const NotFound = lazy(loadNotFound);
 
 type AppView = "loading" | "login" | "setup" | "dashboard";
 
@@ -99,17 +107,21 @@ function toErrorMessage(error: unknown): string {
 
 function AppLoading() {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        background:
-          "radial-gradient(900px 360px at 12% -10%, rgba(215,219,106,.24), transparent 62%), #f2f0ec",
-      }}
-    >
-      <span className="pill">Carregando {MUGO_APP_NAME}...</span>
-    </div>
+    <main className="appBootShell" aria-busy="true" aria-live="polite">
+      <header className="appBootHeader">
+        <span className="appBootMark" aria-hidden="true">M</span>
+        <div><strong>{MUGO_APP_NAME}</strong><small>Preparando seu workspace</small></div>
+      </header>
+      <section className="appBootContent">
+        <div className="appBootIntro">
+          <span className="appBootSpinner" aria-hidden="true" />
+          <div><h1>Visão geral</h1><p>Validando sessão e empresa ativa…</p></div>
+        </div>
+        <div className="appBootGrid" aria-hidden="true">
+          <span /><span /><span /><span />
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -124,16 +136,7 @@ export default function App() {
   const [clients, setClients] = useState<ClientMembership[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
   const [activeClientId, setActiveClientId] = useState(() => getActiveClient()?.id || "");
-
-  const isOrganicConnection = useCallback(
-    (connection: { platform?: string | null; connection_type?: string | null; status?: string | null }) => {
-      const platform = String(connection.platform || "").toLowerCase();
-      const connectionType = String(connection.connection_type || "").toLowerCase();
-      const status = String(connection.status || "").toLowerCase();
-      return status === "active" && (platform === "instagram" || connectionType === "organic");
-    },
-    []
-  );
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
 
   const resolveAuthenticatedView = useCallback(
     async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
@@ -144,6 +147,18 @@ export default function App() {
           reason: "missing_session",
         });
         setView("login");
+        return;
+      }
+
+      const sameAuthenticatedContext =
+        Boolean(activeSession?.user.id) && resolvedUserId === activeSession?.user.id;
+      if (sameAuthenticatedContext) {
+        if (requestedRoute === "companies" && !platformAdmin) {
+          setBootError("Você não tem permissão para acessar a administração de empresas.");
+          navigateToAppRoute("dashboard", { replace: true });
+          setRoute("dashboard");
+        }
+        setView(hasSetupSignalInUrl() ? "setup" : "dashboard");
         return;
       }
 
@@ -165,7 +180,14 @@ export default function App() {
             }))
           : (await listClients()).clients || [];
         setClients(availableClients);
+        setResolvedUserId(activeSession?.user.id || null);
         const stored = getActiveClient();
+        if (profile.is_platform_admin && !stored && requestedRoute === "dashboard") {
+          navigateToAppRoute("companies", { replace: true });
+          setRoute("companies");
+          setView("dashboard");
+          return;
+        }
         const selected =
           availableClients.find((client) => client.client_id === stored?.id) ||
           availableClients[0];
@@ -187,6 +209,11 @@ export default function App() {
         setActiveClientId(selected.client_id);
       }
 
+      if (requestedRoute === "not_found") {
+        setView("dashboard");
+        return;
+      }
+
       if (requestedRoute === "companies") {
         setView("dashboard");
         return;
@@ -201,50 +228,15 @@ export default function App() {
         return;
       }
 
-      try {
-        const setupRequestedFromUrl = hasSetupSignalInUrl();
-        const connectionsRes = await listClientConnections();
-        const connections = connectionsRes.connections || [];
-        const hasActiveOrganicConnection = connections.some(isOrganicConnection);
-
-        if (setupRequestedFromUrl) {
-          authDebug("route.decision", {
-            target: "setup",
-            reason: "setup_signal_in_url",
-            connectionsCount: connections.length,
-          });
-          setView("setup");
-          return;
-        }
-
-        if (!hasActiveOrganicConnection) {
-          authDebug("route.decision", {
-            target: "dashboard",
-            reason: "authenticated_without_active_client_connection",
-            connectionsCount: connections.length,
-          });
-          setView("dashboard");
-          return;
-        }
-
-        authDebug("route.decision", {
-          target: "dashboard",
-            reason: "authenticated_with_active_client_connection",
-          connectionsCount: connections.length,
-        });
-        setView("dashboard");
-      } catch (error: unknown) {
-        const message = toErrorMessage(error);
-        authDebug("route.decision", {
-          target: "dashboard",
-          reason: "resolve_authenticated_view_error",
-          error: message,
-        });
-        setBootError(message);
-        setView("dashboard");
+      if (hasSetupSignalInUrl()) {
+        setView("setup");
+        return;
       }
+      // O shell autenticado não espera integrações nem relatórios. Cada página
+      // carrega seus dados progressivamente e mantém seu último estado válido.
+      setView("dashboard");
     },
-    [isOrganicConnection, localMode, route, session]
+    [localMode, platformAdmin, resolvedUserId, route, session]
   );
 
   useEffect(() => {
@@ -346,6 +338,7 @@ export default function App() {
         clearTenantBrowserState();
         setClients([]);
         setActiveClientId("");
+        setResolvedUserId(null);
         clearSetupUrlParams();
         setBootError(null);
         setView("login");
@@ -385,6 +378,29 @@ export default function App() {
     void resolveAuthenticatedView(session, route);
   }, [authInitializing, localMode, resolveAuthenticatedView, route, session]);
 
+  useEffect(() => {
+    if (view !== "dashboard" || (!session && !localMode)) return;
+    const preload = () => {
+      void Promise.allSettled([
+        loadDashboard(),
+        loadGoogleAnalytics(),
+        loadOnboarding(),
+        loadNotFound(),
+        ...(platformAdmin ? [loadCompanies()] : []),
+      ]);
+    };
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(preload, { timeout: 2500 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+    const handle = window.setTimeout(preload, 1200);
+    return () => window.clearTimeout(handle);
+  }, [localMode, platformAdmin, session, view]);
+
   const openRoute = useCallback(
     (nextRoute: AppRoute) => {
       navigateToAppRoute(nextRoute);
@@ -396,6 +412,7 @@ export default function App() {
   async function handleLogout() {
     clearTenantBrowserState();
     setActiveConnectionId(null);
+    setResolvedUserId(null);
     if (localMode) {
       disableLocalAuth();
       setLocalMode(false);
@@ -455,7 +472,6 @@ export default function App() {
     setActiveClient({ id: client.client_id, name: client.name, role: client.role });
     setActiveConnectionId(null);
     setActiveClientId(client.client_id);
-    window.location.reload();
   }, [clients]);
 
   const handleOpenCompany = useCallback(async (company: PlatformCompany) => {
@@ -495,13 +511,17 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
-      {route === "companies" && platformAdmin ? (
+      <Suspense fallback={<AppLoading />}>
+      {route === "not_found" ? (
+        <NotFound onGoHome={() => openRoute("dashboard")} />
+      ) : route === "companies" && platformAdmin ? (
         <Companies
           onLogout={handleLogout}
           onOpenCompany={(company) => void handleOpenCompany(company)}
           onOpenDashboard={() => openRoute("dashboard")}
         />
-      ) : <>
+      ) : (
+      <>
       {platformAdmin && (
         <button className="btn" style={{position:"fixed",right:18,top:18,zIndex:100}} onClick={() => openRoute("companies")}>
           Empresas
@@ -514,12 +534,14 @@ export default function App() {
       />
       {route === "google" ? (
         <GoogleAnalytics
+          key={`google:${activeClientId}`}
           isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("dashboard")}
         />
       ) : (
         <Dashboard
+          key={`dashboard:${activeClientId}`}
           onLogout={handleLogout}
           isAuthenticated={!!session || localMode}
           bootstrapError={bootError}
@@ -527,7 +549,9 @@ export default function App() {
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
       )}
-      </>}
+      </>
+      )}
+      </Suspense>
     </DashboardErrorBoundary>
   );
 }

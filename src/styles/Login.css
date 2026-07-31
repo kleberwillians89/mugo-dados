@@ -60,10 +60,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: fit-content;
+  width: 92px;
   max-width: 100%;
-  margin-bottom: 42px;
-  padding: 10px;
+  margin-bottom: 34px;
+  padding: 14px;
   background: transparent;
   border: 2px solid #b22234;
   border-radius: 28px;
@@ -73,7 +73,7 @@
 
 .loginTopLogo {
   display: block;
-  width: 420px;
+  width: 64px;
   max-width: 100%;
   height: auto;
   object-fit: contain;
@@ -128,28 +128,10 @@
   background: transparent;
 }
 
-.loginBrandTags {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 28px;
-}
-
-.loginBrandTags span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 18px;
-  border: 1px solid rgba(196, 74, 61, 0.28);
-  border-radius: 999px;
-  font-size: 14px;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #b22234;
-  background: transparent;
-}
+.loginEcosystem{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:28px}
+.loginEcosystemItem{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 12px;border:1px solid #e0ddd7;border-radius:14px;background:rgba(255,255,255,.7)}
+.loginEcosystemItem>span{width:34px;height:34px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:#153f35;color:#fff;font-size:11px;font-weight:800;letter-spacing:.05em}
+.loginEcosystemItem div{display:grid;min-width:0}.loginEcosystemItem strong{font-size:13px;color:#25302b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.loginEcosystemItem small{font-size:11px;color:#748078;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* LADO DIREITO */
 .loginCard {
@@ -315,6 +297,10 @@
 }
 
 @media (max-width: 640px) {
+  .loginEcosystem {
+    grid-template-columns: 1fr;
+  }
+
   .loginPage {
     padding: 18px;
   }
@@ -327,11 +313,6 @@
   .loginBrandPanel,
   .loginCard {
     padding: 26px 20px;
-  }
-
-  .loginBrandTags span {
-    min-width: 0;
-    max-width: 100%;
   }
 
   .loginBrandTopLogo {
@@ -386,7 +367,7 @@
     margin-bottom: 28px;
   }
 
-  .loginBrandTags {
+  .loginEcosystem {
     margin-top: 28px;
   }
 }

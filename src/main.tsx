@@ -8,19 +8,6 @@ import "./index.css"; // reset + base
 import "./styles/mugo.tokens.css";
 import "./styles/App.css";
 
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Tooltip,
-  Legend,
-} from "chart.js";
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
-
 function renderBootstrapFallback(message: string) {
   const container = document.createElement("div");
   container.style.minHeight = "100vh";

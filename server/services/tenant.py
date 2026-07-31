@@ -41,6 +41,25 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
     """
     user_id = await require_user_id(authorization)
     requested = (client_id or "").strip() or "-"
+    from .platform_admin import is_platform_admin
+    from .ig_supabase import sb_select
+    if await is_platform_admin(user_id):
+        explicit_client_id = (client_id or "").strip()
+        if not explicit_client_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Selecione explicitamente uma empresa para o suporte administrativo.",
+            )
+        rows = await sb_select(
+            "clients", select="id", filters={"id": f"eq.{explicit_client_id}"}, limit=1
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Empresa selecionada não existe.")
+        print(
+            f"[tenant] user_id={user_id} requested_client_id={requested} "
+            f"resolved_client_id={explicit_client_id} source=platform_support_explicit"
+        )
+        return explicit_client_id
     try:
         resolved = await sb_get_client_id_for_user(user_id, requested_client_id=client_id)
         source = "explicit" if (client_id or "").strip() else "default_single_membership"
@@ -50,19 +69,6 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
         )
         return resolved
     except PermissionError as exc:
-        if (client_id or "").strip():
-            from .platform_admin import is_platform_admin
-            from .ig_supabase import sb_select
-            if await is_platform_admin(user_id):
-                rows = await sb_select(
-                    "clients", select="id", filters={"id": f"eq.{client_id}"}, limit=1
-                )
-                if rows:
-                    print(
-                        f"[tenant] user_id={user_id} requested_client_id={requested} "
-                        f"resolved_client_id={client_id} source=platform_support_explicit"
-                    )
-                    return str(client_id)
         print(f"[tenant] denied user_id={user_id} requested_client_id={requested}")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -74,6 +80,9 @@ async def require_client_role(
 ) -> str:
     user_id = await require_user_id(authorization)
     resolved = await resolve_client_id(client_id, authorization)
+    from .platform_admin import is_platform_admin
+    if await is_platform_admin(user_id):
+        return resolved
     memberships = await sb_get_client_memberships(user_id)
     membership = next(
         (row for row in memberships if str(row.get("client_id") or "").strip() == resolved),
@@ -86,9 +95,37 @@ async def require_client_role(
     return resolved
 
 
+async def require_client_read(
+    client_id: Optional[str],
+    authorization: Optional[str],
+) -> str:
+    """
+    Autoriza leitura tenant-scoped.
+
+    Membership válida (inclusive viewer) ou platform_admin com tenant explícito
+    resolvido por resolve_client_id. Não confere papel de mutação.
+    """
+    return await resolve_client_id(client_id, authorization)
+
+
+async def require_client_manage(
+    client_id: Optional[str],
+    authorization: Optional[str],
+) -> str:
+    """Autoriza mutações da empresa para owner/admin ou platform_admin."""
+    return await require_client_role(
+        client_id,
+        authorization,
+        allowed_roles=("agency_admin", "client_admin"),
+    )
+
+
 async def get_client_role(client_id: str, authorization: Optional[str]) -> str:
     user_id = await require_user_id(authorization)
     resolved = await resolve_client_id(client_id, authorization)
+    from .platform_admin import is_platform_admin
+    if await is_platform_admin(user_id):
+        return "platform_admin"
     memberships = await sb_get_client_memberships(user_id)
     membership = next(
         (row for row in memberships if str(row.get("client_id") or "").strip() == resolved),

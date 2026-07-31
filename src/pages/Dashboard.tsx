@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import "../app/chartSetup";
 import { Bar, Line } from "react-chartjs-2";
 import type { ChartData, ChartOptions } from "chart.js";
 
@@ -13,6 +14,10 @@ import StoriesPanel from "../components/dashboard/StoriesPanel";
 import AiSummaryCard from "../components/dashboard/AiSummaryCard";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
 import MetaStateNotice from "../components/dashboard/MetaStateNotice";
+import ExecutiveOverview, {
+  type ExecutiveMetric,
+  type ExecutiveSource,
+} from "../components/dashboard/ExecutiveOverview";
 
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
 import useDashboardAiSummary from "../hooks/dashboard/useDashboardAiSummary";
@@ -32,7 +37,9 @@ import {
   createNote,
   updateNote,
   listClientConnections,
+  listGenericConnections,
   syncAds,
+  type GenericConnection,
 } from "../app/api";
 
 import { buildMonthAgg, getMonth, monthsList, pct } from "../app/aggregate";
@@ -62,6 +69,7 @@ import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
   getActiveClientId,
+  getActiveClientName,
   getActiveClientConfigurationWarning,
 } from "../app/activeClient";
 
@@ -167,16 +175,6 @@ const METRIC_CONTEXT: Record<MetaMetricKey, string> = {
   profile_views: "Visitas ao perfil",
   accounts_engaged: "Contas engajadas",
   followers: "Variação de seguidores",
-};
-
-const METRIC_LABELS: Record<MetaMetricKey, string> = {
-  impressions: "Visualizações",
-  reach: "Alcance",
-  total_interactions: "Interações",
-  website_clicks: "Cliques no link",
-  profile_views: "Visitas ao perfil",
-  accounts_engaged: "Contas engajadas",
-  followers: "Seguidores",
 };
 
 const META_METRIC_BY_KPI: Record<KpiKey, MetaMetricKey> = {
@@ -1044,6 +1042,7 @@ export default function Dashboard({
   const [notesError, setNotesError] = useState<string | null>(null);
   const [hasActiveConnection, setHasActiveConnection] = useState<boolean | null>(null);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
+  const [commerceConnection, setCommerceConnection] = useState<GenericConnection | null>(null);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
   const [enablePaidStage, setEnablePaidStage] = useState(false);
   const [enableMonthlyStage, setEnableMonthlyStage] = useState(false);
@@ -1371,6 +1370,7 @@ export default function Dashboard({
     if (!isAuthenticated || !activeClientId) {
       setHasActiveConnection(null);
       setConnections([]);
+      setCommerceConnection(null);
       setActiveConnection(null);
       return;
     }
@@ -1393,14 +1393,26 @@ export default function Dashboard({
           isOrganicConnection(connection)
       );
       setHasActiveConnection(hasActive);
-      return () => {
-        alive = false;
-      };
     }
 
-    listClientConnections()
-      .then((response) => {
+    Promise.allSettled([listClientConnections(), listGenericConnections()])
+      .then(([metaResult, genericResult]) => {
         if (!alive) return;
+        if (genericResult.status === "fulfilled") {
+          const commerce = genericResult.value.connections.find((connection) =>
+            ["shopify", "fbits"].includes(connection.provider)
+          );
+          setCommerceConnection(commerce || null);
+        }
+        if (metaResult.status === "rejected") {
+          if (!cachedConnections?.length) {
+            setHasActiveConnection(null);
+            setConnections([]);
+            setActiveConnection(null);
+          }
+          return;
+        }
+        const response = metaResult.value;
         const nextConnections = arrayOrEmpty<MetaConnection>(response.connections);
         writeDashboardCache<MetaConnection[]>(connectionsCacheKey, nextConnections, 300_000);
         setConnections(nextConnections);
@@ -1900,35 +1912,6 @@ export default function Dashboard({
     return found?.title || "Visualizações";
   }, [activeMetric, metricCards]);
 
-  const bestGrowthMetric = useMemo(() => {
-    const growth = dash?.period_growth_percent;
-    if (!growth) return null;
-    const candidates: MetaMetricKey[] = [
-      "reach",
-      "impressions",
-      "total_interactions",
-      "profile_views",
-      "website_clicks",
-      "accounts_engaged",
-      "followers",
-    ];
-    let bestMetric: MetaMetricKey | null = null;
-    let bestValue = Number.NEGATIVE_INFINITY;
-    for (const metric of candidates) {
-      const value = safe(growth[metric]);
-      if (value > bestValue) {
-        bestValue = value;
-        bestMetric = metric;
-      }
-    }
-    if (!bestMetric || !Number.isFinite(bestValue)) return null;
-    return {
-      metric: bestMetric,
-      value: bestValue,
-      label: METRIC_LABELS[bestMetric],
-    };
-  }, [dash]);
-
   const topPostRanking = useMemo(() => {
     if (!deferredMediaFiltered.length) return [];
     const ranked = [...deferredMediaFiltered]
@@ -1957,21 +1940,123 @@ export default function Dashboard({
     }));
   }, [deferredMediaFiltered]);
 
-  const topOrganicPost = topPostRanking[0]?.media || null;
-
-  const periodPerformanceAnswer = hasDash
-    ? `Alcance ${fmt(kpisFromDash.reach)} • Interações ${fmt(kpisFromDash.total_interactions)}`
-    : "Sem dados consolidados no período.";
-  const growthAnswer = !bestGrowthMetric
-    ? "Sem base de comparação disponível."
-    : bestGrowthMetric.value > 0
-      ? `${bestGrowthMetric.label} (+${Math.abs(bestGrowthMetric.value).toFixed(bestGrowthMetric.value >= 10 ? 0 : 1)}%)`
-      : "Nenhuma métrica cresceu no período.";
-  const topPostAnswer = topOrganicPost
-    ? `${String(topOrganicPost.media_product_type || topOrganicPost.media_type || "Post")} • alcance ${fmt(
-        mediaInsightValue(topOrganicPost, "reach")
-      )} • interações ${fmt(mediaInsightValue(topOrganicPost, "total_interactions"))}`
-    : "Sem publicação orgânica no período.";
+  const organicExecutiveAvailable = hasDash && hasPersistedOrganicData && coveredDays > 0;
+  const paidExecutiveAvailable = Boolean(paidData && (paidHasRows || hasPaidData));
+  const previousTotals = dash?.period_previous_totals;
+  const comparableOrganic = organicExecutiveAvailable && !isPartialCoverage;
+  const executiveMetrics = useMemo<ExecutiveMetric[]>(
+    () => [
+      {
+        key: "spend",
+        label: "Investimento em mídia",
+        value: paidExecutiveAvailable ? safe(paidTotals?.spend) : null,
+        previous: null,
+        format: "currency",
+        context: "Valor investido nas campanhas Meta disponíveis no período.",
+      },
+      {
+        key: "roas",
+        label: "ROAS reportado",
+        value: paidExecutiveAvailable && safe(paidTotals?.roas) > 0 ? safe(paidTotals?.roas) : null,
+        previous: null,
+        format: "ratio",
+        context: "Retorno reportado pela fonte de mídia; não é estimado pelo painel.",
+      },
+      {
+        key: "reach",
+        label: "Alcance orgânico",
+        value: organicExecutiveAvailable ? kpisFromDash.reach : null,
+        previous: comparableOrganic ? safe(previousTotals?.reach) : null,
+        format: "number",
+        context: "Contas únicas alcançadas pelo conteúdo orgânico.",
+      },
+      {
+        key: "interactions",
+        label: "Interações",
+        value: organicExecutiveAvailable ? kpisFromDash.total_interactions : null,
+        previous: comparableOrganic ? safe(previousTotals?.total_interactions) : null,
+        format: "number",
+        context: "Ações de engajamento registradas pelo Instagram.",
+      },
+      {
+        key: "profile_views",
+        label: "Visitas ao perfil",
+        value: organicExecutiveAvailable ? kpisFromDash.profile_views : null,
+        previous: comparableOrganic ? safe(previousTotals?.profile_views) : null,
+        format: "number",
+        context: "Sinal de intenção após o contato com o conteúdo.",
+      },
+      {
+        key: "website_clicks",
+        label: "Cliques no link",
+        value: organicExecutiveAvailable ? kpisFromDash.website_clicks : null,
+        previous: comparableOrganic ? safe(previousTotals?.website_clicks) : null,
+        format: "number",
+        context: "Tráfego encaminhado pelo perfil para o destino configurado.",
+      },
+    ],
+    [
+      comparableOrganic,
+      kpisFromDash,
+      organicExecutiveAvailable,
+      paidExecutiveAvailable,
+      paidTotals,
+      previousTotals,
+    ]
+  );
+  const executiveSources = useMemo<ExecutiveSource[]>(
+    () => [
+      {
+        label: "Instagram orgânico",
+        state: dashError
+          ? "error"
+          : hasActiveConnection === true
+            ? organicExecutiveAvailable
+              ? "connected"
+              : "waiting"
+            : "waiting",
+        detail: dashError
+          ? "Falha parcial na leitura"
+          : organicExecutiveAvailable
+            ? organicLastUpdatedLabel || "Dados disponíveis"
+            : hasActiveConnection
+              ? "Aguardando sincronização"
+              : "Fonte não conectada",
+      },
+      {
+        label: "Meta Ads",
+        state: paidError
+          ? "error"
+          : hasPaidConnection
+            ? paidExecutiveAvailable
+              ? "connected"
+              : "waiting"
+            : "waiting",
+        detail: paidError
+          ? "Falha parcial na leitura"
+          : paidExecutiveAvailable
+            ? paidLastUpdatedLabel || "Dados disponíveis"
+            : hasPaidConnection
+              ? "Sem movimentação no período"
+              : "Fonte não conectada",
+      },
+      {
+        label: "Dados comerciais",
+        state: "waiting",
+        detail: "Não carregados nesta visão Meta",
+      },
+    ],
+    [
+      dashError,
+      hasActiveConnection,
+      hasPaidConnection,
+      organicExecutiveAvailable,
+      organicLastUpdatedLabel,
+      paidError,
+      paidExecutiveAvailable,
+      paidLastUpdatedLabel,
+    ]
+  );
   const metaRenderKey = [
     organicConnectionId || "-",
     paidConnectionId || "-",
@@ -2094,6 +2179,31 @@ export default function Dashboard({
             </div>
           </div>
 
+          <ExecutiveOverview
+            companyName={commerceConnection?.account_name || getActiveClientName() || "E-commerce conectado"}
+            commercePlatform={
+              commerceConnection?.provider === "shopify"
+                ? "Shopify"
+                : commerceConnection?.provider
+                  ? "Plataforma de comércio"
+                  : null
+            }
+            periodLabel={periodLabel}
+            comparisonLabel={
+              isPartialCoverage
+                ? "Indisponível com cobertura parcial"
+                : organicExecutiveAvailable
+                  ? "Período anterior equivalente"
+                  : "Dados insuficientes"
+            }
+            updatedLabel={organicLastUpdatedLabel || paidLastUpdatedLabel || "Aguardando primeira atualização"}
+            partialCoverage={isPartialCoverage ? partialCoverageLabel : null}
+            metrics={executiveMetrics}
+            sources={executiveSources}
+            loading={loadingDash || loadingPaid}
+            error={dashboardError}
+          />
+
           {hasActiveConnection === false ? (
             <div className="panelBlock">
               <div className="card cardWide">
@@ -2167,25 +2277,6 @@ export default function Dashboard({
               </div>
             )}
           </div>
-
-          {hasDash ? (
-            <div className="panelBlock">
-              <div className="quickAnswerGrid">
-                <div className="quickAnswerCard">
-                  <span className="smallMuted">Como a conta performou?</span>
-                  <strong>{periodPerformanceAnswer}</strong>
-                </div>
-                <div className="quickAnswerCard">
-                  <span className="smallMuted">Qual métrica cresceu mais?</span>
-                  <strong>{growthAnswer}</strong>
-                </div>
-                <div className="quickAnswerCard">
-                  <span className="smallMuted">Qual post performou melhor?</span>
-                  <strong>{topPostAnswer}</strong>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
           <div className="panelBlock">
             <div className="sectionHeader">

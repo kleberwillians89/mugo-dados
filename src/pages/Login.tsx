@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
+import { INTEGRATION_REGISTRY } from "../app/integrationRegistry";
 import "../styles/Login.css";
 
-import logoVideo from "../assets/Mugo-3dlogo-spinning.mp4";
+import logo from "../assets/mugo-logo.svg";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 
@@ -65,6 +66,13 @@ export default function Login({
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [mode, setMode] = useState<"login" | "recover" | "set-password">(() => {
+    const values = `${window.location.search}&${window.location.hash}`;
+    return values.includes("type=recovery") || values.includes("type=invite")
+      ? "set-password"
+      : "login";
+  });
   const [info, setInfo] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -157,6 +165,58 @@ export default function Login({
     }
   }
 
+  async function onRecoverPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || authConfigError) {
+      setErr(authConfigError || "Supabase Auth não está configurado.");
+      return;
+    }
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setErr("Informe seu e-mail.");
+      return;
+    }
+    setPasswordLoading(true);
+    setErr(null);
+    const redirectTo = `${window.location.origin}/?type=recovery`;
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
+    setPasswordLoading(false);
+    if (error) {
+      setErr(withEmailHint(error.message));
+      return;
+    }
+    setInfo("Se o e-mail estiver cadastrado, você receberá o link de redefinição.");
+  }
+
+  async function onSetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || authConfigError) {
+      setErr(authConfigError || "Supabase Auth não está configurado.");
+      return;
+    }
+    if (password.length < 10) {
+      setErr("A nova senha deve ter ao menos 10 caracteres.");
+      return;
+    }
+    if (password !== passwordConfirmation) {
+      setErr("As senhas não coincidem.");
+      return;
+    }
+    setPasswordLoading(true);
+    setErr(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setPasswordLoading(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    window.history.replaceState({}, document.title, "/");
+    setInfo("Senha definida com sucesso. Você já pode entrar.");
+    setPassword("");
+    setPasswordConfirmation("");
+    setMode("login");
+  }
+
   const authUnavailable = Boolean(authConfigError);
   const inputDisabled = passwordLoading || authChecking || authUnavailable;
   const visibleError = err || authConfigError;
@@ -174,30 +234,31 @@ export default function Login({
       <div className="loginShell">
         <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô Dados">
           <div className="loginBrandTopLogo">
-            <video
+            <img
               className="loginTopLogo"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-            >
-              <source src={logoVideo} type="video/mp4" />
-              Seu navegador nao suporta video.
-            </video>
+              src={logo}
+              alt="Mugô Dados"
+            />
           </div>
 
           <div className="loginBrandCopy">
             <div className="loginBrandEyebrow">{PANEL_NAME}</div>
             <h1>{PRODUCT_NAME}</h1>
             <p className="loginBrandLead">
-              Painel analítico do cliente ativo para leitura de performance, mídia e operação.
+              Performance, mídia e comércio em uma visão confiável para cada empresa.
             </p>
           </div>
 
-          <div className="loginBrandTags" aria-hidden="true">
-            <span>META</span>
-            <span>GOOGLE / GA4</span>
+          <div className="loginEcosystem" aria-label="Ecossistema de integrações">
+            {INTEGRATION_REGISTRY.map((provider) => (
+              <div className="loginEcosystemItem" key={provider.id}>
+                <span aria-hidden="true">{provider.shortName.slice(0, 2).toUpperCase()}</span>
+                <div>
+                  <strong>{provider.name}</strong>
+                  <small>{provider.resources[0]}</small>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -212,7 +273,16 @@ export default function Login({
             {visibleError ? <div className="loginError">{visibleError}</div> : null}
             {info ? <div className="loginInfo">{info}</div> : null}
 
-            <form onSubmit={onPasswordLogin}>
+            <form
+              onSubmit={
+                mode === "recover"
+                  ? onRecoverPassword
+                  : mode === "set-password"
+                    ? onSetPassword
+                    : onPasswordLogin
+              }
+            >
+              {mode !== "set-password" ? (
               <div>
                 <label className="loginFieldLabel" htmlFor="email">
                   E-mail
@@ -228,31 +298,63 @@ export default function Login({
                   required
                 />
               </div>
+              ) : null}
 
-              <div>
+              {mode !== "recover" ? <div>
                 <label className="loginFieldLabel" htmlFor="password">
-                  Senha
+                  {mode === "set-password" ? "Nova senha" : "Senha"}
                 </label>
                 <input
                   id="password"
                   type="password"
                   placeholder="Sua senha"
-                  autoComplete="current-password"
+                  autoComplete={mode === "set-password" ? "new-password" : "current-password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   disabled={inputDisabled}
                   required
                 />
-              </div>
+              </div> : null}
+
+              {mode === "set-password" ? (
+                <div>
+                  <label className="loginFieldLabel" htmlFor="password-confirmation">
+                    Confirmar nova senha
+                  </label>
+                  <input
+                    id="password-confirmation"
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordConfirmation}
+                    onChange={(event) => setPasswordConfirmation(event.target.value)}
+                    disabled={inputDisabled}
+                    required
+                  />
+                </div>
+              ) : null}
 
               <button type="submit" disabled={inputDisabled}>
                 {authUnavailable
                   ? "Configuracao pendente"
                   : passwordLoading || authChecking
-                    ? "Entrando..."
-                    : "Entrar no painel"}
+                    ? "Processando..."
+                    : mode === "recover"
+                      ? "Enviar link seguro"
+                      : mode === "set-password"
+                        ? "Definir senha"
+                        : "Entrar no painel"}
               </button>
             </form>
+
+            {mode === "login" ? (
+              <button className="loginLocalButton" type="button" onClick={() => setMode("recover")}>
+                Esqueci minha senha
+              </button>
+            ) : mode === "recover" ? (
+              <button className="loginLocalButton" type="button" onClick={() => setMode("login")}>
+                Voltar ao login
+              </button>
+            ) : null}
 
             {localAuthAvailable ? (
               <button

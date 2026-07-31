@@ -18,9 +18,9 @@ drop policy if exists platform_admins_select_self on public.platform_admins;
 create policy platform_admins_select_self on public.platform_admins
 for select using (auth.uid() = user_id);
 
-insert into public.platform_admins (user_id, role)
-values ('ad1a0f59-7984-40af-a46a-f4a998983000'::uuid, 'platform_admin')
-on conflict (user_id) do update set role = excluded.role;
+-- O primeiro administrador deve ser concedido explicitamente depois que o
+-- usuário existir no Supabase Auth. Não vinculamos autorização a e-mail nem
+-- gravamos UUID de pessoa/ambiente no histórico versionado.
 
 create or replace function public.is_platform_admin(p_user_id uuid default auth.uid())
 returns boolean

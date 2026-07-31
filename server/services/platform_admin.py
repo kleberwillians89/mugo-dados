@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from .ig_supabase import sb_rpc, sb_select
+from .ig_supabase import sb_insert, sb_rpc, sb_select, sb_update
 from .invitations import send_supabase_invite
 from .tenant import require_user_id
 
@@ -110,3 +110,50 @@ async def create_platform_company(actor_user_id: str, payload: Dict[str, Any]) -
             raise RuntimeError("Falha no convite e na compensação segura da empresa.")
         raise
     return {"ok": True, "company": company, "invitation": invitation}
+
+
+async def update_platform_company(
+    actor_user_id: str,
+    client_id: str,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    patch: Dict[str, Any] = {}
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()
+        if len(name) < 2:
+            raise RuntimeError("Razão social deve ter ao menos 2 caracteres.")
+        patch["name"] = name
+    if "trade_name" in payload:
+        patch["trade_name"] = str(payload.get("trade_name") or "").strip() or None
+    if "cnpj" in payload:
+        cnpj = re.sub(r"\D", "", str(payload.get("cnpj") or "")) or None
+        if cnpj and len(cnpj) != 14:
+            raise RuntimeError("CNPJ deve conter 14 dígitos.")
+        patch["cnpj"] = cnpj
+    if "status" in payload:
+        status = str(payload.get("status") or "").strip()
+        if status not in {"active", "inactive", "invitation_pending"}:
+            raise RuntimeError("Status de empresa inválido.")
+        patch["status"] = status
+    if not patch:
+        raise RuntimeError("Nenhuma alteração válida foi informada.")
+
+    updated = await sb_update(
+        "clients",
+        filters={"id": f"eq.{client_id}"},
+        patch=patch,
+        returning="representation",
+    )
+    if not updated:
+        raise RuntimeError("Empresa não encontrada.")
+    await sb_insert(
+        "platform_audit_events",
+        {
+            "actor_user_id": actor_user_id,
+            "client_id": client_id,
+            "event_type": "company_updated",
+            "details": {"fields": sorted(patch.keys())},
+        },
+        returning="minimal",
+    )
+    return {"ok": True, "company": updated[0]}

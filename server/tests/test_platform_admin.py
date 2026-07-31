@@ -124,6 +124,21 @@ class PlatformCompanyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(rpc.await_args.args[0], "audit_platform_company_access")
 
+    async def test_platform_admin_updates_company_with_audit(self):
+        with (
+            patch.object(
+                platform_admin,
+                "sb_update",
+                AsyncMock(return_value=[{"id": "company-1", "status": "inactive"}]),
+            ),
+            patch.object(platform_admin, "sb_insert", AsyncMock(return_value={"ok": True})) as audit,
+        ):
+            result = await platform_admin.update_platform_company(
+                "master", "company-1", {"status": "inactive"}
+            )
+        self.assertEqual(result["company"]["status"], "inactive")
+        self.assertEqual(audit.await_args.args[0], "platform_audit_events")
+
 
 class PlatformMigrationContractTests(unittest.TestCase):
     def setUp(self):
@@ -132,9 +147,10 @@ class PlatformMigrationContractTests(unittest.TestCase):
             / "supabase/migrations/20260801_000020_platform_admin_companies.sql"
         ).read_text()
 
-    def test_migration_bootstraps_exact_master_uid(self):
-        self.assertIn("ad1a0f59-7984-40af-a46a-f4a998983000", self.sql)
-        self.assertIn("on conflict (user_id)", self.sql.lower())
+    def test_migration_does_not_hardcode_an_administrator_identity(self):
+        lowered = self.sql.lower()
+        self.assertNotIn("insert into public.platform_admins", lowered)
+        self.assertIn("concedido explicitamente", lowered)
 
     def test_rls_has_no_self_elevation_write_policy(self):
         lowered = self.sql.lower()

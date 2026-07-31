@@ -115,17 +115,16 @@ def _structured_error_response(
     if isinstance(exc, HTTPException):
         message = _clip(str(exc.detail), 500) or f"HTTP {exc.status_code}"
     else:
-        message = _clip(str(exc), 500) or "Erro na API"
+        message = "Não foi possível concluir a consulta."
     return JSONResponse(
         status_code=status_code,
         content={
             "ok": False,
-            "error": {
-                "code": code,
-                "message": message,
-                "type": exc.__class__.__name__,
-                "endpoint": endpoint,
-            },
+            "code": code.upper(),
+            "message": message,
+            "status": status_code,
+            "retryable": status_code == 429 or status_code >= 500,
+            "path": endpoint,
         },
     )
 

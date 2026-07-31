@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import "../app/chartSetup";
 import { Line } from "react-chartjs-2";
 import type { ChartData, ChartOptions } from "chart.js";
 
@@ -756,7 +757,7 @@ export default function GoogleAnalytics({
             },
             {
               connected: Boolean(fbitsData?.connected),
-              label: `${fbitsData?.connected ? "FBits conectada" : "FBits aguardando dados"}`,
+              label: `${fbitsData?.connected ? "E-commerce conectado" : "E-commerce aguardando dados"}`,
             },
           ]}
         />

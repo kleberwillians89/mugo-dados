@@ -53,6 +53,7 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(tenant, "require_user_id", AsyncMock(return_value="viewer-amalie")),
             patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
             patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             with self.assertRaises(HTTPException) as raised:
                 await tenant.require_client_role("amalie", "Bearer valid")
@@ -65,9 +66,45 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(tenant, "require_user_id", AsyncMock(return_value="admin-amalie")),
             patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
             patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             resolved = await tenant.require_client_role("amalie", "Bearer valid")
 
+        self.assertEqual(resolved, "amalie")
+
+    async def test_owner_can_manage_own_company(self):
+        memberships = [{"client_id": "amalie", "role": "owner"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="owner-amalie")),
+            patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            resolved = await tenant.require_client_manage("amalie", "Bearer valid")
+        self.assertEqual(resolved, "amalie")
+
+    async def test_platform_admin_can_manage_explicit_company_without_membership(self):
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="platform-user")),
+            patch.object(tenant, "resolve_client_id", AsyncMock(return_value="roove")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[])),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=True)),
+        ):
+            resolved = await tenant.require_client_manage("roove", "Bearer valid")
+        self.assertEqual(resolved, "roove")
+
+    async def test_platform_admin_requires_explicit_tenant(self):
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="platform-user")),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await tenant.resolve_client_id(None, "Bearer valid")
+        self.assertEqual(raised.exception.status_code, 400)
+
+    async def test_read_permission_does_not_require_mutation_role(self):
+        with patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")):
+            resolved = await tenant.require_client_read("amalie", "Bearer valid")
         self.assertEqual(resolved, "amalie")
 
 

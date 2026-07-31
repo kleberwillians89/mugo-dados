@@ -150,15 +150,15 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
   const hasCustomerMetric = Boolean(summary && summary.clientes > 0);
   const hasProductMetric = Boolean(summary && summary.produtos_vendidos > 0);
   const sourceLabel = data?.period
-    ? `Fonte: FBits · ${formatSelectedPeriodLabel(data.period)}`
-    : "Fonte: FBits";
+    ? `Fonte: e-commerce conectado · ${formatSelectedPeriodLabel(data.period)}`
+    : "Fonte: e-commerce conectado";
 
   return (
     <section className={`card cardWide fbitsSalesPanel is-${variant}`}>
       <div className="sectionHeader">
         <div>
           <div className="h1">Vendas oficiais</div>
-          <div className="p">Leitura oficial de vendas via FBits.</div>
+          <div className="p">Leitura oficial da plataforma de comércio conectada.</div>
         </div>
         <span className="pill">{sourceLabel}</span>
       </div>
@@ -167,9 +167,9 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
 
       {!loading && !connected && !error ? (
         <MetaStateNotice
-          title="FBits ainda não conectada"
+          title="E-commerce ainda não conectado"
           description="As métricas de vendas oficiais entram aqui quando a integração estiver pronta."
-          message="FBits ainda não conectada."
+          message="E-commerce ainda não conectado."
           tone="empty"
         />
       ) : null}
@@ -184,7 +184,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
       ) : null}
 
       {noValidOrders && !error ? (
-        <div className="fbitsZeroState">FBits conectada, aguardando dados do período.</div>
+        <div className="fbitsZeroState">E-commerce conectado, aguardando dados do período.</div>
       ) : null}
 
       {connected && summary ? (
@@ -192,7 +192,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
           <div className="fbitsSalesCard isPrimary">
             <span>Receita oficial</span>
             <strong>{fmtCurrency(summary.receita_oficial)}</strong>
-            <small>Lista oficial da FBits no período</small>
+            <small>Pedidos confirmados pela plataforma no período</small>
           </div>
           <div className="fbitsSalesCard">
             <span>Pedidos</span>
@@ -218,7 +218,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
               <div className="fbitsSalesCard">
                 <span>Produtos vendidos</span>
                 <strong>{fmt(summary.produtos_vendidos)}</strong>
-                <small>Itens retornados pela FBits</small>
+                <small>Itens retornados pela plataforma conectada</small>
               </div>
             </>
           ) : null}
@@ -226,11 +226,11 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
       ) : null}
 
       {variant === "full" && connected && summary && (!hasCustomerMetric || !hasProductMetric) ? (
-        <div className="fbitsDetailHint">Aguardando detalhe de pedidos da FBits para clientes e produtos vendidos.</div>
+        <div className="fbitsDetailHint">Aguardando detalhes de pedidos para clientes e produtos vendidos.</div>
       ) : null}
 
       {variant === "full" && connected ? (
-        <div className="fbitsFilters" aria-label="Filtros FBits">
+        <div className="fbitsFilters" aria-label="Filtros do e-commerce">
           <label>
             <span>Produto</span>
             <select
@@ -299,7 +299,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
           <article className="fbitsDetailCard">
             <div className="fbitsDetailHead">
               <div>
-                <div className="h1">Pedidos FBits</div>
+                <div className="h1">Pedidos do e-commerce</div>
                 <div className="p">Pedidos oficiais com cliente, pagamento e itens do período.</div>
               </div>
             </div>
@@ -333,7 +333,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
                 </table>
               </div>
             ) : (
-              <div className="fbitsDetailEmpty">Detalhamento de pedidos ainda não disponível pela FBits para este período.</div>
+              <div className="fbitsDetailEmpty">Detalhamento de pedidos ainda não disponível para este período.</div>
             )}
             {filteredOrders.some((order) => (order.produtos || []).length) ? (
               <div className="tableWrap fbitsTableWrap fbitsItemsWrap">
@@ -409,7 +409,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
                 </table>
               </div>
             ) : (
-              <div className="fbitsDetailEmpty">Detalhamento de produtos ainda não disponível pela FBits para este período.</div>
+              <div className="fbitsDetailEmpty">Detalhamento de produtos ainda não disponível para este período.</div>
             )}
           </article>
 
@@ -445,7 +445,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
                 </table>
               </div>
             ) : (
-              <div className="fbitsDetailEmpty">Clientes detalhados aparecem quando a FBits retornar identificação no pedido.</div>
+              <div className="fbitsDetailEmpty">Clientes detalhados aparecem quando a plataforma retornar identificação no pedido.</div>
             )}
           </article>
         </div>
