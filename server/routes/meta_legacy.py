@@ -17,7 +17,7 @@ from api_support import (
     _structured_error_response,
     _validated_connection_id,
 )
-from services.clients import connect_meta_for_client, create_client_for_user, list_clients_for_user
+from services.clients import list_clients_for_user
 from services.connection_resolver import resolve_connection_for_scope
 from services.cron_jobs import (
     run_daily_instagram_refresh,
@@ -26,6 +26,7 @@ from services.cron_jobs import (
     run_token_refresh_job,
 )
 from services.ig_refresh import refresh_all
+from services.ig_supabase import sb_get_client_id_for_user
 from services.instagram_sync import discover_instagram_identity_for_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
@@ -40,12 +41,11 @@ from services.meta_oauth import (
     read_discovery_handoff,
     resolve_meta_redirect_uri,
     save_connections,
-    verify_state,
 )
+from services.oauth_state import consume_oauth_state, create_oauth_state
 from services.meta_tokens import get_meta_connection_status, refresh_meta_token_for_connection
 from services.runtime_cache import invalidate_namespace
 from services.tenant import (
-    require_agency_admin,
     require_client_role,
     require_user_id,
     resolve_client_id,
@@ -91,10 +91,10 @@ async def api_create_client(
     payload: Dict[str, Any],
     authorization: str | None = Header(default=None),
 ):
+    from services.platform_admin import create_platform_company, require_platform_admin
+    actor_user_id = await require_platform_admin(authorization)
     try:
-        user_id = await require_agency_admin(authorization)
-        name = str(payload.get("name") or "").strip()
-        created = await create_client_for_user(user_id, name)
+        created = await create_platform_company(actor_user_id, payload)
         await invalidate_namespace("clients")
         return created
     except RuntimeError as exc:
@@ -107,16 +107,11 @@ async def api_connect_meta(
     payload: Dict[str, Any],
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id, authorization)
-    try:
-        return await connect_meta_for_client(
-            client_id=cid,
-            access_token=str(payload.get("access_token") or ""),
-            expires_at=payload.get("expires_at"),
-            ig_user_id=payload.get("ig_user_id"),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    del client_id, payload, authorization
+    raise HTTPException(
+        status_code=410,
+        detail="Conexão manual por token foi desativada. Use o OAuth oficial da Meta.",
+    )
 
 
 @router.get("/api/oauth/meta/start")
@@ -130,11 +125,18 @@ async def api_oauth_meta_start(
         cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
         settings = get_meta_oauth_settings(require_redirect_uri=True, debug=True)
         redirect_uri = str(settings.get("redirect_uri") or "").strip()
+        persisted_state = await create_oauth_state(
+            provider="meta",
+            user_id=user_id,
+            client_id=cid,
+            redirect_uri=redirect_uri,
+        )
         payload = build_oauth_url(
             client_id=cid,
             user_id=user_id,
             redirect_uri=redirect_uri,
             app_id=str(settings.get("app_id") or "").strip(),
+            state_override=persisted_state,
         )
         return {
             "ok": True,
@@ -154,11 +156,6 @@ async def api_oauth_meta_callback(
     error_description: str | None = None,
 ):
     fallback_client_id = ""
-    if state:
-        try:
-            fallback_client_id = str((verify_state(state) or {}).get("client_id") or "").strip()
-        except Exception:
-            fallback_client_id = ""
 
     if error:
         target = build_frontend_callback_redirect(
@@ -175,9 +172,11 @@ async def api_oauth_meta_callback(
         if not state:
             raise RuntimeError("Meta não retornou state")
 
-        state_payload = verify_state(state)
+        state_payload = await consume_oauth_state(state, provider="meta")
         client_id_from_state = str(state_payload.get("client_id") or "").strip()
         user_id_from_state = str(state_payload.get("user_id") or "").strip()
+        fallback_client_id = client_id_from_state
+        await sb_get_client_id_for_user(user_id_from_state, requested_client_id=client_id_from_state)
         if not client_id_from_state or not user_id_from_state:
             raise RuntimeError("State OAuth inválido")
 
@@ -238,6 +237,7 @@ async def api_link_assets(
             user_id=user_id,
             client_id=cid,
             handoff=str(payload.get("handoff") or ""),
+            page_ids=[str(v or "").strip() for v in (payload.get("page_ids") or [])],
             instagram_ig_user_ids=[str(v or "").strip() for v in (payload.get("instagram_ig_user_ids") or [])],
             ad_account_ids=[str(v or "").strip() for v in (payload.get("ad_account_ids") or [])],
         )

@@ -239,6 +239,10 @@ async def sb_delete(
     return data if isinstance(data, list) else []
 
 
+async def sb_rpc(function_name: str, payload: Dict[str, Any]) -> Any:
+    return await _request("POST", f"/rpc/{function_name}", json=payload)
+
+
 async def sb_upsert(table: str, rows: List[Dict[str, Any]], on_conflict: str) -> Dict[str, Any]:
     headers = {"Prefer": "resolution=merge-duplicates,return=minimal"}
     await _request("POST", f"/{table}", params={"on_conflict": on_conflict}, json=rows, headers=headers)

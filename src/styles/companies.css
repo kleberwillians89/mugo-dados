@@ -1,0 +1,10 @@
+.companiesPage{min-height:100vh;padding:36px;max-width:1400px;margin:auto;background:#f2f0ec}
+.companiesHeader,.companiesListTitle{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.companiesHeader h1{font-size:44px;margin:6px 0}.companiesHeader p{color:#5f665f}
+.companiesEyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:800;color:#425a43}
+.companiesActions{display:flex;gap:10px}.companiesCard{background:#fff;border:1px solid #dedbd3;border-radius:20px;padding:24px;margin-top:22px;box-shadow:0 12px 36px rgba(42,46,39,.07)}
+.companiesCard h2{margin:0 0 18px}.companiesForm{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr)) auto;gap:14px;align-items:end}
+.companiesForm label{display:grid;gap:7px;font-size:13px;font-weight:700}.companiesForm input{border:1px solid #cfcbc2;border-radius:10px;padding:11px;background:#faf9f6}
+.companiesError{color:#a92c2c}.companiesTableWrap{overflow:auto}.companiesTable{width:100%;border-collapse:collapse}.companiesTable th,.companiesTable td{text-align:left;padding:14px;border-bottom:1px solid #e8e5de}.companiesTable small{display:block;color:#74766f;margin-top:4px}.companiesStatus{background:#edf2e9;border-radius:99px;padding:5px 9px;font-size:12px}
+@media(max-width:900px){.companiesPage{padding:20px}.companiesForm{grid-template-columns:1fr 1fr}.companiesHeader{align-items:flex-start}.companiesHeader h1{font-size:36px}}
+@media(max-width:560px){.companiesPage{padding:14px}.companiesHeader,.companiesListTitle{align-items:flex-start;flex-direction:column}.companiesForm{grid-template-columns:1fr}}

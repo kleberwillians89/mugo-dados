@@ -23,9 +23,14 @@ from api_support import (
     _validated_connection_id,
 )
 from routes.google import router as google_router
+from routes.google_oauth import router as google_oauth_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
+from routes.invitations import router as invitations_router
+from routes.connections import router as connections_router
+from routes.platform_admin import router as platform_admin_router
 from routes.shopify import router as shopify_router
+from routes.shopify_oauth import router as shopify_oauth_router
 
 from services.ai_summary import ai_summary
 from services.ads_sync import sync_ads_for_client_period
@@ -41,7 +46,7 @@ from services.stories import get_stories
 from services.runtime_cache import get_cached_or_load, invalidate_namespace
 from services.tenant import require_user_id, resolve_client_id
 
-app = FastAPI(title="Mugô Metrics API")
+app = FastAPI(title="Mugô Dados API")
 
 TTL_DASHBOARD_SECONDS = 120
 TTL_MEDIA_SECONDS = 120
@@ -108,9 +113,14 @@ def health():
     return {"ok": True}
 
 app.include_router(shopify_router)
+app.include_router(shopify_oauth_router)
 app.include_router(google_router)
+app.include_router(google_oauth_router)
 app.include_router(fbits_router)
 app.include_router(meta_legacy_router)
+app.include_router(invitations_router)
+app.include_router(connections_router)
+app.include_router(platform_admin_router)
 
 
 @app.get("/api/ig/stories")

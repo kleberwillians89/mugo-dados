@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
@@ -7,6 +8,13 @@ from server.services import tenant
 
 
 class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unauthenticated_user_is_rejected(self):
+        os.environ["ALLOW_NO_AUTH"] = "false"
+        with patch.object(tenant, "get_user_id_from_bearer", AsyncMock(return_value=None)):
+            with self.assertRaises(HTTPException) as raised:
+                await tenant.require_user_id(None)
+        self.assertEqual(raised.exception.status_code, 401)
+
     async def test_amalie_user_cannot_request_roove(self):
         async def membership_lookup(user_id, requested_client_id=None):
             self.assertEqual(user_id, "user-amalie")
@@ -17,6 +25,7 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(tenant, "require_user_id", AsyncMock(return_value="user-amalie")),
             patch.object(tenant, "sb_get_client_id_for_user", membership_lookup),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             with self.assertRaises(HTTPException) as raised:
                 await tenant.resolve_client_id("roove", "Bearer valid")
@@ -31,6 +40,7 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
                 "sb_get_client_id_for_user",
                 AsyncMock(side_effect=PermissionError("Usuário sem acesso ao client_id informado")),
             ),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             with self.assertRaises(HTTPException) as raised:
                 await tenant.resolve_client_id("ruah-parfums", "Bearer valid")

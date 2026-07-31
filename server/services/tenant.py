@@ -50,6 +50,19 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
         )
         return resolved
     except PermissionError as exc:
+        if (client_id or "").strip():
+            from .platform_admin import is_platform_admin
+            from .ig_supabase import sb_select
+            if await is_platform_admin(user_id):
+                rows = await sb_select(
+                    "clients", select="id", filters={"id": f"eq.{client_id}"}, limit=1
+                )
+                if rows:
+                    print(
+                        f"[tenant] user_id={user_id} requested_client_id={requested} "
+                        f"resolved_client_id={client_id} source=platform_support_explicit"
+                    )
+                    return str(client_id)
         print(f"[tenant] denied user_id={user_id} requested_client_id={requested}")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -71,6 +84,20 @@ async def require_client_role(
     if legacy_role not in allowed_roles:
         raise HTTPException(status_code=403, detail="Perfil sem permissão para alterar esta empresa.")
     return resolved
+
+
+async def get_client_role(client_id: str, authorization: Optional[str]) -> str:
+    user_id = await require_user_id(authorization)
+    resolved = await resolve_client_id(client_id, authorization)
+    memberships = await sb_get_client_memberships(user_id)
+    membership = next(
+        (row for row in memberships if str(row.get("client_id") or "").strip() == resolved),
+        None,
+    )
+    return {"owner": "client_admin", "admin": "client_admin"}.get(
+        str((membership or {}).get("role") or "").strip(),
+        str((membership or {}).get("role") or "").strip(),
+    )
 
 
 async def require_agency_admin(authorization: Optional[str]) -> str:

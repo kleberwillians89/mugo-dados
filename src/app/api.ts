@@ -31,6 +31,7 @@ import type {
 import type { Period } from "./PeriodContext";
 import { getSupabaseBootstrapError, isLocalAuthEnabled, supabase } from "./supabase";
 import {
+  clearTenantBrowserState,
   getActiveClientConfigurationWarning,
   getActiveClientId,
 } from "./activeClient";
@@ -80,6 +81,17 @@ export type ClientMembership = {
 export type ClientsResponse = {
   ok: boolean;
   clients: ClientMembership[];
+};
+
+export type PlatformCompany = {
+  id: string;
+  name: string;
+  trade_name?: string | null;
+  cnpj?: string | null;
+  responsible_email?: string | null;
+  status: string;
+  invitation_status?: string | null;
+  created_at?: string | null;
 };
 
 function asRecord(value: unknown): JsonRecord {
@@ -268,6 +280,10 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
         detail: txt || null,
       });
     }
+    if (res.status === 401) {
+      clearTenantBrowserState();
+      await supabase?.auth.signOut().catch(() => undefined);
+    }
     throw new Error(
       res.status === 401
         ? "Sua sessão precisa ser renovada."
@@ -281,6 +297,27 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export async function listClients(): Promise<ClientsResponse> {
   return http<ClientsResponse>("/api/clients");
+}
+
+export async function getPlatformProfile(): Promise<{ ok: boolean; is_platform_admin: boolean }> {
+  return http("/api/platform/me");
+}
+
+export async function listPlatformCompanies(): Promise<{ ok: boolean; companies: PlatformCompany[] }> {
+  return http("/api/platform/companies");
+}
+
+export async function createPlatformCompany(payload: {
+  name: string;
+  trade_name?: string;
+  cnpj?: string;
+  responsible_email: string;
+}): Promise<{ ok: boolean; company: PlatformCompany }> {
+  return http("/api/platform/companies", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function openPlatformCompany(clientId: string): Promise<{ ok: boolean; company: PlatformCompany }> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/access`, { method: "POST" });
 }
 
 function mapTotals(raw: unknown): DashboardTotals {
@@ -965,19 +1002,103 @@ function clientClientPath(path: string): string {
   return `/api/clients/${encodeURIComponent(getActiveClientId())}${suffix}`;
 }
 
-export async function connectclienteMeta(
-  payload: { access_token: string; expires_at?: string | null; ig_user_id?: string | null }
-): Promise<JsonRecord> {
-  return http<JsonRecord>(clientClientPath("/connect_meta"), {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
 export async function startClientMetaOAuth(): Promise<MetaOauthStartResponse> {
   return http<MetaOauthStartResponse>(
     `/api/oauth/meta/start?client_id=${encodeURIComponent(getActiveClientId())}`
   );
+}
+
+export async function startGoogleOAuth(): Promise<{ ok: boolean; authorization_url: string }> {
+  return http<{ ok: boolean; authorization_url: string }>("/api/oauth/google/start");
+}
+
+export async function startShopifyOAuth(
+  shopDomain: string
+): Promise<{ ok: boolean; authorization_url: string; shop_domain: string }> {
+  return http<{ ok: boolean; authorization_url: string; shop_domain: string }>(
+    `/api/oauth/shopify/start?shop=${encodeURIComponent(shopDomain)}`
+  );
+}
+
+export type GenericConnection = {
+  id: string;
+  client_id: string;
+  provider: string;
+  status: string;
+  account_id?: string | null;
+  account_name?: string | null;
+  last_sync_at?: string | null;
+  next_sync_at?: string | null;
+  historical_start?: string | null;
+  historical_end?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export async function listGenericConnections(): Promise<{
+  ok: boolean;
+  client_id: string;
+  connections: GenericConnection[];
+}> {
+  return http("/api/connections");
+}
+
+export type GoogleGa4Property = {
+  account?: string;
+  account_name?: string;
+  property?: string;
+  property_name?: string;
+};
+
+export type GoogleAdsAccount = {
+  customer_id: string;
+  resource_name?: string;
+};
+
+export async function listGoogleGa4Properties(
+  connectionId: string
+): Promise<{ ok: boolean; properties: GoogleGa4Property[] }> {
+  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/properties`);
+}
+
+export async function selectGoogleGa4Property(
+  connectionId: string,
+  propertyId: string
+): Promise<JsonRecord> {
+  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/select`, {
+    method: "POST",
+    body: JSON.stringify({ property_id: propertyId }),
+  });
+}
+
+export async function listGoogleAdsAccounts(
+  connectionId: string
+): Promise<{ ok: boolean; configured?: boolean; reason?: string; accounts?: GoogleAdsAccount[] }> {
+  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ads/accounts`);
+}
+
+export async function selectGoogleAdsAccount(
+  connectionId: string,
+  customerId: string
+): Promise<JsonRecord> {
+  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ads/select`, {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId }),
+  });
+}
+
+export async function syncGoogleConnection(connectionId: string): Promise<JsonRecord> {
+  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/sync`, {
+    method: "POST",
+  });
+}
+
+export async function disconnectGenericConnection(
+  connection: GenericConnection
+): Promise<JsonRecord> {
+  const providerPath = connection.provider === "shopify" ? "shopify" : "google";
+  return http(`/api/oauth/${providerPath}/${encodeURIComponent(connection.id)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function discoverClientMetaAssets(
@@ -989,7 +1110,12 @@ export async function discoverClientMetaAssets(
 }
 
 export async function linkClientAssets(
-  payload: { handoff: string; instagram_ig_user_ids: string[]; ad_account_ids: string[] }
+  payload: {
+    handoff: string;
+    page_ids: string[];
+    instagram_ig_user_ids: string[];
+    ad_account_ids: string[];
+  }
 ): Promise<JsonRecord> {
   return http<JsonRecord>(clientClientPath("/connections/link-assets"), {
     method: "POST",

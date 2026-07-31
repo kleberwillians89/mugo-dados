@@ -6,19 +6,20 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { listClients, listClientConnections, type ClientMembership } from "./app/api";
+import { getPlatformProfile, listClients, listClientConnections, listPlatformCompanies, openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
-import { clearActiveClient, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
+import { clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
+import Companies from "./pages/Companies";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
 
 type AppView = "loading" | "login" | "setup" | "dashboard";
@@ -121,6 +122,7 @@ export default function App() {
   const [authInitializing, setAuthInitializing] = useState(true);
   const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
   const [clients, setClients] = useState<ClientMembership[]>([]);
+  const [platformAdmin, setPlatformAdmin] = useState(false);
   const [activeClientId, setActiveClientId] = useState(() => getActiveClient()?.id || "");
 
   const isOrganicConnection = useCallback(
@@ -149,14 +151,30 @@ export default function App() {
       setBootError(null);
 
       if (!localMode) {
-        const clientsResponse = await listClients();
-        const availableClients = clientsResponse.clients || [];
+        const profile = await getPlatformProfile();
+        setPlatformAdmin(profile.is_platform_admin);
+        if (requestedRoute === "companies" && !profile.is_platform_admin) {
+          setBootError("Você não tem permissão para acessar a administração de empresas.");
+          navigateToAppRoute("dashboard", { replace: true });
+          setRoute("dashboard");
+          requestedRoute = "dashboard";
+        }
+        const availableClients = profile.is_platform_admin
+          ? (await listPlatformCompanies()).companies.map((company) => ({
+              client_id: company.id, name: company.trade_name || company.name, role: "platform_admin",
+            }))
+          : (await listClients()).clients || [];
         setClients(availableClients);
         const stored = getActiveClient();
         const selected =
           availableClients.find((client) => client.client_id === stored?.id) ||
           availableClients[0];
         if (!selected) {
+          if (profile.is_platform_admin) {
+            setActiveClientId("");
+            setView("dashboard");
+            return;
+          }
           setBootError("Sua conta ainda não está vinculada a nenhuma empresa.");
           setView("dashboard");
           return;
@@ -167,6 +185,11 @@ export default function App() {
           role: selected.role,
         });
         setActiveClientId(selected.client_id);
+      }
+
+      if (requestedRoute === "companies") {
+        setView("dashboard");
+        return;
       }
 
       if (requestedRoute === "google") {
@@ -320,6 +343,9 @@ export default function App() {
       setSession(nextSession);
       setAuthInitializing(false);
       if (!nextSession) {
+        clearTenantBrowserState();
+        setClients([]);
+        setActiveClientId("");
         clearSetupUrlParams();
         setBootError(null);
         setView("login");
@@ -368,7 +394,7 @@ export default function App() {
   );
 
   async function handleLogout() {
-    clearActiveClient();
+    clearTenantBrowserState();
     setActiveConnectionId(null);
     if (localMode) {
       disableLocalAuth();
@@ -425,11 +451,21 @@ export default function App() {
   const handleClientChange = useCallback((clientId: string) => {
     const client = clients.find((item) => item.client_id === clientId);
     if (!client) return;
+    clearTenantBrowserState();
     setActiveClient({ id: client.client_id, name: client.name, role: client.role });
     setActiveConnectionId(null);
     setActiveClientId(client.client_id);
     window.location.reload();
   }, [clients]);
+
+  const handleOpenCompany = useCallback(async (company: PlatformCompany) => {
+    await openPlatformCompany(company.id);
+    clearTenantBrowserState();
+    setActiveClient({ id: company.id, name: company.trade_name || company.name, role: "platform_admin" });
+    setActiveConnectionId(null);
+    setActiveClientId(company.id);
+    openRoute("dashboard");
+  }, [openRoute]);
 
   if (view === "loading") {
     return <AppLoading />;
@@ -459,6 +495,18 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
+      {route === "companies" && platformAdmin ? (
+        <Companies
+          onLogout={handleLogout}
+          onOpenCompany={(company) => void handleOpenCompany(company)}
+          onOpenDashboard={() => openRoute("dashboard")}
+        />
+      ) : <>
+      {platformAdmin && (
+        <button className="btn" style={{position:"fixed",right:18,top:18,zIndex:100}} onClick={() => openRoute("companies")}>
+          Empresas
+        </button>
+      )}
       <ClientSwitcher
         clients={clients}
         activeClientId={activeClientId}
@@ -479,6 +527,7 @@ export default function App() {
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
       )}
+      </>}
     </DashboardErrorBoundary>
   );
 }
