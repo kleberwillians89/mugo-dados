@@ -200,7 +200,8 @@ def favicon():
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    revision = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "").strip()
+    return {"ok": True, "revision": revision[:12] or None}
 
 app.include_router(shopify_router)
 app.include_router(shopify_oauth_router)
