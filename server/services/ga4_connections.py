@@ -67,8 +67,8 @@ async def resolve_ga4_connection_context(client_id: str) -> GA4ConnectionContext
             raise IntegrationError(
                 "Selecione uma propriedade GA4 na Central de Conexões.",
                 status_code=409,
-                code="GA4_PROPERTY_SELECTION_REQUIRED",
-                provider="google",
+                code="ACCOUNT_SELECTION_REQUIRED",
+                provider="ga4",
             )
         scopes = {
             _text(scope)

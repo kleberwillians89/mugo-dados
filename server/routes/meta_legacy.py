@@ -39,6 +39,7 @@ from services.meta_oauth import (
     list_connections,
     read_discovery_handoff,
     resolve_meta_redirect_uri,
+    save_pending_meta_authorization,
     save_connections,
 )
 from services.oauth_state import consume_oauth_state, create_oauth_state
@@ -184,6 +185,13 @@ async def api_oauth_meta_callback(
         token_data = await exchange_code_for_token(code=code, redirect_uri=redirect_uri)
         discovered = await discover_assets(str(token_data.get("access_token") or ""))
         handoff = await create_discovery_handoff(
+            user_id=user_id_from_state,
+            client_id=client_id_from_state,
+            access_token=str(token_data.get("access_token") or ""),
+            expires_at=token_data.get("expires_at"),
+            discovered=discovered,
+        )
+        await save_pending_meta_authorization(
             user_id=user_id_from_state,
             client_id=client_id_from_state,
             access_token=str(token_data.get("access_token") or ""),

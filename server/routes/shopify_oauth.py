@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Header, Query, Request
 from fastapi.responses import RedirectResponse
@@ -42,12 +42,21 @@ async def start(
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
     domain = normalize_shop_domain(shop)
-    safe_oauth_configuration()
+    diagnostic = safe_oauth_configuration()
+    authorization = await authorization_url(user_id=user_id, client_id=cid, shop_domain=domain)
+    query = parse_qs(urlparse(authorization).query)
+    print(
+        "[shopify_oauth][start] "
+        f"shop={domain} redirect_uri={diagnostic['redirect_uri']} "
+        f"scopes={','.join(str(query.get('scope', [''])[0]).split(','))} "
+        f"client_id_present={'yes' if query.get('client_id', [''])[0] else 'no'} "
+        f"state_present={'yes' if query.get('state', [''])[0] else 'no'}"
+    )
     return {
         "ok": True,
         "client_id": cid,
         "shop_domain": domain,
-        "authorization_url": await authorization_url(user_id=user_id, client_id=cid, shop_domain=domain),
+        "authorization_url": authorization,
     }
 
 

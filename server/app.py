@@ -18,7 +18,7 @@ logging.getLogger("uvicorn.access").propagate = False
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api_support import (
     _cache_key,
@@ -146,6 +146,7 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
             "ok": False,
             "code": exc.code,
             "message": exc.public_message,
+            "provider": exc.provider,
             "status": exc.status_code,
             "retryable": exc.retryable,
             "path": request.url.path,
@@ -195,7 +196,7 @@ def root_head():
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return JSONResponse(content=None, status_code=204)
+    return Response(status_code=204)
 
 
 @app.get("/health")

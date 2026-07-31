@@ -5,6 +5,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -15,6 +16,7 @@ if SERVER_DIR not in sys.path:
 
 import api_support
 from routes import google_oauth as google_routes
+from routes import meta_legacy as meta_routes
 from routes import shopify_oauth as shopify_routes
 from server.services import ga4_connections, shopify_oauth
 from server.services.generic_connections import google_capabilities
@@ -177,7 +179,8 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntegrationError) as raised:
                 await ga4_connections.resolve_ga4_connection_context("roove")
         self.assertEqual(raised.exception.status_code, 409)
-        self.assertEqual(raised.exception.code, "GA4_PROPERTY_SELECTION_REQUIRED")
+        self.assertEqual(raised.exception.code, "ACCOUNT_SELECTION_REQUIRED")
+        self.assertEqual(raised.exception.provider, "ga4")
 
     async def test_ga4_connection_cannot_cross_tenants(self):
         with patch.object(
@@ -197,7 +200,171 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 403)
 
 
+class MetaCallbackPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_callback_persists_pending_connection_before_success_redirect(self):
+        request = type("Request", (), {"url": type("URL", (), {"scheme": "https", "netloc": "api.example"})()})()
+        pending = AsyncMock(return_value={"id": "meta-base"})
+        with (
+            patch.object(
+                meta_routes,
+                "consume_oauth_state",
+                AsyncMock(return_value={"user_id": "user-roove", "client_id": "roove"}),
+            ),
+            patch.object(meta_routes, "require_user_client_access", AsyncMock()),
+            patch.object(meta_routes, "resolve_meta_redirect_uri", return_value="https://api.example/api/oauth/meta/callback"),
+            patch.object(
+                meta_routes,
+                "exchange_code_for_token",
+                AsyncMock(return_value={"access_token": "secret-token", "expires_at": "2026-09-01T00:00:00Z"}),
+            ),
+            patch.object(
+                meta_routes,
+                "discover_assets",
+                AsyncMock(return_value={"meta_user": {"id": "meta-user"}, "instagram_accounts": [], "ad_accounts": [], "scopes": []}),
+            ),
+            patch.object(meta_routes, "create_discovery_handoff", AsyncMock(return_value="safe-handoff")),
+            patch.object(meta_routes, "save_pending_meta_authorization", pending),
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await meta_routes.api_oauth_meta_callback(request, code="secret-code", state="secret-state")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("meta_oauth=success", response.headers["location"])
+        self.assertIn("handoff=safe-handoff", response.headers["location"])
+        pending.assert_awaited_once()
+
+    async def test_callback_never_redirects_success_when_persistence_fails(self):
+        request = type("Request", (), {"url": type("URL", (), {"scheme": "https", "netloc": "api.example"})()})()
+        with (
+            patch.object(
+                meta_routes,
+                "consume_oauth_state",
+                AsyncMock(return_value={"user_id": "user-roove", "client_id": "roove"}),
+            ),
+            patch.object(meta_routes, "require_user_client_access", AsyncMock()),
+            patch.object(meta_routes, "resolve_meta_redirect_uri", return_value="https://api.example/api/oauth/meta/callback"),
+            patch.object(meta_routes, "exchange_code_for_token", AsyncMock(return_value={"access_token": "secret-token"})),
+            patch.object(
+                meta_routes,
+                "discover_assets",
+                AsyncMock(return_value={"meta_user": {"id": "meta-user"}, "instagram_accounts": [], "ad_accounts": [], "scopes": []}),
+            ),
+            patch.object(meta_routes, "create_discovery_handoff", AsyncMock(return_value="safe-handoff")),
+            patch.object(meta_routes, "save_pending_meta_authorization", AsyncMock(side_effect=RuntimeError("database unavailable"))),
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await meta_routes.api_oauth_meta_callback(request, code="secret-code", state="secret-state")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("meta_oauth=error", response.headers["location"])
+        self.assertNotIn("meta_oauth=success", response.headers["location"])
+
+
+class GoogleCallbackPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ga4_callback_persists_product_before_success_redirect(self):
+        request = SimpleNamespace(state=SimpleNamespace())
+        save = AsyncMock(return_value={"id": "ga4-connection"})
+        with (
+            patch.object(
+                google_routes,
+                "consume_oauth_state",
+                AsyncMock(
+                    return_value={
+                        "user_id": "user-roove",
+                        "client_id": "roove",
+                        "redirect_uri": "https://api.example/api/oauth/google/callback",
+                        "context": {"integration_product": "ga4"},
+                    }
+                ),
+            ),
+            patch.object(google_routes, "require_user_client_access", AsyncMock()),
+            patch.object(
+                google_routes,
+                "exchange_code",
+                AsyncMock(return_value={"access_token": "secret-token", "refresh_token": "secret-refresh"}),
+            ),
+            patch.object(
+                google_routes,
+                "fetch_google_identity",
+                AsyncMock(return_value={"sub": "google-user", "email": "roove@example.com"}),
+            ),
+            patch.object(google_routes, "save_google_authorization", save),
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await google_routes.callback(request, code="secret-code", state="secret-state", error=None)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("google_oauth=success", response.headers["location"])
+        self.assertIn("integration_product=ga4", response.headers["location"])
+        self.assertEqual(save.await_args.kwargs["product"], "ga4")
+        self.assertEqual(request.state.integration_product, "ga4")
+
+    async def test_google_callback_reports_error_when_database_save_fails(self):
+        request = SimpleNamespace(state=SimpleNamespace())
+        with (
+            patch.object(
+                google_routes,
+                "consume_oauth_state",
+                AsyncMock(
+                    return_value={
+                        "user_id": "user-roove",
+                        "client_id": "roove",
+                        "redirect_uri": "https://api.example/api/oauth/google/callback",
+                        "context": {"integration_product": "google_ads"},
+                    }
+                ),
+            ),
+            patch.object(google_routes, "require_user_client_access", AsyncMock()),
+            patch.object(google_routes, "exchange_code", AsyncMock(return_value={"access_token": "secret-token"})),
+            patch.object(
+                google_routes,
+                "fetch_google_identity",
+                AsyncMock(return_value={"sub": "google-user", "email": "roove@example.com"}),
+            ),
+            patch.object(
+                google_routes,
+                "save_google_authorization",
+                AsyncMock(side_effect=RuntimeError("database unavailable")),
+            ),
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await google_routes.callback(request, code="secret-code", state="secret-state", error=None)
+        self.assertIn("google_oauth=error", response.headers["location"])
+        self.assertNotIn("google_oauth=success", response.headers["location"])
+
+
 class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shopify_start_logs_only_safe_configuration_fields(self):
+        output = io.StringIO()
+        authorization = (
+            "https://roove.myshopify.com/admin/oauth/authorize?"
+            "client_id=public-client&scope=read_orders%2Cread_customers%2Cread_products&"
+            "redirect_uri=https%3A%2F%2Fapi.dados.mugoagencia.com.br%2Fapi%2Foauth%2Fshopify%2Fcallback&"
+            "state=secret-state-value"
+        )
+        with (
+            patch.object(shopify_routes, "require_client_role", AsyncMock(return_value="roove")),
+            patch.object(shopify_routes, "require_user_id", AsyncMock(return_value="user-roove")),
+            patch.object(shopify_routes, "authorization_url", AsyncMock(return_value=authorization)),
+            patch.object(
+                shopify_routes,
+                "safe_oauth_configuration",
+                return_value={
+                    "redirect_uri": "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback",
+                    "client_id_hint": "...client",
+                },
+            ),
+            redirect_stdout(output),
+        ):
+            result = await shopify_routes.start(
+                shop="roove.myshopify.com",
+                client_id="roove",
+                authorization="Bearer safe",
+            )
+        log = output.getvalue()
+        self.assertEqual(result["authorization_url"], authorization)
+        self.assertIn("shop=roove.myshopify.com", log)
+        self.assertIn("client_id_present=yes", log)
+        self.assertIn("state_present=yes", log)
+        self.assertNotIn("secret-state-value", log)
+
     async def _resolve(self, full_row, *, required_scopes=()):
         summary = {key: value for key, value in full_row.items() if key != "_token"}
         with (

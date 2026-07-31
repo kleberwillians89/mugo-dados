@@ -479,6 +479,36 @@ async def create_discovery_handoff(
     return handoff
 
 
+async def save_pending_meta_authorization(
+    *,
+    user_id: str,
+    client_id: str,
+    access_token: str,
+    expires_at: Optional[str],
+    discovered: Dict[str, Any],
+) -> Dict[str, Any]:
+    meta_user = _json_object(discovered.get("meta_user"))
+    meta_user_id = _safe_str(meta_user.get("id"))
+    return await upsert_connection(
+        client_id=client_id,
+        provider="meta",
+        external_key=meta_user_id or f"meta:{client_id}",
+        token_payload=json.dumps({"access_token": access_token}),
+        user_id=user_id,
+        status="selection_required",
+        account_id=meta_user_id or None,
+        account_name=_safe_str(meta_user.get("name")) or None,
+        token_expires_at=_safe_str(expires_at) or None,
+        scopes=[_safe_str(scope) for scope in _json_array(discovered.get("scopes")) if _safe_str(scope)],
+        metadata={
+            "integration_product": "meta",
+            "selection_required": True,
+            "discovered_instagram_count": len(_json_array(discovered.get("instagram_accounts"))),
+            "discovered_ad_account_count": len(_json_array(discovered.get("ad_accounts"))),
+        },
+    )
+
+
 async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optional[str] = None) -> Dict[str, Any]:
     item = await _load_handoff_row(handoff=handoff)
     if _safe_str(item.get("user_id")) != _safe_str(user_id):
@@ -712,6 +742,7 @@ async def save_connections(
         scopes=[_safe_str(scope) for scope in scopes if _safe_str(scope)],
         metadata={
             "integration_product": "meta",
+            "selection_required": False,
             "page_ids": sorted(pages_requested),
             "instagram_ig_user_ids": sorted(ig_requested),
             "ad_account_ids": sorted(ads_requested),
