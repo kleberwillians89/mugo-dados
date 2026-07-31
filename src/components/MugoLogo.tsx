@@ -1,4 +1,4 @@
-import whiteWordmark from "../assets/MUGÔ_LOGO.png";
+import whiteWordmark from "../assets/mugo-logo.png";
 
 export const MUGO_LOGO_ASSETS = {
   wordmark: "/mugo_logo1.png",
