@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .generic_connections import get_connection, upsert_connection
-from .crypto import encrypt_secret
+from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_select, sb_update
 from .oauth_state import create_oauth_state
 from .integration_errors import IntegrationError, from_httpx_error
@@ -110,10 +110,6 @@ async def save_google_authorization(
     expires_at = (
         datetime.now(timezone.utc) + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
     ).isoformat()
-    if not token.get("refresh_token"):
-        raise RuntimeError(
-            "Google não devolveu refresh_token. Revogue o acesso anterior e conecte novamente."
-        )
     existing = await sb_select(
         "integration_connections",
         filters={"client_id": f"eq.{client_id}", "provider": "eq.ga4"},
@@ -129,9 +125,33 @@ async def save_google_authorization(
         raise RuntimeError(
             "Esta empresa já possui uma autorização Google. Desconecte-a antes de autorizar outra conta."
         )
+    same_identity = next(
+        (row for row in existing if str(row.get("external_key") or "") == identity["sub"]),
+        None,
+    )
+    refresh_token = str(token.get("refresh_token") or "").strip()
+    previous_metadata: Dict[str, Any] = {}
+    if same_identity:
+        previous_metadata = (
+            same_identity.get("metadata")
+            if isinstance(same_identity.get("metadata"), dict)
+            else {}
+        )
+        if not refresh_token:
+            encrypted = str(same_identity.get("encrypted_token") or "").strip()
+            if encrypted:
+                try:
+                    previous_token = json.loads(decrypt_secret(encrypted))
+                    refresh_token = str(previous_token.get("refresh_token") or "").strip()
+                except (RuntimeError, TypeError, ValueError):
+                    refresh_token = ""
+    if not refresh_token:
+        raise RuntimeError(
+            "Google não devolveu refresh_token. Revogue o acesso anterior e conecte novamente."
+        )
     safe_token = {
         "access_token": token["access_token"],
-        "refresh_token": token["refresh_token"],
+        "refresh_token": refresh_token,
         "token_type": token.get("token_type"),
         "expires_at": expires_at,
     }
@@ -147,6 +167,7 @@ async def save_google_authorization(
         token_expires_at=expires_at,
         scopes=str(token.get("scope") or "").split(),
         metadata={
+            **previous_metadata,
             "google_email": identity["email"],
             "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN")),
         },

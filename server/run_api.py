@@ -22,6 +22,7 @@ def main() -> None:
         host="0.0.0.0",
         port=_resolve_port(),
         reload=False,
+        access_log=False,
     )
 
 

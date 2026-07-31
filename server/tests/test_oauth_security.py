@@ -331,7 +331,113 @@ class MetaAssetSelectionTests(unittest.TestCase):
         )
 
 
+class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_finalize_persists_selected_connection_and_consumes_handoff(self):
+        handoff_row = {
+            "handoff": "handoff-1",
+            "user_id": "user-amalie",
+            "client_id": "amalie",
+            "encrypted_access_token": "encrypted-token",
+            "expires_at": "2026-09-01T00:00:00Z",
+            "meta_user_json": {"id": "meta-user-1", "name": "Meta User"},
+            "instagram_accounts_json": [
+                {
+                    "ig_user_id": "ig-1",
+                    "username": "amalie",
+                    "business_id": "page-1",
+                    "business_name": "Amalie",
+                }
+            ],
+            "ad_accounts_json": [],
+            "scopes_json": ["instagram_basic", "instagram_manage_insights"],
+        }
+        insert = AsyncMock(return_value={"id": "meta-connection-1"})
+        with (
+            patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff_row)),
+            patch.object(meta_oauth, "decrypt_secret", return_value="provider-token"),
+            patch.object(meta_oauth, "encrypt_secret", return_value="encrypted-provider-token"),
+            patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[])),
+            patch.object(meta_oauth, "sb_insert", insert),
+            patch.object(meta_oauth, "sb_update", AsyncMock()),
+            patch.object(meta_oauth, "sb_delete", AsyncMock()) as delete,
+        ):
+            result = await meta_oauth.save_connections(
+                user_id="user-amalie",
+                client_id="amalie",
+                handoff="handoff-1",
+                page_ids=["page-1"],
+                instagram_ig_user_ids=["ig-1"],
+                ad_account_ids=[],
+            )
+
+        self.assertEqual(result["saved_count"], 1)
+        inserted_row = insert.await_args.args[1]
+        self.assertEqual(inserted_row["client_id"], "amalie")
+        self.assertEqual(inserted_row["ig_user_id"], "ig-1")
+        self.assertEqual(inserted_row["encrypted_access_token"], "encrypted-provider-token")
+        self.assertIsNone(inserted_row["access_token"])
+        delete.assert_awaited_once()
+
+    async def test_repeated_connection_row_finalize_updates_instead_of_inserting(self):
+        row = {
+            "client_id": "amalie",
+            "platform": "instagram",
+            "connection_type": "organic",
+            "ig_user_id": "ig-1",
+            "ad_account_id": "",
+        }
+        with (
+            patch.object(
+                meta_oauth,
+                "sb_select",
+                AsyncMock(side_effect=[[{"id": "existing-1"}], [{"id": "existing-1", **row}]]),
+            ),
+            patch.object(meta_oauth, "sb_update", AsyncMock()) as update,
+            patch.object(meta_oauth, "sb_insert", AsyncMock()) as insert,
+        ):
+            saved = await meta_oauth._save_connection_row(row)
+
+        self.assertEqual(saved["id"], "existing-1")
+        update.assert_awaited_once()
+        insert.assert_not_awaited()
+
+
 class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reauthorization_preserves_existing_refresh_token_and_selection(self):
+        existing = {
+            "id": "connection-1",
+            "external_key": "google-user-a",
+            "status": "connected",
+            "encrypted_token": "encrypted-existing-token",
+            "metadata": {"ga4_property_id": "123456"},
+        }
+        with (
+            patch.object(google_oauth, "sb_select", AsyncMock(return_value=[existing])),
+            patch.object(
+                google_oauth,
+                "decrypt_secret",
+                return_value='{"refresh_token":"preserved-refresh"}',
+            ),
+            patch.object(
+                google_oauth,
+                "upsert_connection",
+                AsyncMock(return_value={"id": "connection-1"}),
+            ) as upsert,
+        ):
+            await google_oauth.save_google_authorization(
+                client_id="amalie",
+                user_id="user-amalie",
+                token={"access_token": "new-access", "expires_in": 3600},
+                identity={"sub": "google-user-a", "email": "a@example.com"},
+            )
+
+        token_payload = upsert.await_args.kwargs["token_payload"]
+        self.assertIn("preserved-refresh", token_payload)
+        self.assertEqual(
+            upsert.await_args.kwargs["metadata"]["ga4_property_id"],
+            "123456",
+        )
+
     async def test_second_active_google_identity_is_rejected(self):
         with patch.object(
             google_oauth,

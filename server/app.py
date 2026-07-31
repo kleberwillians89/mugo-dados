@@ -1,4 +1,5 @@
 import os
+import time
 import traceback
 from typing import Any, Dict, Optional
 
@@ -49,6 +50,21 @@ from services.tenant import require_user_id, resolve_client_id
 from services.integration_errors import IntegrationError
 
 app = FastAPI(title="Mugô Dados API")
+
+
+@app.middleware("http")
+async def safe_request_log(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    path = request.url.path
+    provider = "meta" if path.startswith("/api/oauth/meta/") else "-"
+    print(
+        "[http] "
+        f"method={request.method} path={path} provider={provider} "
+        f"status={response.status_code} duration_ms={duration_ms}"
+    )
+    return response
 
 TTL_DASHBOARD_SECONDS = 120
 TTL_MEDIA_SECONDS = 120
@@ -148,6 +164,16 @@ async def startup_bootstrap():
 @app.get("/")
 def root():
     return {"ok": True, "service": "mugo-dados-api"}
+
+
+@app.head("/")
+def root_head():
+    return JSONResponse(content=None, status_code=200)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return JSONResponse(content=None, status_code=204)
 
 
 @app.get("/health")

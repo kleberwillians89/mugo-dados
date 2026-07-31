@@ -8,6 +8,7 @@ import {
   listGenericConnections,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
+  refreshAll,
   selectGoogleAdsAccount,
   selectGoogleGa4Property,
   selectShopifyConnection,
@@ -258,7 +259,34 @@ export default function Onboarding({
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
       } else if (oauthStatus === "success") {
         await loadConnections();
-        setInfo(`${provider || "Integração"} conectada com sucesso.`);
+        const connectionId = String(params.get("connection_id") || "").trim();
+        if (provider === "Google" && connectionId) {
+          const [ga4, ads] = await Promise.all([
+            listGoogleGa4Properties(connectionId),
+            listGoogleAdsAccounts(connectionId),
+          ]);
+          const properties = ga4.properties || [];
+          setGooglePickerId(connectionId);
+          setGoogleProperties(properties);
+          setGoogleAdsAccounts(ads.accounts || []);
+          setGoogleAdsNotice(ads.reason || "");
+          if (properties.length === 1) {
+            const propertyId = String(properties[0].property || "");
+            await selectGoogleGa4Property(connectionId, propertyId);
+            await syncGoogleConnection(connectionId);
+            await loadConnections();
+            setGooglePickerId(null);
+            setInfo("Google conectado, propriedade GA4 selecionada e importação inicial concluída.");
+          } else {
+            setInfo("Google conectado. Selecione a propriedade GA4 para concluir.");
+          }
+        } else if (provider === "Shopify" && connectionId) {
+          await syncShopifyConnection(connectionId);
+          await loadConnections();
+          setInfo("Shopify conectada e importação inicial concluída.");
+        } else {
+          setInfo(`${provider || "Integração"} conectada com sucesso.`);
+        }
       }
     } catch (error: unknown) {
       setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
@@ -429,18 +457,32 @@ export default function Onboarding({
     setInfo(null);
 
     try {
-      await linkClientAssets({
+      const result = await linkClientAssets({
         handoff: pendingAssets.handoff,
         page_ids: pageIds,
         instagram_ig_user_ids: instagramIds,
         ad_account_ids: adAccountIds,
       });
+      const savedConnections = Array.isArray(result.connections) ? result.connections : [];
+      const organic = savedConnections.find((item) => item && typeof item === "object" && item.platform === "instagram");
+      let initialSyncWarning = "";
+      if (organic && typeof organic === "object" && typeof organic.id === "string") {
+        try {
+          await refreshAll(200, { connectionId: organic.id });
+        } catch {
+          initialSyncWarning = " A conexão foi salva; use Atualizar dados para repetir a importação.";
+        }
+      }
       setPendingAssets(null);
       setSelectedIg({});
       setSelectedPages({});
       setSelectedAds({});
       await loadConnections();
-      setInfo("Ativos do cliente ativo vinculados com sucesso.");
+      setInfo(
+        initialSyncWarning
+          ? `Meta conectada.${initialSyncWarning}`
+          : "Meta conectada. Ativos persistidos e importação inicial concluída."
+      );
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao vincular os ativos do cliente ativo."));
     } finally {
@@ -765,7 +807,7 @@ export default function Onboarding({
         </section>
 
         {googlePickerId ? (
-          <section className="card cardWide">
+          <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">Selecionar ativos Google</div>
             <div className="p">A seleção será vinculada somente à empresa ativa.</div>
             <label className="smallMuted">
@@ -802,9 +844,9 @@ export default function Onboarding({
           <section className="card cardWide">
             <div className="sectionHeader">
               <div>
-                <div className="h1">Vincular ativos autorizados</div>
+                <div className="h1">Concluir conexão Meta</div>
                 <div className="p">
-                  Revise os ativos descobertos para o cliente ativo e confirme o que deve ficar disponivel no painel.
+                  A autorização foi concluída. Selecione os ativos e salve para manter a conexão após sair ou recarregar.
                 </div>
               </div>
             </div>
@@ -905,7 +947,7 @@ export default function Onboarding({
 
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" onClick={() => void onLinkSelectedAssets()} disabled={saving}>
-                {saving ? "Vinculando..." : "Vincular ativos do cliente ativo"}
+                {saving ? "Salvando e importando..." : "Salvar conexão e importar dados"}
               </button>
               <button
                 className="btn btnGhost"

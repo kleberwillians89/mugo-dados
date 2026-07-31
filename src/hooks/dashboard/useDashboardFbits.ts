@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getFbitsOrders, getFbitsOrdersSummary } from "../../app/api";
+import { getFbitsOrders, getFbitsOrdersSummary, getShopifyReport, listGenericConnections } from "../../app/api";
 import type { FbitsOrdersResponse, FbitsOrdersSummaryResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
@@ -66,6 +66,52 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setLoadingFbits(!cached && !cachedInitial);
     setFbitsError(null);
     try {
+      const connectionResponse = await listGenericConnections();
+      const activeCommerceConnections = connectionResponse.connections.filter(
+        (connection) =>
+          ["shopify", "fbits"].includes(connection.provider) &&
+          ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
+      );
+      const commerceConnection =
+        activeCommerceConnections.find(
+          (connection) =>
+            connection.provider === "shopify" &&
+            Boolean(connection.metadata?.selected_for_reporting)
+        ) || activeCommerceConnections[0];
+      if (!commerceConnection) {
+        const empty: FbitsOrdersSummaryResponse = {
+          ok: true,
+          connected: false,
+          client_id: activeClientId,
+          period: { start: safePeriod.start, end: safePeriod.end },
+          summary: { receita_oficial: 0, pedidos: 0, ticket_medio: 0, clientes: 0, produtos_vendidos: 0 },
+          message: "Nenhuma plataforma de e-commerce conectada.",
+        };
+        setFbitsData(empty);
+        setFbitsOrders(null);
+        return empty;
+      }
+      if (commerceConnection.provider === "shopify") {
+        const report = await getShopifyReport({ start: safePeriod.start, end: safePeriod.end });
+        const summary: FbitsOrdersSummaryResponse = {
+          ok: report.ok,
+          connected: true,
+          client_id: report.client_id,
+          period: { start: report.period.start, end: report.period.end },
+          summary: {
+            receita_oficial: report.summary.revenue_total,
+            pedidos: report.summary.orders,
+            ticket_medio: report.summary.average_ticket,
+            clientes: report.summary.customers,
+            produtos_vendidos: report.top_products.reduce((total, item) => total + item.quantity_sold, 0),
+          },
+          message: "Fonte: Shopify",
+        };
+        setFbitsData(summary);
+        setFbitsOrders(null);
+        writeDashboardCache<FbitsCachePayload>(rangeKey, { summary, orders: null }, 180_000);
+        return summary;
+      }
       const [summary, orders] = await Promise.allSettled([
         getFbitsOrdersSummary({
           start: safePeriod.start,
