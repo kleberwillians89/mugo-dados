@@ -29,6 +29,11 @@ import type {
   PaidDashboardResponse,
 } from "./types";
 import type { Period } from "./PeriodContext";
+import type {
+  IntelligenceAnalysisRecord,
+  IntelligenceMessage,
+  IntelligenceSnapshot,
+} from "./intelligenceTypes";
 import { getSupabaseBootstrapError, isLocalAuthEnabled, supabase } from "./supabase";
 import {
   clearTenantBrowserState,
@@ -366,6 +371,83 @@ export async function updatePlatformCompany(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getIntelligenceContext(
+  period: Period,
+  options?: RequestSignalOptions,
+): Promise<{ ok: true; snapshot: IntelligenceSnapshot }> {
+  return http(pathWithPeriod("/api/intelligence/context", period, 30), {
+    signal: options?.signal,
+  });
+}
+
+export async function getLatestIntelligenceAnalysis(
+  period: Period,
+  options?: RequestSignalOptions,
+): Promise<{
+  ok: true;
+  provider_configured: boolean;
+  analysis: IntelligenceAnalysisRecord | null;
+}> {
+  return http(pathWithPeriod("/api/intelligence/latest", period, 30), {
+    signal: options?.signal,
+  });
+}
+
+export async function generateIntelligenceAnalysis(
+  period: Period,
+  options?: RequestSignalOptions,
+): Promise<{
+  ok: true;
+  provider_configured: boolean;
+  status: string;
+  snapshot: IntelligenceSnapshot;
+  analysis: IntelligenceAnalysisRecord;
+}> {
+  return http("/api/intelligence/analyses", {
+    method: "POST",
+    body: JSON.stringify(period),
+    signal: options?.signal,
+  });
+}
+
+export async function getIntelligenceHistory(
+  limit = 20,
+  options?: RequestSignalOptions,
+): Promise<{ ok: true; items: IntelligenceAnalysisRecord[] }> {
+  return http(`/api/intelligence/history?limit=${Math.max(1, Math.min(limit, 100))}`, {
+    signal: options?.signal,
+  });
+}
+
+export async function askIntelligence(payload: {
+  question: string;
+  conversation_id?: string | null;
+  start: string;
+  end: string;
+}, options?: RequestSignalOptions): Promise<{
+  ok: true;
+  conversation_id: string;
+  user_message: IntelligenceMessage;
+  assistant_message: IntelligenceMessage;
+  snapshot: IntelligenceSnapshot;
+}> {
+  return http("/api/intelligence/ask", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: options?.signal,
+  });
+}
+
+export async function getIntelligenceMessages(
+  conversationId: string,
+  options?: RequestSignalOptions,
+): Promise<{ ok: true; messages: IntelligenceMessage[] }> {
+  return http(
+    `/api/intelligence/conversations/${encodeURIComponent(conversationId)}/messages`,
+    { signal: options?.signal },
+  );
 }
 
 export async function createClientInvitation(payload: {

@@ -27,6 +27,7 @@ from routes.google_oauth import router as google_oauth_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
+from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
 from routes.platform_admin import router as platform_admin_router
 from routes.shopify import router as shopify_router
@@ -139,6 +140,7 @@ app.include_router(google_oauth_router)
 app.include_router(fbits_router)
 app.include_router(meta_legacy_router)
 app.include_router(invitations_router)
+app.include_router(intelligence_router)
 app.include_router(connections_router)
 app.include_router(platform_admin_router)
 

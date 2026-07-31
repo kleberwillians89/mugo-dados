@@ -10,6 +10,9 @@ describe("platform routes", () => {
   it("keeps tenant reports on their existing routes", () => {
     expect(getAppRouteFromPath("/")).toBe("dashboard");
     expect(getAppRouteFromPath("/google")).toBe("google");
+    expect(getAppRouteFromPath("/integracoes")).toBe("integrations");
+    expect(getAppRouteFromPath("/inteligencia")).toBe("intelligence");
+    expect(getPathForRoute("intelligence")).toBe("/inteligencia");
   });
 
   it("distinguishes an unknown URL from the dashboard", () => {

@@ -22,12 +22,14 @@ const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadCompanies = () => import("./pages/Companies");
+const loadIntelligence = () => import("./pages/Intelligence");
 const loadNotFound = () => import("./pages/NotFound");
 
 const Onboarding = lazy(loadOnboarding);
 const Dashboard = lazy(loadDashboard);
 const GoogleAnalytics = lazy(loadGoogleAnalytics);
 const Companies = lazy(loadCompanies);
+const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
 
 type AppView = "loading" | "login" | "setup" | "dashboard";
@@ -125,6 +127,44 @@ function AppLoading() {
   );
 }
 
+function PrimaryNavigation({
+  route,
+  platformAdmin,
+  onOpen,
+}: {
+  route: AppRoute;
+  platformAdmin: boolean;
+  onOpen: (route: AppRoute) => void;
+}) {
+  const items: Array<{ route: AppRoute; label: string }> = [
+    { route: "dashboard", label: "Visão Geral" },
+    { route: "google", label: "E-commerce e GA4" },
+    { route: "integrations", label: "Integrações" },
+    { route: "intelligence", label: "Inteligência IA" },
+  ];
+  if (platformAdmin) items.push({ route: "companies", label: "Administração" });
+  return (
+    <nav className="primaryNavigation" aria-label="Navegação principal">
+      <div className="primaryNavigationInner">
+        <strong>Mugô Dados</strong>
+        <div>
+          {items.map((item) => (
+            <button
+              aria-current={route === item.route ? "page" : undefined}
+              className={route === item.route ? "isActive" : ""}
+              key={item.route}
+              onClick={() => onOpen(item.route)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
 export default function App() {
   const authBootstrapError = getSupabaseBootstrapError();
   const [session, setSession] = useState<Session | null>(null);
@@ -158,7 +198,7 @@ export default function App() {
           navigateToAppRoute("dashboard", { replace: true });
           setRoute("dashboard");
         }
-        setView(hasSetupSignalInUrl() ? "setup" : "dashboard");
+        setView(requestedRoute === "integrations" || hasSetupSignalInUrl() ? "setup" : "dashboard");
         return;
       }
 
@@ -182,7 +222,7 @@ export default function App() {
         setClients(availableClients);
         setResolvedUserId(activeSession?.user.id || null);
         const stored = getActiveClient();
-        if (profile.is_platform_admin && !stored && requestedRoute === "dashboard") {
+        if (profile.is_platform_admin && !stored && requestedRoute !== "companies") {
           navigateToAppRoute("companies", { replace: true });
           setRoute("companies");
           setView("dashboard");
@@ -216,6 +256,11 @@ export default function App() {
 
       if (requestedRoute === "companies") {
         setView("dashboard");
+        return;
+      }
+
+      if (requestedRoute === "integrations") {
+        setView("setup");
         return;
       }
 
@@ -386,6 +431,7 @@ export default function App() {
         loadGoogleAnalytics(),
         loadOnboarding(),
         loadNotFound(),
+        loadIntelligence(),
         ...(platformAdmin ? [loadCompanies()] : []),
       ]);
     };
@@ -446,8 +492,9 @@ export default function App() {
 
   const handleSetupCompleted = useCallback(async () => {
     clearSetupUrlParams();
-    await resolveAuthenticatedView(session, route);
-  }, [resolveAuthenticatedView, route, session]);
+    openRoute("dashboard");
+    setView("dashboard");
+  }, [openRoute]);
 
   const handlePasswordLoginSuccess = useCallback(
     async (nextSession: Session | null) => {
@@ -500,17 +547,23 @@ export default function App() {
 
   if (view === "setup") {
     return (
-      <Onboarding
-        isAuthenticated={!!session}
-        initialError={bootError}
-        onLogout={handleLogout}
-        onCompleted={handleSetupCompleted}
-      />
+      <>
+        <PrimaryNavigation route="integrations" platformAdmin={platformAdmin} onOpen={openRoute} />
+        <Suspense fallback={<AppLoading />}>
+          <Onboarding
+            isAuthenticated={!!session}
+            initialError={bootError}
+            onLogout={handleLogout}
+            onCompleted={handleSetupCompleted}
+          />
+        </Suspense>
+      </>
     );
   }
 
   return (
     <DashboardErrorBoundary>
+      <PrimaryNavigation route={route} platformAdmin={platformAdmin} onOpen={openRoute} />
       <Suspense fallback={<AppLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("dashboard")} />
@@ -522,17 +575,17 @@ export default function App() {
         />
       ) : (
       <>
-      {platformAdmin && (
-        <button className="btn" style={{position:"fixed",right:18,top:18,zIndex:100}} onClick={() => openRoute("companies")}>
-          Empresas
-        </button>
-      )}
       <ClientSwitcher
         clients={clients}
         activeClientId={activeClientId}
         onChange={handleClientChange}
       />
-      {route === "google" ? (
+      {route === "intelligence" ? (
+        <Intelligence
+          key={`intelligence:${activeClientId}`}
+          onLogout={handleLogout}
+        />
+      ) : route === "google" ? (
         <GoogleAnalytics
           key={`google:${activeClientId}`}
           isAuthenticated={!!session || localMode}

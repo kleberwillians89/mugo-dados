@@ -11,7 +11,6 @@ import NotesPanel from "../components/NotesPanel";
 import { MonthCompareLines, MonthMixChart } from "../components/Charts";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import StoriesPanel from "../components/dashboard/StoriesPanel";
-import AiSummaryCard from "../components/dashboard/AiSummaryCard";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
 import MetaStateNotice from "../components/dashboard/MetaStateNotice";
 import ExecutiveOverview, {
@@ -20,7 +19,6 @@ import ExecutiveOverview, {
 } from "../components/dashboard/ExecutiveOverview";
 
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
-import useDashboardAiSummary from "../hooks/dashboard/useDashboardAiSummary";
 import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyContent";
 import useDashboardPaid from "../hooks/dashboard/useDashboardPaid";
 import {
@@ -1124,10 +1122,6 @@ export default function Dashboard({
   const storiesMessage =
     storiesMessageFromApi ||
     (stories.length || hasSummaryOrganicData ? "" : "Stories ainda não sincronizados.");
-  const { aiLoading, aiErr, aiReport, runAi } = useDashboardAiSummary({
-    period,
-    resetKey: activeClientId,
-  });
   const {
     monthlyRows,
     loadingMonthly,
@@ -2120,8 +2114,6 @@ export default function Dashboard({
           onOpenGoogleAnalytics={onOpenGoogleAnalytics}
           refreshing={syncing}
           onRefresh={onRefresh}
-          aiLoading={SHOW_PRESENTATION_EXTRAS ? aiLoading : false}
-          onAi={SHOW_PRESENTATION_EXTRAS ? runAi : undefined}
           onLogout={onLogoutClick}
         />
       }
@@ -2977,14 +2969,6 @@ export default function Dashboard({
                 />
               </div>
             )}
-          </MetaBlockBoundary>
-          <MetaBlockBoundary
-            resetKey={`ai:${metaRenderKey}`}
-            title="Resumo estratégico"
-            description="Leitura assistida por IA"
-            fallbackMessage="O resumo assistido por IA falhou isoladamente. O dashboard principal continua disponível."
-          >
-            <AiSummaryCard aiReport={aiReport} aiErr={aiErr} />
           </MetaBlockBoundary>
         </aside>
         ) : null}

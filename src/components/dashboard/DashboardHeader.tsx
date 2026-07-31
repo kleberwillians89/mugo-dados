@@ -9,11 +9,9 @@ type Props = {
   onSelectPeriodPreset?: (preset: "7d" | "30d" | "month") => void;
   refreshing?: boolean;
   backgroundRefreshing?: boolean;
-  aiLoading?: boolean;
   onOpenMeta?: () => void;
   onOpenGoogleAnalytics?: () => void;
   onRefresh?: () => void;
-  onAi?: () => void;
   onLogout: () => void | Promise<void>;
 };
 
@@ -24,11 +22,9 @@ export default function DashboardHeader({
   onSelectPeriodPreset,
   refreshing = false,
   backgroundRefreshing = false,
-  aiLoading = false,
   onOpenMeta,
   onOpenGoogleAnalytics,
   onRefresh,
-  onAi,
   onLogout,
 }: Props) {
   return (
@@ -93,11 +89,6 @@ export default function DashboardHeader({
           {onRefresh ? (
             <button className="btn btnPrimary" onClick={onRefresh} disabled={refreshing} type="button">
               {refreshing ? "Atualizando..." : "Atualizar dados"}
-            </button>
-          ) : null}
-          {onAi ? (
-            <button className="btn btnGold" onClick={onAi} disabled={aiLoading} type="button">
-              {aiLoading ? "Analisando..." : "Análise IA"}
             </button>
           ) : null}
           <button className="btnLogout" onClick={() => onLogout()} type="button">

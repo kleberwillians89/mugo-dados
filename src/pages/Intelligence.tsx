@@ -1,0 +1,505 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  askIntelligence,
+  generateIntelligenceAnalysis,
+  getIntelligenceContext,
+  getIntelligenceHistory,
+  getLatestIntelligenceAnalysis,
+} from "../app/api";
+import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import type {
+  IntelligenceAction,
+  IntelligenceAnalysisRecord,
+  IntelligenceInsight,
+  IntelligenceMessage,
+  IntelligenceMetric,
+  IntelligenceSnapshot,
+} from "../app/intelligenceTypes";
+import { usePeriod } from "../app/PeriodContext";
+import "../styles/intelligence.css";
+
+type Props = {
+  onLogout: () => void | Promise<void>;
+};
+
+type CachedWorkspace = {
+  snapshot: IntelligenceSnapshot | null;
+  analysis: IntelligenceAnalysisRecord | null;
+  history: IntelligenceAnalysisRecord[];
+  providerConfigured: boolean | null;
+};
+
+const workspaceCache = new Map<string, CachedWorkspace>();
+
+const QUESTIONS = [
+  "Por que minhas vendas caíram?",
+  "Qual campanha merece mais investimento?",
+  "Onde estou perdendo vendas?",
+  "Quais produtos vendem melhor sem mídia?",
+  "Meu crescimento no Instagram gerou resultado?",
+  "O que devo fazer nesta semana?",
+];
+
+const CATEGORY_LABELS: Record<IntelligenceInsight["category"], string> = {
+  opportunity: "Oportunidade",
+  attention: "Ponto de atenção",
+  risk: "Risco",
+  positive: "Resultado positivo",
+  anomaly: "Anomalia",
+  data_quality: "Qualidade dos dados",
+};
+
+const PRIORITY_LABELS: Record<IntelligenceAction["priority"], string> = {
+  now: "Fazer agora",
+  week: "Fazer nesta semana",
+  monitor: "Acompanhar",
+  investigate: "Investigar",
+};
+
+function formatDate(value?: string | null, includeTime = false) {
+  if (!value) return "Não disponível";
+  const parsed = new Date(value.length === 10 ? `${value}T12:00:00` : value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    ...(includeTime ? { timeStyle: "short" as const } : {}),
+  }).format(parsed);
+}
+
+function formatMetric(metric: IntelligenceMetric) {
+  if (metric.value == null) {
+    const statusLabel: Partial<Record<IntelligenceMetric["status"], string>> = {
+      unavailable: "Indisponível",
+      disconnected: "Não conectado",
+      partial: "Parcial",
+      error: "Erro na consulta",
+    };
+    return statusLabel[metric.status] || "Sem dados";
+  }
+  let formatted: string;
+  if (metric.format === "currency") {
+    formatted = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(metric.value);
+  } else if (metric.format === "percent") {
+    formatted = `${metric.value.toLocaleString("pt-BR")}%`;
+  } else if (metric.format === "decimal") {
+    formatted = `${metric.value.toLocaleString("pt-BR")}x`;
+  } else {
+    formatted = Math.round(metric.value).toLocaleString("pt-BR");
+  }
+  return metric.status === "partial" ? `${formatted} · parcial` : formatted;
+}
+
+function metricMap(metrics: IntelligenceMetric[]) {
+  return new Map(metrics.map((metric) => [metric.id, metric]));
+}
+
+function IntelligenceSkeleton() {
+  return (
+    <div className="intelSkeleton" aria-label="Carregando inteligência" aria-busy="true">
+      <div className="intelSkeletonHero" />
+      <div className="intelSkeletonMetrics">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>
+      <div className="intelSkeletonBody"><span /><span /></div>
+    </div>
+  );
+}
+
+function Evidence({
+  ids,
+  metrics,
+}: {
+  ids: string[];
+  metrics: Map<string, IntelligenceMetric>;
+}) {
+  const items = ids.map((id) => metrics.get(id)).filter(Boolean) as IntelligenceMetric[];
+  if (!items.length) return <p className="intelMuted">Sem evidência numérica suficiente.</p>;
+  return (
+    <div className="intelEvidence">
+      {items.map((metric) => (
+        <span key={metric.id}>
+          <small>{metric.label}</small>
+          <strong>{formatMetric(metric)}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export default function Intelligence({ onLogout }: Props) {
+  const { period } = usePeriod();
+  const clientId = getActiveClientId();
+  const cacheKey = `${clientId}:${period.start}:${period.end}`;
+  const cached = workspaceCache.get(cacheKey);
+  const [snapshot, setSnapshot] = useState<IntelligenceSnapshot | null>(cached?.snapshot || null);
+  const [analysis, setAnalysis] = useState<IntelligenceAnalysisRecord | null>(cached?.analysis || null);
+  const [history, setHistory] = useState<IntelligenceAnalysisRecord[]>(cached?.history || []);
+  const [providerConfigured, setProviderConfigured] = useState<boolean | null>(
+    cached?.providerConfigured ?? null,
+  );
+  const [loading, setLoading] = useState(!cached);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<IntelligenceMessage[]>([]);
+  const requestVersion = useRef(0);
+  const refreshController = useRef<AbortController | null>(null);
+  const askController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const version = ++requestVersion.current;
+    const currentCache = workspaceCache.get(cacheKey);
+    if (currentCache) {
+      setSnapshot(currentCache.snapshot);
+      setAnalysis(currentCache.analysis);
+      setHistory(currentCache.history);
+      setProviderConfigured(currentCache.providerConfigured);
+    } else {
+      setLoading(true);
+    }
+    setError("");
+    void Promise.allSettled([
+      getIntelligenceContext(period, { signal: controller.signal }),
+      getLatestIntelligenceAnalysis(period, { signal: controller.signal }),
+      getIntelligenceHistory(20, { signal: controller.signal }),
+    ]).then(([contextResult, latestResult, historyResult]) => {
+      if (controller.signal.aborted || version !== requestVersion.current) return;
+      const nextSnapshot =
+        contextResult.status === "fulfilled" ? contextResult.value.snapshot : currentCache?.snapshot || null;
+      const nextAnalysis =
+        latestResult.status === "fulfilled" ? latestResult.value.analysis : currentCache?.analysis || null;
+      const nextHistory =
+        historyResult.status === "fulfilled" ? historyResult.value.items : currentCache?.history || [];
+      const nextProvider =
+        latestResult.status === "fulfilled"
+          ? latestResult.value.provider_configured
+          : currentCache?.providerConfigured ?? null;
+      setSnapshot(nextSnapshot);
+      setAnalysis(nextAnalysis);
+      setHistory(nextHistory);
+      setProviderConfigured(nextProvider);
+      workspaceCache.set(cacheKey, {
+        snapshot: nextSnapshot,
+        analysis: nextAnalysis,
+        history: nextHistory,
+        providerConfigured: nextProvider,
+      });
+      const failed = [contextResult, latestResult, historyResult].filter((item) => item.status === "rejected");
+      if (failed.length === 3) {
+        const reason = failed[0].status === "rejected" ? failed[0].reason : null;
+        setError(reason instanceof Error ? reason.message : "Não foi possível carregar a central de inteligência.");
+      }
+      setLoading(false);
+    });
+    return () => {
+      controller.abort();
+      refreshController.current?.abort();
+      askController.current?.abort();
+    };
+  }, [cacheKey, period]);
+
+  const displayedMetrics = useMemo(
+    () => analysis?.metrics_snapshot?.length
+      ? analysis.metrics_snapshot
+      : snapshot?.metrics || [],
+    [analysis?.metrics_snapshot, snapshot?.metrics],
+  );
+  const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
+  const content = analysis?.status === "completed" ? analysis.analysis : null;
+
+  async function refreshAnalysis() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError("");
+    refreshController.current?.abort();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    try {
+      const result = await generateIntelligenceAnalysis(period, { signal: controller.signal });
+      setSnapshot(result.snapshot);
+      setAnalysis(result.analysis);
+      setProviderConfigured(result.provider_configured);
+      const nextHistory = [result.analysis, ...history.filter((item) => item.id !== result.analysis.id)];
+      setHistory(nextHistory);
+      workspaceCache.set(cacheKey, {
+        snapshot: result.snapshot,
+        analysis: result.analysis,
+        history: nextHistory,
+        providerConfigured: result.provider_configured,
+      });
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a análise.");
+      }
+    } finally {
+      if (refreshController.current === controller) setRefreshing(false);
+    }
+  }
+
+  async function submitQuestion(event: FormEvent) {
+    event.preventDefault();
+    const clean = question.trim();
+    if (!clean || asking) return;
+    setAsking(true);
+    setError("");
+    askController.current?.abort();
+    const controller = new AbortController();
+    askController.current = controller;
+    try {
+      const result = await askIntelligence({
+        question: clean,
+        conversation_id: conversationId,
+        start: period.start,
+        end: period.end,
+      }, { signal: controller.signal });
+      setConversationId(result.conversation_id);
+      setMessages((current) => [...current, result.user_message, result.assistant_message]);
+      setSnapshot(result.snapshot);
+      setQuestion("");
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : "A pergunta não pôde ser respondida.");
+      }
+    } finally {
+      if (askController.current === controller) setAsking(false);
+    }
+  }
+
+  function selectHistory(item: IntelligenceAnalysisRecord) {
+    setAnalysis(item);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  if (loading && !snapshot && !analysis) {
+    return <main className="intelligencePage"><IntelligenceSkeleton /></main>;
+  }
+
+  return (
+    <main className="intelligencePage">
+      <header className="intelHeader">
+        <div className="intelIdentity">
+          <span className="intelMonogram" aria-hidden="true">
+            {(snapshot?.client.name || getActiveClientName() || "M").slice(0, 2).toUpperCase()}
+          </span>
+          <div>
+            <span className="intelEyebrow">Central de decisão</span>
+            <h1>Inteligência IA</h1>
+            <p>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</p>
+          </div>
+        </div>
+        <div className="intelHeaderMeta">
+          <span><small>Período</small>{formatDate(period.start)} — {formatDate(period.end)}</span>
+          <span><small>Qualidade</small>{snapshot?.quality.score ?? "—"}%</span>
+          <span><small>Última sincronização</small>{formatDate(snapshot?.last_sync_at, true)}</span>
+          <span><small>Última análise</small>{formatDate(analysis?.completed_at || analysis?.created_at, true)}</span>
+        </div>
+        <div className="intelHeaderActions">
+          <button className="btn btnPrimary" onClick={() => void refreshAnalysis()} disabled={refreshing}>
+            {refreshing ? "Atualizando análise…" : "Atualizar análise"}
+          </button>
+          <button className="btn btnGhost" onClick={() => void onLogout()}>Sair</button>
+        </div>
+      </header>
+
+      <section className="intelSourceBar" aria-label="Fontes utilizadas">
+        <strong>Fontes</strong>
+        {(snapshot?.sources || []).map((source) => (
+          <span className={`intelSource is-${source.status}`} key={source.id}>
+            {source.label}<small>{source.status === "available" ? "com dados" : source.status.replace("_", " ")}</small>
+          </span>
+        ))}
+      </section>
+
+      {error ? <div className="intelError" role="alert">{error}</div> : null}
+      {providerConfigured === false || analysis?.status === "configuration_pending" ? (
+        <section className="intelConfigState">
+          <strong>Provedor de IA aguardando configuração</strong>
+          <p>
+            As métricas abaixo são reais e foram calculadas pelo backend. Configure `OPENAI_API_KEY`
+            exclusivamente no backend para liberar diagnósticos e conversas. Nenhuma resposta foi simulada.
+          </p>
+        </section>
+      ) : null}
+
+      <section className="intelExecutive">
+        <div className="intelExecutiveMain">
+          <span className="intelEyebrow">Resumo executivo</span>
+          <h2>{content?.executive.overall || "Ainda não existe uma análise salva para este período."}</h2>
+          <p>
+            {content
+              ? content.executive.priority_action
+              : "Revise as evidências calculadas e use “Atualizar análise” quando quiser criar uma nova versão."}
+          </p>
+        </div>
+        <div className="intelExecutiveGrid">
+          <article><small>Principal mudança</small><p>{content?.executive.main_change || "Aguardando análise."}</p></article>
+          <article><small>Maior oportunidade</small><p>{content?.executive.opportunity || "Aguardando análise."}</p></article>
+          <article><small>Ponto de atenção</small><p>{content?.executive.attention || snapshot?.quality.message}</p></article>
+        </div>
+      </section>
+
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Evidências</span><h2>Números que sustentam a análise</h2></div>
+          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
+        </div>
+        <div className="intelMetricGrid">
+          {displayedMetrics.map((metric) => (
+            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
+              <div><span>{metric.label}</span><small>{metric.source.replaceAll("_", " ")}</small></div>
+              <strong>{formatMetric(metric)}</strong>
+              <p>
+                {metric.variation_percent == null
+                  ? metric.status === "partial"
+                    ? "Cobertura parcial do período"
+                    : metric.status === "confirmed"
+                      ? "Sem base anterior comparável"
+                      : "Evidência indisponível"
+                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Leitura priorizada</span><h2>Insights</h2></div>
+          <p>Impacto, confiança, fontes e evidências ficam visíveis em cada conclusão.</p>
+        </div>
+        {content?.insights?.length ? (
+          <div className="intelInsightGrid">
+            {content.insights.map((insight, index) => (
+              <article className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
+                <div className="intelInsightTop">
+                  <span>{CATEGORY_LABELS[insight.category]}</span>
+                  <small>Impacto {insight.impact} · confiança {insight.confidence}</small>
+                </div>
+                <h3>{insight.title}</h3>
+                <p>{insight.interpretation}</p>
+                <Evidence ids={insight.metric_ids} metrics={metrics} />
+                <div className="intelInsightAction"><strong>Ação</strong><p>{insight.action}</p><small>{insight.reason}</small></div>
+                <div className="intelTags">{insight.sources.map((source) => <span key={source}>{source}</span>)}</div>
+              </article>
+            ))}
+          </div>
+        ) : <div className="intelEmpty">Nenhum insight versionado para este período.</div>}
+      </section>
+
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Visão integrada</span><h2>Cruzamento de plataformas</h2></div>
+          <p>Relações observadas não são apresentadas como causalidade.</p>
+        </div>
+        <div className="intelCrossGrid">
+          {(snapshot?.crossings || []).map((crossing) => (
+            <article key={crossing.id}>
+              <div><h3>{crossing.label}</h3><span>{crossing.status === "available" ? "Disponível" : "Dados insuficientes"}</span></div>
+              <Evidence ids={crossing.metrics} metrics={metricMap(snapshot?.metrics || [])} />
+              <p>{crossing.note}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Execução</span><h2>Plano de ação</h2></div>
+          <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
+        </div>
+        {content?.actions?.length ? (
+          <div className="intelActionColumns">
+            {(["now", "week", "monitor", "investigate"] as const).map((priority) => (
+              <div key={priority}>
+                <h3>{PRIORITY_LABELS[priority]}</h3>
+                {content.actions.filter((action) => action.priority === priority).map((action, index) => (
+                  <article key={`${action.recommendation}-${index}`}>
+                    <strong>{action.recommendation}</strong>
+                    <p>{action.justification}</p>
+                    <small>{action.impact_expected} · confiança {action.confidence}</small>
+                  </article>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : <div className="intelEmpty">O plano será criado junto com a próxima análise.</div>}
+      </section>
+
+      <section className="intelAssistant">
+        <div className="intelAssistantIntro">
+          <span className="intelEyebrow">Assistente analítico</span>
+          <h2>Pergunte sobre os resultados da sua empresa</h2>
+          <p>As respostas usam somente o tenant, período e fontes exibidos nesta página.</p>
+        </div>
+        <div className="intelQuestionSuggestions">
+          {QUESTIONS.map((suggestion) => (
+            <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)}>
+              {suggestion}
+            </button>
+          ))}
+        </div>
+        <div className="intelConversation" aria-live="polite">
+          {messages.map((message) => (
+            <article className={`intelMessage is-${message.role}`} key={message.id}>
+              <small>{message.role === "user" ? "Você" : "Inteligência IA"}</small>
+              {message.role === "user" ? (
+                <p>{message.content.question}</p>
+              ) : (
+                <>
+                  <h3>{message.content.direct_answer}</h3>
+                  <Evidence ids={message.content.metric_ids || []} metrics={metricMap(snapshot?.metrics || [])} />
+                  <div className="intelAnswerSections">
+                    <div><strong>Evidências consultadas</strong>{message.content.evidence?.map((item) => <p key={item}>{item}</p>)}</div>
+                    <div><strong>Pontos de atenção</strong>{message.content.attention_points?.map((item) => <p key={item}>{item}</p>)}</div>
+                    <div><strong>Recomendações</strong>{message.content.recommendations?.map((item) => <p key={item}>{item}</p>)}</div>
+                    <div><strong>Próximos passos</strong>{message.content.next_steps?.map((item) => <p key={item}>{item}</p>)}</div>
+                  </div>
+                  <footer>{formatDate(message.period_start)} — {formatDate(message.period_end)}</footer>
+                </>
+              )}
+            </article>
+          ))}
+        </div>
+        <form className="intelAskForm" onSubmit={submitQuestion}>
+          <label htmlFor="intel-question">Sua pergunta</label>
+          <div>
+            <textarea
+              id="intel-question"
+              rows={2}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Ex.: onde estou perdendo vendas neste período?"
+              disabled={asking || providerConfigured === false}
+            />
+            <button className="btn btnPrimary" disabled={asking || !question.trim() || providerConfigured === false}>
+              {asking ? "Analisando…" : "Perguntar"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="intelSection intelHistory">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Versionamento</span><h2>Histórico de análises</h2></div>
+          <p>Análises anteriores permanecem congeladas mesmo quando os dados mudam.</p>
+        </div>
+        <div className="intelHistoryList">
+          {history.map((item) => (
+            <button
+              className={analysis?.id === item.id ? "isActive" : ""}
+              key={item.id}
+              onClick={() => selectHistory(item)}
+              type="button"
+            >
+              <span><strong>{formatDate(item.created_at, true)}</strong><small>{item.period_start} — {item.period_end}</small></span>
+              <span><strong>{item.status.replace("_", " ")}</strong><small>{item.data_quality?.status || "sem qualidade"}</small></span>
+              <span><strong>{item.provider || "Configuração pendente"}</strong><small>{item.sources?.length || 0} fontes</small></span>
+            </button>
+          ))}
+          {!history.length ? <div className="intelEmpty">Nenhuma análise foi criada ainda.</div> : null}
+        </div>
+      </section>
+    </main>
+  );
+}

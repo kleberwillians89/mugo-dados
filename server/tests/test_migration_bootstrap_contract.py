@@ -35,15 +35,16 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 20)
-        self.assertEqual(names[-2], "20260731_000019_auth_oauth_connections.sql")
+        self.assertEqual(len(names), 21)
+        self.assertEqual(names[-3], "20260731_000019_auth_oauth_connections.sql")
+        self.assertEqual(names[-1], "20260802_000021_intelligence_workspace.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 21)))
+        self.assertEqual(logical_numbers, list(range(1, 22)))
 
 
 if __name__ == "__main__":

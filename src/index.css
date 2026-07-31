@@ -29,7 +29,7 @@ button, input, select, textarea { font: inherit; }
 .clientSwitcher {
   position: fixed;
   z-index: 1000;
-  top: 14px;
+  top: 76px;
   right: 18px;
   display: flex;
   align-items: center;
