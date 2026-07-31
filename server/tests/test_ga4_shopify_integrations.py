@@ -5,7 +5,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 
@@ -302,6 +302,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.auth_mode, "legacy")
 
     async def test_valid_callback_persists_connection_and_starts_first_sync(self):
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
         request = type(
             "Request",
             (),
@@ -344,13 +345,18 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_routes, "sync_shopify_connection", AsyncMock(return_value={"ok": True})) as sync,
             patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
         ):
-            response = await shopify_routes.callback(request)
+            response = await shopify_routes.callback(request, background_tasks)
         self.assertEqual(response.status_code, 302)
         self.assertIn("shopify_oauth=success", response.headers["location"])
         for secret in ("secret-code", "secret-state", "secret-token"):
             self.assertNotIn(secret, response.headers["location"])
         save.assert_awaited_once()
-        sync.assert_awaited_once_with(client_id="roove", connection_id="shopify-connection")
+        background_tasks.add_task.assert_called_once_with(
+            sync,
+            client_id="roove",
+            connection_id="shopify-connection",
+        )
+        sync.assert_not_awaited()
 
 
 class IntegrationErrorSafetyTests(unittest.TestCase):

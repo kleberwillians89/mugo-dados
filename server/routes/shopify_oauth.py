@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Header, Query, Request
 from fastapi.responses import RedirectResponse
 
 from services.generic_connections import disconnect_generic_connection, get_connection
@@ -56,7 +56,7 @@ async def start(
 
 
 @router.get("/callback")
-async def callback(request: Request):
+async def callback(request: Request, background_tasks: BackgroundTasks):
     try:
         params = {key: value for key, value in request.query_params.items()}
         if not verify_callback_hmac(params):
@@ -82,7 +82,8 @@ async def callback(request: Request):
         connection = await save_shopify_connection(
             client_id=client_id, user_id=user_id, shop_domain=shop_domain, token=token, shop=shop
         )
-        await sync_shopify_connection(
+        background_tasks.add_task(
+            sync_shopify_connection,
             client_id=client_id,
             connection_id=str(connection.get("id") or ""),
         )
