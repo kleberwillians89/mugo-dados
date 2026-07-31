@@ -1,3 +1,5 @@
+
+
 import type {
   RefreshAllResponse,
   DashboardResponse,
@@ -43,7 +45,7 @@ import {
 import { getSelectedPeriodRange } from "./periodRange";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
-const productionApiBase = "https://mugo-dados.onrender.com";
+const productionApiBase = "https://api.dados.mugoagencia.com.br";
 
 function resolveApiBase(): string {
   if (!rawApiBase) {

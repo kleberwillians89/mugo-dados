@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -31,9 +32,18 @@ def _env(name: str) -> str:
 
 def settings() -> Dict[str, str]:
     values = {
-        "client_id": _env("GOOGLE_OAUTH_CLIENT_ID"),
-        "client_secret": _env("GOOGLE_OAUTH_CLIENT_SECRET"),
-        "redirect_uri": _env("GOOGLE_OAUTH_REDIRECT_URI"),
+        "client_id": (
+            _env("GOOGLE_OAUTH_CLIENT_ID")
+            or _env("GOOGLE_CLIENT_ID")
+        ),
+        "client_secret": (
+            _env("GOOGLE_OAUTH_CLIENT_SECRET")
+            or _env("GOOGLE_CLIENT_SECRET")
+        ),
+        "redirect_uri": (
+            _env("GOOGLE_OAUTH_REDIRECT_URI")
+            or _env("GOOGLE_REDIRECT_URI")
+        ),
     }
     missing = [name for name, value in values.items() if not value]
     if missing:
@@ -135,7 +145,10 @@ async def save_google_authorization(
         account_name=identity["email"],
         token_expires_at=expires_at,
         scopes=str(token.get("scope") or "").split(),
-        metadata={"google_email": identity["email"], "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN"))},
+        metadata={
+            "google_email": identity["email"],
+            "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN")),
+        },
     )
 
 
@@ -145,7 +158,11 @@ async def _access_token(client_id: str, connection_id: str) -> str:
         row = await get_connection(client_id, connection_id, include_token=True)
         token = json.loads(str(row.get("_token") or "{}"))
         expires_raw = str(token.get("expires_at") or "")
-        expires_at = datetime.fromisoformat(expires_raw.replace("Z", "+00:00")) if expires_raw else None
+        expires_at = (
+            datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+            if expires_raw
+            else None
+        )
         if expires_at and expires_at > datetime.now(timezone.utc) + timedelta(minutes=2):
             return str(token.get("access_token") or "")
         refresh_token = str(token.get("refresh_token") or "")
@@ -168,7 +185,8 @@ async def _access_token(client_id: str, connection_id: str) -> str:
         if not access_token:
             raise RuntimeError("Google não renovou o access_token.")
         next_expires = (
-            datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in") or 3600))
+            datetime.now(timezone.utc)
+            + timedelta(seconds=int(refreshed.get("expires_in") or 3600))
         ).isoformat()
         token.update({"access_token": access_token, "expires_at": next_expires})
         await sb_update(
@@ -197,12 +215,14 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
     out: List[Dict[str, Any]] = []
     for account in response.json().get("accountSummaries") or []:
         for prop in account.get("propertySummaries") or []:
-            out.append({
-                "account": account.get("account"),
-                "account_name": account.get("displayName"),
-                "property": prop.get("property"),
-                "property_name": prop.get("displayName"),
-            })
+            out.append(
+                {
+                    "account": account.get("account"),
+                    "account_name": account.get("displayName"),
+                    "property": prop.get("property"),
+                    "property_name": prop.get("displayName"),
+                }
+            )
     return out
 
 
@@ -243,7 +263,10 @@ async def list_google_ads_accounts(client_id: str, connection_id: str) -> Dict[s
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers",
-            headers={"Authorization": f"Bearer {token}", "developer-token": developer_token},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "developer-token": developer_token,
+            },
         )
     response.raise_for_status()
     accounts = [

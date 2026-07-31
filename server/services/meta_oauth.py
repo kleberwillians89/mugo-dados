@@ -216,6 +216,7 @@ def build_oauth_url(
     user_id: str,
     redirect_uri: str,
     app_id: Optional[str] = None,
+    state_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     cid = _normalize_state_client_id(client_id)
     uid = _safe_str(user_id)
@@ -224,14 +225,21 @@ def build_oauth_url(
     if not _safe_str(redirect_uri):
         raise RuntimeError("redirect_uri OAuth não configurada")
 
-    payload = {
-        "client_id": cid,
-        "user_id": uid,
-        "nonce": str(uuid.uuid4()),
-        "iat": int(time.time()),
-    }
-    payload_raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    state = f"{_b64u_encode(payload_raw)}.{_sign(payload_raw)}"
+    state = _safe_str(state_override)
+
+    if not state:
+        payload = {
+            "client_id": cid,
+            "user_id": uid,
+            "nonce": str(uuid.uuid4()),
+            "iat": int(time.time()),
+        }
+        payload_raw = json.dumps(
+            payload,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        state = f"{_b64u_encode(payload_raw)}.{_sign(payload_raw)}"
 
     resolved_app_id = _safe_str(app_id) or _env("META_APP_ID")
 
@@ -479,11 +487,21 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
     if client_id and _safe_str(item.get("client_id")) != _safe_str(client_id):
         raise RuntimeError("Sessão OAuth não pertence ao cliente informado.")
 
+    instagram_accounts = _json_array(item.get("instagram_accounts_json"))
+    pages_by_id = {
+        _safe_str(account.get("business_id")): {
+            "page_id": _safe_str(account.get("business_id")),
+            "page_name": _safe_str(account.get("business_name")),
+        }
+        for account in instagram_accounts
+        if isinstance(account, dict) and _safe_str(account.get("business_id"))
+    }
     return {
         "handoff": _safe_str(item.get("handoff")),
         "client_id": _safe_str(item.get("client_id")),
         "meta_user": _json_object(item.get("meta_user_json")),
-        "instagram_accounts": _json_array(item.get("instagram_accounts_json")),
+        "pages": list(pages_by_id.values()),
+        "instagram_accounts": instagram_accounts,
         "ad_accounts": _json_array(item.get("ad_accounts_json")),
         "scopes": _json_array(item.get("scopes_json")),
         "expires_at": item.get("expires_at"),
@@ -510,11 +528,34 @@ async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return inserted or row
 
 
+def validate_page_selection(
+    *,
+    discovered_instagram_accounts: List[Any],
+    requested_page_ids: set[str],
+    selected_instagram_accounts: List[Any],
+) -> None:
+    discovered_page_ids = {
+        _safe_str((account or {}).get("business_id"))
+        for account in discovered_instagram_accounts
+        if isinstance(account, dict) and _safe_str(account.get("business_id"))
+    }
+    if not requested_page_ids.issubset(discovered_page_ids):
+        raise RuntimeError("A Página selecionada não pertence aos ativos descobertos nesta autorização.")
+    if any(
+        _safe_str((account or {}).get("business_id")) not in requested_page_ids
+        for account in selected_instagram_accounts
+    ):
+        raise RuntimeError(
+            "Selecione a Página do Facebook associada a cada conta profissional do Instagram."
+        )
+
+
 async def save_connections(
     *,
     user_id: str,
     client_id: str,
     handoff: str,
+    page_ids: List[str],
     instagram_ig_user_ids: List[str],
     ad_account_ids: List[str],
 ) -> Dict[str, Any]:
@@ -528,6 +569,7 @@ async def save_connections(
     encrypted_access = _safe_str(item.get("encrypted_access_token"))
     access_token = decrypt_secret(encrypted_access)
 
+    pages_requested = {_safe_str(i) for i in page_ids if _safe_str(i)}
     ig_requested = {_safe_str(i) for i in instagram_ig_user_ids if _safe_str(i)}
     ads_requested = {_normalize_ad_account_id(i) for i in ad_account_ids if _safe_str(i)}
     selected_igs = [
@@ -540,6 +582,12 @@ async def save_connections(
         for a in _json_array(item.get("ad_accounts_json"))
         if _normalize_ad_account_id(_safe_str((a or {}).get("ad_account_id"))) in ads_requested
     ]
+
+    validate_page_selection(
+        discovered_instagram_accounts=_json_array(item.get("instagram_accounts_json")),
+        requested_page_ids=pages_requested,
+        selected_instagram_accounts=selected_igs,
+    )
 
     if not selected_igs and not selected_ads:
         raise RuntimeError("Selecione ao menos um ativo Instagram ou Meta Ads para vincular.")
