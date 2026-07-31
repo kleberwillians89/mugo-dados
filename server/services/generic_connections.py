@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_insert, sb_select, sb_update
+from .runtime_cache import invalidate_namespace
 
 
 def _iso_now() -> str:
@@ -140,6 +141,7 @@ async def upsert_connection(
         event_type="connected",
         details={"provider": provider, "external_key": external_key},
     )
+    await invalidate_namespace("integration_connections")
     return sanitize_connection(result)
 
 
@@ -159,6 +161,7 @@ async def disconnect_generic_connection(client_id: str, connection_id: str, user
         event_type="disconnected",
         details={"provider": updated[0].get("provider")},
     )
+    await invalidate_namespace("integration_connections")
     return sanitize_connection(updated[0])
 
 
@@ -187,6 +190,7 @@ async def update_connection_selection(
         event_type="account_selected",
         details={"fields": sorted(metadata_patch.keys())},
     )
+    await invalidate_namespace("integration_connections")
     return sanitize_connection(updated[0])
 
 

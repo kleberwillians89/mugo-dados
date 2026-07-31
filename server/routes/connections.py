@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, Query
 from services.generic_connections import list_generic_connections
 from services.integration_catalog import public_integration_catalog
 from services.tenant import require_client_read
+from services.runtime_cache import get_cached_or_load
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
 
@@ -16,9 +17,15 @@ async def list_connections(
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_read(client_id or x_client_id, authorization)
+    rows, _ = await get_cached_or_load(
+        namespace="integration_connections",
+        key=cid,
+        ttl_seconds=30,
+        loader=lambda: list_generic_connections(cid),
+    )
     return {
         "ok": True,
         "client_id": cid,
-        "connections": await list_generic_connections(cid),
+        "connections": rows,
         "providers": public_integration_catalog(),
     }

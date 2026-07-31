@@ -11,14 +11,23 @@ from fastapi import HTTPException
 from .ig_supabase import sb_insert, sb_rpc, sb_select, sb_update
 from .invitations import send_supabase_invite
 from .tenant import require_user_id
+from .runtime_cache import get_cached_or_load
 
 
 async def is_platform_admin(user_id: str) -> bool:
-    rows = await sb_select(
-        "platform_admins",
-        select="user_id,role,granted_at",
-        filters={"user_id": f"eq.{user_id}", "role": "eq.platform_admin"},
-        limit=1,
+    async def load():
+        return await sb_select(
+            "platform_admins",
+            select="user_id,role,granted_at",
+            filters={"user_id": f"eq.{user_id}", "role": "eq.platform_admin"},
+            limit=1,
+        )
+
+    rows, _ = await get_cached_or_load(
+        namespace="platform_admin",
+        key=str(user_id or ""),
+        ttl_seconds=60,
+        loader=load,
     )
     return bool(rows)
 

@@ -5,7 +5,7 @@ services:
     plan: starter
     rootDir: server
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_api.py
+    startCommand: python run_api.py # run_api.py desabilita access_log explicitamente
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION

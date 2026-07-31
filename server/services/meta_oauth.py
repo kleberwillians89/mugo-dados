@@ -19,6 +19,8 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_OAUTH_DIALOG_URL
 from .meta_http import meta_get_json
 from .meta_tokens import serialize_connection_status
+from .generic_connections import upsert_connection
+from .runtime_cache import invalidate_namespace
 
 META_DIALOG = META_OAUTH_DIALOG_URL
 _HANDOFF_TTL_SECONDS = 15 * 60
@@ -697,20 +699,42 @@ async def save_connections(
             returning="minimal",
         )
 
+    generic_connection = await upsert_connection(
+        client_id=client_id,
+        provider="meta",
+        external_key=current_meta_user_id or f"meta:{client_id}",
+        token_payload=json.dumps({"access_token": access_token}),
+        user_id=user_id,
+        status="connected",
+        account_id=current_meta_user_id or None,
+        account_name=_safe_str(meta_user.get("name")) or None,
+        token_expires_at=_safe_str(expires_at) or None,
+        scopes=[_safe_str(scope) for scope in scopes if _safe_str(scope)],
+        metadata={
+            "integration_product": "meta",
+            "page_ids": sorted(pages_requested),
+            "instagram_ig_user_ids": sorted(ig_requested),
+            "ad_account_ids": sorted(ads_requested),
+        },
+    )
+
     try:
-        await sb_delete(
+        await sb_update(
             _HANDOFF_TABLE,
             filters={"handoff": f"eq.{token}"},
+            patch={"finalized_at": now_iso, "consumed_at": now_iso},
             returning="minimal",
         )
     except httpx.HTTPStatusError as exc:
         raise _handoff_schema_error(exc) from exc
 
+    await invalidate_namespace("integration_connections")
     return {
         "ok": True,
         "client_id": client_id,
         "saved_count": len(saved),
         "connections": saved,
+        "integration_connection": generic_connection,
     }
 
 

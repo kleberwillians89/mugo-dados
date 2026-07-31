@@ -352,14 +352,20 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
             "scopes_json": ["instagram_basic", "instagram_manage_insights"],
         }
         insert = AsyncMock(return_value={"id": "meta-connection-1"})
+        update = AsyncMock()
         with (
             patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff_row)),
             patch.object(meta_oauth, "decrypt_secret", return_value="provider-token"),
             patch.object(meta_oauth, "encrypt_secret", return_value="encrypted-provider-token"),
             patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[])),
             patch.object(meta_oauth, "sb_insert", insert),
-            patch.object(meta_oauth, "sb_update", AsyncMock()),
-            patch.object(meta_oauth, "sb_delete", AsyncMock()) as delete,
+            patch.object(meta_oauth, "sb_update", update),
+            patch.object(
+                meta_oauth,
+                "upsert_connection",
+                AsyncMock(return_value={"id": "generic-meta-1", "provider": "meta"}),
+            ) as generic_upsert,
+            patch.object(meta_oauth, "invalidate_namespace", AsyncMock()),
         ):
             result = await meta_oauth.save_connections(
                 user_id="user-amalie",
@@ -376,7 +382,39 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inserted_row["ig_user_id"], "ig-1")
         self.assertEqual(inserted_row["encrypted_access_token"], "encrypted-provider-token")
         self.assertIsNone(inserted_row["access_token"])
-        delete.assert_awaited_once()
+        handoff_update = next(
+            call for call in update.await_args_list if call.args and call.args[0] == "meta_oauth_handoffs"
+        )
+        self.assertIn("finalized_at", handoff_update.kwargs["patch"])
+        self.assertIn("consumed_at", handoff_update.kwargs["patch"])
+        self.assertEqual(generic_upsert.await_args.kwargs["client_id"], "amalie")
+        self.assertEqual(generic_upsert.await_args.kwargs["provider"], "meta")
+
+    async def test_discover_assets_does_not_consume_or_delete_handoff(self):
+        with (
+            patch.object(
+                meta_oauth,
+                "_load_handoff_row",
+                AsyncMock(
+                    return_value={
+                        "handoff": "handoff-1",
+                        "user_id": "user-amalie",
+                        "client_id": "amalie",
+                        "instagram_accounts_json": [],
+                        "ad_accounts_json": [],
+                        "scopes_json": [],
+                    }
+                ),
+            ),
+            patch.object(meta_oauth, "sb_update", AsyncMock()) as update,
+            patch.object(meta_oauth, "sb_delete", AsyncMock()) as delete,
+        ):
+            result = await meta_oauth.read_discovery_handoff(
+                handoff="handoff-1", user_id="user-amalie", client_id="amalie"
+            )
+        self.assertEqual(result["handoff"], "handoff-1")
+        update.assert_not_awaited()
+        delete.assert_not_awaited()
 
     async def test_repeated_connection_row_finalize_updates_instead_of_inserting(self):
         row = {

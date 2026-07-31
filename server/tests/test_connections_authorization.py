@@ -8,9 +8,13 @@ if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
 from routes import connections
+from services.runtime_cache import invalidate_namespace
 
 
 class ConnectionAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        await invalidate_namespace("integration_connections")
+
     async def test_get_connections_uses_read_permission(self):
         with (
             patch.object(connections, "require_client_read", AsyncMock(return_value="company-1")) as read,

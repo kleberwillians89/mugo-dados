@@ -1,11 +1,19 @@
 import os
+import logging
 import time
 import traceback
+import uuid
 from typing import Any, Dict, Optional
 
 from services.env_loader import ensure_env_loaded
 
 ensure_env_loaded()
+
+# Defesa em profundidade: o painel do Render pode sobrescrever o comando do
+# blueprint. Desabilitar o logger aqui impede query strings sensíveis mesmo
+# quando o processo é iniciado com `uvicorn app:app`.
+logging.getLogger("uvicorn.access").disabled = True
+logging.getLogger("uvicorn.access").propagate = False
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,15 +63,20 @@ app = FastAPI(title="Mugô Dados API")
 @app.middleware("http")
 async def safe_request_log(request: Request, call_next):
     started = time.perf_counter()
+    request_id = str(request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
     response = await call_next(request)
     duration_ms = int((time.perf_counter() - started) * 1000)
     path = request.url.path
-    provider = "meta" if path.startswith("/api/oauth/meta/") else "-"
+    provider = next(
+        (name for name in ("meta", "google", "shopify") if path.startswith(f"/api/oauth/{name}/")),
+        "-",
+    )
     print(
         "[http] "
         f"method={request.method} path={path} provider={provider} "
-        f"status={response.status_code} duration_ms={duration_ms}"
+        f"status={response.status_code} duration_ms={duration_ms} request_id={request_id}"
     )
+    response.headers["X-Request-ID"] = request_id
     return response
 
 TTL_DASHBOARD_SECONDS = 120
