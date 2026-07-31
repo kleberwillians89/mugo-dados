@@ -14,6 +14,7 @@ from .generic_connections import get_connection, upsert_connection
 from .crypto import encrypt_secret
 from .ig_supabase import sb_select, sb_update
 from .oauth_state import create_oauth_state
+from .integration_errors import IntegrationError, from_httpx_error
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -155,8 +156,31 @@ async def save_google_authorization(
 async def _access_token(client_id: str, connection_id: str) -> str:
     lock = _REFRESH_LOCKS.setdefault(connection_id, asyncio.Lock())
     async with lock:
-        row = await get_connection(client_id, connection_id, include_token=True)
-        token = json.loads(str(row.get("_token") or "{}"))
+        try:
+            row = await get_connection(client_id, connection_id, include_token=True)
+        except Exception as exc:
+            raise IntegrationError(
+                "Conexão Google não encontrada para a empresa selecionada.",
+                status_code=404,
+                code="GOOGLE_CONNECTION_NOT_FOUND",
+                provider="google",
+            ) from exc
+        if str(row.get("provider") or "") not in {"ga4", "google_ads"}:
+            raise IntegrationError(
+                "A conexão selecionada não é uma conexão Google.",
+                status_code=404,
+                code="GOOGLE_CONNECTION_NOT_FOUND",
+                provider="google",
+            )
+        try:
+            token = json.loads(str(row.get("_token") or "{}"))
+        except (TypeError, ValueError) as exc:
+            raise IntegrationError(
+                "A conexão Google requer nova autorização.",
+                status_code=401,
+                code="GOOGLE_REAUTH_REQUIRED",
+                provider="google",
+            ) from exc
         expires_raw = str(token.get("expires_at") or "")
         expires_at = (
             datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
@@ -164,10 +188,23 @@ async def _access_token(client_id: str, connection_id: str) -> str:
             else None
         )
         if expires_at and expires_at > datetime.now(timezone.utc) + timedelta(minutes=2):
-            return str(token.get("access_token") or "")
+            access_token = str(token.get("access_token") or "")
+            if not access_token:
+                raise IntegrationError(
+                    "A conexão Google requer nova autorização.",
+                    status_code=401,
+                    code="GOOGLE_REAUTH_REQUIRED",
+                    provider="google",
+                )
+            return access_token
         refresh_token = str(token.get("refresh_token") or "")
         if not refresh_token:
-            raise RuntimeError("Conexão Google requer nova autorização.")
+            raise IntegrationError(
+                "A conexão Google requer nova autorização.",
+                status_code=401,
+                code="GOOGLE_REAUTH_REQUIRED",
+                provider="google",
+            )
         config = settings()
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -179,11 +216,23 @@ async def _access_token(client_id: str, connection_id: str) -> str:
                     "grant_type": "refresh_token",
                 },
             )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except Exception as exc:
+            raise from_httpx_error(
+                "google",
+                exc,
+                operation="renovar a autorização",
+            ) from exc
         refreshed = response.json()
         access_token = str(refreshed.get("access_token") or "")
         if not access_token:
-            raise RuntimeError("Google não renovou o access_token.")
+            raise IntegrationError(
+                "A conexão Google requer nova autorização.",
+                status_code=401,
+                code="GOOGLE_REAUTH_REQUIRED",
+                provider="google",
+            )
         next_expires = (
             datetime.now(timezone.utc)
             + timedelta(seconds=int(refreshed.get("expires_in") or 3600))
@@ -203,6 +252,10 @@ async def _access_token(client_id: str, connection_id: str) -> str:
         return access_token
 
 
+async def get_google_access_token(client_id: str, connection_id: str) -> str:
+    return await _access_token(client_id, connection_id)
+
+
 async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[str, Any]]:
     token = await _access_token(client_id, connection_id)
     async with httpx.AsyncClient(timeout=30) as client:
@@ -211,7 +264,14 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
             headers={"Authorization": f"Bearer {token}"},
             params={"pageSize": "200"},
         )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise from_httpx_error(
+            "google",
+            exc,
+            operation="listar propriedades GA4",
+        ) from exc
     out: List[Dict[str, Any]] = []
     for account in response.json().get("accountSummaries") or []:
         for prop in account.get("propertySummaries") or []:
@@ -239,7 +299,14 @@ async def list_ga4_streams(
             headers={"Authorization": f"Bearer {token}"},
             params={"pageSize": "200"},
         )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise from_httpx_error(
+            "google",
+            exc,
+            operation="listar streams GA4",
+        ) from exc
     return [
         {
             "name": row.get("name"),
@@ -268,7 +335,14 @@ async def list_google_ads_accounts(client_id: str, connection_id: str) -> Dict[s
                 "developer-token": developer_token,
             },
         )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise from_httpx_error(
+            "google",
+            exc,
+            operation="listar contas Google Ads",
+        ) from exc
     accounts = [
         {"resource_name": item, "customer_id": str(item).split("/")[-1]}
         for item in response.json().get("resourceNames") or []

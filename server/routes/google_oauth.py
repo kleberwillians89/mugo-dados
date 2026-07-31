@@ -20,12 +20,12 @@ from services.google_oauth import (
     list_ga4_properties,
     list_ga4_streams,
     list_google_ads_accounts,
+    get_google_access_token,
     save_google_authorization,
 )
 from services.ga4_sync import sync_ga4_for_period
-from services.ig_supabase import sb_get_client_id_for_user
 from services.oauth_state import consume_oauth_state
-from services.tenant import require_client_role, require_user_id
+from services.tenant import require_client_role, require_user_client_access, require_user_id
 
 router = APIRouter(prefix="/api/oauth/google", tags=["google-oauth"])
 
@@ -62,7 +62,7 @@ async def callback(
         session = await consume_oauth_state(state, provider="google")
         user_id = str(session.get("user_id") or "")
         client_id = str(session.get("client_id") or "")
-        await sb_get_client_id_for_user(user_id, requested_client_id=client_id)
+        await require_user_client_access(user_id, client_id)
         token = await exchange_code(code, str(session.get("redirect_uri") or ""))
         identity = await fetch_google_identity(str(token.get("access_token") or ""))
         connection = await save_google_authorization(
@@ -214,10 +214,12 @@ async def sync(
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     property_id = str(metadata.get("ga4_property_id") or "")
     if not property_id:
-        raise HTTPException(status_code=400, detail="Selecione uma propriedade GA4 antes da sincronização.")
+        raise HTTPException(status_code=409, detail="Selecione uma propriedade GA4 antes da sincronização.")
+    access_token = await get_google_access_token(cid, connection_id)
     payload = await sync_ga4_for_period(
         client_id=cid,
         property_id=property_id,
+        access_token=access_token,
         days=days,
         job_name="ga4_sync_manual",
         trigger_source="manual_oauth_connection",

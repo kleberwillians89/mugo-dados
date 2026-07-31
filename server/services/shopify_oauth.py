@@ -5,15 +5,22 @@ import hmac
 import json
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import urlencode
 
 import httpx
 
-from .generic_connections import upsert_connection
+from .generic_connections import (
+    audit_connection,
+    get_connection,
+    upsert_connection,
+)
 from .ig_supabase import sb_insert, sb_select, sb_update
+from .integration_errors import IntegrationError, from_httpx_error
 from .oauth_state import create_oauth_state
+from .shopify_config import shopify_admin_url
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
 SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products"]
@@ -42,6 +49,226 @@ def normalize_shop_domain(value: str) -> str:
     if "/" in domain or ":" in domain or not SHOP_DOMAIN_RE.fullmatch(domain):
         raise RuntimeError("Domínio Shopify inválido. Use nomedaloja.myshopify.com.")
     return domain
+
+
+@dataclass(frozen=True)
+class ShopifyConnectionContext:
+    client_id: str
+    connection_id: str | None
+    shop_domain: str
+    access_token: str
+    scopes: frozenset[str]
+    auth_mode: str
+
+
+def _legacy_shopify_context(client_id: str) -> ShopifyConnectionContext | None:
+    domain = _env("SHOPIFY_SHOP_DOMAIN") or _env("SHOPIFY_STORE_DOMAIN")
+    token = _env("SHOPIFY_ACCESS_TOKEN") or _env("SHOPIFY_ADMIN_ACCESS_TOKEN")
+    if not domain and not token:
+        return None
+    if not domain:
+        raise IntegrationError(
+            "O domínio da loja Shopify não está configurado.",
+            status_code=409,
+            code="SHOPIFY_STORE_SELECTION_REQUIRED",
+            provider="shopify",
+        )
+    if not token:
+        raise IntegrationError(
+            "A conexão Shopify requer nova autorização.",
+            status_code=401,
+            code="SHOPIFY_REAUTH_REQUIRED",
+            provider="shopify",
+        )
+    return ShopifyConnectionContext(
+        client_id=client_id,
+        connection_id=None,
+        shop_domain=normalize_shop_domain(domain),
+        access_token=token,
+        scopes=frozenset(SHOPIFY_SCOPES),
+        auth_mode="legacy",
+    )
+
+
+async def resolve_shopify_connection_context(
+    client_id: str,
+    *,
+    connection_id: str | None = None,
+    required_scopes: tuple[str, ...] = (),
+) -> ShopifyConnectionContext:
+    cid = str(client_id or "").strip()
+    requested_connection_id = str(connection_id or "").strip()
+    if requested_connection_id:
+        try:
+            rows = [await get_connection(cid, requested_connection_id, include_token=True)]
+        except Exception as exc:
+            raise IntegrationError(
+                "Conexão Shopify não encontrada para a empresa selecionada.",
+                status_code=404,
+                code="SHOPIFY_CONNECTION_NOT_FOUND",
+                provider="shopify",
+            ) from exc
+    else:
+        rows = await sb_select(
+            "integration_connections",
+            filters={"client_id": f"eq.{cid}", "provider": "eq.shopify"},
+            order="updated_at.desc",
+            limit=50,
+        )
+        rows = [
+            row
+            for row in rows
+            if str(row.get("status") or "").strip().lower() != "disconnected"
+        ]
+        selected = [
+            row
+            for row in rows
+            if isinstance(row.get("metadata"), dict)
+            and bool(row["metadata"].get("selected_for_reporting"))
+        ]
+        if len(selected) == 1:
+            rows = selected
+        elif len(rows) > 1:
+            raise IntegrationError(
+                "Selecione qual loja Shopify deve alimentar os relatórios.",
+                status_code=409,
+                code="SHOPIFY_STORE_SELECTION_REQUIRED",
+                provider="shopify",
+            )
+        if rows:
+            try:
+                rows = [await get_connection(cid, str(rows[0].get("id") or ""), include_token=True)]
+            except Exception as exc:
+                raise IntegrationError(
+                    "A conexão Shopify requer nova autorização.",
+                    status_code=401,
+                    code="SHOPIFY_REAUTH_REQUIRED",
+                    provider="shopify",
+                ) from exc
+
+    if not rows:
+        legacy = _legacy_shopify_context(cid)
+        if legacy:
+            return legacy
+        raise IntegrationError(
+            "Nenhuma conexão Shopify ativa foi encontrada para a empresa selecionada.",
+            status_code=404,
+            code="SHOPIFY_CONNECTION_NOT_FOUND",
+            provider="shopify",
+        )
+
+    row = rows[0]
+    if str(row.get("client_id") or "").strip() != cid or str(row.get("provider") or "") != "shopify":
+        raise IntegrationError(
+            "Conexão Shopify não encontrada para a empresa selecionada.",
+            status_code=404,
+            code="SHOPIFY_CONNECTION_NOT_FOUND",
+            provider="shopify",
+        )
+    status = str(row.get("status") or "").strip().lower()
+    if status in {"needs_reauth", "reauth_required", "token_expired", "error"}:
+        raise IntegrationError(
+            "A conexão Shopify requer nova autorização.",
+            status_code=401,
+            code="SHOPIFY_REAUTH_REQUIRED",
+            provider="shopify",
+        )
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    domain_value = metadata.get("shop_domain") or row.get("external_key")
+    if not str(domain_value or "").strip():
+        raise IntegrationError(
+            "Selecione uma loja Shopify para esta conexão.",
+            status_code=409,
+            code="SHOPIFY_STORE_SELECTION_REQUIRED",
+            provider="shopify",
+        )
+    domain = normalize_shop_domain(str(domain_value))
+    try:
+        token_payload = json.loads(str(row.get("_token") or "{}"))
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError(
+            "A conexão Shopify requer nova autorização.",
+            status_code=401,
+            code="SHOPIFY_REAUTH_REQUIRED",
+            provider="shopify",
+        ) from exc
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise IntegrationError(
+            "A conexão Shopify requer nova autorização.",
+            status_code=401,
+            code="SHOPIFY_REAUTH_REQUIRED",
+            provider="shopify",
+        )
+    scopes = frozenset(
+        str(scope or "").strip()
+        for scope in (row.get("scopes") or [])
+        if str(scope or "").strip()
+    )
+    missing_scopes = sorted(set(required_scopes) - set(scopes))
+    if missing_scopes:
+        raise IntegrationError(
+            "A conexão Shopify não possui os escopos necessários. Autorize novamente a loja.",
+            status_code=403,
+            code="SHOPIFY_INSUFFICIENT_SCOPE",
+            provider="shopify",
+        )
+    return ShopifyConnectionContext(
+        client_id=cid,
+        connection_id=str(row.get("id") or "").strip() or None,
+        shop_domain=domain,
+        access_token=access_token,
+        scopes=scopes,
+        auth_mode="oauth",
+    )
+
+
+async def select_shopify_connection(
+    *,
+    client_id: str,
+    connection_id: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    selected = await get_connection(client_id, connection_id)
+    if str(selected.get("provider") or "") != "shopify":
+        raise IntegrationError(
+            "Conexão Shopify não encontrada para a empresa selecionada.",
+            status_code=404,
+            code="SHOPIFY_CONNECTION_NOT_FOUND",
+            provider="shopify",
+        )
+    rows = await sb_select(
+        "integration_connections",
+        filters={"client_id": f"eq.{client_id}", "provider": "eq.shopify"},
+        limit=50,
+    )
+    for row in rows:
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        should_select = str(row.get("id") or "") == connection_id
+        if bool(metadata.get("selected_for_reporting")) == should_select:
+            continue
+        await sb_update(
+            "integration_connections",
+            filters={"id": f"eq.{row['id']}", "client_id": f"eq.{client_id}"},
+            patch={"metadata": {**metadata, "selected_for_reporting": should_select}},
+            returning="minimal",
+        )
+    await audit_connection(
+        client_id=client_id,
+        connection_id=connection_id,
+        user_id=user_id,
+        event_type="shopify_store_selected",
+        details={"provider": "shopify"},
+    )
+    return {
+        "id": connection_id,
+        "client_id": client_id,
+        "provider": "shopify",
+        "metadata": {
+            **(selected.get("metadata") if isinstance(selected.get("metadata"), dict) else {}),
+            "selected_for_reporting": True,
+        },
+    }
 
 
 def settings() -> Dict[str, str]:
@@ -106,11 +333,18 @@ async def exchange_code(*, shop_domain: str, code: str) -> Dict[str, Any]:
 async def fetch_shop(shop_domain: str, access_token: str) -> Dict[str, Any]:
     shop = normalize_shop_domain(shop_domain)
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            f"https://{shop}/admin/api/2025-01/shop.json",
-            headers={"X-Shopify-Access-Token": access_token},
-        )
-    response.raise_for_status()
+        try:
+            response = await client.get(
+                shopify_admin_url(shop, "shop.json"),
+                headers={"X-Shopify-Access-Token": access_token},
+            )
+            response.raise_for_status()
+        except Exception as exc:
+            raise from_httpx_error(
+                "shopify",
+                exc,
+                operation="consultar a loja",
+            ) from exc
     return response.json().get("shop") or {}
 
 
@@ -122,13 +356,127 @@ async def register_webhooks(shop_domain: str, access_token: str) -> None:
     async with httpx.AsyncClient(timeout=30) as client:
         for topic in SHOPIFY_WEBHOOK_TOPICS:
             response = await client.post(
-                f"https://{shop}/admin/api/2025-01/webhooks.json",
+                shopify_admin_url(shop, "webhooks.json"),
                 headers={"X-Shopify-Access-Token": access_token},
                 json={"webhook": {"topic": topic, "address": callback, "format": "json"}},
             )
             if response.status_code == 422 and "already" in response.text.lower():
                 continue
             response.raise_for_status()
+
+
+async def _fetch_shopify_collection(
+    context: ShopifyConnectionContext,
+    resource: str,
+    *,
+    params: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    url = shopify_admin_url(context.shop_domain, resource)
+    query = dict(params or {})
+    rows: list[Dict[str, Any]] = []
+    collection_key = resource.split(".", 1)[0]
+    async with httpx.AsyncClient(timeout=45) as client:
+        for _ in range(20):
+            try:
+                response = await client.get(
+                    url,
+                    headers={"X-Shopify-Access-Token": context.access_token},
+                    params=query,
+                )
+                response.raise_for_status()
+            except Exception as exc:
+                raise from_httpx_error(
+                    "shopify",
+                    exc,
+                    operation=f"consultar {collection_key}",
+                ) from exc
+            payload = response.json()
+            page_rows = payload.get(collection_key) if isinstance(payload, dict) else []
+            if isinstance(page_rows, list):
+                rows.extend(item for item in page_rows if isinstance(item, dict))
+            next_link = response.links.get("next", {}).get("url")
+            if not next_link:
+                break
+            url = str(next_link)
+            query = {}
+    return rows
+
+
+async def sync_shopify_connection(
+    *,
+    client_id: str,
+    connection_id: str,
+    created_at_min: str | None = None,
+) -> Dict[str, Any]:
+    context = await resolve_shopify_connection_context(
+        client_id,
+        connection_id=connection_id,
+        required_scopes=("read_orders", "read_customers", "read_products"),
+    )
+    order_params: Dict[str, Any] = {"status": "any", "limit": 250}
+    if str(created_at_min or "").strip():
+        order_params["created_at_min"] = str(created_at_min).strip()
+    orders = await _fetch_shopify_collection(
+        context,
+        "orders.json",
+        params=order_params,
+    )
+    customers = await _fetch_shopify_collection(
+        context,
+        "customers.json",
+        params={"limit": 250},
+    )
+    products = await _fetch_shopify_collection(
+        context,
+        "products.json",
+        params={"limit": 250},
+    )
+
+    from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
+
+    item_count = 0
+    for customer in customers:
+        await _handle_customer_topic(
+            client_id=client_id,
+            shop_domain=context.shop_domain,
+            payload=customer,
+        )
+    for order in orders:
+        result = await _handle_order_topic(
+            client_id=client_id,
+            shop_domain=context.shop_domain,
+            payload=order,
+        )
+        item_count += int(result.get("items_upserted") or 0)
+
+    now = datetime.now(timezone.utc).isoformat()
+    if context.connection_id:
+        await sb_update(
+            "integration_connections",
+            filters={
+                "id": f"eq.{context.connection_id}",
+                "client_id": f"eq.{client_id}",
+            },
+            patch={
+                "status": "connected",
+                "last_sync_at": now,
+                "last_error": None,
+                "updated_at": now,
+            },
+            returning="minimal",
+        )
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "connection_id": context.connection_id,
+        "shop_domain": context.shop_domain,
+        "synced": {
+            "orders": len(orders),
+            "customers": len(customers),
+            "products_checked": len(products),
+            "order_items": item_count,
+        },
+    }
 
 
 async def save_shopify_connection(
@@ -155,6 +503,7 @@ async def save_shopify_connection(
         scopes=str(token.get("scope") or "").split(","),
         metadata={
             "shop_domain": domain,
+            "selected_for_reporting": True,
             "currency": shop.get("currency"),
             "timezone": shop.get("iana_timezone") or shop.get("timezone"),
         },
@@ -176,7 +525,11 @@ async def save_shopify_connection(
         )
     else:
         await sb_insert("shopify_stores", row, returning="minimal")
-    return connection
+    return await select_shopify_connection(
+        client_id=client_id,
+        connection_id=str(connection.get("id") or ""),
+        user_id=user_id,
+    )
 
 
 async def resolve_store_by_domain(shop_domain: str) -> Dict[str, Any] | None:

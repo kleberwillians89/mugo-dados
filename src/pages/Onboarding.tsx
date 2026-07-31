@@ -10,7 +10,9 @@ import {
   listGoogleGa4Properties,
   selectGoogleAdsAccount,
   selectGoogleGa4Property,
+  selectShopifyConnection,
   syncGoogleConnection,
+  syncShopifyConnection,
   type GenericConnection,
   type GoogleAdsAccount,
   type GoogleGa4Property,
@@ -361,6 +363,38 @@ export default function Onboarding({
     }
   }
 
+  async function onSelectShopify(connectionId: string) {
+    if (!canManageConnections || !connectionId) return;
+    setSaving(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      await selectShopifyConnection(connectionId);
+      await loadConnections();
+      setInfo("Loja Shopify selecionada para os relatórios da empresa ativa.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível selecionar a loja Shopify."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSyncShopify(connectionId: string) {
+    if (!canManageConnections || !connectionId) return;
+    setSaving(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      await syncShopifyConnection(connectionId);
+      await loadConnections();
+      setInfo("Pedidos, clientes e produtos da Shopify foram atualizados.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível sincronizar a loja Shopify."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onRefreshStatus() {
     if (loading) return;
     setLoading(true);
@@ -614,9 +648,15 @@ export default function Onboarding({
           </div>
           <div className="onboardingConnections">
             {INTEGRATION_REGISTRY.map((definition) => {
-              const connection = genericConnections.find((item) =>
+              const matchingConnections = genericConnections.filter((item) =>
                 definition.providerIds.includes(item.provider)
               );
+              const connection =
+                definition.id === "shopify"
+                  ? matchingConnections.find(
+                      (item) => Boolean(item.metadata?.selected_for_reporting)
+                    ) || matchingConnections[0]
+                  : matchingConnections[0];
               const metaConnected =
                 definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
               const status = connection
@@ -648,14 +688,31 @@ export default function Onboarding({
                   </div>
                 ) : null}
                 {definition.id === "shopify" ? (
-                  <input
-                    type="text"
-                    value={shopifyDomain}
-                    onChange={(event) => setShopifyDomain(event.target.value)}
-                    placeholder="minhaloja.myshopify.com"
-                    disabled={!canManageConnections || oauthLoading}
-                    style={{ marginTop: 12, width: "100%" }}
-                  />
+                  <>
+                    {matchingConnections.length > 1 ? (
+                      <select
+                        value={connection?.id || ""}
+                        onChange={(event) => void onSelectShopify(event.target.value)}
+                        disabled={!canManageConnections || saving}
+                        style={{ marginTop: 12, width: "100%" }}
+                      >
+                        <option value="">Selecione a loja dos relatórios</option>
+                        {matchingConnections.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {String(item.metadata?.shop_domain || item.external_key || item.account_name || item.id)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <input
+                      type="text"
+                      value={shopifyDomain}
+                      onChange={(event) => setShopifyDomain(event.target.value)}
+                      placeholder="minhaloja.myshopify.com"
+                      disabled={!canManageConnections || oauthLoading}
+                      style={{ marginTop: 12, width: "100%" }}
+                    />
+                  </>
                 ) : null}
                 {actionable ? (
                   <button
@@ -685,6 +742,16 @@ export default function Onboarding({
                           Atualizar dados
                         </button>
                       </>
+                    ) : null}
+                    {definition.id === "shopify" ? (
+                      <button
+                        className="btn btnGhost"
+                        type="button"
+                        disabled={!canManageConnections || saving}
+                        onClick={() => void onSyncShopify(connection.id)}
+                      >
+                        Atualizar dados
+                      </button>
                     ) : null}
                     <button className="btn btnGhost" type="button" disabled={!canManageConnections || disconnectingId === connection.id} onClick={() => void onDisconnectGeneric(connection)}>
                       {disconnectingId === connection.id ? "Desconectando..." : "Desconectar"}

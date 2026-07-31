@@ -33,7 +33,11 @@ from services.shopify_reporting import (
     build_shopify_report,
     resolve_shopify_report_period,
 )
-from services.shopify_oauth import mark_store_uninstalled, resolve_store_by_domain
+from services.shopify_oauth import (
+    mark_store_uninstalled,
+    resolve_shopify_connection_context,
+    resolve_store_by_domain,
+)
 from services.tenant import resolve_client_id
 
 router = APIRouter(tags=["shopify"])
@@ -67,18 +71,14 @@ async def shopify_webhook(
         raise HTTPException(status_code=400, detail="Header X-Shopify-Shop-Domain é obrigatório.")
 
     raw_body = await request.body()
-    is_valid_hmac, computed_hmac, hmac_debug = validate_shopify_hmac(raw_body, x_shopify_hmac_sha256)
+    is_valid_hmac, _computed_hmac, hmac_debug = validate_shopify_hmac(raw_body, x_shopify_hmac_sha256)
     if not is_valid_hmac:
         _log_shopify_event(
             status="rejected_hmac",
             topic=topic,
             webhook_id=webhook_id,
             shop_domain=shop_domain,
-            details={
-                **hmac_debug,
-                "hmac_received": _clean(x_shopify_hmac_sha256) or "",
-                "hmac_calculated": computed_hmac,
-            },
+            details=hmac_debug,
         )
         raise HTTPException(status_code=401, detail="Webhook Shopify com assinatura inválida.")
 
@@ -88,11 +88,7 @@ async def shopify_webhook(
             topic=topic,
             webhook_id=webhook_id,
             shop_domain=shop_domain,
-            details={
-                **hmac_debug,
-                "hmac_received": _clean(x_shopify_hmac_sha256) or "",
-                "hmac_calculated": computed_hmac,
-            },
+            details=hmac_debug,
         )
         raise HTTPException(status_code=401, detail="Webhook Shopify fora do domínio configurado da empresa.")
 
@@ -116,11 +112,7 @@ async def shopify_webhook(
             webhook_id=webhook_id,
             shop_domain=shop_domain,
             error_message=str(exc),
-            details={
-                **hmac_debug,
-                "hmac_received": _clean(x_shopify_hmac_sha256) or "",
-                "hmac_calculated": computed_hmac,
-            },
+            details=hmac_debug,
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -192,8 +184,10 @@ async def shopify_recent_webhooks(
         client_id=client_id,
     )
     try:
+        context = await resolve_shopify_connection_context(client_id)
         rows = await list_recent_shopify_webhooks(
             client_id=client_id,
+            shop_domain=context.shop_domain,
             limit=limit,
             include_payload=include_payload,
         )
@@ -276,8 +270,16 @@ async def shopify_report(
         end=end,
     )
     try:
+        context = await resolve_shopify_connection_context(
+            client_id,
+            required_scopes=("read_orders", "read_products"),
+        )
         period = resolve_shopify_report_period(start=start, end=end, days=days)
-        payload = await build_shopify_report(client_id=client_id, period=period)
+        payload = await build_shopify_report(
+            client_id=client_id,
+            shop_domain=context.shop_domain,
+            period=period,
+        )
         _log_endpoint_done(
             endpoint=endpoint,
             started=started,
@@ -352,8 +354,16 @@ async def shopify_customers(
         end=end,
     )
     try:
+        context = await resolve_shopify_connection_context(
+            client_id,
+            required_scopes=("read_orders", "read_customers"),
+        )
         period = resolve_shopify_report_period(start=start, end=end, days=days)
-        payload = await build_shopify_customers_report(client_id=client_id, period=period)
+        payload = await build_shopify_customers_report(
+            client_id=client_id,
+            shop_domain=context.shop_domain,
+            period=period,
+        )
         _log_endpoint_done(
             endpoint=endpoint,
             started=started,
@@ -424,8 +434,13 @@ async def shopify_recent_orders(
         client_id=client_id,
     )
     try:
+        context = await resolve_shopify_connection_context(
+            client_id,
+            required_scopes=("read_orders",),
+        )
         rows = await list_recent_shopify_orders(
             client_id=client_id,
+            shop_domain=context.shop_domain,
             limit=limit,
             include_raw=include_raw,
         )

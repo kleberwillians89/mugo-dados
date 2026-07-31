@@ -19,7 +19,8 @@ from services.ga4_reporting import (
     resolve_ga4_report_period,
 )
 from services.ga4_sync import sync_ga4_for_period
-from services.single_tenant import resolve_ga4_context_for_client
+from services.ga4_connections import resolve_ga4_connection_context
+from services.google_oauth import get_google_access_token
 from services.tenant import require_user_id, resolve_client_id
 
 router = APIRouter(tags=["google"])
@@ -41,16 +42,17 @@ async def _ga4_request_context(
     client_id: str | None,
     x_client_id: str | None,
     authorization: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str | None]:
     requested = _pick_ga4_client_id(client_id, x_client_id)
     authorized_client_id = await resolve_client_id(requested, authorization)
-    resolved_client_id, property_id = resolve_ga4_context_for_client(authorized_client_id)
+    context = await resolve_ga4_connection_context(authorized_client_id)
     print(
         "[google][ga4_context] "
         f"requested_client_id={requested or '-'} x_client_id={(x_client_id or '').strip() or '-'} "
-        f"resolved_client_id={resolved_client_id} property_id={property_id}"
+        f"resolved_client_id={context.client_id} property_id={context.property_id} "
+        f"auth_mode={context.auth_mode} connection_id={context.connection_id or '-'}"
     )
-    return resolved_client_id, property_id
+    return context.client_id, context.property_id, context.connection_id
 
 
 @router.post("/api/google/ga4/sync")
@@ -65,7 +67,7 @@ async def ga4_sync(
     started = _started()
     endpoint = "/api/google/ga4/sync"
     requested_client_id = client_id
-    client_id, property_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, connection_id = await _ga4_request_context(client_id, x_client_id, authorization)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -77,9 +79,15 @@ async def ga4_sync(
     )
     try:
         await require_user_id(authorization)
+        access_token = (
+            await get_google_access_token(client_id, connection_id)
+            if connection_id
+            else None
+        )
         payload = await sync_ga4_for_period(
             client_id=client_id,
             property_id=property_id,
+            access_token=access_token,
             since=start,
             until=end,
             days=days,
@@ -151,7 +159,7 @@ async def ga4_report(
     started = _started()
     endpoint = "/api/google/ga4/report"
     requested_client_id = client_id
-    client_id, property_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -233,7 +241,7 @@ async def ga4_channels(
     started = _started()
     endpoint = "/api/google/ga4/channels"
     requested_client_id = client_id
-    client_id, property_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -315,7 +323,7 @@ async def ga4_campaigns(
     started = _started()
     endpoint = "/api/google/ga4/campaigns"
     requested_client_id = client_id
-    client_id, property_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -397,7 +405,7 @@ async def ga4_events(
     started = _started()
     endpoint = "/api/google/ga4/events"
     requested_client_id = client_id
-    client_id, property_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,

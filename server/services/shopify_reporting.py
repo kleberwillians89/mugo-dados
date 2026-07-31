@@ -225,6 +225,7 @@ def _build_customer_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 async def _select_shopify_refunds(
     *,
     client_id: str,
+    shop_domain: str,
     period: ShopifyReportPeriod,
 ) -> List[Dict[str, Any]]:
     period_filter = (
@@ -238,6 +239,7 @@ async def _select_shopify_refunds(
             select="id,shopify_refund_id,shopify_order_id,total_refunded,created_at_shopify,shop_domain,note",
             filters={
                 "client_id": f"eq.{client_id}",
+                "shop_domain": f"eq.{shop_domain}",
                 "and": period_filter,
             },
             order="created_at_shopify.desc",
@@ -380,6 +382,7 @@ def _build_recent_orders(
 async def build_shopify_report(
     *,
     client_id: str,
+    shop_domain: str,
     period: ShopifyReportPeriod,
 ) -> Dict[str, Any]:
     period_filter = (
@@ -395,6 +398,7 @@ async def build_shopify_report(
         ),
         filters={
             "client_id": f"eq.{client_id}",
+            "shop_domain": f"eq.{shop_domain}",
             "and": period_filter,
         },
         order="created_at_shopify.desc",
@@ -439,6 +443,7 @@ async def build_shopify_report(
                 ),
                 filters={
                     "client_id": f"eq.{client_id}",
+                    "shop_domain": f"eq.{shop_domain}",
                     "shopify_customer_id": customers_filter,
                 },
                 order="updated_at_shopify.desc",
@@ -450,7 +455,11 @@ async def build_shopify_report(
                 if _safe_str(row.get("shopify_customer_id"))
             }
 
-    refunds = await _select_shopify_refunds(client_id=client_id, period=period)
+    refunds = await _select_shopify_refunds(
+        client_id=client_id,
+        shop_domain=shop_domain,
+        period=period,
+    )
 
     revenue_total = sum(
         _safe_float(order.get("total_price"))
@@ -470,15 +479,14 @@ async def build_shopify_report(
     refunds_count = len(refunds)
     refunded_amount = sum(_safe_float(refund.get("total_refunded")) for refund in refunds)
 
-    recent_webhooks = await list_recent_shopify_webhooks(client_id=client_id, limit=8, include_payload=False)
+    recent_webhooks = await list_recent_shopify_webhooks(
+        client_id=client_id,
+        shop_domain=shop_domain,
+        limit=8,
+        include_payload=False,
+    )
     processed_webhooks = [item for item in recent_webhooks if _safe_str(item.get("status")).lower() == "processed"]
     error_webhooks = [item for item in recent_webhooks if _safe_str(item.get("status")).lower() == "error"]
-
-    shop_domain = ""
-    if orders:
-        shop_domain = _normalize_shop_domain(orders[0].get("shop_domain"))
-    elif recent_webhooks:
-        shop_domain = _normalize_shop_domain(recent_webhooks[0].get("shop_domain"))
 
     return {
         "ok": True,
@@ -518,6 +526,7 @@ async def build_shopify_report(
 async def build_shopify_customers_report(
     *,
     client_id: str,
+    shop_domain: str,
     period: ShopifyReportPeriod,
 ) -> Dict[str, Any]:
     period_filter = (
@@ -532,6 +541,7 @@ async def build_shopify_customers_report(
         ),
         filters={
             "client_id": f"eq.{client_id}",
+            "shop_domain": f"eq.{shop_domain}",
             "and": period_filter,
         },
         order="created_at_shopify.desc",
@@ -560,6 +570,7 @@ async def build_shopify_customers_report(
             ),
             filters={
                 "client_id": f"eq.{client_id}",
+                "shop_domain": f"eq.{shop_domain}",
                 "shopify_customer_id": _postgrest_in_filter(customer_ids),
             },
             order="updated_at_shopify.desc",
@@ -582,6 +593,7 @@ async def build_shopify_customers_report(
                 ),
                 filters={
                     "client_id": f"eq.{client_id}",
+                    "shop_domain": f"eq.{shop_domain}",
                     "customer_id": _postgrest_in_filter(customer_ids),
                 },
                 order="created_at_shopify.asc",
@@ -599,6 +611,7 @@ async def build_shopify_customers_report(
                 ),
                 filters={
                     "client_id": f"eq.{client_id}",
+                    "shop_domain": f"eq.{shop_domain}",
                     "email": _postgrest_in_filter(customer_emails),
                 },
                 order="created_at_shopify.asc",

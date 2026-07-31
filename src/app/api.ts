@@ -1163,6 +1163,24 @@ export async function startShopifyOAuth(
   );
 }
 
+export async function selectShopifyConnection(
+  connectionId: string
+): Promise<JsonRecord> {
+  return http(`/api/oauth/shopify/${encodeURIComponent(connectionId)}/select`, {
+    method: "POST",
+  });
+}
+
+export async function syncShopifyConnection(
+  connectionId: string,
+  days = 30
+): Promise<JsonRecord> {
+  return http(
+    `/api/oauth/shopify/${encodeURIComponent(connectionId)}/sync?days=${positiveInt(days, 30)}`,
+    { method: "POST" }
+  );
+}
+
 export type GenericConnection = {
   id: string;
   client_id: string;
@@ -1170,6 +1188,8 @@ export type GenericConnection = {
   status: string;
   account_id?: string | null;
   account_name?: string | null;
+  external_key?: string | null;
+  scopes?: string[];
   last_sync_at?: string | null;
   next_sync_at?: string | null;
   historical_start?: string | null;

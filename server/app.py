@@ -46,6 +46,7 @@ from services.notes import create_note, list_notes, update_note
 from services.stories import get_stories
 from services.runtime_cache import get_cached_or_load, invalidate_namespace
 from services.tenant import require_user_id, resolve_client_id
+from services.integration_errors import IntegrationError
 
 app = FastAPI(title="Mugô Dados API")
 
@@ -93,6 +94,26 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "path": request.url.path,
         },
         headers=exc.headers,
+    )
+
+
+@app.exception_handler(IntegrationError)
+async def integration_exception_handler(request: Request, exc: IntegrationError):
+    print(
+        "[api][integration_error] "
+        f"method={request.method} path={request.url.path} "
+        f"provider={exc.provider} code={exc.code} status={exc.status_code}"
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "ok": False,
+            "code": exc.code,
+            "message": exc.public_message,
+            "status": exc.status_code,
+            "retryable": exc.retryable,
+            "path": request.url.path,
+        },
     )
 
 

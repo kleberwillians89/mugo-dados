@@ -112,24 +112,32 @@ def _structured_error_response(
     status_code: int,
     code: str,
 ) -> JSONResponse:
+    public_message = getattr(exc, "public_message", None)
+    public_code = getattr(exc, "code", None)
+    retryable = getattr(exc, "retryable", None)
     if isinstance(exc, HTTPException):
         message = _clip(str(exc.detail), 500) or f"HTTP {exc.status_code}"
+    elif isinstance(public_message, str) and public_message.strip():
+        message = _clip(public_message, 500)
     else:
         message = "Não foi possível concluir a consulta."
     return JSONResponse(
         status_code=status_code,
         content={
             "ok": False,
-            "code": code.upper(),
+            "code": str(public_code or code).upper(),
             "message": message,
             "status": status_code,
-            "retryable": status_code == 429 or status_code >= 500,
+            "retryable": bool(retryable) if isinstance(retryable, bool) else status_code == 429 or status_code >= 500,
             "path": endpoint,
         },
     )
 
 
 def _runtime_error_status(exc: Exception, *, default_status: int = 400) -> int:
+    explicit_status = getattr(exc, "status_code", None)
+    if isinstance(explicit_status, int):
+        return explicit_status
     message = _clean(str(exc)).lower()
     config_signals = (
         "não configurado",

@@ -12,6 +12,7 @@ from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 
 from .single_tenant import get_default_ga4_property_id
+from .integration_errors import from_httpx_error
 
 GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta"
@@ -175,6 +176,7 @@ async def run_ga4_report(
     dimensions: Iterable[str],
     metrics: Iterable[str],
     property_id: Optional[str] = None,
+    access_token: Optional[str] = None,
     dimension_filter: Optional[Dict[str, Any]] = None,
     order_bys: Optional[List[Dict[str, Any]]] = None,
     timeout_seconds: int = GA4_TIMEOUT_SECONDS,
@@ -184,7 +186,7 @@ async def run_ga4_report(
     if not resolved_property_id:
         raise RuntimeError("GA4_PROPERTY_ID inválido.")
 
-    token = _get_access_token()
+    token = _safe_str(access_token) or _get_access_token()
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -208,8 +210,15 @@ async def run_ga4_report(
                 dimension_filter=dimension_filter,
                 order_bys=order_bys,
             )
-            response = await client.post(url, headers=headers, json=body)
-            response.raise_for_status()
+            try:
+                response = await client.post(url, headers=headers, json=body)
+                response.raise_for_status()
+            except Exception as exc:
+                raise from_httpx_error(
+                    "google",
+                    exc,
+                    operation="consultar a propriedade GA4",
+                ) from exc
             response_payload = response.json()
 
             parsed_rows = _parse_response_rows(response_payload)

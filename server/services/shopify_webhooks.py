@@ -653,15 +653,19 @@ async def _handle_refund_topic(
 async def list_recent_shopify_webhooks(
     *,
     client_id: str,
+    shop_domain: str | None = None,
     limit: int = 20,
     include_payload: bool = False,
 ) -> List[Dict[str, Any]]:
     resolved_limit = _normalize_limit(limit)
     select = "id,client_id,webhook_id,topic,shop_domain,received_at,processed_at,status,error_message,payload_json"
+    filters = {"client_id": f"eq.{client_id}"}
+    if _normalize_shop_domain(shop_domain):
+        filters["shop_domain"] = f"eq.{_normalize_shop_domain(shop_domain)}"
     rows = await sb_select(
         "shopify_webhook_events",
         select=select,
-        filters={"client_id": f"eq.{client_id}"},
+        filters=filters,
         order="received_at.desc",
         limit=resolved_limit,
     )
@@ -691,6 +695,7 @@ async def list_recent_shopify_webhooks(
 async def list_recent_shopify_orders(
     *,
     client_id: str,
+    shop_domain: str | None = None,
     limit: int = 20,
     include_raw: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -704,10 +709,13 @@ async def list_recent_shopify_orders(
     if include_raw:
         order_select += ",raw_payload"
 
+    filters = {"client_id": f"eq.{client_id}"}
+    if _normalize_shop_domain(shop_domain):
+        filters["shop_domain"] = f"eq.{_normalize_shop_domain(shop_domain)}"
     orders = await sb_select(
         "shopify_orders",
         select=order_select,
-        filters={"client_id": f"eq.{client_id}"},
+        filters=filters,
         order="updated_at_shopify.desc",
         limit=resolved_limit,
     )
@@ -754,6 +762,11 @@ async def list_recent_shopify_orders(
             select=customer_select,
             filters={
                 "client_id": f"eq.{client_id}",
+                **(
+                    {"shop_domain": f"eq.{_normalize_shop_domain(shop_domain)}"}
+                    if _normalize_shop_domain(shop_domain)
+                    else {}
+                ),
                 "shopify_customer_id": customers_filter,
             },
             order="updated_at.desc",

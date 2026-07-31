@@ -405,13 +405,17 @@ async def sync_ga4_for_period(
     days: int = 30,
     client_id: Optional[str] = None,
     property_id: Optional[str] = None,
+    access_token: Optional[str] = None,
     job_name: str = "ga4_sync_manual",
     trigger_source: str = "manual_api",
     record_job_run: bool = True,
 ) -> Dict[str, Any]:
-    context_client_id, context_property_id = resolve_ga4_context_for_client(client_id)
-    resolved_client_id = _safe_str(client_id) or context_client_id
-    resolved_property_id = _safe_str(property_id) or context_property_id
+    resolved_client_id = _safe_str(client_id)
+    resolved_property_id = _safe_str(property_id).removeprefix("properties/").strip()
+    if not resolved_client_id or not resolved_property_id:
+        context_client_id, context_property_id = resolve_ga4_context_for_client(client_id)
+        resolved_client_id = resolved_client_id or context_client_id
+        resolved_property_id = resolved_property_id or context_property_id
     period = resolve_ga4_report_period(start=since, end=until, days=days)
 
     job_run = None
@@ -433,6 +437,7 @@ async def sync_ga4_for_period(
     try:
         daily_report = await run_ga4_report(
             property_id=resolved_property_id,
+            access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date",),
@@ -441,6 +446,7 @@ async def sync_ga4_for_period(
         )
         channel_report = await run_ga4_report(
             property_id=resolved_property_id,
+            access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date", "sessionSourceMedium"),
@@ -449,6 +455,7 @@ async def sync_ga4_for_period(
         )
         campaign_report = await run_ga4_report(
             property_id=resolved_property_id,
+            access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date", "sessionCampaignName", "sessionSourceMedium"),
@@ -457,6 +464,7 @@ async def sync_ga4_for_period(
         )
         event_report = await run_ga4_report(
             property_id=resolved_property_id,
+            access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date", "eventName"),

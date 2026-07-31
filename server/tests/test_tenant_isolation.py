@@ -93,6 +93,29 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
             resolved = await tenant.require_client_manage("roove", "Bearer valid")
         self.assertEqual(resolved, "roove")
 
+    async def test_platform_admin_oauth_state_can_access_explicit_company(self):
+        with (
+            patch(
+                "server.services.platform_admin.is_platform_admin",
+                AsyncMock(return_value=True),
+            ),
+            patch.object(
+                tenant,
+                "sb_select",
+                AsyncMock(return_value=[{"id": "roove"}]),
+                create=True,
+            ),
+            patch(
+                "server.services.ig_supabase.sb_select",
+                AsyncMock(return_value=[{"id": "roove"}]),
+            ),
+        ):
+            resolved = await tenant.require_user_client_access(
+                "platform-user",
+                "roove",
+            )
+        self.assertEqual(resolved, "roove")
+
     async def test_platform_admin_requires_explicit_tenant(self):
         with (
             patch.object(tenant, "require_user_id", AsyncMock(return_value="platform-user")),

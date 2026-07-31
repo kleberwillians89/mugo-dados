@@ -73,6 +73,28 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+async def require_user_client_access(user_id: str, client_id: str) -> str:
+    """Valida o tenant persistido em states OAuth, inclusive para platform_admin."""
+    from .platform_admin import is_platform_admin
+    from .ig_supabase import sb_select
+
+    uid = str(user_id or "").strip()
+    cid = str(client_id or "").strip()
+    if not uid or not cid:
+        raise PermissionError("State OAuth sem usuário ou empresa.")
+    if await is_platform_admin(uid):
+        rows = await sb_select(
+            "clients",
+            select="id",
+            filters={"id": f"eq.{cid}"},
+            limit=1,
+        )
+        if not rows:
+            raise PermissionError("Empresa selecionada não existe.")
+        return cid
+    return await sb_get_client_id_for_user(uid, requested_client_id=cid)
+
+
 async def require_client_role(
     client_id: Optional[str],
     authorization: Optional[str],
