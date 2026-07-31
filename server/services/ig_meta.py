@@ -2,7 +2,10 @@ from typing import Any, Dict, List, Tuple
 import httpx
 import time
 
-META_BASE = "https://graph.facebook.com/v19.0"
+from .meta_config import META_GRAPH_BASE_URL
+
+
+META_BASE = META_GRAPH_BASE_URL
 
 
 def _clean_token(token: str) -> str:

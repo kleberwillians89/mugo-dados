@@ -16,10 +16,11 @@ import httpx
 from .env_loader import ensure_env_loaded
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
+from .meta_config import META_OAUTH_DIALOG_URL
 from .meta_http import meta_get_json
 from .meta_tokens import serialize_connection_status
 
-META_DIALOG = "https://www.facebook.com/v25.0/dialog/oauth"
+META_DIALOG = META_OAUTH_DIALOG_URL
 _HANDOFF_TTL_SECONDS = 15 * 60
 _HANDOFF_TABLE = "meta_oauth_handoffs"
 ensure_env_loaded()
@@ -108,9 +109,6 @@ def _sign(payload_bytes: bytes) -> str:
 
 
 def _default_scopes() -> List[str]:
-    raw = _env("META_OAUTH_SCOPES")
-    if raw:
-        return [s.strip() for s in raw.split(",") if s.strip()]
     return [
         "public_profile",
         "email",
@@ -118,7 +116,6 @@ def _default_scopes() -> List[str]:
         "pages_read_engagement",
         "instagram_basic",
         "instagram_manage_insights",
-        "instagram_manage_comments",
         "ads_read",
         "business_management",
     ]

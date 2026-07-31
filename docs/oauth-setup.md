@@ -78,9 +78,13 @@ Variáveis:
 
 - `META_APP_ID`
 - `META_APP_SECRET`
+- `META_GRAPH_VERSION` (padrão `v25.0`)
 - `META_OAUTH_REDIRECT_URI`
 - `META_OAUTH_STATE_SECRET`
-- `META_OAUTH_SCOPES`
+
+Callback oficial:
+
+`https://api.dados.mugoagencia.com.br/api/oauth/meta/callback`
 
 Checklist:
 

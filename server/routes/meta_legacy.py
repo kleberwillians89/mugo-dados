@@ -26,7 +26,6 @@ from services.cron_jobs import (
     run_token_refresh_job,
 )
 from services.ig_refresh import refresh_all
-from services.ig_supabase import sb_get_client_id_for_user
 from services.instagram_sync import discover_instagram_identity_for_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
@@ -47,6 +46,7 @@ from services.meta_tokens import get_meta_connection_status, refresh_meta_token_
 from services.runtime_cache import invalidate_namespace
 from services.tenant import (
     require_client_role,
+    require_user_client_access,
     require_user_id,
     resolve_client_id,
 )
@@ -176,9 +176,9 @@ async def api_oauth_meta_callback(
         client_id_from_state = str(state_payload.get("client_id") or "").strip()
         user_id_from_state = str(state_payload.get("user_id") or "").strip()
         fallback_client_id = client_id_from_state
-        await sb_get_client_id_for_user(user_id_from_state, requested_client_id=client_id_from_state)
         if not client_id_from_state or not user_id_from_state:
             raise RuntimeError("State OAuth inválido")
+        await require_user_client_access(user_id_from_state, client_id_from_state)
 
         redirect_uri = resolve_meta_redirect_uri(_request_origin(request))
         token_data = await exchange_code_for_token(code=code, redirect_uri=redirect_uri)

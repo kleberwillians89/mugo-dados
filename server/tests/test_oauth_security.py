@@ -3,10 +3,15 @@ import hmac
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import AsyncMock, patch
 
 from server.services import oauth_state
 from server.services import google_oauth
+from server.services import meta_config
+from server.services import meta_http
+from server.services import meta_oauth
 from server.services.generic_connections import sanitize_connection
 from server.services.invitations import invitation_is_usable
 from server.services import shopify_oauth
@@ -14,7 +19,148 @@ from server.services.shopify_oauth import normalize_shop_domain, verify_callback
 from server.services.meta_oauth import validate_page_selection
 
 
+ROOT = Path(__file__).resolve().parents[2]
+META_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/meta/callback"
+EXPECTED_META_SCOPES = [
+    "public_profile",
+    "email",
+    "pages_show_list",
+    "pages_read_engagement",
+    "instagram_basic",
+    "instagram_manage_insights",
+    "ads_read",
+    "business_management",
+]
+
+
+class MetaOAuthConfigurationTests(unittest.TestCase):
+    def _build_url(self):
+        with patch.dict(
+            os.environ,
+            {
+                "META_APP_ID": "meta-app-id",
+                "META_OAUTH_STATE_SECRET": "s" * 48,
+            },
+            clear=False,
+        ):
+            return meta_oauth.build_oauth_url(
+                client_id="amalie",
+                user_id="user-amalie",
+                redirect_uri=META_REDIRECT_URI,
+            )
+
+    def test_default_graph_version_and_urls_use_v25(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("META_GRAPH_VERSION", None)
+            self.assertEqual(meta_config.resolve_meta_graph_version(), "v25.0")
+        self.assertEqual(meta_config.META_GRAPH_VERSION, "v25.0")
+        self.assertEqual(
+            meta_http.META_BASE,
+            "https://graph.facebook.com/v25.0",
+        )
+        self.assertEqual(
+            meta_oauth.META_DIALOG,
+            "https://www.facebook.com/v25.0/dialog/oauth",
+        )
+
+    def test_repository_has_no_legacy_v19_meta_url(self):
+        legacy_version = "v" + "19.0"
+        legacy_urls = (
+            f"graph.facebook.com/{legacy_version}",
+            f"facebook.com/{legacy_version}",
+        )
+        matches = []
+        for path in ROOT.rglob("*"):
+            if (
+                not path.is_file()
+                or any(
+                    part
+                    in {
+                        ".git",
+                        ".pytest_cache",
+                        ".venv",
+                        ".vite",
+                        "__pycache__",
+                        "dist",
+                        "node_modules",
+                        "venv",
+                    }
+                    for part in path.parts
+                )
+            ):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if any(url in content for url in legacy_urls):
+                matches.append(str(path.relative_to(ROOT)))
+        self.assertEqual(matches, [])
+
+    def test_redirect_uri_remains_exact(self):
+        with patch.dict(
+            os.environ,
+            {"META_OAUTH_REDIRECT_URI": META_REDIRECT_URI},
+            clear=False,
+        ):
+            self.assertEqual(
+                meta_oauth.resolve_meta_redirect_uri("https://mugo-dados.onrender.com"),
+                META_REDIRECT_URI,
+            )
+            result = self._build_url()
+            query = parse_qs(urlparse(result["url"]).query)
+            self.assertEqual(query["redirect_uri"], [META_REDIRECT_URI])
+
+    def test_meta_state_is_signed_and_validated(self):
+        with patch.dict(
+            os.environ,
+            {"META_OAUTH_STATE_SECRET": "s" * 48},
+            clear=False,
+        ):
+            result = self._build_url()
+            payload = meta_oauth.verify_state(
+                result["state"],
+                expected_user_id="user-amalie",
+            )
+            self.assertEqual(payload["client_id"], "amalie")
+            with self.assertRaisesRegex(RuntimeError, "state OAuth inválido"):
+                meta_oauth.verify_state(f"{result['state']}tampered")
+
+    def test_facebook_login_scopes_are_canonical(self):
+        with patch.dict(
+            os.environ,
+            {"META_OAUTH_SCOPES": "instagram_manage_comments,pages_manage_posts"},
+            clear=False,
+        ):
+            result = self._build_url()
+        query = parse_qs(urlparse(result["url"]).query)
+        scopes = query["scope"][0].split(",")
+        self.assertEqual(scopes, EXPECTED_META_SCOPES)
+        self.assertNotIn("instagram_manage_comments", scopes)
+        self.assertNotIn("pages_manage_posts", scopes)
+        self.assertFalse(
+            any(scope.startswith("instagram_business_") for scope in scopes)
+        )
+
+
 class OAuthStateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_meta_state_signature_is_validated(self):
+        os.environ["OAUTH_STATE_SECRET"] = "s" * 48
+
+        with patch.object(oauth_state, "sb_insert", AsyncMock(return_value={"ok": True})):
+            state = await oauth_state.create_oauth_state(
+                provider="meta",
+                user_id="user-1",
+                client_id="amalie",
+                redirect_uri=META_REDIRECT_URI,
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "State OAuth inválido"):
+            await oauth_state.consume_oauth_state(
+                f"{state}tampered",
+                provider="meta",
+            )
+
     async def test_state_is_single_use(self):
         os.environ["OAUTH_STATE_SECRET"] = "s" * 48
         inserted = {}

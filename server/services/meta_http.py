@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-META_BASE = "https://graph.facebook.com/v19.0"
+from .meta_config import META_GRAPH_BASE_URL
+
+
+META_BASE = META_GRAPH_BASE_URL
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
