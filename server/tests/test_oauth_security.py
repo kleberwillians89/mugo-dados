@@ -486,6 +486,9 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("consumed_at", handoff_update.kwargs["patch"])
         self.assertEqual(generic_upsert.await_args.kwargs["client_id"], "amalie")
         self.assertEqual(generic_upsert.await_args.kwargs["provider"], "meta")
+        self.assertEqual(generic_upsert.await_args.kwargs["external_key"], "meta:amalie")
+        self.assertEqual(generic_upsert.await_args.kwargs["status"], "selection_required")
+        self.assertEqual(generic_upsert.await_args.kwargs["metadata"]["meta_user_id"], "meta-user-1")
 
     async def test_discover_assets_does_not_consume_or_delete_handoff(self):
         with (

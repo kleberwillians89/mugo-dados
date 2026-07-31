@@ -36,6 +36,7 @@ def google_capabilities(row: Dict[str, Any]) -> Dict[str, Any]:
     has_ads_scope = any(scope.endswith("/adwords") for scope in scopes)
     ga4_property_id = str(metadata.get("ga4_property_id") or "").strip()
     ads_customer_id = str(metadata.get("google_ads_customer_id") or "").strip()
+    ads_setup_ready = bool(metadata.get("ads_developer_token_configured"))
     return {
         "ga4_authorized": has_ga4_scope,
         "ga4_configured": has_ga4_scope and bool(ga4_property_id),
@@ -49,7 +50,9 @@ def google_capabilities(row: Dict[str, Any]) -> Dict[str, Any]:
         "ads_authorized": has_ads_scope,
         "ads_configured": has_ads_scope and bool(ads_customer_id),
         "ads_status": (
-            "connected"
+            "setup_required"
+            if has_ads_scope and not ads_setup_ready
+            else "connected"
             if has_ads_scope and ads_customer_id
             else "account_required"
             if has_ads_scope
@@ -97,15 +100,10 @@ async def upsert_connection(
     scopes: List[str] | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    rows = await sb_select(
-        "integration_connections",
-        filters={
-            "client_id": f"eq.{client_id}",
-            "provider": f"eq.{provider}",
-            "external_key": f"eq.{external_key}",
-        },
-        limit=1,
-    )
+    match_filters = {"client_id": f"eq.{client_id}", "provider": f"eq.{provider}"}
+    if provider != "meta":
+        match_filters["external_key"] = f"eq.{external_key}"
+    rows = await sb_select("integration_connections", filters=match_filters, order="updated_at.desc", limit=1)
     patch = {
         "status": status,
         "account_id": account_id,

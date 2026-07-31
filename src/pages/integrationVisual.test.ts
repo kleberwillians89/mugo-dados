@@ -45,4 +45,12 @@ describe("professional integration states and official identity", () => {
     expect(dashboard).toContain('["connected", "active", "updated"].includes');
     expect(executive).toContain("E-commerce não conectado");
   });
+
+  it("separates Meta identity from the selected Ads account", () => {
+    const onboarding = source("./Onboarding.tsx");
+    expect(onboarding).toContain("Selecionar conta Meta Ads");
+    expect(onboarding).toContain("Sincronizar agora");
+    expect(onboarding).toContain("selectedPaidConnection?.ad_account_id");
+    expect(onboarding).not.toContain('Conta: {connection.account_name}');
+  });
 });

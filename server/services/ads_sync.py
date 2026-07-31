@@ -1362,32 +1362,16 @@ async def sync_ads_for_client_period(
             access_token=token,
             since=period_since,
             until=period_until,
-            level=None,
+            level="account",
             fields=(
                 "account_id,account_name,date_start,date_stop,"
-                "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+                "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values,purchase_roas"
             ),
-            time_increment=1,
-            limit=500,
-            request_context=request_context,
+            time_increment="all_days",
+            limit=50,
+            request_context={**request_context, "query_mode": "account_aggregate"},
         )
-        account_query_mode = "daily"
-        if not account_rows_raw:
-            account_rows_raw = await fetch_ad_account_insights(
-                ad_account_id=ad_account_id,
-                access_token=token,
-                since=period_since,
-                until=period_until,
-                level=None,
-                fields=(
-                    "account_id,account_name,date_start,date_stop,"
-                    "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
-                ),
-                time_increment="all_days",
-                limit=50,
-                request_context={**request_context, "query_mode": "account_aggregate"},
-            )
-            account_query_mode = "all_days"
+        account_query_mode = "all_days"
         account_fields = sorted({str(key) for row in account_rows_raw for key in row.keys() if key != "access_token"})
         print(
             "[ads_sync][account_aggregate] "
@@ -1395,6 +1379,39 @@ async def sync_ads_for_client_period(
             f"since={period_since} until={period_until} mode={account_query_mode} "
             f"rows={len(account_rows_raw)} fields={','.join(account_fields)}"
         )
+        if not account_rows_raw:
+            reason = "Meta retornou zero agregados no nível da conta para o período; consultas de campanha e anúncio não foram iniciadas."
+            await mark_connection_sync_no_data(resolved_connection_id, reason)
+            if job_run:
+                await finish_job_run(
+                    job_run["id"],
+                    status="skipped",
+                    rows_upserted=0,
+                    error=reason,
+                    client_id=cid,
+                    connection_id=resolved_connection_id,
+                    ad_account_id=ad_account_id,
+                    payload_json={
+                        "date_range": {"since": period_since, "until": period_until},
+                        "account_query_mode": account_query_mode,
+                        "rows_returned": {"ad_account": 0},
+                        "sync_outcome": "no_data",
+                    },
+                )
+            _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
+            return {
+                "ok": True,
+                "client_id": cid,
+                "connection_id": resolved_connection_id,
+                "ad_account_id": ad_account_id,
+                "date_range": {"since": period_since, "until": period_until},
+                "account_query_mode": account_query_mode,
+                "rows_returned": {"ad_account": 0},
+                "rows_inserted": 0,
+                "persisted_rows": {"ad_account_daily_stats": 0},
+                "sync_outcome": "no_data",
+                "job_status": "skipped",
+            }
         campaign_rows_raw = await fetch_ad_account_insights(
             ad_account_id=ad_account_id,
             access_token=token,

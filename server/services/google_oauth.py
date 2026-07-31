@@ -368,7 +368,8 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
             operation="listar propriedades GA4",
         ) from exc
     out: List[Dict[str, Any]] = []
-    for account in response.json().get("accountSummaries") or []:
+    account_summaries = response.json().get("accountSummaries") or []
+    for account in account_summaries:
         for prop in account.get("propertySummaries") or []:
             out.append(
                 {
@@ -378,6 +379,10 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
                     "property_name": prop.get("displayName"),
                 }
             )
+    print(
+        "[google_oauth][ga4_properties] "
+        f"http_status={response.status_code} accounts={len(account_summaries)} properties={len(out)}"
+    )
     return out
 
 

@@ -142,7 +142,7 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
     def test_ads_only_token_keeps_ga4_incomplete(self):
         capabilities = google_capabilities(
             google_row(
-                metadata={"google_ads_customer_id": "1234567890"},
+                metadata={"google_ads_customer_id": "1234567890", "ads_developer_token_configured": True},
                 status="connected",
             )
             | {"scopes": ["openid", "email", "https://www.googleapis.com/auth/adwords"]}
@@ -152,6 +152,15 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(capabilities["ads_status"], "connected")
         self.assertFalse(capabilities["ga4_authorized"])
         self.assertEqual(capabilities["ga4_status"], "authorization_required")
+
+    def test_ads_oauth_without_developer_token_is_setup_required(self):
+        capabilities = google_capabilities(
+            google_row(metadata={"ads_developer_token_configured": False})
+            | {"scopes": ["https://www.googleapis.com/auth/adwords"]}
+        )
+        self.assertTrue(capabilities["ads_authorized"])
+        self.assertFalse(capabilities["ads_configured"])
+        self.assertEqual(capabilities["ads_status"], "setup_required")
 
     def test_ga4_scope_requires_property_before_connected(self):
         capabilities = google_capabilities(

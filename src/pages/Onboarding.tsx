@@ -7,18 +7,22 @@ import {
   discoverPendingClientMetaAssets,
   linkClientAssets,
   listClientConnections,
+  listClientMetaAdsAccounts,
   listGenericConnections,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   refreshAll,
   selectGoogleAdsAccount,
   selectGoogleGa4Property,
+  selectClientMetaAdsAccount,
   selectShopifyConnection,
   syncGoogleConnection,
+  syncClientMetaAdsAccount,
   syncShopifyConnection,
   type GenericConnection,
   type GoogleAdsAccount,
   type GoogleGa4Property,
+  type MetaAdsSelectableAccount,
   startClientMetaOAuth,
   startGoogleOAuth,
   startShopifyOAuth,
@@ -182,6 +186,9 @@ export default function Onboarding({
   const [selectedGoogleProperty, setSelectedGoogleProperty] = useState("");
   const [selectedGoogleAds, setSelectedGoogleAds] = useState("");
   const [googleAdsNotice, setGoogleAdsNotice] = useState("");
+  const [metaAdsPickerOpen, setMetaAdsPickerOpen] = useState(false);
+  const [metaAdsAccounts, setMetaAdsAccounts] = useState<MetaAdsSelectableAccount[]>([]);
+  const [selectedMetaAdsAccount, setSelectedMetaAdsAccount] = useState("");
   const [oauthRetry, setOauthRetry] = useState<"meta_discover" | null>(null);
 
   const configWarning = getActiveClientConfigurationWarning();
@@ -369,6 +376,10 @@ export default function Onboarding({
     (connection) => String(connection.status || "").toLowerCase() === "active"
   );
   const metaGenericConnection = genericConnections.find((item) => item.provider === "meta") || null;
+  const selectedPaidConnection = paidConnections.find((connection) =>
+    String(connection.ad_account_id || "") === String(metaGenericConnection?.metadata?.selected_ad_account_id || "")
+  ) || paidConnections.find((connection) => String(connection.status || "").toLowerCase() === "active") || null;
+  const metaAdsOperational = Boolean(selectedPaidConnection?.ad_account_id);
   const metaSelectionPending = String(metaGenericConnection?.status || "").toLowerCase() === "selection_required";
   const connectionSummary = useMemo(() => {
     const states = genericConnections.map((item) => connectionTone(item.status));
@@ -415,6 +426,55 @@ export default function Onboarding({
       setInfo("Ativos Meta carregados. Revise a seleção e salve para concluir.");
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível carregar os ativos Meta autorizados."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onOpenMetaAdsPicker() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const response = await listClientMetaAdsAccounts();
+      const accounts = response.accounts || [];
+      setMetaAdsAccounts(accounts);
+      setSelectedMetaAdsAccount(String(selectedPaidConnection?.ad_account_id || ""));
+      setMetaAdsPickerOpen(true);
+      if (!accounts.length) setErr("A autorização Meta não retornou nenhuma conta de anúncios acessível com ads_read.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível listar as contas Meta Ads acessíveis."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSaveMetaAdsAccount() {
+    if (!selectedMetaAdsAccount) return setErr("Selecione uma conta de anúncios.");
+    setSaving(true);
+    setErr(null);
+    try {
+      await selectClientMetaAdsAccount(selectedMetaAdsAccount);
+      await loadConnections();
+      setMetaAdsPickerOpen(false);
+      setInfo(`Conta Meta Ads ${selectedMetaAdsAccount} selecionada para ${getActiveClientName()}.`);
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível persistir a conta Meta Ads."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSyncMetaAdsNow() {
+    if (!selectedPaidConnection?.id) return setErr("Selecione uma conta Meta Ads antes de sincronizar.");
+    setSaving(true);
+    setErr(null);
+    try {
+      const result = await syncClientMetaAdsAccount(selectedPaidConnection.id);
+      await loadConnections();
+      const outcome = String(result.sync_outcome || result.job_status || "");
+      setInfo(outcome === "success" ? "Meta Ads sincronizado e persistido." : `Sincronização Meta Ads: ${outcome || "resultado indisponível"}.`);
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "A sincronização Meta Ads falhou."));
     } finally {
       setSaving(false);
     }
@@ -572,6 +632,7 @@ export default function Onboarding({
         setGooglePickerId(connection.id);
         setGooglePickerProduct(product);
         setGoogleProperties(ga4.properties || []);
+        if (!(ga4.properties || []).length) setInfo(ga4.message || "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.");
       } else {
         const ads = await listGoogleAdsAccounts(connection.id);
         setGooglePickerId(connection.id);
@@ -809,10 +870,14 @@ export default function Onboarding({
                 ? "Autorização incompleta"
                 : productStatus === "property_required"
                   ? "Propriedade pendente"
-                  : productStatus === "account_required"
-                    ? "Conta pendente"
+                : productStatus === "account_required"
+                  ? "Conta pendente"
+                  : productStatus === "setup_required"
+                    ? "Configuração externa pendente"
                     : productStatus === "connected"
                       ? "Conectado"
+                : definition.id === "meta" && !metaAdsOperational
+                  ? "Conta de anúncios pendente"
                 : connection
                   ? statusLabel(connection.status)
                 : metaConnected
@@ -827,6 +892,8 @@ export default function Onboarding({
               );
               const tone = definition.availability === "platform_update_pending"
                 ? "yellow"
+                : definition.id === "meta" && !metaAdsOperational
+                  ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
               const logoSrc = integrationLogoSrc(definition.id);
               return (
@@ -842,14 +909,15 @@ export default function Onboarding({
                   <span className={`integrationLight is-${tone}`} aria-hidden="true" />
                   <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : status}</strong>
                 </div>
-                {connection?.account_name ? (
+                {(definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name) ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
-                    Conta: {connection.account_name}<br />
-                    Última sincronização: {fmtDate(connection.last_sync_at)}
+                    Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
+                    {definition.id === "meta" && selectedPaidConnection?.ad_account_id ? <>{selectedPaidConnection.ad_account_id}<br /></> : null}
+                    Última sincronização: {fmtDate(definition.id === "meta" ? selectedPaidConnection?.last_sync_at || selectedPaidConnection?.last_synced_at : connection?.last_sync_at)}
                   </div>
                 ) : null}
-                {connection ? <div className={`syncStateChip ${connection.last_error ? "is-error" : connection.last_sync_at ? "is-updated" : "is-never"}`}>
-                  {connection.last_error ? "Falha na sincronização" : connection.last_sync_at ? `Atualizado · ${fmtDate(connection.last_sync_at)}` : "Nunca sincronizado"}
+                {connection ? <div className={`syncStateChip ${(definition.id === "meta" ? selectedPaidConnection?.last_error : connection.last_error) ? "is-error" : (definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at) ? "is-updated" : "is-never"}`}>
+                  {(definition.id === "meta" ? selectedPaidConnection?.last_error : connection.last_error) ? "Falha na sincronização" : (definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at) ? `Atualizado · ${fmtDate(definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at)}` : "Nunca sincronizado"}
                 </div> : null}
                 {definition.id === "shopify" ? (
                   <>
@@ -909,12 +977,22 @@ export default function Onboarding({
                 ) : null}
                 {connection ? (
                   <div className="onboardingConnActions" style={{ marginTop: 10 }}>
+                    {definition.id === "meta" ? (
+                      <>
+                        <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving} onClick={() => void onOpenMetaAdsPicker()}>
+                          Selecionar conta
+                        </button>
+                        <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving || !metaAdsOperational} onClick={() => void onSyncMetaAdsNow()}>
+                          Sincronizar agora
+                        </button>
+                      </>
+                    ) : null}
                     {definition.id === "ga4" || definition.id === "google_ads" ? (
                       <>
                         <button
                           className="btn btnGhost"
                           type="button"
-                          disabled={!canManageConnections || saving || status === "Autorização incompleta" || status === "Não conectado"}
+                          disabled={!canManageConnections || saving || status === "Autorização incompleta" || status === "Não conectado" || status === "Configuração externa pendente"}
                           onClick={() => void onManageGoogle(connection, definition.id === "ga4" ? "ga4" : "ads")}
                         >
                           {definition.id === "ga4" ? "Selecionar propriedade" : "Selecionar conta"}
@@ -975,6 +1053,30 @@ export default function Onboarding({
                 {saving ? "Salvando..." : "Salvar seleção"}
               </button>
               <button className="btn btnGhost" type="button" onClick={() => { setGooglePickerId(null); setGooglePickerProduct(null); }}>Cancelar</button>
+            </div>
+          </section>
+        ) : null}
+
+        {metaAdsPickerOpen ? (
+          <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
+            <div className="h1">Selecionar conta Meta Ads</div>
+            <div className="p">Somente contas acessíveis pela autorização da empresa ativa são exibidas.</div>
+            <label className="smallMuted">
+              Conta de anúncios
+              <select value={selectedMetaAdsAccount} onChange={(event) => setSelectedMetaAdsAccount(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
+                <option value="">Selecione uma conta</option>
+                {metaAdsAccounts.map((account) => (
+                  <option key={account.ad_account_id} value={account.ad_account_id}>
+                    {account.ad_account_name || "Conta Meta Ads"} — {account.ad_account_id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
+              <button className="btn btnPrimary" type="button" disabled={saving || !selectedMetaAdsAccount} onClick={() => void onSaveMetaAdsAccount()}>
+                {saving ? "Salvando..." : "Salvar conta"}
+              </button>
+              <button className="btn btnGhost" type="button" onClick={() => setMetaAdsPickerOpen(false)}>Cancelar</button>
             </div>
           </section>
         ) : null}

@@ -396,7 +396,7 @@ async def fetch_ad_accounts(access_token: str) -> List[Dict[str, Any]]:
             data = await _meta_get(
                 "/me/adaccounts",
                 {
-                    "fields": "id,account_id,name,account_status,currency",
+                    "fields": "id,account_id,name,account_status,currency,timezone_name",
                     "limit": 200,
                     "access_token": access_token,
                 },
@@ -413,6 +413,7 @@ async def fetch_ad_accounts(access_token: str) -> List[Dict[str, Any]]:
                     "ad_account_name": _safe_str(row.get("name")),
                     "account_status": row.get("account_status"),
                     "currency": _safe_str(row.get("currency")),
+                    "timezone_name": _safe_str(row.get("timezone_name")),
                 }
             )
 
@@ -421,6 +422,14 @@ async def fetch_ad_accounts(access_token: str) -> List[Dict[str, Any]]:
         if not next_url:
             break
 
+    print(
+        "[meta_oauth][ad_accounts] "
+        f"http_status=200 count={len(accounts)} accounts="
+        + ",".join(
+            f"{_safe_str(row.get('ad_account_id'))}:{_safe_str(row.get('ad_account_name'))[:80]}"
+            for row in accounts
+        )
+    )
     return accounts
 
 
@@ -773,24 +782,41 @@ async def save_connections(
             returning="minimal",
         )
 
+    selected_ad = selected_ads[0] if selected_ads else {}
+    selected_ad_id = _normalize_ad_account_id(_safe_str(selected_ad.get("ad_account_id")))
+    selected_ad_name = _safe_str(selected_ad.get("ad_account_name"))
     generic_connection = await upsert_connection(
         client_id=client_id,
         provider="meta",
-        external_key=current_meta_user_id or f"meta:{client_id}",
+        external_key=f"meta:{client_id}",
         token_payload=json.dumps({"access_token": access_token}),
         user_id=user_id,
-        status="connected",
-        account_id=current_meta_user_id or None,
-        account_name=_safe_str(meta_user.get("name")) or None,
+        status="connected" if selected_ad_id else "selection_required",
+        account_id=selected_ad_id or None,
+        account_name=selected_ad_name or None,
         token_expires_at=_safe_str(expires_at) or None,
         scopes=[_safe_str(scope) for scope in scopes if _safe_str(scope)],
         metadata={
             "integration_product": "meta",
-            "selection_required": False,
+            "selection_required": not bool(selected_ad_id),
             "oauth_handoff": None,
+            "meta_user_id": current_meta_user_id or None,
+            "meta_user_name": _safe_str(meta_user.get("name")) or None,
             "page_ids": sorted(pages_requested),
             "instagram_ig_user_ids": sorted(ig_requested),
             "ad_account_ids": sorted(ads_requested),
+            "selected_ad_account_id": selected_ad_id or None,
+            "selected_ad_account_name": selected_ad_name or None,
+            "accessible_ad_accounts": [
+                {
+                    "ad_account_id": _normalize_ad_account_id(_safe_str(ad.get("ad_account_id"))),
+                    "ad_account_name": _safe_str(ad.get("ad_account_name")),
+                    "account_status": ad.get("account_status"),
+                    "currency": _safe_str(ad.get("currency")),
+                    "timezone_name": _safe_str(ad.get("timezone_name")),
+                }
+                for ad in _json_array(item.get("ad_accounts_json"))
+            ],
         },
     )
 
@@ -827,6 +853,74 @@ async def list_connections(client_id: str) -> List[Dict[str, Any]]:
         serialized["scopes_json"] = r.get("scopes_json") or []
         out.append(serialized)
     return out
+
+
+async def select_paid_connection(*, client_id: str, ad_account_id: str, user_id: str) -> Dict[str, Any]:
+    normalized = _normalize_ad_account_id(ad_account_id)
+    rows = await sb_select(
+        "meta_connections",
+        filters={
+            "client_id": f"eq.{_safe_str(client_id)}",
+            "platform": "eq.meta_ads",
+            "connection_type": "eq.paid",
+            "ad_account_id": f"eq.{normalized}",
+        },
+        limit=1,
+    )
+    if not rows:
+        raise RuntimeError("A conta de anúncios selecionada não pertence à empresa ativa.")
+    selected = rows[0]
+    if "ads_read" not in {_safe_str(scope) for scope in _json_array(selected.get("scopes_json"))}:
+        raise RuntimeError("A autorização Meta não possui a permissão ads_read.")
+    await sb_update(
+        "meta_connections",
+        filters={"id": f"eq.{_safe_str(selected.get('id'))}", "client_id": f"eq.{_safe_str(client_id)}"},
+        patch={"status": "active", "is_active": True, "last_error": None, "updated_at": _iso(_now_utc())},
+        returning="minimal",
+    )
+    generic_rows = await sb_select(
+        "integration_connections",
+        filters={"client_id": f"eq.{_safe_str(client_id)}", "provider": "eq.meta"},
+        order="updated_at.desc",
+        limit=1,
+    )
+    if not generic_rows:
+        raise RuntimeError("Conexão-base Meta não encontrada para esta empresa.")
+    generic = generic_rows[0]
+    metadata = _json_object(generic.get("metadata"))
+    updated = await sb_update(
+        "integration_connections",
+        filters={"id": f"eq.{_safe_str(generic.get('id'))}", "client_id": f"eq.{_safe_str(client_id)}"},
+        patch={
+            "status": "connected",
+            "external_key": f"meta:{_safe_str(client_id)}",
+            "account_id": normalized,
+            "account_name": _safe_str(selected.get("ad_account_name")) or normalized,
+            "metadata": {
+                **metadata,
+                "selection_required": False,
+                "selected_ad_account_id": normalized,
+                "selected_ad_account_name": _safe_str(selected.get("ad_account_name")) or None,
+            },
+            "last_error": None,
+            "updated_at": _iso(_now_utc()),
+        },
+        returning="representation",
+    )
+    await audit_connection(
+        client_id=client_id,
+        connection_id=_safe_str(generic.get("id")),
+        user_id=user_id,
+        event_type="account_selected",
+        details={"provider": "meta", "ad_account_id": normalized},
+    )
+    await invalidate_namespace("integration_connections")
+    return {
+        "connection_id": _safe_str(selected.get("id")),
+        "ad_account_id": normalized,
+        "ad_account_name": _safe_str(selected.get("ad_account_name")),
+        "integration_connection": updated[0] if updated else {},
+    }
 
 
 async def disconnect_connection(client_id: str, connection_id: str, user_id: str) -> Dict[str, Any]:

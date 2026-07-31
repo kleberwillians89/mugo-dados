@@ -1238,7 +1238,7 @@ export type GoogleAdsAccount = {
 
 export async function listGoogleGa4Properties(
   connectionId: string
-): Promise<{ ok: boolean; properties: GoogleGa4Property[] }> {
+): Promise<{ ok: boolean; properties: GoogleGa4Property[]; property_count?: number; message?: string | null }> {
   return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/properties`);
 }
 
@@ -1318,6 +1318,36 @@ export async function linkClientAssets(
 
 export async function listClientConnections(): Promise<ClientConnectionsResponse> {
   return http<ClientConnectionsResponse>(clientClientPath("/connections"));
+}
+
+export type MetaAdsSelectableAccount = {
+  connection_id: string;
+  ad_account_id: string;
+  ad_account_name?: string;
+  status?: string;
+  scopes?: string[];
+};
+
+export async function listClientMetaAdsAccounts(): Promise<{ ok: boolean; accounts: MetaAdsSelectableAccount[] }> {
+  return http(clientClientPath("/meta-ads/accounts"));
+}
+
+export async function selectClientMetaAdsAccount(adAccountId: string): Promise<JsonRecord> {
+  return http(clientClientPath("/meta-ads/select"), {
+    method: "POST",
+    body: JSON.stringify({ ad_account_id: adAccountId }),
+  });
+}
+
+export async function syncClientMetaAdsAccount(connectionId: string): Promise<JsonRecord> {
+  return http(clientClientPath("/meta-ads/sync"), {
+    method: "POST",
+    body: JSON.stringify({
+      connection_id: connectionId,
+      since: "2026-07-02",
+      until: "2026-07-31",
+    }),
+  });
 }
 
 export async function disconnectClientConnection(connectionId: string): Promise<JsonRecord> {

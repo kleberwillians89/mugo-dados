@@ -151,7 +151,13 @@ async def ga4_properties(
             code="GOOGLE_INSUFFICIENT_SCOPE",
             provider="google",
         )
-    return {"ok": True, "properties": await list_ga4_properties(cid, connection_id)}
+    properties = await list_ga4_properties(cid, connection_id)
+    return {
+        "ok": True,
+        "properties": properties,
+        "property_count": len(properties),
+        "message": None if properties else f"O usuário {row.get('account_name') or 'Google autorizado'} não possui acesso a nenhuma propriedade GA4.",
+    }
 
 
 @router.post("/{connection_id}/ga4/select")

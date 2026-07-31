@@ -26,6 +26,7 @@ from services.cron_jobs import (
     run_token_refresh_job,
 )
 from services.ig_refresh import refresh_all
+from services.ads_sync import sync_ads_for_client_period
 from services.instagram_sync import discover_instagram_identity_for_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
@@ -42,6 +43,7 @@ from services.meta_oauth import (
     resolve_meta_redirect_uri,
     save_pending_meta_authorization,
     save_connections,
+    select_paid_connection,
 )
 from services.oauth_state import consume_oauth_state, create_oauth_state
 from services.meta_tokens import get_meta_connection_status, refresh_meta_token_for_connection
@@ -268,6 +270,65 @@ async def api_link_assets(
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/clients/{client_id}/meta-ads/accounts")
+async def api_meta_ads_accounts(
+    client_id: str,
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(client_id, authorization)
+    rows = await list_connections(cid)
+    accounts = [
+        {
+            "connection_id": row.get("id"),
+            "ad_account_id": row.get("ad_account_id"),
+            "ad_account_name": row.get("ad_account_name"),
+            "status": row.get("status"),
+            "scopes": row.get("scopes_json") or [],
+        }
+        for row in rows
+        if row.get("platform") == "meta_ads" and row.get("connection_type") == "paid" and row.get("ad_account_id")
+    ]
+    return {"ok": True, "client_id": cid, "accounts": accounts}
+
+
+@router.post("/api/clients/{client_id}/meta-ads/select")
+async def api_select_meta_ads_account(
+    client_id: str,
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await require_client_role(client_id, authorization)
+    try:
+        selected = await select_paid_connection(
+            client_id=cid,
+            ad_account_id=str(payload.get("ad_account_id") or ""),
+            user_id=user_id,
+        )
+        return {"ok": True, **selected}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/clients/{client_id}/meta-ads/sync")
+async def api_sync_meta_ads_account(
+    client_id: str,
+    payload: Dict[str, Any] | None = None,
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(client_id, authorization)
+    body = payload or {}
+    return await sync_ads_for_client_period(
+        client_id=cid,
+        connection_id=str(body.get("connection_id") or "") or None,
+        since=str(body.get("since") or "2026-07-02"),
+        until=str(body.get("until") or "2026-07-31"),
+        job_name="meta_ads_manual_account_sync",
+        trigger_source="manual",
+        record_job_run=True,
+    )
 
 
 @router.get("/api/clients/{client_id}/connections")
