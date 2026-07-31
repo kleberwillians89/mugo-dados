@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,8 @@ from .meta_tokens import (
     ensure_valid_meta_token,
     get_connection_by_id,
     mark_connection_sync_error,
+    mark_connection_sync_no_data,
+    mark_connection_sync_partial,
     mark_connection_sync_success,
 )
 CATALOG_EFFECTIVE_STATUSES = [
@@ -39,6 +42,10 @@ CATALOG_EFFECTIVE_STATUSES = [
     "PREAPPROVED",
     "IN_PROCESS",
 ]
+
+_ACTIVE_SYNC_KEYS: set[str] = set()
+_RECENT_SYNC_KEYS: Dict[str, float] = {}
+_SYNC_DEDUP_SECONDS = 300
 
 
 def _safe_str(value: Any) -> str:
@@ -1224,6 +1231,19 @@ def _sum_rows_upserted(result: Dict[str, Any]) -> int:
     )
 
 
+def _classify_sync_outcome(
+    *,
+    account_rows: List[Dict[str, Any]],
+    persisted_account_rows: int,
+    upserts: List[Dict[str, Any]],
+) -> str:
+    if not account_rows or int(persisted_account_rows or 0) <= 0:
+        return "no_data"
+    if any((item or {}).get("skipped") for item in upserts):
+        return "partial"
+    return "success"
+
+
 async def sync_ads_for_client_period(
     *,
     client_id: str,
@@ -1303,6 +1323,33 @@ async def sync_ads_for_client_period(
         "ad_account_id": ad_account_id,
     }
 
+    sync_key = f"{cid}:{resolved_connection_id}:{ad_account_id}:{period_since}:{period_until}"
+    now_monotonic = time.monotonic()
+    recent_at = _RECENT_SYNC_KEYS.get(sync_key)
+    if sync_key in _ACTIVE_SYNC_KEYS or (recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS):
+        if job_run:
+            await finish_job_run(
+                job_run["id"],
+                status="skipped",
+                rows_upserted=0,
+                error="Sincronização duplicada para a mesma conexão e período.",
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                payload_json={"date_range": {"since": period_since, "until": period_until}, "reason": "duplicate"},
+            )
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "duplicate",
+            "job_status": "skipped",
+            "client_id": cid,
+            "connection_id": resolved_connection_id,
+            "ad_account_id": ad_account_id,
+            "date_range": {"since": period_since, "until": period_until},
+        }
+    _ACTIVE_SYNC_KEYS.add(sync_key)
+
     try:
         token = await ensure_valid_meta_token(
             cid,
@@ -1323,6 +1370,30 @@ async def sync_ads_for_client_period(
             time_increment=1,
             limit=500,
             request_context=request_context,
+        )
+        account_query_mode = "daily"
+        if not account_rows_raw:
+            account_rows_raw = await fetch_ad_account_insights(
+                ad_account_id=ad_account_id,
+                access_token=token,
+                since=period_since,
+                until=period_until,
+                level=None,
+                fields=(
+                    "account_id,account_name,date_start,date_stop,"
+                    "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+                ),
+                time_increment="all_days",
+                limit=50,
+                request_context={**request_context, "query_mode": "account_aggregate"},
+            )
+            account_query_mode = "all_days"
+        account_fields = sorted({str(key) for row in account_rows_raw for key in row.keys() if key != "access_token"})
+        print(
+            "[ads_sync][account_aggregate] "
+            f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+            f"since={period_since} until={period_until} mode={account_query_mode} "
+            f"rows={len(account_rows_raw)} fields={','.join(account_fields)}"
         )
         campaign_rows_raw = await fetch_ad_account_insights(
             ad_account_id=ad_account_id,
@@ -1560,7 +1631,21 @@ async def sync_ads_for_client_period(
             since=period_since,
             until=period_until,
         )
-        await mark_connection_sync_success(resolved_connection_id)
+        persisted_account_rows = int((persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0)
+        sync_outcome = _classify_sync_outcome(
+            account_rows=account_rows_raw,
+            persisted_account_rows=persisted_account_rows,
+            upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
+        )
+        if sync_outcome == "no_data":
+            await mark_connection_sync_no_data(
+                resolved_connection_id,
+                "Meta retornou zero agregados de conta para o período; o último sucesso foi preservado.",
+            )
+        elif sync_outcome == "partial":
+            await mark_connection_sync_partial(resolved_connection_id)
+        else:
+            await mark_connection_sync_success(resolved_connection_id)
     except Exception as exc:
         message = str(exc)
         requires_reauth = isinstance(exc, MetaApiError) and exc.invalid_oauth
@@ -1593,6 +1678,8 @@ async def sync_ads_for_client_period(
             f"error={_safe_str(message)[:360]}"
         )
         raise
+    finally:
+        _ACTIVE_SYNC_KEYS.discard(sync_key)
 
     print(
         "[ads_sync][done] "
@@ -1617,6 +1704,7 @@ async def sync_ads_for_client_period(
         "meta_connection_id": resolved_connection_id,
         "ad_account_id": ad_account_id,
         "date_range": {"since": period_since, "until": period_until},
+        "account_query_mode": account_query_mode,
         "rows_returned": {
             "ad_account": len(account_rows_raw),
             "campaign": len(campaign_rows_raw),
@@ -1673,8 +1761,17 @@ async def sync_ads_for_client_period(
             "boosted_source_breakdown": boosted_sources_count,
         },
     }
+    sync_outcome = _classify_sync_outcome(
+        account_rows=account_rows_raw,
+        persisted_account_rows=int(
+            (persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0
+        ),
+        upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
+    )
+    result["sync_outcome"] = sync_outcome
+    _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
     if job_run:
-        job_status = "partial" if any((item or {}).get("skipped") for item in (account_upsert, campaign_upsert, ad_upsert, promoted_upsert)) else "success"
+        job_status = "skipped" if sync_outcome == "no_data" else sync_outcome
         await finish_job_run(
             job_run["id"],
             status=job_status,

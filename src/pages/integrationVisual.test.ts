@@ -36,4 +36,13 @@ describe("professional integration states and official identity", () => {
     expect(onboarding).toContain("Selecionar ativos");
     expect(onboarding).toContain('connectionState === "selection_required"');
   });
+
+  it("does not present disconnected commerce or empty Ads jobs as successful", () => {
+    const dashboard = source("./Dashboard.tsx");
+    const executive = source("../components/dashboard/ExecutiveOverview.tsx");
+    expect(dashboard).toContain('paidSyncStatus === "skipped"');
+    expect(dashboard).toContain('"Aguardando sincronização válida"');
+    expect(dashboard).toContain('["connected", "active", "updated"].includes');
+    expect(executive).toContain("E-commerce não conectado");
+  });
 });

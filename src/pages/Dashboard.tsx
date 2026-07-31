@@ -1394,7 +1394,8 @@ export default function Dashboard({
         if (!alive) return;
         if (genericResult.status === "fulfilled") {
           const commerce = genericResult.value.connections.find((connection) =>
-            ["shopify", "fbits"].includes(connection.provider)
+            ["shopify", "fbits"].includes(connection.provider) &&
+            ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
           );
           setCommerceConnection(commerce || null);
         }
@@ -1551,12 +1552,15 @@ export default function Dashboard({
     [connections, paidConnectionId]
   );
   const paidConnectionStatus = String(paidConnection?.status || "").toLowerCase();
+  const paidSyncStatus = String(paidConnection?.last_sync_status || "never").toLowerCase();
   const organicLastUpdatedLabel =
     formatUpdatedAtLabel(sectionUpdatedAt.dash) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
   const paidLastUpdatedLabel =
-    formatUpdatedAtLabel(paidUpdatedAt) ||
-    formatUpdatedAtLabel(paidConnection?.last_synced_at || paidConnection?.last_sync_at);
+    ["success", "partial"].includes(paidSyncStatus)
+      ? formatUpdatedAtLabel(paidConnection?.last_synced_at || paidConnection?.last_sync_at) ||
+        formatUpdatedAtLabel(paidUpdatedAt)
+      : "";
   const mediaLastUpdatedLabel =
     formatUpdatedAtLabel(sectionUpdatedAt.media) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
@@ -1584,6 +1588,10 @@ export default function Dashboard({
       ? "Carregando Ads"
       : refreshingPaid
         ? "Atualizando Ads"
+      : paidSyncStatus === "skipped"
+        ? "Ads sem dados no período"
+      : paidSyncStatus === "partial"
+        ? "Ads com dados parciais"
       : hasPaidData
         ? "Ads com dados"
         : paidHasRows
@@ -1597,6 +1605,10 @@ export default function Dashboard({
         ? "Carregando dados de Ads..."
         : refreshingPaid
           ? "Atualizando dados de Ads em background..."
+        : paidSyncStatus === "skipped"
+          ? paidConnection?.last_error || "A Meta retornou zero agregados para o período."
+        : paidSyncStatus === "partial"
+          ? paidConnection?.last_error || "A importação foi concluída parcialmente."
         : paidError
           ? "A leitura de Meta Ads não ficou disponível agora."
         : paidHasRows
@@ -2030,8 +2042,12 @@ export default function Dashboard({
           ? "Falha parcial na leitura"
           : paidExecutiveAvailable
             ? paidLastUpdatedLabel || "Dados disponíveis"
+            : paidSyncStatus === "skipped"
+              ? paidConnection?.last_error || "Nenhum agregado retornado no período"
+              : paidSyncStatus === "partial"
+                ? paidConnection?.last_error || "Importação parcial"
             : hasPaidConnection
-              ? "Sem movimentação no período"
+              ? "Aguardando sincronização válida"
               : "Fonte não conectada",
       },
       {
@@ -2049,6 +2065,8 @@ export default function Dashboard({
       paidError,
       paidExecutiveAvailable,
       paidLastUpdatedLabel,
+      paidConnection?.last_error,
+      paidSyncStatus,
     ]
   );
   const metaRenderKey = [

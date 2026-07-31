@@ -274,6 +274,37 @@ async def mark_connection_sync_success(connection_id: str) -> None:
     )
 
 
+async def mark_connection_sync_no_data(connection_id: str, reason: str) -> None:
+    """Registra tentativa válida sem dados sem avançar o último sucesso."""
+    await _patch_connection(
+        connection_id,
+        {
+            "status": "active",
+            "requires_reauth": False,
+            "is_active": True,
+            "last_error": (reason or "Nenhum agregado Meta Ads foi retornado.")[:1000],
+            # O schema atual usa `skipped`; a API/UI o apresenta como no_data.
+            "last_sync_status": "skipped",
+        },
+        best_effort=True,
+    )
+
+
+async def mark_connection_sync_partial(connection_id: str, reason: str | None = None) -> None:
+    patch = {
+        "status": "active",
+        "requires_reauth": False,
+        "is_active": True,
+        "last_error": (reason or "Sincronização Meta Ads persistida parcialmente.")[:1000],
+        "last_sync_status": "partial",
+    }
+    await _patch_connection(
+        connection_id,
+        _with_last_sync_patch(patch, _utc_now()),
+        best_effort=True,
+    )
+
+
 async def mark_connection_sync_error(
     connection_id: str,
     error: str,

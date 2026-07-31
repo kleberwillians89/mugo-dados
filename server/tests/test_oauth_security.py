@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import unittest
+import httpx
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -10,6 +11,8 @@ from unittest.mock import AsyncMock, patch
 from server.services import oauth_state
 from server.services import google_oauth
 from server.services import generic_connections
+from server.services import ads_sync
+from server.services import meta_tokens
 from server.services import meta_config
 from server.services import meta_http
 from server.services import meta_oauth
@@ -555,6 +558,23 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    def test_google_403_diagnostic_contains_no_request_or_token_data(self):
+        response = httpx.Response(
+            403,
+            json={
+                "error": {
+                    "status": "PERMISSION_DENIED",
+                    "message": "Analytics Admin API has not been used",
+                    "details": [{"reason": "SERVICE_DISABLED"}],
+                }
+            },
+        )
+        diagnostic = google_oauth._sanitized_google_error(response)
+        self.assertEqual(diagnostic["http_status"], 403)
+        self.assertEqual(diagnostic["reasons"], ["SERVICE_DISABLED"])
+        self.assertNotIn("headers", diagnostic)
+        self.assertNotIn("access_token", str(diagnostic))
+
     async def test_disconnected_google_connection_cannot_reuse_local_token(self):
         with patch.object(
             google_oauth,
@@ -753,6 +773,43 @@ class GenericDisconnectTests(unittest.IsolatedAsyncioTestCase):
         update.assert_not_awaited()
         audit.assert_not_awaited()
         self.assertEqual(result["disconnect_result"]["local_status"], "already_disconnected")
+
+
+class MetaAdsSyncOutcomeTests(unittest.IsolatedAsyncioTestCase):
+    def test_zero_account_aggregates_are_no_data_not_success(self):
+        self.assertEqual(
+            ads_sync._classify_sync_outcome(
+                account_rows=[], persisted_account_rows=0, upserts=[{"upserted": 0}]
+            ),
+            "no_data",
+        )
+
+    def test_persisted_account_aggregate_can_be_partial_or_success(self):
+        account = [{"spend": "10.00", "impressions": "100"}]
+        self.assertEqual(
+            ads_sync._classify_sync_outcome(
+                account_rows=account,
+                persisted_account_rows=1,
+                upserts=[{"upserted": 1}, {"skipped": True}],
+            ),
+            "partial",
+        )
+        self.assertEqual(
+            ads_sync._classify_sync_outcome(
+                account_rows=account,
+                persisted_account_rows=1,
+                upserts=[{"upserted": 1}],
+            ),
+            "success",
+        )
+
+    async def test_no_data_does_not_advance_last_success_timestamp(self):
+        with patch.object(meta_tokens, "_patch_connection", AsyncMock()) as patch_connection:
+            await meta_tokens.mark_connection_sync_no_data("meta-connection", "zero aggregates")
+        payload = patch_connection.await_args.args[1]
+        self.assertEqual(payload["last_sync_status"], "skipped")
+        self.assertNotIn("last_sync_at", payload)
+        self.assertNotIn("last_synced_at", payload)
 
 
 if __name__ == "__main__":

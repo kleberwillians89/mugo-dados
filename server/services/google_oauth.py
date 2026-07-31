@@ -30,6 +30,26 @@ def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
 
 
+def _sanitized_google_error(response: httpx.Response) -> Dict[str, Any]:
+    try:
+        payload = response.json()
+    except (TypeError, ValueError):
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) and isinstance(payload.get("error"), dict) else {}
+    details = error.get("details") if isinstance(error.get("details"), list) else []
+    reasons = sorted({
+        str(item.get("reason") or item.get("reasonCode") or "").strip()
+        for item in details
+        if isinstance(item, dict) and str(item.get("reason") or item.get("reasonCode") or "").strip()
+    })
+    return {
+        "http_status": int(response.status_code or 0),
+        "google_status": str(error.get("status") or "")[:80],
+        "reasons": reasons[:8],
+        "message": str(error.get("message") or "")[:240],
+    }
+
+
 def settings() -> Dict[str, str]:
     values = {
         "client_id": (
@@ -336,6 +356,12 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
     try:
         response.raise_for_status()
     except Exception as exc:
+        diagnostic = _sanitized_google_error(response)
+        print(
+            "[google_oauth][ga4_properties_error] "
+            f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
+            f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
+        )
         raise from_httpx_error(
             "google",
             exc,

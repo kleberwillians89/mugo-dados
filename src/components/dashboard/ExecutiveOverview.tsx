@@ -115,7 +115,7 @@ export default function ExecutiveOverview({
           <span className="executiveEyebrow">Leitura executiva</span>
           <h1 id="executive-title">{companyName}</h1>
           <p>
-            {commercePlatform ? `${commercePlatform} conectado` : "E-commerce conectado"}
+            {commercePlatform ? `${commercePlatform} conectado` : "E-commerce não conectado"}
             {" · "}Uma leitura do que aconteceu e do que merece atenção.
           </p>
         </div>
