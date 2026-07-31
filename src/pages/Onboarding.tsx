@@ -39,7 +39,7 @@ import {
   getActiveClientName,
   MUGO_APP_NAME,
 } from "../app/activeClient";
-import logo from "../assets/mugo-logo.svg";
+const logo = "/mugo_logo1.png";
 import {
   INTEGRATION_REGISTRY,
   unavailableIntegrationLabel,
@@ -75,6 +75,18 @@ function statusLabel(status: string): string {
   if (normalized === "disconnected") return "Não conectado";
   if (normalized === "selection_required") return "Seleção de conta pendente";
   return normalized ? "Não conectado" : "Não conectado";
+}
+
+function connectionTone(status: string): "red" | "yellow" | "green" {
+  const normalized = String(status || "").toLowerCase();
+  if (["active", "connected", "updated"].includes(normalized)) return "green";
+  if (["selection_required", "connecting", "importing", "syncing", "awaiting_authorization"].includes(normalized)) return "yellow";
+  return "red";
+}
+
+function integrationLogoSrc(id: string): string | null {
+  if (id === "meta") return "/logoinstagram.png";
+  return null;
 }
 
 function isOrganicConnection(connection: MetaConnection): boolean {
@@ -355,6 +367,15 @@ export default function Onboarding({
   const dashboardReady = organicConnections.some(
     (connection) => String(connection.status || "").toLowerCase() === "active"
   );
+  const connectionSummary = useMemo(() => {
+    const states = genericConnections.map((item) => connectionTone(item.status));
+    if (dashboardReady || paidConnections.length) states.push("green");
+    return {
+      connected: states.filter((state) => state === "green").length,
+      pending: states.filter((state) => state === "yellow").length + (pendingAssets ? 1 : 0),
+      errors: states.filter((state) => state === "red").length,
+    };
+  }, [dashboardReady, genericConnections, paidConnections.length, pendingAssets]);
 
   async function onStartOAuth() {
     if (!canManageConnections) {
@@ -667,6 +688,13 @@ export default function Onboarding({
         {err ? <div className="pill pillDanger">{err}</div> : null}
         {info ? <div className="pill pillSoft">{info}</div> : null}
 
+        <section className="integrationSummary" aria-label="Resumo das integrações">
+          <article><span>Conectadas</span><strong>{connectionSummary.connected}</strong></article>
+          <article><span>Configurações pendentes</span><strong>{connectionSummary.pending}</strong></article>
+          <article><span>Com atenção</span><strong>{connectionSummary.errors}</strong></article>
+          <article><span>Empresa</span><strong>{getActiveClientName()}</strong></article>
+        </section>
+
         <section className="card cardWide">
           <div className="sectionHeader">
             <div>
@@ -757,19 +785,22 @@ export default function Onboarding({
                     ? "Não conectado"
                     : unavailableIntegrationLabel(definition.availability);
               const actionable = definition.availability === "available";
+              const tone = definition.availability === "platform_update_pending"
+                ? "yellow"
+                : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
+              const logoSrc = integrationLogoSrc(definition.id);
               return (
-              <div className="onboardingConnBlock" key={definition.id}>
+              <div className={`onboardingConnBlock is-${tone}`} key={definition.id}>
                 <div className="integrationCardHeading">
-                  <span className="integrationMonogram" aria-hidden="true">
-                    {definition.shortName.slice(0, 2).toUpperCase()}
-                  </span>
+                  {logoSrc ? <img className="integrationOfficialLogo" src={logoSrc} alt="" /> : <span className="integrationLogoPlaceholder" aria-hidden="true" />}
                   <div>
                     <div className="h1">{definition.name}</div>
                     <div className="smallMuted">{definition.resources.join(" · ")}</div>
                   </div>
                 </div>
-                <div className={`pill ${status === "Erro" || status === "Requer atenção" ? "pillDanger" : "pillSoft"}`} style={{ marginTop: 10 }}>
-                  {status}
+                <div className="integrationStateRow">
+                  <span className={`integrationLight is-${tone}`} aria-hidden="true" />
+                  <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : status}</strong>
                 </div>
                 {connection?.account_name ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
@@ -777,6 +808,9 @@ export default function Onboarding({
                     Última sincronização: {fmtDate(connection.last_sync_at)}
                   </div>
                 ) : null}
+                {connection ? <div className={`syncStateChip ${connection.last_error ? "is-error" : connection.last_sync_at ? "is-updated" : "is-never"}`}>
+                  {connection.last_error ? "Falha na sincronização" : connection.last_sync_at ? `Atualizado · ${fmtDate(connection.last_sync_at)}` : "Nunca sincronizado"}
+                </div> : null}
                 {definition.id === "shopify" ? (
                   <>
                     {matchingConnections.length > 1 ? (

@@ -219,6 +219,8 @@ button, input, select { font: inherit; }
   text-transform:uppercase;
   white-space:nowrap;
 }
+.primaryNavigationBrand{display:flex;align-items:center;flex:0 0 auto}
+.primaryNavigationBrand img{display:block;width:86px;height:34px;object-fit:contain;object-position:left center}
 .primaryNavigationLinks{
   display:flex;
   align-items:center;
@@ -1764,6 +1766,7 @@ button, input, select { font: inherit; }
   width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
   color:#fff;background:#153f35;font-weight:800;
 }
+.appBootMark img{width:28px;height:28px;object-fit:contain}
 .appBootContent{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:clamp(28px,6vw,72px) 0}
 .appBootIntro{display:flex;align-items:center;gap:16px;margin-bottom:28px}
 .appBootIntro h1{margin:0 0 4px;font-size:clamp(24px,4vw,38px)}

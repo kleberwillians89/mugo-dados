@@ -29,13 +29,34 @@
 }
 
 .onboardingLogo {
-  width: 42px;
+  width: 92px;
   height: 42px;
   object-fit: contain;
   border-radius: 10px;
   border: 1px solid rgba(12, 65, 96, 0.14);
   background: #fff;
 }
+.integrationSummary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.integrationSummary article{min-height:82px;padding:14px;border:1px solid rgba(0,79,110,.12);border-radius:12px;background:#fff;box-shadow:0 4px 14px rgba(15,35,45,.04);display:grid;align-content:space-between;gap:8px}
+.integrationSummary span{font-size:11px;font-weight:700;color:#68757c;text-transform:uppercase;letter-spacing:.06em}
+.integrationSummary strong{font-size:20px;color:#17323d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.integrationOfficialLogo,.integrationLogoPlaceholder{width:40px;height:40px;flex:0 0 40px;border-radius:10px;border:1px solid rgba(0,79,110,.12);background:#f7f9fa;object-fit:contain;padding:5px}
+.integrationLogoPlaceholder{display:block;background:linear-gradient(135deg,#eef3f5,#fff);position:relative}
+.integrationLogoPlaceholder::after{content:"";position:absolute;inset:13px;border-radius:50%;background:#004f6e}
+.integrationStateRow{margin-top:12px;display:flex;align-items:center;gap:8px;color:#263a43;font-size:13px}
+.integrationLight{width:9px;height:9px;flex:0 0 9px;border-radius:50%}
+.integrationLight.is-red{background:#dc2626;box-shadow:0 0 0 4px rgba(220,38,38,.12),0 0 12px rgba(220,38,38,.28)}
+.integrationLight.is-yellow{background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,.14),0 0 12px rgba(245,158,11,.30);animation:integrationPulse 1.8s ease-in-out infinite}
+.integrationLight.is-green{background:#16a34a;box-shadow:0 0 0 4px rgba(22,163,74,.12),0 0 12px rgba(22,163,74,.24)}
+.onboardingConnBlock{min-height:260px;display:flex;flex-direction:column;padding:16px;border-radius:12px;box-shadow:0 4px 16px rgba(14,35,44,.04)}
+.onboardingConnBlock.is-red{border-top:3px solid rgba(220,38,38,.72)}
+.onboardingConnBlock.is-yellow{border-top:3px solid rgba(245,158,11,.72)}
+.onboardingConnBlock.is-green{border-top:3px solid rgba(22,163,74,.72)}
+.onboardingConnActions{margin-top:auto!important;padding-top:12px}
+.syncStateChip{display:inline-flex;align-self:flex-start;margin-top:10px;padding:5px 8px;border-radius:8px;font-size:10px;font-weight:750;background:#f1f4f5;color:#627078}
+.syncStateChip.is-updated{background:#edf8f1;color:#267148}.syncStateChip.is-error{background:#fff0f0;color:#a72c2c}.syncStateChip.is-never{background:#fff7e6;color:#94620b}
+@keyframes integrationPulse{50%{opacity:.55;transform:scale(.88)}}
+@media(prefers-reduced-motion:reduce){.integrationLight.is-yellow{animation:none}}
 
 .onboardingTitle {
   font-weight: 900;
@@ -177,6 +198,7 @@
 }
 
 @media (max-width: 960px) {
+  .integrationSummary{grid-template-columns:1fr 1fr}
   .onboardingTop{
     padding: 14px 16px;
     align-items: flex-start;
@@ -205,6 +227,7 @@
 }
 
 @media (max-width: 640px) {
+  .integrationSummary{grid-template-columns:1fr}
   .onboardingWrap{
     padding: 0 16px 22px;
   }

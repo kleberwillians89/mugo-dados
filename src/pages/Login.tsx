@@ -4,7 +4,7 @@ import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supab
 import { INTEGRATION_REGISTRY } from "../app/integrationRegistry";
 import "../styles/Login.css";
 
-import logo from "../assets/mugo-logo.svg";
+const logo = "/mugo_logo1.png";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 

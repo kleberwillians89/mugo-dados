@@ -1198,6 +1198,7 @@ export type GenericConnection = {
   next_sync_at?: string | null;
   historical_start?: string | null;
   historical_end?: string | null;
+  last_error?: string | null;
   metadata?: Record<string, unknown>;
   capabilities?: {
     ga4_authorized: boolean;

@@ -113,7 +113,7 @@ function AppLoading() {
   return (
     <main className="appBootShell" aria-busy="true" aria-live="polite">
       <header className="appBootHeader">
-        <span className="appBootMark" aria-hidden="true">M</span>
+        <span className="appBootMark" aria-hidden="true"><img src="/MUG%C3%94_LOGO5.png" alt="" /></span>
         <div><strong>{MUGO_APP_NAME}</strong><small>Preparando seu workspace</small></div>
       </header>
       <section className="appBootContent">
@@ -155,7 +155,7 @@ function PrimaryNavigation({
   return (
     <nav className="primaryNavigation" aria-label="Navegação principal">
       <div className="primaryNavigationInner">
-        <strong>Mugô Dados</strong>
+        <span className="primaryNavigationBrand"><img src="/mugo_logo1.png" alt="Mugô" /></span>
         <div className="primaryNavigationLinks">
           {items.map((item) => (
             <button
