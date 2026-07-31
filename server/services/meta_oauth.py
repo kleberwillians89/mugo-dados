@@ -19,7 +19,7 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_OAUTH_DIALOG_URL
 from .meta_http import meta_get_json
 from .meta_tokens import serialize_connection_status
-from .generic_connections import upsert_connection
+from .generic_connections import audit_connection, disconnect_generic_connection, upsert_connection
 from .runtime_cache import invalidate_namespace
 
 META_DIALOG = META_OAUTH_DIALOG_URL
@@ -829,24 +829,90 @@ async def list_connections(client_id: str) -> List[Dict[str, Any]]:
     return out
 
 
-async def disconnect_connection(client_id: str, connection_id: str) -> Dict[str, Any]:
+async def disconnect_connection(client_id: str, connection_id: str, user_id: str) -> Dict[str, Any]:
     rows = await sb_update(
         "meta_connections",
-        filters={"id": f"eq.{_safe_str(connection_id)}", "client_id": f"eq.{_safe_str(client_id)}"},
+        filters={
+            "id": f"eq.{_safe_str(connection_id)}",
+            "client_id": f"eq.{_safe_str(client_id)}",
+            "status": "neq.disconnected",
+        },
         patch={
             "status": "disconnected",
             "requires_reauth": False,
             "is_active": False,
+            "encrypted_access_token": None,
+            "access_token": None,
+            "token_expires_at": None,
+            "expires_at": None,
             "last_error": None,
             "updated_at": _iso(_now_utc()),
         },
         returning="representation",
     )
     if not rows:
-        raise RuntimeError("Conexão não encontrada")
+        persisted = await sb_select(
+            "meta_connections",
+            select="id,status,platform,connection_type",
+            filters={"id": f"eq.{_safe_str(connection_id)}", "client_id": f"eq.{_safe_str(client_id)}"},
+            limit=1,
+        )
+        if not persisted:
+            raise RuntimeError("Conexão não encontrada")
+        if _safe_str(persisted[0].get("status")).lower() != "disconnected":
+            raise RuntimeError("Não foi possível confirmar a desconexão Meta")
+        return {
+            "ok": True,
+            "disconnect_result": {
+                "local_status": "already_disconnected",
+                "local_token_removed": True,
+                "external_revocation": "not_supported",
+            },
+            "connection": {
+                "id": _safe_str(persisted[0].get("id")),
+                "status": "disconnected",
+                "platform": _safe_str(persisted[0].get("platform")),
+                "connection_type": _safe_str(persisted[0].get("connection_type")),
+            },
+        }
     row = rows[0]
+    await audit_connection(
+        client_id=client_id,
+        connection_id=connection_id,
+        user_id=user_id,
+        event_type="disconnected",
+        details={
+            "provider": "meta",
+            "platform": _safe_str(row.get("platform")),
+            "connection_type": _safe_str(row.get("connection_type")),
+            "local_status": "disconnected",
+            "local_token_removed": True,
+            "external_revocation": "not_supported",
+        },
+    )
+    remaining = await sb_select(
+        "meta_connections",
+        select="id",
+        filters={"client_id": f"eq.{_safe_str(client_id)}", "status": "eq.active"},
+        limit=1,
+    )
+    if not remaining:
+        generic_rows = await sb_select(
+            "integration_connections",
+            select="id,status",
+            filters={"client_id": f"eq.{_safe_str(client_id)}", "provider": "eq.meta"},
+            limit=20,
+        )
+        for generic in generic_rows:
+            await disconnect_generic_connection(client_id, _safe_str(generic.get("id")), user_id)
+    await invalidate_namespace("integration_connections")
     return {
         "ok": True,
+        "disconnect_result": {
+            "local_status": "disconnected",
+            "local_token_removed": True,
+            "external_revocation": "not_supported",
+        },
         "connection": {
             "id": _safe_str(row.get("id")),
             "status": _safe_str(row.get("status")),

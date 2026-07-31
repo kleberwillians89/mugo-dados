@@ -405,13 +405,14 @@ async def api_disconnect_connection(
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_role(client_id, authorization)
+    user_id = await require_user_id(authorization)
     validated_connection_id = await _validated_connection_id(
         client_id=cid,
         connection_id=connection_id,
         authorization=authorization,
     )
     try:
-        return await disconnect_connection(cid, validated_connection_id or connection_id)
+        return await disconnect_connection(cid, validated_connection_id or connection_id, user_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from server.services import oauth_state
 from server.services import google_oauth
+from server.services import generic_connections
 from server.services import meta_config
 from server.services import meta_http
 from server.services import meta_oauth
@@ -402,6 +403,29 @@ class MetaAssetSelectionTests(unittest.TestCase):
 
 
 class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_meta_disconnect_removes_local_token_and_disconnects_base_when_last_asset(self):
+        legacy_update = AsyncMock(return_value=[{"id": "meta-asset", "status": "disconnected", "platform": "meta_ads"}])
+        generic_disconnect = AsyncMock(return_value={"status": "disconnected"})
+        with (
+            patch.object(meta_oauth, "sb_update", legacy_update),
+            patch.object(
+                meta_oauth,
+                "sb_select",
+                AsyncMock(side_effect=[[], [{"id": "meta-base", "status": "connected"}]]),
+            ),
+            patch.object(meta_oauth, "disconnect_generic_connection", generic_disconnect),
+            patch.object(meta_oauth, "audit_connection", AsyncMock()) as audit,
+            patch.object(meta_oauth, "invalidate_namespace", AsyncMock()),
+        ):
+            result = await meta_oauth.disconnect_connection("amalie", "meta-asset", "user-amalie")
+        patch_payload = legacy_update.await_args.kwargs["patch"]
+        self.assertEqual(patch_payload["status"], "disconnected")
+        self.assertIsNone(patch_payload["encrypted_access_token"])
+        self.assertIsNone(patch_payload["access_token"])
+        generic_disconnect.assert_awaited_once_with("amalie", "meta-base", "user-amalie")
+        self.assertEqual(audit.await_args.kwargs["details"]["external_revocation"], "not_supported")
+        self.assertTrue(result["disconnect_result"]["local_token_removed"])
+
     async def test_finalize_persists_selected_connection_and_consumes_handoff(self):
         handoff_row = {
             "handoff": "handoff-1",
@@ -531,6 +555,23 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnected_google_connection_cannot_reuse_local_token(self):
+        with patch.object(
+            google_oauth,
+            "get_connection",
+            AsyncMock(
+                return_value={
+                    "id": "ga4-connection",
+                    "provider": "ga4",
+                    "status": "disconnected",
+                    "_token": '{"access_token":"must-not-be-used"}',
+                }
+            ),
+        ):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.get_google_access_token("amalie", "ga4-connection")
+        self.assertEqual(raised.exception.code, "GOOGLE_CONNECTION_DISCONNECTED")
+
     async def test_product_oauth_requests_only_the_required_scope(self):
         with (
             patch.object(
@@ -659,6 +700,59 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["available"])
         self.assertEqual(result["accounts"], [])
         self.assertIn("Developer Token do Google Ads pendente", result["reason"])
+
+
+class GenericDisconnectTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_clears_token_and_records_one_complete_audit(self):
+        current = {
+            "id": "connection-1",
+            "client_id": "amalie",
+            "provider": "ga4",
+            "status": "connected",
+            "encrypted_token": "ciphertext",
+            "external_key": "google-user",
+            "scopes": ["analytics.readonly"],
+            "metadata": {"ga4_property_id": "123"},
+        }
+        update = AsyncMock(return_value=[{**current, "status": "disconnected", "encrypted_token": ""}])
+        audit = AsyncMock()
+        with (
+            patch.object(generic_connections, "get_connection", AsyncMock(return_value=current)),
+            patch.object(generic_connections, "sb_update", update),
+            patch.object(generic_connections, "audit_connection", audit),
+            patch.object(generic_connections, "invalidate_namespace", AsyncMock()),
+        ):
+            result = await generic_connections.disconnect_generic_connection(
+                "amalie", "connection-1", "user-amalie"
+            )
+        payload = update.await_args.kwargs["patch"]
+        self.assertEqual(payload["encrypted_token"], "")
+        self.assertIsNone(payload["token_expires_at"])
+        self.assertNotIn("metadata", payload)
+        self.assertNotIn("external_key", payload)
+        self.assertNotIn("scopes", payload)
+        self.assertEqual(audit.await_args.kwargs["details"]["external_revocation"], "not_supported")
+        self.assertTrue(result["disconnect_result"]["local_token_removed"])
+
+    async def test_repeated_disconnect_is_idempotent_without_patch_or_audit(self):
+        disconnected = {
+            "id": "connection-1",
+            "client_id": "amalie",
+            "provider": "ga4",
+            "status": "disconnected",
+            "encrypted_token": "",
+        }
+        with (
+            patch.object(generic_connections, "get_connection", AsyncMock(return_value=disconnected)),
+            patch.object(generic_connections, "sb_update", AsyncMock()) as update,
+            patch.object(generic_connections, "audit_connection", AsyncMock()) as audit,
+        ):
+            result = await generic_connections.disconnect_generic_connection(
+                "amalie", "connection-1", "user-amalie"
+            )
+        update.assert_not_awaited()
+        audit.assert_not_awaited()
+        self.assertEqual(result["disconnect_result"]["local_status"], "already_disconnected")
 
 
 if __name__ == "__main__":

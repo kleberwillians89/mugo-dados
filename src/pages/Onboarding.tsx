@@ -546,6 +546,7 @@ export default function Onboarding({
   }
 
   async function onDisconnect(connection: MetaConnection) {
+    if (disconnectingId) return;
     setDisconnectingId(connection.id);
     setErr(null);
     setInfo(null);
@@ -636,6 +637,7 @@ export default function Onboarding({
   }
 
   async function onDisconnectGeneric(connection: GenericConnection) {
+    if (disconnectingId) return;
     if (!window.confirm("Desconectar esta integração? O histórico importado será preservado.")) return;
     setDisconnectingId(connection.id);
     setErr(null);

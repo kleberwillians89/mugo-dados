@@ -146,23 +146,67 @@ async def upsert_connection(
 
 
 async def disconnect_generic_connection(client_id: str, connection_id: str, user_id: str) -> Dict[str, Any]:
+    current = await get_connection(client_id, connection_id)
+    if str(current.get("status") or "").strip().lower() == "disconnected":
+        result = sanitize_connection(current)
+        result["disconnect_result"] = {
+            "local_status": "already_disconnected",
+            "local_token_removed": not bool(str(current.get("encrypted_token") or "").strip()),
+            "external_revocation": "not_supported",
+        }
+        return result
+
+    now = _iso_now()
     updated = await sb_update(
         "integration_connections",
-        filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}"},
-        patch={"status": "disconnected", "disconnected_at": _iso_now(), "updated_at": _iso_now()},
+        filters={
+            "id": f"eq.{connection_id}",
+            "client_id": f"eq.{client_id}",
+            "status": "neq.disconnected",
+        },
+        patch={
+            "status": "disconnected",
+            "encrypted_token": "",
+            "token_expires_at": None,
+            "disconnected_at": now,
+            "last_error": None,
+            "updated_at": now,
+        },
         returning="representation",
     )
     if not updated:
-        raise RuntimeError("Conexão não encontrada para esta empresa.")
+        # Outra requisição pode ter concluído a mesma operação entre o GET e o
+        # PATCH. Retornar o estado persistido evita auditoria duplicada.
+        persisted = await get_connection(client_id, connection_id)
+        if str(persisted.get("status") or "").strip().lower() != "disconnected":
+            raise RuntimeError("Não foi possível confirmar a desconexão desta empresa.")
+        result = sanitize_connection(persisted)
+        result["disconnect_result"] = {
+            "local_status": "already_disconnected",
+            "local_token_removed": not bool(str(persisted.get("encrypted_token") or "").strip()),
+            "external_revocation": "not_supported",
+        }
+        return result
     await audit_connection(
         client_id=client_id,
         connection_id=connection_id,
         user_id=user_id,
         event_type="disconnected",
-        details={"provider": updated[0].get("provider")},
+        details={
+            "provider": updated[0].get("provider"),
+            "local_status": "disconnected",
+            "local_token_removed": True,
+            "external_revocation": "not_supported",
+        },
     )
     await invalidate_namespace("integration_connections")
-    return sanitize_connection(updated[0])
+    result = sanitize_connection(updated[0])
+    result["disconnect_result"] = {
+        "local_status": "disconnected",
+        "local_token_removed": True,
+        "external_revocation": "not_supported",
+    }
+    return result
 
 
 async def update_connection_selection(

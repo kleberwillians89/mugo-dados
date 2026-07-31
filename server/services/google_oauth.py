@@ -234,6 +234,13 @@ async def _access_token(client_id: str, connection_id: str) -> str:
                 code="GOOGLE_CONNECTION_NOT_FOUND",
                 provider="google",
             )
+        if str(row.get("status") or "").strip().lower() == "disconnected":
+            raise IntegrationError(
+                "A conexão Google está desconectada. Reconecte antes de sincronizar.",
+                status_code=409,
+                code="GOOGLE_CONNECTION_DISCONNECTED",
+                provider="google",
+            )
         try:
             token = json.loads(str(row.get("_token") or "{}"))
         except (TypeError, ValueError) as exc:
