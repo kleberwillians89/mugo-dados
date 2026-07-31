@@ -563,6 +563,11 @@ export type MetaDiscoveredInstagramAsset = {
   business_name?: string;
 };
 
+export type MetaDiscoveredPageAsset = {
+  page_id: string;
+  page_name?: string;
+};
+
 export type MetaDiscoveredAdAccount = {
   ad_account_id: string;
   ad_account_name?: string;
@@ -578,6 +583,7 @@ export type MetaDiscoverAssetsResponse = {
     id?: string;
     name?: string;
   };
+  pages: MetaDiscoveredPageAsset[];
   instagram_accounts: MetaDiscoveredInstagramAsset[];
   ad_accounts: MetaDiscoveredAdAccount[];
   scopes: string[];

@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   disconnectClientConnection,
+  disconnectGenericConnection,
   discoverClientMetaAssets,
   linkClientAssets,
   listClientConnections,
+  listGenericConnections,
+  listGoogleAdsAccounts,
+  listGoogleGa4Properties,
+  selectGoogleAdsAccount,
+  selectGoogleGa4Property,
+  syncGoogleConnection,
+  type GenericConnection,
+  type GoogleAdsAccount,
+  type GoogleGa4Property,
   startClientMetaOAuth,
+  startGoogleOAuth,
+  startShopifyOAuth,
 } from "../app/api";
 import {
   getActiveConnectionId,
@@ -15,9 +27,11 @@ import type {
   MetaDiscoverAssetsResponse,
   MetaDiscoveredAdAccount,
   MetaDiscoveredInstagramAsset,
+  MetaDiscoveredPageAsset,
 } from "../app/types";
 import {
   getActiveClientConfigurationWarning,
+  getActiveClient,
   getActiveClientId,
   getActiveClientName,
   MUGO_APP_NAME,
@@ -114,21 +128,36 @@ export default function Onboarding({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [shopifyDomain, setShopifyDomain] = useState("");
+  const activeRole = getActiveClient()?.role || "viewer";
+  const canManageConnections = activeRole === "agency_admin" || activeRole === "client_admin" || activeRole === "owner" || activeRole === "admin";
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
+  const [genericConnections, setGenericConnections] = useState<GenericConnection[]>([]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
   const [pendingAssets, setPendingAssets] = useState<MetaDiscoverAssetsResponse | null>(null);
   const [selectedIg, setSelectedIg] = useState<Record<string, boolean>>({});
+  const [selectedPages, setSelectedPages] = useState<Record<string, boolean>>({});
   const [selectedAds, setSelectedAds] = useState<Record<string, boolean>>({});
+  const [googlePickerId, setGooglePickerId] = useState<string | null>(null);
+  const [googleProperties, setGoogleProperties] = useState<GoogleGa4Property[]>([]);
+  const [googleAdsAccounts, setGoogleAdsAccounts] = useState<GoogleAdsAccount[]>([]);
+  const [selectedGoogleProperty, setSelectedGoogleProperty] = useState("");
+  const [selectedGoogleAds, setSelectedGoogleAds] = useState("");
+  const [googleAdsNotice, setGoogleAdsNotice] = useState("");
 
   const configWarning = getActiveClientConfigurationWarning();
 
   const loadConnections = useCallback(async () => {
-    const response = await listClientConnections();
+    const [response, genericResponse] = await Promise.all([
+      listClientConnections(),
+      listGenericConnections(),
+    ]);
     const nextConnections = response.connections || [];
     setConnections(nextConnections);
+    setGenericConnections(genericResponse.connections || []);
 
     const nextActiveConnectionId = pickDefaultOrganicConnectionId(
       nextConnections,
@@ -145,6 +174,9 @@ export default function Onboarding({
       const url = new URL(window.location.href);
       const params = url.searchParams;
       params.delete("meta_oauth");
+      params.delete("google_oauth");
+      params.delete("shopify_oauth");
+      params.delete("connection_id");
       params.delete("handoff");
       params.delete("error");
       params.delete("view");
@@ -159,7 +191,16 @@ export default function Onboarding({
 
   const handleOauthRedirectParams = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
-    const oauthStatus = String(params.get("meta_oauth") || "").trim();
+    const provider = params.has("meta_oauth")
+      ? "Meta"
+      : params.has("google_oauth")
+        ? "Google"
+        : params.has("shopify_oauth")
+          ? "Shopify"
+          : "";
+    const oauthStatus = String(
+      params.get("meta_oauth") || params.get("google_oauth") || params.get("shopify_oauth") || ""
+    ).trim();
     const clientFromCallback = String(params.get("client_id") || "").trim();
     const handoff = String(params.get("handoff") || "").trim();
     const oauthError = String(params.get("error") || "").trim();
@@ -184,6 +225,11 @@ export default function Onboarding({
           const id = String(ig.ig_user_id || "").trim();
           if (id) igMap[id] = true;
         }
+        const pageMap: Record<string, boolean> = {};
+        for (const page of data.pages || []) {
+          const id = String(page.page_id || "").trim();
+          if (id) pageMap[id] = true;
+        }
 
         const adMap: Record<string, boolean> = {};
         for (const ad of data.ad_accounts || []) {
@@ -192,9 +238,13 @@ export default function Onboarding({
         }
 
         setSelectedIg(igMap);
+        setSelectedPages(pageMap);
         setSelectedAds(adMap);
         await loadConnections();
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
+      } else if (oauthStatus === "success") {
+        await loadConnections();
+        setInfo(`${provider || "Integração"} conectada com sucesso.`);
       }
     } catch (error: unknown) {
       setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
@@ -252,6 +302,10 @@ export default function Onboarding({
   );
 
   async function onStartOAuth() {
+    if (!canManageConnections) {
+      setErr("Seu perfil permite apenas visualizar as conexões.");
+      return;
+    }
     setErr(null);
     setInfo(null);
     setOauthLoading(true);
@@ -265,6 +319,32 @@ export default function Onboarding({
       window.location.assign(authorizationUrl);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao iniciar a integracao do cliente ativo."));
+      setOauthLoading(false);
+    }
+  }
+
+  async function onStartGoogleOAuth() {
+    if (!canManageConnections) return;
+    setOauthLoading(true);
+    setErr(null);
+    try {
+      const response = await startGoogleOAuth();
+      window.location.assign(response.authorization_url);
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível iniciar a autorização Google."));
+      setOauthLoading(false);
+    }
+  }
+
+  async function onStartShopifyOAuth() {
+    if (!canManageConnections) return;
+    setOauthLoading(true);
+    setErr(null);
+    try {
+      const response = await startShopifyOAuth(shopifyDomain);
+      window.location.assign(response.authorization_url);
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Informe um domínio válido nomedaloja.myshopify.com."));
       setOauthLoading(false);
     }
   }
@@ -291,6 +371,9 @@ export default function Onboarding({
     const instagramIds = Object.entries(selectedIg)
       .filter(([, checked]) => checked)
       .map(([id]) => id);
+    const pageIds = Object.entries(selectedPages)
+      .filter(([, checked]) => checked)
+      .map(([id]) => id);
     const adAccountIds = Object.entries(selectedAds)
       .filter(([, checked]) => checked)
       .map(([id]) => id);
@@ -302,11 +385,13 @@ export default function Onboarding({
     try {
       await linkClientAssets({
         handoff: pendingAssets.handoff,
+        page_ids: pageIds,
         instagram_ig_user_ids: instagramIds,
         ad_account_ids: adAccountIds,
       });
       setPendingAssets(null);
       setSelectedIg({});
+      setSelectedPages({});
       setSelectedAds({});
       await loadConnections();
       setInfo("Ativos do cliente ativo vinculados com sucesso.");
@@ -328,6 +413,79 @@ export default function Onboarding({
       setInfo(`Conexao "${connectionLabel(connection)}" desconectada.`);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao desconectar a integracao."));
+    } finally {
+      setDisconnectingId(null);
+    }
+  }
+
+  async function onManageGoogle(connection: GenericConnection) {
+    setSaving(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      const [ga4, ads] = await Promise.all([
+        listGoogleGa4Properties(connection.id),
+        listGoogleAdsAccounts(connection.id),
+      ]);
+      setGooglePickerId(connection.id);
+      setGoogleProperties(ga4.properties || []);
+      setGoogleAdsAccounts(ads.accounts || []);
+      setGoogleAdsNotice(ads.reason || "");
+      setSelectedGoogleProperty(String(connection.metadata?.ga4_property_id || ""));
+      setSelectedGoogleAds(String(connection.metadata?.google_ads_customer_id || ""));
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível consultar os ativos Google."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSaveGoogleSelection() {
+    if (!googlePickerId || !selectedGoogleProperty) {
+      setErr("Selecione ao menos uma propriedade GA4.");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      await selectGoogleGa4Property(googlePickerId, selectedGoogleProperty);
+      if (selectedGoogleAds) {
+        await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds);
+      }
+      await loadConnections();
+      setGooglePickerId(null);
+      setInfo("Ativos Google vinculados à empresa ativa.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível salvar a seleção Google."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSyncGoogle(connection: GenericConnection) {
+    setSaving(true);
+    setErr(null);
+    try {
+      await syncGoogleConnection(connection.id);
+      await loadConnections();
+      setInfo("Sincronização manual do GA4 concluída.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível sincronizar o GA4."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onDisconnectGeneric(connection: GenericConnection) {
+    if (!window.confirm("Desconectar esta integração? O histórico importado será preservado.")) return;
+    setDisconnectingId(connection.id);
+    setErr(null);
+    try {
+      await disconnectGenericConnection(connection);
+      await loadConnections();
+      setInfo("Integração desconectada. Os dados históricos foram preservados.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível desconectar a integração."));
     } finally {
       setDisconnectingId(null);
     }
@@ -379,7 +537,7 @@ export default function Onboarding({
             <button className="btn btnGhost" type="button" disabled={loading} onClick={() => void onRefreshStatus()}>
               {loading ? "Atualizando..." : "Atualizar status"}
             </button>
-            <button className="btn btnGold" type="button" disabled={oauthLoading} onClick={() => void onStartOAuth()}>
+            <button className="btn btnGold" type="button" disabled={oauthLoading || !canManageConnections} onClick={() => void onStartOAuth()}>
               {oauthLoading ? "Redirecionando..." : "Conectar com Facebook"}
             </button>
             <button className="btn btnPrimary" type="button" disabled={!dashboardReady} onClick={() => void onContinue()}>
@@ -439,36 +597,123 @@ export default function Onboarding({
           <div className="sectionHeader">
             <div>
               <div className="h1">Plataformas disponíveis</div>
-              <div className="p">Somente a integração Meta está habilitada para autorização nesta versão.</div>
+              <div className="p">Meta, Google e Shopify usam autorização oficial e ficam isoladas por empresa.</div>
             </div>
           </div>
           <div className="onboardingConnections">
             {[
-              ["Instagram e Meta Ads", dashboardReady || paidConnections.length ? "Conectada" : "Não configurada", "Conectar com Facebook"],
-              ["Google Ads e GA4", "Configuração necessária", "Conectar com Google"],
-              ["Shopify", "Configuração necessária", "Conectar minha loja"],
-              ["TikTok", "Em implantação", ""],
-              ["Pinterest", "Em implantação", ""],
-              ["FBits", "Opcional", ""],
-            ].map(([name, status, action]) => (
+              ["Instagram e Meta Ads", dashboardReady || paidConnections.length ? "Conectada" : "Não configurada"],
+              ["Google Ads e GA4", "Não configurada"],
+              ["Shopify", "Não configurada"],
+              ["TikTok", "Aguardando atualização da plataforma"],
+              ["Pinterest", "Aguardando atualização da plataforma"],
+              ["FBits", "Legado preservado"],
+            ].map(([name, defaultStatus]) => {
+              const providers =
+                name === "Google Ads e GA4"
+                  ? ["ga4", "google_ads"]
+                  : name === "Shopify"
+                    ? ["shopify"]
+                    : [];
+              const connection = genericConnections.find((item) => providers.includes(item.provider));
+              const status = connection?.status || defaultStatus;
+              return (
               <div className="onboardingConnBlock" key={name}>
                 <div className="h1">{name}</div>
                 <div className="pill pillSoft" style={{ marginTop: 10 }}>{status}</div>
-                {action ? (
+                {connection?.account_name ? (
+                  <div className="smallMuted" style={{ marginTop: 10 }}>
+                    Conta: {connection.account_name}<br />
+                    Última sincronização: {fmtDate(connection.last_sync_at)}
+                  </div>
+                ) : null}
+                {name === "Shopify" ? (
+                  <input
+                    type="text"
+                    value={shopifyDomain}
+                    onChange={(event) => setShopifyDomain(event.target.value)}
+                    placeholder="minhaloja.myshopify.com"
+                    disabled={!canManageConnections || oauthLoading}
+                    style={{ marginTop: 12, width: "100%" }}
+                  />
+                ) : null}
+                {name === "Instagram e Meta Ads" || name === "Google Ads e GA4" || name === "Shopify" ? (
                   <button
                     className="btn btnGhost"
                     type="button"
                     style={{ marginTop: 12 }}
-                    disabled={name !== "Instagram e Meta Ads" || oauthLoading}
-                    onClick={name === "Instagram e Meta Ads" ? () => void onStartOAuth() : undefined}
+                    disabled={!canManageConnections || oauthLoading}
+                    onClick={
+                      name === "Instagram e Meta Ads"
+                        ? () => void onStartOAuth()
+                        : name === "Google Ads e GA4"
+                          ? () => void onStartGoogleOAuth()
+                          : () => void onStartShopifyOAuth()
+                    }
                   >
-                    {action}
+                    {name === "Instagram e Meta Ads"
+                      ? "Conectar com Facebook"
+                      : name === "Google Ads e GA4"
+                        ? "Conectar com Google"
+                        : "Conectar minha loja"}
                   </button>
                 ) : null}
+                {connection ? (
+                  <div className="onboardingConnActions" style={{ marginTop: 10 }}>
+                    {name === "Google Ads e GA4" ? (
+                      <>
+                        <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving} onClick={() => void onManageGoogle(connection)}>
+                          Selecionar contas
+                        </button>
+                        <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving || connection.status === "selection_required"} onClick={() => void onSyncGoogle(connection)}>
+                          Atualizar dados
+                        </button>
+                      </>
+                    ) : null}
+                    <button className="btn btnGhost" type="button" disabled={!canManageConnections || disconnectingId === connection.id} onClick={() => void onDisconnectGeneric(connection)}>
+                      {disconnectingId === connection.id ? "Desconectando..." : "Desconectar"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
+
+        {googlePickerId ? (
+          <section className="card cardWide">
+            <div className="h1">Selecionar ativos Google</div>
+            <div className="p">A seleção será vinculada somente à empresa ativa.</div>
+            <label className="smallMuted">
+              Propriedade GA4
+              <select value={selectedGoogleProperty} onChange={(event) => setSelectedGoogleProperty(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
+                <option value="">Selecione uma propriedade</option>
+                {googleProperties.map((property) => (
+                  <option key={property.property} value={property.property}>
+                    {property.account_name || "Conta"} — {property.property_name || property.property}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="smallMuted" style={{ display: "block", marginTop: 14 }}>
+              Conta Google Ads (opcional)
+              <select value={selectedGoogleAds} onChange={(event) => setSelectedGoogleAds(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
+                <option value="">Nenhuma conta selecionada</option>
+                {googleAdsAccounts.map((account) => (
+                  <option key={account.customer_id} value={account.customer_id}>{account.customer_id}</option>
+                ))}
+              </select>
+            </label>
+            {googleAdsNotice ? <div className="smallMuted" style={{ marginTop: 8 }}>{googleAdsNotice}</div> : null}
+            <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
+              <button className="btn btnPrimary" type="button" disabled={saving} onClick={() => void onSaveGoogleSelection()}>
+                {saving ? "Salvando..." : "Salvar seleção"}
+              </button>
+              <button className="btn btnGhost" type="button" onClick={() => setGooglePickerId(null)}>Cancelar</button>
+            </div>
+          </section>
+        ) : null}
 
         {pendingAssets ? (
           <section className="card cardWide">
@@ -486,6 +731,31 @@ export default function Onboarding({
             </div>
 
             <div className="onboardingAssets">
+              <div className="onboardingAssetBlock">
+                <div className="smallMuted">Páginas do Facebook</div>
+                {(pendingAssets.pages || []).length === 0 ? (
+                  <div className="smallMuted">Nenhuma Página associada a um Instagram profissional foi encontrada.</div>
+                ) : (
+                  <div className="onboardingChecks">
+                    {(pendingAssets.pages || []).map((page: MetaDiscoveredPageAsset) => (
+                      <label key={page.page_id} className="onboardingCheck">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedPages[page.page_id])}
+                          onChange={(event) =>
+                            setSelectedPages((prev) => ({
+                              ...prev,
+                              [page.page_id]: event.target.checked,
+                            }))
+                          }
+                        />
+                        <span>{page.page_name || page.page_id} <span className="smallMuted">({page.page_id})</span></span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="onboardingAssetBlock">
                 <div className="smallMuted">Instagram organico</div>
                 {(pendingAssets.instagram_accounts || []).length === 0 ? (
@@ -560,6 +830,7 @@ export default function Onboarding({
                 onClick={() => {
                   setPendingAssets(null);
                   setSelectedIg({});
+                  setSelectedPages({});
                   setSelectedAds({});
                 }}
               >

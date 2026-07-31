@@ -33,6 +33,21 @@ export function clearActiveClient(): void {
   localStorage.removeItem(ACTIVE_CLIENT_STORAGE_KEY);
 }
 
+export function clearTenantBrowserState(): void {
+  clearActiveClient();
+  try {
+    window.localStorage.removeItem("mugo_dados.active_connection_id");
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index);
+      if (key?.startsWith("client-dashboard-cache:")) {
+        window.sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
 export function getActiveClient(): ActiveClient | null {
   return readStoredClient();
 }

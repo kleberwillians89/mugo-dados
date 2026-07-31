@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
-    "test": "python3 -m unittest discover -s server/tests -p 'test_*.py'",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "vitest run",
+    "test:backend": "python3 -m unittest discover -s server/tests -p 'test_*.py'",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -36,12 +38,14 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "terser": "^5.49.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^8.0.0-beta.13"
+    "vite": "^8.0.0-beta.13",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "vite": "^8.0.0-beta.13"
