@@ -3,6 +3,7 @@ import logging
 import time
 import traceback
 import uuid
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from services.env_loader import ensure_env_loaded
@@ -64,16 +65,21 @@ app = FastAPI(title="Mugô Dados API")
 async def safe_request_log(request: Request, call_next):
     started = time.perf_counter()
     request_id = str(request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
+    if not hasattr(request, "state"):
+        request.state = SimpleNamespace()
+    request.state.request_id = request_id
     response = await call_next(request)
     duration_ms = int((time.perf_counter() - started) * 1000)
     path = request.url.path
-    provider = next(
-        (name for name in ("meta", "google", "shopify") if path.startswith(f"/api/oauth/{name}/")),
-        "-",
-    )
+    integration_product = str(getattr(request.state, "integration_product", "") or "").strip()
+    if not integration_product:
+        integration_product = next(
+            (name for name in ("meta", "shopify") if path.startswith(f"/api/oauth/{name}/")),
+            "ga4" if "/ga4/" in path else "google_ads" if "/ads/" in path else "-",
+        )
     print(
         "[http] "
-        f"method={request.method} path={path} provider={provider} "
+        f"method={request.method} path={path} integration_product={integration_product} "
         f"status={response.status_code} duration_ms={duration_ms} request_id={request_id}"
     )
     response.headers["X-Request-ID"] = request_id
@@ -121,6 +127,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "status": exc.status_code,
             "retryable": exc.status_code == 429 or exc.status_code >= 500,
             "path": request.url.path,
+            "request_id": str(getattr(request.state, "request_id", "") or ""),
         },
         headers=exc.headers,
     )
@@ -142,6 +149,7 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
             "status": exc.status_code,
             "retryable": exc.retryable,
             "path": request.url.path,
+            "request_id": str(getattr(request.state, "request_id", "") or ""),
         },
     )
 
@@ -160,6 +168,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "status": 500,
             "retryable": True,
             "path": request.url.path,
+            "request_id": str(getattr(request.state, "request_id", "") or ""),
         },
     )
 

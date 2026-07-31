@@ -22,6 +22,7 @@ from services.google_oauth import (
     list_ga4_streams,
     list_google_ads_accounts,
     get_google_access_token,
+    normalize_integration_product,
     save_google_authorization,
 )
 from services.ga4_sync import sync_ga4_for_period
@@ -45,11 +46,12 @@ async def _start_product(
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
+    integration_product = normalize_integration_product(product)
     return {
         "ok": True,
         "client_id": cid,
-        "product": product,
-        "authorization_url": await authorization_url(user_id=user_id, client_id=cid, product=product),
+        "integration_product": integration_product,
+        "authorization_url": await authorization_url(user_id=user_id, client_id=cid, product=integration_product),
     }
 
 
@@ -68,7 +70,7 @@ async def start_ads(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    return await _start_product("ads", client_id, x_client_id, authorization)
+    return await _start_product("google_ads", client_id, x_client_id, authorization)
 
 
 @router.get("/start", deprecated=True)
@@ -88,7 +90,6 @@ async def callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
-    del request
     try:
         if error:
             raise RuntimeError(f"Google recusou a autorização: {error}")
@@ -98,9 +99,10 @@ async def callback(
         user_id = str(session.get("user_id") or "")
         client_id = str(session.get("client_id") or "")
         context = session.get("context") if isinstance(session.get("context"), dict) else {}
-        product = str(context.get("product") or "").strip().lower()
-        if product not in {"ga4", "ads"}:
-            raise RuntimeError("State OAuth Google sem produto válido.")
+        product = normalize_integration_product(
+            str(context.get("integration_product") or context.get("product") or "")
+        )
+        request.state.integration_product = product
         await require_user_client_access(user_id, client_id)
         token = await exchange_code(code, str(session.get("redirect_uri") or ""))
         identity = await fetch_google_identity(str(token.get("access_token") or ""))
@@ -110,7 +112,7 @@ async def callback(
         return RedirectResponse(
             _frontend_redirect({
                 "google_oauth": "success",
-                "google_product": product,
+                "integration_product": product,
                 "connection_id": str(connection.get("id") or ""),
             }),
             status_code=302,

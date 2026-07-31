@@ -83,13 +83,15 @@ export class ApiError extends Error {
   status: number;
   code: string;
   retryable: boolean;
+  requestId: string;
 
-  constructor(message: string, options: { status: number; code?: string; retryable?: boolean }) {
+  constructor(message: string, options: { status: number; code?: string; retryable?: boolean; requestId?: string }) {
     super(message);
     this.name = "ApiError";
     this.status = options.status;
     this.code = options.code || "API_ERROR";
     this.retryable = options.retryable ?? (options.status === 429 || options.status >= 500);
+    this.requestId = options.requestId || "";
   }
 }
 
@@ -252,6 +254,7 @@ function toHeaders(init?: HeadersInit): Headers {
 }
 
 async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const safePath = path.split("?", 1)[0];
   const token = await getAccessToken();
   if (!token && !isLocalAuthEnabled()) {
     throw new Error("Sessão expirada. Faça login novamente.");
@@ -297,6 +300,7 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
     let detail = "";
     let code = "";
     let retryable = res.status === 429 || res.status >= 500;
+    let requestId = res.headers.get("X-Request-ID") || "";
     try {
       const j = txt ? (JSON.parse(txt) as JsonRecord) : null;
       const errObj = asRecord(j?.error);
@@ -305,15 +309,16 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
         asString(j?.message) ||
         asString(errObj?.message);
       code = asString(j?.code) || asString(errObj?.code);
+      requestId = asString(j?.request_id) || requestId;
       if (typeof j?.retryable === "boolean") retryable = j.retryable;
       console.warn("[api]", {
-        path,
+        path: safePath,
         status: res.status,
         detail: detail || txt || null,
       });
     } catch {
       console.warn("[api]", {
-        path,
+        path: safePath,
         status: res.status,
         detail: txt || null,
       });
@@ -332,7 +337,7 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
             : res.status === 429
               ? "Muitas solicitações. Aguarde um momento e tente novamente."
               : detail || "Não foi possível carregar os dados agora.",
-      { status: res.status, code: code || `HTTP_${res.status}`, retryable }
+      { status: res.status, code: code || `HTTP_${res.status}`, retryable, requestId }
     );
   }
 
@@ -1152,10 +1157,11 @@ export async function startClientMetaOAuth(): Promise<MetaOauthStartResponse> {
 }
 
 export async function startGoogleOAuth(
-  product: "ga4" | "ads"
-): Promise<{ ok: boolean; product: string; authorization_url: string }> {
-  return http<{ ok: boolean; product: string; authorization_url: string }>(
-    `/api/oauth/google/${product}/start`
+  product: "ga4" | "google_ads"
+): Promise<{ ok: boolean; integration_product: string; authorization_url: string }> {
+  const routeProduct = product === "google_ads" ? "ads" : "ga4";
+  return http<{ ok: boolean; integration_product: string; authorization_url: string }>(
+    `/api/oauth/google/${routeProduct}/start`
   );
 }
 

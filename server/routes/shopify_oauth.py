@@ -42,11 +42,7 @@ async def start(
     cid = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
     domain = normalize_shop_domain(shop)
-    diagnostic = safe_oauth_configuration()
-    print(
-        "[shopify_oauth][authorize] "
-        f"redirect_uri={diagnostic['redirect_uri']} client_id={diagnostic['client_id_hint']}"
-    )
+    safe_oauth_configuration()
     return {
         "ok": True,
         "client_id": cid,

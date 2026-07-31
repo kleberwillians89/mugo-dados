@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   disconnectClientConnection,
+  ApiError,
   disconnectGenericConnection,
   discoverClientMetaAssets,
   linkClientAssets,
@@ -62,6 +63,9 @@ function fmtDate(value?: string | null): string {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    return `${error.message}${error.requestId ? ` Request ID: ${error.requestId}.` : ""}`;
+  }
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
@@ -176,6 +180,7 @@ export default function Onboarding({
   const [selectedGoogleProperty, setSelectedGoogleProperty] = useState("");
   const [selectedGoogleAds, setSelectedGoogleAds] = useState("");
   const [googleAdsNotice, setGoogleAdsNotice] = useState("");
+  const [oauthRetry, setOauthRetry] = useState<"meta_discover" | null>(null);
 
   const configWarning = getActiveClientConfigurationWarning();
 
@@ -208,6 +213,8 @@ export default function Onboarding({
       params.delete("connection_id");
       params.delete("handoff");
       params.delete("error");
+      params.delete("integration_product");
+      params.delete("google_product");
       params.delete("view");
       params.delete("onboarding");
       params.delete("client_id");
@@ -235,6 +242,7 @@ export default function Onboarding({
     const oauthError = String(params.get("error") || "").trim();
 
     if (!oauthStatus) return;
+    let preserveMetaRetry = false;
 
     try {
       if (clientFromCallback && clientFromCallback !== getActiveClientId()) {
@@ -246,6 +254,7 @@ export default function Onboarding({
       }
 
       if (oauthStatus === "success" && handoff) {
+        preserveMetaRetry = true;
         const data = await discoverClientMetaAssets(handoff);
         setPendingAssets(data);
 
@@ -270,17 +279,19 @@ export default function Onboarding({
         setSelectedPages(pageMap);
         setSelectedAds(adMap);
         await loadConnections();
+        setOauthRetry(null);
+        preserveMetaRetry = false;
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
       } else if (oauthStatus === "success") {
         await loadConnections();
         const connectionId = String(params.get("connection_id") || "").trim();
         if (provider === "Google" && connectionId) {
-          const product = params.get("google_product") === "ads" ? "ads" : "ga4";
+          const product = params.get("integration_product") === "google_ads" ? "google_ads" : "ga4";
           if (product === "ga4") {
             const ga4 = await listGoogleGa4Properties(connectionId);
             const properties = ga4.properties || [];
             setGooglePickerId(connectionId);
-            setGooglePickerProduct(product);
+            setGooglePickerProduct("ga4");
             setGoogleProperties(properties);
             if (properties.length === 1) {
             const propertyId = String(properties[0].property || "");
@@ -299,7 +310,7 @@ export default function Onboarding({
           } else {
             const ads = await listGoogleAdsAccounts(connectionId);
             setGooglePickerId(connectionId);
-            setGooglePickerProduct(product);
+            setGooglePickerProduct("ads");
             setGoogleAdsAccounts(ads.accounts || []);
             setGoogleAdsNotice(ads.reason || "");
             setInfo("Google Ads autorizado. Selecione a conta para concluir.");
@@ -314,8 +325,9 @@ export default function Onboarding({
       }
     } catch (error: unknown) {
       setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
+      if (preserveMetaRetry) setOauthRetry("meta_discover");
     } finally {
-      clearOauthParamsFromUrl();
+      if (!preserveMetaRetry) clearOauthParamsFromUrl();
     }
   }, [loadConnections]);
 
@@ -400,7 +412,7 @@ export default function Onboarding({
     }
   }
 
-  async function onStartGoogleOAuth(product: "ga4" | "ads") {
+  async function onStartGoogleOAuth(product: "ga4" | "google_ads") {
     if (!canManageConnections) return;
     setOauthLoading(true);
     setErr(null);
@@ -686,7 +698,14 @@ export default function Onboarding({
         </section>
 
         {configWarning ? <div className="pill pillDanger">{configWarning}</div> : null}
-        {err ? <div className="pill pillDanger">{err}</div> : null}
+        {err ? <div className="pill pillDanger">
+          {err}
+          {oauthRetry === "meta_discover" ? (
+            <button className="btn btnGhost" type="button" disabled={loading} onClick={() => void handleOauthRedirectParams()} style={{ marginLeft: 10 }}>
+              Tentar novamente
+            </button>
+          ) : null}
+        </div> : null}
         {info ? <div className="pill pillSoft">{info}</div> : null}
 
         <section className="integrationSummary" aria-label="Resumo das integrações">
@@ -851,7 +870,7 @@ export default function Onboarding({
                         : definition.id === "ga4"
                           ? () => void onStartGoogleOAuth("ga4")
                           : definition.id === "google_ads"
-                            ? () => void onStartGoogleOAuth("ads")
+                            ? () => void onStartGoogleOAuth("google_ads")
                           : () => void onStartShopifyOAuth()
                     }
                   >

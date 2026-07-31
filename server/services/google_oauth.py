@@ -21,7 +21,7 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_BASIC_SCOPES = ("openid", "email")
 GOOGLE_PRODUCT_SCOPES = {
     "ga4": "https://www.googleapis.com/auth/analytics.readonly",
-    "ads": "https://www.googleapis.com/auth/adwords",
+    "google_ads": "https://www.googleapis.com/auth/adwords",
 }
 _REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 
@@ -51,23 +51,32 @@ def settings() -> Dict[str, str]:
     return values
 
 
-def scopes_for_product(product: str) -> List[str]:
+def normalize_integration_product(product: str) -> str:
     normalized = str(product or "").strip().lower()
+    if normalized == "ads":
+        normalized = "google_ads"
+    if normalized not in GOOGLE_PRODUCT_SCOPES:
+        raise RuntimeError("Produto Google inválido. Use ga4 ou google_ads.")
+    return normalized
+
+
+def scopes_for_product(product: str) -> List[str]:
+    normalized = normalize_integration_product(product)
     product_scope = GOOGLE_PRODUCT_SCOPES.get(normalized)
     if not product_scope:
-        raise RuntimeError("Produto Google inválido. Use ga4 ou ads.")
+        raise RuntimeError("Produto Google inválido. Use ga4 ou google_ads.")
     return [*GOOGLE_BASIC_SCOPES, product_scope]
 
 
 async def authorization_url(*, user_id: str, client_id: str, product: str) -> str:
     config = settings()
-    normalized_product = str(product or "").strip().lower()
+    normalized_product = normalize_integration_product(product)
     state = await create_oauth_state(
         provider="google",
         user_id=user_id,
         client_id=client_id,
         redirect_uri=config["redirect_uri"],
-        context={"product": normalized_product},
+        context={"integration_product": normalized_product},
     )
     params = {
         "client_id": config["client_id"],
@@ -119,10 +128,8 @@ async def save_google_authorization(
     expires_at = (
         datetime.now(timezone.utc) + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
     ).isoformat()
-    normalized_product = str(product or "").strip().lower()
-    if normalized_product not in GOOGLE_PRODUCT_SCOPES:
-        raise RuntimeError("Produto Google inválido. Use ga4 ou ads.")
-    target_provider = "ga4" if normalized_product == "ga4" else "google_ads"
+    normalized_product = normalize_integration_product(product)
+    target_provider = normalized_product
     existing = await sb_select(
         "integration_connections",
         filters={"client_id": f"eq.{client_id}"},
@@ -136,9 +143,16 @@ async def save_google_authorization(
         if str(row.get("external_key") or "") != identity["sub"]
         and str(row.get("status") or "") != "disconnected"
     ]
-    if other_active:
-        raise RuntimeError(
-            "Esta empresa já possui uma autorização Google. Desconecte-a antes de autorizar outra conta."
+    for row in other_active:
+        await sb_update(
+            "integration_connections",
+            filters={"id": f"eq.{row['id']}", "client_id": f"eq.{client_id}"},
+            patch={
+                "status": "disconnected",
+                "disconnected_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            returning="minimal",
         )
     same_identity = next(
         (
@@ -149,10 +163,9 @@ async def save_google_authorization(
         ),
         None,
     )
-    token_source = same_identity or next(
-        (row for row in google_existing if str(row.get("external_key") or "") == identity["sub"]),
-        None,
-    )
+    # Nunca reutilize refresh token de outro produto: um token emitido para Ads
+    # não ganha o escopo do GA4 (e vice-versa) apenas por pertencer à mesma conta.
+    token_source = same_identity
     refresh_token = str(token.get("refresh_token") or "").strip()
     previous_metadata: Dict[str, Any] = {}
     if same_identity:
@@ -179,6 +192,9 @@ async def save_google_authorization(
         "token_type": token.get("token_type"),
         "expires_at": expires_at,
     }
+    granted_scopes = [scope for scope in str(token.get("scope") or "").split() if scope]
+    if not granted_scopes:
+        granted_scopes = scopes_for_product(normalized_product)
     return await upsert_connection(
         client_id=client_id,
         provider=target_provider,
@@ -189,10 +205,10 @@ async def save_google_authorization(
         account_id=identity["sub"],
         account_name=identity["email"],
         token_expires_at=expires_at,
-        scopes=str(token.get("scope") or "").split(),
+        scopes=granted_scopes,
         metadata={
             **previous_metadata,
-            "google_product": normalized_product,
+            "integration_product": normalized_product,
             "google_email": identity["email"],
             "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN")),
         },

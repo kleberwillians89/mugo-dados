@@ -123,7 +123,7 @@ async def api_oauth_meta_start(
     try:
         user_id = await require_user_id(authorization)
         cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
-        settings = get_meta_oauth_settings(require_redirect_uri=True, debug=True)
+        settings = get_meta_oauth_settings(require_redirect_uri=True, debug=False)
         redirect_uri = str(settings.get("redirect_uri") or "").strip()
         persisted_state = await create_oauth_state(
             provider="meta",

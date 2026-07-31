@@ -541,8 +541,8 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("adwords", ga4_scope)
         self.assertIn("adwords", ads_scope)
         self.assertNotIn("analytics.readonly", ads_scope)
-        self.assertEqual(create_state.await_args_list[0].kwargs["context"], {"product": "ga4"})
-        self.assertEqual(create_state.await_args_list[1].kwargs["context"], {"product": "ads"})
+        self.assertEqual(create_state.await_args_list[0].kwargs["context"], {"integration_product": "ga4"})
+        self.assertEqual(create_state.await_args_list[1].kwargs["context"], {"integration_product": "google_ads"})
 
     async def test_reauthorization_preserves_existing_refresh_token_and_selection(self):
         existing = {
@@ -581,18 +581,22 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             "123456",
         )
 
-    async def test_second_active_google_identity_is_rejected(self):
-        with patch.object(
-            google_oauth,
-            "sb_select",
-            AsyncMock(
-                return_value=[
-                    {"provider": "ga4", "external_key": "google-user-a", "status": "connected"}
-                ]
+    async def test_second_active_google_identity_replaces_old_product_credential(self):
+        update = AsyncMock()
+        with (
+            patch.object(
+                google_oauth,
+                "sb_select",
+                AsyncMock(
+                    return_value=[
+                        {"id": "old-ga4", "provider": "ga4", "external_key": "google-user-a", "status": "connected"}
+                    ]
+                ),
             ),
+            patch.object(google_oauth, "sb_update", update),
+            patch.object(google_oauth, "upsert_connection", AsyncMock(return_value={"id": "new-ga4"})),
         ):
-            with self.assertRaisesRegex(RuntimeError, "já possui uma autorização Google"):
-                await google_oauth.save_google_authorization(
+            await google_oauth.save_google_authorization(
                     client_id="amalie",
                     user_id="user-amalie",
                     token={
@@ -603,6 +607,30 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                     identity={"sub": "google-user-b", "email": "b@example.com"},
                     product="ga4",
                 )
+        self.assertEqual(update.await_args.kwargs["filters"]["id"], "eq.old-ga4")
+        self.assertEqual(update.await_args.kwargs["patch"]["status"], "disconnected")
+
+    async def test_ga4_never_reuses_google_ads_refresh_token(self):
+        existing_ads = {
+            "id": "ads-connection",
+            "provider": "google_ads",
+            "external_key": "google-user-a",
+            "status": "connected",
+            "encrypted_token": "encrypted-ads-token",
+        }
+        with (
+            patch.object(google_oauth, "sb_select", AsyncMock(return_value=[existing_ads])),
+            patch.object(google_oauth, "decrypt_secret") as decrypt,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "refresh_token"):
+                await google_oauth.save_google_authorization(
+                    client_id="amalie",
+                    user_id="user-amalie",
+                    token={"access_token": "ga4-access", "expires_in": 3600},
+                    identity={"sub": "google-user-a", "email": "a@example.com"},
+                    product="ga4",
+                )
+        decrypt.assert_not_called()
 
     async def test_missing_developer_token_has_clear_pending_status(self):
         with patch.dict(os.environ, {}, clear=False):

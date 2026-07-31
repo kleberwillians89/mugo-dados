@@ -34,7 +34,7 @@ class SafeAccessLogTests(unittest.IsolatedAsyncioTestCase):
         log = output.getvalue()
         self.assertIs(result, response)
         self.assertIn("path=/api/oauth/google/callback", log)
-        self.assertIn("provider=google", log)
+        self.assertIn("integration_product=-", log)
         for secret in ("secret-code", "secret-state", "secret-token", "access_token", "state="):
             self.assertNotIn(secret, log)
 
