@@ -18,7 +18,7 @@ begin
       where n.nspname = 'public'
         and t.relname = 'ig_media'
         and c.contype = 'f'
-        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
     ) then
       alter table public.ig_media
         add constraint fk_ig_media_connection_id
@@ -37,7 +37,7 @@ create index if not exists idx_ig_media_client_connection_ts
 with single_organic_connection as (
   select
     mc.client_id,
-    max(mc.id) as connection_id
+    min(mc.id::text)::uuid as connection_id
   from public.meta_connections mc
   where mc.platform = 'instagram'
     and mc.connection_type = 'organic'

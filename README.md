@@ -1,4 +1,8 @@
-# mugo_metrics
+# Mugô Dados
+
+Inteligência de dados para decisões mais claras.
+
+Configuração detalhada de autenticação e OAuth: [`docs/oauth-setup.md`](docs/oauth-setup.md).
 
 Painel de métricas Instagram com frontend React/Vite e backend FastAPI integrado ao Supabase.
 
@@ -23,11 +27,11 @@ Hoje, no mínimo, o ambiente precisa destas migrações:
 supabase/migrations/20260305_000001_multi_tenant_and_features.sql
 supabase/migrations/20260325_000002_meta_oauth_paid_multi_asset.sql
 supabase/migrations/20260408_000003_promoted_post_daily_stats.sql
-supabase/migrations/20260408_000004_paid_schema_completion.sql
-supabase/migrations/20260408_000005_promoted_post_daily_stats_bootstrap.sql
-supabase/migrations/20260408_000006_paid_upsert_unique_indexes.sql
-supabase/migrations/20260408_000007_paid_table_column_hardening.sql
-supabase/migrations/20260408_000008_ig_media_connection_alignment.sql
+supabase/migrations/20260409_000004_paid_schema_completion.sql
+supabase/migrations/20260410_000005_promoted_post_daily_stats_bootstrap.sql
+supabase/migrations/20260411_000006_paid_upsert_unique_indexes.sql
+supabase/migrations/20260412_000007_paid_table_column_hardening.sql
+supabase/migrations/20260413_000008_ig_media_connection_alignment.sql
 supabase/migrations/20260416_000009_meta_oauth_handoffs.sql
 supabase/migrations/20260417_000010_meta_ads_operational_stability.sql
 ```
@@ -91,15 +95,21 @@ Se não configurar, o endpoint `/auth/v1/authorize?provider=facebook` retornará
 - `PUT /api/notes/{note_id}`
 - `POST /api/ai/summary`
 
-## Fluxo de Produto (Meta-first)
+## Fluxo de Produto
 1. App abre na tela de **Login**.
-2. Usuário entra com **Meta** (Supabase Auth/Facebook).
+2. Usuário convidado entra com e-mail e senha pelo **Supabase Auth**.
 3. Se for primeiro acesso, app abre **Onboarding**:
-   - cria tenant (se necessário)
-   - conecta OAuth Meta de ativos
-   - faz discovery e seleção manual de Instagram/Ads
+   - acessa somente as empresas de sua membership
+   - conecta OAuth Meta, Google ou Shopify pelo backend
+   - seleciona Página, Instagram profissional e Meta Ads
+   - seleciona separadamente propriedade GA4 e conta Google Ads
+   - identifica lojas Shopify pelo domínio `myshopify.com`
 4. Após vincular, entra no **Dashboard**.
 5. Em acessos recorrentes, se já houver conexão ativa, entra direto no dashboard.
+
+TikTok e Pinterest são apenas informativos na Central, com o status
+“Aguardando atualização da plataforma”. Não possuem OAuth, endpoints ou ações.
+FBits permanece como integração legada, sem expansão nesta etapa.
 
 ## Handoff OAuth Persistente
 - O handoff do OAuth da Meta agora é persistido na tabela `meta_oauth_handoffs`.
@@ -259,8 +269,8 @@ python server/run_jobs.py refresh-token --connection-id "$CONNECTION_ID"
 ## Exemplos de Cron
 Crontab local:
 ```bash
-*/30 * * * * cd /Users/klebs/Desktop/mugo_metrics && /usr/bin/python3 server/run_jobs.py token-refresh >> /tmp/mugo_token_refresh.log 2>&1
-0 * * * * cd /Users/klebs/Desktop/mugo_metrics && /usr/bin/python3 server/run_jobs.py ads-sync-hourly --days 7 >> /tmp/mugo_ads_sync.log 2>&1
+*/30 * * * * cd /CAMINHO/Mugo-Dados && /usr/bin/python3 server/run_jobs.py token-refresh >> /tmp/mugo_token_refresh.log 2>&1
+0 * * * * cd /CAMINHO/Mugo-Dados && /usr/bin/python3 server/run_jobs.py ads-sync-hourly --days 7 >> /tmp/mugo_ads_sync.log 2>&1
 ```
 
 Chamando API protegida por `CRON_SECRET`:

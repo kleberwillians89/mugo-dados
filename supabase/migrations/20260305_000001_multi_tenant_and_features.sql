@@ -98,7 +98,26 @@ create table if not exists public.ig_media (
 );
 create index if not exists idx_ig_media_client_ts on public.ig_media(client_id, timestamp desc);
 
--- snapshots: garante índice tenant/date
+-- snapshots de perfil IG fazem parte do bootstrap orgânico.
+-- A migration 017 mantém o alinhamento de colunas/FK para bases legadas.
+create table if not exists public.ig_profile_snapshots (
+  id bigserial primary key,
+  client_id text not null,
+  connection_id uuid,
+  snapshot_date date not null,
+  followers_count integer not null default 0,
+  media_count integer not null default 0,
+  impressions_day integer not null default 0,
+  reach_day integer not null default 0,
+  total_interactions_day integer not null default 0,
+  website_clicks_day integer not null default 0,
+  profile_views_day integer not null default 0,
+  accounts_engaged_day integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(client_id, snapshot_date)
+);
+
 create index if not exists idx_ig_profile_snapshots_client_date
   on public.ig_profile_snapshots(client_id, snapshot_date desc);
 
@@ -136,6 +155,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists trg_ig_media_updated_at on public.ig_media;
 create trigger trg_ig_media_updated_at
 before update on public.ig_media
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_ig_profile_snapshots_updated_at on public.ig_profile_snapshots;
+create trigger trg_ig_profile_snapshots_updated_at
+before update on public.ig_profile_snapshots
 for each row execute function public.set_updated_at();
 
 -- lock functions
@@ -221,7 +245,12 @@ BEGIN
     SELECT c.id::text, 'instagram', c.ig_access_token, 'active', now()
     FROM public.clients c
     WHERE coalesce(c.ig_access_token, '') <> ''
-    ON CONFLICT (client_id, platform) DO NOTHING;
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.meta_connections mc
+        WHERE mc.client_id = c.id::text
+          AND mc.platform = 'instagram'
+      );
   END IF;
 END $$;
 

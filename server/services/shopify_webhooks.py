@@ -24,6 +24,10 @@ SUPPORTED_SHOPIFY_TOPICS = {
     "refunds/create",
     "customers/create",
     "customers/update",
+    "app/uninstalled",
+    "customers/data_request",
+    "customers/redact",
+    "shop/redact",
 }
 
 
@@ -218,10 +222,11 @@ def validate_shopify_hmac(raw_body: bytes, provided_hmac: Optional[str]) -> Tupl
 
 
 def validate_shopify_shop_domain(shop_domain: Optional[str]) -> bool:
-    expected_domain = get_default_shopify_domain()
-    if not expected_domain:
-        return True
-    return _normalize_shop_domain(shop_domain) == expected_domain
+    domain = _normalize_shop_domain(shop_domain)
+    if not domain.endswith(".myshopify.com"):
+        return False
+    label = domain.removesuffix(".myshopify.com")
+    return bool(label) and all(char.isalnum() or char == "-" for char in label)
 
 
 def decode_shopify_webhook_payload(raw_body: bytes) -> Dict[str, Any]:

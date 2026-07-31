@@ -19,7 +19,7 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_http import meta_get_json
 from .meta_tokens import serialize_connection_status
 
-META_DIALOG = "https://www.facebook.com/v19.0/dialog/oauth"
+META_DIALOG = "https://www.facebook.com/v25.0/dialog/oauth"
 _HANDOFF_TTL_SECONDS = 15 * 60
 _HANDOFF_TABLE = "meta_oauth_handoffs"
 ensure_env_loaded()

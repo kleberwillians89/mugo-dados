@@ -33,6 +33,7 @@ from services.shopify_reporting import (
     build_shopify_report,
     resolve_shopify_report_period,
 )
+from services.shopify_oauth import mark_store_uninstalled, resolve_store_by_domain
 from services.tenant import resolve_client_id
 
 router = APIRouter(tags=["shopify"])
@@ -95,6 +96,17 @@ async def shopify_webhook(
         )
         raise HTTPException(status_code=401, detail="Webhook Shopify fora do domínio configurado da empresa.")
 
+    store = await resolve_store_by_domain(shop_domain)
+    if not store:
+        _log_shopify_event(
+            status="rejected_unknown_shop",
+            topic=topic,
+            webhook_id=webhook_id,
+            shop_domain=shop_domain,
+        )
+        raise HTTPException(status_code=401, detail="Webhook recebido de loja Shopify desconhecida.")
+    client_id = str(store.get("client_id") or "").strip()
+
     try:
         payload = decode_shopify_webhook_payload(raw_body)
     except RuntimeError as exc:
@@ -112,7 +124,6 @@ async def shopify_webhook(
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    client_id = get_shopify_client_id()
     order_id = extract_shopify_order_id(topic, payload)
 
     event, duplicated = await register_shopify_webhook_event(
@@ -126,6 +137,9 @@ async def shopify_webhook(
     event_id = _clean(event.get("id"))
     event_status = _clean(event.get("status")).lower() or "received"
     queued = event_status not in {"processing", "processed", "ignored"}
+
+    if topic == "app/uninstalled":
+        await mark_store_uninstalled(shop_domain)
 
     if queued and event_id:
         await mark_shopify_webhook_processing(event_id)

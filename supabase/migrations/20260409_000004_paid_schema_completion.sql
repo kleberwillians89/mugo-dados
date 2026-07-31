@@ -113,7 +113,7 @@ begin
       where n.nspname = 'public'
         and t.relname = 'ad_account_daily_stats'
         and c.contype = 'f'
-        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
     ) then
       alter table public.ad_account_daily_stats
         add constraint fk_ad_account_daily_stats_connection_id
@@ -130,7 +130,7 @@ begin
       where n.nspname = 'public'
         and t.relname = 'campaign_daily_stats'
         and c.contype = 'f'
-        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
     ) then
       alter table public.campaign_daily_stats
         add constraint fk_campaign_daily_stats_connection_id
@@ -147,7 +147,7 @@ begin
       where n.nspname = 'public'
         and t.relname = 'ad_daily_stats'
         and c.contype = 'f'
-        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+        and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
     ) then
       alter table public.ad_daily_stats
         add constraint fk_ad_daily_stats_connection_id

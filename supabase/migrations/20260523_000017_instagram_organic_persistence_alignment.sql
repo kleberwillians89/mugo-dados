@@ -101,7 +101,7 @@ begin
        where n.nspname = 'public'
          and t.relname = 'ig_profile_snapshots'
          and c.contype = 'f'
-         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
      ) then
     alter table public.ig_profile_snapshots
       add constraint fk_ig_profile_snapshots_connection_id
@@ -118,7 +118,7 @@ begin
        where n.nspname = 'public'
          and t.relname = 'ig_comments'
          and c.contype = 'f'
-         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
      ) then
     alter table public.ig_comments
       add constraint fk_ig_comments_connection_id
@@ -135,7 +135,7 @@ begin
        where n.nspname = 'public'
          and t.relname = 'ig_media'
          and c.contype = 'f'
-         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references public.meta_connections(id)%'
+         and pg_get_constraintdef(c.oid) ilike '%foreign key (connection_id)%references%meta_connections(id)%'
      ) then
     alter table public.ig_media
       add constraint fk_ig_media_connection_id

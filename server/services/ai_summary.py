@@ -47,7 +47,7 @@ def _extract_output_text(resp: Dict[str, Any]) -> str:
 
 
 AI_SCHEMA = {
-    "name": "mugo_metrics_ai_report_v2",
+    "name": "mugo_dados_ai_report_v2",
     "schema": {
         "type": "object",
         "additionalProperties": False,

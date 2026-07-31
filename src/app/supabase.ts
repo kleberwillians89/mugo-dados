@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const url = String(import.meta.env.VITE_SUPABASE_URL || "").trim();
 const anon = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
-const LOCAL_AUTH_STORAGE_KEY = "client_metrics_local_auth";
+const LOCAL_AUTH_STORAGE_KEY = "mugo_dados.local_auth";
 
 function buildBootstrapError(): string | null {
   const missing: string[] = [];
