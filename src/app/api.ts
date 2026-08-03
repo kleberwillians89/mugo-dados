@@ -128,11 +128,32 @@ export function isUsableGoogleConnection(
     connection.provider === provider &&
     ["connected", "selection_required"].includes(status) &&
     !connection.disconnected_at &&
-    connection.token_available === true;
+    connection.token_available !== false;
 }
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" ? (value as JsonRecord) : {};
+}
+
+export function normalizeApiErrorPayload(payload: unknown, headerRequestId = "") {
+  const root = asRecord(payload);
+  const detail = asRecord(root.detail);
+  const error = asRecord(root.error);
+  return {
+    message:
+      asString(detail.message) ||
+      (typeof root.detail === "string" ? root.detail : "") ||
+      asString(root.message) ||
+      asString(error.message),
+    code: asString(detail.code) || asString(root.code) || asString(error.code),
+    requestId: asString(detail.request_id) || asString(root.request_id) || headerRequestId,
+    retryable:
+      typeof detail.retryable === "boolean"
+        ? detail.retryable
+        : typeof root.retryable === "boolean"
+          ? root.retryable
+          : undefined,
+  };
 }
 
 function asNumber(value: unknown, fallback = 0): number {
@@ -316,14 +337,11 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
     let requestId = res.headers.get("X-Request-ID") || "";
     try {
       const j = txt ? (JSON.parse(txt) as JsonRecord) : null;
-      const errObj = asRecord(j?.error);
-      detail =
-        asString(j?.detail) ||
-        asString(j?.message) ||
-        asString(errObj?.message);
-      code = asString(j?.code) || asString(errObj?.code);
-      requestId = asString(j?.request_id) || requestId;
-      if (typeof j?.retryable === "boolean") retryable = j.retryable;
+      const normalized = normalizeApiErrorPayload(j, requestId);
+      detail = normalized.message;
+      code = normalized.code;
+      requestId = normalized.requestId;
+      if (typeof normalized.retryable === "boolean") retryable = normalized.retryable;
       console.warn("[api]", {
         path: safePath,
         status: res.status,

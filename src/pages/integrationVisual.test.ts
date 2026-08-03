@@ -44,7 +44,27 @@ describe("professional integration states and official identity", () => {
     expect(onboarding).toContain('onStartGoogleOAuth("google_ads")');
     expect(api).toContain('["connected", "selection_required"].includes(status)');
     expect(api).toContain("!connection.disconnected_at");
-    expect(api).toContain("connection.token_available === true");
+    expect(api).toContain("connection.token_available !== false");
+  });
+
+  it("opens the manual Meta form and keeps GA4 selection separate from OAuth", () => {
+    const onboarding = source("./Onboarding.tsx");
+    expect(onboarding).toContain("setManualMetaConnectionId(connection.id)");
+    expect(onboarding).toContain("manualMetaFormRef.current?.scrollIntoView");
+    expect(onboarding).toContain("manualMetaConnectionId ?");
+    expect(onboarding).toContain("listGoogleGa4Properties(connection.id)");
+    expect(onboarding).toContain('error.code === "GOOGLE_REAUTH_REQUIRED"');
+    expect(onboarding).toContain("googleReconnectProduct ?");
+    expect(onboarding).toContain("processedOauthReturnRef.current === oauthReturnKey");
+    expect(onboarding).toContain('setGooglePickerId(connectionId)');
+  });
+
+  it("normalizes nested structured errors without rendering object values", () => {
+    const api = source("../app/api.ts");
+    expect(api).toContain("asString(detail.message)");
+    expect(api).toContain("asString(detail.code)");
+    expect(api).toContain("asString(detail.request_id)");
+    expect(api).not.toContain("asString(j?.detail) ||");
   });
 
   it("ships the manual Meta routes and explicit deployment error", () => {

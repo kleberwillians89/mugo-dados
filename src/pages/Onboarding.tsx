@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   disconnectClientConnection,
   configureExistingMetaOrganic,
@@ -76,7 +76,7 @@ function fmtDate(value?: string | null): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
-    return `${error.message}${error.requestId ? ` Request ID: ${error.requestId}.` : ""}`;
+    return `${error.message}${error.code ? ` Código: ${error.code}.` : ""}${error.requestId ? ` Request ID: ${error.requestId}.` : ""}`;
   }
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -203,6 +203,9 @@ export default function Onboarding({
   const [manualInstagramId, setManualInstagramId] = useState("");
   const [manualAdAccountId, setManualAdAccountId] = useState("");
   const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
+  const [googleReconnectProduct, setGoogleReconnectProduct] = useState<"ga4" | "google_ads" | null>(null);
+  const manualMetaFormRef = useRef<HTMLElement | null>(null);
+  const processedOauthReturnRef = useRef<string | null>(null);
 
   const configWarning = getActiveClientConfigurationWarning();
 
@@ -229,7 +232,7 @@ export default function Onboarding({
     setActiveConnection(nextActiveConnectionId);
     setActiveConnectionId(nextActiveConnectionId);
 
-    return nextConnections;
+    return { meta: nextConnections, generic: genericResponse.connections || [] };
   }, []);
 
   function clearOauthParamsFromUrl() {
@@ -291,12 +294,11 @@ export default function Onboarding({
         preserveMetaRetry = false;
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
       } else if (oauthStatus === "success") {
-         await loadConnections();
+         const loaded = await loadConnections();
          const connectionId = String(params.get("connection_id") || "").trim();
          if (provider === "Google" && connectionId) {
            const product = params.get("integration_product") === "google_ads" ? "google_ads" : "ga4";
-           const callbackConnections = (await listGenericConnections()).connections || [];
-           const callbackConnection = callbackConnections.find((item) =>
+           const callbackConnection = loaded.generic.find((item) =>
              item.id === connectionId && isUsableGoogleConnection(item, product, getActiveClientId())
            );
            if (!callbackConnection) {
@@ -355,7 +357,12 @@ export default function Onboarding({
       try {
         const search = new URLSearchParams(window.location.search);
         const hasOauthReturn = search.has("meta_oauth") || search.has("google_oauth") || search.has("shopify_oauth");
-        if (hasOauthReturn) await handleOauthRedirectParams();
+        if (hasOauthReturn) {
+          const oauthReturnKey = window.location.search;
+          if (processedOauthReturnRef.current === oauthReturnKey) return;
+          processedOauthReturnRef.current = oauthReturnKey;
+          await handleOauthRedirectParams();
+        }
         else await loadConnections();
       } catch (error: unknown) {
         if (!alive) return;
@@ -371,6 +378,14 @@ export default function Onboarding({
       alive = false;
     };
   }, [handleOauthRedirectParams, isAuthenticated, loadConnections]);
+
+  useEffect(() => {
+    if (!manualMetaConnectionId) return;
+    window.requestAnimationFrame(() => {
+      manualMetaFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      manualMetaFormRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    });
+  }, [manualMetaConnectionId]);
 
   useEffect(() => {
     if (!initialError) return;
@@ -698,6 +713,7 @@ export default function Onboarding({
     setSaving(true);
     setErr(null);
     setInfo(null);
+    setGoogleReconnectProduct(null);
     try {
       const provider = product === "ga4" ? "ga4" : "google_ads";
       if (!isUsableGoogleConnection(connection, provider, getActiveClientId())) {
@@ -721,7 +737,12 @@ export default function Onboarding({
       setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
       setSelectedGoogleAds(String(connection.metadata?.google_ads_customer_id || ""));
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Não foi possível consultar os ativos Google."));
+      if (error instanceof ApiError && error.code === "GOOGLE_REAUTH_REQUIRED") {
+        setGoogleReconnectProduct(product === "ga4" ? "ga4" : "google_ads");
+      }
+      setErr(errorMessage(error, product === "ga4"
+        ? "Não foi possível listar as propriedades do Google Analytics."
+        : "Não foi possível consultar as contas Google Ads."));
     } finally {
       setSaving(false);
     }
@@ -882,6 +903,11 @@ export default function Onboarding({
         {configWarning ? <div className="pill pillDanger">{configWarning}</div> : null}
         {err ? <div className="pill pillDanger">
           {err}
+          {googleReconnectProduct ? (
+            <button className="btn btnGhost" type="button" disabled={oauthLoading} onClick={() => void onStartGoogleOAuth(googleReconnectProduct)} style={{ marginLeft: 10 }}>
+              Reconectar Google
+            </button>
+          ) : null}
           {oauthRetry === "meta_discover" ? (
             <button className="btn btnGhost" type="button" disabled={loading} onClick={() => void handleOauthRedirectParams()} style={{ marginLeft: 10 }}>
               Tentar novamente
@@ -1202,7 +1228,7 @@ export default function Onboarding({
         ) : null}
 
         {manualMetaConnectionId ? (
-          <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
+          <section ref={manualMetaFormRef} className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">Configuração avançada por ID</div>
             <div className="p">Use IDs exibidos no Meta Business Suite. Os ativos serão consultados com a autorização atual antes de salvar; nenhum token é exibido.</div>
             <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
