@@ -35,16 +35,16 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 22)
-        self.assertEqual(names[-4], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-1], "20260803_000022_oauth_handoff_security.sql")
+        self.assertEqual(len(names), 24)
+        self.assertEqual(names[-6], "20260731_000019_auth_oauth_connections.sql")
+        self.assertEqual(names[-1], "20260805_000024_ga4_selection_metrics.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 23)))
+        self.assertEqual(logical_numbers, list(range(1, 25)))
 
 
 if __name__ == "__main__":

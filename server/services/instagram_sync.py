@@ -439,6 +439,8 @@ async def _run_sync_for_client_and_ig(
                     "website_clicks_day": int(kpis.get("website_clicks") or 0),
                     "profile_views_day": int(kpis.get("profile_views") or 0),
                     "accounts_engaged_day": int(kpis.get("accounts_engaged") or 0),
+                    "metrics_available": kpis.get("available_metrics") or [],
+                    "metrics_unavailable": kpis.get("unavailable_metrics") or [],
                     "created_at": _iso_now(),
                 }
             ],
@@ -462,6 +464,8 @@ async def _run_sync_for_client_and_ig(
             "website_clicks": int(kpis.get("website_clicks") or 0),
             "profile_views": int(kpis.get("profile_views") or 0),
             "accounts_engaged": int(kpis.get("accounts_engaged") or 0),
+            "available_metrics": kpis.get("available_metrics") or [],
+            "unavailable_metrics": kpis.get("unavailable_metrics") or [],
         },
         "media": enriched,
         "stories_fetched": len(stories),

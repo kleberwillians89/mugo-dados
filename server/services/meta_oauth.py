@@ -17,9 +17,10 @@ from .env_loader import ensure_env_loaded
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_OAUTH_DIALOG_URL
-from .meta_http import meta_get_json
+from .meta_http import MetaApiError, meta_get_json
+from .integration_errors import IntegrationError
 from .meta_tokens import serialize_connection_status
-from .generic_connections import audit_connection, disconnect_generic_connection, upsert_connection
+from .generic_connections import audit_connection, disconnect_generic_connection, get_connection, upsert_connection
 from .runtime_cache import invalidate_namespace
 
 META_DIALOG = META_OAUTH_DIALOG_URL
@@ -357,8 +358,14 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
     )
 
     out: List[Dict[str, str]] = []
+    available_pages: List[Dict[str, str]] = []
     seen: set[str] = set()
     for p in pages.get("data") or []:
+        page_id = _safe_str((p or {}).get("id"))
+        if page_id:
+            available_pages.append(
+                {"page_id": page_id, "page_name": _safe_str((p or {}).get("name"))}
+            )
         ig = (p or {}).get("instagram_business_account") or (p or {}).get("connected_instagram_account") or {}
         ig_id = _safe_str((ig or {}).get("id"))
         if not ig_id or ig_id in seen:
@@ -375,6 +382,7 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
 
     return {
         "meta_user": {"id": _safe_str(me.get("id")), "name": _safe_str(me.get("name"))},
+        "pages": available_pages,
         "instagram_accounts": out,
     }
 
@@ -470,11 +478,86 @@ async def discover_assets(access_token: str) -> Dict[str, Any]:
     business_managers = await _fetch_business_managers(access_token)
     return {
         "meta_user": identity.get("meta_user") or {},
+        "pages": identity.get("pages") or [],
         "instagram_accounts": identity.get("instagram_accounts") or [],
         "ad_accounts": ad_accounts,
         "business_managers": business_managers,
         "scopes": scopes,
     }
+
+
+async def discover_existing_meta_organic_assets(
+    *, user_id: str, client_id: str, connection_id: str
+) -> Dict[str, Any]:
+    connection = await get_connection(client_id, connection_id, include_token=True)
+    if _safe_str(connection.get("provider")) != "meta":
+        raise IntegrationError(
+            "A conexão selecionada não é uma conexão Meta.", status_code=404,
+            code="META_CONNECTION_NOT_FOUND", provider="meta",
+        )
+    scopes = {_safe_str(scope) for scope in _json_array(connection.get("scopes"))}
+    required = {"pages_show_list", "pages_read_engagement", "instagram_basic"}
+    if not required.issubset(scopes):
+        raise IntegrationError(
+            "A autorização Meta não possui as permissões necessárias para listar o Instagram profissional.",
+            status_code=403, code="META_PERMISSION_MISSING", provider="meta",
+        )
+    try:
+        token_payload = json.loads(_safe_str(connection.get("_token")) or "{}")
+        access_token = _safe_str(token_payload.get("access_token"))
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError(
+            "A conexão Meta exige nova autorização.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        ) from exc
+    if not access_token:
+        raise IntegrationError(
+            "A conexão Meta exige nova autorização.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
+    try:
+        identity = await fetch_instagram_identity(access_token)
+        discovered = {
+            "meta_user": identity.get("meta_user") or {},
+            "pages": identity.get("pages") or [],
+            "instagram_accounts": identity.get("instagram_accounts") or [],
+            # Configuração orgânica não relista nem modifica Meta Ads.
+            "ad_accounts": [],
+            "business_managers": await _fetch_business_managers(access_token),
+            "scopes": sorted(scopes),
+        }
+    except MetaApiError as exc:
+        code = "META_REAUTH_REQUIRED" if exc.invalid_oauth else (
+            "META_PERMISSION_MISSING" if exc.status_code == 403 else "META_GRAPH_UNAVAILABLE"
+        )
+        status_code = 401 if exc.invalid_oauth else (403 if exc.status_code == 403 else 503)
+        raise IntegrationError(
+            "Não foi possível consultar os ativos orgânicos da Meta.",
+            status_code=status_code, code=code, provider="meta", retryable=status_code == 503,
+        ) from exc
+    handoff = await create_discovery_handoff(
+        user_id=user_id,
+        client_id=client_id,
+        access_token=access_token,
+        expires_at=_safe_str(connection.get("token_expires_at")) or None,
+        discovered=discovered,
+    )
+    result = await read_discovery_handoff(handoff=handoff, user_id=user_id, client_id=client_id)
+    pages = _json_array(result.get("pages"))
+    instagram_accounts = _json_array(result.get("instagram_accounts"))
+    result["organic_status"] = "available" if instagram_accounts else "asset_unavailable"
+    result["availability_code"] = (
+        None if instagram_accounts else
+        "META_PAGE_UNAVAILABLE" if not pages else
+        "META_INSTAGRAM_UNAVAILABLE"
+    )
+    result["message"] = (
+        None if instagram_accounts else
+        "Nenhuma Página acessível foi encontrada para esta autorização."
+        if not pages else
+        "As Páginas acessíveis não possuem uma conta profissional do Instagram vinculada."
+    )
+    return result
 
 
 async def create_discovery_handoff(
@@ -498,6 +581,7 @@ async def create_discovery_handoff(
             "business_managers": _json_array(discovered.get("business_managers")),
         },
         "instagram_accounts_json": _json_array(discovered.get("instagram_accounts")),
+        "pages_json": _json_array(discovered.get("pages")),
         "ad_accounts_json": _json_array(discovered.get("ad_accounts")),
         "scopes_json": _json_array(discovered.get("scopes")),
     }
@@ -556,6 +640,13 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
         for account in instagram_accounts
         if isinstance(account, dict) and _safe_str(account.get("business_id"))
     }
+    for page in _json_array(item.get("pages_json")):
+        page_id = _safe_str((page or {}).get("page_id"))
+        if page_id:
+            pages_by_id[page_id] = {
+                "page_id": page_id,
+                "page_name": _safe_str((page or {}).get("page_name")),
+            }
     return {
         "handoff": _safe_str(item.get("handoff")),
         "client_id": _safe_str(item.get("client_id")),
@@ -782,29 +873,62 @@ async def save_connections(
             returning="minimal",
         )
 
+    generic_rows = await sb_select(
+        "integration_connections",
+        filters={"client_id": f"eq.{client_id}", "provider": "eq.meta"},
+        order="updated_at.desc",
+        limit=1,
+    )
+    previous_generic = generic_rows[0] if generic_rows else {}
+    previous_metadata = _json_object(previous_generic.get("metadata"))
     selected_ad = selected_ads[0] if selected_ads else {}
-    selected_ad_id = _normalize_ad_account_id(_safe_str(selected_ad.get("ad_account_id")))
-    selected_ad_name = _safe_str(selected_ad.get("ad_account_name"))
+    selected_ad_id = (
+        _normalize_ad_account_id(_safe_str(selected_ad.get("ad_account_id")))
+        or _normalize_ad_account_id(_safe_str(previous_metadata.get("selected_ad_account_id")))
+    )
+    selected_ad_name = (
+        _safe_str(selected_ad.get("ad_account_name"))
+        or _safe_str(previous_metadata.get("selected_ad_account_name"))
+    )
+    preserved_ad_ids = {
+        _normalize_ad_account_id(_safe_str(value))
+        for value in _json_array(previous_metadata.get("ad_account_ids"))
+        if _safe_str(value)
+    }
+    merged_ad_ids = sorted(ads_requested | preserved_ad_ids | ({selected_ad_id} if selected_ad_id else set()))
+    selected_ig = selected_igs[0] if selected_igs else {}
+    selected_page_id = _safe_str(selected_ig.get("business_id"))
+    selected_page_name = _safe_str(selected_ig.get("business_name"))
+    selected_ig_id = _safe_str(selected_ig.get("ig_user_id"))
+    selected_ig_username = _safe_str(selected_ig.get("username"))
     generic_connection = await upsert_connection(
         client_id=client_id,
         provider="meta",
         external_key=f"meta:{client_id}",
         token_payload=json.dumps({"access_token": access_token}),
         user_id=user_id,
-        status="connected" if selected_ad_id else "selection_required",
+        status="connected" if selected_ad_id or selected_ig_id else "selection_required",
         account_id=selected_ad_id or None,
         account_name=selected_ad_name or None,
         token_expires_at=_safe_str(expires_at) or None,
         scopes=[_safe_str(scope) for scope in scopes if _safe_str(scope)],
         metadata={
+            **previous_metadata,
             "integration_product": "meta",
-            "selection_required": not bool(selected_ad_id),
+            "selection_required": not bool(selected_ad_id or selected_ig_id),
             "oauth_handoff": None,
             "meta_user_id": current_meta_user_id or None,
             "meta_user_name": _safe_str(meta_user.get("name")) or None,
             "page_ids": sorted(pages_requested),
             "instagram_ig_user_ids": sorted(ig_requested),
-            "ad_account_ids": sorted(ads_requested),
+            "selected_page_id": selected_page_id or None,
+            "selected_page_name": selected_page_name or None,
+            "selected_instagram_id": selected_ig_id or None,
+            "selected_instagram_username": selected_ig_username or None,
+            "organic_status": "connected" if selected_ig_id else "asset_required",
+            "ads_status": "connected" if selected_ad_id else "asset_required",
+            "coverage": "full" if selected_ig_id and selected_ad_id else "partial",
+            "ad_account_ids": merged_ad_ids,
             "selected_ad_account_id": selected_ad_id or None,
             "selected_ad_account_name": selected_ad_name or None,
             "accessible_ad_accounts": [

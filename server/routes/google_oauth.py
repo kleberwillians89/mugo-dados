@@ -90,12 +90,14 @@ async def callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
+    request_id = str(getattr(request.state, "request_id", "") or "-")
     try:
         if error:
             raise RuntimeError(f"Google recusou a autorização: {error}")
         if not code or not state:
             raise RuntimeError("Callback Google sem code ou state.")
         session = await consume_oauth_state(state, provider="google")
+        print(f"[google_oauth][callback] request_id={request_id} stage=state_validated")
         user_id = str(session.get("user_id") or "")
         client_id = str(session.get("client_id") or "")
         context = session.get("context") if isinstance(session.get("context"), dict) else {}
@@ -104,10 +106,22 @@ async def callback(
         )
         request.state.integration_product = product
         await require_user_client_access(user_id, client_id)
+        print(
+            f"[google_oauth][callback] request_id={request_id} user_id={user_id} "
+            f"client_id={client_id} provider={product} stage=client_resolved"
+        )
         token = await exchange_code(code, str(session.get("redirect_uri") or ""))
+        print(
+            f"[google_oauth][callback] request_id={request_id} client_id={client_id} "
+            f"provider={product} stage=token_exchanged scopes_received={bool(token.get('scope'))}"
+        )
         identity = await fetch_google_identity(str(token.get("access_token") or ""))
         connection = await save_google_authorization(
             client_id=client_id, user_id=user_id, token=token, identity=identity, product=product
+        )
+        print(
+            f"[google_oauth][callback] request_id={request_id} client_id={client_id} "
+            f"provider={product} connection_id={connection.get('id') or '-'} stage=connection_saved"
         )
         return RedirectResponse(
             _frontend_redirect({
@@ -118,8 +132,17 @@ async def callback(
             status_code=302,
         )
     except Exception as exc:
+        print(
+            f"[google_oauth][callback] request_id={request_id} stage=error "
+            f"error_type={exc.__class__.__name__}"
+        )
+        public_error = (
+            exc.public_message
+            if isinstance(exc, IntegrationError)
+            else "Não foi possível concluir a autorização Google. Tente novamente."
+        )
         return RedirectResponse(
-            _frontend_redirect({"google_oauth": "error", "error": str(exc)[:160]}),
+            _frontend_redirect({"google_oauth": "error", "error": public_error[:160]}),
             status_code=302,
         )
 
@@ -148,7 +171,7 @@ async def ga4_properties(
         raise IntegrationError(
             "Autorize o Google Analytics com o escopo analytics.readonly.",
             status_code=403,
-            code="GOOGLE_INSUFFICIENT_SCOPE",
+            code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
     properties = await list_ga4_properties(cid, connection_id)
@@ -175,12 +198,28 @@ async def select_ga4(
         raise IntegrationError(
             "Autorize o Google Analytics com o escopo analytics.readonly.",
             status_code=403,
-            code="GOOGLE_INSUFFICIENT_SCOPE",
+            code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
     property_id = str(payload.get("property_id") or "").strip().removeprefix("properties/")
     if not property_id:
         raise HTTPException(status_code=400, detail="property_id é obrigatório.")
+    stream_id = str(payload.get("stream_id") or "").strip()
+    streams = await list_ga4_streams(cid, connection_id, property_id)
+    if not streams:
+        raise IntegrationError(
+            "A propriedade selecionada não possui streams acessíveis.", status_code=404,
+            code="GOOGLE_STREAM_UNAVAILABLE", provider="google",
+        )
+    selected_stream = next(
+        (item for item in streams if str(item.get("name") or "").split("/")[-1] == stream_id),
+        None,
+    )
+    if not selected_stream:
+        raise IntegrationError(
+            "O stream selecionado não está disponível nesta propriedade.", status_code=404,
+            code="GOOGLE_STREAM_UNAVAILABLE", provider="google",
+        )
     connection = await update_connection_selection(
         client_id=cid,
         connection_id=connection_id,
@@ -189,7 +228,8 @@ async def select_ga4(
             "ga4_property_id": property_id,
             "ga4_account_id": str(payload.get("account_id") or "").strip() or None,
             "ga4_property_name": str(payload.get("property_name") or "").strip() or None,
-            "ga4_stream_id": str(payload.get("stream_id") or "").strip() or None,
+            "ga4_stream_id": stream_id,
+            "ga4_stream_name": str(selected_stream.get("display_name") or "").strip() or None,
         },
     )
     return {"ok": True, "connection": connection}
@@ -204,6 +244,14 @@ async def ga4_streams(
     authorization: str | None = Header(default=None),
 ):
     cid = await require_client_read(client_id or x_client_id, authorization)
+    row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ga4_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Analytics com o escopo analytics.readonly.",
+            status_code=403,
+            code="GOOGLE_SCOPE_INSUFFICIENT",
+            provider="google",
+        )
     return {"ok": True, "streams": await list_ga4_streams(cid, connection_id, property_id)}
 
 
@@ -220,7 +268,7 @@ async def ads_accounts(
         raise IntegrationError(
             "Autorize o Google Ads com o escopo adwords.",
             status_code=403,
-            code="GOOGLE_ADS_INSUFFICIENT_SCOPE",
+            code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
     return {"ok": True, **(await list_google_ads_accounts(cid, connection_id))}
@@ -241,7 +289,7 @@ async def select_ads(
         raise IntegrationError(
             "Autorize o Google Ads com o escopo adwords.",
             status_code=403,
-            code="GOOGLE_ADS_INSUFFICIENT_SCOPE",
+            code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
     customer_id = str(payload.get("customer_id") or "").replace("-", "").strip()
@@ -293,6 +341,13 @@ async def sync(
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
+    if not google_capabilities(row)["ga4_authorized"]:
+        raise IntegrationError(
+            "A conexão selecionada não possui autorização válida para o Analytics.",
+            status_code=403,
+            code="GOOGLE_SCOPE_INSUFFICIENT",
+            provider="google",
+        )
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     property_id = str(metadata.get("ga4_property_id") or "")
     if not property_id:

@@ -594,6 +594,9 @@ export type MetaDiscoverAssetsResponse = {
   business_managers?: MetaDiscoveredBusinessManager[];
   scopes: string[];
   expires_at?: string | null;
+  organic_status?: string;
+  availability_code?: string | null;
+  message?: string | null;
 };
 
 export type CommentItem = {

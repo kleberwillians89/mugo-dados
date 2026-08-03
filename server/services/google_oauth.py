@@ -14,7 +14,7 @@ from .generic_connections import get_connection, upsert_connection
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_select, sb_update
 from .oauth_state import create_oauth_state
-from .integration_errors import IntegrationError, from_httpx_error
+from .integration_errors import IntegrationError, from_httpx_error, google_api_error
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -235,11 +235,18 @@ async def save_google_authorization(
     )
 
 
-async def _access_token(client_id: str, connection_id: str) -> str:
+async def _access_token(
+    client_id: str,
+    connection_id: str,
+    *,
+    expected_provider: str | None = None,
+) -> str:
     lock = _REFRESH_LOCKS.setdefault(connection_id, asyncio.Lock())
     async with lock:
         try:
             row = await get_connection(client_id, connection_id, include_token=True)
+        except IntegrationError:
+            raise
         except Exception as exc:
             raise IntegrationError(
                 "Conexão Google não encontrada para a empresa selecionada.",
@@ -247,11 +254,19 @@ async def _access_token(client_id: str, connection_id: str) -> str:
                 code="GOOGLE_CONNECTION_NOT_FOUND",
                 provider="google",
             ) from exc
-        if str(row.get("provider") or "") not in {"ga4", "google_ads"}:
+        provider = str(row.get("provider") or "")
+        if provider not in {"ga4", "google_ads"}:
             raise IntegrationError(
                 "A conexão selecionada não é uma conexão Google.",
                 status_code=404,
                 code="GOOGLE_CONNECTION_NOT_FOUND",
+                provider="google",
+            )
+        if expected_provider and provider != expected_provider:
+            raise IntegrationError(
+                "A conexão selecionada pertence a outro produto Google.",
+                status_code=403,
+                code="GOOGLE_SCOPE_INSUFFICIENT",
                 provider="google",
             )
         if str(row.get("status") or "").strip().lower() == "disconnected":
@@ -308,6 +323,17 @@ async def _access_token(client_id: str, connection_id: str) -> str:
         try:
             response.raise_for_status()
         except Exception as exc:
+            try:
+                refresh_error = str((response.json() or {}).get("error") or "")
+            except (TypeError, ValueError):
+                refresh_error = ""
+            if refresh_error in {"invalid_grant", "invalid_client", "unauthorized_client"}:
+                raise IntegrationError(
+                    "A autorização Google foi revogada ou expirou. Conecte novamente.",
+                    status_code=401,
+                    code="GOOGLE_REAUTH_REQUIRED",
+                    provider="google",
+                ) from exc
             raise from_httpx_error(
                 "google",
                 exc,
@@ -346,7 +372,7 @@ async def get_google_access_token(client_id: str, connection_id: str) -> str:
 
 
 async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[str, Any]]:
-    token = await _access_token(client_id, connection_id)
+    token = await _access_token(client_id, connection_id, expected_provider="ga4")
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
@@ -362,9 +388,9 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
             f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
             f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
         )
-        raise from_httpx_error(
-            "google",
-            exc,
+        raise google_api_error(
+            response, api="Analytics Admin API",
+            unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE",
             operation="listar propriedades GA4",
         ) from exc
     out: List[Dict[str, Any]] = []
@@ -389,7 +415,7 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
 async def list_ga4_streams(
     client_id: str, connection_id: str, property_id: str
 ) -> List[Dict[str, Any]]:
-    token = await _access_token(client_id, connection_id)
+    token = await _access_token(client_id, connection_id, expected_provider="ga4")
     normalized = str(property_id or "").strip().removeprefix("properties/")
     if not normalized:
         raise RuntimeError("property_id é obrigatório.")
@@ -402,9 +428,9 @@ async def list_ga4_streams(
     try:
         response.raise_for_status()
     except Exception as exc:
-        raise from_httpx_error(
-            "google",
-            exc,
+        raise google_api_error(
+            response, api="Analytics Admin API",
+            unavailable_code="GOOGLE_STREAM_UNAVAILABLE",
             operation="listar streams GA4",
         ) from exc
     return [
@@ -421,12 +447,13 @@ async def list_ga4_streams(
 async def list_google_ads_accounts(client_id: str, connection_id: str) -> Dict[str, Any]:
     developer_token = _env("GOOGLE_ADS_DEVELOPER_TOKEN")
     if not developer_token:
-        return {
-            "available": False,
-            "reason": "Developer Token do Google Ads pendente. O GA4 pode ser usado normalmente.",
-            "accounts": [],
-        }
-    token = await _access_token(client_id, connection_id)
+        raise IntegrationError(
+            "Configure o Developer Token do Google Ads antes de listar contas.",
+            status_code=409,
+            code="GOOGLE_ADS_SETUP_REQUIRED",
+            provider="google",
+        )
+    token = await _access_token(client_id, connection_id, expected_provider="google_ads")
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers",

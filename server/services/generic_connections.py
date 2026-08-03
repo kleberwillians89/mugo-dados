@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_insert, sb_select, sb_update
 from .runtime_cache import invalidate_namespace
+from .integration_errors import IntegrationError
 
 
 def _iso_now() -> str:
@@ -26,22 +27,34 @@ def sanitize_connection(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def google_capabilities(row: Dict[str, Any]) -> Dict[str, Any]:
+    provider = str(row.get("provider") or "").strip().lower()
+    status = str(row.get("status") or "").strip().lower()
     scopes = {
         str(scope or "").strip().lower()
         for scope in (row.get("scopes") or [])
         if str(scope or "").strip()
     }
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    has_ga4_scope = any(scope.endswith("/analytics.readonly") for scope in scopes)
-    has_ads_scope = any(scope.endswith("/adwords") for scope in scopes)
+    usable = status not in {"disconnected", "token_expired", "reauth_required"}
+    # GA4 e Ads compartilham a identidade Google, não a credencial persistida.
+    # Uma conexão antiga com escopos mistos nunca deve atravessar produtos.
+    has_ga4_scope = provider == "ga4" and usable and any(
+        scope.endswith("/analytics.readonly") for scope in scopes
+    )
+    has_ads_scope = provider == "google_ads" and usable and any(
+        scope.endswith("/adwords") for scope in scopes
+    )
     ga4_property_id = str(metadata.get("ga4_property_id") or "").strip()
+    ga4_stream_id = str(metadata.get("ga4_stream_id") or "").strip()
     ads_customer_id = str(metadata.get("google_ads_customer_id") or "").strip()
     ads_setup_ready = bool(metadata.get("ads_developer_token_configured"))
     return {
         "ga4_authorized": has_ga4_scope,
-        "ga4_configured": has_ga4_scope and bool(ga4_property_id),
+        "ga4_configured": has_ga4_scope and bool(ga4_property_id) and bool(ga4_stream_id),
         "ga4_status": (
             "connected"
+            if has_ga4_scope and ga4_property_id and ga4_stream_id
+            else "stream_required"
             if has_ga4_scope and ga4_property_id
             else "property_required"
             if has_ga4_scope
@@ -78,7 +91,25 @@ async def get_connection(client_id: str, connection_id: str, *, include_token: b
         limit=1,
     )
     if not rows:
-        raise RuntimeError("Conexão não encontrada para esta empresa.")
+        existing = await sb_select(
+            "integration_connections",
+            select="id,client_id",
+            filters={"id": f"eq.{connection_id}"},
+            limit=1,
+        )
+        if existing:
+            raise IntegrationError(
+                "A conexão selecionada pertence a outra empresa.",
+                status_code=403,
+                code="OAUTH_CONNECTION_TENANT_MISMATCH",
+                provider="integration",
+            )
+        raise IntegrationError(
+            "Conexão OAuth não encontrada para esta empresa.",
+            status_code=404,
+            code="OAUTH_CONNECTION_NOT_FOUND",
+            provider="integration",
+        )
     row = rows[0]
     if include_token:
         encrypted = str(row.get("encrypted_token") or "").strip()

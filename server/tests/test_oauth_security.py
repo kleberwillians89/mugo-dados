@@ -487,7 +487,7 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(generic_upsert.await_args.kwargs["client_id"], "amalie")
         self.assertEqual(generic_upsert.await_args.kwargs["provider"], "meta")
         self.assertEqual(generic_upsert.await_args.kwargs["external_key"], "meta:amalie")
-        self.assertEqual(generic_upsert.await_args.kwargs["status"], "selection_required")
+        self.assertEqual(generic_upsert.await_args.kwargs["status"], "connected")
         self.assertEqual(generic_upsert.await_args.kwargs["metadata"]["meta_user_id"], "meta-user-1")
 
     async def test_discover_assets_does_not_consume_or_delete_handoff(self):
@@ -719,10 +719,10 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_developer_token_has_clear_pending_status(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("GOOGLE_ADS_DEVELOPER_TOKEN", None)
-            result = await google_oauth.list_google_ads_accounts("amalie", "connection-1")
-        self.assertFalse(result["available"])
-        self.assertEqual(result["accounts"], [])
-        self.assertIn("Developer Token do Google Ads pendente", result["reason"])
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.list_google_ads_accounts("amalie", "connection-1")
+        self.assertEqual(raised.exception.code, "GOOGLE_ADS_SETUP_REQUIRED")
+        self.assertEqual(raised.exception.status_code, 409)
 
 
 class GenericDisconnectTests(unittest.IsolatedAsyncioTestCase):

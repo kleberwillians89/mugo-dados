@@ -35,6 +35,7 @@ from services.meta_oauth import (
     create_discovery_handoff,
     disconnect_connection,
     discover_assets,
+    discover_existing_meta_organic_assets,
     exchange_code_for_token,
     get_meta_oauth_settings,
     list_connections,
@@ -249,6 +250,23 @@ async def api_oauth_meta_pending_assets(
         return {"ok": True, **data}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/oauth/meta/{connection_id}/configure-organic")
+async def api_configure_existing_meta_organic(
+    connection_id: str,
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
+    return {
+        "ok": True,
+        **(await discover_existing_meta_organic_assets(
+            user_id=user_id, client_id=cid, connection_id=connection_id
+        )),
+    }
 
 
 @router.post("/api/clients/{client_id}/connections/link-assets")

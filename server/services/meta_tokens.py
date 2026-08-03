@@ -9,6 +9,39 @@ import httpx
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_get_one, sb_insert, sb_select, sb_update
 from .meta_http import MetaApiError, meta_get_json
+from .integration_errors import IntegrationError
+
+
+def _meta_api_integration_error(exc: MetaApiError, *, operation: str) -> IntegrationError:
+    if exc.invalid_oauth:
+        return IntegrationError(
+            "A autorização Meta expirou ou foi revogada. Conecte novamente.",
+            status_code=401,
+            code="META_TOKEN_EXPIRED",
+            provider="meta",
+        )
+    if exc.rate_limited:
+        return IntegrationError(
+            "A Meta limitou temporariamente as solicitações. Tente novamente em instantes.",
+            status_code=429,
+            code="META_RATE_LIMITED",
+            provider="meta",
+            retryable=True,
+        )
+    if exc.status_code == 403:
+        return IntegrationError(
+            f"A conexão Meta não possui permissão para {operation}.",
+            status_code=403,
+            code="META_PERMISSION_MISSING",
+            provider="meta",
+        )
+    return IntegrationError(
+        "A API da Meta está temporariamente indisponível.",
+        status_code=503,
+        code="META_GRAPH_UNAVAILABLE",
+        provider="meta",
+        retryable=True,
+    )
 
 
 def _utc_now() -> datetime:
@@ -453,18 +486,29 @@ async def ensure_valid_meta_token(
         if env_token:
             _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(connection_id))
             return env_token
-        raise RuntimeError("Cliente sem conexão Meta ativa.")
+        raise IntegrationError(
+            "Conexão Meta não encontrada para esta empresa.",
+            status_code=404,
+            code="META_CONNECTION_NOT_FOUND",
+            provider="meta",
+        )
 
     if _requires_reauth(conn) or _safe_str(conn.get("status")).lower() == "needs_reauth":
         if env_token:
             _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
             return env_token
-        raise RuntimeError("Conexão Meta exige reconexão.")
+        raise IntegrationError(
+            "A conexão Meta exige reconexão.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
     if not _is_active(conn):
         if env_token:
             _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
             return env_token
-        raise RuntimeError("Conexão Meta está inativa.")
+        raise IntegrationError(
+            "A conexão Meta está inativa e exige reconexão.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
 
     current_token = _token_from_connection(conn)
     if not current_token:
@@ -473,7 +517,10 @@ async def ensure_valid_meta_token(
             return env_token
         if conn.get("id"):
             await _mark_connection_requires_reauth(str(conn.get("id")), "missing_token")
-        raise RuntimeError("Token Meta ausente. Reconecte.")
+        raise IntegrationError(
+            "Token Meta ausente. Reconecte.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
 
     _log_token_source("connection", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
 
@@ -544,7 +591,10 @@ async def ensure_valid_meta_token(
                     "forced": bool(force_refresh),
                 },
             )
-            raise RuntimeError("Falha ao renovar token Meta. Reconecte a conta.") from exc
+            raise IntegrationError(
+                "Falha ao renovar o token Meta. Reconecte a conta.", status_code=401,
+                code="META_REAUTH_REQUIRED", provider="meta",
+            ) from exc
 
     should_validate = True
     if not should_validate:
@@ -611,7 +661,10 @@ async def ensure_valid_meta_token(
                     ok=False,
                     details={"connection_id": conn_id, "error": msg[:400]},
                 )
-                raise RuntimeError("Token Meta inválido ou expirado. Reconecte a conta.") from refresh_exc
+                raise IntegrationError(
+                    "Token Meta inválido ou expirado. Reconecte a conta.", status_code=401,
+                    code="META_TOKEN_EXPIRED", provider="meta",
+                ) from refresh_exc
 
         msg = str(exc)
         await _mark_connection_error(conn_id, msg)
@@ -621,7 +674,7 @@ async def ensure_valid_meta_token(
             ok=False,
             details={"connection_id": conn_id, "error": msg[:400]},
         )
-        raise RuntimeError("Falha ao validar token Meta antes do sync.") from exc
+        raise _meta_api_integration_error(exc, operation="validar o token") from exc
     except Exception as exc:
         msg = str(exc)
         await _mark_connection_error(conn_id, msg)

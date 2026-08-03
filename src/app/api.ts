@@ -1231,6 +1231,13 @@ export type GoogleGa4Property = {
   property_name?: string;
 };
 
+export type GoogleGa4Stream = {
+  name?: string;
+  display_name?: string;
+  type?: string;
+  web_stream_data?: Record<string, unknown>;
+};
+
 export type GoogleAdsAccount = {
   customer_id: string;
   resource_name?: string;
@@ -1245,7 +1252,7 @@ export async function listGoogleGa4Properties(
 export async function selectGoogleGa4Property(
   connectionId: string,
   propertyId: string,
-  details?: { accountId?: string; propertyName?: string }
+  details?: { accountId?: string; propertyName?: string; streamId?: string }
 ): Promise<JsonRecord> {
   return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/select`, {
     method: "POST",
@@ -1253,8 +1260,18 @@ export async function selectGoogleGa4Property(
       property_id: propertyId,
       account_id: details?.accountId,
       property_name: details?.propertyName,
+      stream_id: details?.streamId,
     }),
   });
+}
+
+export async function listGoogleGa4Streams(
+  connectionId: string,
+  propertyId: string
+): Promise<{ ok: boolean; streams: GoogleGa4Stream[] }> {
+  return http(
+    `/api/oauth/google/${encodeURIComponent(connectionId)}/ga4/streams?property_id=${encodeURIComponent(propertyId)}`
+  );
 }
 
 export async function listGoogleAdsAccounts(
@@ -1299,6 +1316,15 @@ export async function discoverClientMetaAssets(
 export async function discoverPendingClientMetaAssets(): Promise<MetaDiscoverAssetsResponse> {
   return http<MetaDiscoverAssetsResponse>(
     `/api/oauth/meta/pending-assets?client_id=${encodeURIComponent(getActiveClientId())}`
+  );
+}
+
+export async function configureExistingMetaOrganic(
+  connectionId: string
+): Promise<MetaDiscoverAssetsResponse> {
+  return http<MetaDiscoverAssetsResponse>(
+    `/api/oauth/meta/${encodeURIComponent(connectionId)}/configure-organic`,
+    { method: "POST" }
   );
 }
 

@@ -128,6 +128,45 @@ def from_httpx_error(
     )
 
 
+def google_api_error(
+    response: httpx.Response,
+    *,
+    api: str,
+    unavailable_code: str,
+    operation: str,
+) -> IntegrationError:
+    try:
+        payload = response.json()
+    except (TypeError, ValueError):
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) else {}
+    details = error.get("details") if isinstance(error, dict) else []
+    reasons = {
+        str(item.get("reason") or item.get("reasonCode") or "").upper()
+        for item in (details if isinstance(details, list) else [])
+        if isinstance(item, dict)
+    }
+    message = str((error or {}).get("message") or "")[:240] if isinstance(error, dict) else ""
+    if "SERVICE_DISABLED" in reasons or "has not been used" in message.lower():
+        return IntegrationError(
+            f"A {api} não está habilitada no projeto Google OAuth.",
+            status_code=409,
+            code="GOOGLE_ADMIN_API_DISABLED" if api == "Analytics Admin API" else "GOOGLE_DATA_API_DISABLED",
+            provider="google",
+        )
+    if response.status_code == 404:
+        return IntegrationError(
+            f"O recurso Google selecionado não está mais disponível para {operation}.",
+            status_code=404, code=unavailable_code, provider="google",
+        )
+    if response.status_code == 403:
+        return IntegrationError(
+            f"A conexão Google não possui permissão para {operation}.",
+            status_code=403, code="GOOGLE_SCOPE_INSUFFICIENT", provider="google",
+        )
+    return provider_http_error("google", response.status_code, operation=operation)
+
+
 def error_status(exc: Exception, default: Optional[int] = None) -> int:
     value = getattr(exc, "status_code", None)
     if isinstance(value, int):

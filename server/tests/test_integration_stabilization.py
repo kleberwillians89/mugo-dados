@@ -1,0 +1,183 @@
+import json
+import unittest
+from unittest.mock import AsyncMock, patch
+
+import httpx
+
+from server.services import ga4_sync, generic_connections, google_oauth, meta_oauth
+from server.services.integration_errors import google_api_error
+
+
+class GoogleProductIsolationTests(unittest.IsolatedAsyncioTestCase):
+    def test_ga4_provider_without_scope_is_not_authorized(self):
+        capabilities = generic_connections.google_capabilities(
+            {"provider": "ga4", "status": "connected", "scopes": ["openid"]}
+        )
+        self.assertFalse(capabilities["ga4_authorized"])
+
+    def test_ads_scope_on_ga4_connection_does_not_authorize_ads(self):
+        capabilities = generic_connections.google_capabilities(
+            {
+                "provider": "ga4",
+                "status": "connected",
+                "scopes": ["https://www.googleapis.com/auth/adwords"],
+            }
+        )
+        self.assertFalse(capabilities["ads_authorized"])
+
+    async def test_ga4_api_rejects_google_ads_connection_before_external_call(self):
+        with patch.object(
+            google_oauth,
+            "get_connection",
+            AsyncMock(
+                return_value={
+                    "provider": "google_ads",
+                    "status": "connected",
+                    "_token": '{"access_token":"not-used"}',
+                }
+            ),
+        ):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.list_ga4_properties("amalie", "ads-connection")
+        self.assertEqual(raised.exception.code, "GOOGLE_SCOPE_INSUFFICIENT")
+
+
+class ConnectionTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_connection_from_another_tenant_has_specific_error(self):
+        with patch.object(
+            generic_connections,
+            "sb_select",
+            AsyncMock(side_effect=[[], [{"id": "connection-1", "client_id": "roove"}]]),
+        ):
+            with self.assertRaises(generic_connections.IntegrationError) as raised:
+                await generic_connections.get_connection("amalie", "connection-1")
+        self.assertEqual(raised.exception.code, "OAUTH_CONNECTION_TENANT_MISMATCH")
+        self.assertEqual(raised.exception.status_code, 403)
+
+
+class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lists_pages_and_only_linked_professional_instagram(self):
+        responses = [
+            {"id": "meta-user", "name": "Amalie"},
+            {"data": [
+                {"id": "page-1", "name": "Amalie", "instagram_business_account": {"id": "ig-1", "username": "amalie"}},
+                {"id": "page-2", "name": "Sem Instagram"},
+            ]},
+        ]
+        with patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=responses)):
+            result = await meta_oauth.fetch_instagram_identity("safe-token")
+        self.assertEqual([page["page_id"] for page in result["pages"]], ["page-1", "page-2"])
+        self.assertEqual([item["ig_user_id"] for item in result["instagram_accounts"]], ["ig-1"])
+
+    async def test_missing_page_permission_is_structured(self):
+        connection = {
+            "provider": "meta", "scopes": ["ads_read"],
+            "_token": json.dumps({"access_token": "safe-token"}),
+        }
+        with patch.object(meta_oauth, "get_connection", AsyncMock(return_value=connection)):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.discover_existing_meta_organic_assets(
+                    user_id="user-amalie", client_id="amalie", connection_id="meta-1"
+                )
+        self.assertEqual(raised.exception.code, "META_PERMISSION_MISSING")
+
+    async def test_selecting_instagram_preserves_existing_meta_ads(self):
+        handoff = {
+            "handoff": "handoff-1", "user_id": "user-amalie", "client_id": "amalie",
+            "encrypted_access_token": "encrypted", "meta_user_json": {"id": "meta-user", "name": "Amalie"},
+            "instagram_accounts_json": [{
+                "ig_user_id": "ig-1", "username": "amalie", "business_id": "page-1", "business_name": "Amalie",
+            }],
+            "ad_accounts_json": [], "scopes_json": ["instagram_basic", "instagram_manage_insights"],
+        }
+        previous = {"metadata": {
+            "selected_ad_account_id": "act_673785144083881",
+            "selected_ad_account_name": "Amalie Ads",
+            "ad_account_ids": ["act_673785144083881"],
+        }}
+        upsert = AsyncMock(return_value={"id": "generic-meta"})
+        with (
+            patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff)),
+            patch.object(meta_oauth, "decrypt_secret", return_value="safe-token"),
+            patch.object(meta_oauth, "encrypt_secret", return_value="encrypted"),
+            patch.object(meta_oauth, "sb_select", AsyncMock(side_effect=[[], [], [previous]])),
+            patch.object(meta_oauth, "sb_insert", AsyncMock(return_value={"id": "organic-1", "ig_user_id": "ig-1"})),
+            patch.object(meta_oauth, "sb_update", AsyncMock()),
+            patch.object(meta_oauth, "upsert_connection", upsert),
+            patch.object(meta_oauth, "invalidate_namespace", AsyncMock()),
+        ):
+            await meta_oauth.save_connections(
+                user_id="user-amalie", client_id="amalie", handoff="handoff-1",
+                page_ids=["page-1"], instagram_ig_user_ids=["ig-1"], ad_account_ids=[],
+            )
+        metadata = upsert.await_args.kwargs["metadata"]
+        self.assertEqual(metadata["selected_ad_account_id"], "act_673785144083881")
+        self.assertEqual(metadata["ad_account_ids"], ["act_673785144083881"])
+        self.assertEqual(metadata["coverage"], "full")
+
+
+class Ga4StructuredErrorTests(unittest.TestCase):
+    def test_admin_api_disabled_has_specific_code(self):
+        request = httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries")
+        response = httpx.Response(403, request=request, json={"error": {
+            "message": "Analytics Admin API has not been used in project",
+            "details": [{"reason": "SERVICE_DISABLED"}],
+        }})
+        error = google_api_error(
+            response, api="Analytics Admin API",
+            unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE", operation="listar propriedades",
+        )
+        self.assertEqual(error.code, "GOOGLE_ADMIN_API_DISABLED")
+
+    def test_data_api_disabled_has_specific_code(self):
+        request = httpx.Request("POST", "https://analyticsdata.googleapis.com/v1beta/properties/1:runReport")
+        response = httpx.Response(403, request=request, json={"error": {
+            "message": "Google Analytics Data API has not been used",
+            "details": [{"reason": "SERVICE_DISABLED"}],
+        }})
+        error = google_api_error(
+            response, api="Analytics Data API",
+            unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE", operation="sincronizar",
+        )
+        self.assertEqual(error.code, "GOOGLE_DATA_API_DISABLED")
+
+    def test_daily_persistence_keeps_client_and_period(self):
+        rows = ga4_sync._daily_upsert_rows(
+            client_id="amalie", property_id="123",
+            daily_rows=[{"values": {"date": "20260803", "sessions": "2"}}],
+            funnel_by_date={},
+        )
+        self.assertEqual(rows[0]["client_id"], "amalie")
+        self.assertEqual(rows[0]["stat_date"], "2026-08-03")
+
+
+class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_revoked_refresh_token_requires_reconnection(self):
+        response = httpx.Response(
+            400,
+            request=httpx.Request("POST", "https://oauth2.googleapis.com/token"),
+            json={"error": "invalid_grant"},
+        )
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, *args, **kwargs):
+                return response
+
+        row = {
+            "provider": "ga4", "status": "connected",
+            "_token": json.dumps({"refresh_token": "revoked"}),
+        }
+        with (
+            patch.object(google_oauth, "get_connection", AsyncMock(return_value=row)),
+            patch.object(google_oauth, "settings", return_value={"client_id": "id", "client_secret": "secret"}),
+            patch.object(google_oauth.httpx, "AsyncClient", return_value=FakeClient()),
+        ):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.get_google_access_token("amalie", "ga4-1")
+        self.assertEqual(raised.exception.code, "GOOGLE_REAUTH_REQUIRED")

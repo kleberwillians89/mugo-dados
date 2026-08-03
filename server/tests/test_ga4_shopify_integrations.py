@@ -83,7 +83,7 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                     client_id="roove",
                     authorization="Bearer safe",
                 )
-        self.assertEqual(getattr(raised.exception, "code", ""), "GOOGLE_INSUFFICIENT_SCOPE")
+        self.assertEqual(getattr(raised.exception, "code", ""), "GOOGLE_SCOPE_INSUFFICIENT")
         list_properties.assert_not_awaited()
 
     async def test_ga4_property_discovery_uses_tenant_read_permission(self):
@@ -123,6 +123,11 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 "update_connection_selection",
                 AsyncMock(return_value={"id": "google-connection"}),
             ) as update,
+            patch.object(
+                google_routes,
+                "list_ga4_streams",
+                AsyncMock(return_value=[{"name": "properties/123456/dataStreams/stream-1", "display_name": "Web"}]),
+            ),
         ):
             await google_routes.select_ga4(
                 "google-connection",
@@ -130,6 +135,7 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                     "property_id": "properties/123456",
                     "account_id": "accounts/789",
                     "property_name": "Roove Web",
+                    "stream_id": "stream-1",
                 },
                 client_id="roove",
                 authorization="Bearer safe",
@@ -145,7 +151,10 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 metadata={"google_ads_customer_id": "1234567890", "ads_developer_token_configured": True},
                 status="connected",
             )
-            | {"scopes": ["openid", "email", "https://www.googleapis.com/auth/adwords"]}
+            | {
+                "provider": "google_ads",
+                "scopes": ["openid", "email", "https://www.googleapis.com/auth/adwords"],
+            }
         )
         self.assertTrue(capabilities["ads_authorized"])
         self.assertTrue(capabilities["ads_configured"])
@@ -156,7 +165,10 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
     def test_ads_oauth_without_developer_token_is_setup_required(self):
         capabilities = google_capabilities(
             google_row(metadata={"ads_developer_token_configured": False})
-            | {"scopes": ["https://www.googleapis.com/auth/adwords"]}
+            | {
+                "provider": "google_ads",
+                "scopes": ["https://www.googleapis.com/auth/adwords"],
+            }
         )
         self.assertTrue(capabilities["ads_authorized"])
         self.assertFalse(capabilities["ads_configured"])

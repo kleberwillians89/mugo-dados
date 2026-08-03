@@ -59,19 +59,24 @@ async def _fetch_total_value_metrics(
     return out
 
 
-async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str, int]:
+async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str, Any]:
     """
     KPIs do PERFIL (snapshot do dia).
     """
-    base_metrics = "reach,profile_views,website_clicks,accounts_engaged,total_interactions"
-    out = await _fetch_total_value_metrics(ig_user_id, access_token, base_metrics)
+    out: Dict[str, Any] = {}
+    unavailable: List[str] = []
+    for metric in ("reach", "profile_views", "website_clicks", "accounts_engaged", "total_interactions"):
+        try:
+            out.update(await _fetch_total_value_metrics(ig_user_id, access_token, metric))
+        except Exception:
+            unavailable.append(metric)
 
     views_val = 0
     try:
         vv = await _fetch_total_value_metrics(ig_user_id, access_token, "views")
         views_val = int(vv.get("views") or 0)
     except Exception:
-        views_val = 0
+        unavailable.append("views")
 
     imp_val = 0
     if views_val == 0:
@@ -79,10 +84,16 @@ async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str
             imp = await _fetch_total_value_metrics(ig_user_id, access_token, "impressions")
             imp_val = int(imp.get("impressions") or 0)
         except Exception:
-            imp_val = 0
+            unavailable.append("impressions")
 
-    out["views"] = int(views_val)
-    out["impressions"] = int(views_val or imp_val or 0)
+    if views_val:
+        out["views"] = int(views_val)
+    if views_val or imp_val:
+        out["impressions"] = int(views_val or imp_val)
+    out["available_metrics"] = sorted(
+        key for key in out.keys() if key not in {"available_metrics", "unavailable_metrics"}
+    )
+    out["unavailable_metrics"] = sorted(set(unavailable) - set(out["available_metrics"]))
     return out
 
 
@@ -137,14 +148,27 @@ def media_metrics_for(product_type: str) -> str:
 
 async def fetch_media_insights(
     media_id: str, access_token: str, product_type: str
-) -> Dict[str, int]:
-    metrics = media_metrics_for(product_type)
-    resp = await meta_get_json(
-        f"/{media_id}/insights",
-        {"metric": metrics, "access_token": _clean_token(access_token)},
-    )
-    out: Dict[str, int] = {}
-    for item in resp.get("data", []):
+) -> Dict[str, Any]:
+    metric_names = media_metrics_for(product_type).split(",")
+    responses: List[Dict[str, Any]] = []
+    unavailable: List[str] = []
+    try:
+        responses.append(await meta_get_json(
+            f"/{media_id}/insights",
+            {"metric": ",".join(metric_names), "access_token": _clean_token(access_token)},
+        ))
+    except Exception:
+        for metric in metric_names:
+            try:
+                responses.append(await meta_get_json(
+                    f"/{media_id}/insights",
+                    {"metric": metric, "access_token": _clean_token(access_token)},
+                ))
+            except Exception:
+                unavailable.append(metric)
+    out: Dict[str, Any] = {}
+    for resp in responses:
+      for item in resp.get("data", []):
         name = item.get("name")
         values = item.get("values") or []
         if values and isinstance(values, list):
@@ -152,6 +176,8 @@ async def fetch_media_insights(
         else:
             tv = (item.get("total_value") or {}).get("value")
             out[name] = int(tv or 0)
+    out["available_metrics"] = sorted(key for key in out if key not in {"available_metrics", "unavailable_metrics"})
+    out["unavailable_metrics"] = sorted(set(unavailable))
     return out
 
 

@@ -15,9 +15,15 @@ from .single_tenant import resolve_ga4_context_for_client
 GA4_FUNNEL_EVENTS = ("view_item", "add_to_cart", "begin_checkout", "purchase")
 GA4_REPORT_METRICS = (
     "sessions",
+    "engagedSessions",
+    "engagementRate",
     "activeUsers",
     "totalUsers",
+    "newUsers",
+    "screenPageViews",
     "eventCount",
+    "keyEvents",
+    "transactions",
     "ecommercePurchases",
     "purchaseRevenue",
     "totalRevenue",
@@ -280,9 +286,15 @@ def _daily_upsert_rows(
                 "property_id": property_id,
                 "stat_date": stat_date,
                 "sessions": _safe_int(values.get("sessions")),
+                "engaged_sessions": _safe_int(values.get("engagedSessions")),
+                "engagement_rate": _safe_float(values.get("engagementRate")),
                 "active_users": _safe_int(values.get("activeUsers")),
                 "total_users": _safe_int(values.get("totalUsers")),
+                "new_users": _safe_int(values.get("newUsers")),
+                "screen_page_views": _safe_int(values.get("screenPageViews")),
                 "event_count": _safe_int(values.get("eventCount")),
+                "key_events": _safe_int(values.get("keyEvents")),
+                "transactions": _safe_int(values.get("transactions")),
                 "ecommerce_purchases": _safe_int(values.get("ecommercePurchases")),
                 "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
                 "total_revenue": round(_safe_float(values.get("totalRevenue")), 2),
@@ -398,6 +410,38 @@ def _event_upsert_rows(
     return payload_rows
 
 
+def _landing_upsert_rows(
+    *, client_id: str, property_id: str, rows: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    now_iso = _utc_now_iso()
+    payload_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        values = row.get("values") or {}
+        stat_date = _ga4_date_to_iso(values.get("date"))
+        landing_page = _safe_str(values.get("landingPagePlusQueryString")) or "(not set)"
+        if not stat_date:
+            continue
+        payload_rows.append({
+            "client_id": client_id,
+            "property_id": property_id,
+            "stat_date": stat_date,
+            "landing_page": landing_page,
+            "device_category": _safe_str(values.get("deviceCategory")) or "(not set)",
+            "source": _safe_str(values.get("sessionSource")),
+            "medium": _safe_str(values.get("sessionMedium")),
+            "campaign_name": _safe_str(values.get("sessionCampaignName")) or "(not set)",
+            "sessions": _safe_int(values.get("sessions")),
+            "active_users": _safe_int(values.get("activeUsers")),
+            "engaged_sessions": _safe_int(values.get("engagedSessions")),
+            "screen_page_views": _safe_int(values.get("screenPageViews")),
+            "key_events": _safe_int(values.get("keyEvents")),
+            "transactions": _safe_int(values.get("transactions")),
+            "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
+            "updated_at": now_iso,
+        })
+    return payload_rows
+
+
 async def sync_ga4_for_period(
     *,
     since: Optional[str] = None,
@@ -471,6 +515,21 @@ async def sync_ga4_for_period(
             metrics=("eventCount", "totalUsers"),
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
+        landing_report = await run_ga4_report(
+            property_id=resolved_property_id,
+            access_token=access_token,
+            start_date=period.start.isoformat(),
+            end_date=period.end.isoformat(),
+            dimensions=(
+                "date", "sessionSource", "sessionMedium", "sessionCampaignName",
+                "landingPagePlusQueryString", "deviceCategory",
+            ),
+            metrics=(
+                "sessions", "activeUsers", "engagedSessions", "screenPageViews",
+                "keyEvents", "transactions", "purchaseRevenue",
+            ),
+            order_bys=[{"dimension": {"dimensionName": "date"}}],
+        )
 
         funnel_by_date = _event_funnel_by_date(event_report.get("rows") or [])
 
@@ -494,6 +553,11 @@ async def sync_ga4_for_period(
             client_id=resolved_client_id,
             property_id=resolved_property_id,
             rows=event_report.get("rows") or [],
+        )
+        landing_rows = _landing_upsert_rows(
+            client_id=resolved_client_id,
+            property_id=resolved_property_id,
+            rows=landing_report.get("rows") or [],
         )
 
         if daily_rows:
@@ -520,8 +584,17 @@ async def sync_ga4_for_period(
                 rows=event_rows,
                 on_conflict="client_id,property_id,stat_date,event_name",
             )
+        if landing_rows:
+            await _upsert_with_compatibility(
+                table="ga4_landing_page_stats",
+                rows=landing_rows,
+                on_conflict=(
+                    "client_id,property_id,stat_date,landing_page,device_category,"
+                    "source,medium,campaign_name"
+                ),
+            )
 
-        rows_upserted = len(daily_rows) + len(channel_rows) + len(campaign_rows) + len(event_rows)
+        rows_upserted = len(daily_rows) + len(channel_rows) + len(campaign_rows) + len(event_rows) + len(landing_rows)
         payload = {
             "ok": True,
             "client_id": resolved_client_id,
@@ -536,6 +609,7 @@ async def sync_ga4_for_period(
                 "channels": len(channel_rows),
                 "campaigns": len(campaign_rows),
                 "events": len(event_rows),
+                "landing_pages": len(landing_rows),
                 "total": rows_upserted,
             },
             "source_row_count": {
@@ -543,6 +617,7 @@ async def sync_ga4_for_period(
                 "channels": _safe_int(channel_report.get("row_count")),
                 "campaigns": _safe_int(campaign_report.get("row_count")),
                 "events": _safe_int(event_report.get("row_count")),
+                "landing_pages": _safe_int(landing_report.get("row_count")),
             },
             "job_run_id": _safe_str((job_run or {}).get("id")) or None,
         }

@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   disconnectClientConnection,
+  configureExistingMetaOrganic,
   ApiError,
   disconnectGenericConnection,
   discoverClientMetaAssets,
-  discoverPendingClientMetaAssets,
   linkClientAssets,
   listClientConnections,
   listClientMetaAdsAccounts,
   listGenericConnections,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
+  listGoogleGa4Streams,
   refreshAll,
   selectGoogleAdsAccount,
   selectGoogleGa4Property,
@@ -22,6 +23,7 @@ import {
   type GenericConnection,
   type GoogleAdsAccount,
   type GoogleGa4Property,
+  type GoogleGa4Stream,
   type MetaAdsSelectableAccount,
   startClientMetaOAuth,
   startGoogleOAuth,
@@ -182,8 +184,10 @@ export default function Onboarding({
   const [googlePickerId, setGooglePickerId] = useState<string | null>(null);
   const [googlePickerProduct, setGooglePickerProduct] = useState<"ga4" | "ads" | null>(null);
   const [googleProperties, setGoogleProperties] = useState<GoogleGa4Property[]>([]);
+  const [googleStreams, setGoogleStreams] = useState<GoogleGa4Stream[]>([]);
   const [googleAdsAccounts, setGoogleAdsAccounts] = useState<GoogleAdsAccount[]>([]);
   const [selectedGoogleProperty, setSelectedGoogleProperty] = useState("");
+  const [selectedGoogleStream, setSelectedGoogleStream] = useState("");
   const [selectedGoogleAds, setSelectedGoogleAds] = useState("");
   const [googleAdsNotice, setGoogleAdsNotice] = useState("");
   const [metaAdsPickerOpen, setMetaAdsPickerOpen] = useState(false);
@@ -196,7 +200,7 @@ export default function Onboarding({
   const prepareMetaAssets = useCallback((data: MetaDiscoverAssetsResponse) => {
     setPendingAssets(data);
     setSelectedIg(Object.fromEntries((data.instagram_accounts || []).map((item) => [String(item.ig_user_id || ""), true]).filter(([id]) => id)));
-    setSelectedPages(Object.fromEntries((data.pages || []).map((item) => [String(item.page_id || ""), true]).filter(([id]) => id)));
+    setSelectedPages(Object.fromEntries((data.instagram_accounts || []).map((item) => [String(item.business_id || ""), true]).filter(([id]) => id)));
     setSelectedAds(Object.fromEntries((data.ad_accounts || []).map((item) => [String(item.ad_account_id || ""), true]).filter(([id]) => id)));
   }, []);
 
@@ -289,16 +293,15 @@ export default function Onboarding({
             setGooglePickerProduct("ga4");
             setGoogleProperties(properties);
             if (properties.length === 1) {
-            const propertyId = String(properties[0].property || "");
-            await selectGoogleGa4Property(connectionId, propertyId, {
-              accountId: properties[0].account,
-              propertyName: properties[0].property_name,
-            });
-            await syncGoogleConnection(connectionId);
-            await loadConnections();
-            setGooglePickerId(null);
-            setGooglePickerProduct(null);
-            setInfo("Google conectado, propriedade GA4 selecionada e importação inicial concluída.");
+              const propertyId = String(properties[0].property || "");
+              const streamResponse = await listGoogleGa4Streams(connectionId, propertyId);
+              const streams = streamResponse.streams || [];
+              setSelectedGoogleProperty(propertyId);
+              setGoogleStreams(streams);
+              if (streams.length === 1) {
+                setSelectedGoogleStream(String(streams[0].name || "").split("/").pop() || "");
+              }
+              setInfo("Google Analytics autorizado. Confirme a propriedade e o stream para concluir.");
             } else {
               setInfo("Google Analytics autorizado. Selecione a propriedade GA4 para concluir.");
             }
@@ -421,9 +424,10 @@ export default function Onboarding({
     try {
       const data = handoff
         ? await discoverClientMetaAssets(handoff)
-        : await discoverPendingClientMetaAssets();
+        : await configureExistingMetaOrganic(connection.id);
       prepareMetaAssets(data);
-      setInfo("Ativos Meta carregados. Revise a seleção e salve para concluir.");
+      if (!handoff) setSelectedAds({});
+      setInfo(data.message || "Ativos Meta carregados. Revise a seleção e salve para concluir.");
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível carregar os ativos Meta autorizados."));
     } finally {
@@ -641,6 +645,7 @@ export default function Onboarding({
         setGoogleAdsNotice(ads.reason || "");
       }
       setSelectedGoogleProperty(String(connection.metadata?.ga4_property_id || ""));
+      setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
       setSelectedGoogleAds(String(connection.metadata?.google_ads_customer_id || ""));
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível consultar os ativos Google."));
@@ -655,6 +660,10 @@ export default function Onboarding({
       setErr("Selecione uma propriedade GA4.");
       return;
     }
+    if (googlePickerProduct === "ga4" && !selectedGoogleStream) {
+      setErr("Selecione um stream da propriedade GA4.");
+      return;
+    }
     if (googlePickerProduct === "ads" && !selectedGoogleAds) {
       setErr("Selecione uma conta Google Ads.");
       return;
@@ -667,6 +676,7 @@ export default function Onboarding({
         await selectGoogleGa4Property(googlePickerId, selectedGoogleProperty, {
           accountId: property?.account,
           propertyName: property?.property_name,
+          streamId: selectedGoogleStream,
         });
         await syncGoogleConnection(googlePickerId);
       } else if (selectedGoogleAds) {
@@ -678,6 +688,28 @@ export default function Onboarding({
       setInfo(googlePickerProduct === "ga4" ? "Propriedade GA4 salva e sincronizada." : "Conta Google Ads salva.");
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível salvar a seleção Google."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSelectGooglePropertyForStreams(propertyId: string) {
+    setSelectedGoogleProperty(propertyId);
+    setSelectedGoogleStream("");
+    setGoogleStreams([]);
+    if (!googlePickerId || !propertyId) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const response = await listGoogleGa4Streams(googlePickerId, propertyId);
+      const streams = response.streams || [];
+      setGoogleStreams(streams);
+      if (streams.length === 1) {
+        setSelectedGoogleStream(String(streams[0].name || "").split("/").pop() || "");
+      }
+      if (!streams.length) setErr("A propriedade não possui streams acessíveis.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível listar os streams da propriedade."));
     } finally {
       setSaving(false);
     }
@@ -849,9 +881,9 @@ export default function Onboarding({
               );
               const matchingConnections =
                 definition.id === "ga4"
-                  ? googleConnections.filter((item) => item.capabilities?.ga4_authorized || item.provider === "ga4")
+                  ? googleConnections.filter((item) => item.capabilities?.ga4_authorized === true)
                   : definition.id === "google_ads"
-                    ? googleConnections.filter((item) => item.capabilities?.ads_authorized || item.provider === "google_ads")
+                    ? googleConnections.filter((item) => item.capabilities?.ads_authorized === true)
                     : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
               const connection =
                 definition.id === "shopify"
@@ -870,6 +902,8 @@ export default function Onboarding({
                 ? "Autorização incompleta"
                 : productStatus === "property_required"
                   ? "Propriedade pendente"
+                : productStatus === "stream_required"
+                  ? "Stream pendente"
                 : productStatus === "account_required"
                   ? "Conta pendente"
                   : productStatus === "setup_required"
@@ -909,6 +943,10 @@ export default function Onboarding({
                   <span className={`integrationLight is-${tone}`} aria-hidden="true" />
                   <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : status}</strong>
                 </div>
+                {definition.id === "meta" ? <div className="smallMuted" style={{ marginTop: 8 }}>
+                  Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
+                  Instagram orgânico: {dashboardReady ? "conectado" : "configuração pendente"}
+                </div> : null}
                 {(definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name) ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
@@ -979,6 +1017,14 @@ export default function Onboarding({
                   <div className="onboardingConnActions" style={{ marginTop: 10 }}>
                     {definition.id === "meta" ? (
                       <>
+                        {!dashboardReady ? <button
+                          className="btn btnGhost"
+                          type="button"
+                          disabled={!canManageConnections || saving}
+                          onClick={() => connection && void onResumeMetaSelection(connection)}
+                        >
+                          Configurar Instagram orgânico
+                        </button> : null}
                         <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving} onClick={() => void onOpenMetaAdsPicker()}>
                           Selecionar conta
                         </button>
@@ -1029,13 +1075,21 @@ export default function Onboarding({
             <div className="p">A seleção será vinculada somente à empresa ativa.</div>
             {googlePickerProduct === "ga4" ? <label className="smallMuted">
               Propriedade GA4
-              <select value={selectedGoogleProperty} onChange={(event) => setSelectedGoogleProperty(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
+              <select value={selectedGoogleProperty} onChange={(event) => void onSelectGooglePropertyForStreams(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
                 <option value="">Selecione uma propriedade</option>
                 {googleProperties.map((property) => (
                   <option key={property.property} value={property.property}>
                     {property.account_name || "Conta"} — {property.property_name || property.property}
                   </option>
                 ))}
+              </select>
+              <span style={{ display: "block", marginTop: 14 }}>Stream GA4</span>
+              <select value={selectedGoogleStream} onChange={(event) => setSelectedGoogleStream(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
+                <option value="">Selecione um stream</option>
+                {googleStreams.map((stream) => {
+                  const streamId = String(stream.name || "").split("/").pop() || "";
+                  return <option key={stream.name || streamId} value={streamId}>{stream.display_name || streamId} — {stream.type || "STREAM"}</option>;
+                })}
               </select>
             </label> : null}
             {googlePickerProduct === "ads" ? <label className="smallMuted" style={{ display: "block", marginTop: 14 }}>
@@ -1123,9 +1177,15 @@ export default function Onboarding({
                   <div className="onboardingChecks">
                     {(pendingAssets.pages || []).map((page: MetaDiscoveredPageAsset) => (
                       <label key={page.page_id} className="onboardingCheck">
+                        {(() => {
+                          const linked = (pendingAssets.instagram_accounts || []).some(
+                            (ig) => String(ig.business_id || "") === String(page.page_id || "")
+                          );
+                          return <>
                         <input
                           type="checkbox"
                           checked={Boolean(selectedPages[page.page_id])}
+                          disabled={!linked}
                           onChange={(event) =>
                             setSelectedPages((prev) => ({
                               ...prev,
@@ -1133,7 +1193,9 @@ export default function Onboarding({
                             }))
                           }
                         />
-                        <span>{page.page_name || page.page_id} <span className="smallMuted">({page.page_id})</span></span>
+                        <span>{page.page_name || page.page_id} <span className="smallMuted">({linked ? page.page_id : "sem Instagram profissional"})</span></span>
+                          </>;
+                        })()}
                       </label>
                     ))}
                   </div>

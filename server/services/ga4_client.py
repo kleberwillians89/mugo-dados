@@ -12,7 +12,7 @@ from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 
 from .single_tenant import get_default_ga4_property_id
-from .integration_errors import from_httpx_error
+from .integration_errors import google_api_error
 
 GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta"
@@ -210,15 +210,18 @@ async def run_ga4_report(
                 dimension_filter=dimension_filter,
                 order_bys=order_bys,
             )
+            response: httpx.Response | None = None
             try:
                 response = await client.post(url, headers=headers, json=body)
                 response.raise_for_status()
             except Exception as exc:
-                raise from_httpx_error(
-                    "google",
-                    exc,
-                    operation="consultar a propriedade GA4",
-                ) from exc
+                if response is not None:
+                    raise google_api_error(
+                        response, api="Analytics Data API",
+                        unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE",
+                        operation="consultar a propriedade GA4",
+                    ) from exc
+                raise
             response_payload = response.json()
 
             parsed_rows = _parse_response_rows(response_payload)

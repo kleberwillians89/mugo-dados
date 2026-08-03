@@ -140,6 +140,18 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
         f"method={request.method} path={request.url.path} "
         f"provider={exc.provider} code={exc.code} status={exc.status_code}"
     )
+    reauth_required = exc.code in {
+        "GOOGLE_TOKEN_EXPIRED", "GOOGLE_REAUTH_REQUIRED",
+        "GOOGLE_SCOPE_INSUFFICIENT", "META_TOKEN_EXPIRED", "META_REAUTH_REQUIRED",
+        "META_PERMISSION_MISSING",
+    }
+    setup_required = exc.code == "GOOGLE_ADS_SETUP_REQUIRED"
+    detail = {
+        "code": exc.code,
+        "message": exc.public_message,
+        "reauth_required": reauth_required,
+        "setup_required": setup_required,
+    }
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -151,6 +163,9 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
             "retryable": exc.retryable,
             "path": request.url.path,
             "request_id": str(getattr(request.state, "request_id", "") or ""),
+            "reauth_required": reauth_required,
+            "setup_required": setup_required,
+            "detail": detail,
         },
     )
 
@@ -282,6 +297,8 @@ async def api_stories(
             cache_hit=cache_hit,
         )
         return payload
+    except IntegrationError:
+        raise
     except HTTPException as exc:
         _log_endpoint_error(
             endpoint=endpoint,
@@ -751,6 +768,8 @@ async def api_ads_sync(
             end=payload_until,
         )
         return result
+    except IntegrationError:
+        raise
     except HTTPException as exc:
         _log_endpoint_error(
             endpoint=endpoint,
