@@ -221,6 +221,38 @@ class Ga4StructuredErrorTests(unittest.TestCase):
 
 
 class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_expired_access_token_refreshes_and_lists_properties(self):
+        token_response = httpx.Response(
+            200, request=httpx.Request("POST", "https://oauth2.googleapis.com/token"),
+            json={"access_token": "new-access", "expires_in": 3600},
+        )
+        admin_response = httpx.Response(
+            200, request=httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries"),
+            json={"accountSummaries": [{"account": "accounts/1", "displayName": "Amalie", "propertySummaries": [{"property": "properties/2", "displayName": "Site"}]}]},
+        )
+
+        class FakeClient:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return None
+            async def post(self, *args, **kwargs): return token_response
+            async def get(self, *args, **kwargs): return admin_response
+
+        row = {
+            "provider": "ga4", "status": "connected", "disconnected_at": None,
+            "_token": json.dumps({"access_token": "expired", "refresh_token": "valid", "expires_at": "2020-01-01T00:00:00+00:00"}),
+        }
+        update = AsyncMock()
+        with (
+            patch.object(google_oauth, "get_connection", AsyncMock(return_value=row)),
+            patch.object(google_oauth, "settings", return_value={"client_id": "id", "client_secret": "secret"}),
+            patch.object(google_oauth, "encrypt_secret", return_value="encrypted-new-token"),
+            patch.object(google_oauth, "sb_update", update),
+            patch.object(google_oauth.httpx, "AsyncClient", return_value=FakeClient()),
+        ):
+            properties = await google_oauth.list_ga4_properties("amalie", "ga4-1", request_id="req-1")
+        self.assertEqual(properties[0]["property"], "properties/2")
+        update.assert_awaited_once()
+
     async def test_revoked_refresh_token_requires_reconnection(self):
         response = httpx.Response(
             400,
@@ -250,3 +282,4 @@ class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(google_oauth.IntegrationError) as raised:
                 await google_oauth.get_google_access_token("amalie", "ga4-1")
         self.assertEqual(raised.exception.code, "GOOGLE_REAUTH_REQUIRED")
+        self.assertEqual(raised.exception.status_code, 409)

@@ -118,6 +118,19 @@ export type PlatformCompany = {
   created_at?: string | null;
 };
 
+export function isUsableGoogleConnection(
+  connection: GenericConnection,
+  provider: "ga4" | "google_ads",
+  activeClientId: string
+): boolean {
+  const status = String(connection.status || "").toLowerCase();
+  return connection.client_id === activeClientId &&
+    connection.provider === provider &&
+    ["connected", "selection_required"].includes(status) &&
+    !connection.disconnected_at &&
+    connection.token_available === true;
+}
+
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" ? (value as JsonRecord) : {};
 }
@@ -1196,6 +1209,8 @@ export type GenericConnection = {
   client_id: string;
   provider: string;
   status: string;
+  disconnected_at?: string | null;
+  token_available?: boolean;
   account_id?: string | null;
   account_name?: string | null;
   external_key?: string | null;

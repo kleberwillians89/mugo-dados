@@ -37,6 +37,26 @@ describe("professional integration states and official identity", () => {
     expect(onboarding).toContain('connectionState === "selection_required"');
   });
 
+  it("does not manage disconnected Google Ads connections", () => {
+    const onboarding = source("./Onboarding.tsx");
+    const api = source("../app/api.ts");
+    expect(onboarding).toContain('isUsableGoogleConnection(item, "google_ads", activeClientId)');
+    expect(onboarding).toContain('onStartGoogleOAuth("google_ads")');
+    expect(api).toContain('["connected", "selection_required"].includes(status)');
+    expect(api).toContain("!connection.disconnected_at");
+    expect(api).toContain("connection.token_available === true");
+  });
+
+  it("ships the manual Meta routes and explicit deployment error", () => {
+    const onboarding = source("./Onboarding.tsx");
+    const api = source("../app/api.ts");
+    expect(onboarding).toContain("Configuração avançada por ID");
+    expect(onboarding).toContain("Validar IDs");
+    expect(onboarding).toContain("Atualize o deploy do backend");
+    expect(api).toContain("manual-assets/validate");
+    expect(api).toContain("manual-assets");
+  });
+
   it("does not present disconnected commerce or empty Ads jobs as successful", () => {
     const dashboard = source("./Dashboard.tsx");
     const executive = source("../components/dashboard/ExecutiveOverview.tsx");

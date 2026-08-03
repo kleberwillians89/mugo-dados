@@ -90,7 +90,7 @@ async def callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
-    request_id = str(getattr(request.state, "request_id", "") or "-")
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
     try:
         if error:
             raise RuntimeError(f"Google recusou a autorização: {error}")
@@ -161,6 +161,7 @@ async def connections(
 @router.get("/{connection_id}/ga4/properties")
 async def ga4_properties(
     connection_id: str,
+    request: Request = None,
     client_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -174,7 +175,8 @@ async def ga4_properties(
             code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
-    properties = await list_ga4_properties(cid, connection_id)
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    properties = await list_ga4_properties(cid, connection_id, request_id=request_id)
     return {
         "ok": True,
         "properties": properties,

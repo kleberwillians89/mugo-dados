@@ -240,6 +240,7 @@ async def _access_token(
     connection_id: str,
     *,
     expected_provider: str | None = None,
+    request_id: str = "-",
 ) -> str:
     lock = _REFRESH_LOCKS.setdefault(connection_id, asyncio.Lock())
     async with lock:
@@ -269,7 +270,8 @@ async def _access_token(
                 code="GOOGLE_SCOPE_INSUFFICIENT",
                 provider="google",
             )
-        if str(row.get("status") or "").strip().lower() == "disconnected":
+        status = str(row.get("status") or "").strip().lower()
+        if status not in {"connected", "selection_required"} or row.get("disconnected_at"):
             raise IntegrationError(
                 "A conexão Google está desconectada. Reconecte antes de sincronizar.",
                 status_code=409,
@@ -285,7 +287,7 @@ async def _access_token(
                 code="GOOGLE_REAUTH_REQUIRED",
                 provider="google",
             ) from exc
-        expires_raw = str(token.get("expires_at") or "")
+        expires_raw = str(token.get("expires_at") or row.get("token_expires_at") or "")
         expires_at = (
             datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
             if expires_raw
@@ -303,9 +305,13 @@ async def _access_token(
             return access_token
         refresh_token = str(token.get("refresh_token") or "")
         if not refresh_token:
+            print(
+                f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
+                f"client_id={client_id} stage=refresh_blocked code=GOOGLE_REAUTH_REQUIRED"
+            )
             raise IntegrationError(
                 "A conexão Google requer nova autorização.",
-                status_code=401,
+                status_code=409,
                 code="GOOGLE_REAUTH_REQUIRED",
                 provider="google",
             )
@@ -328,9 +334,13 @@ async def _access_token(
             except (TypeError, ValueError):
                 refresh_error = ""
             if refresh_error in {"invalid_grant", "invalid_client", "unauthorized_client"}:
+                print(
+                    f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
+                    f"client_id={client_id} stage=refresh_failed code=GOOGLE_REAUTH_REQUIRED"
+                )
                 raise IntegrationError(
                     "A autorização Google foi revogada ou expirou. Conecte novamente.",
-                    status_code=401,
+                    status_code=409,
                     code="GOOGLE_REAUTH_REQUIRED",
                     provider="google",
                 ) from exc
@@ -364,15 +374,19 @@ async def _access_token(
             },
             returning="minimal",
         )
+        print(
+            f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
+            f"client_id={client_id} stage=refresh_succeeded code=OK"
+        )
         return access_token
 
 
-async def get_google_access_token(client_id: str, connection_id: str) -> str:
-    return await _access_token(client_id, connection_id)
+async def get_google_access_token(client_id: str, connection_id: str, *, request_id: str = "-") -> str:
+    return await _access_token(client_id, connection_id, request_id=request_id)
 
 
-async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[str, Any]]:
-    token = await _access_token(client_id, connection_id, expected_provider="ga4")
+async def list_ga4_properties(client_id: str, connection_id: str, *, request_id: str = "-") -> List[Dict[str, Any]]:
+    token = await _access_token(client_id, connection_id, expected_provider="ga4", request_id=request_id)
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
@@ -385,6 +399,7 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
         diagnostic = _sanitized_google_error(response)
         print(
             "[google_oauth][ga4_properties_error] "
+            f"request_id={request_id} connection_id={connection_id} client_id={client_id} stage=admin_api "
             f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
             f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
         )
@@ -407,6 +422,7 @@ async def list_ga4_properties(client_id: str, connection_id: str) -> List[Dict[s
             )
     print(
         "[google_oauth][ga4_properties] "
+        f"request_id={request_id} connection_id={connection_id} client_id={client_id} stage=complete "
         f"http_status={response.status_code} accounts={len(account_summaries)} properties={len(out)}"
     )
     return out

@@ -9,6 +9,7 @@ import {
   listClientConnections,
   listClientMetaAdsAccounts,
   listGenericConnections,
+  isUsableGoogleConnection,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   listGoogleGa4Streams,
@@ -290,10 +291,17 @@ export default function Onboarding({
         preserveMetaRetry = false;
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
       } else if (oauthStatus === "success") {
-        await loadConnections();
-        const connectionId = String(params.get("connection_id") || "").trim();
-        if (provider === "Google" && connectionId) {
-          const product = params.get("integration_product") === "google_ads" ? "google_ads" : "ga4";
+         await loadConnections();
+         const connectionId = String(params.get("connection_id") || "").trim();
+         if (provider === "Google" && connectionId) {
+           const product = params.get("integration_product") === "google_ads" ? "google_ads" : "ga4";
+           const callbackConnections = (await listGenericConnections()).connections || [];
+           const callbackConnection = callbackConnections.find((item) =>
+             item.id === connectionId && isUsableGoogleConnection(item, product, getActiveClientId())
+           );
+           if (!callbackConnection) {
+             throw new Error(`A conexão ${product === "google_ads" ? "Google Ads" : "GA4"} retornada não está ativa. Conecte novamente.`);
+           }
           if (product === "ga4") {
             const ga4 = await listGoogleGa4Properties(connectionId);
             const properties = ga4.properties || [];
@@ -474,7 +482,9 @@ export default function Onboarding({
       setManualMetaValidation(result);
       setInfo("Ativos validados com a autorização Meta atual. Revise os nomes antes de salvar.");
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Não foi possível validar os IDs Meta."));
+      setErr(error instanceof ApiError && error.status === 404
+        ? "A configuração manual Meta não está disponível nesta versão do servidor. Atualize o deploy do backend e tente novamente."
+        : errorMessage(error, "Não foi possível validar os IDs Meta. Verifique os IDs, permissões e o vínculo entre Página e Instagram."));
     } finally {
       setSaving(false);
     }
@@ -502,7 +512,9 @@ export default function Onboarding({
       setManualMetaValidation(null);
       setInfo("Ativos Meta validados e salvos para a empresa ativa.");
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Não foi possível salvar os ativos Meta."));
+      setErr(error instanceof ApiError && error.status === 404
+        ? "A configuração manual Meta não está disponível nesta versão do servidor. Atualize o deploy do backend e tente novamente."
+        : errorMessage(error, "Não foi possível salvar os ativos Meta. Verifique permissões e incompatibilidade entre os ativos."));
     } finally {
       setSaving(false);
     }
@@ -687,6 +699,11 @@ export default function Onboarding({
     setErr(null);
     setInfo(null);
     try {
+      const provider = product === "ga4" ? "ga4" : "google_ads";
+      if (!isUsableGoogleConnection(connection, provider, getActiveClientId())) {
+        setInfo(`Conecte ${product === "ga4" ? "o Google Analytics" : "o Google Ads"} antes de selecionar ativos.`);
+        return;
+      }
       if (product === "ga4") {
         const ga4 = await listGoogleGa4Properties(connection.id);
         setGooglePickerId(connection.id);
@@ -932,14 +949,16 @@ export default function Onboarding({
           </div>
           <div className="onboardingConnections">
             {INTEGRATION_REGISTRY.map((definition) => {
-              const googleConnections = genericConnections.filter((item) =>
-                ["ga4", "google_ads"].includes(item.provider)
-              );
+              const activeClientId = getActiveClientId();
               const matchingConnections =
                 definition.id === "ga4"
-                  ? googleConnections.filter((item) => item.capabilities?.ga4_authorized === true)
+                  ? genericConnections.filter((item) =>
+                      isUsableGoogleConnection(item, "ga4", activeClientId) && item.capabilities?.ga4_authorized === true
+                    )
                   : definition.id === "google_ads"
-                    ? googleConnections.filter((item) => item.capabilities?.ads_authorized === true)
+                    ? genericConnections.filter((item) =>
+                        isUsableGoogleConnection(item, "google_ads", activeClientId) && item.capabilities?.ads_authorized === true
+                      )
                     : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
               const connection =
                 definition.id === "shopify"
@@ -1204,8 +1223,8 @@ export default function Onboarding({
               Conta Ads: {manualMetaValidation.ad_account?.name || "não alterada"}
             </div> : null}
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
-              <button className="btn btnGhost" type="button" disabled={saving} onClick={() => void onValidateManualMetaAssets()}>{saving ? "Validando..." : "Testar IDs"}</button>
-              <button className="btn btnPrimary" type="button" disabled={saving || !manualMetaValidation} onClick={() => void onSaveManualMetaAssets()}>Salvar ativos validados</button>
+              <button className="btn btnGhost" type="button" disabled={saving} onClick={() => void onValidateManualMetaAssets()}>{saving ? "Validando..." : "Validar IDs"}</button>
+              <button className="btn btnPrimary" type="button" disabled={saving || !manualMetaValidation} onClick={() => void onSaveManualMetaAssets()}>Salvar ativos</button>
               <button className="btn btnGhost" type="button" onClick={() => { setManualMetaConnectionId(null); setManualMetaValidation(null); }}>Cancelar</button>
             </div>
           </section>

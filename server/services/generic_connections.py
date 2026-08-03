@@ -22,6 +22,7 @@ def sanitize_connection(row: Dict[str, Any]) -> Dict[str, Any]:
     }
     sanitized = {key: row.get(key) for key in allowed}
     if str(row.get("provider") or "") in {"ga4", "google_ads"}:
+        sanitized["token_available"] = bool(str(row.get("encrypted_token") or "").strip())
         sanitized["capabilities"] = google_capabilities(row)
     return sanitized
 
