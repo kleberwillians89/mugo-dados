@@ -11,6 +11,8 @@ import {
   listGenericConnections,
   getApiVersion,
   isUsableGoogleConnection,
+  selectUsableGoogleConnection,
+  selectUsableMetaConnection,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   listGoogleGa4Streams,
@@ -301,8 +303,8 @@ export default function Onboarding({
          const connectionId = String(params.get("connection_id") || "").trim();
          if (provider === "Google" && connectionId) {
            const product = params.get("integration_product") === "google_ads" ? "google_ads" : "ga4";
-           const callbackConnection = loaded.generic.find((item) =>
-             item.id === connectionId && isUsableGoogleConnection(item, product, getActiveClientId())
+           const callbackConnection = selectUsableGoogleConnection(
+             loaded.generic, product, getActiveClientId(), connectionId
            );
            if (!callbackConnection) {
              throw new Error(`A conexão ${product === "google_ads" ? "Google Ads" : "GA4"} retornada não está ativa. Conecte novamente.`);
@@ -327,7 +329,7 @@ export default function Onboarding({
               setInfo("Google Analytics autorizado. Selecione a propriedade GA4 para concluir.");
             }
           } else {
-            const ads = await listGoogleAdsAccounts(connectionId);
+            const ads = await listGoogleAdsAccounts(callbackConnection, getActiveClientId());
             setGooglePickerId(connectionId);
             setGooglePickerProduct("ads");
             setGoogleAdsAccounts(ads.accounts || []);
@@ -390,6 +392,18 @@ export default function Onboarding({
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!googlePickerId || googlePickerProduct !== "ads") return;
+    const selected = selectUsableGoogleConnection(
+      genericConnections, "google_ads", getActiveClientId(), googlePickerId
+    );
+    if (selected) return;
+    setGooglePickerId(null);
+    setGooglePickerProduct(null);
+    setSelectedGoogleAds("");
+    setGoogleAdsAccounts([]);
+  }, [genericConnections, googlePickerId, googlePickerProduct]);
+
+  useEffect(() => {
     if (!manualMetaConnectionId) return;
     window.requestAnimationFrame(() => {
       manualMetaFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -419,7 +433,7 @@ export default function Onboarding({
   const dashboardReady = organicConnections.some(
     (connection) => String(connection.status || "").toLowerCase() === "active"
   );
-  const metaGenericConnection = genericConnections.find((item) => item.provider === "meta") || null;
+  const metaGenericConnection = selectUsableMetaConnection(genericConnections, getActiveClientId());
   const selectedPaidConnection = paidConnections.find((connection) =>
     String(connection.ad_account_id || "") === String(metaGenericConnection?.metadata?.selected_ad_account_id || "")
   ) || paidConnections.find((connection) => String(connection.status || "").toLowerCase() === "active") || null;
@@ -494,12 +508,18 @@ export default function Onboarding({
   }
 
   async function onValidateManualMetaAssets() {
-    if (!manualMetaConnectionId) return;
+    const connection = selectUsableMetaConnection(
+      genericConnections, getActiveClientId(), manualMetaConnectionId
+    );
+    if (!connection) {
+      setErr(`A conexão Meta selecionada não está ativa para ${getActiveClientName()}. Selecione ou reconecte a Meta.`);
+      return;
+    }
     setSaving(true);
     setErr(null);
     setManualMetaValidation(null);
     try {
-      const result = await validateManualMetaAssets(manualMetaConnectionId, {
+      const result = await validateManualMetaAssets(connection.id, {
         page_id: manualPageId.trim() || undefined,
         instagram_id: manualInstagramId.trim() || undefined,
         ad_account_id: manualAdAccountId.trim() || undefined,
@@ -517,7 +537,13 @@ export default function Onboarding({
 
   async function onSaveManualMetaAssets() {
     if (!manualMetaConnectionId || !manualMetaValidation) return;
-    const connection = genericConnections.find((item) => item.id === manualMetaConnectionId);
+    const connection = selectUsableMetaConnection(
+      genericConnections, getActiveClientId(), manualMetaConnectionId
+    );
+    if (!connection) {
+      setErr(`A conexão Meta selecionada não está ativa para ${getActiveClientName()}. Selecione ou reconecte a Meta.`);
+      return;
+    }
     const metadata = connection?.metadata || {};
     const replacing =
       (manualPageId.trim() && metadata.selected_page_id && manualPageId.trim() !== String(metadata.selected_page_id)) ||
@@ -527,7 +553,7 @@ export default function Onboarding({
     setSaving(true);
     setErr(null);
     try {
-      await saveManualMetaAssets(manualMetaConnectionId, {
+      const result = await saveManualMetaAssets(connection.id, {
         page_id: manualPageId.trim() || undefined,
         instagram_id: manualInstagramId.trim() || undefined,
         ad_account_id: manualAdAccountId.trim() || undefined,
@@ -535,7 +561,12 @@ export default function Onboarding({
       await loadConnections();
       setManualMetaConnectionId(null);
       setManualMetaValidation(null);
-      setInfo("Ativos Meta validados e salvos para a empresa ativa.");
+      const initialSync = result.initial_sync && typeof result.initial_sync === "object"
+        ? result.initial_sync as Record<string, unknown>
+        : null;
+      setInfo(initialSync?.ok === false
+        ? "Ativos Meta salvos. A sincronização orgânica inicial será repetida em segundo plano."
+        : "Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
     } catch (error: unknown) {
       setErr(error instanceof ApiError && error.status === 404
         ? "A configuração manual Meta não está disponível nesta versão do servidor. Atualize o deploy do backend e tente novamente."
@@ -737,7 +768,7 @@ export default function Onboarding({
         setGoogleProperties(ga4.properties || []);
         if (!(ga4.properties || []).length) setInfo(ga4.message || "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.");
       } else {
-        const ads = await listGoogleAdsAccounts(connection.id);
+        const ads = await listGoogleAdsAccounts(connection, getActiveClientId());
         setGooglePickerId(connection.id);
         setGooglePickerProduct(product);
         setGoogleAdsAccounts(ads.accounts || []);
@@ -747,7 +778,7 @@ export default function Onboarding({
       setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
       setSelectedGoogleAds(String(connection.metadata?.google_ads_customer_id || ""));
     } catch (error: unknown) {
-      if (error instanceof ApiError && error.code === "GOOGLE_REAUTH_REQUIRED") {
+      if (error instanceof ApiError && error.code.startsWith("GOOGLE_REAUTH_REQUIRED")) {
         setGoogleReconnectProduct(product === "ga4" ? "ga4" : "google_ads");
       }
       setErr(errorMessage(error, product === "ga4"
@@ -993,14 +1024,20 @@ export default function Onboarding({
               const activeClientId = getActiveClientId();
               const matchingConnections =
                 definition.id === "ga4"
-                  ? genericConnections.filter((item) =>
-                      isUsableGoogleConnection(item, "ga4", activeClientId) && item.capabilities?.ga4_authorized === true
-                    )
+                  ? [selectUsableGoogleConnection(
+                      genericConnections.filter((item) => item.capabilities?.ga4_authorized === true),
+                      "ga4", activeClientId
+                    )].filter((item): item is GenericConnection => Boolean(item))
                   : definition.id === "google_ads"
-                    ? genericConnections.filter((item) =>
-                        isUsableGoogleConnection(item, "google_ads", activeClientId) && item.capabilities?.ads_authorized === true
-                      )
-                    : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
+                    ? [selectUsableGoogleConnection(
+                        genericConnections.filter((item) => item.capabilities?.ads_authorized === true),
+                        "google_ads", activeClientId
+                      )].filter((item): item is GenericConnection => Boolean(item))
+                    : definition.id === "meta"
+                      ? [selectUsableMetaConnection(genericConnections, activeClientId)].filter(
+                          (item): item is GenericConnection => Boolean(item)
+                        )
+                      : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
               const connection =
                 definition.id === "shopify"
                   ? matchingConnections.find(
@@ -1246,6 +1283,9 @@ export default function Onboarding({
           <section ref={manualMetaFormRef} className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">Configuração avançada por ID</div>
             <div className="p">Use IDs exibidos no Meta Business Suite. Os ativos serão consultados com a autorização atual antes de salvar; nenhum token é exibido.</div>
+            <div className="smallMuted" data-testid="manual-meta-debug">
+              Conexão Meta selecionada: {manualMetaConnectionId.slice(0, 8)} · Tenant: {getActiveClientId()}
+            </div>
             <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
               Facebook Page ID — encontrado nas informações da Página
               <input value={manualPageId} onChange={(event) => { setManualPageId(event.target.value); setManualMetaValidation(null); }} placeholder="Ex.: 123456789012345" style={{ width: "100%", marginTop: 6 }} />

@@ -26,31 +26,43 @@ GOOGLE_PRODUCT_SCOPES = {
 _REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
-def _legacy_token_value(row: Dict[str, Any], column: str) -> str:
+def _legacy_token_value(row: Dict[str, Any], column: str, token_key: str) -> str:
     encrypted = str(row.get(column) or "").strip()
     if not encrypted:
         return ""
     try:
-        return str(decrypt_secret(encrypted) or "").strip()
+        decrypted = str(decrypt_secret(encrypted) or "").strip()
     except (RuntimeError, TypeError, ValueError):
         return ""
+    if not decrypted:
+        return ""
+    try:
+        decoded = json.loads(decrypted)
+    except (TypeError, ValueError):
+        return decrypted
+    if isinstance(decoded, dict):
+        return str(decoded.get(token_key) or decoded.get("token") or "").strip()
+    return decrypted if isinstance(decoded, str) else ""
 
 
 def _connection_token_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    raw_token = str(row.get("_token") or "").strip()
     try:
-        token = json.loads(str(row.get("_token") or "{}"))
+        token = json.loads(raw_token or "{}")
         if not isinstance(token, dict):
-            token = {}
+            token = {"access_token": str(token).strip()} if isinstance(token, str) else {}
     except (TypeError, ValueError):
-        token = {}
+        # Alguns registros transitórios gravaram encrypted_token como token
+        # puro, antes da padronização do envelope JSON.
+        token = {"access_token": raw_token} if raw_token else {}
     # Compatibilidade com o schema anterior. Os valores só são usados quando
     # realmente existem e podem ser descriptografados; nenhum token é criado.
     if not str(token.get("access_token") or "").strip():
-        access_token = _legacy_token_value(row, "encrypted_access_token")
+        access_token = _legacy_token_value(row, "encrypted_access_token", "access_token")
         if access_token:
             token["access_token"] = access_token
     if not str(token.get("refresh_token") or "").strip():
-        refresh_token = _legacy_token_value(row, "encrypted_refresh_token")
+        refresh_token = _legacy_token_value(row, "encrypted_refresh_token", "refresh_token")
         if refresh_token:
             token["refresh_token"] = refresh_token
     if not str(token.get("expires_at") or "").strip() and row.get("token_expires_at"):
@@ -331,12 +343,12 @@ async def _access_token(
         if not refresh_token:
             print(
                 f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
-                f"client_id={client_id} stage=refresh_blocked code=GOOGLE_REAUTH_REQUIRED"
+                f"client_id={client_id} stage=refresh_blocked code=GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING"
             )
             raise IntegrationError(
                 "A conexão Google requer nova autorização.",
                 status_code=409,
-                code="GOOGLE_REAUTH_REQUIRED",
+                code="GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING",
                 provider="google",
             )
         config = settings()
@@ -360,12 +372,12 @@ async def _access_token(
             if refresh_error in {"invalid_grant", "invalid_client", "unauthorized_client"}:
                 print(
                     f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
-                    f"client_id={client_id} stage=refresh_failed code=GOOGLE_REAUTH_REQUIRED"
+                    f"client_id={client_id} stage=refresh_failed code=GOOGLE_REAUTH_REQUIRED_INVALID_GRANT"
                 )
                 raise IntegrationError(
                     "A autorização Google foi revogada ou expirou. Conecte novamente.",
                     status_code=409,
-                    code="GOOGLE_REAUTH_REQUIRED",
+                    code="GOOGLE_REAUTH_REQUIRED_INVALID_GRANT",
                     provider="google",
                 ) from exc
             raise from_httpx_error(

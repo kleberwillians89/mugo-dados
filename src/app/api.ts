@@ -141,6 +141,36 @@ export function isUsableGoogleConnection(
     connection.token_available !== false;
 }
 
+export function selectUsableGoogleConnection(
+  connections: GenericConnection[],
+  provider: "ga4" | "google_ads",
+  activeClientId: string,
+  requestedConnectionId?: string | null
+): GenericConnection | null {
+  const requested = String(requestedConnectionId || "").trim();
+  const usable = connections.filter((connection) =>
+    isUsableGoogleConnection(connection, provider, activeClientId)
+  );
+  return (requested ? usable.find((connection) => connection.id === requested) : usable[0]) || null;
+}
+
+export function isUsableMetaConnection(connection: GenericConnection, activeClientId: string): boolean {
+  const status = String(connection.status || "").toLowerCase();
+  return connection.client_id === activeClientId &&
+    connection.provider === "meta" &&
+    ["connected", "selection_required"].includes(status) &&
+    !connection.disconnected_at &&
+    connection.token_available !== false;
+}
+
+export function selectUsableMetaConnection(
+  connections: GenericConnection[], activeClientId: string, requestedConnectionId?: string | null
+): GenericConnection | null {
+  const requested = String(requestedConnectionId || "").trim();
+  const usable = connections.filter((connection) => isUsableMetaConnection(connection, activeClientId));
+  return (requested ? usable.find((connection) => connection.id === requested) : usable[0]) || null;
+}
+
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" ? (value as JsonRecord) : {};
 }
@@ -1318,9 +1348,15 @@ export async function listGoogleGa4Streams(
 }
 
 export async function listGoogleAdsAccounts(
-  connectionId: string
+  connection: GenericConnection,
+  activeClientId: string
 ): Promise<{ ok: boolean; configured?: boolean; reason?: string; accounts?: GoogleAdsAccount[] }> {
-  return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ads/accounts`);
+  if (!isUsableGoogleConnection(connection, "google_ads", activeClientId)) {
+    throw new ApiError("A conexão Google Ads não está ativa. Conecte novamente.", {
+      status: 409, code: "GOOGLE_CONNECTION_DISCONNECTED",
+    });
+  }
+  return http(`/api/oauth/google/${encodeURIComponent(connection.id)}/ads/accounts`);
 }
 
 export async function selectGoogleAdsAccount(

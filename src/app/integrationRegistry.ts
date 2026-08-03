@@ -28,7 +28,7 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDefinition[] = [
   {
     id: "google_ads", name: "Google Ads", shortName: "Ads", category: "marketing",
     availability: "available", resources: ["Contas", "Campanhas", "Mídia paga"],
-    providerIds: ["google_ads"], actionLabel: "Autorizar Google Ads",
+    providerIds: ["google_ads"], actionLabel: "Conectar Google Ads",
   },
   {
     id: "shopify", name: "Shopify", shortName: "Shopify", category: "commerce",

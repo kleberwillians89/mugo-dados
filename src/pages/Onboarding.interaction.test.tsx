@@ -4,10 +4,16 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 const mocks = vi.hoisted(() => ({
-  mode: "meta" as "meta" | "ga4",
+  mode: "meta" as "meta" | "ga4" | "google_ads",
   listProperties: vi.fn(),
   startGoogle: vi.fn(),
+  validateMeta: vi.fn(),
+  saveMeta: vi.fn(),
+  listAds: vi.fn(),
+  organicConfigured: false,
 }));
 
 vi.mock("../app/activeClient", () => ({
@@ -29,18 +35,33 @@ vi.mock("../app/api", async (importOriginal) => {
     id: "meta-generic", client_id: "amalie", provider: "meta", status: "connected",
     token_available: true, disconnected_at: null, metadata: { selected_ad_account_id: "act_1" },
   };
+  const disconnectedMetaConnection = {
+    ...metaConnection, id: "meta-old", status: "disconnected", disconnected_at: "2026-08-01T00:00:00Z",
+  };
   const ga4Connection = {
     id: "ga4-existing", client_id: "amalie", provider: "ga4", status: "connected",
     token_available: true, disconnected_at: null, scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
     capabilities: { ga4_authorized: true, ga4_configured: false, ga4_status: "property_required", ads_authorized: false, ads_configured: false, ads_status: "not_connected" },
     metadata: {},
   };
+  const disconnectedAdsConnection = {
+    id: "ads-old", client_id: "amalie", provider: "google_ads", status: "disconnected",
+    token_available: false, disconnected_at: "2026-08-01T00:00:00Z",
+    capabilities: { ga4_authorized: false, ga4_configured: false, ga4_status: "authorization_required", ads_authorized: false, ads_configured: false, ads_status: "not_connected" },
+    metadata: {},
+  };
   return {
     ...actual,
-    listClientConnections: vi.fn(async () => ({ connections: mocks.mode === "meta" ? [{ id: "paid-1", platform: "meta_ads", connection_type: "paid", status: "active", ad_account_id: "act_1", ad_account_name: "Amalie Ads" }] : [] })),
-    listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: [mocks.mode === "meta" ? metaConnection : ga4Connection] })),
+    listClientConnections: vi.fn(async () => ({ connections: mocks.mode === "meta" ? [
+      { id: "paid-1", platform: "meta_ads", connection_type: "paid", status: "active", ad_account_id: "act_1", ad_account_name: "Amalie Ads" },
+      ...(mocks.organicConfigured ? [{ id: "organic-1", platform: "instagram", connection_type: "organic", status: "active", ig_user_id: "178414000000001" }] : []),
+    ] : [] })),
+    listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: mocks.mode === "meta" ? [disconnectedMetaConnection, metaConnection] : mocks.mode === "google_ads" ? [disconnectedAdsConnection, ga4Connection] : [ga4Connection] })),
     listGoogleGa4Properties: mocks.listProperties,
     startGoogleOAuth: mocks.startGoogle,
+    validateManualMetaAssets: mocks.validateMeta,
+    saveManualMetaAssets: mocks.saveMeta,
+    listGoogleAdsAccounts: mocks.listAds,
     getApiVersion: vi.fn(async () => ({ commit_sha: "test-sha", build_time: "test", environment: "test" })),
   };
 });
@@ -58,12 +79,28 @@ async function renderOnboarding() {
   await act(async () => Promise.resolve());
 }
 
+function changeInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   mocks.listProperties.mockReset().mockResolvedValue({ ok: true, properties: [{ property: "properties/1", property_name: "Site Amalie" }] });
   mocks.startGoogle.mockReset();
+  mocks.organicConfigured = false;
+  mocks.validateMeta.mockReset().mockResolvedValue({
+    ok: true, page: { id: "123456789", name: "Amalie" },
+    instagram: { id: "178414000000001", username: "amalie" }, ad_account: null,
+  });
+  mocks.saveMeta.mockReset().mockImplementation(async () => {
+    mocks.organicConfigured = true;
+    return { ok: true, initial_sync: { ok: true } };
+  });
+  mocks.listAds.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
 });
 
@@ -73,6 +110,13 @@ afterEach(async () => {
 });
 
 describe("Onboarding integration actions", () => {
+  it("never lists Ads accounts when only a disconnected Ads connection exists", async () => {
+    mocks.mode = "google_ads";
+    await renderOnboarding();
+    expect(mocks.listAds).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Conectar Google Ads");
+    expect(container.textContent).not.toContain("ads-old");
+  });
   it("opens manual Meta fields with Ads connected and organic pending", async () => {
     mocks.mode = "meta";
     await renderOnboarding();
@@ -84,6 +128,33 @@ describe("Onboarding integration actions", () => {
     expect(container.textContent).toContain("Meta Ad Account ID");
     expect(container.textContent).toContain("Validar IDs");
     expect(container.textContent).toContain("Salvar ativos");
+    expect(container.textContent).toContain("Conexão Meta selecionada: meta-gen");
+    expect(container.textContent).toContain("Tenant: amalie");
+  });
+
+  it("validates and saves manual Meta assets using the usable Amalie connection", async () => {
+    mocks.mode = "meta";
+    await renderOnboarding();
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
+    await act(async () => {
+      const page = inputs[0] as HTMLInputElement;
+      const instagram = inputs[1] as HTMLInputElement;
+      changeInput(page, "123456789");
+      changeInput(instagram, "178414000000001");
+    });
+    const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
+    await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(mocks.validateMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({
+      page_id: "123456789", instagram_id: "178414000000001",
+    }));
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(mocks.saveMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({
+      page_id: "123456789", instagram_id: "178414000000001",
+    }));
+    expect(container.textContent).toContain("Instagram orgânico configurado");
   });
 
   it("lists properties on an existing GA4 connection without starting OAuth", async () => {

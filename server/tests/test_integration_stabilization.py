@@ -251,6 +251,16 @@ class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
         token = google_oauth._connection_token_payload({"_token": "{}"})
         self.assertNotIn("refresh_token", token)
 
+    async def test_expired_connection_without_refresh_has_explicit_code(self):
+        row = {
+            "provider": "ga4", "status": "connected", "disconnected_at": None,
+            "_token": json.dumps({"access_token": "expired", "expires_at": "2020-01-01T00:00:00+00:00"}),
+        }
+        with patch.object(google_oauth, "get_connection", AsyncMock(return_value=row)):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.get_google_access_token("amalie", "ga4-1", request_id="req-missing")
+        self.assertEqual(raised.exception.code, "GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING")
+
     async def test_expired_access_token_refreshes_and_lists_properties(self):
         token_response = httpx.Response(
             200, request=httpx.Request("POST", "https://oauth2.googleapis.com/token"),
@@ -269,13 +279,20 @@ class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
 
         row = {
             "provider": "ga4", "status": "connected", "disconnected_at": None,
-            "_token": json.dumps({"access_token": "expired", "refresh_token": "valid", "expires_at": "2020-01-01T00:00:00+00:00"}),
+            "_token": "", "encrypted_token": "",
+            "encrypted_access_token": "encrypted-access",
+            "encrypted_refresh_token": "encrypted-refresh",
+            "token_expires_at": "2020-01-01T00:00:00+00:00",
         }
         update = AsyncMock()
         with (
             patch.object(google_oauth, "get_connection", AsyncMock(return_value=row)),
             patch.object(google_oauth, "settings", return_value={"client_id": "id", "client_secret": "secret"}),
             patch.object(google_oauth, "encrypt_secret", return_value="encrypted-new-token"),
+            patch.object(google_oauth, "decrypt_secret", side_effect=lambda value: {
+                "encrypted-access": "expired-access",
+                "encrypted-refresh": "valid-refresh",
+            }[value]),
             patch.object(google_oauth, "sb_update", update),
             patch.object(google_oauth.httpx, "AsyncClient", return_value=FakeClient()),
         ):
@@ -311,5 +328,5 @@ class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(google_oauth.IntegrationError) as raised:
                 await google_oauth.get_google_access_token("amalie", "ga4-1")
-        self.assertEqual(raised.exception.code, "GOOGLE_REAUTH_REQUIRED")
+        self.assertEqual(raised.exception.code, "GOOGLE_REAUTH_REQUIRED_INVALID_GRANT")
         self.assertEqual(raised.exception.status_code, 409)

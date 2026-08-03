@@ -161,14 +161,22 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
     )
     reauth_required = exc.code in {
         "GOOGLE_TOKEN_EXPIRED", "GOOGLE_REAUTH_REQUIRED",
+        "GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING", "GOOGLE_REAUTH_REQUIRED_INVALID_GRANT",
         "GOOGLE_SCOPE_INSUFFICIENT", "META_TOKEN_EXPIRED", "META_REAUTH_REQUIRED",
         "META_PERMISSION_MISSING",
     }
     setup_required = exc.code == "GOOGLE_ADS_SETUP_REQUIRED"
+    safe_reasons = {
+        "GOOGLE_CONNECTION_DISCONNECTED": "connection_disconnected",
+        "GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING": "refresh_token_missing",
+        "GOOGLE_REAUTH_REQUIRED_INVALID_GRANT": "refresh_token_rejected",
+        "GOOGLE_ADMIN_API_DISABLED": "admin_api_disabled",
+    }
     detail = {
         "code": exc.code,
         "message": exc.public_message,
         "request_id": str(getattr(request.state, "request_id", "") or ""),
+        "reason": safe_reasons.get(exc.code, "integration_error"),
         "reauth_required": reauth_required,
         "setup_required": setup_required,
     }
