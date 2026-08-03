@@ -57,6 +57,22 @@ class ConnectionTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_page_discovery_follows_all_pages_without_auto_selecting_tenant(self):
+        first_pages = {
+            "data": [{"id": "page-amalie", "name": "Amalie", "instagram_business_account": {"id": "ig-amalie", "username": "amalie"}}],
+            "paging": {"next": "https://graph.facebook.com/next-pages"},
+        }
+        second_pages = {
+            "data": [{"id": "page-roove", "name": "Roove", "instagram_business_account": {"id": "ig-roove", "username": "roove"}}],
+        }
+        with (
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=[{"id": "julia", "name": "Julia"}, first_pages])),
+            patch.object(meta_oauth, "meta_get_json", AsyncMock(return_value=second_pages)),
+        ):
+            result = await meta_oauth.fetch_instagram_identity("safe-token")
+        self.assertEqual([item["business_id"] for item in result["instagram_accounts"]], ["page-amalie", "page-roove"])
+        self.assertNotIn("selected", result)
+
     async def test_lists_pages_and_only_linked_professional_instagram(self):
         responses = [
             {"id": "meta-user", "name": "Amalie"},

@@ -375,19 +375,30 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
         },
     )
 
-    pages = await _meta_get(
-        "/me/accounts",
-        {
-            "fields": "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}",
-            "limit": 200,
-            "access_token": access_token,
-        },
-    )
+    page_rows: List[Dict[str, Any]] = []
+    next_url: Optional[str] = None
+    while True:
+        pages = (
+            await meta_get_json(next_url, timeout=45, retries=3, context={"resource": "oauth_pages_paging"})
+            if next_url
+            else await _meta_get(
+                "/me/accounts",
+                {
+                    "fields": "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}",
+                    "limit": 200,
+                    "access_token": access_token,
+                },
+            )
+        )
+        page_rows.extend(row for row in (pages.get("data") or []) if isinstance(row, dict))
+        next_url = _safe_str((pages.get("paging") or {}).get("next")) or None
+        if not next_url:
+            break
 
     out: List[Dict[str, str]] = []
     available_pages: List[Dict[str, str]] = []
     seen: set[str] = set()
-    for p in pages.get("data") or []:
+    for p in page_rows:
         page_id = _safe_str((p or {}).get("id"))
         if page_id:
             available_pages.append(
@@ -484,16 +495,27 @@ async def _fetch_granted_scopes(access_token: str) -> List[str]:
 
 
 async def _fetch_business_managers(access_token: str) -> List[Dict[str, str]]:
+    rows: List[Dict[str, Any]] = []
+    next_url: Optional[str] = None
     try:
-        response = await _meta_get(
-            "/me/businesses",
-            {"fields": "id,name", "limit": 200, "access_token": access_token},
-        )
+        while True:
+            response = (
+                await meta_get_json(next_url, timeout=45, retries=3, context={"resource": "oauth_businesses_paging"})
+                if next_url
+                else await _meta_get(
+                    "/me/businesses",
+                    {"fields": "id,name", "limit": 200, "access_token": access_token},
+                )
+            )
+            rows.extend(row for row in (response.get("data") or []) if isinstance(row, dict))
+            next_url = _safe_str((response.get("paging") or {}).get("next")) or None
+            if not next_url:
+                break
     except Exception:
         return []
     return [
         {"business_id": _safe_str(row.get("id")), "business_name": _safe_str(row.get("name"))}
-        for row in response.get("data") or []
+        for row in rows
         if isinstance(row, dict) and _safe_str(row.get("id"))
     ]
 
@@ -780,8 +802,9 @@ async def save_manual_meta_assets(
     now_iso = _iso(_now_utc())
     scopes = _json_array(connection.get("scopes"))
     encrypted_access = encrypt_secret(access_token)
+    organic_connection: Dict[str, Any] = {}
     if instagram:
-        await _save_connection_row({
+        organic_connection = await _save_connection_row({
             "client_id": client_id, "platform": "instagram", "connection_type": "organic",
             "meta_user_id": _safe_str(previous.get("meta_user_id")),
             "ig_user_id": selected_instagram_id,
@@ -849,7 +872,12 @@ async def save_manual_meta_assets(
         },
     )
     await invalidate_namespace("integration_connections")
-    return {"ok": True, "validated": validated, "connection": updated[0] if updated else {}}
+    return {
+        "ok": True,
+        "validated": validated,
+        "connection": updated[0] if updated else {},
+        "organic_connection_id": _safe_str(organic_connection.get("id")) or None,
+    }
 
 
 async def create_discovery_handoff(

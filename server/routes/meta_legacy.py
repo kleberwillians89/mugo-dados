@@ -27,7 +27,7 @@ from services.cron_jobs import (
 )
 from services.ig_refresh import refresh_all
 from services.ads_sync import sync_ads_for_client_period
-from services.instagram_sync import discover_instagram_identity_for_connection
+from services.instagram_sync import discover_instagram_identity_for_connection, sync_instagram_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
     build_frontend_callback_redirect,
@@ -298,12 +298,25 @@ async def api_save_manual_meta_assets(
 ):
     user_id = await require_user_id(authorization)
     cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
-    return await save_manual_meta_assets(
+    result = await save_manual_meta_assets(
         user_id=user_id, client_id=cid, connection_id=connection_id,
         page_id=str(payload.get("page_id") or ""),
         instagram_id=str(payload.get("instagram_id") or ""),
         ad_account_id=str(payload.get("ad_account_id") or ""),
     )
+    organic_connection_id = str(result.get("organic_connection_id") or "").strip()
+    if organic_connection_id:
+        try:
+            result["initial_sync"] = await sync_instagram_connection(organic_connection_id)
+        except Exception as exc:
+            result["initial_sync"] = {
+                "ok": False,
+                "code": "META_GRAPH_UNAVAILABLE",
+                "message": "Ativos salvos, mas a primeira sincronização orgânica não foi concluída.",
+                "retryable": True,
+            }
+            result["initial_sync_error_type"] = exc.__class__.__name__
+    return result
 
 
 @router.post("/api/clients/{client_id}/connections/link-assets")
