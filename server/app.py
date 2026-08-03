@@ -61,6 +61,25 @@ from services.integration_errors import IntegrationError
 app = FastAPI(title="Mugô Dados API")
 
 
+def _version_payload() -> Dict[str, str]:
+    commit_sha = (
+        os.getenv("RENDER_GIT_COMMIT")
+        or os.getenv("GIT_COMMIT_SHA")
+        or os.getenv("SOURCE_VERSION")
+        or "unknown"
+    ).strip()
+    return {
+        "commit_sha": commit_sha,
+        "build_time": (os.getenv("BUILD_TIME") or "unknown").strip(),
+        "environment": (os.getenv("APP_ENV") or "development").strip(),
+    }
+
+
+@app.get("/api/version", tags=["system"])
+async def api_version():
+    return _version_payload()
+
+
 @app.middleware("http")
 async def safe_request_log(request: Request, call_next):
     started = time.perf_counter()
@@ -149,6 +168,7 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
     detail = {
         "code": exc.code,
         "message": exc.public_message,
+        "request_id": str(getattr(request.state, "request_id", "") or ""),
         "reauth_required": reauth_required,
         "setup_required": setup_required,
     }

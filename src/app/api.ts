@@ -102,6 +102,16 @@ export type ClientMembership = {
   created_at?: string | null;
 };
 
+export type ApiVersion = {
+  commit_sha: string;
+  build_time: string;
+  environment: string;
+};
+
+export async function getApiVersion(): Promise<ApiVersion> {
+  return http<ApiVersion>("/api/version");
+}
+
 export type ClientsResponse = {
   ok: boolean;
   clients: ClientMembership[];

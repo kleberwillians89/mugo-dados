@@ -41,6 +41,7 @@ vi.mock("../app/api", async (importOriginal) => {
     listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: [mocks.mode === "meta" ? metaConnection : ga4Connection] })),
     listGoogleGa4Properties: mocks.listProperties,
     startGoogleOAuth: mocks.startGoogle,
+    getApiVersion: vi.fn(async () => ({ commit_sha: "test-sha", build_time: "test", environment: "test" })),
   };
 });
 

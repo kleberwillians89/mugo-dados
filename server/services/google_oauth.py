@@ -26,6 +26,38 @@ GOOGLE_PRODUCT_SCOPES = {
 _REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
+def _legacy_token_value(row: Dict[str, Any], column: str) -> str:
+    encrypted = str(row.get(column) or "").strip()
+    if not encrypted:
+        return ""
+    try:
+        return str(decrypt_secret(encrypted) or "").strip()
+    except (RuntimeError, TypeError, ValueError):
+        return ""
+
+
+def _connection_token_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        token = json.loads(str(row.get("_token") or "{}"))
+        if not isinstance(token, dict):
+            token = {}
+    except (TypeError, ValueError):
+        token = {}
+    # Compatibilidade com o schema anterior. Os valores só são usados quando
+    # realmente existem e podem ser descriptografados; nenhum token é criado.
+    if not str(token.get("access_token") or "").strip():
+        access_token = _legacy_token_value(row, "encrypted_access_token")
+        if access_token:
+            token["access_token"] = access_token
+    if not str(token.get("refresh_token") or "").strip():
+        refresh_token = _legacy_token_value(row, "encrypted_refresh_token")
+        if refresh_token:
+            token["refresh_token"] = refresh_token
+    if not str(token.get("expires_at") or "").strip() and row.get("token_expires_at"):
+        token["expires_at"] = str(row.get("token_expires_at"))
+    return token
+
+
 def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
 
@@ -278,15 +310,7 @@ async def _access_token(
                 code="GOOGLE_CONNECTION_DISCONNECTED",
                 provider="google",
             )
-        try:
-            token = json.loads(str(row.get("_token") or "{}"))
-        except (TypeError, ValueError) as exc:
-            raise IntegrationError(
-                "A conexão Google requer nova autorização.",
-                status_code=401,
-                code="GOOGLE_REAUTH_REQUIRED",
-                provider="google",
-            ) from exc
+        token = _connection_token_payload(row)
         expires_raw = str(token.get("expires_at") or row.get("token_expires_at") or "")
         expires_at = (
             datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))

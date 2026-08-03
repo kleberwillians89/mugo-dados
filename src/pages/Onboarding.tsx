@@ -9,6 +9,7 @@ import {
   listClientConnections,
   listClientMetaAdsAccounts,
   listGenericConnections,
+  getApiVersion,
   isUsableGoogleConnection,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
@@ -58,6 +59,7 @@ import {
   INTEGRATION_REGISTRY,
   unavailableIntegrationLabel,
 } from "../app/integrationRegistry";
+import { commitsMismatch, FRONTEND_COMMIT_SHA, INTEGRATION_BUILD_FEATURES, shortCommit } from "../buildVersion";
 import "../styles/onboarding.css";
 
 type Props = {
@@ -204,6 +206,7 @@ export default function Onboarding({
   const [manualAdAccountId, setManualAdAccountId] = useState("");
   const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
   const [googleReconnectProduct, setGoogleReconnectProduct] = useState<"ga4" | "google_ads" | null>(null);
+  const [backendCommitSha, setBackendCommitSha] = useState("unknown");
   const manualMetaFormRef = useRef<HTMLElement | null>(null);
   const processedOauthReturnRef = useRef<string | null>(null);
 
@@ -378,6 +381,13 @@ export default function Onboarding({
       alive = false;
     };
   }, [handleOauthRedirectParams, isAuthenticated, loadConnections]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void getApiVersion()
+      .then((version) => setBackendCommitSha(String(version.commit_sha || "unknown")))
+      .catch(() => setBackendCommitSha("unavailable"));
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!manualMetaConnectionId) return;
@@ -901,6 +911,11 @@ export default function Onboarding({
         </section>
 
         {configWarning ? <div className="pill pillDanger">{configWarning}</div> : null}
+        {commitsMismatch(FRONTEND_COMMIT_SHA, backendCommitSha) ? (
+          <div className="pill pillDanger">
+            Versões incompatíveis: frontend {shortCommit(FRONTEND_COMMIT_SHA)} · backend {shortCommit(backendCommitSha)}.
+          </div>
+        ) : null}
         {err ? <div className="pill pillDanger">
           {err}
           {googleReconnectProduct ? (
@@ -1499,6 +1514,9 @@ export default function Onboarding({
           )}
         </section>
       </main>
+      <footer data-integration-build={INTEGRATION_BUILD_FEATURES} className="smallMuted" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 20px 20px" }}>
+        Versão: {shortCommit(FRONTEND_COMMIT_SHA)} · API: {shortCommit(backendCommitSha)}
+      </footer>
     </div>
   );
 }

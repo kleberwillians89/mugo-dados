@@ -237,6 +237,20 @@ class Ga4StructuredErrorTests(unittest.TestCase):
 
 
 class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
+    def test_legacy_encrypted_refresh_token_is_read_without_inventing_value(self):
+        with patch.object(google_oauth, "decrypt_secret", return_value="legacy-refresh"):
+            token = google_oauth._connection_token_payload({
+                "_token": json.dumps({"access_token": "expired"}),
+                "encrypted_refresh_token": "encrypted-legacy",
+                "token_expires_at": "2026-08-03T10:00:00+00:00",
+            })
+        self.assertEqual(token["refresh_token"], "legacy-refresh")
+        self.assertEqual(token["expires_at"], "2026-08-03T10:00:00+00:00")
+
+    def test_missing_legacy_refresh_token_remains_missing(self):
+        token = google_oauth._connection_token_payload({"_token": "{}"})
+        self.assertNotIn("refresh_token", token)
+
     async def test_expired_access_token_refreshes_and_lists_properties(self):
         token_response = httpx.Response(
             200, request=httpx.Request("POST", "https://oauth2.googleapis.com/token"),
