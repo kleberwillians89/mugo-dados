@@ -21,6 +21,8 @@ from .ig_supabase import sb_get_one, sb_insert, sb_select, sb_update, sb_upsert,
 from .meta_oauth import fetch_instagram_identity
 from .meta_tokens import ensure_valid_meta_token
 
+_ACTIVE_ORGANIC_SYNC_KEYS: set[str] = set()
+
 
 def _utc_date_str() -> str:
     return datetime.now(timezone.utc).date().isoformat()
@@ -483,7 +485,7 @@ async def _run_sync_for_client_and_ig(
     }
 
 
-async def sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict[str, Any]:
+async def _sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict[str, Any]:
     conn = await _resolve_connection_by_id(connection_id)
     if not conn:
         raise RuntimeError("Conexão Instagram não encontrada.")
@@ -544,6 +546,26 @@ async def sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict
             f"client_id={client_id} connection_id={connection_id} error={str(exc)[:280]}"
         )
         raise
+
+
+async def sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict[str, Any]:
+    conn = await _resolve_connection_by_id(connection_id)
+    client_id = str((conn or {}).get("client_id") or "").strip()
+    lock_key = f"{client_id or connection_id}:meta_organic"
+    if lock_key in _ACTIVE_ORGANIC_SYNC_KEYS:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "duplicate",
+            "code": "SYNC_ALREADY_RUNNING",
+            "provider": "meta_organic",
+            "connection_id": connection_id,
+        }
+    _ACTIVE_ORGANIC_SYNC_KEYS.add(lock_key)
+    try:
+        return await _sync_instagram_connection(connection_id, limit=limit)
+    finally:
+        _ACTIVE_ORGANIC_SYNC_KEYS.discard(lock_key)
 
 
 async def sync_instagram_for_client(

@@ -20,11 +20,14 @@ import {
   syncGoogleConnection,
   syncClientMetaAdsAccount,
   syncShopifyConnection,
+  validateManualMetaAssets,
+  saveManualMetaAssets,
   type GenericConnection,
   type GoogleAdsAccount,
   type GoogleGa4Property,
   type GoogleGa4Stream,
   type MetaAdsSelectableAccount,
+  type ManualMetaAssetsValidation,
   startClientMetaOAuth,
   startGoogleOAuth,
   startShopifyOAuth,
@@ -194,6 +197,11 @@ export default function Onboarding({
   const [metaAdsAccounts, setMetaAdsAccounts] = useState<MetaAdsSelectableAccount[]>([]);
   const [selectedMetaAdsAccount, setSelectedMetaAdsAccount] = useState("");
   const [oauthRetry, setOauthRetry] = useState<"meta_discover" | null>(null);
+  const [manualMetaConnectionId, setManualMetaConnectionId] = useState<string | null>(null);
+  const [manualPageId, setManualPageId] = useState("");
+  const [manualInstagramId, setManualInstagramId] = useState("");
+  const [manualAdAccountId, setManualAdAccountId] = useState("");
+  const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
 
   const configWarning = getActiveClientConfigurationWarning();
 
@@ -447,6 +455,54 @@ export default function Onboarding({
       if (!accounts.length) setErr("A autorização Meta não retornou nenhuma conta de anúncios acessível com ads_read.");
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível listar as contas Meta Ads acessíveis."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onValidateManualMetaAssets() {
+    if (!manualMetaConnectionId) return;
+    setSaving(true);
+    setErr(null);
+    setManualMetaValidation(null);
+    try {
+      const result = await validateManualMetaAssets(manualMetaConnectionId, {
+        page_id: manualPageId.trim() || undefined,
+        instagram_id: manualInstagramId.trim() || undefined,
+        ad_account_id: manualAdAccountId.trim() || undefined,
+      });
+      setManualMetaValidation(result);
+      setInfo("Ativos validados com a autorização Meta atual. Revise os nomes antes de salvar.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível validar os IDs Meta."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSaveManualMetaAssets() {
+    if (!manualMetaConnectionId || !manualMetaValidation) return;
+    const connection = genericConnections.find((item) => item.id === manualMetaConnectionId);
+    const metadata = connection?.metadata || {};
+    const replacing =
+      (manualPageId.trim() && metadata.selected_page_id && manualPageId.trim() !== String(metadata.selected_page_id)) ||
+      (manualInstagramId.trim() && metadata.selected_instagram_id && manualInstagramId.trim() !== String(metadata.selected_instagram_id)) ||
+      (manualAdAccountId.trim() && metadata.selected_ad_account_id && manualAdAccountId.replace(/^act_/, "") !== String(metadata.selected_ad_account_id).replace(/^act_/, ""));
+    if (replacing && !window.confirm("Substituir o ativo Meta atualmente selecionado para esta empresa?")) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      await saveManualMetaAssets(manualMetaConnectionId, {
+        page_id: manualPageId.trim() || undefined,
+        instagram_id: manualInstagramId.trim() || undefined,
+        ad_account_id: manualAdAccountId.trim() || undefined,
+      });
+      await loadConnections();
+      setManualMetaConnectionId(null);
+      setManualMetaValidation(null);
+      setInfo("Ativos Meta validados e salvos para a empresa ativa.");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Não foi possível salvar os ativos Meta."));
     } finally {
       setSaving(false);
     }
@@ -1025,6 +1081,21 @@ export default function Onboarding({
                         >
                           Configurar Instagram orgânico
                         </button> : null}
+                        <button
+                          className="btn btnGhost"
+                          type="button"
+                          disabled={!canManageConnections || saving}
+                          onClick={() => {
+                            if (!connection) return;
+                            setManualMetaConnectionId(connection.id);
+                            setManualPageId(String(connection.metadata?.selected_page_id || ""));
+                            setManualInstagramId(String(connection.metadata?.selected_instagram_id || ""));
+                            setManualAdAccountId(String(connection.metadata?.selected_ad_account_id || ""));
+                            setManualMetaValidation(null);
+                          }}
+                        >
+                          Configuração avançada por ID
+                        </button>
                         <button className="btn btnGhost" type="button" disabled={!canManageConnections || saving} onClick={() => void onOpenMetaAdsPicker()}>
                           Selecionar conta
                         </button>
@@ -1107,6 +1178,35 @@ export default function Onboarding({
                 {saving ? "Salvando..." : "Salvar seleção"}
               </button>
               <button className="btn btnGhost" type="button" onClick={() => { setGooglePickerId(null); setGooglePickerProduct(null); }}>Cancelar</button>
+            </div>
+          </section>
+        ) : null}
+
+        {manualMetaConnectionId ? (
+          <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
+            <div className="h1">Configuração avançada por ID</div>
+            <div className="p">Use IDs exibidos no Meta Business Suite. Os ativos serão consultados com a autorização atual antes de salvar; nenhum token é exibido.</div>
+            <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
+              Facebook Page ID — encontrado nas informações da Página
+              <input value={manualPageId} onChange={(event) => { setManualPageId(event.target.value); setManualMetaValidation(null); }} placeholder="Ex.: 123456789012345" style={{ width: "100%", marginTop: 6 }} />
+            </label>
+            <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
+              Instagram Business Account ID — ID da conta profissional vinculada
+              <input value={manualInstagramId} onChange={(event) => { setManualInstagramId(event.target.value); setManualMetaValidation(null); }} placeholder="Ex.: 17841400000000000" style={{ width: "100%", marginTop: 6 }} />
+            </label>
+            <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
+              Meta Ad Account ID — Gerenciador de Anúncios
+              <input value={manualAdAccountId} onChange={(event) => { setManualAdAccountId(event.target.value); setManualMetaValidation(null); }} placeholder="Ex.: act_123456789 ou 123456789" style={{ width: "100%", marginTop: 6 }} />
+            </label>
+            {manualMetaValidation ? <div className="smallMuted" style={{ marginTop: 14 }}>
+              Página: {manualMetaValidation.page?.name || "não alterada"}<br />
+              Instagram: {manualMetaValidation.instagram?.username ? `@${manualMetaValidation.instagram.username}` : "não alterado"}<br />
+              Conta Ads: {manualMetaValidation.ad_account?.name || "não alterada"}
+            </div> : null}
+            <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
+              <button className="btn btnGhost" type="button" disabled={saving} onClick={() => void onValidateManualMetaAssets()}>{saving ? "Validando..." : "Testar IDs"}</button>
+              <button className="btn btnPrimary" type="button" disabled={saving || !manualMetaValidation} onClick={() => void onSaveManualMetaAssets()}>Salvar ativos validados</button>
+              <button className="btn btnGhost" type="button" onClick={() => { setManualMetaConnectionId(null); setManualMetaValidation(null); }}>Cancelar</button>
             </div>
           </section>
         ) : null}

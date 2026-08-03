@@ -43,8 +43,10 @@ from services.meta_oauth import (
     read_latest_discovery_handoff,
     resolve_meta_redirect_uri,
     save_pending_meta_authorization,
+    save_manual_meta_assets,
     save_connections,
     select_paid_connection,
+    validate_manual_meta_assets,
 )
 from services.oauth_state import consume_oauth_state, create_oauth_state
 from services.meta_tokens import get_meta_connection_status, refresh_meta_token_for_connection
@@ -267,6 +269,41 @@ async def api_configure_existing_meta_organic(
             user_id=user_id, client_id=cid, connection_id=connection_id
         )),
     }
+
+
+@router.post("/api/oauth/meta/{connection_id}/manual-assets/validate")
+async def api_validate_manual_meta_assets(
+    connection_id: str,
+    payload: Dict[str, Any],
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
+    return await validate_manual_meta_assets(
+        client_id=cid, connection_id=connection_id,
+        page_id=str(payload.get("page_id") or ""),
+        instagram_id=str(payload.get("instagram_id") or ""),
+        ad_account_id=str(payload.get("ad_account_id") or ""),
+    )
+
+
+@router.post("/api/oauth/meta/{connection_id}/manual-assets")
+async def api_save_manual_meta_assets(
+    connection_id: str,
+    payload: Dict[str, Any],
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
+    return await save_manual_meta_assets(
+        user_id=user_id, client_id=cid, connection_id=connection_id,
+        page_id=str(payload.get("page_id") or ""),
+        instagram_id=str(payload.get("instagram_id") or ""),
+        ad_account_id=str(payload.get("ad_account_id") or ""),
+    )
 
 
 @router.post("/api/clients/{client_id}/connections/link-assets")

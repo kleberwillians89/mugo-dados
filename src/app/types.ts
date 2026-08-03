@@ -381,6 +381,15 @@ export type Ga4ReportResponse = {
   events: Ga4EventRow[];
   meta: {
     last_synced_at?: string | null;
+    data_available?: boolean;
+    stale?: boolean;
+    freshness?: {
+      last_sync_at?: string | null;
+      threshold_hours?: number;
+      age_hours?: number | null;
+      stale?: boolean;
+      data_available?: boolean;
+    };
     daily_rows: number;
     channel_rows: number;
     campaign_rows: number;
@@ -488,6 +497,10 @@ export type DashboardResponse = {
 
   monthly_growth_percent: DashboardGrowthPercent;
   coverage?: DashboardCoverage;
+  data_available?: boolean;
+  last_sync_at?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
 };
 
 // =========================
@@ -743,6 +756,10 @@ export type PaidDashboardResponse = {
   month?: string | null;
   date_range?: { since: string; until: string };
   has_data?: boolean;
+  data_available?: boolean;
+  last_sync_at?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
   message?: string;
   row_count?: number;
   first_stat_date?: string | null;

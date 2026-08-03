@@ -6,6 +6,7 @@ import httpx
 
 from server.services import ga4_sync, generic_connections, google_oauth, meta_oauth
 from server.services.integration_errors import google_api_error
+from server.services.meta_http import MetaApiError
 
 
 class GoogleProductIsolationTests(unittest.IsolatedAsyncioTestCase):
@@ -114,6 +115,74 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["selected_ad_account_id"], "act_673785144083881")
         self.assertEqual(metadata["ad_account_ids"], ["act_673785144083881"])
         self.assertEqual(metadata["coverage"], "full")
+
+    def _manual_connection(self, metadata=None):
+        return {
+            "provider": "meta", "client_id": "amalie", "scopes": ["pages_show_list", "instagram_basic", "ads_read"],
+            "metadata": metadata or {}, "_token": json.dumps({"access_token": "safe-token"}),
+        }
+
+    async def test_manual_page_id_is_validated_and_named(self):
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self._manual_connection())),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(return_value={"id": "123", "name": "Amalie"})),
+        ):
+            result = await meta_oauth.validate_manual_meta_assets(
+                client_id="amalie", connection_id="meta-1", page_id="123"
+            )
+        self.assertEqual(result["page"]["name"], "Amalie")
+
+    async def test_manual_page_without_access_is_rejected(self):
+        denied = MetaApiError("denied", status_code=403)
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self._manual_connection())),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=denied)),
+        ):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.validate_manual_meta_assets(
+                    client_id="amalie", connection_id="meta-1", page_id="123"
+                )
+        self.assertEqual(raised.exception.code, "META_ASSET_PERMISSION_DENIED")
+
+    async def test_manual_instagram_must_match_page(self):
+        responses = [
+            {"id": "123", "name": "Amalie", "instagram_business_account": {"id": "999"}},
+            {"id": "456", "username": "amalie"},
+        ]
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self._manual_connection())),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=responses)),
+        ):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.validate_manual_meta_assets(
+                    client_id="amalie", connection_id="meta-1", page_id="123", instagram_id="456"
+                )
+        self.assertEqual(raised.exception.code, "META_PAGE_INSTAGRAM_MISMATCH")
+
+    async def test_manual_ad_account_accepts_numeric_and_normalizes_prefix(self):
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self._manual_connection())),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(return_value={
+                "id": "act_789", "name": "Amalie Ads", "account_status": 1,
+            })),
+        ):
+            result = await meta_oauth.validate_manual_meta_assets(
+                client_id="amalie", connection_id="meta-1", ad_account_id="789"
+            )
+        self.assertEqual(result["ad_account"]["id"], "act_789")
+
+    async def test_manual_disabled_ad_account_is_rejected(self):
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self._manual_connection())),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(return_value={
+                "id": "act_789", "name": "Disabled", "account_status": 2,
+            })),
+        ):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.validate_manual_meta_assets(
+                    client_id="amalie", connection_id="meta-1", ad_account_id="act_789"
+                )
+        self.assertEqual(raised.exception.code, "META_AD_ACCOUNT_DISABLED")
 
 
 class Ga4StructuredErrorTests(unittest.TestCase):

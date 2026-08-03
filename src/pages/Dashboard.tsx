@@ -1178,10 +1178,11 @@ export default function Dashboard({
   );
 
   useEffect(() => {
-    if (summarySettled) {
+    // Meta Ads persistido deve carregar mesmo quando o orgânico ainda não foi configurado.
+    if (summarySettled || hasActiveConnection === false) {
       setEnablePaidStage(true);
     }
-  }, [summarySettled]);
+  }, [hasActiveConnection, summarySettled]);
 
   useEffect(() => {
     if (!enablePaidStage) return;

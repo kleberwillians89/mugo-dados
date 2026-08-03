@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from .ig_supabase import sb_select
+from .freshness import source_freshness
 
 GA4_EVENT_GROUPS: Dict[str, Dict[str, Any]] = {
     "behavior": {
@@ -564,6 +565,11 @@ async def build_ga4_report(
         updated_at = _safe_str(row.get("updated_at"))
         if updated_at and (not last_synced_at or updated_at > last_synced_at):
             last_synced_at = updated_at
+    freshness = source_freshness(
+        "ga4",
+        last_sync_at=last_synced_at,
+        data_available=bool(daily_source_rows or channel_source_rows or event_source_rows),
+    )
 
     return {
         "ok": True,
@@ -591,6 +597,9 @@ async def build_ga4_report(
         "events": event_items,
         "meta": {
             "last_synced_at": last_synced_at,
+            "data_available": freshness["data_available"],
+            "stale": freshness["stale"],
+            "freshness": freshness,
             "daily_rows": len(daily_source_rows),
             "channel_rows": len(channel_source_rows),
             "campaign_rows": len(campaign_source_rows),

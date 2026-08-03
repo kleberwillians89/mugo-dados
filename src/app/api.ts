@@ -1328,6 +1328,39 @@ export async function configureExistingMetaOrganic(
   );
 }
 
+export type ManualMetaAssetsPayload = {
+  page_id?: string;
+  instagram_id?: string;
+  ad_account_id?: string;
+};
+
+export type ManualMetaAssetsValidation = {
+  ok: boolean;
+  page?: { id?: string; name?: string } | null;
+  instagram?: { id?: string; username?: string; name?: string } | null;
+  ad_account?: { id?: string; name?: string; account_status?: number } | null;
+};
+
+export async function validateManualMetaAssets(
+  connectionId: string,
+  payload: ManualMetaAssetsPayload
+): Promise<ManualMetaAssetsValidation> {
+  return http(`/api/oauth/meta/${encodeURIComponent(connectionId)}/manual-assets/validate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function saveManualMetaAssets(
+  connectionId: string,
+  payload: ManualMetaAssetsPayload
+): Promise<JsonRecord> {
+  return http(`/api/oauth/meta/${encodeURIComponent(connectionId)}/manual-assets`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function linkClientAssets(
   payload: {
     handoff: string;

@@ -29,6 +29,7 @@ GA4_REPORT_METRICS = (
     "totalRevenue",
 )
 GA4_OPTIONAL_UPSERT_COLUMNS = ("raw_payload",)
+_ACTIVE_GA4_SYNC_KEYS: set[str] = set()
 
 
 def _safe_str(value: Any) -> str:
@@ -442,7 +443,7 @@ def _landing_upsert_rows(
     return payload_rows
 
 
-async def sync_ga4_for_period(
+async def _sync_ga4_for_period(
     *,
     since: Optional[str] = None,
     until: Optional[str] = None,
@@ -649,3 +650,22 @@ async def sync_ga4_for_period(
                 client_id=resolved_client_id,
             )
         raise
+
+
+async def sync_ga4_for_period(**kwargs: Any) -> Dict[str, Any]:
+    client_id = _safe_str(kwargs.get("client_id")) or "default"
+    lock_key = f"{client_id}:ga4"
+    if lock_key in _ACTIVE_GA4_SYNC_KEYS:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "duplicate",
+            "code": "SYNC_ALREADY_RUNNING",
+            "provider": "ga4",
+            "client_id": client_id,
+        }
+    _ACTIVE_GA4_SYNC_KEYS.add(lock_key)
+    try:
+        return await _sync_ga4_for_period(**kwargs)
+    finally:
+        _ACTIVE_GA4_SYNC_KEYS.discard(lock_key)

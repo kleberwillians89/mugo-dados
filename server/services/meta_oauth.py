@@ -131,6 +131,33 @@ def _normalize_ad_account_id(ad_account_id: str) -> str:
     return raw if raw.startswith("act_") else f"act_{raw}"
 
 
+def _manual_numeric_id(value: Any, *, code: str, label: str) -> str:
+    normalized = _safe_str(value)
+    if not normalized or not normalized.isdigit():
+        raise IntegrationError(
+            f"{label} inválido.", status_code=400, code=code, provider="meta",
+        )
+    return normalized
+
+
+def _manual_meta_api_error(exc: MetaApiError, *, code: str, label: str) -> IntegrationError:
+    if exc.invalid_oauth:
+        return IntegrationError(
+            "A conexão Meta exige nova autorização.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
+    if exc.status_code in {400, 403, 404}:
+        return IntegrationError(
+            f"O token atual não possui acesso ao {label} informado.", status_code=403,
+            code="META_ASSET_PERMISSION_DENIED" if exc.status_code == 403 else code,
+            provider="meta",
+        )
+    return IntegrationError(
+        "A API da Meta está temporariamente indisponível.", status_code=503,
+        code="META_GRAPH_UNAVAILABLE", provider="meta", retryable=True,
+    )
+
+
 def _normalize_state_client_id(client_id: str) -> str:
     cid = _safe_str(client_id)
     if not cid:
@@ -558,6 +585,271 @@ async def discover_existing_meta_organic_assets(
         "As Páginas acessíveis não possuem uma conta profissional do Instagram vinculada."
     )
     return result
+
+
+async def _manual_meta_connection(
+    *, client_id: str, connection_id: str
+) -> tuple[Dict[str, Any], str, Dict[str, Any]]:
+    try:
+        connection = await get_connection(client_id, connection_id, include_token=True)
+    except IntegrationError as exc:
+        if exc.code == "OAUTH_CONNECTION_TENANT_MISMATCH":
+            raise IntegrationError(
+                "A conexão Meta pertence a outra empresa.", status_code=403,
+                code="META_CONNECTION_TENANT_MISMATCH", provider="meta",
+            ) from exc
+        raise
+    if _safe_str(connection.get("provider")) != "meta":
+        raise IntegrationError(
+            "Conexão Meta não encontrada.", status_code=404,
+            code="META_CONNECTION_NOT_FOUND", provider="meta",
+        )
+    try:
+        token_payload = json.loads(_safe_str(connection.get("_token")) or "{}")
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError(
+            "A conexão Meta exige nova autorização.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        ) from exc
+    access_token = _safe_str(token_payload.get("access_token"))
+    if not access_token:
+        raise IntegrationError(
+            "A conexão Meta exige nova autorização.", status_code=401,
+            code="META_REAUTH_REQUIRED", provider="meta",
+        )
+    return connection, access_token, _json_object(connection.get("metadata"))
+
+
+async def validate_manual_meta_assets(
+    *, client_id: str, connection_id: str,
+    page_id: str = "", instagram_id: str = "", ad_account_id: str = "",
+) -> Dict[str, Any]:
+    _, access_token, previous = await _manual_meta_connection(
+        client_id=client_id, connection_id=connection_id
+    )
+    page: Dict[str, Any] | None = None
+    instagram: Dict[str, Any] | None = None
+    ad_account: Dict[str, Any] | None = None
+
+    normalized_page = _manual_numeric_id(
+        page_id, code="META_MANUAL_PAGE_INVALID", label="Facebook Page ID"
+    ) if _safe_str(page_id) else ""
+    normalized_instagram = _manual_numeric_id(
+        instagram_id, code="META_MANUAL_INSTAGRAM_INVALID", label="Instagram Business Account ID"
+    ) if _safe_str(instagram_id) else ""
+    raw_ad = _safe_str(ad_account_id).removeprefix("act_")
+    normalized_ad = _normalize_ad_account_id(_manual_numeric_id(
+        raw_ad, code="META_MANUAL_AD_ACCOUNT_INVALID", label="Meta Ad Account ID"
+    )) if _safe_str(ad_account_id) else ""
+    if not any((normalized_page, normalized_instagram, normalized_ad)):
+        raise IntegrationError(
+            "Informe ao menos um ativo Meta para validar.", status_code=400,
+            code="META_MANUAL_PAGE_INVALID", provider="meta",
+        )
+
+    if normalized_page:
+        try:
+            payload = await _meta_get(
+                f"/{normalized_page}", {
+                    "fields": "id,name,instagram_business_account{id,username}",
+                    "access_token": access_token,
+                },
+            )
+        except MetaApiError as exc:
+            raise _manual_meta_api_error(
+                exc, code="META_MANUAL_PAGE_INVALID", label="Facebook Page",
+            ) from exc
+        page = {
+            "id": _safe_str(payload.get("id")),
+            "name": _safe_str(payload.get("name")),
+            "instagram_business_account": _json_object(payload.get("instagram_business_account")),
+        }
+        if page["id"] != normalized_page:
+            raise IntegrationError(
+                "A Página informada não pôde ser validada.", status_code=400,
+                code="META_MANUAL_PAGE_INVALID", provider="meta",
+            )
+
+    if normalized_instagram:
+        try:
+            payload = await _meta_get(
+                f"/{normalized_instagram}", {
+                    "fields": "id,username,name", "access_token": access_token,
+                },
+            )
+        except MetaApiError as exc:
+            raise _manual_meta_api_error(
+                exc, code="META_MANUAL_INSTAGRAM_INVALID", label="Instagram Business Account",
+            ) from exc
+        instagram = {
+            "id": _safe_str(payload.get("id")),
+            "username": _safe_str(payload.get("username")),
+            "name": _safe_str(payload.get("name")),
+        }
+        if instagram["id"] != normalized_instagram:
+            raise IntegrationError(
+                "A conta profissional do Instagram não pôde ser validada.", status_code=400,
+                code="META_MANUAL_INSTAGRAM_INVALID", provider="meta",
+            )
+
+    effective_page = normalized_page or _safe_str(previous.get("selected_page_id"))
+    if normalized_instagram and effective_page:
+        linked_id = _safe_str((_json_object(page.get("instagram_business_account")) if page else {}).get("id"))
+        if not page:
+            try:
+                page_payload = await _meta_get(
+                    f"/{effective_page}", {
+                        "fields": "id,name,instagram_business_account{id,username}",
+                        "access_token": access_token,
+                    },
+                )
+                linked_id = _safe_str(_json_object(page_payload.get("instagram_business_account")).get("id"))
+            except MetaApiError as exc:
+                raise _manual_meta_api_error(
+                    exc, code="META_MANUAL_PAGE_INVALID", label="Facebook Page",
+                ) from exc
+        if linked_id != normalized_instagram:
+            raise IntegrationError(
+                "O Instagram informado não está vinculado à Página selecionada.",
+                status_code=409, code="META_PAGE_INSTAGRAM_MISMATCH", provider="meta",
+            )
+
+    if normalized_ad:
+        try:
+            payload = await _meta_get(
+                f"/{normalized_ad}", {
+                    "fields": "id,account_id,name,account_status", "access_token": access_token,
+                },
+            )
+        except MetaApiError as exc:
+            raise _manual_meta_api_error(
+                exc, code="META_MANUAL_AD_ACCOUNT_INVALID", label="Meta Ad Account",
+            ) from exc
+        returned_id = _normalize_ad_account_id(
+            _safe_str(payload.get("id")) or _safe_str(payload.get("account_id"))
+        )
+        status = int(payload.get("account_status") or 0)
+        if returned_id != normalized_ad:
+            raise IntegrationError(
+                "A conta de anúncios não pôde ser validada.", status_code=400,
+                code="META_MANUAL_AD_ACCOUNT_INVALID", provider="meta",
+            )
+        if status != 1:
+            raise IntegrationError(
+                "A conta de anúncios informada não está ativa.", status_code=409,
+                code="META_AD_ACCOUNT_DISABLED", provider="meta",
+            )
+        ad_account = {
+            "id": normalized_ad, "name": _safe_str(payload.get("name")),
+            "account_status": status,
+        }
+
+    return {
+        "ok": True, "client_id": client_id, "connection_id": connection_id,
+        "page": page, "instagram": instagram, "ad_account": ad_account,
+    }
+
+
+async def save_manual_meta_assets(
+    *, user_id: str, client_id: str, connection_id: str,
+    page_id: str = "", instagram_id: str = "", ad_account_id: str = "",
+) -> Dict[str, Any]:
+    connection, access_token, previous = await _manual_meta_connection(
+        client_id=client_id, connection_id=connection_id
+    )
+    validated = await validate_manual_meta_assets(
+        client_id=client_id, connection_id=connection_id,
+        page_id=page_id, instagram_id=instagram_id, ad_account_id=ad_account_id,
+    )
+    page = _json_object(validated.get("page"))
+    instagram = _json_object(validated.get("instagram"))
+    ad_account = _json_object(validated.get("ad_account"))
+    selected_page_id = _safe_str(page.get("id")) or _safe_str(previous.get("selected_page_id"))
+    selected_instagram_id = _safe_str(instagram.get("id")) or _safe_str(previous.get("selected_instagram_id"))
+    selected_ad_id = _safe_str(ad_account.get("id")) or _safe_str(previous.get("selected_ad_account_id"))
+    page_ids = {_safe_str(value) for value in _json_array(previous.get("page_ids")) if _safe_str(value)}
+    ig_ids = {_safe_str(value) for value in _json_array(previous.get("instagram_ig_user_ids")) if _safe_str(value)}
+    ad_ids = {_normalize_ad_account_id(_safe_str(value)) for value in _json_array(previous.get("ad_account_ids")) if _safe_str(value)}
+    if _safe_str(page.get("id")):
+        page_ids.add(_safe_str(page.get("id")))
+    if _safe_str(instagram.get("id")):
+        ig_ids.add(_safe_str(instagram.get("id")))
+    if _safe_str(ad_account.get("id")):
+        ad_ids.add(_safe_str(ad_account.get("id")))
+
+    now_iso = _iso(_now_utc())
+    scopes = _json_array(connection.get("scopes"))
+    encrypted_access = encrypt_secret(access_token)
+    if instagram:
+        await _save_connection_row({
+            "client_id": client_id, "platform": "instagram", "connection_type": "organic",
+            "meta_user_id": _safe_str(previous.get("meta_user_id")),
+            "ig_user_id": selected_instagram_id,
+            "username": _safe_str(instagram.get("username")),
+            "business_id": selected_page_id,
+            "ad_account_id": "", "ad_account_name": "", "scopes_json": scopes,
+            "encrypted_access_token": encrypted_access, "access_token": None,
+            "token_expires_at": connection.get("token_expires_at"),
+            "expires_at": connection.get("token_expires_at"),
+            "last_validated_at": now_iso, "last_sync_status": "never",
+            "requires_reauth": False, "is_active": True, "last_error": None,
+            "status": "active", "updated_at": now_iso,
+        })
+    if ad_account:
+        await _save_connection_row({
+            "client_id": client_id, "platform": "meta_ads", "connection_type": "paid",
+            "meta_user_id": _safe_str(previous.get("meta_user_id")),
+            "ig_user_id": "", "username": "", "business_id": "",
+            "ad_account_id": selected_ad_id, "ad_account_name": _safe_str(ad_account.get("name")),
+            "scopes_json": scopes, "encrypted_access_token": encrypted_access,
+            "access_token": None, "token_expires_at": connection.get("token_expires_at"),
+            "expires_at": connection.get("token_expires_at"),
+            "last_validated_at": now_iso, "last_sync_status": "never",
+            "requires_reauth": False, "is_active": True, "last_error": None,
+            "status": "active", "updated_at": now_iso,
+        })
+
+    metadata = {
+        **previous,
+        "page_ids": sorted(page_ids), "instagram_ig_user_ids": sorted(ig_ids),
+        "ad_account_ids": sorted(ad_ids),
+        "selected_page_id": selected_page_id or None,
+        "selected_page_name": _safe_str(page.get("name")) or previous.get("selected_page_name"),
+        "selected_instagram_id": selected_instagram_id or None,
+        "selected_instagram_username": _safe_str(instagram.get("username")) or previous.get("selected_instagram_username"),
+        "selected_ad_account_id": selected_ad_id or None,
+        "selected_ad_account_name": _safe_str(ad_account.get("name")) or previous.get("selected_ad_account_name"),
+        "organic_selection_source": "manual" if page or instagram else previous.get("organic_selection_source"),
+        "ads_selection_source": "manual" if ad_account else previous.get("ads_selection_source"),
+        "organic_status": "connected" if selected_instagram_id else "asset_required",
+        "ads_status": "connected" if selected_ad_id else "asset_required",
+        "coverage": "full" if selected_instagram_id and selected_ad_id else "partial",
+        "selection_required": not bool(selected_instagram_id or selected_ad_id),
+    }
+    updated = await sb_update(
+        "integration_connections",
+        filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "provider": "eq.meta"},
+        patch={
+            "status": "connected", "metadata": metadata,
+            "account_id": selected_ad_id or selected_instagram_id or connection.get("account_id"),
+            "account_name": _safe_str(ad_account.get("name")) or _safe_str(instagram.get("username")) or connection.get("account_name"),
+            "last_error": None, "updated_at": now_iso,
+        },
+        returning="representation",
+    )
+    await audit_connection(
+        client_id=client_id, connection_id=connection_id, user_id=user_id,
+        event_type="manual_assets_selected",
+        details={
+            "provider": "meta", "fields": sorted(
+                key for key, value in {
+                    "page_id": page_id, "instagram_id": instagram_id, "ad_account_id": ad_account_id,
+                }.items() if _safe_str(value)
+            ),
+        },
+    )
+    await invalidate_namespace("integration_connections")
+    return {"ok": True, "validated": validated, "connection": updated[0] if updated else {}}
 
 
 async def create_discovery_handoff(

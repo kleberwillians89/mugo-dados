@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 import httpx
 
 from .connection_resolver import resolve_connection_for_scope
+from .freshness import source_freshness
 from .ig_dashboard import get_dashboard as get_organic_dashboard
 from .ig_supabase import sb_select
 from .meta_tokens import serialize_connection_status
@@ -478,6 +479,12 @@ async def get_paid_dashboard(
     resolved_connection_id = str(resolved_connection.get("connection_id") or "").strip()
     resolved_ad_account_id = str((resolved_connection.get("row") or {}).get("ad_account_id") or "").strip()
     connection_source = str(resolved_connection.get("source") or "none").strip() or "none"
+    connection_row = resolved_connection.get("row") or {}
+    freshness = source_freshness(
+        "meta_ads",
+        connection_row.get("last_sync_at") or connection_row.get("last_synced_at"),
+        data_available=False,
+    )
     if not resolved_connection_id:
         print(
             "[paid][dashboard] "
@@ -642,6 +649,11 @@ async def get_paid_dashboard(
             "first_stat_date": None,
             "last_stat_date": None,
             "has_data": False,
+            "data_available": False,
+            "last_sync_at": freshness["last_sync_at"],
+            "stale": False,
+            "freshness": freshness,
+            "last_error": connection_row.get("last_error"),
             "message": "sem dados pagos no período",
             "daily": [],
             "totals": _finalize_paid_metric(_paid_totals_template()),
@@ -673,6 +685,11 @@ async def get_paid_dashboard(
             },
         }
 
+    freshness = source_freshness(
+        "meta_ads",
+        connection_row.get("last_sync_at") or connection_row.get("last_synced_at"),
+        data_available=True,
+    )
     return {
         "ok": True,
         "client_id": client_id,
@@ -685,6 +702,11 @@ async def get_paid_dashboard(
         "first_stat_date": first_stat_date,
         "last_stat_date": last_stat_date,
         "has_data": True,
+        "data_available": True,
+        "last_sync_at": freshness["last_sync_at"],
+        "stale": freshness["stale"],
+        "freshness": freshness,
+        "last_error": connection_row.get("last_error"),
         "message": "",
         "daily": aggregated.get("daily") or [],
         "totals": aggregated.get("totals") or _finalize_paid_metric(_paid_totals_template()),

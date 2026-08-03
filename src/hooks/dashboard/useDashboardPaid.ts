@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDashboardPaid } from "../../app/api";
+import { getDashboardPaid, syncAds } from "../../app/api";
 import type { PaidDashboardResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
@@ -61,6 +61,7 @@ export default function useDashboardPaid({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const dataRef = useRef<PaidDashboardResponse | null>(cachedInitial);
+  const backgroundRefreshRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     dataRef.current = paidData;
@@ -159,6 +160,17 @@ export default function useDashboardPaid({
       abortRef.current?.abort();
     };
   }, [activeClientId, enabled, isAuthenticated, reloadPaid, resolvedConnectionId]);
+
+  useEffect(() => {
+    if (!paidData?.stale || !paidData.data_available || !resolvedConnectionId) return;
+    const key = `${activeClientId}:${resolvedConnectionId}:${safePeriod.start}:${safePeriod.end}`;
+    if (backgroundRefreshRef.current.has(key)) return;
+    backgroundRefreshRef.current.add(key);
+    void syncAds(
+      { start: safePeriod.start, end: safePeriod.end },
+      { clientId: activeClientId, connectionId: resolvedConnectionId }
+    ).then(() => reloadPaid({ force: true })).catch(() => undefined);
+  }, [activeClientId, paidData?.data_available, paidData?.stale, reloadPaid, resolvedConnectionId, safePeriod.end, safePeriod.start]);
 
   return {
     paidData,

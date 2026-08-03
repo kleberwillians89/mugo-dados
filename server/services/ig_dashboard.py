@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 import httpx
 
 from .connection_resolver import resolve_connection_for_scope
+from .freshness import source_freshness
 from .ig_supabase import sb_select
 
 
@@ -495,11 +496,23 @@ async def get_dashboard(
 
     weekly_series = _build_series(rows, "weekly")
     monthly_series = _build_series(rows, "monthly")
+    data_available = bool(rows or media_rows_period)
+    connection_row = resolved_connection.get("row") or {}
+    freshness = source_freshness(
+        "meta_organic",
+        connection_row.get("last_sync_at") or connection_row.get("last_synced_at"),
+        data_available=data_available,
+    )
 
     return {
         "ok": True,
         "client_id": cid,
         "connection_id": resolved_connection_id or None,
+        "data_available": data_available,
+        "last_sync_at": freshness["last_sync_at"],
+        "stale": freshness["stale"],
+        "freshness": freshness,
+        "last_error": connection_row.get("last_error"),
         "days": window_days,
         "start": since_iso,
         "end": until_iso,

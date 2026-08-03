@@ -32,7 +32,7 @@ describe("professional integration states and official identity", () => {
 
   it("resumes Meta asset selection without starting a second OAuth flow", () => {
     const onboarding = source("./Onboarding.tsx");
-    expect(onboarding).toContain("discoverPendingClientMetaAssets");
+    expect(onboarding).toContain("configureExistingMetaOrganic");
     expect(onboarding).toContain("Selecionar ativos");
     expect(onboarding).toContain('connectionState === "selection_required"');
   });
