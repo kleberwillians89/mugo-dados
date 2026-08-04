@@ -610,12 +610,16 @@ class IntegrationErrorSafetyTests(unittest.TestCase):
             ),
             operation="consultar a loja",
         )
-        response = api_support._structured_error_response(
-            endpoint="/api/shopify/report",
-            exc=error,
-            status_code=error.status_code,
-            code="shopify_report_runtime_error",
-        )
+        request_id_token = api_support._set_request_id("req-shopify-safe")
+        try:
+            response = api_support._structured_error_response(
+                endpoint="/api/shopify/report",
+                exc=error,
+                status_code=error.status_code,
+                code="shopify_report_runtime_error",
+            )
+        finally:
+            api_support._reset_request_id(request_id_token)
         body = response.body.decode("utf-8")
         output = io.StringIO()
         with redirect_stdout(output):
@@ -630,6 +634,7 @@ class IntegrationErrorSafetyTests(unittest.TestCase):
         self.assertNotIn(secret, output.getvalue())
         self.assertNotIn("Authorization", output.getvalue())
         self.assertNotIn("refresh_token", output.getvalue())
+        self.assertIn('"request_id":"req-shopify-safe"', body)
 
 
 if __name__ == "__main__":

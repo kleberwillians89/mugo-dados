@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import traceback
+from contextvars import ContextVar, Token
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, Request
@@ -10,6 +11,17 @@ from fastapi.responses import JSONResponse
 
 from services.auth import get_user_id_from_bearer
 from services.tenant import resolve_connection_id
+
+
+_REQUEST_ID: ContextVar[str] = ContextVar("request_id", default="")
+
+
+def _set_request_id(value: str) -> Token[str]:
+    return _REQUEST_ID.set(str(value or ""))
+
+
+def _reset_request_id(token: Token[str]) -> None:
+    _REQUEST_ID.reset(token)
 
 
 def _pick_client_id(client_id: Optional[str], x_client_id: Optional[str]) -> Optional[str]:
@@ -116,20 +128,29 @@ def _structured_error_response(
     public_code = getattr(exc, "code", None)
     retryable = getattr(exc, "retryable", None)
     if isinstance(exc, HTTPException):
-        message = _clip(str(exc.detail), 500) or f"HTTP {exc.status_code}"
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        message = _clip(
+            str(detail.get("message") or (exc.detail if isinstance(exc.detail, str) else "")), 500
+        ) or f"HTTP {exc.status_code}"
+        public_code = detail.get("code") or public_code
     elif isinstance(public_message, str) and public_message.strip():
         message = _clip(public_message, 500)
     else:
         message = "Não foi possível concluir a consulta."
+    normalized_code = str(public_code or code).upper()
+    request_id = _REQUEST_ID.get()
+    normalized_retryable = bool(retryable) if isinstance(retryable, bool) else status_code == 429 or status_code >= 500
     return JSONResponse(
         status_code=status_code,
         content={
             "ok": False,
-            "code": str(public_code or code).upper(),
+            "code": normalized_code,
             "message": message,
             "status": status_code,
-            "retryable": bool(retryable) if isinstance(retryable, bool) else status_code == 429 or status_code >= 500,
+            "retryable": normalized_retryable,
             "path": endpoint,
+            "request_id": request_id,
+            "detail": {"code": normalized_code, "message": message, "request_id": request_id, "reason": "request_failed"},
         },
     )
 

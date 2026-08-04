@@ -43,6 +43,7 @@ import {
   getActiveClientId,
 } from "./activeClient";
 import { getSelectedPeriodRange } from "./periodRange";
+import { resolveCatalogConnection } from "./connectionManager";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
 const productionApiBase = "https://api.dados.mugoagencia.com.br";
@@ -147,11 +148,9 @@ export function selectUsableGoogleConnection(
   activeClientId: string,
   requestedConnectionId?: string | null
 ): GenericConnection | null {
-  const requested = String(requestedConnectionId || "").trim();
-  const usable = connections.filter((connection) =>
-    isUsableGoogleConnection(connection, provider, activeClientId)
-  );
-  return (requested ? usable.find((connection) => connection.id === requested) : usable[0]) || null;
+  return resolveCatalogConnection(connections, {
+    clientId: activeClientId, provider, requestedConnectionId, requireToken: true,
+  });
 }
 
 export function isUsableMetaConnection(connection: GenericConnection, activeClientId: string): boolean {
@@ -166,9 +165,13 @@ export function isUsableMetaConnection(connection: GenericConnection, activeClie
 export function selectUsableMetaConnection(
   connections: GenericConnection[], activeClientId: string, requestedConnectionId?: string | null
 ): GenericConnection | null {
-  const requested = String(requestedConnectionId || "").trim();
-  const usable = connections.filter((connection) => isUsableMetaConnection(connection, activeClientId));
-  return (requested ? usable.find((connection) => connection.id === requested) : usable[0]) || null;
+  return resolveCatalogConnection(connections, {
+    clientId: activeClientId, provider: "meta", requestedConnectionId, requireToken: true,
+  });
+}
+
+export function shouldClearTenantStateOnUnauthorized(status: number, code: string): boolean {
+  return status === 401 && (!code || code === "AUTHENTICATION_REQUIRED");
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -394,12 +397,12 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
         detail: txt || null,
       });
     }
-    if (res.status === 401) {
+    if (shouldClearTenantStateOnUnauthorized(res.status, code)) {
       clearTenantBrowserState();
       await supabase?.auth.signOut().catch(() => undefined);
     }
     throw new ApiError(
-      res.status === 401
+      res.status === 401 && shouldClearTenantStateOnUnauthorized(res.status, code)
         ? "Sua sessão precisa ser renovada."
         : res.status === 403
           ? detail || "Você não tem acesso a esta empresa."

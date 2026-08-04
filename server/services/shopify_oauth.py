@@ -17,6 +17,7 @@ from .generic_connections import (
     get_connection,
     upsert_connection,
 )
+from .connection_resolver import resolve_generic_connection
 from .ig_supabase import sb_insert, sb_select, sb_update
 from .integration_errors import IntegrationError, from_httpx_error
 from .oauth_state import create_oauth_state
@@ -133,55 +134,47 @@ async def resolve_shopify_connection_context(
 ) -> ShopifyConnectionContext:
     cid = str(client_id or "").strip()
     requested_connection_id = str(connection_id or "").strip()
-    if requested_connection_id:
-        try:
-            rows = [await get_connection(cid, requested_connection_id, include_token=True)]
-        except Exception as exc:
-            raise IntegrationError(
-                "Conexão Shopify não encontrada para a empresa selecionada.",
-                status_code=404,
-                code="SHOPIFY_CONNECTION_NOT_FOUND",
-                provider="shopify",
-            ) from exc
-    else:
-        rows = await sb_select(
-            "integration_connections",
-            filters={"client_id": f"eq.{cid}", "provider": "eq.shopify"},
-            order="updated_at.desc",
-            limit=50,
-        )
-        rows = [
-            row
-            for row in rows
-            if str(row.get("status") or "").strip().lower() != "disconnected"
-        ]
-        selected = [
-            row
-            for row in rows
-            if isinstance(row.get("metadata"), dict)
-            and bool(row["metadata"].get("selected_for_reporting"))
-        ]
-        if len(selected) == 1:
-            rows = selected
-        elif len(rows) > 1:
-            raise IntegrationError(
-                "Selecione qual loja Shopify deve alimentar os relatórios.",
-                status_code=409,
-                code="SHOPIFY_STORE_SELECTION_REQUIRED",
-                provider="shopify",
-            )
-        if rows:
+    try:
+        explicit_rows = None
+        if requested_connection_id:
             try:
-                rows = [await get_connection(cid, str(rows[0].get("id") or ""), include_token=True)]
+                explicit_rows = [await get_connection(cid, requested_connection_id, include_token=True)]
             except Exception as exc:
                 raise IntegrationError(
-                    "A conexão Shopify requer nova autorização.",
-                    status_code=401,
-                    code="SHOPIFY_REAUTH_REQUIRED",
-                    provider="shopify",
+                    "Conexão Shopify não encontrada para a empresa selecionada.", status_code=404,
+                    code="SHOPIFY_CONNECTION_NOT_FOUND", provider="shopify",
                 ) from exc
+        row = await resolve_generic_connection(
+            client_id=cid,
+            provider="shopify",
+            requested_connection_id=requested_connection_id or None,
+            prefer_metadata_flag="selected_for_reporting",
+            require_token=False,
+            select_fn=sb_select,
+            candidate_rows=explicit_rows,
+        )
+    except IntegrationError as exc:
+        if exc.code == "CONNECTION_TENANT_MISMATCH" and requested_connection_id:
+            raise IntegrationError(
+                "Conexão Shopify não encontrada para a empresa selecionada.", status_code=404,
+                code="SHOPIFY_CONNECTION_NOT_FOUND", provider="shopify",
+            ) from exc
+        if exc.code == "CONNECTION_NOT_FOUND":
+            row = None
+        elif exc.code == "CONNECTION_AMBIGUOUS":
+            raise IntegrationError(
+                "Selecione qual loja Shopify deve alimentar os relatórios.",
+                status_code=409, code="SHOPIFY_STORE_SELECTION_REQUIRED", provider="shopify",
+            ) from exc
+        elif exc.code in {"CONNECTION_TOKEN_UNAVAILABLE", "CONNECTION_DISCONNECTED"}:
+            raise IntegrationError(
+                "A conexão Shopify requer nova autorização.", status_code=401,
+                code="SHOPIFY_REAUTH_REQUIRED", provider="shopify",
+            ) from exc
+        else:
+            raise
 
-    if not rows:
+    if not row:
         legacy = _legacy_shopify_context(cid)
         if legacy:
             return legacy
@@ -192,7 +185,15 @@ async def resolve_shopify_connection_context(
             provider="shopify",
         )
 
-    row = rows[0]
+    if not row.get("_token"):
+        try:
+            row = await get_connection(cid, str(row.get("id") or ""), include_token=True)
+        except Exception as exc:
+            raise IntegrationError(
+                "A conexão Shopify requer nova autorização.", status_code=401,
+                code="SHOPIFY_REAUTH_REQUIRED", provider="shopify",
+            ) from exc
+
     if str(row.get("client_id") or "").strip() != cid or str(row.get("provider") or "") != "shopify":
         raise IntegrationError(
             "Conexão Shopify não encontrada para a empresa selecionada.",

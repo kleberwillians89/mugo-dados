@@ -26,6 +26,7 @@ import {
   readDashboardCache,
   writeDashboardCache,
 } from "../hooks/dashboard/cache";
+import { resolveCommerceConnection, resolveOperationalMetaConnectionId } from "../app/connectionManager";
 import { ensureDashboardPeriod } from "../hooks/dashboard/period";
 
 import {
@@ -950,43 +951,11 @@ function isOrganicConnection(connection: MetaConnection): boolean {
   );
 }
 
-function isPaidConnection(connection: MetaConnection): boolean {
-  return (
-    String(connection.platform || "").toLowerCase() === "meta_ads" ||
-    String(connection.connection_type || "").toLowerCase() === "paid"
-  );
-}
+const pickDefaultConnectionId = (connections: MetaConnection[], preferredConnectionId: string | null) =>
+  resolveOperationalMetaConnectionId(connections, "organic", preferredConnectionId);
 
-function pickDefaultConnectionId(
-  connections: MetaConnection[],
-  preferredConnectionId: string | null
-): string | null {
-  const organicConnections = connections.filter(isOrganicConnection);
-  if (!organicConnections.length) return null;
-  if (
-    preferredConnectionId &&
-    organicConnections.some((connection) => connection.id === preferredConnectionId)
-  ) {
-    return preferredConnectionId;
-  }
-  const activeOrganic = organicConnections.find(
-    (connection) => String(connection.status || "").toLowerCase() === "active"
-  );
-  if (activeOrganic?.id) return activeOrganic.id;
-  if (organicConnections.length === 1) return organicConnections[0]?.id || null;
-  return organicConnections[0]?.id || null;
-}
-
-function pickDefaultPaidConnectionId(connections: MetaConnection[]): string | null {
-  const paidConnections = connections.filter(isPaidConnection);
-  if (!paidConnections.length) return null;
-  const activePaid = paidConnections.find(
-    (connection) => String(connection.status || "").toLowerCase() === "active"
-  );
-  if (activePaid?.id) return activePaid.id;
-  if (paidConnections.length === 1) return paidConnections[0]?.id || null;
-  return paidConnections[0]?.id || null;
-}
+const pickDefaultPaidConnectionId = (connections: MetaConnection[]) =>
+  resolveOperationalMetaConnectionId(connections, "paid");
 
 type DashboardProps = {
   onLogout?: () => Promise<void> | void;
@@ -1394,10 +1363,7 @@ export default function Dashboard({
       .then(([metaResult, genericResult]) => {
         if (!alive) return;
         if (genericResult.status === "fulfilled") {
-          const commerce = genericResult.value.connections.find((connection) =>
-            ["shopify", "fbits"].includes(connection.provider) &&
-            ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
-          );
+          const commerce = resolveCommerceConnection(genericResult.value.connections);
           setCommerceConnection(commerce || null);
         }
         if (metaResult.status === "rejected") {

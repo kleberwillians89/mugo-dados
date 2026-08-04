@@ -82,9 +82,20 @@ async def _update_with_compatibility(
 
 def _serialize_run(row: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(row or {})
+    details = _normalize_payload(payload.get("payload_json"))
+    period = details.get("period") if isinstance(details.get("period"), dict) else details.get("date_range")
+    period = period if isinstance(period, dict) else {}
+    error_text = _safe_str(payload.get("error")) or None
+    job_name = _safe_str(payload.get("job_name"))
+    provider = _safe_str(details.get("provider") or details.get("platform"))
+    if not provider:
+        provider = "ga4" if "ga4" in job_name else "shopify" if "shopify" in job_name else "meta_ads" if "ads" in job_name else "meta" if "instagram" in job_name or "meta" in job_name else "integration"
+    if provider in {"instagram", "meta_organic"}:
+        provider = "meta"
     return {
         "id": _safe_str(payload.get("id")),
-        "job_name": _safe_str(payload.get("job_name")),
+        "job_name": job_name,
+        "provider": provider,
         "client_id": _safe_str(payload.get("client_id")) or None,
         "connection_id": _safe_str(payload.get("connection_id")) or None,
         "ad_account_id": _safe_str(payload.get("ad_account_id")) or None,
@@ -92,9 +103,15 @@ def _serialize_run(row: Dict[str, Any]) -> Dict[str, Any]:
         "started_at": payload.get("started_at"),
         "finished_at": payload.get("finished_at"),
         "status": _normalize_status(payload.get("status")),
+        "attempt": int(details.get("attempt") or 1),
+        "error_code": _safe_str(details.get("error_code")) or None,
+        "request_id": _safe_str(details.get("request_id")) or None,
+        "rows_written": int(payload.get("rows_upserted") or 0),
         "rows_upserted": int(payload.get("rows_upserted") or 0),
-        "error": _safe_str(payload.get("error")) or None,
-        "payload_json": _normalize_payload(payload.get("payload_json")),
+        "period_start": period.get("start") or period.get("since"),
+        "period_end": period.get("end") or period.get("until"),
+        "error": error_text[:240] if error_text else None,
+        "payload_json": details,
     }
 
 
@@ -166,6 +183,7 @@ async def list_job_runs(
     client_id: Optional[str] = None,
     connection_id: Optional[str] = None,
     job_name: Optional[str] = None,
+    provider: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
 ) -> Dict[str, Any]:
@@ -183,10 +201,15 @@ async def list_job_runs(
         "cron_job_runs",
         filters=filters or None,
         order="started_at.desc",
-        limit=max(1, min(int(limit or 50), 200)),
+        limit=200 if _safe_str(provider) else max(1, min(int(limit or 50), 200)),
     )
+    serialized = [_serialize_run(row) for row in rows]
+    if _safe_str(provider):
+        serialized = [row for row in serialized if row.get("provider") == _safe_str(provider).lower()][
+            :max(1, min(int(limit or 50), 200))
+        ]
     return {
         "ok": True,
-        "runs": [_serialize_run(row) for row in rows],
-        "total": len(rows),
+        "runs": serialized,
+        "total": len(serialized),
     }

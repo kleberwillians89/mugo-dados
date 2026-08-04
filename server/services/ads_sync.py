@@ -27,6 +27,8 @@ from .meta_tokens import (
     mark_connection_sync_partial,
     mark_connection_sync_success,
 )
+from .integration_errors import IntegrationError
+from .sync_locks import acquire_sync_lock, build_sync_lock_name, release_sync_lock
 CATALOG_EFFECTIVE_STATUSES = [
     "ACTIVE",
     "INACTIVE",
@@ -43,7 +45,6 @@ CATALOG_EFFECTIVE_STATUSES = [
     "IN_PROCESS",
 ]
 
-_ACTIVE_SYNC_KEYS: set[str] = set()
 _RECENT_SYNC_KEYS: Dict[str, float] = {}
 _SYNC_DEDUP_SECONDS = 300
 
@@ -1326,7 +1327,7 @@ async def sync_ads_for_client_period(
     sync_key = f"{cid}:{resolved_connection_id}:{ad_account_id}:{period_since}:{period_until}"
     now_monotonic = time.monotonic()
     recent_at = _RECENT_SYNC_KEYS.get(sync_key)
-    if sync_key in _ACTIVE_SYNC_KEYS or (recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS):
+    if recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS:
         if job_run:
             await finish_job_run(
                 job_run["id"],
@@ -1348,7 +1349,19 @@ async def sync_ads_for_client_period(
             "ad_account_id": ad_account_id,
             "date_range": {"since": period_since, "until": period_until},
         }
-    _ACTIVE_SYNC_KEYS.add(sync_key)
+    lock_name = build_sync_lock_name("meta_ads", resolved_connection_id, period_since, period_until)
+    if not await acquire_sync_lock(cid, lock_name, 3600):
+        if job_run:
+            await finish_job_run(
+                job_run["id"], status="skipped", rows_upserted=0,
+                error="Sincronização equivalente já está em andamento.", client_id=cid,
+                connection_id=resolved_connection_id, ad_account_id=ad_account_id,
+                payload_json={"date_range": {"since": period_since, "until": period_until}, "error_code": "SYNC_ALREADY_RUNNING"},
+            )
+        raise IntegrationError(
+            "Já existe uma sincronização equivalente em andamento.", status_code=409,
+            code="SYNC_ALREADY_RUNNING", provider="meta_ads", retryable=True,
+        )
 
     try:
         token = await ensure_valid_meta_token(
@@ -1696,7 +1709,7 @@ async def sync_ads_for_client_period(
         )
         raise
     finally:
-        _ACTIVE_SYNC_KEYS.discard(sync_key)
+        await release_sync_lock(cid, lock_name)
 
     print(
         "[ads_sync][done] "

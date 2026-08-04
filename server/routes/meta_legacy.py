@@ -336,6 +336,8 @@ async def api_link_assets(
             instagram_ig_user_ids=[str(v or "").strip() for v in (payload.get("instagram_ig_user_ids") or [])],
             ad_account_ids=[str(v or "").strip() for v in (payload.get("ad_account_ids") or [])],
         )
+    except IntegrationError:
+        raise
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

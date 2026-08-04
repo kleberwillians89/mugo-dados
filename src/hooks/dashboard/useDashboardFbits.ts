@@ -7,6 +7,8 @@ import {
   readDashboardCache,
   writeDashboardCache,
 } from "./cache";
+import { resolveCommerceConnection } from "../../app/connectionManager";
+export { resolveCommerceConnection } from "../../app/connectionManager";
 
 type Params = {
   isAuthenticated: boolean;
@@ -23,25 +25,6 @@ type FbitsCachePayload = {
   summary: FbitsOrdersSummaryResponse | null;
   orders: FbitsOrdersResponse | null;
 };
-
-export function resolveCommerceConnection(connections: Array<{
-  provider: string;
-  status: string;
-  metadata?: Record<string, unknown>;
-}>) {
-  const activeCommerceConnections = connections.filter(
-    (connection) =>
-      ["shopify", "fbits"].includes(connection.provider) &&
-      ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase())
-  );
-  return (
-    activeCommerceConnections.find(
-      (connection) =>
-        connection.provider === "shopify" &&
-        Boolean(connection.metadata?.selected_for_reporting)
-    ) || activeCommerceConnections[0] || null
-  );
-}
 
 export default function useDashboardFbits({ isAuthenticated, activeClientId, period }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);

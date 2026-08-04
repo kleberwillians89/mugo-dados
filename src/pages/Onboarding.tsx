@@ -36,6 +36,7 @@ import {
   startGoogleOAuth,
   startShopifyOAuth,
 } from "../app/api";
+import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import {
   getActiveConnectionId,
   setActiveConnectionId,
@@ -140,27 +141,8 @@ function connectionLabel(connection: MetaConnection): string {
   return "Conexao do cliente ativo";
 }
 
-function pickDefaultOrganicConnectionId(
-  connections: MetaConnection[],
-  preferredConnectionId: string | null
-): string | null {
-  const organicConnections = connections.filter(isOrganicConnection);
-  if (!organicConnections.length) return null;
-
-  if (
-    preferredConnectionId &&
-    organicConnections.some((connection) => connection.id === preferredConnectionId)
-  ) {
-    return preferredConnectionId;
-  }
-
-  const activeOrganic = organicConnections.find(
-    (connection) => String(connection.status || "").toLowerCase() === "active"
-  );
-  if (activeOrganic?.id) return activeOrganic.id;
-
-  return organicConnections[0]?.id || null;
-}
+const pickDefaultOrganicConnectionId = (connections: MetaConnection[], preferredConnectionId: string | null) =>
+  resolveOperationalMetaConnectionId(connections, "organic", preferredConnectionId);
 
 export default function Onboarding({
   isAuthenticated = false,
@@ -216,9 +198,9 @@ export default function Onboarding({
 
   const prepareMetaAssets = useCallback((data: MetaDiscoverAssetsResponse) => {
     setPendingAssets(data);
-    setSelectedIg(Object.fromEntries((data.instagram_accounts || []).map((item) => [String(item.ig_user_id || ""), true]).filter(([id]) => id)));
-    setSelectedPages(Object.fromEntries((data.instagram_accounts || []).map((item) => [String(item.business_id || ""), true]).filter(([id]) => id)));
-    setSelectedAds(Object.fromEntries((data.ad_accounts || []).map((item) => [String(item.ad_account_id || ""), true]).filter(([id]) => id)));
+    setSelectedIg({});
+    setSelectedPages({});
+    setSelectedAds({});
   }, []);
 
   const loadConnections = useCallback(async () => {
@@ -426,17 +408,17 @@ export default function Onboarding({
   );
 
   const activeOrganicConnection =
-    organicConnections.find((connection) => connection.id === activeConnectionId) ||
-    organicConnections.find((connection) => String(connection.status || "").toLowerCase() === "active") ||
+    selectUniqueConnection(organicConnections, (connection) => connection.id === activeConnectionId) ||
+    selectUniqueConnection(organicConnections, (connection) => String(connection.status || "").toLowerCase() === "active") ||
     null;
 
   const dashboardReady = organicConnections.some(
     (connection) => String(connection.status || "").toLowerCase() === "active"
   );
   const metaGenericConnection = selectUsableMetaConnection(genericConnections, getActiveClientId());
-  const selectedPaidConnection = paidConnections.find((connection) =>
+  const selectedPaidConnection = selectUniqueConnection(paidConnections, (connection) =>
     String(connection.ad_account_id || "") === String(metaGenericConnection?.metadata?.selected_ad_account_id || "")
-  ) || paidConnections.find((connection) => String(connection.status || "").toLowerCase() === "active") || null;
+  ) || selectUniqueConnection(paidConnections, (connection) => String(connection.status || "").toLowerCase() === "active");
   const metaAdsOperational = Boolean(selectedPaidConnection?.ad_account_id);
   const metaSelectionPending = String(metaGenericConnection?.status || "").toLowerCase() === "selection_required";
   const connectionSummary = useMemo(() => {
@@ -565,7 +547,7 @@ export default function Onboarding({
         ? result.initial_sync as Record<string, unknown>
         : null;
       setInfo(initialSync?.ok === false
-        ? "Ativos Meta salvos. A sincronização orgânica inicial será repetida em segundo plano."
+        ? "Ativos Meta salvos, mas a sincronização inicial falhou. Use Atualizar dados para tentar novamente."
         : "Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
     } catch (error: unknown) {
       setErr(error instanceof ApiError && error.status === 404
@@ -707,7 +689,10 @@ export default function Onboarding({
         ad_account_ids: adAccountIds,
       });
       const savedConnections = Array.isArray(result.connections) ? result.connections : [];
-      const organic = savedConnections.find((item) => item && typeof item === "object" && item.platform === "instagram");
+      const organicConnectionsSaved = savedConnections.filter(
+        (item) => item && typeof item === "object" && item.platform === "instagram"
+      );
+      const organic = organicConnectionsSaved.length === 1 ? organicConnectionsSaved[0] : null;
       let initialSyncWarning = "";
       if (organic && typeof organic === "object" && typeof organic.id === "string") {
         try {
@@ -1040,10 +1025,10 @@ export default function Onboarding({
                       : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
               const connection =
                 definition.id === "shopify"
-                  ? matchingConnections.find(
+                  ? selectUniqueConnection(matchingConnections,
                       (item) => Boolean(item.metadata?.selected_for_reporting)
-                    ) || matchingConnections[0]
-                  : matchingConnections[0];
+                    ) || (matchingConnections.length === 1 ? matchingConnections[0] : undefined)
+                  : matchingConnections.length === 1 ? matchingConnections[0] : undefined;
               const metaConnected =
                 definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
               const productStatus = definition.id === "ga4"
@@ -1387,10 +1372,7 @@ export default function Onboarding({
                           checked={Boolean(selectedPages[page.page_id])}
                           disabled={!linked}
                           onChange={(event) =>
-                            setSelectedPages((prev) => ({
-                              ...prev,
-                              [page.page_id]: event.target.checked,
-                            }))
+                            setSelectedPages(event.target.checked ? { [page.page_id]: true } : {})
                           }
                         />
                         <span>{page.page_name || page.page_id} <span className="smallMuted">({linked ? page.page_id : "sem Instagram profissional"})</span></span>
@@ -1417,10 +1399,7 @@ export default function Onboarding({
                             type="checkbox"
                             checked={Boolean(selectedIg[id])}
                             onChange={(event) =>
-                              setSelectedIg((prev) => ({
-                                ...prev,
-                                [id]: event.target.checked,
-                              }))
+                              setSelectedIg(event.target.checked ? { [id]: true } : {})
                             }
                           />
                           <span>
@@ -1449,10 +1428,7 @@ export default function Onboarding({
                             type="checkbox"
                             checked={Boolean(selectedAds[id])}
                             onChange={(event) =>
-                              setSelectedAds((prev) => ({
-                                ...prev,
-                                [id]: event.target.checked,
-                              }))
+                              setSelectedAds(event.target.checked ? { [id]: true } : {})
                             }
                           />
                           <span>

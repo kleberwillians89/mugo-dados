@@ -69,7 +69,7 @@ export function readDashboardCache<T>(key: string): T | null {
 }
 
 export function writeDashboardCache<T>(key: string, value: T, ttlMs = 180_000): void {
-  const safeTtl = Math.max(900_000, Math.floor(ttlMs || 180_000));
+  const safeTtl = Math.max(1_000, Math.floor(ttlMs || 180_000));
   const entry = {
     value,
     expiresAt: Date.now() + safeTtl,

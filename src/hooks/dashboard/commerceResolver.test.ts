@@ -22,4 +22,12 @@ describe("commerce provider resolution", () => {
     ]);
     expect(selected).toBeNull();
   });
+
+  it("does not choose the first commerce connection when selection is ambiguous", () => {
+    const selected = resolveCommerceConnection([
+      { provider: "shopify", status: "connected", metadata: {} },
+      { provider: "fbits", status: "connected", metadata: {} },
+    ]);
+    expect(selected).toBeNull();
+  });
 });

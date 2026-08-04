@@ -30,6 +30,8 @@ from api_support import (
     _pick_client_id,
     _started,
     _structured_error_response,
+    _set_request_id,
+    _reset_request_id,
     _validated_connection_id,
 )
 from routes.google import router as google_router
@@ -40,6 +42,7 @@ from routes.invitations import router as invitations_router
 from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
 from routes.platform_admin import router as platform_admin_router
+from routes.admin_health import router as admin_health_router
 from routes.shopify import router as shopify_router
 from routes.shopify_oauth import router as shopify_oauth_router
 
@@ -84,10 +87,14 @@ async def api_version():
 async def safe_request_log(request: Request, call_next):
     started = time.perf_counter()
     request_id = str(request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
+    request_id_token = _set_request_id(request_id)
     if not hasattr(request, "state"):
         request.state = SimpleNamespace()
     request.state.request_id = request_id
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    finally:
+        _reset_request_id(request_id_token)
     duration_ms = int((time.perf_counter() - started) * 1000)
     path = request.url.path
     integration_product = str(getattr(request.state, "integration_product", "") or "").strip()
@@ -137,16 +144,23 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         404: "RESOURCE_NOT_FOUND",
         429: "RATE_LIMITED",
     }
+    raw_detail = exc.detail
+    detail_payload = raw_detail if isinstance(raw_detail, dict) else {}
+    code = str(detail_payload.get("code") or codes.get(exc.status_code, "REQUEST_FAILED"))
+    message = str(detail_payload.get("message") or (raw_detail if isinstance(raw_detail, str) else "A solicitação não pôde ser concluída."))
+    request_id = str(getattr(request.state, "request_id", "") or "")
+    retryable = bool(detail_payload.get("retryable")) if "retryable" in detail_payload else exc.status_code == 429 or exc.status_code >= 500
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "ok": False,
-            "code": codes.get(exc.status_code, "REQUEST_FAILED"),
-            "message": str(exc.detail or "A solicitação não pôde ser concluída."),
+            "code": code,
+            "message": message,
             "status": exc.status_code,
-            "retryable": exc.status_code == 429 or exc.status_code >= 500,
+            "retryable": retryable,
             "path": request.url.path,
-            "request_id": str(getattr(request.state, "request_id", "") or ""),
+            "request_id": request_id,
+            "detail": {"code": code, "message": message, "request_id": request_id, "reason": str(detail_payload.get("reason") or "http_error")},
         },
         headers=exc.headers,
     )
@@ -257,6 +271,7 @@ app.include_router(invitations_router)
 app.include_router(intelligence_router)
 app.include_router(connections_router)
 app.include_router(platform_admin_router)
+app.include_router(admin_health_router)
 
 
 @app.get("/api/ig/stories")

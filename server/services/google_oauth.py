@@ -274,6 +274,7 @@ async def save_google_authorization(
             **previous_metadata,
             "integration_product": normalized_product,
             "google_email": identity["email"],
+            "refresh_token_available": True,
             "ads_developer_token_configured": bool(_env("GOOGLE_ADS_DEVELOPER_TOKEN")),
         },
     )

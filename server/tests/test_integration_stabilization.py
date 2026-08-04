@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from server.services import ga4_sync, generic_connections, google_oauth, meta_oauth
+from server.services import connection_resolver, ga4_sync, generic_connections, google_oauth, meta_oauth
 from server.services.integration_errors import google_api_error
 from server.services.meta_http import MetaApiError
 
@@ -55,8 +55,57 @@ class ConnectionTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "OAUTH_CONNECTION_TENANT_MISMATCH")
         self.assertEqual(raised.exception.status_code, 403)
 
+    def test_connection_resolver_rejects_ambiguous_active_connections(self):
+        rows = [
+            {"id": "organic-a", "status": "active", "is_active": True},
+            {"id": "organic-b", "status": "active", "is_active": True},
+        ]
+        with self.assertRaises(connection_resolver.IntegrationError) as raised:
+            connection_resolver._pick_best_connection(rows)
+        self.assertEqual(raised.exception.code, "CONNECTION_AMBIGUOUS")
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_connection_resolver_never_falls_back_to_disconnected_connection(self):
+        selected, source = connection_resolver._pick_best_connection([
+            {"id": "organic-old", "status": "disconnected", "is_active": False},
+        ])
+        self.assertIsNone(selected)
+        self.assertEqual(source, "none")
+
+    def test_meta_sanitization_exposes_real_token_availability(self):
+        sanitized = generic_connections.sanitize_connection({
+            "id": "meta-1", "client_id": "amalie", "provider": "meta",
+            "status": "connected", "encrypted_token": "",
+        })
+        self.assertFalse(sanitized["token_available"])
+
 
 class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_link_assets_rejects_multiple_instagram_selection_before_persistence(self):
+        handoff = {
+            "handoff": "handoff-1", "user_id": "user-amalie", "client_id": "amalie",
+            "encrypted_access_token": "encrypted",
+            "instagram_accounts_json": [
+                {"ig_user_id": "ig-1", "business_id": "page-1"},
+                {"ig_user_id": "ig-2", "business_id": "page-2"},
+            ],
+            "ad_accounts_json": [],
+        }
+        insert = AsyncMock()
+        with (
+            patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff)),
+            patch.object(meta_oauth, "decrypt_secret", return_value="safe-token"),
+            patch.object(meta_oauth, "sb_insert", insert),
+        ):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.save_connections(
+                    user_id="user-amalie", client_id="amalie", handoff="handoff-1",
+                    page_ids=["page-1", "page-2"],
+                    instagram_ig_user_ids=["ig-1", "ig-2"], ad_account_ids=[],
+                )
+        self.assertEqual(raised.exception.code, "META_INSTAGRAM_SELECTION_AMBIGUOUS")
+        insert.assert_not_awaited()
+
     async def test_page_discovery_follows_all_pages_without_auto_selecting_tenant(self):
         first_pages = {
             "data": [{"id": "page-amalie", "name": "Amalie", "instagram_business_account": {"id": "ig-amalie", "username": "amalie"}}],
@@ -135,8 +184,23 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
     def _manual_connection(self, metadata=None):
         return {
             "provider": "meta", "client_id": "amalie", "scopes": ["pages_show_list", "instagram_basic", "ads_read"],
+            "status": "connected", "disconnected_at": None,
             "metadata": metadata or {}, "_token": json.dumps({"access_token": "safe-token"}),
         }
+
+    async def test_manual_assets_reject_disconnected_meta_connection_before_graph_call(self):
+        connection = {**self._manual_connection(), "status": "disconnected", "disconnected_at": "2026-08-04T00:00:00Z"}
+        graph = AsyncMock()
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=connection)),
+            patch.object(meta_oauth, "_meta_get", graph),
+        ):
+            with self.assertRaises(meta_oauth.IntegrationError) as raised:
+                await meta_oauth.validate_manual_meta_assets(
+                    client_id="amalie", connection_id="meta-old", page_id="123"
+                )
+        self.assertEqual(raised.exception.code, "META_CONNECTION_DISCONNECTED")
+        graph.assert_not_awaited()
 
     async def test_manual_page_id_is_validated_and_named(self):
         with (

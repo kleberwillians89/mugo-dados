@@ -19,6 +19,7 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_OAUTH_DIALOG_URL
 from .meta_http import MetaApiError, meta_get_json
 from .integration_errors import IntegrationError
+from .meta_connection_adapter import meta_connection_adapter
 from .meta_tokens import serialize_connection_status
 from .generic_connections import audit_connection, disconnect_generic_connection, get_connection, upsert_connection
 from .runtime_cache import invalidate_namespace
@@ -544,6 +545,12 @@ async def discover_existing_meta_organic_assets(
             "A conexão selecionada não é uma conexão Meta.", status_code=404,
             code="META_CONNECTION_NOT_FOUND", provider="meta",
         )
+    status = _safe_str(connection.get("status")).lower()
+    if (status and status not in {"connected", "selection_required"}) or connection.get("disconnected_at"):
+        raise IntegrationError(
+            "A conexão Meta está desconectada e exige nova autorização.", status_code=409,
+            code="META_CONNECTION_DISCONNECTED", provider="meta",
+        )
     scopes = {_safe_str(scope) for scope in _json_array(connection.get("scopes"))}
     required = {"pages_show_list", "pages_read_engagement", "instagram_basic"}
     if not required.issubset(scopes):
@@ -625,6 +632,12 @@ async def _manual_meta_connection(
         raise IntegrationError(
             "Conexão Meta não encontrada.", status_code=404,
             code="META_CONNECTION_NOT_FOUND", provider="meta",
+        )
+    status = _safe_str(connection.get("status")).lower()
+    if (status and status not in {"connected", "selection_required"}) or connection.get("disconnected_at"):
+        raise IntegrationError(
+            "A conexão Meta está desconectada e exige nova autorização.", status_code=409,
+            code="META_CONNECTION_DISCONNECTED", provider="meta",
         )
     try:
         token_payload = json.loads(_safe_str(connection.get("_token")) or "{}")
@@ -860,6 +873,12 @@ async def save_manual_meta_assets(
         },
         returning="representation",
     )
+    drift = await meta_connection_adapter.detect_drift(client_id)
+    if drift.get("drift_detected"):
+        raise IntegrationError(
+            "Os ativos foram preservados, mas a autorização e a projeção Meta estão divergentes.",
+            status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+        )
     await audit_connection(
         client_id=client_id, connection_id=connection_id, user_id=user_id,
         event_type="manual_assets_selected",
@@ -1010,7 +1029,12 @@ async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
         ad_account_id=_safe_str(row.get("ad_account_id")),
     )
 
-    existing = await sb_select("meta_connections", filters=filters, limit=1)
+    existing = await sb_select("meta_connections", filters=filters, limit=2)
+    if len(existing) > 1:
+        raise IntegrationError(
+            "Mais de uma projeção operacional Meta corresponde aos mesmos ativos.",
+            status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+        )
     if existing:
         conn_id = _safe_str(existing[0].get("id"))
         await sb_update("meta_connections", filters={"id": f"eq.{conn_id}"}, patch=row, returning="minimal")
@@ -1075,6 +1099,16 @@ async def save_connections(
         for a in _json_array(item.get("ad_accounts_json"))
         if _normalize_ad_account_id(_safe_str((a or {}).get("ad_account_id"))) in ads_requested
     ]
+    if len(selected_igs) > 1:
+        raise IntegrationError(
+            "Selecione apenas uma conta do Instagram por conexão.",
+            status_code=409, code="META_INSTAGRAM_SELECTION_AMBIGUOUS", provider="meta",
+        )
+    if len(selected_ads) > 1:
+        raise IntegrationError(
+            "Selecione apenas uma conta Meta Ads por conexão.",
+            status_code=409, code="META_AD_ACCOUNT_SELECTION_AMBIGUOUS", provider="meta",
+        )
 
     validate_page_selection(
         discovered_instagram_accounts=_json_array(item.get("instagram_accounts_json")),
@@ -1195,10 +1229,18 @@ async def save_connections(
 
     generic_rows = await sb_select(
         "integration_connections",
-        filters={"client_id": f"eq.{client_id}", "provider": "eq.meta"},
+        filters={
+            "client_id": f"eq.{client_id}", "provider": "eq.meta",
+            "status": "in.(connected,selection_required)", "disconnected_at": "is.null",
+        },
         order="updated_at.desc",
-        limit=1,
+        limit=2,
     )
+    if len(generic_rows) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão-base Meta está ativa para esta empresa.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="meta",
+        )
     previous_generic = generic_rows[0] if generic_rows else {}
     previous_metadata = _json_object(previous_generic.get("metadata"))
     selected_ad = selected_ads[0] if selected_ads else {}
@@ -1308,9 +1350,15 @@ async def select_paid_connection(*, client_id: str, ad_account_id: str, user_id:
             "platform": "eq.meta_ads",
             "connection_type": "eq.paid",
             "ad_account_id": f"eq.{normalized}",
+            "status": "eq.active",
         },
-        limit=1,
+        limit=2,
     )
+    if len(rows) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão Meta Ads corresponde à conta selecionada.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="meta",
+        )
     if not rows:
         raise RuntimeError("A conta de anúncios selecionada não pertence à empresa ativa.")
     selected = rows[0]
@@ -1324,10 +1372,18 @@ async def select_paid_connection(*, client_id: str, ad_account_id: str, user_id:
     )
     generic_rows = await sb_select(
         "integration_connections",
-        filters={"client_id": f"eq.{_safe_str(client_id)}", "provider": "eq.meta"},
+        filters={
+            "client_id": f"eq.{_safe_str(client_id)}", "provider": "eq.meta",
+            "status": "in.(connected,selection_required)", "disconnected_at": "is.null",
+        },
         order="updated_at.desc",
-        limit=1,
+        limit=2,
     )
+    if len(generic_rows) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão-base Meta está ativa para esta empresa.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="meta",
+        )
     if not generic_rows:
         raise RuntimeError("Conexão-base Meta não encontrada para esta empresa.")
     generic = generic_rows[0]

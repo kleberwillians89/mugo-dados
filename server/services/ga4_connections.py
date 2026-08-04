@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from .connection_resolver import resolve_generic_connection
 from .ig_supabase import sb_select
 from .integration_errors import IntegrationError
 from .single_tenant import resolve_ga4_context_for_client
@@ -29,23 +30,15 @@ class GA4ConnectionContext:
 
 async def resolve_ga4_connection_context(client_id: str) -> GA4ConnectionContext:
     cid = _text(client_id)
-    rows = await sb_select(
-        "integration_connections",
-        select=(
-            "id,client_id,provider,status,external_key,scopes,metadata,"
-            "token_expires_at,updated_at"
-        ),
-        filters={"client_id": f"eq.{cid}", "provider": "eq.ga4"},
-        order="updated_at.desc",
-        limit=20,
-    )
-    candidates = [
-        row
-        for row in rows
-        if _text(row.get("status")).lower() != "disconnected"
-    ]
-    if candidates:
-        row = candidates[0]
+    try:
+        row = await resolve_generic_connection(
+            client_id=cid, provider="ga4", require_token=False, select_fn=sb_select,
+        )
+    except IntegrationError as exc:
+        if exc.code != "CONNECTION_NOT_FOUND":
+            raise
+        row = None
+    if row:
         if _text(row.get("client_id")) != cid:
             raise IntegrationError(
                 "A conexão Google não pertence à empresa selecionada.",

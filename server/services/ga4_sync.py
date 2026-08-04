@@ -29,7 +29,7 @@ GA4_REPORT_METRICS = (
     "totalRevenue",
 )
 GA4_OPTIONAL_UPSERT_COLUMNS = ("raw_payload",)
-_ACTIVE_GA4_SYNC_KEYS: set[str] = set()
+from .sync_locks import guarded_sync
 
 
 def _safe_str(value: Any) -> str:
@@ -654,18 +654,11 @@ async def _sync_ga4_for_period(
 
 async def sync_ga4_for_period(**kwargs: Any) -> Dict[str, Any]:
     client_id = _safe_str(kwargs.get("client_id")) or "default"
-    lock_key = f"{client_id}:ga4"
-    if lock_key in _ACTIVE_GA4_SYNC_KEYS:
-        return {
-            "ok": False,
-            "skipped": True,
-            "reason": "duplicate",
-            "code": "SYNC_ALREADY_RUNNING",
-            "provider": "ga4",
-            "client_id": client_id,
-        }
-    _ACTIVE_GA4_SYNC_KEYS.add(lock_key)
-    try:
+    connection_id = _safe_str(kwargs.get("connection_id")) or "resolved"
+    period_start = _safe_str(kwargs.get("start"))
+    period_end = _safe_str(kwargs.get("end"))
+    async with guarded_sync(
+        client_id=client_id, provider="ga4", connection_id=connection_id,
+        period_start=period_start, period_end=period_end, ttl_seconds=1800,
+    ):
         return await _sync_ga4_for_period(**kwargs)
-    finally:
-        _ACTIVE_GA4_SYNC_KEYS.discard(lock_key)

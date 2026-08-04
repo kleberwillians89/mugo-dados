@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
+from .crypto import decrypt_secret
 from .ig_supabase import sb_select
+from .integration_errors import IntegrationError
 
 
 def _safe_str(value: Any) -> str:
@@ -23,6 +25,163 @@ def _is_status_active_like(row: Dict[str, Any]) -> bool:
     if is_active in {"false", "0", "no", "off"}:
         return False
     return status in {"active", "connected", "ok"} and not requires_reauth
+
+
+_GENERIC_ALLOWED_STATUSES = {"connected", "selection_required"}
+
+
+async def resolve_generic_connection(
+    *,
+    client_id: str,
+    provider: str,
+    requested_connection_id: str | None = None,
+    capability: str | None = None,
+    prefer_metadata_flag: str | None = None,
+    required_asset: str | None = None,
+    require_token: bool = True,
+    select_fn: Callable[..., Awaitable[list[Dict[str, Any]]]] | None = None,
+    candidate_rows: list[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    """Resolve an OAuth/catalog connection without a silent fallback.
+
+    The returned row is tenant/provider/status validated. Tokens are decrypted
+    only for the caller and must never be serialized or logged.
+    """
+    cid = _safe_str(client_id)
+    expected_provider = _safe_str(provider).lower()
+    requested = _safe_str(requested_connection_id)
+    if not cid or not expected_provider:
+        raise IntegrationError(
+            "Empresa e provedor são obrigatórios para resolver a conexão.",
+            status_code=400, code="CONNECTION_NOT_FOUND", provider="integration",
+        )
+
+    select = select_fn or sb_select
+    if candidate_rows is not None:
+        candidates = list(candidate_rows)
+        if requested and not candidates:
+            raise IntegrationError(
+                "Conexão não encontrada.", status_code=404,
+                code="CONNECTION_NOT_FOUND", provider=expected_provider,
+            )
+    elif requested:
+        rows = await select(
+            "integration_connections",
+            filters={"id": f"eq.{requested}"},
+            limit=2,
+        )
+        if not rows:
+            raise IntegrationError(
+                "Conexão não encontrada.", status_code=404,
+                code="CONNECTION_NOT_FOUND", provider=expected_provider,
+            )
+        row = rows[0]
+        if _safe_str(row.get("client_id")) != cid:
+            raise IntegrationError(
+                "A conexão pertence a outra empresa.", status_code=403,
+                code="CONNECTION_TENANT_MISMATCH", provider=expected_provider,
+            )
+        if _safe_str(row.get("provider")).lower() != expected_provider:
+            raise IntegrationError(
+                "A conexão pertence a outro provedor.", status_code=409,
+                code="CONNECTION_PROVIDER_MISMATCH", provider=expected_provider,
+            )
+        candidates = [row]
+    else:
+        candidates = await select(
+            "integration_connections",
+            filters={"client_id": f"eq.{cid}", "provider": f"eq.{expected_provider}"},
+            order="updated_at.desc",
+            limit=200,
+        )
+
+    connected: list[Dict[str, Any]] = []
+    disconnected_seen = False
+    tenant_mismatch_seen = False
+    provider_mismatch_seen = False
+    for row in candidates:
+        row_client = _safe_str(row.get("client_id"))
+        row_provider = _safe_str(row.get("provider")).lower()
+        if row_client != cid:
+            if requested:
+                raise IntegrationError(
+                    "A conexão pertence a outra empresa.", status_code=403,
+                    code="CONNECTION_TENANT_MISMATCH", provider=expected_provider,
+                )
+            tenant_mismatch_seen = True
+            continue
+        if row_provider != expected_provider:
+            if requested:
+                raise IntegrationError(
+                    "A conexão pertence a outro provedor.", status_code=409,
+                    code="CONNECTION_PROVIDER_MISMATCH", provider=expected_provider,
+                )
+            provider_mismatch_seen = True
+            continue
+        status = _safe_str(row.get("status")).lower()
+        disconnected = bool(_safe_str(row.get("disconnected_at"))) or status == "disconnected"
+        if disconnected:
+            disconnected_seen = True
+            continue
+        if status in _GENERIC_ALLOWED_STATUSES:
+            connected.append(row)
+
+    if not connected:
+        if tenant_mismatch_seen:
+            raise IntegrationError(
+                "A conexão pertence a outra empresa.", status_code=403,
+                code="CONNECTION_TENANT_MISMATCH", provider=expected_provider,
+            )
+        if provider_mismatch_seen:
+            raise IntegrationError(
+                "A conexão pertence a outro provedor.", status_code=409,
+                code="CONNECTION_PROVIDER_MISMATCH", provider=expected_provider,
+            )
+        code = "CONNECTION_DISCONNECTED" if disconnected_seen else "CONNECTION_NOT_FOUND"
+        raise IntegrationError(
+            "A conexão está desconectada." if disconnected_seen else "Nenhuma conexão ativa foi encontrada.",
+            status_code=409 if disconnected_seen else 404, code=code, provider=expected_provider,
+        )
+    preferred = [
+        row for row in connected
+        if prefer_metadata_flag
+        and isinstance(row.get("metadata"), dict)
+        and bool(row["metadata"].get(prefer_metadata_flag))
+    ]
+    if len(preferred) == 1:
+        connected = preferred
+    elif len(preferred) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão está marcada como preferencial.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider=expected_provider,
+        )
+    if len(connected) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão ativa corresponde ao escopo solicitado.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider=expected_provider,
+        )
+
+    row = dict(connected[0])
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if capability and not bool(metadata.get(capability)):
+        raise IntegrationError(
+            "A conexão não oferece a capacidade solicitada.", status_code=409,
+            code="CONNECTION_CAPABILITY_MISMATCH", provider=expected_provider,
+        )
+    if required_asset and not _safe_str(metadata.get(required_asset) or row.get(required_asset)):
+        raise IntegrationError(
+            "A conexão ainda não possui o ativo obrigatório selecionado.", status_code=409,
+            code="CONNECTION_ASSET_REQUIRED", provider=expected_provider,
+        )
+    encrypted = _safe_str(row.get("encrypted_token"))
+    if require_token and not encrypted:
+        raise IntegrationError(
+            "A credencial da conexão não está disponível.", status_code=409,
+            code="CONNECTION_TOKEN_UNAVAILABLE", provider=expected_provider,
+        )
+    if require_token:
+        row["_token"] = decrypt_secret(encrypted)
+    return row
 
 
 def _is_connection_type_compatible(
@@ -53,14 +212,24 @@ def _pick_best_connection(rows: list[Dict[str, Any]]) -> tuple[Optional[Dict[str
         return None, "none"
 
     active_like = [r for r in rows if _is_status_active_like(r)]
-    if active_like:
+    if len(active_like) == 1:
         return active_like[0], "active"
+    if len(active_like) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão ativa corresponde ao escopo solicitado.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="integration",
+        )
 
     non_disconnected = [r for r in rows if _safe_str(r.get("status")).lower() != "disconnected"]
-    if non_disconnected:
+    if len(non_disconnected) == 1:
         return non_disconnected[0], "latest_non_disconnected"
+    if len(non_disconnected) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão utilizável corresponde ao escopo solicitado.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="integration",
+        )
 
-    return rows[0], "latest_any"
+    return None, "none"
 
 
 async def resolve_connection_for_scope(

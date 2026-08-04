@@ -21,12 +21,13 @@ def sanitize_connection(row: Dict[str, Any]) -> Dict[str, Any]:
         "external_key", "scopes", "disconnected_at",
     }
     sanitized = {key: row.get(key) for key in allowed}
-    if str(row.get("provider") or "") in {"ga4", "google_ads"}:
+    if str(row.get("provider") or "") in {"ga4", "google_ads", "meta"}:
         sanitized["token_available"] = any(
             bool(str(row.get(column) or "").strip())
             for column in ("encrypted_token", "encrypted_access_token", "encrypted_refresh_token")
         )
-        sanitized["capabilities"] = google_capabilities(row)
+        if str(row.get("provider") or "") in {"ga4", "google_ads"}:
+            sanitized["capabilities"] = google_capabilities(row)
     return sanitized
 
 
@@ -138,7 +139,12 @@ async def upsert_connection(
     match_filters = {"client_id": f"eq.{client_id}", "provider": f"eq.{provider}"}
     if provider != "meta":
         match_filters["external_key"] = f"eq.{external_key}"
-    rows = await sb_select("integration_connections", filters=match_filters, order="updated_at.desc", limit=1)
+    rows = await sb_select("integration_connections", filters=match_filters, order="updated_at.desc", limit=2)
+    if len(rows) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão corresponde ao mesmo tenant, provider e identificador externo.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider=provider,
+        )
     patch = {
         "status": status,
         "account_id": account_id,

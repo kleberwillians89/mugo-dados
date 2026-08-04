@@ -380,8 +380,13 @@ async def get_active_connection_for_client(
             "status": "eq.active",
         },
         order="updated_at.desc",
-        limit=1,
+        limit=2,
     )
+    if len(rows) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão Meta ativa corresponde ao escopo solicitado.",
+            status_code=409, code="CONNECTION_AMBIGUOUS", provider="meta",
+        )
     if rows:
         return rows[0]
 
@@ -750,8 +755,13 @@ async def upsert_meta_connection(
             "connection_type": "eq.organic",
             "ig_user_id": f"eq.{ig_id}",
         },
-        limit=1,
+        limit=2,
     )
+    if len(rows) > 1:
+        raise IntegrationError(
+            "Mais de uma projeção Meta corresponde aos mesmos ativos.",
+            status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+        )
 
     patch = {
         "client_id": client_id,
