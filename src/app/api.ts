@@ -1444,6 +1444,30 @@ export async function saveManualMetaAssets(
   });
 }
 
+export type MetaOrganicActivation = {
+  ok: boolean;
+  authorization_connection_id: string;
+  organic_connection_id: string;
+  page_id: string;
+  instagram_id: string;
+  status: string;
+  initial_sync: JsonRecord;
+  metrics_written: number;
+  last_sync_at?: string | null;
+  code: string;
+  request_id: string;
+};
+
+export async function activateMetaOrganic(
+  authorizationConnectionId: string,
+  payload: { page_id: string; instagram_id: string }
+): Promise<MetaOrganicActivation> {
+  return http(`/api/oauth/meta/${encodeURIComponent(authorizationConnectionId)}/organic/activate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function linkClientAssets(
   payload: {
     handoff: string;

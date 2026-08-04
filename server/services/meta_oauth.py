@@ -930,6 +930,140 @@ async def save_manual_meta_assets(
     }
 
 
+async def activate_meta_organic_assets(
+    *, user_id: str, client_id: str, connection_id: str,
+    page_id: str, instagram_id: str,
+) -> Dict[str, Any]:
+    """Persist one organic projection for an explicitly selected Meta authorization."""
+    connection, access_token, previous = await _manual_meta_connection(
+        client_id=client_id, connection_id=connection_id
+    )
+    validated = await validate_manual_meta_assets(
+        client_id=client_id, connection_id=connection_id,
+        page_id=page_id, instagram_id=instagram_id,
+    )
+    page = _json_object(validated.get("page"))
+    instagram = _json_object(validated.get("instagram"))
+    selected_page_id = _safe_str(page.get("id"))
+    selected_instagram_id = _safe_str(instagram.get("id"))
+    if not selected_page_id or not selected_instagram_id:
+        raise IntegrationError(
+            "Selecione uma Página e o Instagram profissional vinculado.",
+            status_code=400, code="META_ORGANIC_ASSETS_REQUIRED", provider="meta",
+        )
+
+    projections = await sb_select(
+        "meta_connections",
+        filters={
+            "client_id": f"eq.{client_id}",
+            "platform": "eq.instagram",
+            "connection_type": "eq.organic",
+        },
+        limit=500,
+    )
+    active = [
+        row for row in projections
+        if row.get("is_active") is not False
+        and _safe_str(row.get("status")).lower() not in {"disconnected", "revoked"}
+    ]
+    if len(active) > 1:
+        raise IntegrationError(
+            "Existem múltiplas conexões orgânicas ativas para esta empresa.",
+            status_code=409, code="META_ORGANIC_CONNECTION_AMBIGUOUS", provider="meta",
+        )
+
+    now_iso = _iso(_now_utc())
+    projection_row = {
+        "client_id": client_id, "platform": "instagram", "connection_type": "organic",
+        "meta_user_id": _safe_str(previous.get("meta_user_id")),
+        "ig_user_id": selected_instagram_id,
+        "username": _safe_str(instagram.get("username")),
+        "business_id": selected_page_id,
+        "ad_account_id": "", "ad_account_name": "",
+        "scopes_json": _json_array(connection.get("scopes")),
+        "encrypted_access_token": encrypt_secret(access_token), "access_token": None,
+        "token_expires_at": connection.get("token_expires_at"),
+        "expires_at": connection.get("token_expires_at"),
+        "last_validated_at": now_iso, "last_sync_status": "pending",
+        "requires_reauth": False, "is_active": True, "last_error": None,
+        "status": "pending", "updated_at": now_iso,
+    }
+    if active:
+        organic_connection_id = _safe_str(active[0].get("id"))
+        await sb_update(
+            "meta_connections", filters={"id": f"eq.{organic_connection_id}", "client_id": f"eq.{client_id}"},
+            patch=projection_row, returning="minimal",
+        )
+    else:
+        inserted = await sb_insert("meta_connections", projection_row, returning="representation")
+        organic_connection_id = _safe_str((inserted or {}).get("id"))
+    if not organic_connection_id:
+        raise IntegrationError(
+            "A conexão orgânica não pôde ser persistida.",
+            status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+        )
+
+    page_ids = {_safe_str(value) for value in _json_array(previous.get("page_ids")) if _safe_str(value)}
+    instagram_ids = {_safe_str(value) for value in _json_array(previous.get("instagram_ig_user_ids")) if _safe_str(value)}
+    page_ids.add(selected_page_id)
+    instagram_ids.add(selected_instagram_id)
+    metadata = {
+        **previous,
+        "page_ids": sorted(page_ids),
+        "instagram_ig_user_ids": sorted(instagram_ids),
+        "selected_page_id": selected_page_id,
+        "selected_page_name": _safe_str(page.get("name")),
+        "selected_instagram_id": selected_instagram_id,
+        "selected_instagram_username": _safe_str(instagram.get("username")),
+        "organic_connection_id": organic_connection_id,
+        "organic_selection_source": "explicit",
+        "organic_status": "syncing",
+        "coverage": "full" if _safe_str(previous.get("selected_ad_account_id")) else "partial",
+        "selection_required": False,
+    }
+    await sb_update(
+        "integration_connections",
+        filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "provider": "eq.meta"},
+        patch={"status": "connected", "metadata": metadata, "last_error": None, "updated_at": now_iso},
+        returning="minimal",
+    )
+    await audit_connection(
+        client_id=client_id, connection_id=connection_id, user_id=user_id,
+        event_type="organic_assets_activated",
+        details={"provider": "meta", "organic_connection_id": organic_connection_id},
+    )
+    await invalidate_namespace("integration_connections")
+    return {
+        "authorization_connection_id": connection_id,
+        "organic_connection_id": organic_connection_id,
+        "page_id": selected_page_id,
+        "instagram_id": selected_instagram_id,
+    }
+
+
+async def finalize_meta_organic_activation(
+    *, client_id: str, connection_id: str, organic_connection_id: str,
+    succeeded: bool, code: str, request_id: str, last_sync_at: str | None = None,
+) -> None:
+    connection = await get_connection(client_id, connection_id)
+    previous = _json_object(connection.get("metadata"))
+    metadata = {
+        **previous,
+        "organic_connection_id": organic_connection_id,
+        "organic_status": "connected" if succeeded else "error",
+        "organic_last_code": code,
+        "organic_last_request_id": request_id,
+        "organic_last_sync_at": last_sync_at if succeeded else previous.get("organic_last_sync_at"),
+    }
+    await sb_update(
+        "integration_connections",
+        filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "provider": "eq.meta"},
+        patch={"metadata": metadata, "last_error": None if succeeded else code, "updated_at": _iso(_now_utc())},
+        returning="minimal",
+    )
+    await invalidate_namespace("integration_connections")
+
+
 async def create_discovery_handoff(
     *,
     user_id: str,
@@ -1173,6 +1307,27 @@ async def save_connections(
 
     saved: List[Dict[str, Any]] = []
 
+    active_organic_rows: List[Dict[str, Any]] = []
+    if selected_igs:
+        organic_rows = await sb_select(
+            "meta_connections",
+            filters={
+                "client_id": f"eq.{client_id}", "platform": "eq.instagram",
+                "connection_type": "eq.organic",
+            },
+            limit=500,
+        )
+        active_organic_rows = [
+            row for row in organic_rows
+            if row.get("is_active") is not False
+            and _safe_str(row.get("status")).lower() not in {"disconnected", "revoked"}
+        ]
+        if len(active_organic_rows) > 1:
+            raise IntegrationError(
+                "Existem múltiplas conexões orgânicas ativas para esta empresa.",
+                status_code=409, code="META_ORGANIC_CONNECTION_AMBIGUOUS", provider="meta",
+            )
+
     for ig in selected_igs:
         row = {
             "client_id": client_id,
@@ -1198,7 +1353,15 @@ async def save_connections(
             "last_error": None,
             "status": "active",
         }
-        saved_conn = await _save_connection_row(row)
+        if active_organic_rows:
+            organic_id = _safe_str(active_organic_rows[0].get("id"))
+            await sb_update(
+                "meta_connections", filters={"id": f"eq.{organic_id}", "client_id": f"eq.{client_id}"},
+                patch=row, returning="minimal",
+            )
+            saved_conn = {**active_organic_rows[0], **row, "id": organic_id}
+        else:
+            saved_conn = await _save_connection_row(row)
         saved.append(
             {
                 "id": _safe_str(saved_conn.get("id")),
@@ -1545,7 +1708,10 @@ async def disconnect_connection(client_id: str, connection_id: str, user_id: str
     }
 
 
-def build_frontend_callback_redirect(*, success: bool, client_id: str, handoff: Optional[str], error: Optional[str]) -> str:
+def build_frontend_callback_redirect(
+    *, success: bool, client_id: str, handoff: Optional[str], error: Optional[str],
+    connection_id: Optional[str] = None,
+) -> str:
     allow_origin = _env("ALLOW_ORIGIN")
     frontend_base = [o.strip() for o in allow_origin.split(",") if o.strip()]
     target = frontend_base[0] if frontend_base else "http://localhost:5173"
@@ -1553,6 +1719,8 @@ def build_frontend_callback_redirect(*, success: bool, client_id: str, handoff: 
     if success and handoff:
         params["meta_oauth"] = "success"
         params["handoff"] = handoff
+        if _safe_str(connection_id):
+            params["connection_id"] = _safe_str(connection_id)
     else:
         params["meta_oauth"] = "error"
         params["error"] = _safe_str(error)[:180] or "oauth_failed"

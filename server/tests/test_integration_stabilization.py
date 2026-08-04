@@ -1,12 +1,20 @@
 import json
+import sys
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
+SERVER_DIR = str(Path(__file__).parents[1])
+if SERVER_DIR not in sys.path:
+    sys.path.insert(0, SERVER_DIR)
+
 from server.services import connection_resolver, ga4_sync, generic_connections, google_oauth, meta_oauth
 from server.services.integration_errors import google_api_error
 from server.services.meta_http import MetaApiError
+from server.routes import google_oauth as google_routes, meta_legacy as meta_routes
 
 
 class GoogleProductIsolationTests(unittest.IsolatedAsyncioTestCase):
@@ -41,6 +49,92 @@ class GoogleProductIsolationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(google_oauth.IntegrationError) as raised:
                 await google_oauth.list_ga4_properties("amalie", "ads-connection")
         self.assertEqual(raised.exception.code, "GOOGLE_SCOPE_INSUFFICIENT")
+
+    async def test_ga4_route_rejects_empty_property_list_with_safe_diagnostics(self):
+        row = {
+            "id": "ga4-1", "client_id": "amalie", "provider": "ga4", "status": "connected",
+            "scopes": ["https://www.googleapis.com/auth/analytics.readonly"],
+            "account_name": "analytics@amalie.example",
+        }
+        diagnostics = {
+            "connection_id": "ga4-1", "client_id": "amalie", "provider": "ga4",
+            "access_token_available": True, "refresh_token_available": True,
+            "authorized_email": "analytics@amalie.example",
+        }
+        with (
+            patch.object(google_routes, "require_client_read", AsyncMock(return_value="amalie")),
+            patch.object(google_routes, "get_connection", AsyncMock(return_value=row)),
+            patch.object(google_routes, "get_google_connection_diagnostics", AsyncMock(return_value=diagnostics)),
+            patch.object(google_routes, "list_ga4_properties", AsyncMock(return_value=[])),
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                await google_routes.ga4_properties(
+                    "ga4-1", request=SimpleNamespace(state=SimpleNamespace(request_id="req-empty")),
+                    client_id="amalie", authorization="Bearer safe",
+                )
+        self.assertEqual(raised.exception.code, "GOOGLE_NO_PROPERTIES_AVAILABLE")
+        self.assertEqual(raised.exception.diagnostics["authorized_email"], "analytics@amalie.example")
+        self.assertNotIn("token", str(raised.exception.diagnostics).lower().replace("access_token_available", "").replace("refresh_token_available", ""))
+
+
+class MetaOrganicActivationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_activation_updates_one_projection_and_preserves_ads_metadata(self):
+        authorization = {
+            "id": "meta-auth", "client_id": "amalie", "provider": "meta",
+            "scopes": ["instagram_basic"], "token_expires_at": None,
+        }
+        previous = {
+            "selected_ad_account_id": "act_673785144083881",
+            "ad_account_ids": ["act_673785144083881"], "ads_status": "connected",
+        }
+        updates = AsyncMock(return_value=[])
+        with (
+            patch.object(meta_oauth, "_manual_meta_connection", AsyncMock(return_value=(authorization, "safe-token", previous))),
+            patch.object(meta_oauth, "validate_manual_meta_assets", AsyncMock(return_value={
+                "page": {"id": "page-1", "name": "Amalie"},
+                "instagram": {"id": "ig-1", "username": "amalie"},
+            })),
+            patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[{
+                "id": "organic-1", "client_id": "amalie", "platform": "instagram",
+                "connection_type": "organic", "status": "error", "is_active": True,
+            }])),
+            patch.object(meta_oauth, "sb_update", updates),
+            patch.object(meta_oauth, "sb_insert", AsyncMock()) as insert,
+            patch.object(meta_oauth, "audit_connection", AsyncMock()),
+            patch.object(meta_oauth, "invalidate_namespace", AsyncMock()),
+            patch.object(meta_oauth, "encrypt_secret", return_value="encrypted"),
+        ):
+            result = await meta_oauth.activate_meta_organic_assets(
+                user_id="user-1", client_id="amalie", connection_id="meta-auth",
+                page_id="page-1", instagram_id="ig-1",
+            )
+        self.assertEqual(result["organic_connection_id"], "organic-1")
+        insert.assert_not_awaited()
+        integration_patch = updates.await_args_list[1].kwargs["patch"]
+        self.assertEqual(integration_patch["metadata"]["selected_ad_account_id"], "act_673785144083881")
+        self.assertEqual(integration_patch["metadata"]["ads_status"], "connected")
+        self.assertEqual(integration_patch["metadata"]["organic_status"], "syncing")
+
+    async def test_activation_route_does_not_report_success_when_initial_sync_fails(self):
+        with (
+            patch.object(meta_routes, "require_user_id", AsyncMock(return_value="user-1")),
+            patch.object(meta_routes, "require_client_role", AsyncMock(return_value="amalie")),
+            patch.object(meta_routes, "activate_meta_organic_assets", AsyncMock(return_value={
+                "authorization_connection_id": "meta-auth", "organic_connection_id": "organic-1",
+                "page_id": "page-1", "instagram_id": "ig-1",
+            })),
+            patch.object(meta_routes, "sync_instagram_connection", AsyncMock(side_effect=RuntimeError("upstream"))),
+            patch.object(meta_routes, "finalize_meta_organic_activation", AsyncMock()) as finalize,
+        ):
+            result = await meta_routes.api_activate_meta_organic(
+                "meta-auth", {"page_id": "page-1", "instagram_id": "ig-1"},
+                SimpleNamespace(state=SimpleNamespace(request_id="req-meta")),
+                client_id="amalie", authorization="Bearer safe",
+            )
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["initial_sync"]["ok"])
+        self.assertEqual(result["code"], "META_GRAPH_UNAVAILABLE")
+        self.assertFalse(finalize.await_args.kwargs["succeeded"])
 
 
 class ConnectionTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
@@ -206,7 +300,7 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff)),
             patch.object(meta_oauth, "decrypt_secret", return_value="safe-token"),
             patch.object(meta_oauth, "encrypt_secret", return_value="encrypted"),
-            patch.object(meta_oauth, "sb_select", AsyncMock(side_effect=[[], [], [previous]])),
+            patch.object(meta_oauth, "sb_select", AsyncMock(side_effect=[[], [], [], [previous]])),
             patch.object(meta_oauth, "sb_insert", AsyncMock(return_value={"id": "organic-1", "ig_user_id": "ig-1"})),
             patch.object(meta_oauth, "sb_update", AsyncMock()),
             patch.object(meta_oauth, "upsert_connection", upsert),
@@ -403,6 +497,52 @@ class Ga4RefreshTests(unittest.IsolatedAsyncioTestCase):
             properties = await google_oauth.list_ga4_properties("amalie", "ga4-1", request_id="req-1")
         self.assertEqual(properties[0]["property"], "properties/2")
         update.assert_awaited_once()
+
+    async def test_valid_token_paginates_all_three_properties(self):
+        responses = [
+            httpx.Response(
+                200, request=httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries"),
+                json={
+                    "accountSummaries": [{
+                        "account": "accounts/1", "displayName": "Amalie",
+                        "propertySummaries": [
+                            {"property": "properties/1", "displayName": "Site"},
+                            {"property": "properties/2", "displayName": "App"},
+                        ],
+                    }],
+                    "nextPageToken": "page-2",
+                },
+            ),
+            httpx.Response(
+                200, request=httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries"),
+                json={"accountSummaries": [{
+                    "account": "accounts/2", "displayName": "Loja",
+                    "propertySummaries": [{"property": "properties/3", "displayName": "E-commerce"}],
+                }]},
+            ),
+        ]
+
+        class FakeClient:
+            def __init__(self): self.calls = []
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return None
+            async def get(self, *args, **kwargs):
+                self.calls.append(kwargs.get("params") or {})
+                return responses[len(self.calls) - 1]
+
+        fake = FakeClient()
+        row = {
+            "provider": "ga4", "status": "connected", "disconnected_at": None,
+            "_token": json.dumps({"access_token": "valid", "expires_at": "2099-01-01T00:00:00+00:00"}),
+        }
+        with (
+            patch.object(google_oauth, "get_connection", AsyncMock(return_value=row)),
+            patch.object(google_oauth.httpx, "AsyncClient", return_value=fake),
+        ):
+            properties = await google_oauth.list_ga4_properties("amalie", "ga4-1", request_id="req-pages")
+        self.assertEqual([item["property"] for item in properties], ["properties/1", "properties/2", "properties/3"])
+        self.assertNotIn("pageToken", fake.calls[0])
+        self.assertEqual(fake.calls[1]["pageToken"], "page-2")
 
     async def test_revoked_refresh_token_requires_reconnection(self):
         response = httpx.Response(

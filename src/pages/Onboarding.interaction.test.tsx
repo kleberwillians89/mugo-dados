@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   startGoogle: vi.fn(),
   validateMeta: vi.fn(),
   saveMeta: vi.fn(),
+  activateMeta: vi.fn(),
   listAds: vi.fn(),
   organicConfigured: false,
   selectedConnections: {} as Record<string, string>,
@@ -73,6 +74,7 @@ vi.mock("../app/api", async (importOriginal) => {
     startGoogleOAuth: mocks.startGoogle,
     validateManualMetaAssets: mocks.validateMeta,
     saveManualMetaAssets: mocks.saveMeta,
+    activateMetaOrganic: mocks.activateMeta,
     listGoogleAdsAccounts: mocks.listAds,
     getApiVersion: vi.fn(async () => ({ commit_sha: "test-sha", build_time: "test", environment: "test" })),
   };
@@ -125,8 +127,11 @@ beforeEach(() => {
     instagram: { id: "178414000000001", username: "amalie" }, ad_account: null,
   });
   mocks.saveMeta.mockReset().mockImplementation(async () => {
+    return { ok: true };
+  });
+  mocks.activateMeta.mockReset().mockImplementation(async () => {
     mocks.organicConfigured = true;
-    return { ok: true, initial_sync: { ok: true } };
+    return { ok: true, organic_connection_id: "organic-1", initial_sync: { ok: true }, code: "OK", request_id: "req-meta" };
   });
   mocks.listAds.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
@@ -181,7 +186,7 @@ describe("Onboarding integration actions", () => {
     }));
     const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
     await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(mocks.saveMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({
+    expect(mocks.activateMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({
       page_id: "123456789", instagram_id: "178414000000001",
     }));
     expect(container.textContent).toContain("Instagram orgânico configurado");
@@ -189,13 +194,16 @@ describe("Onboarding integration actions", () => {
 
   it("keeps the Meta form open when initial sync fails", async () => {
     mocks.mode = "meta";
-    mocks.saveMeta.mockResolvedValueOnce({ ok: true, organic_connection_id: "organic-1", initial_sync: { ok: false, code: "META_GRAPH_UNAVAILABLE" } });
+    mocks.activateMeta.mockResolvedValueOnce({ ok: false, organic_connection_id: "organic-1", initial_sync: { ok: false, code: "META_GRAPH_UNAVAILABLE" }, code: "META_GRAPH_UNAVAILABLE", request_id: "req-fail" });
     await renderOnboarding();
     await selectAuthorization("meta-generic");
     const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
     await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const input = container.querySelector("section.onboardingFinalizeCard input") as HTMLInputElement;
-    await act(async () => changeInput(input, "123456789"));
+    const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
+    await act(async () => {
+      changeInput(inputs[0] as HTMLInputElement, "123456789");
+      changeInput(inputs[1] as HTMLInputElement, "178414000000001");
+    });
     const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
     await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");

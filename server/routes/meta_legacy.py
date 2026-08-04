@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
@@ -36,6 +37,7 @@ from services.meta_oauth import (
     disconnect_connection,
     discover_assets,
     discover_existing_meta_organic_assets,
+    activate_meta_organic_assets,
     exchange_code_for_token,
     get_meta_oauth_settings,
     list_connections,
@@ -43,6 +45,7 @@ from services.meta_oauth import (
     resolve_meta_redirect_uri,
     save_pending_meta_authorization,
     save_manual_meta_assets,
+    finalize_meta_organic_activation,
     save_connections,
     select_paid_connection,
     validate_manual_meta_assets,
@@ -271,6 +274,7 @@ async def api_oauth_meta_callback(
             client_id=client_id_from_state,
             handoff=handoff,
             error=None,
+            connection_id=callback_connection_id,
         )
         return RedirectResponse(url=target, status_code=302)
     except Exception as exc:
@@ -387,6 +391,59 @@ async def api_save_manual_meta_assets(
             }
             result["initial_sync_error_type"] = exc.__class__.__name__
     return result
+
+
+@router.post("/api/oauth/meta/{authorization_connection_id}/organic/activate")
+async def api_activate_meta_organic(
+    authorization_connection_id: str,
+    payload: Dict[str, Any],
+    request: Request,
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    prepared = await activate_meta_organic_assets(
+        user_id=user_id, client_id=cid, connection_id=authorization_connection_id,
+        page_id=str(payload.get("page_id") or ""),
+        instagram_id=str(payload.get("instagram_id") or ""),
+    )
+    organic_connection_id = str(prepared["organic_connection_id"])
+    try:
+        sync_result = await sync_instagram_connection(organic_connection_id)
+        metrics_written = (
+            int(sync_result.get("media_saved") or 0)
+            + int(sync_result.get("comments_saved") or 0)
+            + (1 if sync_result.get("snapshot_saved") else 0)
+        )
+        last_sync_at = datetime.now(timezone.utc).isoformat()
+        await finalize_meta_organic_activation(
+            client_id=cid, connection_id=authorization_connection_id,
+            organic_connection_id=organic_connection_id, succeeded=True,
+            code="OK", request_id=request_id, last_sync_at=last_sync_at,
+        )
+        return {
+            "ok": True, **prepared, "status": "active",
+            "initial_sync": {**sync_result, "ok": True},
+            "metrics_written": metrics_written, "last_sync_at": last_sync_at or None,
+            "code": "OK", "request_id": request_id,
+        }
+    except Exception as exc:
+        code = str(getattr(exc, "code", "") or "META_GRAPH_UNAVAILABLE")
+        message = str(getattr(exc, "public_message", "") or "Ativos salvos, mas a primeira sincronização orgânica não foi concluída.")
+        await finalize_meta_organic_activation(
+            client_id=cid, connection_id=authorization_connection_id,
+            organic_connection_id=organic_connection_id, succeeded=False,
+            code=code, request_id=request_id,
+        )
+        return {
+            "ok": False, **prepared, "status": "error",
+            "initial_sync": {"ok": False, "code": code, "message": message, "retryable": True},
+            "metrics_written": 0, "last_sync_at": None,
+            "code": code, "request_id": request_id,
+        }
 
 
 @router.post("/api/clients/{client_id}/connections/link-assets")

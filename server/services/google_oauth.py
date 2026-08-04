@@ -95,7 +95,16 @@ def _safe_token_diagnostics(row: Dict[str, Any], token: Dict[str, Any] | None = 
         "access_token_available": bool(str(payload.get("access_token") or "").strip()),
         "refresh_token_available": bool(str(payload.get("refresh_token") or "").strip()),
         "token_storage_format": storage_format,
+        "scopes": [str(scope) for scope in (row.get("scopes") or []) if str(scope).strip()],
+        "authorized_email": str(
+            (_json_metadata(row).get("google_email")) or row.get("account_name") or ""
+        ) or None,
     }
+
+
+def _json_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
+    value = row.get("metadata")
+    return value if isinstance(value, dict) else {}
 
 
 def _env(name: str) -> str:
@@ -366,9 +375,10 @@ async def _access_token(
             if not access_token:
                 raise IntegrationError(
                     "A conexão Google requer nova autorização.",
-                    status_code=401,
-                    code="GOOGLE_REAUTH_REQUIRED",
+                    status_code=409,
+                    code="GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING",
                     provider="google",
+                    diagnostics={**diagnostics, "refresh_attempted": False, "refresh_result": "access_missing"},
                 )
             return access_token
         refresh_token = str(token.get("refresh_token") or "")
@@ -423,10 +433,12 @@ async def _access_token(
         access_token = str(refreshed.get("access_token") or "")
         if not access_token:
             raise IntegrationError(
-                "A conexão Google requer nova autorização.",
-                status_code=401,
-                code="GOOGLE_REAUTH_REQUIRED",
+                "A API Google não retornou um access token após a renovação.",
+                status_code=503,
+                code="GOOGLE_API_UNAVAILABLE",
                 provider="google",
+                retryable=True,
+                diagnostics={**diagnostics, "refresh_attempted": True, "refresh_result": "access_missing"},
             )
         next_expires = (
             datetime.now(timezone.utc)
@@ -462,52 +474,68 @@ async def get_google_connection_diagnostics(client_id: str, connection_id: str) 
 
 async def list_ga4_properties(client_id: str, connection_id: str, *, request_id: str = "-") -> List[Dict[str, Any]]:
     token = await _access_token(client_id, connection_id, expected_provider="ga4", request_id=request_id)
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"pageSize": "200"},
-        )
-    try:
-        response.raise_for_status()
-    except Exception as exc:
-        diagnostic = _sanitized_google_error(response)
-        print(
-            "[google_oauth][ga4_properties_error] "
-            f"request_id={request_id} connection_id={connection_id} client_id={client_id} stage=admin_api "
-            f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
-            f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
-        )
-        mapped = google_api_error(
-            response, api="Analytics Admin API",
-            unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE",
-            operation="listar propriedades GA4",
-        )
-        safe_connection = await get_connection(client_id, connection_id, include_token=True)
-        mapped.diagnostics = {
-            **_safe_token_diagnostics(safe_connection),
-            "refresh_attempted": False,
-            "refresh_result": "not_required_or_completed",
-            "upstream_status": diagnostic["http_status"],
-            "upstream_reason": ",".join(diagnostic["reasons"]) or diagnostic["google_status"] or None,
-        }
-        raise mapped from exc
     out: List[Dict[str, Any]] = []
-    account_summaries = response.json().get("accountSummaries") or []
-    for account in account_summaries:
-        for prop in account.get("propertySummaries") or []:
-            out.append(
-                {
-                    "account": account.get("account"),
-                    "account_name": account.get("displayName"),
-                    "property": prop.get("property"),
-                    "property_name": prop.get("displayName"),
+    account_count = 0
+    page_token = ""
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            try:
+                response = await client.get(
+                    "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"pageSize": "200", **({"pageToken": page_token} if page_token else {})},
+                )
+                response.raise_for_status()
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                raise IntegrationError(
+                    "A API Google está temporariamente indisponível.", status_code=503,
+                    code="GOOGLE_API_UNAVAILABLE", provider="google", retryable=True,
+                ) from exc
+            except httpx.HTTPStatusError as exc:
+                diagnostic = _sanitized_google_error(response)
+                print(
+                    "[google_oauth][ga4_properties_error] "
+                    f"request_id={request_id} connection_id={connection_id} client_id={client_id} stage=admin_api "
+                    f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
+                    f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
+                )
+                mapped = google_api_error(
+                    response, api="Analytics Admin API",
+                    unavailable_code="GOOGLE_NO_PROPERTIES_AVAILABLE",
+                    operation="listar propriedades GA4",
+                )
+                if mapped.code not in {"GOOGLE_ADMIN_API_DISABLED", "GOOGLE_SCOPE_INSUFFICIENT", "GOOGLE_NO_PROPERTIES_AVAILABLE"}:
+                    mapped = IntegrationError(
+                        "A API Google está temporariamente indisponível.", status_code=503,
+                        code="GOOGLE_API_UNAVAILABLE", provider="google", retryable=True,
+                    )
+                safe_connection = await get_connection(client_id, connection_id, include_token=True)
+                mapped.diagnostics = {
+                    **_safe_token_diagnostics(safe_connection),
+                    "refresh_attempted": False,
+                    "refresh_result": "not_required_or_completed",
+                    "upstream_status": diagnostic["http_status"],
+                    "upstream_reason": ",".join(diagnostic["reasons"]) or diagnostic["google_status"] or None,
                 }
-            )
+                raise mapped from exc
+            payload = response.json()
+            account_summaries = payload.get("accountSummaries") or []
+            account_count += len(account_summaries)
+            for account in account_summaries:
+                for prop in account.get("propertySummaries") or []:
+                    out.append({
+                        "account": account.get("account"),
+                        "account_name": account.get("displayName"),
+                        "property": prop.get("property"),
+                        "property_name": prop.get("displayName"),
+                    })
+            page_token = str(payload.get("nextPageToken") or "")
+            if not page_token:
+                break
     print(
         "[google_oauth][ga4_properties] "
         f"request_id={request_id} connection_id={connection_id} client_id={client_id} stage=complete "
-        f"http_status={response.status_code} accounts={len(account_summaries)} properties={len(out)}"
+        f"http_status={response.status_code} accounts={account_count} properties={len(out)}"
     )
     return out
 

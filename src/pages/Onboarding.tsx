@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   disconnectClientConnection,
+  activateMetaOrganic,
   configureExistingMetaOrganic,
   ApiError,
   disconnectGenericConnection,
@@ -17,7 +18,6 @@ import {
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   listGoogleGa4Streams,
-  refreshAll,
   selectGoogleAdsAccount,
   selectGoogleGa4Property,
   selectClientMetaAdsAccount,
@@ -274,6 +274,7 @@ export default function Onboarding({
     ).trim();
     const clientFromCallback = String(params.get("client_id") || "").trim();
     const handoff = String(params.get("handoff") || "").trim();
+    const callbackConnectionId = String(params.get("connection_id") || "").trim();
     const oauthError = String(params.get("error") || "").trim();
 
     if (!oauthStatus) return;
@@ -292,7 +293,13 @@ export default function Onboarding({
         preserveMetaRetry = true;
         const data = await discoverClientMetaAssets(handoff);
         prepareMetaAssets(data);
-        await loadConnections();
+        const loaded = await loadConnections();
+        const callbackAuthorization = selectUsableMetaConnection(
+          loaded.generic, getActiveClientId(), callbackConnectionId
+        );
+        if (!callbackAuthorization) throw new Error("A autorização Meta retornada não está ativa para a empresa selecionada.");
+        setSelectedMetaAuthorizationId(callbackConnectionId);
+        setSelectedConnectionId(getActiveClientId(), "meta", callbackConnectionId);
         setOauthRetry(null);
         preserveMetaRetry = false;
         setInfo("Autorizacao concluida. Revise os ativos do cliente ativo e finalize o vinculo.");
@@ -589,6 +596,10 @@ export default function Onboarding({
       (manualPageId.trim() && metadata.selected_page_id && manualPageId.trim() !== String(metadata.selected_page_id)) ||
       (manualInstagramId.trim() && metadata.selected_instagram_id && manualInstagramId.trim() !== String(metadata.selected_instagram_id)) ||
       (manualAdAccountId.trim() && metadata.selected_ad_account_id && manualAdAccountId.replace(/^act_/, "") !== String(metadata.selected_ad_account_id).replace(/^act_/, ""));
+    const adAccountChanged = Boolean(
+      manualAdAccountId.trim()
+      && manualAdAccountId.replace(/^act_/, "") !== String(metadata.selected_ad_account_id || "").replace(/^act_/, "")
+    );
     if (replacing && !window.confirm("Substituir o ativo Meta atualmente selecionado para esta empresa?")) return;
     setSaving(true);
     setErr(null);
@@ -600,21 +611,40 @@ export default function Onboarding({
         pageId: manualPageId.trim() || null, instagramId: manualInstagramId.trim() || null,
         endpoint: `/api/oauth/meta/${connection.id}/manual-assets`,
       });
-      const result = await saveManualMetaAssets(connection.id, {
-        page_id: manualPageId.trim() || undefined,
-        instagram_id: manualInstagramId.trim() || undefined,
-        ad_account_id: manualAdAccountId.trim() || undefined,
+      if (adAccountChanged) {
+        await saveManualMetaAssets(connection.id, { ad_account_id: manualAdAccountId.trim() });
+      }
+      if (!manualPageId.trim() || !manualInstagramId.trim()) {
+        if (adAccountChanged) {
+          await loadConnections();
+          setManualMetaConnectionId(null);
+          setManualMetaValidation(null);
+          setInfo("Ativo Meta Ads salvo sem alterar a configuração orgânica.");
+          return;
+        }
+        setErr("Informe a Página e o Instagram profissional para ativar o orgânico.");
+        return;
+      }
+      const result = await activateMetaOrganic(connection.id, {
+        page_id: manualPageId.trim(), instagram_id: manualInstagramId.trim(),
       });
+      if (result.ok && result.initial_sync?.ok !== false && result.organic_connection_id) {
+        setActiveConnection(result.organic_connection_id);
+        setActiveConnectionId(result.organic_connection_id);
+      }
       await loadConnections();
       const initialSync = result.initial_sync && typeof result.initial_sync === "object"
         ? result.initial_sync as Record<string, unknown>
         : null;
       const initialSyncOk = initialSync?.ok !== false;
       const organicConnectionId = String(result.organic_connection_id || "");
-      setLastIntegrationDiagnostic((current) => ({ ...current, initialSyncOk, organicConnectionId }));
+      setLastIntegrationDiagnostic((current) => ({
+        ...current, initialSyncOk, organicConnectionId,
+        code: String(result.code || ""), requestId: String(result.request_id || ""),
+      }));
       console.info("[meta-manual]", { stage: "complete", initialSyncOk, organicConnectionId });
       if (!initialSyncOk) {
-        setErr(`Ativos Meta salvos, mas a sincronização inicial falhou.${String(initialSync?.code || "") ? ` Código: ${String(initialSync?.code)}.` : ""}`);
+        setErr(`Ativos Meta salvos, mas a sincronização inicial falhou.${String(initialSync?.code || result.code || "") ? ` Código: ${String(initialSync?.code || result.code)}.` : ""}${result.request_id ? ` Request ID: ${result.request_id}.` : ""}`);
         return;
       }
       setManualMetaConnectionId(null);
@@ -763,35 +793,41 @@ export default function Onboarding({
     setInfo(null);
 
     try {
-      const result = await linkClientAssets({
+      if (instagramIds.length && (!selectedMetaAuthorizationId || instagramIds.length !== 1 || pageIds.length !== 1)) {
+        setErr("Selecione explicitamente uma autorização, uma Página e um Instagram para concluir o orgânico.");
+        return;
+      }
+      await linkClientAssets({
         handoff: pendingAssets.handoff,
         page_ids: pageIds,
         instagram_ig_user_ids: instagramIds,
         ad_account_ids: adAccountIds,
       });
-      const savedConnections = Array.isArray(result.connections) ? result.connections : [];
-      const organicConnectionsSaved = savedConnections.filter(
-        (item) => item && typeof item === "object" && item.platform === "instagram"
-      );
-      const organic = organicConnectionsSaved.length === 1 ? organicConnectionsSaved[0] : null;
-      let initialSyncWarning = "";
-      if (organic && typeof organic === "object" && typeof organic.id === "string") {
-        try {
-          await refreshAll(200, { connectionId: organic.id });
-        } catch {
-          initialSyncWarning = " A conexão foi salva; use Atualizar dados para repetir a importação.";
+      if (instagramIds.length === 1 && pageIds.length === 1) {
+        const activation = await activateMetaOrganic(selectedMetaAuthorizationId, {
+          page_id: pageIds[0], instagram_id: instagramIds[0],
+        });
+        setLastIntegrationDiagnostic((current) => ({
+          ...current,
+          initialSyncOk: activation?.initial_sync?.ok !== false,
+          organicConnectionId: activation?.organic_connection_id || "",
+          code: activation?.code || "",
+          requestId: activation?.request_id || "",
+        }));
+        if (!activation.ok || activation.initial_sync?.ok === false) {
+          await loadConnections();
+          setErr(`Os ativos foram salvos, mas a sincronização orgânica falhou. Código: ${activation.code}.${activation.request_id ? ` Request ID: ${activation.request_id}.` : ""}`);
+          return;
         }
+        setActiveConnection(activation.organic_connection_id);
+        setActiveConnectionId(activation.organic_connection_id);
       }
       setPendingAssets(null);
       setSelectedIg({});
       setSelectedPages({});
       setSelectedAds({});
       await loadConnections();
-      setInfo(
-        initialSyncWarning
-          ? `Meta conectada.${initialSyncWarning}`
-          : "Meta conectada. Ativos persistidos e importação inicial concluída."
-      );
+      setInfo("Meta conectada. Ativos persistidos e importação inicial concluída.");
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao vincular os ativos do cliente ativo."));
     } finally {

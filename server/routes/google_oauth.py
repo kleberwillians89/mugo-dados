@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import urlencode
 
@@ -169,32 +170,49 @@ async def ga4_properties(
 ):
     cid = await require_client_read(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
-    if not google_capabilities(row)["ga4_authorized"]:
-        raise IntegrationError(
-            "Autorize o Google Analytics com o escopo analytics.readonly.",
-            status_code=403,
-            code="GOOGLE_SCOPE_INSUFFICIENT",
-            provider="google",
-        )
     request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
-    properties = await list_ga4_properties(cid, connection_id, request_id=request_id)
     try:
         diagnostics = await get_google_connection_diagnostics(cid, connection_id)
     except Exception:
         diagnostics = {
             "connection_id": connection_id, "client_id": cid,
             "provider": str(row.get("provider") or ""), "connection_status": str(row.get("status") or ""),
-            "disconnected_at": row.get("disconnected_at"), "token_expires_at": row.get("token_expires_at"),
+            "disconnected_at": row.get("disconnected_at"), "scopes": row.get("scopes") or [],
+            "token_expires_at": row.get("token_expires_at"),
             "access_token_available": bool(row.get("token_available")),
             "refresh_token_available": bool((row.get("metadata") or {}).get("refresh_token_available")) if isinstance(row.get("metadata"), dict) else False,
-            "token_storage_format": "unavailable",
+            "token_storage_format": "unavailable", "authorized_email": row.get("account_name"),
         }
+    if not google_capabilities(row)["ga4_authorized"]:
+        raise IntegrationError(
+            "Autorize o Google Analytics com o escopo analytics.readonly.",
+            status_code=403, code="GOOGLE_SCOPE_INSUFFICIENT", provider="google",
+            diagnostics={**diagnostics, "refresh_attempted": False, "refresh_result": "not_attempted", "request_id": request_id},
+        )
+    expires_raw = str(diagnostics.get("token_expires_at") or "")
+    try:
+        expired = bool(expires_raw) and datetime.fromisoformat(expires_raw.replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+    except ValueError:
+        expired = False
+    properties = await list_ga4_properties(cid, connection_id, request_id=request_id)
+    if not properties:
+        raise IntegrationError(
+            "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.",
+            status_code=409, code="GOOGLE_NO_PROPERTIES_AVAILABLE", provider="google",
+            diagnostics={
+                **diagnostics, "refresh_attempted": expired,
+                "refresh_result": "succeeded" if expired else "not_required", "request_id": request_id,
+            },
+        )
     return {
         "ok": True,
         "properties": properties,
         "property_count": len(properties),
-        "message": None if properties else f"O usuário {row.get('account_name') or 'Google autorizado'} não possui acesso a nenhuma propriedade GA4.",
-        "diagnostics": {**diagnostics, "refresh_result": "available", "request_id": request_id},
+        "message": None,
+        "diagnostics": {
+            **diagnostics, "refresh_attempted": expired,
+            "refresh_result": "succeeded" if expired else "not_required", "request_id": request_id,
+        },
     }
 
 
