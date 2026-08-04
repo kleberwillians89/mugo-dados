@@ -55,22 +55,26 @@ class ConnectionTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "OAUTH_CONNECTION_TENANT_MISMATCH")
         self.assertEqual(raised.exception.status_code, 403)
 
-    def test_connection_resolver_rejects_ambiguous_active_connections(self):
+    async def test_connection_resolver_rejects_ambiguous_active_connections(self):
         rows = [
-            {"id": "organic-a", "status": "active", "is_active": True},
-            {"id": "organic-b", "status": "active", "is_active": True},
+            {"id": "organic-a", "client_id": "amalie", "provider": "meta", "status": "connected", "is_active": True},
+            {"id": "organic-b", "client_id": "amalie", "provider": "meta", "status": "connected", "is_active": True},
         ]
         with self.assertRaises(connection_resolver.IntegrationError) as raised:
-            connection_resolver._pick_best_connection(rows)
+            await connection_resolver.resolve_generic_connection(
+                client_id="amalie", provider="meta", candidate_rows=rows,
+            )
         self.assertEqual(raised.exception.code, "CONNECTION_AMBIGUOUS")
         self.assertEqual(raised.exception.status_code, 409)
 
-    def test_connection_resolver_never_falls_back_to_disconnected_connection(self):
-        selected, source = connection_resolver._pick_best_connection([
-            {"id": "organic-old", "status": "disconnected", "is_active": False},
-        ])
-        self.assertIsNone(selected)
-        self.assertEqual(source, "none")
+    async def test_connection_resolver_never_falls_back_to_disconnected_connection(self):
+        with self.assertRaises(connection_resolver.IntegrationError) as raised:
+            await connection_resolver.resolve_generic_connection(
+                client_id="amalie", provider="meta",
+                requested_connection_id="organic-old",
+                candidate_rows=[{"id": "organic-old", "client_id": "amalie", "provider": "meta", "status": "disconnected", "is_active": False}],
+            )
+        self.assertEqual(raised.exception.code, "CONNECTION_DISCONNECTED")
 
     def test_meta_sanitization_exposes_real_token_availability(self):
         sanitized = generic_connections.sanitize_connection({

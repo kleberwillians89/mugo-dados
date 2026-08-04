@@ -1754,7 +1754,7 @@ export async function getGa4Events(
 
 export async function syncGa4(
   period?: PeriodQueryInput,
-  options?: { clientId?: string | null }
+  options?: { clientId?: string | null; connectionId?: string | null }
 ): Promise<JsonRecord> {
   const params = new URLSearchParams();
   const start = String(period?.start || "").trim();
@@ -1766,6 +1766,9 @@ export async function syncGa4(
   if (end) params.set("end", end);
   if (!start || !end) params.set("days", String(days));
   if (resolvedClientId) params.set("client_id", resolvedClientId);
+  const connectionId = asString(options?.connectionId).trim()
+    || getSelectedConnectionId(resolvedClientId, "ga4");
+  if (connectionId) params.set("connection_id", connectionId);
   return http<JsonRecord>(`/api/google/ga4/sync?${params.toString()}`, {
     method: "POST",
   });

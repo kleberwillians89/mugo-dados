@@ -19,7 +19,6 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_OAUTH_DIALOG_URL
 from .meta_http import MetaApiError, meta_get_json
 from .integration_errors import IntegrationError
-from .meta_connection_adapter import meta_connection_adapter
 from .meta_tokens import serialize_connection_status
 from .generic_connections import audit_connection, disconnect_generic_connection, get_connection, upsert_connection
 from .runtime_cache import invalidate_namespace
@@ -873,10 +872,18 @@ async def save_manual_meta_assets(
         },
         returning="representation",
     )
-    drift = await meta_connection_adapter.detect_drift(client_id)
-    if drift.get("drift_detected"):
+    organic_projection_consistent = (
+        not selected_instagram_id
+        or (
+            _safe_str(organic_connection.get("id"))
+            and _safe_str(organic_connection.get("client_id")) == _safe_str(client_id)
+            and _safe_str(organic_connection.get("ig_user_id")) == selected_instagram_id
+            and _safe_str(organic_connection.get("business_id")) == selected_page_id
+        )
+    )
+    if not organic_projection_consistent:
         raise IntegrationError(
-            "Os ativos foram preservados, mas a autorização e a projeção Meta estão divergentes.",
+            "A projeção orgânica criada não corresponde aos ativos Meta selecionados.",
             status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
         )
     await audit_connection(

@@ -190,26 +190,23 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         with patch.object(ga4_connections, "sb_select", select):
-            context = await ga4_connections.resolve_ga4_connection_context("roove")
+            context = await ga4_connections.resolve_ga4_connection_context(
+                "roove", connection_id="google-connection"
+            )
         self.assertEqual(context.client_id, "roove")
         self.assertEqual(context.property_id, "123456")
         self.assertEqual(context.connection_id, "google-connection")
         self.assertEqual(context.auth_mode, "oauth")
-        self.assertEqual(select.await_args.kwargs["filters"]["client_id"], "eq.roove")
+        self.assertEqual(select.await_args.kwargs["filters"]["id"], "eq.google-connection")
 
-    async def test_ga4_legacy_environment_is_fallback_only_without_oauth(self):
+    async def test_ga4_without_connection_id_requires_explicit_selection(self):
         with (
             patch.object(ga4_connections, "sb_select", AsyncMock(return_value=[])),
-            patch.object(
-                ga4_connections,
-                "resolve_ga4_context_for_client",
-                return_value=("roove", "properties/legacy-987"),
-            ),
         ):
-            context = await ga4_connections.resolve_ga4_connection_context("roove")
-        self.assertEqual(context.property_id, "legacy-987")
-        self.assertIsNone(context.connection_id)
-        self.assertEqual(context.auth_mode, "legacy")
+            with self.assertRaises(IntegrationError) as raised:
+                await ga4_connections.resolve_ga4_connection_context("roove")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
 
     async def test_ga4_property_selection_pending_is_409(self):
         with patch.object(
@@ -218,7 +215,9 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=[google_row(status="selection_required")]),
         ):
             with self.assertRaises(IntegrationError) as raised:
-                await ga4_connections.resolve_ga4_connection_context("roove")
+                await ga4_connections.resolve_ga4_connection_context(
+                    "roove", connection_id="google-connection"
+                )
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(raised.exception.code, "ACCOUNT_SELECTION_REQUIRED")
         self.assertEqual(raised.exception.provider, "ga4")
@@ -237,7 +236,9 @@ class GA4ConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with self.assertRaises(IntegrationError) as raised:
-                await ga4_connections.resolve_ga4_connection_context("roove")
+                await ga4_connections.resolve_ga4_connection_context(
+                    "roove", connection_id="google-connection"
+                )
         self.assertEqual(raised.exception.status_code, 403)
 
 
@@ -411,13 +412,15 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         summary = {key: value for key, value in full_row.items() if key != "_token"}
         with (
             patch.object(shopify_oauth, "sb_select", AsyncMock(return_value=[summary])) as select,
-            patch.object(shopify_oauth, "get_connection", AsyncMock(return_value=full_row)),
+            patch.object(shopify_oauth, "get_connection", AsyncMock(return_value=full_row)) as get_connection,
         ):
             context = await shopify_oauth.resolve_shopify_connection_context(
                 "roove",
+                connection_id=str(full_row["id"]),
                 required_scopes=required_scopes,
             )
-        self.assertEqual(select.await_args.kwargs["filters"]["client_id"], "eq.roove")
+        select.assert_not_awaited()
+        get_connection.assert_awaited_with("roove", str(full_row["id"]), include_token=True)
         return context
 
     async def test_valid_shopify_oauth_connection_is_used(self):
@@ -448,7 +451,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             "https://minha-loja.myshopify.com/admin/api/2026-07/orders.json",
         )
 
-    async def test_missing_shopify_connection_is_404(self):
+    async def test_shopify_without_connection_id_requires_explicit_selection(self):
         with (
             patch.object(shopify_oauth, "sb_select", AsyncMock(return_value=[])),
             patch.dict(os.environ, {}, clear=False),
@@ -462,7 +465,25 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop(name, None)
             with self.assertRaises(IntegrationError) as raised:
                 await shopify_oauth.resolve_shopify_connection_context("roove")
-        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
+
+    async def test_multiple_shopify_stores_without_selection_choose_none(self):
+        stores = [
+            shopify_row(),
+            shopify_row() | {
+                "id": "shopify-second",
+                "external_key": "segunda-loja.myshopify.com",
+                "metadata": {"shop_domain": "segunda-loja.myshopify.com"},
+            },
+        ]
+        select = AsyncMock(return_value=stores)
+        with patch.object(shopify_oauth, "sb_select", select):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.resolve_shopify_connection_context("roove")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
+        select.assert_not_awaited()
 
     async def test_invalid_shopify_token_is_401(self):
         with self.assertRaises(IntegrationError) as raised:
@@ -491,7 +512,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 404)
         self.assertNotIn("other tenant", str(raised.exception))
 
-    async def test_legacy_shopify_fallback_is_supported(self):
+    async def test_legacy_shopify_environment_does_not_bypass_explicit_selection(self):
         with (
             patch.object(shopify_oauth, "sb_select", AsyncMock(return_value=[])),
             patch.dict(
@@ -503,12 +524,13 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 clear=False,
             ),
         ):
-            context = await shopify_oauth.resolve_shopify_connection_context(
-                "roove",
-                required_scopes=("read_orders",),
-            )
-        self.assertEqual(context.shop_domain, "legacy.myshopify.com")
-        self.assertEqual(context.auth_mode, "legacy")
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.resolve_shopify_connection_context(
+                    "roove",
+                    required_scopes=("read_orders",),
+                )
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
 
     async def test_valid_callback_persists_connection_and_starts_first_sync(self):
         background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()

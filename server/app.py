@@ -193,6 +193,7 @@ async def integration_exception_handler(request: Request, exc: IntegrationError)
         "reason": safe_reasons.get(exc.code, "integration_error"),
         "reauth_required": reauth_required,
         "setup_required": setup_required,
+        **exc.diagnostics,
     }
     return JSONResponse(
         status_code=exc.status_code,

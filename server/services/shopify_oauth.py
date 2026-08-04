@@ -97,35 +97,6 @@ class ShopifyConnectionContext:
     auth_mode: str
 
 
-def _legacy_shopify_context(client_id: str) -> ShopifyConnectionContext | None:
-    domain = _env("SHOPIFY_SHOP_DOMAIN") or _env("SHOPIFY_STORE_DOMAIN")
-    token = _env("SHOPIFY_ACCESS_TOKEN") or _env("SHOPIFY_ADMIN_ACCESS_TOKEN")
-    if not domain and not token:
-        return None
-    if not domain:
-        raise IntegrationError(
-            "O domínio da loja Shopify não está configurado.",
-            status_code=409,
-            code="SHOPIFY_STORE_SELECTION_REQUIRED",
-            provider="shopify",
-        )
-    if not token:
-        raise IntegrationError(
-            "A conexão Shopify requer nova autorização.",
-            status_code=401,
-            code="SHOPIFY_REAUTH_REQUIRED",
-            provider="shopify",
-        )
-    return ShopifyConnectionContext(
-        client_id=client_id,
-        connection_id=None,
-        shop_domain=normalize_shop_domain(domain),
-        access_token=token,
-        scopes=frozenset(SHOPIFY_SCOPES),
-        auth_mode="legacy",
-    )
-
-
 async def resolve_shopify_connection_context(
     client_id: str,
     *,
@@ -175,9 +146,6 @@ async def resolve_shopify_connection_context(
             raise
 
     if not row:
-        legacy = _legacy_shopify_context(cid)
-        if legacy:
-            return legacy
         raise IntegrationError(
             "Nenhuma conexão Shopify ativa foi encontrada para a empresa selecionada.",
             status_code=404,

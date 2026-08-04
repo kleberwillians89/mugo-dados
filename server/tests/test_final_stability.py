@@ -33,31 +33,40 @@ class ConnectionResolutionScaleTests(unittest.IsolatedAsyncioTestCase):
         rows = [connection(f"tenant-{index}", provider) for index in range(100) for provider in ("meta", "ga4", "shopify")]
 
         async def select(_table, *, filters=None, **_kwargs):
+            connection_id = str((filters or {}).get("id", "")).removeprefix("eq.")
             client_id = str((filters or {}).get("client_id", "")).removeprefix("eq.")
             provider = str((filters or {}).get("provider", "")).removeprefix("eq.")
-            return [row for row in rows if row["client_id"] == client_id and row["provider"] == provider]
+            return [
+                row for row in rows
+                if (not connection_id or row["id"] == connection_id)
+                and (not client_id or row["client_id"] == client_id)
+                and (not provider or row["provider"] == provider)
+            ]
 
         resolved = await asyncio.gather(*[
             connection_resolver.resolve_generic_connection(
-                client_id=f"tenant-{index}", provider=provider, require_token=False, select_fn=select,
+                client_id=f"tenant-{index}", provider=provider,
+                requested_connection_id=f"tenant-{index}-{provider}-1",
+                require_token=False, select_fn=select,
             )
             for index in range(100) for provider in ("meta", "ga4", "shopify")
         ])
         self.assertEqual(len(resolved), 300)
         self.assertTrue(all(row["id"].startswith(row["client_id"] + "-") for row in resolved))
 
-    async def test_ambiguous_and_disconnected_connections_are_never_selected(self):
+    async def test_missing_selection_and_disconnected_connections_are_never_selected(self):
         ambiguous = [connection("amalie", "ga4", "1"), connection("amalie", "ga4", "2")]
         with self.assertRaises(IntegrationError) as raised:
             await connection_resolver.resolve_generic_connection(
                 client_id="amalie", provider="ga4", require_token=False,
                 select_fn=AsyncMock(return_value=ambiguous),
             )
-        self.assertEqual(raised.exception.code, "CONNECTION_AMBIGUOUS")
+        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
         disconnected = [connection("amalie", "google_ads", status="disconnected", disconnected_at="2026-01-01")]
         with self.assertRaises(IntegrationError) as raised:
             await connection_resolver.resolve_generic_connection(
                 client_id="amalie", provider="google_ads", require_token=False,
+                requested_connection_id="amalie-google_ads-1",
                 select_fn=AsyncMock(return_value=disconnected),
             )
         self.assertEqual(raised.exception.code, "CONNECTION_DISCONNECTED")

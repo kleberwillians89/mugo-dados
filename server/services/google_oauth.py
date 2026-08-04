@@ -70,6 +70,34 @@ def _connection_token_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     return token
 
 
+def _safe_token_diagnostics(row: Dict[str, Any], token: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    payload = token if isinstance(token, dict) else _connection_token_payload(row)
+    canonical_raw = str(row.get("_token") or "").strip()
+    try:
+        canonical = json.loads(canonical_raw or "{}")
+    except (TypeError, ValueError):
+        canonical = None
+    if isinstance(canonical, dict) and canonical:
+        storage_format = "canonical_envelope"
+    elif str(row.get("encrypted_refresh_token") or "").strip():
+        storage_format = "legacy_refresh_column"
+    elif str(row.get("encrypted_access_token") or "").strip():
+        storage_format = "legacy_access_column"
+    else:
+        storage_format = "missing"
+    return {
+        "connection_id": str(row.get("id") or ""),
+        "client_id": str(row.get("client_id") or ""),
+        "provider": str(row.get("provider") or ""),
+        "connection_status": str(row.get("status") or ""),
+        "disconnected_at": row.get("disconnected_at"),
+        "token_expires_at": str(payload.get("expires_at") or row.get("token_expires_at") or "") or None,
+        "access_token_available": bool(str(payload.get("access_token") or "").strip()),
+        "refresh_token_available": bool(str(payload.get("refresh_token") or "").strip()),
+        "token_storage_format": storage_format,
+    }
+
+
 def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
 
@@ -316,14 +344,17 @@ async def _access_token(
                 provider="google",
             )
         status = str(row.get("status") or "").strip().lower()
+        diagnostics = _safe_token_diagnostics(row)
         if status not in {"connected", "selection_required"} or row.get("disconnected_at"):
             raise IntegrationError(
                 "A conexão Google está desconectada. Reconecte antes de sincronizar.",
                 status_code=409,
                 code="GOOGLE_CONNECTION_DISCONNECTED",
                 provider="google",
+                diagnostics={**diagnostics, "refresh_attempted": False, "refresh_result": "not_attempted"},
             )
         token = _connection_token_payload(row)
+        diagnostics = _safe_token_diagnostics(row, token)
         expires_raw = str(token.get("expires_at") or row.get("token_expires_at") or "")
         expires_at = (
             datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
@@ -351,6 +382,7 @@ async def _access_token(
                 status_code=409,
                 code="GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING",
                 provider="google",
+                diagnostics={**diagnostics, "refresh_attempted": False, "refresh_result": "refresh_missing"},
             )
         config = settings()
         async with httpx.AsyncClient(timeout=30) as client:
@@ -380,6 +412,7 @@ async def _access_token(
                     status_code=409,
                     code="GOOGLE_REAUTH_REQUIRED_INVALID_GRANT",
                     provider="google",
+                    diagnostics={**diagnostics, "refresh_attempted": True, "refresh_result": "invalid_grant", "upstream_status": response.status_code, "upstream_reason": refresh_error},
                 ) from exc
             raise from_httpx_error(
                 "google",
@@ -422,6 +455,11 @@ async def get_google_access_token(client_id: str, connection_id: str, *, request
     return await _access_token(client_id, connection_id, request_id=request_id)
 
 
+async def get_google_connection_diagnostics(client_id: str, connection_id: str) -> Dict[str, Any]:
+    row = await get_connection(client_id, connection_id, include_token=True)
+    return _safe_token_diagnostics(row)
+
+
 async def list_ga4_properties(client_id: str, connection_id: str, *, request_id: str = "-") -> List[Dict[str, Any]]:
     token = await _access_token(client_id, connection_id, expected_provider="ga4", request_id=request_id)
     async with httpx.AsyncClient(timeout=30) as client:
@@ -440,11 +478,20 @@ async def list_ga4_properties(client_id: str, connection_id: str, *, request_id:
             f"http_status={diagnostic['http_status']} google_status={diagnostic['google_status'] or '-'} "
             f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'}"
         )
-        raise google_api_error(
+        mapped = google_api_error(
             response, api="Analytics Admin API",
             unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE",
             operation="listar propriedades GA4",
-        ) from exc
+        )
+        safe_connection = await get_connection(client_id, connection_id, include_token=True)
+        mapped.diagnostics = {
+            **_safe_token_diagnostics(safe_connection),
+            "refresh_attempted": False,
+            "refresh_result": "not_required_or_completed",
+            "upstream_status": diagnostic["http_status"],
+            "upstream_reason": ",".join(diagnostic["reasons"]) or diagnostic["google_status"] or None,
+        }
+        raise mapped from exc
     out: List[Dict[str, Any]] = []
     account_summaries = response.json().get("accountSummaries") or []
     for account in account_summaries:

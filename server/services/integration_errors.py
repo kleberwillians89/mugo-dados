@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -14,6 +14,7 @@ class IntegrationError(RuntimeError):
         code: str,
         provider: str,
         retryable: bool = False,
+        diagnostics: Dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.public_message = message
@@ -21,6 +22,7 @@ class IntegrationError(RuntimeError):
         self.code = code
         self.provider = provider
         self.retryable = retryable
+        self.diagnostics = diagnostics or {}
 
 
 def provider_http_error(

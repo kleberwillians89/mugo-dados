@@ -201,6 +201,7 @@ export default function Onboarding({
   const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
   const [googleReconnectProduct, setGoogleReconnectProduct] = useState<"ga4" | "google_ads" | null>(null);
   const [backendCommitSha, setBackendCommitSha] = useState("unknown");
+  const [lastIntegrationDiagnostic, setLastIntegrationDiagnostic] = useState({ code: "", requestId: "", initialSyncOk: null as boolean | null, organicConnectionId: "", adsBlockedReason: "" });
   const manualMetaFormRef = useRef<HTMLElement | null>(null);
   const processedOauthReturnRef = useRef<string | null>(null);
 
@@ -412,6 +413,25 @@ export default function Onboarding({
   }, [genericConnections, googlePickerId, googlePickerProduct]);
 
   useEffect(() => {
+    if (loading) return;
+    const selectedId = selectedGoogleAuthorizationIds.google_ads;
+    if (!selectedId) return;
+    const selected = selectUsableGoogleConnection(
+      genericConnections, "google_ads", getActiveClientId(), selectedId
+    );
+    if (selected) return;
+    console.warn("Google Ads request blocked", {
+      connection_id: selectedId, reason: "persisted_connection_unavailable",
+      activeClientId: getActiveClientId(),
+    });
+    setLastIntegrationDiagnostic((current) => ({ ...current, adsBlockedReason: "persisted_connection_unavailable" }));
+    setSelectedConnectionId(getActiveClientId(), "google_ads", null);
+    setSelectedGoogleAuthorizationIds((current) => ({ ...current, google_ads: "" }));
+    setGooglePickerId(null);
+    setGooglePickerProduct(null);
+  }, [genericConnections, loading, selectedGoogleAuthorizationIds.google_ads]);
+
+  useEffect(() => {
     if (!manualMetaConnectionId) return;
     window.requestAnimationFrame(() => {
       manualMetaFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -526,6 +546,13 @@ export default function Onboarding({
     setErr(null);
     setManualMetaValidation(null);
     try {
+      console.info("[meta-manual]", {
+        stage: "validate", activeClientId: getActiveClientId(), selectedMetaAuthorizationId,
+        manualMetaConnectionId, provider: connection.provider, status: connection.status,
+        connectionClientId: connection.client_id, tokenAvailable: connection.token_available,
+        pageId: manualPageId.trim() || null, instagramId: manualInstagramId.trim() || null,
+        endpoint: `/api/oauth/meta/${connection.id}/manual-assets/validate`,
+      });
       const result = await validateManualMetaAssets(connection.id, {
         page_id: manualPageId.trim() || undefined,
         instagram_id: manualInstagramId.trim() || undefined,
@@ -534,6 +561,7 @@ export default function Onboarding({
       setManualMetaValidation(result);
       setInfo("Ativos validados com a autorização Meta atual. Revise os nomes antes de salvar.");
     } catch (error: unknown) {
+      if (error instanceof ApiError) setLastIntegrationDiagnostic((current) => ({ ...current, code: error.code, requestId: error.requestId }));
       setErr(error instanceof ApiError && error.status === 404
         ? "A configuração manual Meta não está disponível nesta versão do servidor. Atualize o deploy do backend e tente novamente."
         : errorMessage(error, "Não foi possível validar os IDs Meta. Verifique os IDs, permissões e o vínculo entre Página e Instagram."));
@@ -560,21 +588,35 @@ export default function Onboarding({
     setSaving(true);
     setErr(null);
     try {
+      console.info("[meta-manual]", {
+        stage: "save", activeClientId: getActiveClientId(), selectedMetaAuthorizationId,
+        manualMetaConnectionId, provider: connection.provider, status: connection.status,
+        connectionClientId: connection.client_id, tokenAvailable: connection.token_available,
+        pageId: manualPageId.trim() || null, instagramId: manualInstagramId.trim() || null,
+        endpoint: `/api/oauth/meta/${connection.id}/manual-assets`,
+      });
       const result = await saveManualMetaAssets(connection.id, {
         page_id: manualPageId.trim() || undefined,
         instagram_id: manualInstagramId.trim() || undefined,
         ad_account_id: manualAdAccountId.trim() || undefined,
       });
       await loadConnections();
-      setManualMetaConnectionId(null);
-      setManualMetaValidation(null);
       const initialSync = result.initial_sync && typeof result.initial_sync === "object"
         ? result.initial_sync as Record<string, unknown>
         : null;
-      setInfo(initialSync?.ok === false
-        ? "Ativos Meta salvos, mas a sincronização inicial falhou. Use Atualizar dados para tentar novamente."
-        : "Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
+      const initialSyncOk = initialSync?.ok !== false;
+      const organicConnectionId = String(result.organic_connection_id || "");
+      setLastIntegrationDiagnostic((current) => ({ ...current, initialSyncOk, organicConnectionId }));
+      console.info("[meta-manual]", { stage: "complete", initialSyncOk, organicConnectionId });
+      if (!initialSyncOk) {
+        setErr(`Ativos Meta salvos, mas a sincronização inicial falhou.${String(initialSync?.code || "") ? ` Código: ${String(initialSync?.code)}.` : ""}`);
+        return;
+      }
+      setManualMetaConnectionId(null);
+      setManualMetaValidation(null);
+      setInfo("Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
     } catch (error: unknown) {
+      if (error instanceof ApiError) setLastIntegrationDiagnostic((current) => ({ ...current, code: error.code, requestId: error.requestId }));
       setErr(error instanceof ApiError && error.status === 404
         ? "A configuração manual Meta não está disponível nesta versão do servidor. Atualize o deploy do backend e tente novamente."
         : errorMessage(error, "Não foi possível salvar os ativos Meta. Verifique permissões e incompatibilidade entre os ativos."));
@@ -768,7 +810,13 @@ export default function Onboarding({
     setGoogleReconnectProduct(null);
     try {
       const provider = product === "ga4" ? "ga4" : "google_ads";
-      if (!isUsableGoogleConnection(connection, provider, getActiveClientId())) {
+      const explicitlySelectedId = selectedGoogleAuthorizationIds[provider];
+      if (connection.id !== explicitlySelectedId || !isUsableGoogleConnection(connection, provider, getActiveClientId())) {
+        if (provider === "google_ads") {
+          const reason = connection.id !== explicitlySelectedId ? "not_explicitly_selected" : "connection_unusable";
+          console.warn("Google Ads request blocked", { connection_id: connection.id, reason, activeClientId: getActiveClientId() });
+          setLastIntegrationDiagnostic((current) => ({ ...current, adsBlockedReason: reason }));
+        }
         setInfo(`Conecte ${product === "ga4" ? "o Google Analytics" : "o Google Ads"} antes de selecionar ativos.`);
         return;
       }
@@ -792,6 +840,7 @@ export default function Onboarding({
       if (error instanceof ApiError && error.code.startsWith("GOOGLE_REAUTH_REQUIRED")) {
         setGoogleReconnectProduct(product === "ga4" ? "ga4" : "google_ads");
       }
+      if (error instanceof ApiError) setLastIntegrationDiagnostic((current) => ({ ...current, code: error.code, requestId: error.requestId }));
       setErr(errorMessage(error, product === "ga4"
         ? "Não foi possível listar as propriedades do Google Analytics."
         : "Não foi possível consultar as contas Google Ads."));
@@ -1284,6 +1333,17 @@ export default function Onboarding({
           </div>
         </section>
 
+        {activeRole === "agency_admin" ? (
+          <section className="card cardWide" aria-label="Diagnóstico temporário de integrações">
+            <div className="h1">Diagnóstico temporário</div>
+            <div className="smallMuted" style={{ marginTop: 10 }}>
+              Meta — tenant: {getActiveClientId()} · autorização: {selectedMetaAuthorizationId || "não selecionada"} · conexão operacional: {activeConnectionId || "não configurada"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"} · initial_sync.ok: {lastIntegrationDiagnostic.initialSyncOk == null ? "-" : String(lastIntegrationDiagnostic.initialSyncOk)} · organic_connection_id: {lastIntegrationDiagnostic.organicConnectionId || "-"}<br />
+              GA4 — autorização: {selectedGoogleAuthorizationIds.ga4 || "não selecionada"} · status: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.status || "não configurada"} · refresh disponível: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.metadata?.refresh_token_available ? "sim" : "não"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"}<br />
+              Google Ads — autorização: {selectedGoogleAuthorizationIds.google_ads || "não selecionada"} · conexão bloqueada: {lastIntegrationDiagnostic.adsBlockedReason ? "sim" : "não"} · motivo: {lastIntegrationDiagnostic.adsBlockedReason || "-"}
+            </div>
+          </section>
+        ) : null}
+
         {googlePickerId ? (
           <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">{googlePickerProduct === "ga4" ? "Selecionar propriedade GA4" : "Selecionar conta Google Ads"}</div>
@@ -1331,7 +1391,8 @@ export default function Onboarding({
             <div className="h1">Configuração avançada por ID</div>
             <div className="p">Use IDs exibidos no Meta Business Suite. Os ativos serão consultados com a autorização atual antes de salvar; nenhum token é exibido.</div>
             <div className="smallMuted" data-testid="manual-meta-debug">
-              Conexão Meta selecionada: {manualMetaConnectionId.slice(0, 8)} · Tenant: {getActiveClientId()}
+              Conexão Meta selecionada: {manualMetaConnectionId.slice(0, 8)} · Tenant: {getActiveClientId()} · Autorização: {selectedMetaAuthorizationId.slice(0, 8)} ·
+              Provider: {metaGenericConnection?.provider || "-"} · Status: {metaGenericConnection?.status || "-"} · Client: {metaGenericConnection?.client_id || "-"} · Token disponível: {metaGenericConnection?.token_available === false ? "não" : "sim"}
             </div>
             <label className="smallMuted" style={{ display: "block", marginTop: 12 }}>
               Facebook Page ID — encontrado nas informações da Página

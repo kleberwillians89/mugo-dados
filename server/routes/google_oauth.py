@@ -22,6 +22,7 @@ from services.google_oauth import (
     list_ga4_streams,
     list_google_ads_accounts,
     get_google_access_token,
+    get_google_connection_diagnostics,
     normalize_integration_product,
     save_google_authorization,
 )
@@ -177,11 +178,23 @@ async def ga4_properties(
         )
     request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
     properties = await list_ga4_properties(cid, connection_id, request_id=request_id)
+    try:
+        diagnostics = await get_google_connection_diagnostics(cid, connection_id)
+    except Exception:
+        diagnostics = {
+            "connection_id": connection_id, "client_id": cid,
+            "provider": str(row.get("provider") or ""), "connection_status": str(row.get("status") or ""),
+            "disconnected_at": row.get("disconnected_at"), "token_expires_at": row.get("token_expires_at"),
+            "access_token_available": bool(row.get("token_available")),
+            "refresh_token_available": bool((row.get("metadata") or {}).get("refresh_token_available")) if isinstance(row.get("metadata"), dict) else False,
+            "token_storage_format": "unavailable",
+        }
     return {
         "ok": True,
         "properties": properties,
         "property_count": len(properties),
         "message": None if properties else f"O usuário {row.get('account_name') or 'Google autorizado'} não possui acesso a nenhuma propriedade GA4.",
+        "diagnostics": {**diagnostics, "refresh_result": "available", "request_id": request_id},
     }
 
 

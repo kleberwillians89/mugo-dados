@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 from .connection_resolver import resolve_generic_connection
 from .ig_supabase import sb_select
 from .integration_errors import IntegrationError
-from .single_tenant import resolve_ga4_context_for_client
 
 
 GA4_READ_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
@@ -32,15 +31,10 @@ async def resolve_ga4_connection_context(
     client_id: str, connection_id: str | None = None
 ) -> GA4ConnectionContext:
     cid = _text(client_id)
-    try:
-        row = await resolve_generic_connection(
-            client_id=cid, provider="ga4", requested_connection_id=connection_id,
-            require_token=False, select_fn=sb_select,
-        )
-    except IntegrationError as exc:
-        if exc.code != "CONNECTION_NOT_FOUND":
-            raise
-        row = None
+    row = await resolve_generic_connection(
+        client_id=cid, provider="ga4", requested_connection_id=connection_id,
+        require_token=False, select_fn=sb_select,
+    )
     if row:
         if _text(row.get("client_id")) != cid:
             raise IntegrationError(
@@ -85,18 +79,9 @@ async def resolve_ga4_connection_context(
             auth_mode="oauth",
         )
 
-    try:
-        legacy_client_id, legacy_property_id = resolve_ga4_context_for_client(cid)
-    except RuntimeError as exc:
-        raise IntegrationError(
-            "Nenhuma conexão Google ativa foi encontrada para a empresa selecionada.",
-            status_code=404,
-            code="GA4_CONNECTION_NOT_FOUND",
-            provider="google",
-        ) from exc
-    return GA4ConnectionContext(
-        client_id=legacy_client_id,
-        property_id=normalize_ga4_property_id(legacy_property_id),
-        connection_id=None,
-        auth_mode="legacy",
+    raise IntegrationError(
+        "Nenhuma conexão Google ativa foi encontrada para a empresa selecionada.",
+        status_code=404,
+        code="GA4_CONNECTION_NOT_FOUND",
+        provider="google",
     )

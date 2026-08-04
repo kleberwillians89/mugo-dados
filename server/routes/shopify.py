@@ -171,6 +171,7 @@ async def shopify_recent_webhooks(
     limit: int = Query(default=20, ge=1, le=100),
     include_payload: bool = Query(default=False),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
@@ -184,7 +185,9 @@ async def shopify_recent_webhooks(
         client_id=client_id,
     )
     try:
-        context = await resolve_shopify_connection_context(client_id)
+        context = await resolve_shopify_connection_context(
+            client_id, connection_id=connection_id,
+        )
         rows = await list_recent_shopify_webhooks(
             client_id=client_id,
             shop_domain=context.shop_domain,
@@ -423,6 +426,7 @@ async def shopify_recent_orders(
     limit: int = Query(default=20, ge=1, le=100),
     include_raw: bool = Query(default=False),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
@@ -438,6 +442,7 @@ async def shopify_recent_orders(
     try:
         context = await resolve_shopify_connection_context(
             client_id,
+            connection_id=connection_id,
             required_scopes=("read_orders",),
         )
         rows = await list_recent_shopify_orders(
