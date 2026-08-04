@@ -42,10 +42,11 @@ async def _ga4_request_context(
     client_id: str | None,
     x_client_id: str | None,
     authorization: str | None,
+    selected_connection_id: str | None,
 ) -> tuple[str, str, str | None]:
     requested = _pick_ga4_client_id(client_id, x_client_id)
     authorized_client_id = await resolve_client_id(requested, authorization)
-    context = await resolve_ga4_connection_context(authorized_client_id)
+    context = await resolve_ga4_connection_context(authorized_client_id, selected_connection_id)
     print(
         "[google][ga4_context] "
         f"requested_client_id={requested or '-'} x_client_id={(x_client_id or '').strip() or '-'} "
@@ -61,13 +62,14 @@ async def ga4_sync(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
     endpoint = "/api/google/ga4/sync"
     requested_client_id = client_id
-    client_id, property_id, connection_id = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, connection_id = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -153,13 +155,14 @@ async def ga4_report(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
     endpoint = "/api/google/ga4/report"
     requested_client_id = client_id
-    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -235,13 +238,14 @@ async def ga4_channels(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
     endpoint = "/api/google/ga4/channels"
     requested_client_id = client_id
-    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -317,13 +321,14 @@ async def ga4_campaigns(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
     endpoint = "/api/google/ga4/campaigns"
     requested_client_id = client_id
-    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -399,13 +404,14 @@ async def ga4_events(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
     endpoint = "/api/google/ga4/events"
     requested_client_id = client_id
-    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization)
+    client_id, property_id, _ = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,

@@ -12,7 +12,9 @@ export type ConnectionRecord = {
 
 export function selectUniqueConnection<T>(items: T[], predicate: (item: T) => boolean): T | null {
   const matches = items.filter(predicate);
-  return matches.length === 1 ? matches[0] : null;
+  if (matches.length !== 1) return null;
+  const [match] = matches;
+  return match;
 }
 
 export function resolveCatalogConnection<T extends ConnectionRecord>(
@@ -30,11 +32,11 @@ export function resolveCatalogConnection<T extends ConnectionRecord>(
     (input.requireToken === false || connection.token_available !== false)
   );
   const requested = String(input.requestedConnectionId || "").trim();
-  if (requested) {
-    const exact = candidates.filter((connection) => connection.id === requested);
-    return exact.length === 1 ? exact[0] : null;
-  }
-  return candidates.length === 1 ? candidates[0] : null;
+  if (!requested) return null;
+  const exact = candidates.filter((connection) => connection.id === requested);
+  if (exact.length !== 1) return null;
+  const [match] = exact;
+  return match;
 }
 
 export function resolveOperationalMetaConnectionId(
@@ -52,24 +54,25 @@ export function resolveOperationalMetaConnectionId(
       : platform === "meta_ads" || kind === "paid";
     return capabilityMatches && status !== "disconnected" && !connection.disconnected_at;
   });
-  if (requested) {
-    const exact = candidates.filter((connection) => connection.id === requested);
-    return exact.length === 1 ? String(exact[0].id || "") || null : null;
-  }
-  const active = candidates.filter((connection) => String(connection.status || "").toLowerCase() === "active");
-  if (active.length === 1) return String(active[0].id || "") || null;
-  return candidates.length === 1 ? String(candidates[0].id || "") || null : null;
+  if (!requested) return null;
+  const exact = candidates.filter((connection) => connection.id === requested);
+  if (exact.length !== 1) return null;
+  const [match] = exact;
+  return String(match.id || "") || null;
 }
 
-export function resolveCommerceConnection<T extends ConnectionRecord>(connections: T[]): T | null {
+export function resolveCommerceConnection<T extends ConnectionRecord>(
+  connections: T[], requestedConnectionId?: string | null
+): T | null {
   const candidates = connections.filter((connection) =>
     ["shopify", "fbits"].includes(String(connection.provider || "").toLowerCase()) &&
     ["connected", "active", "updated"].includes(String(connection.status || "").toLowerCase()) &&
     !connection.disconnected_at
   );
-  const preferred = candidates.filter((connection) =>
-    connection.provider === "shopify" && Boolean(connection.metadata?.selected_for_reporting)
-  );
-  if (preferred.length === 1) return preferred[0];
-  return candidates.length === 1 ? candidates[0] : null;
+  const requested = String(requestedConnectionId || "").trim();
+  if (!requested) return null;
+  const exact = candidates.filter((connection) => connection.id === requested);
+  if (exact.length !== 1) return null;
+  const [match] = exact;
+  return match;
 }

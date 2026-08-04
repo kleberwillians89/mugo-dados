@@ -8,6 +8,7 @@ import {
   writeDashboardCache,
 } from "./cache";
 import { resolveCommerceConnection } from "../../app/connectionManager";
+import { getSelectedConnectionId } from "../../app/connectionState";
 export { resolveCommerceConnection } from "../../app/connectionManager";
 
 type Params = {
@@ -69,7 +70,9 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setFbitsError(null);
     try {
       const connectionResponse = await listGenericConnections();
-      const commerceConnection = resolveCommerceConnection(connectionResponse.connections);
+      const selectedId = getSelectedConnectionId(activeClientId, "shopify") ||
+        getSelectedConnectionId(activeClientId, "fbits");
+      const commerceConnection = resolveCommerceConnection(connectionResponse.connections, selectedId);
       if (!commerceConnection) {
         const empty: FbitsOrdersSummaryResponse = {
           ok: true,

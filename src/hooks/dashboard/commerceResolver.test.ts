@@ -5,13 +5,13 @@ import { resolveCommerceConnection } from "./useDashboardFbits";
 describe("commerce provider resolution", () => {
   it("selects Shopify for Roove and never falls through to FBits", () => {
     const selected = resolveCommerceConnection([
-      { provider: "fbits", status: "connected", metadata: {} },
+      { id: "fbits-1", provider: "fbits", status: "connected", metadata: {} },
       {
-        provider: "shopify",
+        id: "shopify-1", provider: "shopify",
         status: "connected",
         metadata: { selected_for_reporting: true, shop_domain: "roove.myshopify.com" },
       },
-    ]);
+    ], "shopify-1");
     expect(selected?.provider).toBe("shopify");
   });
 

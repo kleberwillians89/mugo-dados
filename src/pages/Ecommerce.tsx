@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { listGenericConnections, type GenericConnection } from "../app/api";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { getSelectedConnectionId } from "../app/connectionState";
 import { usePeriod } from "../app/PeriodContext";
 import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
 import Shell from "../components/Shell";
@@ -54,7 +55,10 @@ export default function Ecommerce(props: Props) {
     let active = true;
     listGenericConnections()
       .then((response) => {
-        if (active) setConnection(resolveCommerceConnection(response.connections) as GenericConnection | null);
+        const clientId = getActiveClientId();
+        const selectedId = getSelectedConnectionId(clientId, "shopify") ||
+          getSelectedConnectionId(clientId, "fbits");
+        if (active) setConnection(resolveCommerceConnection(response.connections, selectedId) as GenericConnection | null);
       })
       .catch(() => {
         if (active) setConnection(null);

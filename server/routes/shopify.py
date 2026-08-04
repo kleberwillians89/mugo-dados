@@ -254,6 +254,7 @@ async def shopify_report(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
@@ -271,7 +272,7 @@ async def shopify_report(
     )
     try:
         context = await resolve_shopify_connection_context(
-            client_id,
+            client_id, connection_id=connection_id,
             required_scopes=("read_orders", "read_products"),
         )
         period = resolve_shopify_report_period(start=start, end=end, days=days)
@@ -338,6 +339,7 @@ async def shopify_customers(
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
@@ -355,7 +357,7 @@ async def shopify_customers(
     )
     try:
         context = await resolve_shopify_connection_context(
-            client_id,
+            client_id, connection_id=connection_id,
             required_scopes=("read_orders", "read_customers"),
         )
         period = resolve_shopify_report_period(start=start, end=end, days=days)

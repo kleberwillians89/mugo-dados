@@ -28,11 +28,14 @@ class GA4ConnectionContext:
     auth_mode: str
 
 
-async def resolve_ga4_connection_context(client_id: str) -> GA4ConnectionContext:
+async def resolve_ga4_connection_context(
+    client_id: str, connection_id: str | None = None
+) -> GA4ConnectionContext:
     cid = _text(client_id)
     try:
         row = await resolve_generic_connection(
-            client_id=cid, provider="ga4", require_token=False, select_fn=sb_select,
+            client_id=cid, provider="ga4", requested_connection_id=connection_id,
+            require_token=False, select_fn=sb_select,
         )
     except IntegrationError as exc:
         if exc.code != "CONNECTION_NOT_FOUND":

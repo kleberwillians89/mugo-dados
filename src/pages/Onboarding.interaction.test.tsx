@@ -26,7 +26,9 @@ vi.mock("../app/activeClient", () => ({
 
 vi.mock("../app/connectionState", () => ({
   getActiveConnectionId: () => null,
+  getSelectedConnectionId: () => null,
   setActiveConnectionId: vi.fn(),
+  setSelectedConnectionId: vi.fn(),
 }));
 
 vi.mock("../app/api", async (importOriginal) => {
@@ -85,6 +87,18 @@ function changeInput(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+async function selectAuthorization(connectionId: string) {
+  const select = [...container.querySelectorAll("select")].find((item) =>
+    [...item.options].some((option) => option.value === connectionId)
+  );
+  expect(select).toBeTruthy();
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    setter?.call(select, connectionId);
+    select?.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -120,6 +134,7 @@ describe("Onboarding integration actions", () => {
   it("opens manual Meta fields with Ads connected and organic pending", async () => {
     mocks.mode = "meta";
     await renderOnboarding();
+    await selectAuthorization("meta-generic");
     const button = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
     expect(button).toBeTruthy();
     await act(async () => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -135,6 +150,7 @@ describe("Onboarding integration actions", () => {
   it("validates and saves manual Meta assets using the usable Amalie connection", async () => {
     mocks.mode = "meta";
     await renderOnboarding();
+    await selectAuthorization("meta-generic");
     const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
     await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
@@ -160,6 +176,7 @@ describe("Onboarding integration actions", () => {
   it("lists properties on an existing GA4 connection without starting OAuth", async () => {
     mocks.mode = "ga4";
     await renderOnboarding();
+    await selectAuthorization("ga4-existing");
     const button = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     expect(button).toBeTruthy();
     await act(async () => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -174,6 +191,7 @@ describe("Onboarding integration actions", () => {
       status: 409, code: "GOOGLE_REAUTH_REQUIRED", requestId: "req-reauth",
     }));
     await renderOnboarding();
+    await selectAuthorization("ga4-existing");
     const select = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => select?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(container.textContent).toContain("Reconectar Google");
@@ -187,6 +205,7 @@ describe("Onboarding integration actions", () => {
       status: 409, code: "GOOGLE_ADMIN_API_DISABLED", requestId: "req-admin",
     }));
     await renderOnboarding();
+    await selectAuthorization("ga4-existing");
     const select = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => select?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(container.textContent).not.toContain("Reconectar Google");

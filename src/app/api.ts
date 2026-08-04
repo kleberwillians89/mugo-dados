@@ -44,6 +44,7 @@ import {
 } from "./activeClient";
 import { getSelectedPeriodRange } from "./periodRange";
 import { resolveCatalogConnection } from "./connectionManager";
+import { getSelectedConnectionId } from "./connectionState";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
 const productionApiBase = "https://api.dados.mugoagencia.com.br";
@@ -1638,7 +1639,9 @@ export async function getShopifyReport(
 ): Promise<ShopifyReportResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
-  const raw = await http<unknown>(pathWithPeriod("/api/shopify/report", period, fallbackDays));
+  const raw = await http<unknown>(pathWithPeriodAndExtras("/api/shopify/report", period, fallbackDays, {
+    connection_id: getSelectedConnectionId(getActiveClientId(), "shopify"),
+  }));
   return normalizeShopifyReport(raw);
 }
 
@@ -1647,7 +1650,9 @@ export async function getShopifyCustomers(
 ): Promise<ShopifyCustomersResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
-  const raw = await http<unknown>(pathWithPeriod("/api/shopify/customers", period, fallbackDays));
+  const raw = await http<unknown>(pathWithPeriodAndExtras("/api/shopify/customers", period, fallbackDays, {
+    connection_id: getSelectedConnectionId(getActiveClientId(), "shopify"),
+  }));
   return normalizeShopifyCustomers(raw);
 }
 
@@ -1694,7 +1699,9 @@ export async function getGa4Report(
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
   const raw = await http<unknown>(
-    pathWithClientId(pathWithPeriod("/api/google/ga4/report", period, fallbackDays), options?.clientId),
+    pathWithClientId(pathWithPeriodAndExtras("/api/google/ga4/report", period, fallbackDays, {
+      connection_id: getSelectedConnectionId(options?.clientId || getActiveClientId(), "ga4"),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeGa4Report(raw);
@@ -1707,7 +1714,9 @@ export async function getGa4Channels(
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
   const raw = await http<unknown>(
-    pathWithClientId(pathWithPeriod("/api/google/ga4/channels", period, fallbackDays), options?.clientId),
+    pathWithClientId(pathWithPeriodAndExtras("/api/google/ga4/channels", period, fallbackDays, {
+      connection_id: getSelectedConnectionId(options?.clientId || getActiveClientId(), "ga4"),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeGa4Channels(raw);
@@ -1720,7 +1729,9 @@ export async function getGa4Campaigns(
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
   const raw = await http<unknown>(
-    pathWithClientId(pathWithPeriod("/api/google/ga4/campaigns", period, fallbackDays), options?.clientId),
+    pathWithClientId(pathWithPeriodAndExtras("/api/google/ga4/campaigns", period, fallbackDays, {
+      connection_id: getSelectedConnectionId(options?.clientId || getActiveClientId(), "ga4"),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeGa4Campaigns(raw);
@@ -1733,7 +1744,9 @@ export async function getGa4Events(
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
   const raw = await http<unknown>(
-    pathWithClientId(pathWithPeriod("/api/google/ga4/events", period, fallbackDays), options?.clientId),
+    pathWithClientId(pathWithPeriodAndExtras("/api/google/ga4/events", period, fallbackDays, {
+      connection_id: getSelectedConnectionId(options?.clientId || getActiveClientId(), "ga4"),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeGa4Events(raw);

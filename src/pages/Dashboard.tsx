@@ -26,7 +26,7 @@ import {
   readDashboardCache,
   writeDashboardCache,
 } from "../hooks/dashboard/cache";
-import { resolveCommerceConnection, resolveOperationalMetaConnectionId } from "../app/connectionManager";
+import { resolveCommerceConnection, resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import { ensureDashboardPeriod } from "../hooks/dashboard/period";
 
 import {
@@ -62,7 +62,7 @@ import {
 
 import {
   getActiveConnectionId,
-  setActiveConnectionId as setStoredActiveConnectionId,
+  getSelectedConnectionId,
 } from "../app/connectionState";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
@@ -944,18 +944,11 @@ function makeEmptyMonthAgg(month: string): MonthAggRow {
   };
 }
 
-function isOrganicConnection(connection: MetaConnection): boolean {
-  return (
-    String(connection.platform || "").toLowerCase() === "instagram" ||
-    String(connection.connection_type || "").toLowerCase() === "organic"
-  );
-}
-
 const pickDefaultConnectionId = (connections: MetaConnection[], preferredConnectionId: string | null) =>
   resolveOperationalMetaConnectionId(connections, "organic", preferredConnectionId);
 
-const pickDefaultPaidConnectionId = (connections: MetaConnection[]) =>
-  resolveOperationalMetaConnectionId(connections, "paid");
+const pickSelectedPaidConnectionId = (connections: MetaConnection[], selectedConnectionId: string | null) =>
+  resolveOperationalMetaConnectionId(connections, "paid", selectedConnectionId);
 
 type DashboardProps = {
   onLogout?: () => Promise<void> | void;
@@ -1034,7 +1027,7 @@ export default function Dashboard({
     [activeClientId, organicConnectionId]
   );
   const paidConnectionId = useMemo(
-    () => pickDefaultPaidConnectionId(connections),
+    () => pickSelectedPaidConnectionId(connections, getActiveConnectionId()),
     [connections]
   );
 
@@ -1350,20 +1343,16 @@ export default function Dashboard({
         preferredConnectionId
       );
       setActiveConnection(nextActiveConnectionId);
-      setStoredActiveConnectionId(nextActiveConnectionId);
-      const hasActive = nextConnections.some(
-        (connection) =>
-          String(connection.status || "").toLowerCase() === "active" &&
-          isOrganicConnection(connection)
-      );
-      setHasActiveConnection(hasActive);
+      setHasActiveConnection(Boolean(nextActiveConnectionId));
     }
 
     Promise.allSettled([listClientConnections(), listGenericConnections()])
       .then(([metaResult, genericResult]) => {
         if (!alive) return;
         if (genericResult.status === "fulfilled") {
-          const commerce = resolveCommerceConnection(genericResult.value.connections);
+          const commerceId = getSelectedConnectionId(activeClientId, "shopify") ||
+            getSelectedConnectionId(activeClientId, "fbits");
+          const commerce = resolveCommerceConnection(genericResult.value.connections, commerceId);
           setCommerceConnection(commerce || null);
         }
         if (metaResult.status === "rejected") {
@@ -1385,14 +1374,8 @@ export default function Dashboard({
           preferredConnectionId
         );
         setActiveConnection(nextActiveConnectionId);
-        setStoredActiveConnectionId(nextActiveConnectionId);
 
-        const hasActive = nextConnections.some(
-          (connection) =>
-            String(connection.status || "").toLowerCase() === "active" &&
-            isOrganicConnection(connection)
-        );
-        setHasActiveConnection(hasActive);
+        setHasActiveConnection(Boolean(nextActiveConnectionId));
       })
       .catch(() => {
         if (!alive) return;
@@ -1505,17 +1488,17 @@ export default function Dashboard({
   const paidTotals = paidData?.totals;
   const hasPaidConnection = Boolean(paidConnectionId);
   const organicConnection = useMemo(
-    () =>
-      arrayOrEmpty<MetaConnection>(connections).find(
-        (connection) => connection.id === organicConnectionId
-      ) || null,
+    () => selectUniqueConnection(
+      arrayOrEmpty<MetaConnection>(connections),
+      (connection) => connection.id === organicConnectionId
+    ),
     [connections, organicConnectionId]
   );
   const paidConnection = useMemo(
-    () =>
-      arrayOrEmpty<MetaConnection>(connections).find(
-        (connection) => connection.id === paidConnectionId
-      ) || null,
+    () => selectUniqueConnection(
+      arrayOrEmpty<MetaConnection>(connections),
+      (connection) => connection.id === paidConnectionId
+    ),
     [connections, paidConnectionId]
   );
   const paidConnectionStatus = String(paidConnection?.status || "").toLowerCase();
@@ -2186,7 +2169,7 @@ export default function Dashboard({
               <div className="card cardWide">
                 <div className="sectionHeader">
                   <div>
-                    <div className="h1">Instagram orgânico ainda não conectado</div>
+                    <div className="h1">Conexão ainda não configurada</div>
                     <div className="p">
                       O dashboard continua disponível. Conecte o Instagram Graph para preencher as métricas orgânicas.
                     </div>

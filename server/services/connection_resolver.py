@@ -75,7 +75,12 @@ async def resolve_generic_connection(
                 "Conexão não encontrada.", status_code=404,
                 code="CONNECTION_NOT_FOUND", provider=expected_provider,
             )
-        row = rows[0]
+        if len(rows) != 1:
+            raise IntegrationError(
+                "Mais de uma conexão corresponde ao identificador solicitado.",
+                status_code=409, code="CONNECTION_AMBIGUOUS", provider=expected_provider,
+            )
+        row, = rows
         if _safe_str(row.get("client_id")) != cid:
             raise IntegrationError(
                 "A conexão pertence a outra empresa.", status_code=403,
@@ -88,11 +93,9 @@ async def resolve_generic_connection(
             )
         candidates = [row]
     else:
-        candidates = await select(
-            "integration_connections",
-            filters={"client_id": f"eq.{cid}", "provider": f"eq.{expected_provider}"},
-            order="updated_at.desc",
-            limit=200,
+        raise IntegrationError(
+            "Selecione explicitamente a conexão antes de continuar.",
+            status_code=409, code="CONNECTION_SELECTION_REQUIRED", provider=expected_provider,
         )
 
     connected: list[Dict[str, Any]] = []
@@ -161,7 +164,7 @@ async def resolve_generic_connection(
             status_code=409, code="CONNECTION_AMBIGUOUS", provider=expected_provider,
         )
 
-    row = dict(connected[0])
+    row = dict(next(iter(connected)))
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     if capability and not bool(metadata.get(capability)):
         raise IntegrationError(
@@ -207,31 +210,6 @@ def _is_connection_type_compatible(
     return False
 
 
-def _pick_best_connection(rows: list[Dict[str, Any]]) -> tuple[Optional[Dict[str, Any]], str]:
-    if not rows:
-        return None, "none"
-
-    active_like = [r for r in rows if _is_status_active_like(r)]
-    if len(active_like) == 1:
-        return active_like[0], "active"
-    if len(active_like) > 1:
-        raise IntegrationError(
-            "Mais de uma conexão ativa corresponde ao escopo solicitado.",
-            status_code=409, code="CONNECTION_AMBIGUOUS", provider="integration",
-        )
-
-    non_disconnected = [r for r in rows if _safe_str(r.get("status")).lower() != "disconnected"]
-    if len(non_disconnected) == 1:
-        return non_disconnected[0], "latest_non_disconnected"
-    if len(non_disconnected) > 1:
-        raise IntegrationError(
-            "Mais de uma conexão utilizável corresponde ao escopo solicitado.",
-            status_code=409, code="CONNECTION_AMBIGUOUS", provider="integration",
-        )
-
-    return None, "none"
-
-
 async def resolve_connection_for_scope(
     *,
     client_id: str,
@@ -273,7 +251,7 @@ async def resolve_connection_for_scope(
         )
         if not rows:
             raise RuntimeError("connection_id informada não encontrada para este client_id.")
-        selected = rows[0]
+        selected, = rows
         if not _matches_scope(selected):
             raise RuntimeError(
                 "connection_id informada não é compatível com o escopo solicitado "
@@ -286,29 +264,9 @@ async def resolve_connection_for_scope(
             "row": selected,
         }
 
-    filters = {"client_id": f"eq.{cid}"}
-    if platform:
-        filters["platform"] = f"eq.{_safe_str(platform)}"
-
-    rows = await sb_select(
-        "meta_connections",
-        select=select_fields,
-        filters=filters,
-        order="updated_at.desc",
-        limit=200,
-    )
-    scoped_rows = [row for row in rows if _matches_scope(row)]
-    selected, source = _pick_best_connection(scoped_rows)
-    if not selected:
-        return {
-            "resolved": False,
-            "connection_id": None,
-            "source": "none",
-            "row": None,
-        }
     return {
-        "resolved": True,
-        "connection_id": _safe_str(selected.get("id")),
-        "source": source,
-        "row": selected,
+        "resolved": False,
+        "connection_id": None,
+        "source": "selection_required",
+        "row": None,
     }

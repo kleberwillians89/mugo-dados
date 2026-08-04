@@ -11,6 +11,7 @@ import {
   listGenericConnections,
   getApiVersion,
   isUsableGoogleConnection,
+  isUsableMetaConnection,
   selectUsableGoogleConnection,
   selectUsableMetaConnection,
   listGoogleAdsAccounts,
@@ -39,7 +40,9 @@ import {
 import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import {
   getActiveConnectionId,
+  getSelectedConnectionId,
   setActiveConnectionId,
+  setSelectedConnectionId,
 } from "../app/connectionState";
 import type {
   MetaConnection,
@@ -172,6 +175,13 @@ export default function Onboarding({
   const [selectedPages, setSelectedPages] = useState<Record<string, boolean>>({});
   const [selectedAds, setSelectedAds] = useState<Record<string, boolean>>({});
   const [googlePickerId, setGooglePickerId] = useState<string | null>(null);
+  const [selectedMetaAuthorizationId, setSelectedMetaAuthorizationId] = useState(
+    () => getSelectedConnectionId(getActiveClientId(), "meta") || ""
+  );
+  const [selectedGoogleAuthorizationIds, setSelectedGoogleAuthorizationIds] = useState<Record<"ga4" | "google_ads", string>>({
+    ga4: getSelectedConnectionId(getActiveClientId(), "ga4") || "",
+    google_ads: getSelectedConnectionId(getActiveClientId(), "google_ads") || "",
+  });
   const [googlePickerProduct, setGooglePickerProduct] = useState<"ga4" | "ads" | null>(null);
   const [googleProperties, setGoogleProperties] = useState<GoogleGa4Property[]>([]);
   const [googleStreams, setGoogleStreams] = useState<GoogleGa4Stream[]>([]);
@@ -292,6 +302,8 @@ export default function Onboarding({
              throw new Error(`A conexão ${product === "google_ads" ? "Google Ads" : "GA4"} retornada não está ativa. Conecte novamente.`);
            }
           if (product === "ga4") {
+            setSelectedGoogleAuthorizationIds((current) => ({ ...current, ga4: connectionId }));
+            setSelectedConnectionId(getActiveClientId(), "ga4", connectionId);
             const ga4 = await listGoogleGa4Properties(connectionId);
             const properties = ga4.properties || [];
             setGooglePickerId(connectionId);
@@ -311,6 +323,8 @@ export default function Onboarding({
               setInfo("Google Analytics autorizado. Selecione a propriedade GA4 para concluir.");
             }
           } else {
+            setSelectedGoogleAuthorizationIds((current) => ({ ...current, google_ads: connectionId }));
+            setSelectedConnectionId(getActiveClientId(), "google_ads", connectionId);
             const ads = await listGoogleAdsAccounts(callbackConnection, getActiveClientId());
             setGooglePickerId(connectionId);
             setGooglePickerProduct("ads");
@@ -334,6 +348,7 @@ export default function Onboarding({
     }
   }, [loadConnections, prepareMetaAssets]);
 
+  const activeClientIdForSelection = getActiveClientId();
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -365,6 +380,17 @@ export default function Onboarding({
       alive = false;
     };
   }, [handleOauthRedirectParams, isAuthenticated, loadConnections]);
+
+  useEffect(() => {
+    setSelectedMetaAuthorizationId(getSelectedConnectionId(activeClientIdForSelection, "meta") || "");
+    setSelectedGoogleAuthorizationIds({
+      ga4: getSelectedConnectionId(activeClientIdForSelection, "ga4") || "",
+      google_ads: getSelectedConnectionId(activeClientIdForSelection, "google_ads") || "",
+    });
+    setManualMetaConnectionId(null);
+    setGooglePickerId(null);
+    setGooglePickerProduct(null);
+  }, [activeClientIdForSelection]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -409,16 +435,15 @@ export default function Onboarding({
 
   const activeOrganicConnection =
     selectUniqueConnection(organicConnections, (connection) => connection.id === activeConnectionId) ||
-    selectUniqueConnection(organicConnections, (connection) => String(connection.status || "").toLowerCase() === "active") ||
     null;
 
-  const dashboardReady = organicConnections.some(
-    (connection) => String(connection.status || "").toLowerCase() === "active"
+  const dashboardReady = Boolean(activeOrganicConnection);
+  const metaGenericConnection = selectUsableMetaConnection(
+    genericConnections, getActiveClientId(), selectedMetaAuthorizationId
   );
-  const metaGenericConnection = selectUsableMetaConnection(genericConnections, getActiveClientId());
   const selectedPaidConnection = selectUniqueConnection(paidConnections, (connection) =>
     String(connection.ad_account_id || "") === String(metaGenericConnection?.metadata?.selected_ad_account_id || "")
-  ) || selectUniqueConnection(paidConnections, (connection) => String(connection.status || "").toLowerCase() === "active");
+  );
   const metaAdsOperational = Boolean(selectedPaidConnection?.ad_account_id);
   const metaSelectionPending = String(metaGenericConnection?.status || "").toLowerCase() === "selection_required";
   const connectionSummary = useMemo(() => {
@@ -623,6 +648,7 @@ export default function Onboarding({
     setInfo(null);
     try {
       await selectShopifyConnection(connectionId);
+      setSelectedConnectionId(getActiveClientId(), "shopify", connectionId);
       await loadConnections();
       setInfo("Loja Shopify selecionada para os relatórios da empresa ativa.");
     } catch (error: unknown) {
@@ -973,8 +999,8 @@ export default function Onboarding({
             <div className="p">A conexao organica do cliente ativo libera os KPIs, comentarios, media e stories.</div>
             <div className={`pill ${dashboardReady ? "pillSoft" : "pillDanger"}`} style={{ marginTop: 10 }}>
               {dashboardReady
-                ? `Ativa: ${connectionLabel(activeOrganicConnection || organicConnections[0]!)}` 
-                : "Nenhuma conexao organica ativa"}
+                ? `Ativa: ${connectionLabel(activeOrganicConnection!)}`
+                : "Conexão ainda não configurada"}
             </div>
             <div className="smallMuted" style={{ marginTop: 10 }}>
               Ultimo sync: {fmtDate(activeOrganicConnection?.last_synced_at || activeOrganicConnection?.last_sync_at)}
@@ -1009,26 +1035,32 @@ export default function Onboarding({
               const activeClientId = getActiveClientId();
               const matchingConnections =
                 definition.id === "ga4"
-                  ? [selectUsableGoogleConnection(
-                      genericConnections.filter((item) => item.capabilities?.ga4_authorized === true),
-                      "ga4", activeClientId
-                    )].filter((item): item is GenericConnection => Boolean(item))
+                  ? genericConnections.filter((item) =>
+                      item.capabilities?.ga4_authorized === true &&
+                      isUsableGoogleConnection(item, "ga4", activeClientId)
+                    )
                   : definition.id === "google_ads"
-                    ? [selectUsableGoogleConnection(
-                        genericConnections.filter((item) => item.capabilities?.ads_authorized === true),
-                        "google_ads", activeClientId
-                      )].filter((item): item is GenericConnection => Boolean(item))
+                    ? genericConnections.filter((item) =>
+                        item.capabilities?.ads_authorized === true &&
+                        isUsableGoogleConnection(item, "google_ads", activeClientId)
+                      )
                     : definition.id === "meta"
-                      ? [selectUsableMetaConnection(genericConnections, activeClientId)].filter(
-                          (item): item is GenericConnection => Boolean(item)
-                        )
+                      ? genericConnections.filter((item) => isUsableMetaConnection(item, activeClientId))
                       : genericConnections.filter((item) => definition.providerIds.includes(item.provider));
-              const connection =
-                definition.id === "shopify"
-                  ? selectUniqueConnection(matchingConnections,
-                      (item) => Boolean(item.metadata?.selected_for_reporting)
-                    ) || (matchingConnections.length === 1 ? matchingConnections[0] : undefined)
-                  : matchingConnections.length === 1 ? matchingConnections[0] : undefined;
+              const requestedAuthorizationId = definition.id === "meta"
+                ? selectedMetaAuthorizationId
+                : definition.id === "ga4"
+                  ? selectedGoogleAuthorizationIds.ga4
+                  : definition.id === "google_ads"
+                    ? selectedGoogleAuthorizationIds.google_ads
+                    : "";
+              const connection = definition.id === "meta"
+                ? selectUsableMetaConnection(genericConnections, activeClientId, requestedAuthorizationId) || undefined
+                : definition.id === "ga4"
+                  ? selectUsableGoogleConnection(genericConnections, "ga4", activeClientId, requestedAuthorizationId) || undefined
+                  : definition.id === "google_ads"
+                    ? selectUsableGoogleConnection(genericConnections, "google_ads", activeClientId, requestedAuthorizationId) || undefined
+                    : undefined;
               const metaConnected =
                 definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
               const productStatus = definition.id === "ga4"
@@ -1036,7 +1068,9 @@ export default function Onboarding({
                 : definition.id === "google_ads"
                   ? connection?.capabilities?.ads_status
                   : null;
-              const status = productStatus === "authorization_required"
+              const status = !connection && matchingConnections.length > 0
+                ? "Selecione uma autorização"
+                : productStatus === "authorization_required"
                 ? "Autorização incompleta"
                 : productStatus === "property_required"
                   ? "Propriedade pendente"
@@ -1060,7 +1094,7 @@ export default function Onboarding({
               const actionable = definition.availability === "available";
               const connectionState = String(connection?.status || "").toLowerCase();
               const shouldAuthorize = actionable && (
-                !connection || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(connectionState)
+                (!connection && matchingConnections.length === 0) || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(connectionState)
               );
               const tone = definition.availability === "platform_update_pending"
                 ? "yellow"
@@ -1085,6 +1119,34 @@ export default function Onboarding({
                   Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
                   Instagram orgânico: {dashboardReady ? "conectado" : "configuração pendente"}
                 </div> : null}
+                {definition.id === "meta" || definition.id === "ga4" || definition.id === "google_ads" ? (
+                  <select
+                    value={requestedAuthorizationId}
+                    onChange={(event) => {
+                      const id = event.target.value;
+                      if (definition.id === "meta") {
+                        setSelectedMetaAuthorizationId(id);
+                        setSelectedConnectionId(activeClientId, "meta", id || null);
+                        setManualMetaConnectionId(null);
+                      } else {
+                        const provider = definition.id as "ga4" | "google_ads";
+                        setSelectedGoogleAuthorizationIds((current) => ({ ...current, [provider]: id }));
+                        setSelectedConnectionId(activeClientId, provider, id || null);
+                        setGooglePickerId(null);
+                        setGooglePickerProduct(null);
+                      }
+                    }}
+                    disabled={!canManageConnections || saving}
+                    style={{ marginTop: 12, width: "100%" }}
+                  >
+                    <option value="">Selecione a autorização</option>
+                    {matchingConnections.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.account_name || item.external_key || item.id}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 {(definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name) ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
