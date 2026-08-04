@@ -579,6 +579,9 @@ export type MetaDiscoveredInstagramAsset = {
 export type MetaDiscoveredPageAsset = {
   page_id: string;
   page_name?: string;
+  id?: string;
+  name?: string;
+  instagram?: { id?: string; username?: string } | null;
 };
 
 export type MetaDiscoveredAdAccount = {
@@ -607,6 +610,12 @@ export type MetaDiscoverAssetsResponse = {
   business_managers?: MetaDiscoveredBusinessManager[];
   scopes: string[];
   expires_at?: string | null;
+  authorized_user_name?: string;
+  page_count?: number;
+  instagram_count?: number;
+  ad_account_count?: number;
+  business_count?: number;
+  request_id?: string;
   organic_status?: string;
   availability_code?: string | null;
   message?: string | null;

@@ -38,6 +38,7 @@ import {
   listClientConnections,
   listGenericConnections,
   syncAds,
+  ApiError,
   type GenericConnection,
 } from "../app/api";
 
@@ -68,6 +69,7 @@ import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
   getActiveClientId,
+  getActiveClient,
   getActiveClientName,
   getActiveClientConfigurationWarning,
 } from "../app/activeClient";
@@ -1003,6 +1005,8 @@ export default function Dashboard({
   const [hasActiveConnection, setHasActiveConnection] = useState<boolean | null>(null);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
   const [commerceConnection, setCommerceConnection] = useState<GenericConnection | null>(null);
+  const [selectedPaidConnectionId, setSelectedPaidConnectionId] = useState<string | null>(null);
+  const [refreshRuntime, setRefreshRuntime] = useState<Array<Record<string, unknown>>>([]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
   const [enablePaidStage, setEnablePaidStage] = useState(false);
   const [enableMonthlyStage, setEnableMonthlyStage] = useState(false);
@@ -1027,8 +1031,8 @@ export default function Dashboard({
     [activeClientId, organicConnectionId]
   );
   const paidConnectionId = useMemo(
-    () => pickSelectedPaidConnectionId(connections, getActiveConnectionId()),
-    [connections]
+    () => pickSelectedPaidConnectionId(connections, selectedPaidConnectionId),
+    [connections, selectedPaidConnectionId]
   );
 
   const {
@@ -1365,6 +1369,20 @@ export default function Dashboard({
         }
         const response = metaResult.value;
         const nextConnections = arrayOrEmpty<MetaConnection>(response.connections);
+        if (genericResult.status === "fulfilled") {
+          const selectedMetaAuthorizationId = getSelectedConnectionId(activeClientId, "meta");
+          const selectedMetaAuthorization = selectUniqueConnection(
+            genericResult.value.connections,
+            (item) => item.id === selectedMetaAuthorizationId && item.client_id === activeClientId && item.provider === "meta"
+          );
+          const selectedAdAccountId = String(selectedMetaAuthorization?.metadata?.selected_ad_account_id || "");
+          const paid = selectUniqueConnection(nextConnections, (item) =>
+            String(item.ad_account_id || "") === selectedAdAccountId && String(item.status || "").toLowerCase() !== "disconnected"
+          );
+          setSelectedPaidConnectionId(String(paid?.id || "") || null);
+        } else {
+          setSelectedPaidConnectionId(null);
+        }
         writeDashboardCache<MetaConnection[]>(connectionsCacheKey, nextConnections, 300_000);
         setConnections(nextConnections);
 
@@ -1396,23 +1414,28 @@ export default function Dashboard({
     }
     setErr(null);
     setSyncing(true);
-    const syncTasks: Promise<unknown>[] = [];
+    const startedAt = new Date().toISOString();
+    const syncTasks: Array<{ provider: string; connectionId: string; endpoint: string; promise: Promise<unknown> }> = [];
     if (organicConnectionId) {
-      syncTasks.push(
-        refreshAll(200, {
+      syncTasks.push({
+        provider: "meta_organic", connectionId: organicConnectionId,
+        endpoint: "/api/ig/refresh_all",
+        promise: refreshAll(200, {
           connectionId: organicConnectionId,
           start: period.start,
           end: period.end,
-        })
-      );
+        }),
+      });
     } else {
       dashLog("onRefresh:refreshAll:skip", {
         reason: "missing_organic_connection",
       });
     }
     if (paidConnectionId) {
-      syncTasks.push(
-        syncAds(
+      syncTasks.push({
+        provider: "meta_ads", connectionId: paidConnectionId,
+        endpoint: "/api/ads/sync",
+        promise: syncAds(
           {
             start: period.start,
             end: period.end,
@@ -1421,13 +1444,43 @@ export default function Dashboard({
             connectionId: paidConnectionId,
             clientId: activeClientId,
           }
-        )
-      );
+        ),
+      });
     }
+    if (!syncTasks.length) {
+      setErr("Nenhuma fonte configurada para atualização.");
+      setRefreshRuntime([{
+        tenant: activeClientId, status: "blocked", code: "CONNECTION_SELECTION_REQUIRED",
+        started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0,
+      }]);
+      setSyncing(false);
+      return;
+    }
+    setRefreshRuntime(syncTasks.map((task) => ({
+      tenant: activeClientId, provider: task.provider, connection_id: task.connectionId,
+      endpoint: task.endpoint, status: "running", code: "-", request_id: "-",
+      started_at: startedAt, finished_at: "-", rows_written: 0,
+    })));
     try {
-      const syncResults = await Promise.allSettled(syncTasks);
-      const organicSync = syncResults[0];
-      if (organicSync?.status === "fulfilled" && organicConnectionId) {
+      const syncResults = await Promise.allSettled(syncTasks.map((task) => task.promise));
+      const runtime = syncResults.map((result, index) => {
+        const task = syncTasks[index];
+        const value = result.status === "fulfilled" && result.value && typeof result.value === "object"
+          ? result.value as Record<string, unknown> : {};
+        const failure = result.status === "rejected" ? result.reason : null;
+        return {
+          tenant: activeClientId, provider: task.provider, connection_id: task.connectionId,
+          endpoint: task.endpoint, status: result.status,
+          code: failure instanceof ApiError ? failure.code : String(value.code || "OK"),
+          request_id: failure instanceof ApiError ? failure.requestId : String(value.request_id || ""),
+          started_at: startedAt, finished_at: new Date().toISOString(),
+          rows_written: Number(value.rows_written || value.saved_count || value.comments_saved || 0),
+        };
+      });
+      setRefreshRuntime(runtime);
+      const organicIndex = syncTasks.findIndex((task) => task.provider === "meta_organic");
+      const organicSync = organicIndex >= 0 ? syncResults[organicIndex] : null;
+      if (organicSync?.status === "fulfilled") {
         const res = organicSync.value as RefreshAllResponse;
         dashLog("onRefresh:refreshAll", {
           ok: !!res.ok,
@@ -1446,12 +1499,19 @@ export default function Dashboard({
         dashLog("onRefresh:sync:error", {
           message: errorMessage(rejectedSync.reason, "failed"),
         });
-        setErr("Falha parcial ao atualizar. Mantendo a última leitura disponível.");
+        const failure = rejectedSync.reason;
+        setErr(failure instanceof ApiError
+          ? `${failure.message}${failure.code ? ` Código: ${failure.code}.` : ""}${failure.requestId ? ` Request ID: ${failure.requestId}.` : ""}`
+          : errorMessage(failure, "Falha parcial ao atualizar. Mantendo a última leitura disponível."));
       }
       await Promise.allSettled([
         reloadSummary({ force: true, includeSecondary: true }),
         reloadPaid({ force: true }),
       ]);
+      const refreshedConnections = await listClientConnections();
+      const nextConnections = arrayOrEmpty<MetaConnection>(refreshedConnections.connections);
+      setConnections(nextConnections);
+      writeDashboardCache<MetaConnection[]>(connectionsCacheKey, nextConnections, 300_000);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao atualizar dados"));
     } finally {
@@ -2138,6 +2198,13 @@ export default function Dashboard({
               </span>
             </div>
           </div>
+          {getActiveClient()?.role === "agency_admin" ? (
+            <div className="smallMuted" data-testid="refresh-runtime-diagnostic">
+              Atualizar dados — {refreshRuntime.length ? refreshRuntime.map((item) =>
+                `${String(item.provider || "-")}: ${String(item.status || "-")} · ${String(item.endpoint || "-")} · conexão ${String(item.connection_id || "-")} · código ${String(item.code || "-")} · request_id ${String(item.request_id || "-")} · linhas ${String(item.rows_written ?? 0)} · ${String(item.started_at || "-")} → ${String(item.finished_at || "-")}`
+              ).join(" | ") : "nenhuma ação disparada"}
+            </div>
+          ) : null}
 
           <ExecutiveOverview
             companyName={commerceConnection?.account_name || getActiveClientName() || "E-commerce conectado"}

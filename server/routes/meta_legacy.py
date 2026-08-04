@@ -40,7 +40,6 @@ from services.meta_oauth import (
     get_meta_oauth_settings,
     list_connections,
     read_discovery_handoff,
-    read_latest_discovery_handoff,
     resolve_meta_redirect_uri,
     save_pending_meta_authorization,
     save_manual_meta_assets,
@@ -59,6 +58,33 @@ from services.tenant import (
 )
 
 router = APIRouter(tags=["meta-legacy"])
+
+
+def _meta_oauth_log(
+    request: Request,
+    *,
+    stage: str,
+    client_id: str = "",
+    user_id: str = "",
+    connection_id: str = "",
+    page_count: int | None = None,
+    instagram_count: int | None = None,
+    ad_account_count: int | None = None,
+    error_code: str = "",
+) -> None:
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    counts = ""
+    if page_count is not None:
+        counts += f" page_count={max(0, page_count)}"
+    if instagram_count is not None:
+        counts += f" instagram_count={max(0, instagram_count)}"
+    if ad_account_count is not None:
+        counts += f" ad_account_count={max(0, ad_account_count)}"
+    print(
+        "[meta_oauth][flow] "
+        f"request_id={request_id} client_id={client_id or '-'} user_id={user_id or '-'} "
+        f"connection_id={connection_id or '-'} stage={stage} error_code={error_code or '-'}{counts}"
+    )
 
 META_LEGACY_ENDPOINTS = [
     "GET /api/clients",
@@ -123,6 +149,7 @@ async def api_connect_meta(
 
 @router.get("/api/oauth/meta/start")
 async def api_oauth_meta_start(
+    request: Request,
     client_id: str | None = None,
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -130,7 +157,9 @@ async def api_oauth_meta_start(
     try:
         user_id = await require_user_id(authorization)
         cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
-        settings = get_meta_oauth_settings(require_redirect_uri=True, debug=False)
+        settings = get_meta_oauth_settings(
+            require_redirect_uri=True, require_login_config_id=True, debug=False,
+        )
         redirect_uri = str(settings.get("redirect_uri") or "").strip()
         persisted_state = await create_oauth_state(
             provider="meta",
@@ -144,6 +173,9 @@ async def api_oauth_meta_start(
             redirect_uri=redirect_uri,
             app_id=str(settings.get("app_id") or "").strip(),
             state_override=persisted_state,
+        )
+        _meta_oauth_log(
+            request, stage="authorization_url_created", client_id=cid, user_id=user_id,
         )
         return {
             "ok": True,
@@ -163,8 +195,11 @@ async def api_oauth_meta_callback(
     error_description: str | None = None,
 ):
     fallback_client_id = ""
+    callback_user_id = ""
+    callback_connection_id = ""
 
     if error:
+        _meta_oauth_log(request, stage="provider_denied", error_code=str(error)[:80])
         target = build_frontend_callback_redirect(
             success=False,
             client_id=fallback_client_id,
@@ -183,13 +218,33 @@ async def api_oauth_meta_callback(
         client_id_from_state = str(state_payload.get("client_id") or "").strip()
         user_id_from_state = str(state_payload.get("user_id") or "").strip()
         fallback_client_id = client_id_from_state
+        callback_user_id = user_id_from_state
         if not client_id_from_state or not user_id_from_state:
             raise RuntimeError("State OAuth inválido")
         await require_user_client_access(user_id_from_state, client_id_from_state)
+        _meta_oauth_log(
+            request, stage="state_validated", client_id=client_id_from_state,
+            user_id=user_id_from_state,
+        )
 
-        redirect_uri = resolve_meta_redirect_uri(_request_origin(request))
+        configured_redirect_uri = resolve_meta_redirect_uri(_request_origin(request))
+        persisted_redirect_uri = str(state_payload.get("redirect_uri") or "").strip()
+        if persisted_redirect_uri and persisted_redirect_uri != configured_redirect_uri:
+            raise RuntimeError("Redirect URI da sessão OAuth não corresponde à configuração atual.")
+        redirect_uri = persisted_redirect_uri or configured_redirect_uri
         token_data = await exchange_code_for_token(code=code, redirect_uri=redirect_uri)
+        _meta_oauth_log(
+            request, stage="code_exchanged", client_id=client_id_from_state,
+            user_id=user_id_from_state,
+        )
         discovered = await discover_assets(str(token_data.get("access_token") or ""))
+        _meta_oauth_log(
+            request, stage="assets_discovered", client_id=client_id_from_state,
+            user_id=user_id_from_state,
+            page_count=len(discovered.get("pages") or []),
+            instagram_count=len(discovered.get("instagram_accounts") or []),
+            ad_account_count=len(discovered.get("ad_accounts") or []),
+        )
         handoff = await create_discovery_handoff(
             user_id=user_id_from_state,
             client_id=client_id_from_state,
@@ -197,13 +252,18 @@ async def api_oauth_meta_callback(
             expires_at=token_data.get("expires_at"),
             discovered=discovered,
         )
-        await save_pending_meta_authorization(
+        saved_authorization = await save_pending_meta_authorization(
             user_id=user_id_from_state,
             client_id=client_id_from_state,
             access_token=str(token_data.get("access_token") or ""),
             expires_at=token_data.get("expires_at"),
             discovered=discovered,
             handoff=handoff,
+        )
+        callback_connection_id = str(saved_authorization.get("id") or "").strip()
+        _meta_oauth_log(
+            request, stage="authorization_saved", client_id=client_id_from_state,
+            user_id=user_id_from_state, connection_id=callback_connection_id,
         )
 
         target = build_frontend_callback_redirect(
@@ -214,6 +274,11 @@ async def api_oauth_meta_callback(
         )
         return RedirectResponse(url=target, status_code=302)
     except Exception as exc:
+        _meta_oauth_log(
+            request, stage="callback_failed", client_id=fallback_client_id,
+            user_id=callback_user_id, connection_id=callback_connection_id,
+            error_code=exc.__class__.__name__,
+        )
         target = build_frontend_callback_redirect(
             success=False,
             client_id=fallback_client_id,
@@ -225,6 +290,7 @@ async def api_oauth_meta_callback(
 
 @router.get("/api/oauth/meta/discover-assets")
 async def api_oauth_meta_discover_assets(
+    request: Request,
     handoff: str,
     client_id: str | None = None,
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
@@ -234,13 +300,15 @@ async def api_oauth_meta_discover_assets(
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
     try:
         data = await read_discovery_handoff(handoff=handoff, user_id=user_id, client_id=cid)
-        return {"ok": True, **data}
+        request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+        return {"ok": True, **data, "request_id": request_id}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/oauth/meta/pending-assets")
 async def api_oauth_meta_pending_assets(
+    handoff: str,
     client_id: str | None = None,
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -248,7 +316,9 @@ async def api_oauth_meta_pending_assets(
     user_id = await require_user_id(authorization)
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
     try:
-        data = await read_latest_discovery_handoff(user_id=user_id, client_id=cid)
+        data = await read_discovery_handoff(
+            handoff=handoff, user_id=user_id, client_id=cid,
+        )
         return {"ok": True, **data}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

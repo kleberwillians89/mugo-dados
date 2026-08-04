@@ -146,6 +146,33 @@ class MetaOAuthConfigurationTests(unittest.TestCase):
             any(scope.startswith("instagram_business_") for scope in scopes)
         )
 
+    def test_login_for_business_configuration_is_forwarded_without_access_type(self):
+        with patch.dict(os.environ, {"META_LOGIN_CONFIG_ID": "business-login-config"}, clear=False):
+            query = parse_qs(urlparse(self._build_url()["url"]).query)
+        self.assertEqual(query["config_id"], ["business-login-config"])
+        self.assertEqual(query["override_default_response_type"], ["true"])
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertNotIn("access_type", query)
+
+    def test_login_for_business_config_is_required_by_runtime_start(self):
+        with patch.dict(os.environ, {
+            "META_APP_ID": "meta-app-id", "META_APP_SECRET": "meta-secret",
+            "META_OAUTH_REDIRECT_URI": META_REDIRECT_URI,
+        }, clear=False):
+            os.environ.pop("META_LOGIN_CONFIG_ID", None)
+            with self.assertRaisesRegex(RuntimeError, "META_LOGIN_CONFIG_ID"):
+                meta_oauth.get_meta_oauth_settings(
+                    require_redirect_uri=True, require_login_config_id=True, debug=False,
+                )
+
+    def test_meta_http_redacts_oauth_secrets_from_urls(self):
+        safe = meta_http._safe_url(
+            "https://graph.facebook.com/next?access_token=secret&code=authorization-code&after=cursor"
+        )
+        self.assertNotIn("secret", safe)
+        self.assertNotIn("authorization-code", safe)
+        self.assertIn("after=cursor", safe)
+
 
 class OAuthStateTests(unittest.IsolatedAsyncioTestCase):
     async def test_meta_state_signature_is_validated(self):
@@ -443,9 +470,22 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
                     "username": "amalie",
                     "business_id": "page-1",
                     "business_name": "Amalie",
-                }
+                },
+                {
+                    "ig_user_id": "ig-roove",
+                    "username": "roove",
+                    "business_id": "page-roove",
+                    "business_name": "Roove",
+                },
             ],
-            "ad_accounts_json": [],
+            "pages_json": [
+                {"page_id": "page-1", "page_name": "Amalie"},
+                {"page_id": "page-roove", "page_name": "Roove"},
+            ],
+            "ad_accounts_json": [
+                {"ad_account_id": "act_amalie", "ad_account_name": "Ads Amalie"},
+                {"ad_account_id": "act_roove", "ad_account_name": "Ads Roove"},
+            ],
             "scopes_json": ["instagram_basic", "instagram_manage_insights"],
         }
         insert = AsyncMock(return_value={"id": "meta-connection-1"})
@@ -477,6 +517,7 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         inserted_row = insert.await_args.args[1]
         self.assertEqual(inserted_row["client_id"], "amalie")
         self.assertEqual(inserted_row["ig_user_id"], "ig-1")
+        self.assertNotEqual(inserted_row["ig_user_id"], "ig-roove")
         self.assertEqual(inserted_row["encrypted_access_token"], "encrypted-provider-token")
         self.assertIsNone(inserted_row["access_token"])
         handoff_update = next(
@@ -515,26 +556,6 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["handoff"], "handoff-1")
         update.assert_not_awaited()
         delete.assert_not_awaited()
-
-    async def test_latest_pending_handoff_can_resume_after_reload(self):
-        pending_row = {"handoff": "handoff-latest"}
-        with (
-            patch.object(meta_oauth, "_cleanup_handoffs", AsyncMock()),
-            patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[pending_row])) as select,
-            patch.object(
-                meta_oauth,
-                "read_discovery_handoff",
-                AsyncMock(return_value={"handoff": "handoff-latest", "instagram_accounts": []}),
-            ) as read,
-        ):
-            result = await meta_oauth.read_latest_discovery_handoff(
-                user_id="user-amalie", client_id="amalie"
-            )
-        self.assertEqual(result["handoff"], "handoff-latest")
-        self.assertEqual(select.await_args.kwargs["filters"]["finalized_at"], "is.null")
-        read.assert_awaited_once_with(
-            handoff="handoff-latest", user_id="user-amalie", client_id="amalie"
-        )
 
     async def test_repeated_connection_row_finalize_updates_instead_of_inserting(self):
         row = {

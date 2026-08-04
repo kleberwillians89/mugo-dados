@@ -1396,9 +1396,9 @@ export async function discoverClientMetaAssets(
   );
 }
 
-export async function discoverPendingClientMetaAssets(): Promise<MetaDiscoverAssetsResponse> {
+export async function discoverPendingClientMetaAssets(handoff: string): Promise<MetaDiscoverAssetsResponse> {
   return http<MetaDiscoverAssetsResponse>(
-    `/api/oauth/meta/pending-assets?client_id=${encodeURIComponent(getActiveClientId())}`
+    `/api/oauth/meta/pending-assets?client_id=${encodeURIComponent(getActiveClientId())}&handoff=${encodeURIComponent(handoff)}`
   );
 }
 

@@ -45,12 +45,17 @@ def _json_array(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
 
 
-def get_meta_oauth_settings(*, require_redirect_uri: bool = False, debug: bool = True) -> Dict[str, str]:
+def get_meta_oauth_settings(
+    *, require_redirect_uri: bool = False,
+    require_login_config_id: bool = False,
+    debug: bool = True,
+) -> Dict[str, str]:
     ensure_env_loaded()
 
     app_id = _env("META_APP_ID")
     app_secret = _env("META_APP_SECRET")
     redirect_uri = _env("META_OAUTH_REDIRECT_URI")
+    login_config_id = _env("META_LOGIN_CONFIG_ID")
 
     if debug:
         print(f"[meta_oauth][env] META_APP_ID loaded: {'yes' if app_id else 'no'}")
@@ -67,6 +72,8 @@ def get_meta_oauth_settings(*, require_redirect_uri: bool = False, debug: bool =
         missing.append("META_APP_SECRET")
     if require_redirect_uri and not redirect_uri:
         missing.append("META_OAUTH_REDIRECT_URI")
+    if require_login_config_id and not login_config_id:
+        missing.append("META_LOGIN_CONFIG_ID")
 
     if missing:
         raise RuntimeError(
@@ -78,6 +85,7 @@ def get_meta_oauth_settings(*, require_redirect_uri: bool = False, debug: bool =
         "app_id": app_id,
         "app_secret": app_secret,
         "redirect_uri": redirect_uri,
+        "login_config_id": login_config_id,
     }
 
 
@@ -277,6 +285,10 @@ def build_oauth_url(
         "scope": ",".join(_default_scopes()),
         "state": state,
     }
+    login_config_id = _env("META_LOGIN_CONFIG_ID")
+    if login_config_id:
+        params["config_id"] = login_config_id
+        params["override_default_response_type"] = "true"
     if not params["client_id"]:
         raise RuntimeError("META_APP_ID não configurado")
 
@@ -398,7 +410,23 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
     out: List[Dict[str, str]] = []
     available_pages: List[Dict[str, str]] = []
     seen: set[str] = set()
-    for p in page_rows:
+    for listed_page in page_rows:
+        page_id = _safe_str((listed_page or {}).get("id"))
+        page = listed_page
+        if page_id:
+            try:
+                page = await _meta_get(
+                    f"/{page_id}",
+                    {
+                        "fields": "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}",
+                        "access_token": access_token,
+                    },
+                )
+            except MetaApiError as exc:
+                if exc.invalid_oauth:
+                    raise
+                page = listed_page
+        p = page if isinstance(page, dict) else listed_page
         page_id = _safe_str((p or {}).get("id"))
         if page_id:
             available_pages.append(
@@ -470,11 +498,7 @@ async def fetch_ad_accounts(access_token: str) -> List[Dict[str, Any]]:
 
     print(
         "[meta_oauth][ad_accounts] "
-        f"http_status=200 count={len(accounts)} accounts="
-        + ",".join(
-            f"{_safe_str(row.get('ad_account_id'))}:{_safe_str(row.get('ad_account_name'))[:80]}"
-            for row in accounts
-        )
+        f"http_status=200 count={len(accounts)}"
     )
     return accounts
 
@@ -993,38 +1017,36 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
                 "page_id": page_id,
                 "page_name": _safe_str((page or {}).get("page_name")),
             }
+    for page_id, page in pages_by_id.items():
+        linked = next((
+            account for account in instagram_accounts
+            if isinstance(account, dict) and _safe_str(account.get("business_id")) == page_id
+        ), None)
+        page["id"] = page_id
+        page["name"] = _safe_str(page.get("page_name"))
+        page["instagram"] = ({
+            "id": _safe_str(linked.get("ig_user_id")),
+            "username": _safe_str(linked.get("username")),
+        } if isinstance(linked, dict) else None)
+    meta_user = _json_object(item.get("meta_user_json"))
+    business_managers = _json_array(meta_user.get("business_managers"))
+    ad_accounts = _json_array(item.get("ad_accounts_json"))
     return {
         "handoff": _safe_str(item.get("handoff")),
         "client_id": _safe_str(item.get("client_id")),
-        "meta_user": _json_object(item.get("meta_user_json")),
-        "business_managers": _json_array(_json_object(item.get("meta_user_json")).get("business_managers")),
+        "meta_user": meta_user,
+        "authorized_user_name": _safe_str(meta_user.get("name")),
+        "business_managers": business_managers,
+        "business_count": len(business_managers),
         "pages": list(pages_by_id.values()),
+        "page_count": len(pages_by_id),
         "instagram_accounts": instagram_accounts,
-        "ad_accounts": _json_array(item.get("ad_accounts_json")),
+        "instagram_count": len(instagram_accounts),
+        "ad_accounts": ad_accounts,
+        "ad_account_count": len(ad_accounts),
         "scopes": _json_array(item.get("scopes_json")),
         "expires_at": item.get("expires_at"),
     }
-
-
-async def read_latest_discovery_handoff(*, user_id: str, client_id: str) -> Dict[str, Any]:
-    await _cleanup_handoffs()
-    rows = await sb_select(
-        _HANDOFF_TABLE,
-        filters={
-            "user_id": f"eq.{_safe_str(user_id)}",
-            "client_id": f"eq.{_safe_str(client_id)}",
-            "finalized_at": "is.null",
-        },
-        order="created_at.desc",
-        limit=1,
-    )
-    if not rows:
-        raise RuntimeError("Nenhuma seleção de ativos Meta pendente foi encontrada. Corrija a conexão para autorizar novamente.")
-    return await read_discovery_handoff(
-        handoff=_safe_str(rows[0].get("handoff")),
-        user_id=user_id,
-        client_id=client_id,
-    )
 
 
 async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:

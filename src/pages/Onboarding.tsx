@@ -201,7 +201,12 @@ export default function Onboarding({
   const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
   const [googleReconnectProduct, setGoogleReconnectProduct] = useState<"ga4" | "google_ads" | null>(null);
   const [backendCommitSha, setBackendCommitSha] = useState("unknown");
-  const [lastIntegrationDiagnostic, setLastIntegrationDiagnostic] = useState({ code: "", requestId: "", initialSyncOk: null as boolean | null, organicConnectionId: "", adsBlockedReason: "" });
+  const [lastIntegrationDiagnostic, setLastIntegrationDiagnostic] = useState({
+    code: "", requestId: "", initialSyncOk: null as boolean | null,
+    organicConnectionId: "", adsBlockedReason: "", propertyCount: 0,
+    streamCount: 0, propertyId: "", streamId: "", ga4LastSync: "",
+  });
+  const [syncRuntime, setSyncRuntime] = useState<Array<Record<string, unknown>>>([]);
   const manualMetaFormRef = useRef<HTMLElement | null>(null);
   const processedOauthReturnRef = useRef<string | null>(null);
 
@@ -645,12 +650,16 @@ export default function Onboarding({
     if (!selectedPaidConnection?.id) return setErr("Selecione uma conta Meta Ads antes de sincronizar.");
     setSaving(true);
     setErr(null);
+    const startedAt = new Date().toISOString();
+    setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
       const result = await syncClientMetaAdsAccount(selectedPaidConnection.id);
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || 0) }]);
       await loadConnections();
       const outcome = String(result.sync_outcome || result.job_status || "");
       setInfo(outcome === "success" ? "Meta Ads sincronizado e persistido." : `Sincronização Meta Ads: ${outcome || "resultado indisponível"}.`);
     } catch (error: unknown) {
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
       setErr(errorMessage(error, "A sincronização Meta Ads falhou."));
     } finally {
       setSaving(false);
@@ -705,11 +714,15 @@ export default function Onboarding({
     setSaving(true);
     setErr(null);
     setInfo(null);
+    const startedAt = new Date().toISOString();
+    setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
-      await syncShopifyConnection(connectionId);
+      const result = await syncShopifyConnection(connectionId);
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || result.orders_saved || 0) }]);
       await loadConnections();
       setInfo("Pedidos, clientes e produtos da Shopify foram atualizados.");
     } catch (error: unknown) {
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
       setErr(errorMessage(error, "Não foi possível sincronizar a loja Shopify."));
     } finally {
       setSaving(false);
@@ -821,11 +834,19 @@ export default function Onboarding({
         return;
       }
       if (product === "ga4") {
-        const ga4 = await listGoogleGa4Properties(connection.id);
         setGooglePickerId(connection.id);
         setGooglePickerProduct(product);
-        setGoogleProperties(ga4.properties || []);
-        if (!(ga4.properties || []).length) setInfo(ga4.message || "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.");
+        setGoogleProperties([]);
+        setGoogleStreams([]);
+        setSelectedGoogleProperty(String(connection.metadata?.ga4_property_id || ""));
+        setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
+        const ga4 = await listGoogleGa4Properties(connection.id);
+        const properties = ga4.properties || [];
+        setGoogleProperties(properties);
+        setLastIntegrationDiagnostic((current) => ({
+          ...current, propertyCount: properties.length, code: "OK", requestId: "",
+        }));
+        if (!properties.length) setInfo(ga4.message || "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.");
       } else {
         const ads = await listGoogleAdsAccounts(connection, getActiveClientId());
         setGooglePickerId(connection.id);
@@ -833,17 +854,22 @@ export default function Onboarding({
         setGoogleAdsAccounts(ads.accounts || []);
         setGoogleAdsNotice(ads.reason || "");
       }
-      setSelectedGoogleProperty(String(connection.metadata?.ga4_property_id || ""));
-      setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
+      if (product !== "ga4") {
+        setSelectedGoogleProperty(String(connection.metadata?.ga4_property_id || ""));
+        setSelectedGoogleStream(String(connection.metadata?.ga4_stream_id || ""));
+      }
       setSelectedGoogleAds(String(connection.metadata?.google_ads_customer_id || ""));
     } catch (error: unknown) {
       if (error instanceof ApiError && error.code.startsWith("GOOGLE_REAUTH_REQUIRED")) {
         setGoogleReconnectProduct(product === "ga4" ? "ga4" : "google_ads");
       }
       if (error instanceof ApiError) setLastIntegrationDiagnostic((current) => ({ ...current, code: error.code, requestId: error.requestId }));
-      setErr(errorMessage(error, product === "ga4"
+      const fallback = product === "ga4"
         ? "Não foi possível listar as propriedades do Google Analytics."
-        : "Não foi possível consultar as contas Google Ads."));
+        : "Não foi possível consultar as contas Google Ads.";
+      setErr(error instanceof ApiError && error.code === "GOOGLE_ADMIN_API_DISABLED"
+        ? `${error.message} Ative a Google Analytics Admin API no projeto Google Cloud da credencial OAuth. Código: ${error.code}.${error.requestId ? ` Request ID: ${error.requestId}.` : ""}`
+        : errorMessage(error, fallback));
     } finally {
       setSaving(false);
     }
@@ -874,6 +900,11 @@ export default function Onboarding({
           streamId: selectedGoogleStream,
         });
         await syncGoogleConnection(googlePickerId);
+        setLastIntegrationDiagnostic((current) => ({
+          ...current, propertyId: selectedGoogleProperty,
+          streamId: selectedGoogleStream, ga4LastSync: new Date().toISOString(),
+          code: "OK", requestId: "",
+        }));
       } else if (selectedGoogleAds) {
         await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds);
       }
@@ -899,11 +930,17 @@ export default function Onboarding({
       const response = await listGoogleGa4Streams(googlePickerId, propertyId);
       const streams = response.streams || [];
       setGoogleStreams(streams);
+      setLastIntegrationDiagnostic((current) => ({
+        ...current, propertyId, streamCount: streams.length, code: "OK", requestId: "",
+      }));
       if (streams.length === 1) {
         setSelectedGoogleStream(String(streams[0].name || "").split("/").pop() || "");
       }
       if (!streams.length) setErr("A propriedade não possui streams acessíveis.");
     } catch (error: unknown) {
+      if (error instanceof ApiError) setLastIntegrationDiagnostic((current) => ({
+        ...current, code: error.code, requestId: error.requestId,
+      }));
       setErr(errorMessage(error, "Não foi possível listar os streams da propriedade."));
     } finally {
       setSaving(false);
@@ -913,11 +950,15 @@ export default function Onboarding({
   async function onSyncGoogle(connection: GenericConnection) {
     setSaving(true);
     setErr(null);
+    const startedAt = new Date().toISOString();
+    setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
-      await syncGoogleConnection(connection.id);
+      const result = await syncGoogleConnection(connection.id);
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || 0) }]);
       await loadConnections();
       setInfo("Sincronização manual do GA4 concluída.");
     } catch (error: unknown) {
+      setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
       setErr(errorMessage(error, "Não foi possível sincronizar o GA4."));
     } finally {
       setSaving(false);
@@ -1337,9 +1378,10 @@ export default function Onboarding({
           <section className="card cardWide" aria-label="Diagnóstico temporário de integrações">
             <div className="h1">Diagnóstico temporário</div>
             <div className="smallMuted" style={{ marginTop: 10 }}>
-              Meta — tenant: {getActiveClientId()} · autorização: {selectedMetaAuthorizationId || "não selecionada"} · conexão operacional: {activeConnectionId || "não configurada"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"} · initial_sync.ok: {lastIntegrationDiagnostic.initialSyncOk == null ? "-" : String(lastIntegrationDiagnostic.initialSyncOk)} · organic_connection_id: {lastIntegrationDiagnostic.organicConnectionId || "-"}<br />
-              GA4 — autorização: {selectedGoogleAuthorizationIds.ga4 || "não selecionada"} · status: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.status || "não configurada"} · refresh disponível: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.metadata?.refresh_token_available ? "sim" : "não"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"}<br />
+              Meta — tenant: {getActiveClientId()} · autorização: {selectedMetaAuthorizationId || "não selecionada"} · páginas descobertas: {pendingAssets?.page_count ?? pendingAssets?.pages?.length ?? 0} · página escolhida: {Object.keys(selectedPages).find((id) => selectedPages[id]) || "-"} · Instagram escolhido: {Object.keys(selectedIg).find((id) => selectedIg[id]) || "-"} · último sync: {fmtDate(activeOrganicConnection?.last_synced_at || activeOrganicConnection?.last_sync_at)} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || pendingAssets?.request_id || "-"}<br />
+              GA4 — autorização: {selectedGoogleAuthorizationIds.ga4 || "não selecionada"} · status: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.status || "não configurada"} · propriedades: {lastIntegrationDiagnostic.propertyCount} · propriedade: {selectedGoogleProperty || lastIntegrationDiagnostic.propertyId || "-"} · streams: {lastIntegrationDiagnostic.streamCount} · stream: {selectedGoogleStream || lastIntegrationDiagnostic.streamId || "-"} · último sync: {lastIntegrationDiagnostic.ga4LastSync || "-"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"}<br />
               Google Ads — autorização: {selectedGoogleAuthorizationIds.google_ads || "não selecionada"} · conexão bloqueada: {lastIntegrationDiagnostic.adsBlockedReason ? "sim" : "não"} · motivo: {lastIntegrationDiagnostic.adsBlockedReason || "-"}
+              <br />Atualizar dados — {syncRuntime.length ? syncRuntime.map((item) => `${String(item.provider || "-")}: ${String(item.status || "-")} · ${String(item.endpoint || "-")} · conexão ${String(item.connection_id || "-")} · código ${String(item.code || "-")} · request_id ${String(item.request_id || "-")} · linhas ${String(item.rows_written ?? 0)} · ${String(item.started_at || "-")} → ${String(item.finished_at || "-")}`).join(" | ") : "nenhuma ação disparada"}
             </div>
           </section>
         ) : null}
@@ -1480,7 +1522,7 @@ export default function Onboarding({
               <div className="onboardingAssetBlock">
                 <div className="smallMuted">Páginas do Facebook</div>
                 {(pendingAssets.pages || []).length === 0 ? (
-                  <div className="smallMuted">Nenhuma Página associada a um Instagram profissional foi encontrada.</div>
+                  <div className="smallMuted">Nenhuma Página acessível foi encontrada para a autorização atual.</div>
                 ) : (
                   <div className="onboardingChecks">
                     {(pendingAssets.pages || []).map((page: MetaDiscoveredPageAsset) => (

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Dict, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -11,6 +12,9 @@ from .meta_config import META_GRAPH_BASE_URL
 
 META_BASE = META_GRAPH_BASE_URL
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_SENSITIVE_QUERY_KEYS = {
+    "access_token", "client_secret", "code", "fb_exchange_token", "state",
+}
 
 
 def _safe_str(value: Any) -> str:
@@ -24,9 +28,26 @@ def _clip(value: Any, size: int = 600) -> str:
     return f"{text[:size]}..."
 
 
+def _safe_url(value: Any) -> str:
+    raw = _safe_str(value)
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw)
+        query = urlencode([
+            (key, "[redacted]" if key.lower() in _SENSITIVE_QUERY_KEYS else item)
+            for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        ])
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+    except Exception:
+        return raw.split("?", 1)[0]
+
+
 def _context_text(context: Optional[Dict[str, Any]]) -> str:
     parts = []
     for key, value in (context or {}).items():
+        if str(key).lower() in _SENSITIVE_QUERY_KEYS or "secret" in str(key).lower():
+            continue
         text = _safe_str(value)
         if text:
             parts.append(f"{key}={text}")
@@ -91,7 +112,7 @@ def _http_error_from_response(response: httpx.Response) -> MetaApiError:
         invalid_oauth=invalid_oauth,
         rate_limited=rate_limited,
         response_text=_clip(response.text),
-        url=str(response.request.url),
+        url=_safe_url(response.request.url),
     )
 
 
@@ -103,7 +124,7 @@ def _network_error(exc: Exception, *, url: str) -> MetaApiError:
         invalid_oauth=False,
         rate_limited=False,
         response_text="",
-        url=url,
+        url=_safe_url(url),
     )
 
 
@@ -128,7 +149,7 @@ async def meta_get_json(
                     print(
                         "[meta_http][retry] "
                         f"attempt={attempt}/{max_attempts} reason=http_{err.status_code} "
-                        f"context={_context_text(context)} url={_clip(target_url, 220)}"
+                        f"context={_context_text(context)} url={_clip(_safe_url(target_url), 220)}"
                     )
                     await asyncio.sleep(min(1.5, 0.35 * attempt))
                     continue
@@ -136,8 +157,7 @@ async def meta_get_json(
                     "[meta_http][error] "
                     f"attempt={attempt}/{max_attempts} status={err.status_code or '-'} "
                     f"invalid_oauth={1 if err.invalid_oauth else 0} retryable={1 if err.retryable else 0} "
-                    f"context={_context_text(context)} url={_clip(target_url, 220)} "
-                    f"body={_clip(err.response_text, 320) or '-'}"
+                    f"context={_context_text(context)} url={_clip(_safe_url(target_url), 220)}"
                 )
                 raise err
 
@@ -148,7 +168,7 @@ async def meta_get_json(
                     status_code=response.status_code,
                     retryable=False,
                     response_text=_clip(response.text),
-                    url=str(response.request.url),
+                    url=_safe_url(response.request.url),
                 )
             return payload
         except MetaApiError:
@@ -159,15 +179,14 @@ async def meta_get_json(
                 print(
                     "[meta_http][retry] "
                     f"attempt={attempt}/{max_attempts} reason={exc.__class__.__name__} "
-                    f"context={_context_text(context)} url={_clip(target_url, 220)}"
+                    f"context={_context_text(context)} url={_clip(_safe_url(target_url), 220)}"
                 )
                 await asyncio.sleep(min(1.5, 0.35 * attempt))
                 continue
             print(
                 "[meta_http][error] "
                 f"attempt={attempt}/{max_attempts} status=- invalid_oauth=0 retryable={1 if err.retryable else 0} "
-                f"context={_context_text(context)} url={_clip(target_url, 220)} "
-                f"body={_clip(str(exc), 320) or '-'}"
+                f"context={_context_text(context)} url={_clip(_safe_url(target_url), 220)}"
             )
             raise err
 

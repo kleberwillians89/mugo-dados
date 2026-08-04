@@ -9,6 +9,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   mode: "meta" as "meta" | "ga4" | "google_ads",
   listProperties: vi.fn(),
+  listStreams: vi.fn(),
+  selectGa4: vi.fn(),
+  syncGoogle: vi.fn(),
   startGoogle: vi.fn(),
   validateMeta: vi.fn(),
   saveMeta: vi.fn(),
@@ -64,6 +67,9 @@ vi.mock("../app/api", async (importOriginal) => {
     ] : [] })),
     listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: mocks.mode === "meta" ? [disconnectedMetaConnection, metaConnection] : mocks.mode === "google_ads" ? [disconnectedAdsConnection, ga4Connection] : [ga4Connection] })),
     listGoogleGa4Properties: mocks.listProperties,
+    listGoogleGa4Streams: mocks.listStreams,
+    selectGoogleGa4Property: mocks.selectGa4,
+    syncGoogleConnection: mocks.syncGoogle,
     startGoogleOAuth: mocks.startGoogle,
     validateManualMetaAssets: mocks.validateMeta,
     saveManualMetaAssets: mocks.saveMeta,
@@ -108,6 +114,9 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   mocks.listProperties.mockReset().mockResolvedValue({ ok: true, properties: [{ property: "properties/1", property_name: "Site Amalie" }] });
+  mocks.listStreams.mockReset().mockResolvedValue({ ok: true, streams: [{ name: "properties/1/dataStreams/stream-1", display_name: "Web Amalie" }] });
+  mocks.selectGa4.mockReset().mockResolvedValue({ ok: true });
+  mocks.syncGoogle.mockReset().mockResolvedValue({ ok: true });
   mocks.startGoogle.mockReset();
   mocks.organicConfigured = false;
   mocks.selectedConnections = {};
@@ -213,6 +222,31 @@ describe("Onboarding integration actions", () => {
     expect(mocks.listProperties).toHaveBeenCalledWith("ga4-existing");
     expect(mocks.startGoogle).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Selecionar propriedade GA4");
+    expect(container.textContent).toContain("Site Amalie");
+  });
+
+  it("keeps the GA4 picker open while property loads streams and persists selection", async () => {
+    mocks.mode = "ga4";
+    await renderOnboarding();
+    await selectAuthorization("ga4-existing");
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const propertySelect = [...container.querySelectorAll("select")].find((item) =>
+      [...item.options].some((option) => option.value === "properties/1")
+    );
+    expect(propertySelect).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      setter?.call(propertySelect, "properties/1");
+      propertySelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(mocks.listStreams).toHaveBeenCalledWith("ga4-existing", "properties/1");
+    expect(container.textContent).toContain("Web Amalie");
+    expect(container.textContent).toContain("Selecionar propriedade GA4");
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar seleção");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(mocks.selectGa4).toHaveBeenCalledWith("ga4-existing", "properties/1", expect.objectContaining({ streamId: "stream-1" }));
+    expect(mocks.syncGoogle).toHaveBeenCalledWith("ga4-existing");
   });
 
   it("offers reconnect only for GOOGLE_REAUTH_REQUIRED", async () => {

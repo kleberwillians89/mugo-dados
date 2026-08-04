@@ -119,7 +119,10 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
             "data": [{"id": "page-roove", "name": "Roove", "instagram_business_account": {"id": "ig-roove", "username": "roove"}}],
         }
         with (
-            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=[{"id": "julia", "name": "Julia"}, first_pages])),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=[
+                {"id": "julia", "name": "Julia"}, first_pages,
+                first_pages["data"][0], second_pages["data"][0],
+            ])),
             patch.object(meta_oauth, "meta_get_json", AsyncMock(return_value=second_pages)),
         ):
             result = await meta_oauth.fetch_instagram_identity("safe-token")
@@ -133,11 +136,44 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 {"id": "page-1", "name": "Amalie", "instagram_business_account": {"id": "ig-1", "username": "amalie"}},
                 {"id": "page-2", "name": "Sem Instagram"},
             ]},
+            {"id": "page-1", "name": "Amalie", "instagram_business_account": {"id": "ig-1", "username": "amalie"}},
+            {"id": "page-2", "name": "Sem Instagram"},
         ]
         with patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=responses)):
             result = await meta_oauth.fetch_instagram_identity("safe-token")
         self.assertEqual([page["page_id"] for page in result["pages"]], ["page-1", "page-2"])
         self.assertEqual([item["ig_user_id"] for item in result["instagram_accounts"]], ["ig-1"])
+
+    async def test_handoff_diagnostic_keeps_amalie_and_roove_unselected_and_tenant_scoped(self):
+        row = {
+            "handoff": "fresh-amalie-handoff", "user_id": "user-julia", "client_id": "amalie",
+            "meta_user_json": {"id": "julia", "name": "Julia", "business_managers": [{"business_id": "bm-1", "business_name": "Mugô"}]},
+            "pages_json": [
+                {"page_id": "page-amalie", "page_name": "Amalie"},
+                {"page_id": "page-roove", "page_name": "Roove"},
+            ],
+            "instagram_accounts_json": [
+                {"ig_user_id": "ig-amalie", "username": "amalie", "business_id": "page-amalie", "business_name": "Amalie"},
+                {"ig_user_id": "ig-roove", "username": "roove", "business_id": "page-roove", "business_name": "Roove"},
+            ],
+            "ad_accounts_json": [
+                {"ad_account_id": "act_1", "ad_account_name": "Ads Amalie"},
+                {"ad_account_id": "act_2", "ad_account_name": "Ads Roove"},
+            ],
+            "scopes_json": ["pages_show_list", "instagram_basic", "ads_read"],
+        }
+        load = AsyncMock(return_value=row)
+        with patch.object(meta_oauth, "_load_handoff_row", load):
+            result = await meta_oauth.read_discovery_handoff(
+                handoff="fresh-amalie-handoff", user_id="user-julia", client_id="amalie"
+            )
+        self.assertEqual(result["client_id"], "amalie")
+        self.assertEqual(result["authorized_user_name"], "Julia")
+        self.assertEqual(result["page_count"], 2)
+        self.assertEqual(result["ad_account_count"], 2)
+        self.assertEqual([page["name"] for page in result["pages"]], ["Amalie", "Roove"])
+        self.assertTrue(all("selected" not in page for page in result["pages"]))
+        load.assert_awaited_once_with(handoff="fresh-amalie-handoff")
 
     async def test_missing_page_permission_is_structured(self):
         connection = {
