@@ -437,9 +437,15 @@ async def api_activate_meta_organic(
             organic_connection_id=organic_connection_id, succeeded=True,
             code="OK", request_id=request_id, last_sync_at=last_sync_at,
         )
+        print(
+            "[meta-organic][activation] "
+            f"stage=organic_activate_success request_id={request_id} client_id={cid} "
+            f"authorization_connection_id={authorization_connection_id} "
+            f"organic_connection_id={organic_connection_id} metrics_written={metrics_written}"
+        )
         return {
             "ok": True, **prepared, "status": "active",
-            "initial_sync": {**sync_result, "ok": True},
+            "initial_sync": {**sync_result, "ok": True, "metrics_written": metrics_written},
             "metrics_written": metrics_written, "last_sync_at": last_sync_at or None,
             "code": "OK", "request_id": request_id,
         }

@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .ga4_client import run_ga4_report
+from .ga4_client import normalize_ga4_property_id, run_ga4_report
+from .integration_errors import IntegrationError
 from .ga4_reporting import GA4ReportPeriod, resolve_ga4_report_period
 from .ig_supabase import sb_delete, sb_insert_many, sb_upsert
 from .job_runs import finish_job_run, start_job_run
@@ -16,7 +17,6 @@ GA4_FUNNEL_EVENTS = ("view_item", "add_to_cart", "begin_checkout", "purchase")
 GA4_REPORT_METRICS = (
     "sessions",
     "engagedSessions",
-    "engagementRate",
     "activeUsers",
     "totalUsers",
     "newUsers",
@@ -24,9 +24,11 @@ GA4_REPORT_METRICS = (
     "eventCount",
     "keyEvents",
     "transactions",
-    "ecommercePurchases",
     "purchaseRevenue",
-    "totalRevenue",
+)
+GA4_ATTRIBUTION_METRICS = (
+    "sessions", "activeUsers", "totalUsers", "eventCount",
+    "ecommercePurchases", "purchaseRevenue", "totalRevenue",
 )
 GA4_OPTIONAL_UPSERT_COLUMNS = ("raw_payload",)
 from .sync_locks import guarded_sync
@@ -229,6 +231,23 @@ def _to_report_date(day: datetime | Any) -> str:
     return _safe_str(day)
 
 
+async def _run_named_report(report_name: str, **kwargs: Any) -> Dict[str, Any]:
+    try:
+        result = await run_ga4_report(**kwargs)
+        print(
+            "[ga4_sync][report] "
+            f"report={report_name} status=success rows={_safe_int(result.get('row_count'))}"
+        )
+        return result
+    except IntegrationError as exc:
+        exc.diagnostics = {**exc.diagnostics, "report": report_name}
+        print(
+            "[ga4_sync][report] "
+            f"report={report_name} status=error code={exc.code} message={exc.public_message}"
+        )
+        raise
+
+
 def _event_funnel_by_date(event_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
     by_date: Dict[str, Dict[str, int]] = {}
     for row in event_rows:
@@ -288,7 +307,10 @@ def _daily_upsert_rows(
                 "stat_date": stat_date,
                 "sessions": _safe_int(values.get("sessions")),
                 "engaged_sessions": _safe_int(values.get("engagedSessions")),
-                "engagement_rate": _safe_float(values.get("engagementRate")),
+                "engagement_rate": (
+                    _safe_int(values.get("engagedSessions")) / _safe_int(values.get("sessions"))
+                    if _safe_int(values.get("sessions")) > 0 else 0.0
+                ),
                 "active_users": _safe_int(values.get("activeUsers")),
                 "total_users": _safe_int(values.get("totalUsers")),
                 "new_users": _safe_int(values.get("newUsers")),
@@ -456,7 +478,7 @@ async def _sync_ga4_for_period(
     record_job_run: bool = True,
 ) -> Dict[str, Any]:
     resolved_client_id = _safe_str(client_id)
-    resolved_property_id = _safe_str(property_id).removeprefix("properties/").strip()
+    resolved_property_id = normalize_ga4_property_id(property_id)
     if not resolved_client_id or not resolved_property_id:
         context_client_id, context_property_id = resolve_ga4_context_for_client(client_id)
         resolved_client_id = resolved_client_id or context_client_id
@@ -480,7 +502,8 @@ async def _sync_ga4_for_period(
         )
 
     try:
-        daily_report = await run_ga4_report(
+        daily_report = await _run_named_report(
+            "daily",
             property_id=resolved_property_id,
             access_token=access_token,
             start_date=period.start.isoformat(),
@@ -489,25 +512,55 @@ async def _sync_ga4_for_period(
             metrics=GA4_REPORT_METRICS,
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
-        channel_report = await run_ga4_report(
+        daily_rows = _daily_upsert_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id,
+            daily_rows=daily_report.get("rows") or [], funnel_by_date={},
+        )
+        if daily_rows:
+            await _upsert_with_compatibility(
+                table="ga4_daily_stats", rows=daily_rows,
+                on_conflict="client_id,property_id,stat_date",
+            )
+        channel_report = await _run_named_report(
+            "channels",
             property_id=resolved_property_id,
             access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date", "sessionSourceMedium"),
-            metrics=GA4_REPORT_METRICS,
+            metrics=GA4_ATTRIBUTION_METRICS,
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
-        campaign_report = await run_ga4_report(
+        channel_rows = _channel_upsert_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id,
+            rows=channel_report.get("rows") or [],
+        )
+        if channel_rows:
+            await _upsert_with_compatibility(
+                table="ga4_channel_stats", rows=channel_rows,
+                on_conflict="client_id,property_id,stat_date,source_medium",
+            )
+        campaign_report = await _run_named_report(
+            "campaigns",
             property_id=resolved_property_id,
             access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
             dimensions=("date", "sessionCampaignName", "sessionSourceMedium"),
-            metrics=GA4_REPORT_METRICS,
+            metrics=GA4_ATTRIBUTION_METRICS,
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
-        event_report = await run_ga4_report(
+        campaign_rows = _campaign_upsert_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id,
+            rows=campaign_report.get("rows") or [],
+        )
+        if campaign_rows:
+            await _upsert_with_compatibility(
+                table="ga4_campaign_stats", rows=campaign_rows,
+                on_conflict="client_id,property_id,stat_date,campaign_name,source_medium",
+            )
+        event_report = await _run_named_report(
+            "events",
             property_id=resolved_property_id,
             access_token=access_token,
             start_date=period.start.isoformat(),
@@ -516,7 +569,17 @@ async def _sync_ga4_for_period(
             metrics=("eventCount", "totalUsers"),
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
-        landing_report = await run_ga4_report(
+        event_rows = _event_upsert_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id,
+            rows=event_report.get("rows") or [],
+        )
+        if event_rows:
+            await _upsert_with_compatibility(
+                table="ga4_event_stats", rows=event_rows,
+                on_conflict="client_id,property_id,stat_date,event_name",
+            )
+        landing_report = await _run_named_report(
+            "landing_pages",
             property_id=resolved_property_id,
             access_token=access_token,
             start_date=period.start.isoformat(),
@@ -531,8 +594,46 @@ async def _sync_ga4_for_period(
             ),
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
+        landing_rows = _landing_upsert_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id,
+            rows=landing_report.get("rows") or [],
+        )
+        if landing_rows:
+            await _upsert_with_compatibility(
+                table="ga4_landing_page_stats", rows=landing_rows,
+                on_conflict=(
+                    "client_id,property_id,stat_date,landing_page,device_category,"
+                    "source,medium,campaign_name"
+                ),
+            )
+        await _run_named_report(
+            "devices",
+            property_id=resolved_property_id,
+            access_token=access_token,
+            start_date=period.start.isoformat(),
+            end_date=period.end.isoformat(),
+            dimensions=("date", "deviceCategory"),
+            metrics=("sessions", "activeUsers", "engagedSessions", "screenPageViews", "keyEvents", "transactions", "purchaseRevenue"),
+            order_bys=[{"dimension": {"dimensionName": "date"}}],
+        )
+        funnel_report = await _run_named_report(
+            "funnel",
+            property_id=resolved_property_id,
+            access_token=access_token,
+            start_date=period.start.isoformat(),
+            end_date=period.end.isoformat(),
+            dimensions=("date", "eventName"),
+            metrics=("eventCount", "totalUsers"),
+            dimension_filter={
+                "filter": {
+                    "fieldName": "eventName",
+                    "inListFilter": {"values": list(GA4_FUNNEL_EVENTS)},
+                }
+            },
+            order_bys=[{"dimension": {"dimensionName": "date"}}],
+        )
 
-        funnel_by_date = _event_funnel_by_date(event_report.get("rows") or [])
+        funnel_by_date = _event_funnel_by_date(funnel_report.get("rows") or [])
 
         daily_rows = _daily_upsert_rows(
             client_id=resolved_client_id,
@@ -540,61 +641,12 @@ async def _sync_ga4_for_period(
             daily_rows=daily_report.get("rows") or [],
             funnel_by_date=funnel_by_date,
         )
-        channel_rows = _channel_upsert_rows(
-            client_id=resolved_client_id,
-            property_id=resolved_property_id,
-            rows=channel_report.get("rows") or [],
-        )
-        campaign_rows = _campaign_upsert_rows(
-            client_id=resolved_client_id,
-            property_id=resolved_property_id,
-            rows=campaign_report.get("rows") or [],
-        )
-        event_rows = _event_upsert_rows(
-            client_id=resolved_client_id,
-            property_id=resolved_property_id,
-            rows=event_report.get("rows") or [],
-        )
-        landing_rows = _landing_upsert_rows(
-            client_id=resolved_client_id,
-            property_id=resolved_property_id,
-            rows=landing_report.get("rows") or [],
-        )
-
         if daily_rows:
             await _upsert_with_compatibility(
                 table="ga4_daily_stats",
                 rows=daily_rows,
                 on_conflict="client_id,property_id,stat_date",
             )
-        if channel_rows:
-            await _upsert_with_compatibility(
-                table="ga4_channel_stats",
-                rows=channel_rows,
-                on_conflict="client_id,property_id,stat_date,source_medium",
-            )
-        if campaign_rows:
-            await _upsert_with_compatibility(
-                table="ga4_campaign_stats",
-                rows=campaign_rows,
-                on_conflict="client_id,property_id,stat_date,campaign_name,source_medium",
-            )
-        if event_rows:
-            await _upsert_with_compatibility(
-                table="ga4_event_stats",
-                rows=event_rows,
-                on_conflict="client_id,property_id,stat_date,event_name",
-            )
-        if landing_rows:
-            await _upsert_with_compatibility(
-                table="ga4_landing_page_stats",
-                rows=landing_rows,
-                on_conflict=(
-                    "client_id,property_id,stat_date,landing_page,device_category,"
-                    "source,medium,campaign_name"
-                ),
-            )
-
         rows_upserted = len(daily_rows) + len(channel_rows) + len(campaign_rows) + len(event_rows) + len(landing_rows)
         payload = {
             "ok": True,

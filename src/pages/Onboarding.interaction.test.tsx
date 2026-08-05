@@ -235,6 +235,44 @@ describe("Onboarding integration actions", () => {
     expect(container.textContent).not.toContain("Instagram orgânico configurado");
   });
 
+  it("blocks organic activation when the selected Page is missing", async () => {
+    mocks.mode = "meta";
+    mocks.validateMeta.mockResolvedValueOnce({
+      ok: true, page: null, instagram: { id: "178414000000001", username: "amalie" }, ad_account: null,
+    });
+    await renderOnboarding();
+    await selectAuthorization("meta-generic");
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
+    await act(async () => changeInput(inputs[1] as HTMLInputElement, "178414000000001"));
+    const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
+    await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(mocks.activateMeta).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("META_ORGANIC_ASSETS_REQUIRED");
+  });
+
+  it("blocks organic activation when the selected Instagram is missing", async () => {
+    mocks.mode = "meta";
+    mocks.validateMeta.mockResolvedValueOnce({
+      ok: true, page: { id: "123456789", name: "Amalie" }, instagram: null, ad_account: null,
+    });
+    await renderOnboarding();
+    await selectAuthorization("meta-generic");
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
+    await act(async () => changeInput(inputs[0] as HTMLInputElement, "123456789"));
+    const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
+    await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(mocks.activateMeta).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("META_ORGANIC_ASSETS_REQUIRED");
+  });
+
   it("removes a persisted disconnected Google Ads id without requesting accounts", async () => {
     mocks.mode = "google_ads";
     mocks.selectedConnections.google_ads = "ads-old";

@@ -11,7 +11,7 @@ SERVER_DIR = str(Path(__file__).parents[1])
 if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
-from server.services import connection_resolver, ga4_sync, generic_connections, google_oauth, meta_oauth
+from server.services import connection_resolver, ga4_client, ga4_sync, generic_connections, google_oauth, meta_oauth
 from server.services.integration_errors import google_api_error
 from server.services.meta_http import MetaApiError
 from server.routes import google_oauth as google_routes, meta_legacy as meta_routes
@@ -421,6 +421,51 @@ class MetaOrganicConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class Ga4StructuredErrorTests(unittest.TestCase):
+    def test_property_id_normalization_never_duplicates_prefix(self):
+        self.assertEqual(ga4_client.normalize_ga4_property_id("123456789"), "123456789")
+        self.assertEqual(ga4_client.normalize_ga4_property_id("properties/123456789"), "123456789")
+
+    def test_run_report_body_omits_empty_dimensions_and_null_fields(self):
+        body = ga4_client._build_run_report_body(
+            start_date="2026-08-01", end_date="2026-08-02",
+            dimensions=(), metrics=("activeUsers",), limit=100, offset=0,
+        )
+        self.assertNotIn("dimensions", body)
+        self.assertNotIn(None, body.values())
+        self.assertNotIn("stream_id", str(body))
+
+
+class Ga4ReportIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_builds_seven_valid_report_payloads(self):
+        report = AsyncMock(return_value={"rows": [], "row_count": 0})
+        with patch.object(ga4_sync, "run_ga4_report", report):
+            result = await ga4_sync._sync_ga4_for_period(
+                client_id="amalie", property_id="properties/123456789",
+                access_token="safe", days=1, record_job_run=False,
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(report.await_count, 7)
+        for call in report.await_args_list:
+            self.assertEqual(call.kwargs["property_id"], "123456789")
+            self.assertLessEqual(len(call.kwargs["metrics"]), 10)
+            self.assertNotIn("stream_id", call.kwargs)
+            self.assertTrue(all(call.kwargs["metrics"]))
+            self.assertTrue(all(call.kwargs["dimensions"]))
+
+    async def test_sync_identifies_the_exact_failing_report(self):
+        error = google_oauth.IntegrationError(
+            "Métrica inválida.", status_code=400,
+            code="GA4_INVALID_METRIC", provider="google",
+        )
+        report = AsyncMock(side_effect=[{"rows": [], "row_count": 0}, error])
+        with patch.object(ga4_sync, "run_ga4_report", report):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await ga4_sync._sync_ga4_for_period(
+                    client_id="amalie", property_id="123456789",
+                    access_token="safe", days=1, record_job_run=False,
+                )
+        self.assertEqual(raised.exception.diagnostics["report"], "channels")
+
     def test_admin_api_disabled_has_specific_code(self):
         request = httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries")
         response = httpx.Response(403, request=request, json={"error": {

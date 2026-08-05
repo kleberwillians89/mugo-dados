@@ -583,20 +583,23 @@ export default function Onboarding({
   }
 
   async function onSaveManualMetaAssets() {
+    const selectedPageId = String(manualMetaValidation?.page?.id || manualPageId || "").trim();
+    const selectedInstagramId = String(manualMetaValidation?.instagram?.id || manualInstagramId || "").trim();
+    const activeClientId = getActiveClientId();
     console.info("[meta-organic][temporary_diagnostic]", {
       stage: "manual_save_clicked", selectedAuthorization: selectedMetaAuthorizationId,
       manualMetaConnectionId, manualPageId, manualInstagramId, manualAdAccountId,
       validationAvailable: Boolean(manualMetaValidation),
     });
-    if (!manualMetaConnectionId || !manualMetaValidation) {
+    if (!selectedMetaAuthorizationId || !manualMetaValidation) {
       console.warn("[meta-organic][temporary_diagnostic]", {
         stage: "manual_activate_not_called", condition: "connection_or_validation_missing",
-        manualMetaConnectionId, validationAvailable: Boolean(manualMetaValidation),
+        selectedMetaAuthorizationId, validationAvailable: Boolean(manualMetaValidation),
       });
       return;
     }
     const connection = selectUsableMetaConnection(
-      genericConnections, getActiveClientId(), manualMetaConnectionId
+      genericConnections, activeClientId, selectedMetaAuthorizationId
     );
     if (!connection) {
       console.warn("[meta-organic][temporary_diagnostic]", {
@@ -634,10 +637,10 @@ export default function Onboarding({
       if (adAccountChanged) {
         await saveManualMetaAssets(connection.id, { ad_account_id: manualAdAccountId.trim() });
       }
-      if (!manualPageId.trim() || !manualInstagramId.trim()) {
+      if (!selectedPageId || !selectedInstagramId) {
         console.warn("[meta-organic][temporary_diagnostic]", {
           stage: "manual_activate_not_called", condition: "manual_page_or_instagram_missing",
-          pagePresent: Boolean(manualPageId.trim()), instagramPresent: Boolean(manualInstagramId.trim()),
+          pagePresent: Boolean(selectedPageId), instagramPresent: Boolean(selectedInstagramId),
           adAccountChanged,
         });
         if (adAccountChanged) {
@@ -647,11 +650,16 @@ export default function Onboarding({
           setInfo("Ativo Meta Ads salvo sem alterar a configuração orgânica.");
           return;
         }
-        setErr("Informe a Página e o Instagram profissional para ativar o orgânico.");
+        setErr("META_ORGANIC_ASSETS_REQUIRED: selecione uma Página e o Instagram profissional vinculado.");
         return;
       }
-      const result = await activateMetaOrganic(connection.id, {
-        page_id: manualPageId.trim(), instagram_id: manualInstagramId.trim(),
+      console.info("[meta-organic][temporary_diagnostic]", {
+        stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId,
+        selectedPage: selectedPageId, selectedInstagram: selectedInstagramId, activeClientId,
+        payload: { page_id: selectedPageId, instagram_id: selectedInstagramId },
+      });
+      const result = await activateMetaOrganic(selectedMetaAuthorizationId, {
+        page_id: selectedPageId, instagram_id: selectedInstagramId,
       });
       if (result.ok && result.initial_sync?.ok === true && result.organic_connection_id) {
         setActiveConnection(result.organic_connection_id);
@@ -672,6 +680,10 @@ export default function Onboarding({
         setErr(`Ativos Meta salvos, mas a sincronização inicial falhou.${String(initialSync?.code || result.code || "") ? ` Código: ${String(initialSync?.code || result.code)}.` : ""}${result.request_id ? ` Request ID: ${result.request_id}.` : ""}`);
         return;
       }
+      console.info("[meta-organic][temporary_diagnostic]", {
+        stage: "organic_activate_success", selectedAuthorization: selectedMetaAuthorizationId,
+        organic_connection_id: organicConnectionId, activeClientId,
+      });
       setManualMetaConnectionId(null);
       setManualMetaValidation(null);
       setInfo("Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
