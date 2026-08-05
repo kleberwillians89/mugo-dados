@@ -80,19 +80,34 @@ async def _resolve_connection_by_id(connection_id: str) -> Optional[Dict[str, An
 
 
 async def _mark_connection_success(connection_id: str) -> None:
+    now = _iso_now()
     await sb_update(
         "meta_connections",
         filters={"id": f"eq.{connection_id}"},
-        patch={"last_synced_at": _iso_now(), "last_error": None, "status": "active"},
+        patch={
+            "last_synced_at": now,
+            "last_sync_at": now,
+            "last_sync_status": "success",
+            "last_error": None,
+            "status": "active",
+            "updated_at": now,
+        },
         returning="minimal",
     )
 
 
 async def _mark_connection_error(connection_id: str, message: str) -> None:
+    now = _iso_now()
     await sb_update(
         "meta_connections",
         filters={"id": f"eq.{connection_id}"},
-        patch={"last_error": (message or "")[:1000], "status": "error"},
+        patch={
+            "last_error": (message or "")[:1000],
+            "last_sync_at": now,
+            "last_sync_status": "error",
+            "status": "error",
+            "updated_at": now,
+        },
         returning="minimal",
     )
 
