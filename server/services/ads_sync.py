@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -47,6 +48,21 @@ CATALOG_EFFECTIVE_STATUSES = [
 
 _RECENT_SYNC_KEYS: Dict[str, float] = {}
 _SYNC_DEDUP_SECONDS = 300
+
+# Teto de tempo de parede para o fluxo completo (token, Graph API com
+# paginação, persistência). Não é derivado de telemetria real de produção —
+# não existiam logs de duração por etapa até esta correção. É um valor
+# provisório, deliberadamente conservador acima do pior caso observável de
+# uma única página (timeout=60s x 3 tentativas + backoff, ~185s), para dar
+# margem a múltiplas páginas em contas grandes. Deve ser recalibrado assim
+# que os novos logs [ads_sync][graph_request_complete]/[persistence_complete]
+# acumularem duração real em produção.
+_ADS_SYNC_TOTAL_TIMEOUT_SECONDS = 480
+
+# Teto rígido de páginas por chamada paginada à Graph API, para que uma
+# conta com volume incomum não paginate indefinidamente mesmo dentro do
+# orçamento de tempo acima.
+_ADS_SYNC_MAX_PAGES_PER_CALL = 200
 
 
 def _safe_str(value: Any) -> str:
@@ -1349,7 +1365,15 @@ async def sync_ads_for_client_period(
             "ad_account_id": ad_account_id,
             "date_range": {"since": period_since, "until": period_until},
         }
-    lock_name = build_sync_lock_name("meta_ads", resolved_connection_id, period_since, period_until)
+    # Identidade do lock é por (provedor, conexão) apenas — sem since/until.
+    # Duas chamadas da mesma conexão com períodos diferentes não podem
+    # rodar simultaneamente; since/until seguem apenas no payload/log.
+    lock_name = build_sync_lock_name("meta_ads", resolved_connection_id)
+    print(
+        "[ads_sync][lock_attempt] "
+        f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name} "
+        f"since={period_since} until={period_until}"
+    )
     if not await acquire_sync_lock(cid, lock_name, 3600):
         if job_run:
             await finish_job_run(
@@ -1362,322 +1386,548 @@ async def sync_ads_for_client_period(
             "Já existe uma sincronização equivalente em andamento.", status_code=409,
             code="SYNC_ALREADY_RUNNING", provider="meta_ads", retryable=True,
         )
+    print(
+        "[ads_sync][lock_acquired] "
+        f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
+    )
 
     try:
-        token = await ensure_valid_meta_token(
-            cid,
-            connection_id=resolved_connection_id,
-            platform="meta_ads",
-            connection_type="paid",
-        )
-        account_rows_raw = await fetch_ad_account_insights(
-            ad_account_id=ad_account_id,
-            access_token=token,
-            since=period_since,
-            until=period_until,
-            level="account",
-            fields=(
-                "account_id,account_name,date_start,date_stop,"
-                "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values,purchase_roas"
-            ),
-            time_increment="all_days",
-            limit=50,
-            request_context={**request_context, "query_mode": "account_aggregate"},
-        )
-        account_query_mode = "all_days"
-        account_fields = sorted({str(key) for row in account_rows_raw for key in row.keys() if key != "access_token"})
-        print(
-            "[ads_sync][account_aggregate] "
-            f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-            f"since={period_since} until={period_until} mode={account_query_mode} "
-            f"rows={len(account_rows_raw)} fields={','.join(account_fields)}"
-        )
-        if not account_rows_raw:
-            reason = "Meta retornou zero agregados no nível da conta para o período; consultas de campanha e anúncio não foram iniciadas."
-            await mark_connection_sync_no_data(resolved_connection_id, reason)
+        async def _run_sync_body() -> Dict[str, Any]:
+            token = await ensure_valid_meta_token(
+                cid,
+                connection_id=resolved_connection_id,
+                platform="meta_ads",
+                connection_type="paid",
+            )
+            graph_request_started_at = time.monotonic()
+            print(
+                "[ads_sync][graph_request_start] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=account "
+                f"since={period_since} until={period_until}"
+            )
+            account_rows_raw = await fetch_ad_account_insights(
+                ad_account_id=ad_account_id,
+                access_token=token,
+                since=period_since,
+                until=period_until,
+                level="account",
+                fields=(
+                    "account_id,account_name,date_start,date_stop,"
+                    "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values,purchase_roas"
+                ),
+                time_increment="all_days",
+                limit=50,
+                request_context={**request_context, "query_mode": "account_aggregate"},
+            )
+            account_query_mode = "all_days"
+            print(
+                "[ads_sync][graph_request_complete] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=account "
+                f"duration_ms={int((time.monotonic() - graph_request_started_at) * 1000)} rows={len(account_rows_raw)}"
+            )
+            account_fields = sorted({str(key) for row in account_rows_raw for key in row.keys() if key != "access_token"})
+            print(
+                "[ads_sync][account_aggregate] "
+                f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                f"since={period_since} until={period_until} mode={account_query_mode} "
+                f"rows={len(account_rows_raw)} fields={','.join(account_fields)}"
+            )
+            if not account_rows_raw:
+                reason = "Meta retornou zero agregados no nível da conta para o período; consultas de campanha e anúncio não foram iniciadas."
+                await mark_connection_sync_no_data(resolved_connection_id, reason)
+                if job_run:
+                    await finish_job_run(
+                        job_run["id"],
+                        status="skipped",
+                        rows_upserted=0,
+                        error=reason,
+                        client_id=cid,
+                        connection_id=resolved_connection_id,
+                        ad_account_id=ad_account_id,
+                        payload_json={
+                            "date_range": {"since": period_since, "until": period_until},
+                            "account_query_mode": account_query_mode,
+                            "rows_returned": {"ad_account": 0},
+                            "sync_outcome": "no_data",
+                        },
+                    )
+                _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
+                return {
+                    "ok": True,
+                    "client_id": cid,
+                    "connection_id": resolved_connection_id,
+                    "ad_account_id": ad_account_id,
+                    "date_range": {"since": period_since, "until": period_until},
+                    "account_query_mode": account_query_mode,
+                    "rows_returned": {"ad_account": 0},
+                    "rows_inserted": 0,
+                    "persisted_rows": {"ad_account_daily_stats": 0},
+                    "sync_outcome": "no_data",
+                    "job_status": "skipped",
+                }
+            print(
+                "[ads_sync][graph_request_start] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=campaign "
+                f"since={period_since} until={period_until}"
+            )
+            graph_request_started_at = time.monotonic()
+            campaign_rows_raw = await fetch_ad_account_insights(
+                ad_account_id=ad_account_id,
+                access_token=token,
+                since=period_since,
+                until=period_until,
+                level="campaign",
+                fields=(
+                    "account_id,account_name,date_start,date_stop,campaign_id,campaign_name,"
+                    "objective,spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+                ),
+                time_increment=1,
+                limit=1000,
+                request_context=request_context,
+            )
+            print(
+                "[ads_sync][graph_request_complete] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=campaign "
+                f"duration_ms={int((time.monotonic() - graph_request_started_at) * 1000)} rows={len(campaign_rows_raw)}"
+            )
+            print(
+                "[ads_sync][graph_request_start] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=ad "
+                f"since={period_since} until={period_until}"
+            )
+            graph_request_started_at = time.monotonic()
+            ad_rows_raw = await fetch_ad_account_insights(
+                ad_account_id=ad_account_id,
+                access_token=token,
+                since=period_since,
+                until=period_until,
+                level="ad",
+                fields=(
+                    "account_id,account_name,date_start,date_stop,campaign_id,campaign_name,"
+                    "adset_id,adset_name,ad_id,ad_name,spend,impressions,reach,clicks,"
+                    "cpc,ctr,cpm,actions,action_values"
+                ),
+                time_increment=1,
+                limit=1500,
+                request_context=request_context,
+            )
+            print(
+                "[ads_sync][graph_request_complete] "
+                f"client_id={cid} connection_id={resolved_connection_id} level=ad "
+                f"duration_ms={int((time.monotonic() - graph_request_started_at) * 1000)} rows={len(ad_rows_raw)}"
+            )
+            boosted_rows_raw: List[Dict[str, Any]] = []
+            try:
+                boosted_rows_raw = await _fetch_boosted_insight_rows(
+                    ad_account_id=ad_account_id,
+                    access_token=token,
+                    since=period_since,
+                    until=period_until,
+                    request_context=request_context,
+                )
+            except Exception as boosted_exc:
+                print(
+                    "[ads_sync][boosted][warning] "
+                    f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                    f"since={period_since} until={period_until} error={_safe_str(boosted_exc)[:320]}"
+                )
+                boosted_rows_raw = []
+            boosted_sources_count = _count_boosted_sources(boosted_rows_raw)
+            print(
+                "[ads_sync][boosted][source] "
+                f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                f"since={period_since} until={period_until} "
+                f"rows_daily={boosted_sources_count['entity_insights_daily']} "
+                f"rows_all_days={boosted_sources_count['entity_insights_all_days']} "
+                f"rows_maximum_synthetic={boosted_sources_count['insights_maximum_synthetic']} "
+                f"rows_unknown={boosted_sources_count['unknown']}"
+            )
+            boosted_rows_for_classic = _boosted_rows_not_in_classic(
+                boosted_rows=boosted_rows_raw,
+                classic_ad_rows=ad_rows_raw,
+            )
+            if (
+                not account_rows_raw
+                and not campaign_rows_raw
+                and not ad_rows_raw
+                and not boosted_rows_raw
+            ):
+                creatives_probe_rows: List[Dict[str, Any]] = []
+                insights_probe_rows: List[Dict[str, Any]] = []
+                try:
+                    creatives_probe_rows = await fetch_ad_creatives(
+                        ad_account_id=ad_account_id,
+                        access_token=token,
+                        limit=200,
+                        request_context=request_context,
+                    )
+                except Exception as probe_exc:
+                    print(
+                        "[ads_sync][probe][adcreatives_error] "
+                        f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                        f"since={period_since} until={period_until} error={_safe_str(probe_exc)[:280]}"
+                    )
+                try:
+                    insights_probe_rows = await fetch_ad_account_insights(
+                        ad_account_id=ad_account_id,
+                        access_token=token,
+                        since=period_since,
+                        until=period_until,
+                        level="ad",
+                        fields=(
+                            "date_start,date_stop,ad_id,ad_name,campaign_id,campaign_name,"
+                            "adset_id,adset_name,spend,impressions,reach,clicks,cpc,ctr,cpm,"
+                            "actions,action_values"
+                        ),
+                        time_increment="all_days",
+                        date_preset="maximum",
+                        limit=2000,
+                        request_context=request_context,
+                    )
+                except Exception as probe_exc:
+                    print(
+                        "[ads_sync][probe][insights_error] "
+                        f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                        f"since={period_since} until={period_until} error={_safe_str(probe_exc)[:280]}"
+                    )
+
+                creative_story_count = 0
+                creative_effective_story_count = 0
+                creative_object_id_count = 0
+                creative_post_spec_count = 0
+                creative_samples: List[Dict[str, Any]] = []
+                for row in creatives_probe_rows:
+                    story_id = _safe_str(row.get("object_story_id"))
+                    effective_story_id = _safe_str(row.get("effective_object_story_id"))
+                    object_id = _safe_str(row.get("object_id"))
+                    story_spec = row.get("object_story_spec")
+                    has_story_spec = isinstance(story_spec, dict) and bool(story_spec)
+                    if story_id:
+                        creative_story_count += 1
+                    if effective_story_id:
+                        creative_effective_story_count += 1
+                    if object_id:
+                        creative_object_id_count += 1
+                    if has_story_spec:
+                        creative_post_spec_count += 1
+                    if len(creative_samples) < 5:
+                        creative_samples.append(
+                            {
+                                "creative_id": _safe_str(row.get("id")),
+                                "object_story_id": story_id,
+                                "effective_object_story_id": effective_story_id,
+                                "object_id": object_id,
+                                "object_story_spec_keys": (
+                                    sorted(list(story_spec.keys()))[:8] if isinstance(story_spec, dict) else []
+                                ),
+                            }
+                        )
+
+                insight_samples: List[Dict[str, Any]] = []
+                for row in insights_probe_rows[:5]:
+                    insight_samples.append(
+                        {
+                            "ad_id": _safe_str(row.get("ad_id")),
+                            "campaign_id": _safe_str(row.get("campaign_id")),
+                            "date_start": _safe_str(row.get("date_start")),
+                            "date_stop": _safe_str(row.get("date_stop")),
+                            "spend": _safe_float(row.get("spend")),
+                            "impressions": _safe_int(row.get("impressions")),
+                            "clicks": _safe_int(row.get("clicks")),
+                        }
+                    )
+
+                synthetic_rows = _synthetic_boosted_rows_from_maximum_insights(
+                    insight_rows=insights_probe_rows,
+                    since=period_since,
+                    until=period_until,
+                )
+
+                print(
+                    "[ads_sync][probe][discovery_zero] "
+                    f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                    f"since={period_since} until={period_until} "
+                    f"adcreatives_rows={len(creatives_probe_rows)} "
+                    f"adcreatives_object_story_id={creative_story_count} "
+                    f"adcreatives_effective_object_story_id={creative_effective_story_count} "
+                    f"adcreatives_object_id={creative_object_id_count} "
+                    f"adcreatives_object_story_spec={creative_post_spec_count} "
+                    f"insights_maximum_rows={len(insights_probe_rows)} "
+                    f"synthetic_rows={len(synthetic_rows)} "
+                    f"creative_samples={json.dumps(creative_samples, ensure_ascii=False)[:900]} "
+                    f"insight_samples={json.dumps(insight_samples, ensure_ascii=False)[:900]}"
+                )
+                if synthetic_rows:
+                    boosted_rows_raw = synthetic_rows
+                    boosted_sources_count = _count_boosted_sources(boosted_rows_raw)
+                    boosted_rows_for_classic = _boosted_rows_not_in_classic(
+                        boosted_rows=boosted_rows_raw,
+                        classic_ad_rows=ad_rows_raw,
+                    )
+                    print(
+                        "[ads_sync][probe][fallback_applied] "
+                        f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+                        f"since={period_since} until={period_until} "
+                        f"source=insights_maximum_synthetic rows_boosted={len(boosted_rows_raw)} "
+                        f"rows_boosted_for_classic={len(boosted_rows_for_classic)}"
+                    )
+            campaign_rows_with_boosted = list(campaign_rows_raw)
+            campaign_rows_with_boosted.extend(
+                [row for row in boosted_rows_for_classic if _safe_str(row.get("campaign_id"))]
+            )
+            ad_rows_with_boosted = list(ad_rows_raw)
+            ad_rows_with_boosted.extend(boosted_rows_for_classic)
+
+            account_rows = _to_upsert_ready_ad_account_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                meta_connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                ad_account_name=ad_account_name,
+                since=period_since,
+                raw_rows=account_rows_raw,
+            )
+            campaign_rows = _to_upsert_ready_campaign_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                ad_account_name=ad_account_name,
+                since=period_since,
+                raw_rows=campaign_rows_with_boosted,
+            )
+            ad_rows = _to_upsert_ready_ad_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                ad_account_name=ad_account_name,
+                since=period_since,
+                raw_rows=ad_rows_with_boosted,
+            )
+            promoted_post_rows = _to_upsert_ready_promoted_post_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                ad_account_name=ad_account_name,
+                since=period_since,
+                raw_rows=boosted_rows_raw,
+            )
+
+            persistence_started_at = time.monotonic()
+            print(
+                "[ads_sync][persistence_start] "
+                f"client_id={cid} connection_id={resolved_connection_id} "
+                f"rows_account={len(account_rows)} rows_campaign={len(campaign_rows)} "
+                f"rows_ad={len(ad_rows)} rows_promoted={len(promoted_post_rows)}"
+            )
+            account_upsert = await _upsert_ad_account_daily_stats(account_rows)
+            campaign_upsert = await _upsert_campaign_daily_stats(campaign_rows)
+            ad_upsert = await _upsert_ad_daily_stats(ad_rows)
+            promoted_upsert = await _upsert_promoted_post_daily_stats(promoted_post_rows)
+            print(
+                "[ads_sync][persistence_complete] "
+                f"client_id={cid} connection_id={resolved_connection_id} "
+                f"duration_ms={int((time.monotonic() - persistence_started_at) * 1000)}"
+            )
+            persisted_readback = await _readback_persisted_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                since=period_since,
+                until=period_until,
+            )
+            persisted_account_rows = int((persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0)
+            sync_outcome = _classify_sync_outcome(
+                account_rows=account_rows_raw,
+                persisted_account_rows=persisted_account_rows,
+                upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
+            )
+            if sync_outcome == "no_data":
+                await mark_connection_sync_no_data(
+                    resolved_connection_id,
+                    "Meta retornou zero agregados de conta para o período; o último sucesso foi preservado.",
+                )
+            elif sync_outcome == "partial":
+                await mark_connection_sync_partial(resolved_connection_id)
+            else:
+                await mark_connection_sync_success(resolved_connection_id)
+
+            print(
+                "[ads_sync][done] "
+                f"client_id={cid} ad_account_id={ad_account_id} since={period_since} until={period_until} "
+                f"rows_account={len(account_rows_raw)} rows_campaign={len(campaign_rows_raw)} rows_ad={len(ad_rows_raw)} "
+                f"rows_boosted={len(boosted_rows_raw)} "
+                f"rows_boosted_for_classic={len(boosted_rows_for_classic)} "
+                f"saved_account={int(account_upsert.get('upserted') or 0)} "
+                f"saved_campaign={int(campaign_upsert.get('upserted') or 0)} "
+                f"saved_ad={int(ad_upsert.get('upserted') or 0)} "
+                f"saved_promoted={int(promoted_upsert.get('upserted') or 0)} "
+                f"persisted_account={int((persisted_readback.get('ad_account_daily_stats') or {}).get('count') or 0)} "
+                f"persisted_campaign={int((persisted_readback.get('campaign_daily_stats') or {}).get('count') or 0)} "
+                f"persisted_ad={int((persisted_readback.get('ad_daily_stats') or {}).get('count') or 0)} "
+                f"persisted_promoted={int((persisted_readback.get('promoted_post_daily_stats') or {}).get('count') or 0)}"
+            )
+            result = {
+                "ok": True,
+                "client_id": cid,
+                "connection_id": resolved_connection_id,
+                "connection_source": resolved_connection_source,
+                "meta_connection_id": resolved_connection_id,
+                "ad_account_id": ad_account_id,
+                "date_range": {"since": period_since, "until": period_until},
+                "account_query_mode": account_query_mode,
+                "rows_returned": {
+                    "ad_account": len(account_rows_raw),
+                    "campaign": len(campaign_rows_raw),
+                    "ad": len(ad_rows_raw),
+                    "boosted_posts": len(boosted_rows_raw),
+                    "boosted_fallback_in_classic": len(boosted_rows_for_classic),
+                },
+                "rows_inserted": (
+                    int(account_upsert.get("upserted") or 0)
+                    + int(campaign_upsert.get("upserted") or 0)
+                    + int(ad_upsert.get("upserted") or 0)
+                    + int(promoted_upsert.get("upserted") or 0)
+                ),
+                "upsert": {
+                    "ad_account_daily_stats": account_upsert,
+                    "campaign_daily_stats": campaign_upsert,
+                    "ad_daily_stats": ad_upsert,
+                    "promoted_post_daily_stats": promoted_upsert,
+                },
+                "saved": {
+                    "ad_account_daily_stats": int(account_upsert.get("upserted") or 0),
+                    "campaign_daily_stats": int(campaign_upsert.get("upserted") or 0),
+                    "ad_daily_stats": int(ad_upsert.get("upserted") or 0),
+                    "promoted_post_daily_stats": int(promoted_upsert.get("upserted") or 0),
+                },
+                "persisted_rows": {
+                    "ad_account_daily_stats": int(
+                        (persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0
+                    ),
+                    "campaign_daily_stats": int(
+                        (persisted_readback.get("campaign_daily_stats") or {}).get("count") or 0
+                    ),
+                    "ad_daily_stats": int((persisted_readback.get("ad_daily_stats") or {}).get("count") or 0),
+                    "promoted_post_daily_stats": int(
+                        (persisted_readback.get("promoted_post_daily_stats") or {}).get("count") or 0
+                    ),
+                },
+                "persisted_modes": {
+                    "ad_account_daily_stats": str(
+                        (persisted_readback.get("ad_account_daily_stats") or {}).get("mode") or "unknown"
+                    ),
+                    "campaign_daily_stats": str(
+                        (persisted_readback.get("campaign_daily_stats") or {}).get("mode") or "unknown"
+                    ),
+                    "ad_daily_stats": str((persisted_readback.get("ad_daily_stats") or {}).get("mode") or "unknown"),
+                    "promoted_post_daily_stats": str(
+                        (persisted_readback.get("promoted_post_daily_stats") or {}).get("mode") or "unknown"
+                    ),
+                },
+                "sources": {
+                    "classic_ads": len(ad_rows_raw),
+                    "boosted_posts": len(boosted_rows_raw),
+                    "boosted_fallback_in_classic": len(boosted_rows_for_classic),
+                    "boosted_source_breakdown": boosted_sources_count,
+                },
+            }
+            sync_outcome = _classify_sync_outcome(
+                account_rows=account_rows_raw,
+                persisted_account_rows=int(
+                    (persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0
+                ),
+                upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
+            )
+            result["sync_outcome"] = sync_outcome
+            _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
             if job_run:
+                job_status = "skipped" if sync_outcome == "no_data" else sync_outcome
+                print(
+                    "[ads_sync][job_finish_start] "
+                    f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
+                )
                 await finish_job_run(
                     job_run["id"],
-                    status="skipped",
-                    rows_upserted=0,
-                    error=reason,
+                    status=job_status,
+                    rows_upserted=_sum_rows_upserted(result),
                     client_id=cid,
                     connection_id=resolved_connection_id,
                     ad_account_id=ad_account_id,
                     payload_json={
                         "date_range": {"since": period_since, "until": period_until},
-                        "account_query_mode": account_query_mode,
-                        "rows_returned": {"ad_account": 0},
-                        "sync_outcome": "no_data",
+                        "connection_source": resolved_connection_source,
+                        "rows_returned": result.get("rows_returned"),
+                        "saved": result.get("saved"),
+                        "persisted_rows": result.get("persisted_rows"),
+                        "persisted_modes": result.get("persisted_modes"),
+                        "sources": result.get("sources"),
                     },
                 )
-            _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
-            return {
-                "ok": True,
-                "client_id": cid,
-                "connection_id": resolved_connection_id,
-                "ad_account_id": ad_account_id,
-                "date_range": {"since": period_since, "until": period_until},
-                "account_query_mode": account_query_mode,
-                "rows_returned": {"ad_account": 0},
-                "rows_inserted": 0,
-                "persisted_rows": {"ad_account_daily_stats": 0},
-                "sync_outcome": "no_data",
-                "job_status": "skipped",
-            }
-        campaign_rows_raw = await fetch_ad_account_insights(
-            ad_account_id=ad_account_id,
-            access_token=token,
-            since=period_since,
-            until=period_until,
-            level="campaign",
-            fields=(
-                "account_id,account_name,date_start,date_stop,campaign_id,campaign_name,"
-                "objective,spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
-            ),
-            time_increment=1,
-            limit=1000,
-            request_context=request_context,
+                print(
+                    "[ads_sync][job_finish_complete] "
+                    f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
+                )
+                result["job_run_id"] = job_run["id"]
+                result["job_status"] = job_status
+            return result
+
+        return await asyncio.wait_for(_run_sync_body(), timeout=_ADS_SYNC_TOTAL_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        cancel_message = (
+            "Sincronizacao Meta Ads cancelada antes da conclusao "
+            "(timeout de execucao ou encerramento do processo)."
         )
-        ad_rows_raw = await fetch_ad_account_insights(
-            ad_account_id=ad_account_id,
-            access_token=token,
-            since=period_since,
-            until=period_until,
-            level="ad",
-            fields=(
-                "account_id,account_name,date_start,date_stop,campaign_id,campaign_name,"
-                "adset_id,adset_name,ad_id,ad_name,spend,impressions,reach,clicks,"
-                "cpc,ctr,cpm,actions,action_values"
-            ),
-            time_increment=1,
-            limit=1500,
-            request_context=request_context,
-        )
-        boosted_rows_raw: List[Dict[str, Any]] = []
-        try:
-            boosted_rows_raw = await _fetch_boosted_insight_rows(
-                ad_account_id=ad_account_id,
-                access_token=token,
-                since=period_since,
-                until=period_until,
-                request_context=request_context,
-            )
-        except Exception as boosted_exc:
-            print(
-                "[ads_sync][boosted][warning] "
-                f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-                f"since={period_since} until={period_until} error={_safe_str(boosted_exc)[:320]}"
-            )
-            boosted_rows_raw = []
-        boosted_sources_count = _count_boosted_sources(boosted_rows_raw)
         print(
-            "[ads_sync][boosted][source] "
+            "[ads_sync][cancelled] "
             f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-            f"since={period_since} until={period_until} "
-            f"rows_daily={boosted_sources_count['entity_insights_daily']} "
-            f"rows_all_days={boosted_sources_count['entity_insights_all_days']} "
-            f"rows_maximum_synthetic={boosted_sources_count['insights_maximum_synthetic']} "
-            f"rows_unknown={boosted_sources_count['unknown']}"
+            f"since={period_since} until={period_until}"
         )
-        boosted_rows_for_classic = _boosted_rows_not_in_classic(
-            boosted_rows=boosted_rows_raw,
-            classic_ad_rows=ad_rows_raw,
-        )
-        if (
-            not account_rows_raw
-            and not campaign_rows_raw
-            and not ad_rows_raw
-            and not boosted_rows_raw
-        ):
-            creatives_probe_rows: List[Dict[str, Any]] = []
-            insights_probe_rows: List[Dict[str, Any]] = []
-            try:
-                creatives_probe_rows = await fetch_ad_creatives(
-                    ad_account_id=ad_account_id,
-                    access_token=token,
-                    limit=200,
-                    request_context=request_context,
-                )
-            except Exception as probe_exc:
-                print(
-                    "[ads_sync][probe][adcreatives_error] "
-                    f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-                    f"since={period_since} until={period_until} error={_safe_str(probe_exc)[:280]}"
-                )
-            try:
-                insights_probe_rows = await fetch_ad_account_insights(
-                    ad_account_id=ad_account_id,
-                    access_token=token,
-                    since=period_since,
-                    until=period_until,
-                    level="ad",
-                    fields=(
-                        "date_start,date_stop,ad_id,ad_name,campaign_id,campaign_name,"
-                        "adset_id,adset_name,spend,impressions,reach,clicks,cpc,ctr,cpm,"
-                        "actions,action_values"
-                    ),
-                    time_increment="all_days",
-                    date_preset="maximum",
-                    limit=2000,
-                    request_context=request_context,
-                )
-            except Exception as probe_exc:
-                print(
-                    "[ads_sync][probe][insights_error] "
-                    f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-                    f"since={period_since} until={period_until} error={_safe_str(probe_exc)[:280]}"
-                )
-
-            creative_story_count = 0
-            creative_effective_story_count = 0
-            creative_object_id_count = 0
-            creative_post_spec_count = 0
-            creative_samples: List[Dict[str, Any]] = []
-            for row in creatives_probe_rows:
-                story_id = _safe_str(row.get("object_story_id"))
-                effective_story_id = _safe_str(row.get("effective_object_story_id"))
-                object_id = _safe_str(row.get("object_id"))
-                story_spec = row.get("object_story_spec")
-                has_story_spec = isinstance(story_spec, dict) and bool(story_spec)
-                if story_id:
-                    creative_story_count += 1
-                if effective_story_id:
-                    creative_effective_story_count += 1
-                if object_id:
-                    creative_object_id_count += 1
-                if has_story_spec:
-                    creative_post_spec_count += 1
-                if len(creative_samples) < 5:
-                    creative_samples.append(
-                        {
-                            "creative_id": _safe_str(row.get("id")),
-                            "object_story_id": story_id,
-                            "effective_object_story_id": effective_story_id,
-                            "object_id": object_id,
-                            "object_story_spec_keys": (
-                                sorted(list(story_spec.keys()))[:8] if isinstance(story_spec, dict) else []
-                            ),
-                        }
-                    )
-
-            insight_samples: List[Dict[str, Any]] = []
-            for row in insights_probe_rows[:5]:
-                insight_samples.append(
-                    {
-                        "ad_id": _safe_str(row.get("ad_id")),
-                        "campaign_id": _safe_str(row.get("campaign_id")),
-                        "date_start": _safe_str(row.get("date_start")),
-                        "date_stop": _safe_str(row.get("date_stop")),
-                        "spend": _safe_float(row.get("spend")),
-                        "impressions": _safe_int(row.get("impressions")),
-                        "clicks": _safe_int(row.get("clicks")),
-                    }
-                )
-
-            synthetic_rows = _synthetic_boosted_rows_from_maximum_insights(
-                insight_rows=insights_probe_rows,
-                since=period_since,
-                until=period_until,
-            )
-
+        try:
+            await mark_connection_sync_error(resolved_connection_id, cancel_message, requires_reauth=False)
+        except Exception as cleanup_exc:
             print(
-                "[ads_sync][probe][discovery_zero] "
-                f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-                f"since={period_since} until={period_until} "
-                f"adcreatives_rows={len(creatives_probe_rows)} "
-                f"adcreatives_object_story_id={creative_story_count} "
-                f"adcreatives_effective_object_story_id={creative_effective_story_count} "
-                f"adcreatives_object_id={creative_object_id_count} "
-                f"adcreatives_object_story_spec={creative_post_spec_count} "
-                f"insights_maximum_rows={len(insights_probe_rows)} "
-                f"synthetic_rows={len(synthetic_rows)} "
-                f"creative_samples={json.dumps(creative_samples, ensure_ascii=False)[:900]} "
-                f"insight_samples={json.dumps(insight_samples, ensure_ascii=False)[:900]}"
+                "[ads_sync][cancelled][connection_update_failed] "
+                f"client_id={cid} connection_id={resolved_connection_id} "
+                f"error_type={cleanup_exc.__class__.__name__}"
             )
-            if synthetic_rows:
-                boosted_rows_raw = synthetic_rows
-                boosted_sources_count = _count_boosted_sources(boosted_rows_raw)
-                boosted_rows_for_classic = _boosted_rows_not_in_classic(
-                    boosted_rows=boosted_rows_raw,
-                    classic_ad_rows=ad_rows_raw,
+        if job_run:
+            print(
+                "[ads_sync][job_finish_start] "
+                f"client_id={cid} job_run_id={job_run['id']} outcome=cancelled"
+            )
+            try:
+                await finish_job_run(
+                    job_run["id"],
+                    status="error",
+                    rows_upserted=0,
+                    error=cancel_message,
+                    client_id=cid,
+                    connection_id=resolved_connection_id,
+                    ad_account_id=ad_account_id,
+                    payload_json={
+                        "date_range": {"since": period_since, "until": period_until},
+                        "connection_source": resolved_connection_source,
+                        "cancelled": True,
+                    },
                 )
                 print(
-                    "[ads_sync][probe][fallback_applied] "
-                    f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
-                    f"since={period_since} until={period_until} "
-                    f"source=insights_maximum_synthetic rows_boosted={len(boosted_rows_raw)} "
-                    f"rows_boosted_for_classic={len(boosted_rows_for_classic)}"
+                    "[ads_sync][job_finish_complete] "
+                    f"client_id={cid} job_run_id={job_run['id']} outcome=cancelled"
                 )
-        campaign_rows_with_boosted = list(campaign_rows_raw)
-        campaign_rows_with_boosted.extend(
-            [row for row in boosted_rows_for_classic if _safe_str(row.get("campaign_id"))]
-        )
-        ad_rows_with_boosted = list(ad_rows_raw)
-        ad_rows_with_boosted.extend(boosted_rows_for_classic)
-
-        account_rows = _to_upsert_ready_ad_account_rows(
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            meta_connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            ad_account_name=ad_account_name,
-            since=period_since,
-            raw_rows=account_rows_raw,
-        )
-        campaign_rows = _to_upsert_ready_campaign_rows(
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            ad_account_name=ad_account_name,
-            since=period_since,
-            raw_rows=campaign_rows_with_boosted,
-        )
-        ad_rows = _to_upsert_ready_ad_rows(
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            ad_account_name=ad_account_name,
-            since=period_since,
-            raw_rows=ad_rows_with_boosted,
-        )
-        promoted_post_rows = _to_upsert_ready_promoted_post_rows(
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            ad_account_name=ad_account_name,
-            since=period_since,
-            raw_rows=boosted_rows_raw,
-        )
-
-        account_upsert = await _upsert_ad_account_daily_stats(account_rows)
-        campaign_upsert = await _upsert_campaign_daily_stats(campaign_rows)
-        ad_upsert = await _upsert_ad_daily_stats(ad_rows)
-        promoted_upsert = await _upsert_promoted_post_daily_stats(promoted_post_rows)
-        persisted_readback = await _readback_persisted_rows(
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            since=period_since,
-            until=period_until,
-        )
-        persisted_account_rows = int((persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0)
-        sync_outcome = _classify_sync_outcome(
-            account_rows=account_rows_raw,
-            persisted_account_rows=persisted_account_rows,
-            upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
-        )
-        if sync_outcome == "no_data":
-            await mark_connection_sync_no_data(
-                resolved_connection_id,
-                "Meta retornou zero agregados de conta para o período; o último sucesso foi preservado.",
-            )
-        elif sync_outcome == "partial":
-            await mark_connection_sync_partial(resolved_connection_id)
-        else:
-            await mark_connection_sync_success(resolved_connection_id)
+            except Exception as cleanup_exc:
+                print(
+                    "[ads_sync][job_finish_failed] "
+                    f"client_id={cid} job_run_id={job_run['id']} "
+                    f"error_type={cleanup_exc.__class__.__name__}"
+                )
+        raise
     except Exception as exc:
-        message = str(exc)
+        is_timeout = isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+        message = (
+            f"Sincronização Meta Ads excedeu o tempo limite de {_ADS_SYNC_TOTAL_TIMEOUT_SECONDS}s."
+            if is_timeout
+            else str(exc)
+        )
         requires_reauth = isinstance(exc, MetaApiError) and exc.invalid_oauth
         if not requires_reauth:
             lowered = message.lower()
@@ -1688,6 +1938,10 @@ async def sync_ads_for_client_period(
             requires_reauth=requires_reauth,
         )
         if job_run:
+            print(
+                "[ads_sync][job_finish_start] "
+                f"client_id={cid} job_run_id={job_run['id']} outcome=error"
+            )
             await finish_job_run(
                 job_run["id"],
                 status="error",
@@ -1700,128 +1954,30 @@ async def sync_ads_for_client_period(
                     "date_range": {"since": period_since, "until": period_until},
                     "connection_source": resolved_connection_source,
                     "requires_reauth": requires_reauth,
+                    "timeout": is_timeout,
                 },
             )
+            print(
+                "[ads_sync][job_finish_complete] "
+                f"client_id={cid} job_run_id={job_run['id']} outcome=error"
+            )
         print(
-            "[ads_sync][meta_error] "
+            "[ads_sync][timeout]" if is_timeout else "[ads_sync][meta_error]",
             f"client_id={cid} ad_account_id={ad_account_id} since={period_since} until={period_until} "
-            f"error={_safe_str(message)[:360]}"
+            f"error={_safe_str(message)[:360]}",
         )
         raise
     finally:
-        await release_sync_lock(cid, lock_name)
-
-    print(
-        "[ads_sync][done] "
-        f"client_id={cid} ad_account_id={ad_account_id} since={period_since} until={period_until} "
-        f"rows_account={len(account_rows_raw)} rows_campaign={len(campaign_rows_raw)} rows_ad={len(ad_rows_raw)} "
-        f"rows_boosted={len(boosted_rows_raw)} "
-        f"rows_boosted_for_classic={len(boosted_rows_for_classic)} "
-        f"saved_account={int(account_upsert.get('upserted') or 0)} "
-        f"saved_campaign={int(campaign_upsert.get('upserted') or 0)} "
-        f"saved_ad={int(ad_upsert.get('upserted') or 0)} "
-        f"saved_promoted={int(promoted_upsert.get('upserted') or 0)} "
-        f"persisted_account={int((persisted_readback.get('ad_account_daily_stats') or {}).get('count') or 0)} "
-        f"persisted_campaign={int((persisted_readback.get('campaign_daily_stats') or {}).get('count') or 0)} "
-        f"persisted_ad={int((persisted_readback.get('ad_daily_stats') or {}).get('count') or 0)} "
-        f"persisted_promoted={int((persisted_readback.get('promoted_post_daily_stats') or {}).get('count') or 0)}"
-    )
-    result = {
-        "ok": True,
-        "client_id": cid,
-        "connection_id": resolved_connection_id,
-        "connection_source": resolved_connection_source,
-        "meta_connection_id": resolved_connection_id,
-        "ad_account_id": ad_account_id,
-        "date_range": {"since": period_since, "until": period_until},
-        "account_query_mode": account_query_mode,
-        "rows_returned": {
-            "ad_account": len(account_rows_raw),
-            "campaign": len(campaign_rows_raw),
-            "ad": len(ad_rows_raw),
-            "boosted_posts": len(boosted_rows_raw),
-            "boosted_fallback_in_classic": len(boosted_rows_for_classic),
-        },
-        "rows_inserted": (
-            int(account_upsert.get("upserted") or 0)
-            + int(campaign_upsert.get("upserted") or 0)
-            + int(ad_upsert.get("upserted") or 0)
-            + int(promoted_upsert.get("upserted") or 0)
-        ),
-        "upsert": {
-            "ad_account_daily_stats": account_upsert,
-            "campaign_daily_stats": campaign_upsert,
-            "ad_daily_stats": ad_upsert,
-            "promoted_post_daily_stats": promoted_upsert,
-        },
-        "saved": {
-            "ad_account_daily_stats": int(account_upsert.get("upserted") or 0),
-            "campaign_daily_stats": int(campaign_upsert.get("upserted") or 0),
-            "ad_daily_stats": int(ad_upsert.get("upserted") or 0),
-            "promoted_post_daily_stats": int(promoted_upsert.get("upserted") or 0),
-        },
-        "persisted_rows": {
-            "ad_account_daily_stats": int(
-                (persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0
-            ),
-            "campaign_daily_stats": int(
-                (persisted_readback.get("campaign_daily_stats") or {}).get("count") or 0
-            ),
-            "ad_daily_stats": int((persisted_readback.get("ad_daily_stats") or {}).get("count") or 0),
-            "promoted_post_daily_stats": int(
-                (persisted_readback.get("promoted_post_daily_stats") or {}).get("count") or 0
-            ),
-        },
-        "persisted_modes": {
-            "ad_account_daily_stats": str(
-                (persisted_readback.get("ad_account_daily_stats") or {}).get("mode") or "unknown"
-            ),
-            "campaign_daily_stats": str(
-                (persisted_readback.get("campaign_daily_stats") or {}).get("mode") or "unknown"
-            ),
-            "ad_daily_stats": str((persisted_readback.get("ad_daily_stats") or {}).get("mode") or "unknown"),
-            "promoted_post_daily_stats": str(
-                (persisted_readback.get("promoted_post_daily_stats") or {}).get("mode") or "unknown"
-            ),
-        },
-        "sources": {
-            "classic_ads": len(ad_rows_raw),
-            "boosted_posts": len(boosted_rows_raw),
-            "boosted_fallback_in_classic": len(boosted_rows_for_classic),
-            "boosted_source_breakdown": boosted_sources_count,
-        },
-    }
-    sync_outcome = _classify_sync_outcome(
-        account_rows=account_rows_raw,
-        persisted_account_rows=int(
-            (persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0
-        ),
-        upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
-    )
-    result["sync_outcome"] = sync_outcome
-    _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
-    if job_run:
-        job_status = "skipped" if sync_outcome == "no_data" else sync_outcome
-        await finish_job_run(
-            job_run["id"],
-            status=job_status,
-            rows_upserted=_sum_rows_upserted(result),
-            client_id=cid,
-            connection_id=resolved_connection_id,
-            ad_account_id=ad_account_id,
-            payload_json={
-                "date_range": {"since": period_since, "until": period_until},
-                "connection_source": resolved_connection_source,
-                "rows_returned": result.get("rows_returned"),
-                "saved": result.get("saved"),
-                "persisted_rows": result.get("persisted_rows"),
-                "persisted_modes": result.get("persisted_modes"),
-                "sources": result.get("sources"),
-            },
+        print(
+            "[ads_sync][lock_release_start] "
+            f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
         )
-        result["job_run_id"] = job_run["id"]
-        result["job_status"] = job_status
-    return result
+        await release_sync_lock(cid, lock_name)
+        print(
+            "[ads_sync][lock_release_complete] "
+            f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
+        )
+
 
 
 async def sync_ads_connection(

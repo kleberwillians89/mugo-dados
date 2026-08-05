@@ -17,6 +17,14 @@ def _clip(value: Any, size: int = 600) -> str:
     return f"{text[:size]}..."
 
 
+# Teto rígido de páginas por chamada paginada. Sem esse limite, uma conta
+# com volume incomum de linhas (ex.: nível "ad" com time_increment=1 em
+# janela larga) pode paginar indefinidamente, mantendo lock e job_run
+# abertos sem previsão de término. Valor provisório — reavaliar após
+# observar `pages=` real nos logs [ads_meta][insights] em produção.
+_MAX_INSIGHTS_PAGES = 200
+
+
 def normalize_ad_account_id(ad_account_id: str) -> str:
     raw = _safe_str(ad_account_id)
     if not raw:
@@ -97,6 +105,13 @@ async def fetch_ad_account_insights(
 
     while next_url:
         pages += 1
+        if pages > _MAX_INSIGHTS_PAGES:
+            print(
+                "[ads_meta][insights][page_limit_reached] "
+                f"ad_account_id={act_id} level={_safe_str(level) or '-'} "
+                f"pages={pages} max_pages={_MAX_INSIGHTS_PAGES} rows_so_far={len(rows)}"
+            )
+            break
         payload = await _meta_get(
             next_url,
             params=next_params,
