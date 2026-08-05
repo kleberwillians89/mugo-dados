@@ -416,52 +416,156 @@ async def api_activate_meta_organic(
     authorization: str | None = Header(default=None),
 ):
     user_id = await require_user_id(authorization)
-    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
-    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
-    prepared = await activate_meta_organic_assets(
-        user_id=user_id, client_id=cid, connection_id=authorization_connection_id,
-        page_id=str(payload.get("page_id") or ""),
-        instagram_id=str(payload.get("instagram_id") or ""),
+    cid = await require_client_role(
+        _pick_client_id(client_id, x_client_id),
+        authorization,
     )
-    organic_connection_id = str(prepared["organic_connection_id"])
+    request_id = str(
+        getattr(getattr(request, "state", None), "request_id", "") or "-"
+    )
+
+    prepared: Dict[str, Any] = {}
+    organic_connection_id = ""
+    stage = "assets_prepare"
+
     try:
+        print(
+            "[meta-organic-real] "
+            f"stage={stage} request_id={request_id} client_id={cid} "
+            f"authorization_connection_id={authorization_connection_id}"
+        )
+        prepared = await activate_meta_organic_assets(
+            user_id=user_id,
+            client_id=cid,
+            connection_id=authorization_connection_id,
+            page_id=str(payload.get("page_id") or ""),
+            instagram_id=str(payload.get("instagram_id") or ""),
+        )
+        if not isinstance(prepared, dict):
+            raise RuntimeError(
+                "A preparação da conexão orgânica retornou um resultado inválido."
+            )
+
+        organic_connection_id = str(
+            prepared.get("organic_connection_id") or ""
+        ).strip()
+        if not organic_connection_id:
+            raise RuntimeError(
+                "A conexão orgânica operacional não foi retornada."
+            )
+
+        stage = "sync_start"
+        print(
+            "[meta-organic-real] "
+            f"stage={stage} request_id={request_id} client_id={cid} "
+            f"organic_connection_id={organic_connection_id}"
+        )
         sync_result = await sync_instagram_connection(organic_connection_id)
+        if not isinstance(sync_result, dict):
+            raise RuntimeError(
+                "A sincronização do Instagram retornou "
+                f"{type(sync_result).__name__} em vez de dict."
+            )
+
         metrics_written = (
             int(sync_result.get("media_saved") or 0)
             + int(sync_result.get("comments_saved") or 0)
             + (1 if sync_result.get("snapshot_saved") else 0)
         )
         last_sync_at = datetime.now(timezone.utc).isoformat()
+        stage = "authorization_finalize"
+
         await finalize_meta_organic_activation(
-            client_id=cid, connection_id=authorization_connection_id,
-            organic_connection_id=organic_connection_id, succeeded=True,
-            code="OK", request_id=request_id, last_sync_at=last_sync_at,
+            client_id=cid,
+            connection_id=authorization_connection_id,
+            organic_connection_id=organic_connection_id,
+            succeeded=True,
+            code="OK",
+            request_id=request_id,
+            last_sync_at=last_sync_at,
         )
         print(
-            "[meta-organic][activation] "
-            f"stage=organic_activate_success request_id={request_id} client_id={cid} "
-            f"authorization_connection_id={authorization_connection_id} "
-            f"organic_connection_id={organic_connection_id} metrics_written={metrics_written}"
+            "[meta-organic-real] "
+            f"stage=complete request_id={request_id} client_id={cid} "
+            f"organic_connection_id={organic_connection_id} "
+            f"metrics_written={metrics_written}"
         )
         return {
-            "ok": True, **prepared, "status": "active",
-            "initial_sync": {**sync_result, "ok": True, "metrics_written": metrics_written},
-            "metrics_written": metrics_written, "last_sync_at": last_sync_at or None,
-            "code": "OK", "request_id": request_id,
+            "ok": True,
+            **prepared,
+            "status": "active",
+            "initial_sync": {
+                **sync_result,
+                "ok": True,
+                "metrics_written": metrics_written,
+            },
+            "metrics_written": metrics_written,
+            "last_sync_at": last_sync_at,
+            "code": "OK",
+            "request_id": request_id,
         }
+
     except Exception as exc:
-        code = str(getattr(exc, "code", "") or "META_GRAPH_UNAVAILABLE")
-        message = str(getattr(exc, "public_message", "") or "Ativos salvos, mas a primeira sincronização orgânica não foi concluída.")
-        await finalize_meta_organic_activation(
-            client_id=cid, connection_id=authorization_connection_id,
-            organic_connection_id=organic_connection_id, succeeded=False,
-            code=code, request_id=request_id,
+        import traceback
+
+        # Preserve explicit integration codes. Generic failures during the real
+        # Instagram sync keep the established META_GRAPH_UNAVAILABLE contract.
+        if getattr(exc, "code", None):
+            code = str(exc.code)
+        elif stage in {"sync_start", "authorization_finalize"}:
+            code = "META_GRAPH_UNAVAILABLE"
+        else:
+            code = "META_ORGANIC_ACTIVATION_FAILED"
+
+        message = str(
+            getattr(exc, "public_message", "")
+            or str(exc)
+            or "A ativação orgânica não foi concluída."
         )
+        print(
+            "[meta-organic-real] "
+            f"stage=error failed_stage={stage} request_id={request_id} "
+            f"client_id={cid} "
+            f"organic_connection_id={organic_connection_id or '-'} "
+            f"error_type={type(exc).__name__} error={message[:400]}"
+        )
+        traceback.print_exc()
+
+        if organic_connection_id:
+            try:
+                await finalize_meta_organic_activation(
+                    client_id=cid,
+                    connection_id=authorization_connection_id,
+                    organic_connection_id=organic_connection_id,
+                    succeeded=False,
+                    code=code,
+                    request_id=request_id,
+                )
+            except Exception as finalize_exc:
+                print(
+                    "[meta-organic-real] "
+                    f"stage=error_finalize_failed request_id={request_id} "
+                    f"error_type={type(finalize_exc).__name__} "
+                    f"error={str(finalize_exc)[:400]}"
+                )
+                traceback.print_exc()
+
         return {
-            "ok": False, **prepared, "status": "error",
-            "initial_sync": {"ok": False, "code": code, "message": message, "retryable": True},
-            "metrics_written": 0, "last_sync_at": None,
-            "code": code, "request_id": request_id,
+            "ok": False,
+            **prepared,
+            "organic_connection_id": organic_connection_id or None,
+            "status": "error",
+            "initial_sync": {
+                "ok": False,
+                "code": code,
+                "message": message[:500],
+                "retryable": True,
+            },
+            "metrics_written": 0,
+            "last_sync_at": None,
+            "code": code,
+            "failed_stage": stage,
+            "request_id": request_id,
         }
 
 
