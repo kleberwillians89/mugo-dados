@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlencode
@@ -118,16 +119,31 @@ def _sanitized_google_error(response: httpx.Response) -> Dict[str, Any]:
         payload = {}
     error = payload.get("error") if isinstance(payload, dict) and isinstance(payload.get("error"), dict) else {}
     details = error.get("details") if isinstance(error.get("details"), list) else []
-    reasons = sorted({
+    reasons = {
         str(item.get("reason") or item.get("reasonCode") or "").strip()
         for item in details
         if isinstance(item, dict) and str(item.get("reason") or item.get("reasonCode") or "").strip()
-    })
+    }
+    google_request_id = ""
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        google_request_id = google_request_id or str(detail.get("requestId") or "")[:100]
+        for ads_error in detail.get("errors") or []:
+            if not isinstance(ads_error, dict):
+                continue
+            error_code = ads_error.get("errorCode")
+            if isinstance(error_code, dict):
+                reasons.update(
+                    f"{key}:{value}" for key, value in error_code.items()
+                    if str(key).strip() and str(value).strip()
+                )
     return {
         "http_status": int(response.status_code or 0),
         "google_status": str(error.get("status") or "")[:80],
-        "reasons": reasons[:8],
+        "reasons": sorted(reasons)[:8],
         "message": str(error.get("message") or "")[:240],
+        "google_request_id": google_request_id or None,
     }
 
 
@@ -572,7 +588,9 @@ async def list_ga4_streams(
     ]
 
 
-async def list_google_ads_accounts(client_id: str, connection_id: str) -> Dict[str, Any]:
+async def list_google_ads_accounts(
+    client_id: str, connection_id: str, *, request_id: str = "-",
+) -> Dict[str, Any]:
     developer_token = _env("GOOGLE_ADS_DEVELOPER_TOKEN")
     if not developer_token:
         raise IntegrationError(
@@ -581,25 +599,95 @@ async def list_google_ads_accounts(client_id: str, connection_id: str) -> Dict[s
             code="GOOGLE_ADS_SETUP_REQUIRED",
             provider="google",
         )
-    token = await _access_token(client_id, connection_id, expected_provider="google_ads")
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "developer-token": developer_token,
-            },
+    api_version = _env("GOOGLE_ADS_API_VERSION") or "v25"
+    if not re.fullmatch(r"v\d+", api_version):
+        raise IntegrationError(
+            "A versão configurada da Google Ads API é inválida.", status_code=409,
+            code="GOOGLE_ADS_API_VERSION_INVALID", provider="google",
         )
+    resource = "/customers:listAccessibleCustomers"
+    url = f"https://googleads.googleapis.com/{api_version}{resource}"
+    token = await _access_token(
+        client_id, connection_id, expected_provider="google_ads", request_id=request_id,
+    )
+    print(
+        "[google_oauth][ads_accounts] "
+        f"request_id={request_id} connection_id={connection_id} client_id={client_id} "
+        f"stage=request api_version={api_version} resource={resource} "
+        f"developer_token_available=yes login_customer_id=not_required customer_id=not_required "
+        f"url={url} headers=Authorization:present,developer-token:present"
+    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            response = await client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "developer-token": developer_token,
+                },
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            print(
+                "[google_oauth][ads_accounts] "
+                f"request_id={request_id} connection_id={connection_id} client_id={client_id} "
+                f"stage=transport_error api_version={api_version} resource={resource} "
+                f"error_type={exc.__class__.__name__}"
+            )
+            raise IntegrationError(
+                "A Google Ads API está temporariamente indisponível.", status_code=503,
+                code="GOOGLE_ADS_API_UNAVAILABLE", provider="google", retryable=True,
+            ) from exc
     try:
         response.raise_for_status()
-    except Exception as exc:
-        raise from_httpx_error(
-            "google",
-            exc,
-            operation="listar contas Google Ads",
-        ) from exc
+    except httpx.HTTPStatusError as exc:
+        diagnostic = _sanitized_google_error(response)
+        google_request_id = str(
+            response.headers.get("request-id") or response.headers.get("google-ads-request-id")
+            or diagnostic.get("google_request_id") or ""
+        )[:100]
+        print(
+            "[google_oauth][ads_accounts] "
+            f"request_id={request_id} google_request_id={google_request_id or '-'} "
+            f"connection_id={connection_id} client_id={client_id} stage=response_error "
+            f"api_version={api_version} resource={resource} http_status={response.status_code} "
+            f"google_status={diagnostic['google_status'] or '-'} "
+            f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'} "
+            f"response_body={response.text}"
+        )
+        if response.status_code == 404:
+            raise IntegrationError(
+                "A versão configurada da Google Ads API não está disponível.", status_code=409,
+                code="GOOGLE_ADS_API_VERSION_UNAVAILABLE", provider="google",
+                diagnostics={
+                    "api_version": api_version, "resource": resource,
+                    "upstream_status": response.status_code,
+                    "upstream_reason": diagnostic["google_status"] or None,
+                    "google_request_id": google_request_id or None,
+                },
+            ) from exc
+        mapped = from_httpx_error("google", exc, operation="listar contas Google Ads")
+        mapped.diagnostics = {
+            "api_version": api_version, "resource": resource,
+            "upstream_status": response.status_code,
+            "upstream_reason": ",".join(diagnostic["reasons"]) or diagnostic["google_status"] or None,
+            "google_request_id": google_request_id or None,
+        }
+        raise mapped from exc
     accounts = [
         {"resource_name": item, "customer_id": str(item).split("/")[-1]}
         for item in response.json().get("resourceNames") or []
     ]
-    return {"available": True, "accounts": accounts}
+    google_request_id = str(
+        response.headers.get("request-id") or response.headers.get("google-ads-request-id") or ""
+    )[:100]
+    print(
+        "[google_oauth][ads_accounts] "
+        f"request_id={request_id} google_request_id={google_request_id or '-'} "
+        f"connection_id={connection_id} client_id={client_id} stage=complete "
+        f"api_version={api_version} resource={resource} http_status={response.status_code} "
+        f"accounts={len(accounts)} response_body={response.text}"
+    )
+    return {
+        "available": True, "accounts": accounts, "api_version": api_version,
+        "request_id": request_id, "google_request_id": google_request_id or None,
+    }

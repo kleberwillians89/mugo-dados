@@ -583,11 +583,26 @@ export default function Onboarding({
   }
 
   async function onSaveManualMetaAssets() {
-    if (!manualMetaConnectionId || !manualMetaValidation) return;
+    console.info("[meta-organic][temporary_diagnostic]", {
+      stage: "manual_save_clicked", selectedAuthorization: selectedMetaAuthorizationId,
+      manualMetaConnectionId, manualPageId, manualInstagramId, manualAdAccountId,
+      validationAvailable: Boolean(manualMetaValidation),
+    });
+    if (!manualMetaConnectionId || !manualMetaValidation) {
+      console.warn("[meta-organic][temporary_diagnostic]", {
+        stage: "manual_activate_not_called", condition: "connection_or_validation_missing",
+        manualMetaConnectionId, validationAvailable: Boolean(manualMetaValidation),
+      });
+      return;
+    }
     const connection = selectUsableMetaConnection(
       genericConnections, getActiveClientId(), manualMetaConnectionId
     );
     if (!connection) {
+      console.warn("[meta-organic][temporary_diagnostic]", {
+        stage: "manual_activate_not_called", condition: "selected_authorization_unusable",
+        selectedAuthorization: selectedMetaAuthorizationId, manualMetaConnectionId,
+      });
       setErr(`A conexão Meta selecionada não está ativa para ${getActiveClientName()}. Selecione ou reconecte a Meta.`);
       return;
     }
@@ -600,7 +615,12 @@ export default function Onboarding({
       manualAdAccountId.trim()
       && manualAdAccountId.replace(/^act_/, "") !== String(metadata.selected_ad_account_id || "").replace(/^act_/, "")
     );
-    if (replacing && !window.confirm("Substituir o ativo Meta atualmente selecionado para esta empresa?")) return;
+    if (replacing && !window.confirm("Substituir o ativo Meta atualmente selecionado para esta empresa?")) {
+      console.warn("[meta-organic][temporary_diagnostic]", {
+        stage: "manual_activate_not_called", condition: "replacement_cancelled",
+      });
+      return;
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -615,6 +635,11 @@ export default function Onboarding({
         await saveManualMetaAssets(connection.id, { ad_account_id: manualAdAccountId.trim() });
       }
       if (!manualPageId.trim() || !manualInstagramId.trim()) {
+        console.warn("[meta-organic][temporary_diagnostic]", {
+          stage: "manual_activate_not_called", condition: "manual_page_or_instagram_missing",
+          pagePresent: Boolean(manualPageId.trim()), instagramPresent: Boolean(manualInstagramId.trim()),
+          adAccountChanged,
+        });
         if (adAccountChanged) {
           await loadConnections();
           setManualMetaConnectionId(null);
@@ -628,7 +653,7 @@ export default function Onboarding({
       const result = await activateMetaOrganic(connection.id, {
         page_id: manualPageId.trim(), instagram_id: manualInstagramId.trim(),
       });
-      if (result.ok && result.initial_sync?.ok !== false && result.organic_connection_id) {
+      if (result.ok && result.initial_sync?.ok === true && result.organic_connection_id) {
         setActiveConnection(result.organic_connection_id);
         setActiveConnectionId(result.organic_connection_id);
       }
@@ -636,8 +661,8 @@ export default function Onboarding({
       const initialSync = result.initial_sync && typeof result.initial_sync === "object"
         ? result.initial_sync as Record<string, unknown>
         : null;
-      const initialSyncOk = initialSync?.ok !== false;
       const organicConnectionId = String(result.organic_connection_id || "");
+      const initialSyncOk = Boolean(result.ok && initialSync?.ok === true && organicConnectionId);
       setLastIntegrationDiagnostic((current) => ({
         ...current, initialSyncOk, organicConnectionId,
         code: String(result.code || ""), requestId: String(result.request_id || ""),
@@ -773,7 +798,14 @@ export default function Onboarding({
   }
 
   async function onLinkSelectedAssets() {
+    console.info("[meta-organic][temporary_diagnostic]", {
+      stage: "link_button_handler_entered", selectedAuthorization: selectedMetaAuthorizationId,
+      selectedPages, selectedInstagram: selectedIg,
+      manualIds: { pageId: manualPageId, instagramId: manualInstagramId, adAccountId: manualAdAccountId },
+      handoffAvailable: Boolean(pendingAssets?.handoff),
+    });
     if (!pendingAssets?.handoff) {
+      console.warn("[meta-organic][temporary_diagnostic]", { stage: "blocked", condition: "missing_handoff" });
       setErr("Sessao OAuth invalida. Conecte novamente.");
       return;
     }
@@ -794,6 +826,11 @@ export default function Onboarding({
 
     try {
       if (instagramIds.length && (!selectedMetaAuthorizationId || instagramIds.length !== 1 || pageIds.length !== 1)) {
+        console.warn("[meta-organic][temporary_diagnostic]", {
+          stage: "blocked", condition: "explicit_selection_guard",
+          selectedAuthorization: selectedMetaAuthorizationId,
+          pageCount: pageIds.length, instagramCount: instagramIds.length,
+        });
         setErr("Selecione explicitamente uma autorização, uma Página e um Instagram para concluir o orgânico.");
         return;
       }
@@ -804,23 +841,34 @@ export default function Onboarding({
         ad_account_ids: adAccountIds,
       });
       if (instagramIds.length === 1 && pageIds.length === 1) {
+        console.info("[meta-organic][temporary_diagnostic]", {
+          stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId,
+          selectedPage: pageIds[0], selectedInstagram: instagramIds[0],
+          payload: { page_id: pageIds[0], instagram_id: instagramIds[0] },
+        });
         const activation = await activateMetaOrganic(selectedMetaAuthorizationId, {
           page_id: pageIds[0], instagram_id: instagramIds[0],
         });
         setLastIntegrationDiagnostic((current) => ({
           ...current,
-          initialSyncOk: activation?.initial_sync?.ok !== false,
+          initialSyncOk: Boolean(activation?.ok && activation?.initial_sync?.ok === true && activation?.organic_connection_id),
           organicConnectionId: activation?.organic_connection_id || "",
           code: activation?.code || "",
           requestId: activation?.request_id || "",
         }));
-        if (!activation.ok || activation.initial_sync?.ok === false) {
+        if (!activation.ok || activation.initial_sync?.ok !== true || !activation.organic_connection_id) {
           await loadConnections();
           setErr(`Os ativos foram salvos, mas a sincronização orgânica falhou. Código: ${activation.code}.${activation.request_id ? ` Request ID: ${activation.request_id}.` : ""}`);
           return;
         }
         setActiveConnection(activation.organic_connection_id);
         setActiveConnectionId(activation.organic_connection_id);
+      } else {
+        console.warn("[meta-organic][temporary_diagnostic]", {
+          stage: "organic_activate_not_called", condition: "selection_count_not_exactly_one",
+          selectedAuthorization: selectedMetaAuthorizationId,
+          pageCount: pageIds.length, instagramCount: instagramIds.length,
+        });
       }
       setPendingAssets(null);
       setSelectedIg({});
@@ -1644,7 +1692,10 @@ export default function Onboarding({
             </div>
 
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
-              <button className="btn btnPrimary" type="button" onClick={() => void onLinkSelectedAssets()} disabled={saving}>
+              <button className="btn btnPrimary" type="button" onClick={() => {
+                console.info("[meta-organic][temporary_diagnostic]", { stage: "link_button_onclick", disabled: saving });
+                void onLinkSelectedAssets();
+              }} disabled={saving}>
                 {saving ? "Salvando e importando..." : "Salvar conexão e importar dados"}
               </button>
               <button

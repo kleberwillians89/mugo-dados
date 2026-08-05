@@ -1,8 +1,10 @@
 import hashlib
 import hmac
+import io
 import os
 import unittest
 import httpx
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -744,6 +746,60 @@ class GoogleAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                 await google_oauth.list_google_ads_accounts("amalie", "connection-1")
         self.assertEqual(raised.exception.code, "GOOGLE_ADS_SETUP_REQUIRED")
         self.assertEqual(raised.exception.status_code, 409)
+
+    async def test_ads_accounts_uses_supported_version_without_customer_headers(self):
+        response = httpx.Response(
+            200,
+            request=httpx.Request("GET", "https://googleads.googleapis.com/v25/customers:listAccessibleCustomers"),
+            headers={"request-id": "google-req-1"},
+            json={"resourceNames": ["customers/1234567890"]},
+        )
+
+        class FakeClient:
+            def __init__(self): self.url = ""; self.headers = {}
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return None
+            async def get(self, url, *, headers):
+                self.url, self.headers = url, headers
+                return response
+
+        fake = FakeClient()
+        with (
+            patch.dict(os.environ, {"GOOGLE_ADS_DEVELOPER_TOKEN": "developer-safe", "GOOGLE_ADS_API_VERSION": "v25"}),
+            patch.object(google_oauth, "_access_token", AsyncMock(return_value="access-secret")),
+            patch.object(google_oauth.httpx, "AsyncClient", return_value=fake),
+        ):
+            result = await google_oauth.list_google_ads_accounts("amalie", "ads-1", request_id="req-local")
+        self.assertEqual(fake.url, "https://googleads.googleapis.com/v25/customers:listAccessibleCustomers")
+        self.assertNotIn("login-customer-id", fake.headers)
+        self.assertEqual(result["accounts"][0]["customer_id"], "1234567890")
+        self.assertEqual(result["google_request_id"], "google-req-1")
+
+    async def test_ads_accounts_maps_sunset_endpoint_404_without_exposing_credentials(self):
+        response = httpx.Response(
+            404,
+            request=httpx.Request("GET", "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers"),
+            headers={"request-id": "google-req-404"},
+            json={"error": {"status": "NOT_FOUND", "message": "Requested entity was not found."}},
+        )
+
+        class FakeClient:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return None
+            async def get(self, *args, **kwargs): return response
+
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"GOOGLE_ADS_DEVELOPER_TOKEN": "developer-secret", "GOOGLE_ADS_API_VERSION": "v19"}),
+            patch.object(google_oauth, "_access_token", AsyncMock(return_value="access-secret")),
+            patch.object(google_oauth.httpx, "AsyncClient", return_value=FakeClient()),
+            redirect_stdout(output),
+        ):
+            with self.assertRaises(google_oauth.IntegrationError) as raised:
+                await google_oauth.list_google_ads_accounts("amalie", "ads-1", request_id="req-local")
+        self.assertEqual(raised.exception.code, "GOOGLE_ADS_API_VERSION_UNAVAILABLE")
+        self.assertNotIn("developer-secret", output.getvalue())
+        self.assertNotIn("access-secret", output.getvalue())
 
 
 class GenericDisconnectTests(unittest.IsolatedAsyncioTestCase):

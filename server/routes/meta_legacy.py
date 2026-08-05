@@ -366,6 +366,7 @@ async def api_validate_manual_meta_assets(
 async def api_save_manual_meta_assets(
     connection_id: str,
     payload: Dict[str, Any],
+    request: Request = None,
     client_id: str | None = None,
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -390,6 +391,18 @@ async def api_save_manual_meta_assets(
                 "retryable": True,
             }
             result["initial_sync_error_type"] = exc.__class__.__name__
+    elif str(payload.get("page_id") or "").strip() or str(payload.get("instagram_id") or "").strip():
+        request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-") if request else "-"
+        result.update({
+            "ok": False,
+            "initial_sync": {
+                "ok": False, "code": "META_ORGANIC_ASSETS_REQUIRED",
+                "message": "Selecione uma Página e o Instagram profissional vinculado.",
+                "retryable": False,
+            },
+            "code": "META_ORGANIC_ASSETS_REQUIRED",
+            "request_id": request_id,
+        })
     return result
 
 

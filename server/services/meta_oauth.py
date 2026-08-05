@@ -709,7 +709,7 @@ async def validate_manual_meta_assets(
         try:
             payload = await _meta_get(
                 f"/{normalized_page}", {
-                    "fields": "id,name,instagram_business_account{id,username}",
+                    "fields": "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}",
                     "access_token": access_token,
                 },
             )
@@ -721,6 +721,7 @@ async def validate_manual_meta_assets(
             "id": _safe_str(payload.get("id")),
             "name": _safe_str(payload.get("name")),
             "instagram_business_account": _json_object(payload.get("instagram_business_account")),
+            "connected_instagram_account": _json_object(payload.get("connected_instagram_account")),
         }
         if page["id"] != normalized_page:
             raise IntegrationError(
@@ -752,16 +753,24 @@ async def validate_manual_meta_assets(
 
     effective_page = normalized_page or _safe_str(previous.get("selected_page_id"))
     if normalized_instagram and effective_page:
-        linked_id = _safe_str((_json_object(page.get("instagram_business_account")) if page else {}).get("id"))
+        linked = (
+            _json_object(page.get("instagram_business_account"))
+            or _json_object(page.get("connected_instagram_account"))
+        ) if page else {}
+        linked_id = _safe_str(linked.get("id"))
         if not page:
             try:
                 page_payload = await _meta_get(
                     f"/{effective_page}", {
-                        "fields": "id,name,instagram_business_account{id,username}",
+                        "fields": "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}",
                         "access_token": access_token,
                     },
                 )
-                linked_id = _safe_str(_json_object(page_payload.get("instagram_business_account")).get("id"))
+                linked = (
+                    _json_object(page_payload.get("instagram_business_account"))
+                    or _json_object(page_payload.get("connected_instagram_account"))
+                )
+                linked_id = _safe_str(linked.get("id"))
             except MetaApiError as exc:
                 raise _manual_meta_api_error(
                     exc, code="META_MANUAL_PAGE_INVALID", label="Facebook Page",
@@ -1000,6 +1009,19 @@ async def activate_meta_organic_assets(
     if not organic_connection_id:
         raise IntegrationError(
             "A conexão orgânica não pôde ser persistida.",
+            status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+        )
+    persisted = await sb_select(
+        "meta_connections",
+        filters={
+            "id": f"eq.{organic_connection_id}", "client_id": f"eq.{client_id}",
+            "platform": "eq.instagram", "connection_type": "eq.organic",
+        },
+        limit=2,
+    )
+    if len(persisted) != 1 or _safe_str(persisted[0].get("ig_user_id")) != selected_instagram_id:
+        raise IntegrationError(
+            "A projeção orgânica não foi confirmada após a persistência.",
             status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
         )
 
@@ -1362,6 +1384,11 @@ async def save_connections(
             saved_conn = {**active_organic_rows[0], **row, "id": organic_id}
         else:
             saved_conn = await _save_connection_row(row)
+        if not _safe_str(saved_conn.get("id")):
+            raise IntegrationError(
+                "A projeção orgânica não retornou um identificador operacional.",
+                status_code=409, code="META_CONNECTION_DRIFT", provider="meta",
+            )
         saved.append(
             {
                 "id": _safe_str(saved_conn.get("id")),
@@ -1514,6 +1541,10 @@ async def save_connections(
         "client_id": client_id,
         "saved_count": len(saved),
         "connections": saved,
+        "organic_connection_id": next(
+            (_safe_str(row.get("id")) for row in saved if row.get("platform") == "instagram"),
+            "",
+        ) or None,
         "integration_connection": generic_connection,
     }
 

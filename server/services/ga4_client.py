@@ -211,11 +211,35 @@ async def run_ga4_report(
                 order_bys=order_bys,
             )
             response: httpx.Response | None = None
+            print(
+                "[ga4_client][temporary_request] "
+                f"method=POST endpoint={url} querystring=- property_id={resolved_property_id} "
+                f"body={json.dumps(body, ensure_ascii=False, sort_keys=True)}"
+            )
             try:
                 response = await client.post(url, headers=headers, json=body)
                 response.raise_for_status()
             except Exception as exc:
                 if response is not None:
+                    try:
+                        error_payload = response.json()
+                    except (TypeError, ValueError):
+                        error_payload = {}
+                    error = error_payload.get("error") if isinstance(error_payload, dict) else {}
+                    error = error if isinstance(error, dict) else {}
+                    google_request_id = str(
+                        response.headers.get("request-id")
+                        or response.headers.get("x-request-id")
+                        or ""
+                    )
+                    print(
+                        "[ga4_client][temporary_response_error] "
+                        f"endpoint={url} querystring={response.request.url.query.decode() if isinstance(response.request.url.query, bytes) else response.request.url.query or '-'} "
+                        f"property_id={resolved_property_id} http_status={response.status_code} "
+                        f"response_body={response.text} error.code={error.get('code')} "
+                        f"error.message={error.get('message')} error.status={error.get('status')} "
+                        f"google_request_id={google_request_id or '-'}"
+                    )
                     raise google_api_error(
                         response, api="Analytics Data API",
                         unavailable_code="GOOGLE_PROPERTY_UNAVAILABLE",

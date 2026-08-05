@@ -212,6 +212,29 @@ describe("Onboarding integration actions", () => {
     expect(container.textContent).toContain("META_GRAPH_UNAVAILABLE");
   });
 
+  it("does not report organic success when the operational connection id is missing", async () => {
+    mocks.mode = "meta";
+    mocks.activateMeta.mockResolvedValueOnce({
+      ok: true, organic_connection_id: "", initial_sync: { ok: true }, code: "OK", request_id: "req-empty",
+    });
+    await renderOnboarding();
+    await selectAuthorization("meta-generic");
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const inputs = [...container.querySelectorAll("section.onboardingFinalizeCard input")];
+    await act(async () => {
+      changeInput(inputs[0] as HTMLInputElement, "123456789");
+      changeInput(inputs[1] as HTMLInputElement, "178414000000001");
+    });
+    const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
+    await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(container.textContent).toContain("Configuração avançada por ID");
+    expect(container.textContent).toContain("sincronização inicial falhou");
+    expect(container.textContent).not.toContain("Instagram orgânico configurado");
+  });
+
   it("removes a persisted disconnected Google Ads id without requesting accounts", async () => {
     mocks.mode = "google_ads";
     mocks.selectedConnections.google_ads = "ads-old";

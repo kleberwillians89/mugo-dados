@@ -78,6 +78,23 @@ class GoogleProductIsolationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MetaOrganicActivationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_validation_accepts_connected_instagram_account_link(self):
+        with (
+            patch.object(meta_oauth, "_manual_meta_connection", AsyncMock(return_value=({}, "safe-token", {}))),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=[
+                {
+                    "id": "123", "name": "Amalie",
+                    "connected_instagram_account": {"id": "999", "username": "amalie"},
+                },
+                {"id": "999", "username": "amalie", "name": "Amalie"},
+            ])),
+        ):
+            result = await meta_oauth.validate_manual_meta_assets(
+                client_id="amalie", connection_id="meta-auth",
+                page_id="123", instagram_id="999",
+            )
+        self.assertEqual(result["instagram"]["id"], "999")
+
     async def test_activation_updates_one_projection_and_preserves_ads_metadata(self):
         authorization = {
             "id": "meta-auth", "client_id": "amalie", "provider": "meta",
@@ -94,10 +111,14 @@ class MetaOrganicActivationTests(unittest.IsolatedAsyncioTestCase):
                 "page": {"id": "page-1", "name": "Amalie"},
                 "instagram": {"id": "ig-1", "username": "amalie"},
             })),
-            patch.object(meta_oauth, "sb_select", AsyncMock(return_value=[{
+            patch.object(meta_oauth, "sb_select", AsyncMock(side_effect=[[{
                 "id": "organic-1", "client_id": "amalie", "platform": "instagram",
                 "connection_type": "organic", "status": "error", "is_active": True,
-            }])),
+            }], [{
+                "id": "organic-1", "client_id": "amalie", "platform": "instagram",
+                "connection_type": "organic", "status": "pending", "is_active": True,
+                "ig_user_id": "ig-1",
+            }]])),
             patch.object(meta_oauth, "sb_update", updates),
             patch.object(meta_oauth, "sb_insert", AsyncMock()) as insert,
             patch.object(meta_oauth, "audit_connection", AsyncMock()),

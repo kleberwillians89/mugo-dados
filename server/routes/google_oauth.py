@@ -291,6 +291,7 @@ async def ga4_streams(
 @router.get("/{connection_id}/ads/accounts")
 async def ads_accounts(
     connection_id: str,
+    request: Request = None,
     client_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -304,7 +305,8 @@ async def ads_accounts(
             code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
-    return {"ok": True, **(await list_google_ads_accounts(cid, connection_id))}
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    return {"ok": True, **(await list_google_ads_accounts(cid, connection_id, request_id=request_id))}
 
 
 @router.post("/{connection_id}/ads/select")
@@ -367,6 +369,7 @@ async def disconnect(
 @router.post("/{connection_id}/sync")
 async def sync(
     connection_id: str,
+    request: Request = None,
     days: int = Query(default=30, ge=1, le=366),
     client_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
@@ -383,6 +386,16 @@ async def sync(
         )
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     property_id = str(metadata.get("ga4_property_id") or "")
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    print(
+        "[google_sync][temporary_diagnostic] "
+        f"request_id={request_id} connection_id={connection_id} client_id={cid} "
+        f"property_id={property_id or '-'} stream_id={str(metadata.get('ga4_stream_id') or '-') } "
+        f"customer_id={str(metadata.get('google_ads_customer_id') or '-')} "
+        f"login_customer_id={str(metadata.get('google_ads_login_customer_id') or '-')} "
+        f"developer_token_present={'yes' if os.getenv('GOOGLE_ADS_DEVELOPER_TOKEN') else 'no'} "
+        f"days={days}"
+    )
     if not property_id:
         raise HTTPException(status_code=409, detail="Selecione uma propriedade GA4 antes da sincronização.")
     access_token = await get_google_access_token(cid, connection_id)
