@@ -42,8 +42,8 @@ vi.mock("../app/connectionState", () => ({
 vi.mock("../app/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../app/api")>();
   const metaConnection = {
-    id: "meta-generic", client_id: "amalie", provider: "meta", status: "selection_required",
-    token_available: true, disconnected_at: null, metadata: { selected_ad_account_id: "act_1", oauth_handoff: "handoff-1" },
+    id: "meta-generic", client_id: "amalie", provider: "meta", status: "connected",
+    token_available: true, disconnected_at: null, metadata: { selected_ad_account_id: "act_1" },
   };
   const disconnectedMetaConnection = {
     ...metaConnection, id: "meta-old", status: "disconnected", disconnected_at: "2026-08-01T00:00:00Z",
@@ -67,16 +67,6 @@ vi.mock("../app/api", async (importOriginal) => {
       ...(mocks.organicConfigured ? [{ id: "organic-1", platform: "instagram", connection_type: "organic", status: "active", ig_user_id: "178414000000001" }] : []),
     ] : [] })),
     listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: mocks.mode === "meta" ? [disconnectedMetaConnection, metaConnection] : mocks.mode === "google_ads" ? [disconnectedAdsConnection, ga4Connection] : [ga4Connection] })),
-    discoverClientMetaAssets: vi.fn(async (handoff: string) => ({
-      ok: true,
-      handoff,
-      client_id: "amalie",
-      meta_user: { id: "meta-user" },
-      pages: [{ page_id: "page-amalie", page_name: "Amalie Page" }],
-      instagram_accounts: [{ ig_user_id: "instagram-amalie", username: "amalie", business_id: "page-amalie", business_name: "Amalie" }],
-      ad_accounts: [],
-      scopes: [],
-    })),
     listGoogleGa4Properties: mocks.listProperties,
     listGoogleGa4Streams: mocks.listStreams,
     selectGoogleGa4Property: mocks.selectGa4,
@@ -281,30 +271,6 @@ describe("Onboarding integration actions", () => {
     await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(mocks.activateMeta).not.toHaveBeenCalled();
     expect(container.textContent).toContain("META_ORGANIC_ASSETS_REQUIRED");
-  });
-
-  it("automatic OAuth flow activates with discovered assets", async () => {
-    mocks.mode = "meta";
-    await renderOnboarding();
-    await selectAuthorization("meta-generic");
-    const selectAssets = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar ativos"));
-    expect(selectAssets).toBeTruthy();
-    await act(async () => selectAssets?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    // After loading pending assets, check the discovered page and instagram checkboxes
-    const pageCheckbox = [...container.querySelectorAll("label.onboardingCheck input")].find((input) => (input.nextSibling as Element)?.textContent?.includes("Amalie Page"));
-    const igCheckbox = [...container.querySelectorAll("label.onboardingCheck input")].find((input) => (input.nextSibling as Element)?.textContent?.includes("@amalie"));
-    expect(pageCheckbox).toBeTruthy();
-    expect(igCheckbox).toBeTruthy();
-    await act(async () => (pageCheckbox as HTMLInputElement).dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await act(async () => (igCheckbox as HTMLInputElement).dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    const saveAuto = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Salvar conexão e importar dados"));
-    expect(saveAuto).toBeTruthy();
-    await act(async () => saveAuto?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    expect(mocks.activateMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({ page_id: "page-amalie", instagram_id: "instagram-amalie" }));
-    expect(container.textContent).toContain("Meta conectada");
   });
 
   it("removes a persisted disconnected Google Ads id without requesting accounts", async () => {

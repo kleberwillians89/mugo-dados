@@ -219,104 +219,6 @@ export default function Onboarding({
     setSelectedAds({});
   }, []);
 
-  // Helpers to normalize selected assets into a single ID or null.
-  function getSingleSelectedPageId(selection: unknown): string | null {
-    // support Record<string, boolean>, Set<string>, string[], Map<string, boolean>
-    if (!selection) return null;
-    if (selection instanceof Set) {
-      if (selection.size !== 1) return null;
-      return Array.from(selection)[0] || null;
-    }
-    if (Array.isArray(selection)) {
-      if (selection.length !== 1) return null;
-      return String(selection[0] || "") || null;
-    }
-    if (selection instanceof Map) {
-      const keys = Array.from(selection.keys()).filter((k) => Boolean(selection.get(k)));
-      return keys.length === 1 ? String(keys[0]) : null;
-    }
-    if (typeof selection === "object") {
-      try {
-        const entries = Object.entries(selection as Record<string, unknown>);
-        const keys = entries.filter(([, v]) => Boolean(v)).map(([k]) => k);
-        return keys.length === 1 ? String(keys[0]) : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  function getSingleSelectedInstagramId(selection: unknown): string | null {
-    return getSingleSelectedPageId(selection);
-  }
-
-  // Automatic activation for assets discovered via OAuth handoff.
-  async function activateDiscoveredMetaOrganic() {
-    console.info("[meta-organic][temporary_diagnostic]", { stage: "auto_activate_clicked", selectedAuthorization: selectedMetaAuthorizationId });
-    if (!pendingAssets?.handoff) {
-      console.warn("[meta-organic][temporary_diagnostic]", { stage: "blocked", condition: "missing_handoff" });
-      setErr("Sessao OAuth invalida. Conecte novamente.");
-      return;
-    }
-
-    const selectedPageId = getSingleSelectedPageId(selectedPages);
-    const selectedInstagramId = getSingleSelectedInstagramId(selectedIg);
-
-    if (!selectedMetaAuthorizationId || !selectedPageId || !selectedInstagramId) {
-      console.warn("[meta-organic][temporary_diagnostic]", {
-        stage: "auto_activate_not_called",
-        condition: "assets_or_authorization_missing",
-        selectedMetaAuthorizationId,
-        pagePresent: Boolean(selectedPageId),
-        instagramPresent: Boolean(selectedInstagramId),
-      });
-      setErr("META_ORGANIC_ASSETS_REQUIRED: selecione uma Página e o Instagram profissional vinculado.");
-      return;
-    }
-
-    setSaving(true);
-    setErr(null);
-    setInfo(null);
-    try {
-      // persist the selection server-side
-      const pageIds = selectedPageId ? [selectedPageId] : [];
-      const instagramIds = selectedInstagramId ? [selectedInstagramId] : [];
-      const adAccountIds = Object.entries(selectedAds).filter(([, v]) => Boolean(v)).map(([k]) => k);
-      await linkClientAssets({ handoff: pendingAssets.handoff, page_ids: pageIds, instagram_ig_user_ids: instagramIds, ad_account_ids: adAccountIds });
-
-      console.info("[meta-organic][temporary_diagnostic]", { stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId, selectedPage: selectedPageId, selectedInstagram: selectedInstagramId, payload: { page_id: selectedPageId, instagram_id: selectedInstagramId } });
-      const activation = await activateMetaOrganic(selectedMetaAuthorizationId, { page_id: selectedPageId, instagram_id: selectedInstagramId });
-
-      setLastIntegrationDiagnostic((current) => ({
-        ...current,
-        initialSyncOk: Boolean(activation?.ok && activation?.initial_sync?.ok === true && activation?.organic_connection_id),
-        organicConnectionId: activation?.organic_connection_id || "",
-        code: activation?.code || "",
-        requestId: activation?.request_id || "",
-      }));
-
-      if (!activation.ok || activation.initial_sync?.ok !== true || !activation.organic_connection_id) {
-        await loadConnections();
-        setErr(`Os ativos foram salvos, mas a sincronização orgânica falhou. Código: ${activation.code}.${activation.request_id ? ` Request ID: ${activation.request_id}.` : ""}`);
-        return;
-      }
-
-      setActiveConnection(activation.organic_connection_id);
-      setActiveConnectionId(activation.organic_connection_id);
-      setPendingAssets(null);
-      setSelectedIg({});
-      setSelectedPages({});
-      setSelectedAds({});
-      await loadConnections();
-      setInfo("Meta conectada. Ativos persistidos e importação inicial concluída.");
-    } catch (error: unknown) {
-      setErr(errorMessage(error, "Erro ao vincular os ativos do cliente ativo."));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const loadConnections = useCallback(async () => {
     const [response, genericResponse] = await Promise.all([
       listClientConnections(),
@@ -1804,7 +1706,7 @@ export default function Onboarding({
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" onClick={() => {
                 console.info("[meta-organic][temporary_diagnostic]", { stage: "link_button_onclick", disabled: saving });
-                void activateDiscoveredMetaOrganic();
+                void onLinkSelectedAssets();
               }} disabled={saving}>
                 {saving ? "Salvando e importando..." : "Salvar conexão e importar dados"}
               </button>
