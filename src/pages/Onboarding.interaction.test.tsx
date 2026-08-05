@@ -192,6 +192,25 @@ describe("Onboarding integration actions", () => {
     expect(container.textContent).toContain("Instagram orgânico configurado");
   });
 
+  it("uses validated IDs when raw manual fields are empty", async () => {
+    mocks.mode = "meta";
+    // make validate return the validated IDs we expect
+    mocks.validateMeta.mockResolvedValueOnce({ ok: true, page: { id: "page-amalie", name: "Amalie" }, instagram: { id: "instagram-amalie", username: "amalie" }, ad_account: null });
+    await renderOnboarding();
+    await selectAuthorization("meta-generic");
+    const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Configuração avançada por ID"));
+    await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    // leave inputs empty (simulate manualPageId/manualInstagramId empty)
+    const validate = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Validar IDs"));
+    await act(async () => validate?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar ativos");
+    await act(async () => save?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    expect(mocks.activateMeta).toHaveBeenCalledWith("meta-generic", expect.objectContaining({ page_id: "page-amalie", instagram_id: "instagram-amalie" }));
+  });
+
   it("keeps the Meta form open when initial sync fails", async () => {
     mocks.mode = "meta";
     mocks.activateMeta.mockResolvedValueOnce({ ok: false, organic_connection_id: "organic-1", initial_sync: { ok: false, code: "META_GRAPH_UNAVAILABLE" }, code: "META_GRAPH_UNAVAILABLE", request_id: "req-fail" });

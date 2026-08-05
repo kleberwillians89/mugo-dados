@@ -583,17 +583,17 @@ export default function Onboarding({
   }
 
   async function onSaveManualMetaAssets() {
-    const selectedPageId = String(manualMetaValidation?.page?.id || manualPageId || "").trim();
-    const selectedInstagramId = String(manualMetaValidation?.instagram?.id || manualInstagramId || "").trim();
+    const validatedPageId = String(manualMetaValidation?.page?.id || (manualPageId || "")).trim();
+    const validatedInstagramId = String(manualMetaValidation?.instagram?.id || (manualInstagramId || "")).trim();
     const activeClientId = getActiveClientId();
     console.info("[meta-organic][temporary_diagnostic]", {
       stage: "manual_save_clicked", selectedAuthorization: selectedMetaAuthorizationId,
       manualMetaConnectionId, manualPageId, manualInstagramId, manualAdAccountId,
       validationAvailable: Boolean(manualMetaValidation),
     });
-    if (!selectedMetaAuthorizationId || !manualMetaValidation) {
+    if (!selectedMetaAuthorizationId) {
       console.warn("[meta-organic][temporary_diagnostic]", {
-        stage: "manual_activate_not_called", condition: "connection_or_validation_missing",
+        stage: "manual_activate_not_called", condition: "connection_missing",
         selectedMetaAuthorizationId, validationAvailable: Boolean(manualMetaValidation),
       });
       return;
@@ -637,10 +637,10 @@ export default function Onboarding({
       if (adAccountChanged) {
         await saveManualMetaAssets(connection.id, { ad_account_id: manualAdAccountId.trim() });
       }
-      if (!selectedPageId || !selectedInstagramId) {
+      if (!validatedPageId || !validatedInstagramId) {
         console.warn("[meta-organic][temporary_diagnostic]", {
           stage: "manual_activate_not_called", condition: "manual_page_or_instagram_missing",
-          pagePresent: Boolean(selectedPageId), instagramPresent: Boolean(selectedInstagramId),
+          pagePresent: Boolean(validatedPageId), instagramPresent: Boolean(validatedInstagramId),
           adAccountChanged,
         });
         if (adAccountChanged) {
@@ -655,11 +655,11 @@ export default function Onboarding({
       }
       console.info("[meta-organic][temporary_diagnostic]", {
         stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId,
-        selectedPage: selectedPageId, selectedInstagram: selectedInstagramId, activeClientId,
-        payload: { page_id: selectedPageId, instagram_id: selectedInstagramId },
+        selectedPage: validatedPageId, selectedInstagram: validatedInstagramId, activeClientId,
+        payload: { page_id: validatedPageId, instagram_id: validatedInstagramId },
       });
       const result = await activateMetaOrganic(selectedMetaAuthorizationId, {
-        page_id: selectedPageId, instagram_id: selectedInstagramId,
+        page_id: validatedPageId, instagram_id: validatedInstagramId,
       });
       if (result.ok && result.initial_sync?.ok === true && result.organic_connection_id) {
         setActiveConnection(result.organic_connection_id);
