@@ -159,6 +159,14 @@ async def _replace_period_rows(
     table: str,
     rows: List[Dict[str, Any]],
 ) -> None:
+    """
+    Fallback usado somente quando o upsert falha por ausência da constraint
+    única esperada (schema drift). Insere o lote novo ANTES de apagar as
+    linhas antigas do período — nunca o contrário — para que uma falha
+    entre as duas chamadas (sem transação entre elas) nunca deixe a tabela
+    sem nenhuma linha para o período: na pior hipótese sobra uma duplicata
+    temporária, nunca perda de dado.
+    """
     filters = _replace_period_filters(rows)
     print(
         "[ga4_sync][replace_period] "
@@ -166,9 +174,11 @@ async def _replace_period_rows(
         f"rows={len(rows)} "
         f"filters={_serialize_payload_log(filters)}"
     )
-    if filters:
-        await sb_delete(table, filters=filters, returning="minimal")
+    cutoff_iso = datetime.now(timezone.utc).isoformat()
     await sb_insert_many(table, rows, returning="minimal")
+    if filters:
+        stale_filters = {**filters, "created_at": f"lt.{cutoff_iso}"}
+        await sb_delete(table, filters=stale_filters, returning="minimal")
 
 
 async def _upsert_with_compatibility(

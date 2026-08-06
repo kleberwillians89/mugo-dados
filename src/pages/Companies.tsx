@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   createClientInvitation,
@@ -7,6 +7,8 @@ import {
   updatePlatformCompany,
   type PlatformCompany,
 } from "../app/api";
+import Modal from "../components/Modal";
+import StatusBadge from "../components/StatusBadge";
 import "../styles/companies.css";
 
 type Props = {
@@ -15,14 +17,19 @@ type Props = {
   onOpenDashboard: () => void;
 };
 
+const EMPTY_COMPANY_FORM = { name: "", trade_name: "", cnpj: "", responsible_email: "" };
+
 export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: Props) {
   const [companies, setCompanies] = useState<PlatformCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: "", trade_name: "", cnpj: "", responsible_email: "",
-  });
+  const [search, setSearch] = useState("");
+
+  const [companyModalOpen, setCompanyModalOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_COMPANY_FORM);
+
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [invite, setInvite] = useState({
     client_id: "",
     email: "",
@@ -44,15 +51,34 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
 
   useEffect(() => { void load(); }, [load]);
 
+  const filteredCompanies = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return companies;
+    return companies.filter((company) =>
+      String(company.trade_name || "").toLowerCase().includes(needle) ||
+      String(company.name || "").toLowerCase().includes(needle) ||
+      String(company.responsible_email || "").toLowerCase().includes(needle)
+    );
+  }, [companies, search]);
+
+  const summary = useMemo(() => ({
+    total: companies.length,
+    active: companies.filter((c) => c.status !== "inactive").length,
+    pendingInvites: companies.filter((c) => c.invitation_status === "pending" || !c.invitation_status).length,
+  }), [companies]);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
     setError("");
     try {
       await createPlatformCompany(form);
-      setForm({ name: "", trade_name: "", cnpj: "", responsible_email: "" });
+      setForm(EMPTY_COMPANY_FORM);
+      setCompanyModalOpen(false);
       await load();
     } catch (cause) {
+      // Fecha somente em sucesso — em erro, o modal e o formulário
+      // preenchido permanecem para o usuário corrigir sem redigitar.
       setError(cause instanceof Error ? cause.message : "Não foi possível criar a empresa.");
     } finally {
       setSaving(false);
@@ -79,6 +105,7 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
     try {
       await createClientInvitation(invite);
       setInvite((current) => ({ ...current, email: "" }));
+      setInviteModalOpen(false);
       setInviteMessage("Convite enviado com segurança.");
       await load();
     } catch (cause) {
@@ -102,8 +129,70 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
         </div>
       </header>
 
+      <div className="companiesSummaryRow">
+        <div className="companiesSummaryCard"><span>Empresas</span><strong>{summary.total}</strong></div>
+        <div className="companiesSummaryCard"><span>Ativas</span><strong>{summary.active}</strong></div>
+        <div className="companiesSummaryCard"><span>Convites pendentes</span><strong>{summary.pendingInvites}</strong></div>
+      </div>
+
       <section className="companiesCard">
-        <h2>Nova empresa</h2>
+        <div className="companiesListTitle">
+          <h2>Empresas cadastradas</h2>
+          <div className="companiesActions">
+            <button className="btn" onClick={() => void load()} disabled={loading}>Atualizar</button>
+            <button className="btn" onClick={() => { setInviteMessage(""); setInviteModalOpen(true); }}>Convidar usuário</button>
+            <button className="btn btnPrimary" onClick={() => { setError(""); setCompanyModalOpen(true); }}>Nova empresa</button>
+          </div>
+        </div>
+
+        <div className="companiesSearchRow">
+          <input
+            type="search"
+            placeholder="Buscar por nome ou e-mail do responsável..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label="Buscar empresas"
+          />
+        </div>
+
+        {error && !companyModalOpen && !inviteModalOpen && <p className="companiesError" role="alert">{error}</p>}
+        {inviteMessage && <p className="companiesSuccess" role="status">{inviteMessage}</p>}
+
+        {loading ? <p>Carregando...</p> : filteredCompanies.length === 0 ? (
+          <p className="companiesEmptyState">
+            {companies.length === 0 ? "Nenhuma empresa cadastrada ainda." : "Nenhuma empresa corresponde à busca."}
+          </p>
+        ) : (
+          <div className="companiesTableWrap">
+            <table className="companiesTable">
+              <thead><tr><th>Empresa</th><th>Responsável</th><th>Status</th><th>Convite</th><th /></tr></thead>
+              <tbody>{filteredCompanies.map((company) => (
+                <tr key={company.id}>
+                  <td><strong>{company.trade_name || company.name}</strong><small>{company.name}</small></td>
+                  <td>{company.responsible_email || "—"}</td>
+                  <td>
+                    <StatusBadge
+                      label={company.status === "inactive" ? "Inativa" : "Ativa"}
+                      tone={company.status === "inactive" ? "neutral" : "success"}
+                    />
+                  </td>
+                  <td>{company.invitation_status || "—"}</td>
+                  <td>
+                    <div className="companiesRowActions">
+                      <button className="btn" onClick={() => onOpenCompany(company)}>Abrir para suporte</button>
+                      <button className="btn" onClick={() => void toggleCompanyStatus(company)}>
+                        {company.status === "inactive" ? "Ativar" : "Inativar"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <Modal open={companyModalOpen} title="Nova empresa" onClose={() => { if (!saving) setCompanyModalOpen(false); }}>
         <form className="companiesForm" onSubmit={submit}>
           <label>Razão social<input required minLength={2} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
@@ -113,15 +202,17 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
             onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></label>
           <label>E-mail do responsável<input required type="email" value={form.responsible_email}
             onChange={(e) => setForm({ ...form, responsible_email: e.target.value })} /></label>
-          <button className="btn btnPrimary" disabled={saving}>
-            {saving ? "Criando e convidando..." : "Criar empresa"}
-          </button>
+          {error && <p className="companiesError" role="alert">{error}</p>}
+          <div className="companiesRowActions">
+            <button type="button" className="btn" disabled={saving} onClick={() => setCompanyModalOpen(false)}>Cancelar</button>
+            <button className="btn btnPrimary" disabled={saving}>
+              {saving ? "Criando e convidando..." : "Criar empresa"}
+            </button>
+          </div>
         </form>
-        {error && <p className="companiesError" role="alert">{error}</p>}
-      </section>
+      </Modal>
 
-      <section className="companiesCard">
-        <h2>Convidar usuário</h2>
+      <Modal open={inviteModalOpen} title="Convidar usuário" onClose={() => { if (!saving) setInviteModalOpen(false); }}>
         <p>O acesso será limitado à empresa e ao papel selecionados.</p>
         <form className="companiesForm" onSubmit={submitInvitation}>
           <label>Empresa
@@ -149,42 +240,15 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
               <option value="owner">Responsável</option>
             </select>
           </label>
-          <button className="btn btnPrimary" disabled={saving || !invite.client_id}>
-            {saving ? "Enviando..." : "Enviar convite"}
-          </button>
-        </form>
-        {inviteMessage && <p className="companiesSuccess" role="status">{inviteMessage}</p>}
-      </section>
-
-      <section className="companiesCard">
-        <div className="companiesListTitle">
-          <h2>Empresas cadastradas</h2>
-          <button className="btn" onClick={() => void load()} disabled={loading}>Atualizar</button>
-        </div>
-        {loading ? <p>Carregando...</p> : (
-          <div className="companiesTableWrap">
-            <table className="companiesTable">
-              <thead><tr><th>Empresa</th><th>Responsável</th><th>Status</th><th>Convite</th><th /></tr></thead>
-              <tbody>{companies.map((company) => (
-                <tr key={company.id}>
-                  <td><strong>{company.trade_name || company.name}</strong><small>{company.name}</small></td>
-                  <td>{company.responsible_email || "—"}</td>
-                  <td><span className="companiesStatus">{company.status}</span></td>
-                  <td>{company.invitation_status || "—"}</td>
-                  <td>
-                    <div className="companiesRowActions">
-                      <button className="btn" onClick={() => onOpenCompany(company)}>Abrir para suporte</button>
-                      <button className="btn" onClick={() => void toggleCompanyStatus(company)}>
-                        {company.status === "inactive" ? "Ativar" : "Inativar"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
+          {error && <p className="companiesError" role="alert">{error}</p>}
+          <div className="companiesRowActions">
+            <button type="button" className="btn" disabled={saving} onClick={() => setInviteModalOpen(false)}>Cancelar</button>
+            <button className="btn btnPrimary" disabled={saving || !invite.client_id}>
+              {saving ? "Enviando..." : "Enviar convite"}
+            </button>
           </div>
-        )}
-      </section>
+        </form>
+      </Modal>
     </main>
   );
 }

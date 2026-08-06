@@ -22,6 +22,7 @@ from .ig_supabase import sb_insert, sb_select, sb_update
 from .integration_errors import IntegrationError, from_httpx_error
 from .oauth_state import create_oauth_state
 from .shopify_config import shopify_admin_url
+from .sync_locks import guarded_sync
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
 SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products"]
@@ -412,75 +413,84 @@ async def sync_shopify_connection(
     connection_id: str,
     created_at_min: str | None = None,
 ) -> Dict[str, Any]:
-    context = await resolve_shopify_connection_context(
-        client_id,
-        connection_id=connection_id,
-        required_scopes=("read_orders", "read_customers", "read_products"),
-    )
-    order_params: Dict[str, Any] = {"status": "any", "limit": 250}
-    if str(created_at_min or "").strip():
-        order_params["created_at_min"] = str(created_at_min).strip()
-    orders = await _fetch_shopify_collection(
-        context,
-        "orders.json",
-        params=order_params,
-    )
-    customers = await _fetch_shopify_collection(
-        context,
-        "customers.json",
-        params={"limit": 250},
-    )
-    products = await _fetch_shopify_collection(
-        context,
-        "products.json",
-        params={"limit": 250},
-    )
-
-    from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
-
-    item_count = 0
-    for customer in customers:
-        await _handle_customer_topic(
-            client_id=client_id,
-            shop_domain=context.shop_domain,
-            payload=customer,
+    # Sem lock, dois cliques (ou um clique coincidindo com uma chamada
+    # automática) disparavam duas sincronizações Shopify em paralelo para a
+    # mesma loja — chamadas duplicadas à API do Shopify e escritas
+    # concorrentes de last_sync_at. Mesmo padrão de guarded_sync já usado em
+    # Meta Ads/Instagram/GA4.
+    async with guarded_sync(
+        client_id=client_id, provider="shopify", connection_id=connection_id,
+        ttl_seconds=1800,
+    ):
+        context = await resolve_shopify_connection_context(
+            client_id,
+            connection_id=connection_id,
+            required_scopes=("read_orders", "read_customers", "read_products"),
         )
-    for order in orders:
-        result = await _handle_order_topic(
-            client_id=client_id,
-            shop_domain=context.shop_domain,
-            payload=order,
+        order_params: Dict[str, Any] = {"status": "any", "limit": 250}
+        if str(created_at_min or "").strip():
+            order_params["created_at_min"] = str(created_at_min).strip()
+        orders = await _fetch_shopify_collection(
+            context,
+            "orders.json",
+            params=order_params,
         )
-        item_count += int(result.get("items_upserted") or 0)
+        customers = await _fetch_shopify_collection(
+            context,
+            "customers.json",
+            params={"limit": 250},
+        )
+        products = await _fetch_shopify_collection(
+            context,
+            "products.json",
+            params={"limit": 250},
+        )
 
-    now = datetime.now(timezone.utc).isoformat()
-    if context.connection_id:
-        await sb_update(
-            "integration_connections",
-            filters={
-                "id": f"eq.{context.connection_id}",
-                "client_id": f"eq.{client_id}",
+        from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
+
+        item_count = 0
+        for customer in customers:
+            await _handle_customer_topic(
+                client_id=client_id,
+                shop_domain=context.shop_domain,
+                payload=customer,
+            )
+        for order in orders:
+            result = await _handle_order_topic(
+                client_id=client_id,
+                shop_domain=context.shop_domain,
+                payload=order,
+            )
+            item_count += int(result.get("items_upserted") or 0)
+
+        now = datetime.now(timezone.utc).isoformat()
+        if context.connection_id:
+            await sb_update(
+                "integration_connections",
+                filters={
+                    "id": f"eq.{context.connection_id}",
+                    "client_id": f"eq.{client_id}",
+                },
+                patch={
+                    "status": "connected",
+                    "last_sync_at": now,
+                    "last_error": None,
+                    "updated_at": now,
+                },
+                returning="minimal",
+            )
+        return {
+            "ok": True,
+            "client_id": client_id,
+            "connection_id": context.connection_id,
+            "shop_domain": context.shop_domain,
+            "synced": {
+                "orders": len(orders),
+                "customers": len(customers),
+                "products_checked": len(products),
+                "order_items": item_count,
             },
-            patch={
-                "status": "connected",
-                "last_sync_at": now,
-                "last_error": None,
-                "updated_at": now,
-            },
-            returning="minimal",
-        )
-    return {
-        "ok": True,
-        "client_id": client_id,
-        "connection_id": context.connection_id,
-        "shop_domain": context.shop_domain,
-        "synced": {
-            "orders": len(orders),
-            "customers": len(customers),
-            "products_checked": len(products),
-            "order_items": item_count,
-        },
-    }
+        }
 
 
 async def save_shopify_connection(

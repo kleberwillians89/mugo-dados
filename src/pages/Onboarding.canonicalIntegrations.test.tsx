@@ -127,6 +127,7 @@ describe("Onboarding — contrato canônico de integrações", () => {
     };
     await renderOnboarding();
     expect(container.textContent).toContain("Token expirado");
+    expect(container.querySelector(".statusBadge.is-error")).toBeTruthy();
   });
 
   it("permission_error aparece corretamente no card", async () => {

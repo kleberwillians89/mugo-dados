@@ -8,3 +8,20 @@
 .companiesError{color:#a92c2c}.companiesSuccess{color:#286141}.companiesTableWrap{overflow:auto}.companiesTable{width:100%;border-collapse:collapse}.companiesTable th,.companiesTable td{text-align:left;padding:14px;border-bottom:1px solid #e8e5de}.companiesTable small{display:block;color:#74766f;margin-top:4px}.companiesStatus{background:#edf2e9;border-radius:99px;padding:5px 9px;font-size:12px}.companiesRowActions{display:flex;gap:8px;justify-content:flex-end;min-width:max-content}
 @media(max-width:900px){.companiesPage{padding:20px}.companiesForm{grid-template-columns:1fr 1fr}.companiesHeader{align-items:flex-start}.companiesHeader h1{font-size:36px}}
 @media(max-width:560px){.companiesPage{padding:14px}.companiesHeader,.companiesListTitle{align-items:flex-start;flex-direction:column}.companiesForm{grid-template-columns:1fr}}
+
+.companiesSummaryRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:22px}
+.companiesSummaryCard{background:#fff;border:1px solid #dedbd3;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(42,46,39,.06)}
+.companiesSummaryCard strong{display:block;font-size:28px;margin-top:4px}
+.companiesSummaryCard span{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#74766f;font-weight:700}
+.companiesSearchRow{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.companiesSearchRow input{flex:1;min-width:200px;border:1px solid #cfcbc2;border-radius:10px;padding:10px 12px;background:#faf9f6}
+.companiesEmptyState{padding:32px 12px;text-align:center;color:#74766f}
+
+.modalBackdrop{position:fixed;inset:0;background:rgba(20,22,18,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
+.modalPanel{background:#fff;border-radius:18px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.25)}
+.modalHeader{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #e8e5de}
+.modalHeader h2{margin:0;font-size:20px}
+.modalClose{background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:#5f665f;padding:4px 8px}
+.modalBody{padding:22px}
+.modalBody .companiesForm{grid-template-columns:1fr}
+@media(max-width:560px){.modalBackdrop{padding:0;align-items:flex-end}.modalPanel{max-width:100%;border-radius:18px 18px 0 0;max-height:85vh}}

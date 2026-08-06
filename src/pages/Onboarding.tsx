@@ -63,6 +63,7 @@ import {
 } from "../app/activeClient";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
+import StatusBadge, { type StatusTone } from "../components/StatusBadge";
 import {
   INTEGRATION_REGISTRY,
   unavailableIntegrationLabel,
@@ -140,6 +141,24 @@ function canonicalStatusTone(entry: ClientIntegrationConnection | undefined): "r
   if (entry.status === "needs_configuration") return "yellow";
   if (entry.sync_status === "sync_error") return "yellow";
   return "green";
+}
+
+/** Tom do StatusBadge (5 níveis) — distinto do tom de 3 níveis acima, que
+ * só controla a borda do card. "Sincronizando" precisa de tom próprio
+ * (info/azul, com pulso), diferente de "erro" e de "configuração
+ * necessária", que hoje colapsam no mesmo amarelo do card. */
+function canonicalStatusBadgeTone(
+  entry: ClientIntegrationConnection | undefined,
+  isRefreshing: boolean
+): StatusTone {
+  if (!entry) return "neutral";
+  if (isRefreshing) return "info";
+  if (entry.status === "disconnected") return "neutral";
+  if (entry.status === "token_expired" || entry.status === "permission_error") return "error";
+  if (entry.status === "needs_configuration") return "warning";
+  if (entry.sync_status === "sync_error") return "error";
+  if (entry.sync_status === "sync_success") return "success";
+  return "success";
 }
 
 function canonicalAccountLabel(entry: ClientIntegrationConnection | undefined): string | null {
@@ -1427,8 +1446,22 @@ export default function Onboarding({
                   </div>
                 </div>
                 <div className="integrationStateRow">
-                  <span className={`integrationLight is-${displayTone}`} aria-hidden="true" />
-                  <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : displayStatus}</strong>
+                  {definition.availability === "platform_update_pending" ? (
+                    <>
+                      <span className={`integrationLight is-${displayTone}`} aria-hidden="true" />
+                      <strong>Em desenvolvimento</strong>
+                    </>
+                  ) : canonicalEntry ? (
+                    <StatusBadge
+                      label={displayStatus}
+                      tone={canonicalStatusBadgeTone(canonicalEntry, canonicalIntegrations.isRefreshing) as StatusTone}
+                    />
+                  ) : (
+                    <>
+                      <span className={`integrationLight is-${displayTone}`} aria-hidden="true" />
+                      <strong>{displayStatus}</strong>
+                    </>
+                  )}
                 </div>
                 {definition.id === "meta" ? <div className="smallMuted" style={{ marginTop: 8 }}>
                   Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
