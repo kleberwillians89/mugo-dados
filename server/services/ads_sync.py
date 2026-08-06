@@ -184,6 +184,20 @@ def _synthetic_boosted_rows_from_maximum_insights(
         synthetic["boosted_source"] = "insights_maximum_synthetic"
         synthetic["source_date_start"] = row_start.isoformat()
         synthetic["source_date_stop"] = row_end.isoformat()
+        # `insight_rows` vem de uma consulta date_preset="maximum" (todo o
+        # histórico da conta), usada aqui só para DESCOBRIR quais anúncios
+        # existem quando a consulta do período real não retorna nada. Os
+        # campos financeiros (spend/actions/action_values) desse row são
+        # totais acumulados de todo o histórico, não do período pedido —
+        # propagá-los gerava receita de meses/anos atribuída a um único dia,
+        # inflando o ROAS do período (ex.: 25x). Nunca usar spend/receita
+        # de uma janela diferente da consultada.
+        synthetic["spend"] = 0.0
+        synthetic["impressions"] = 0
+        synthetic["reach"] = 0
+        synthetic["clicks"] = 0
+        synthetic["actions"] = []
+        synthetic["action_values"] = []
         out.append(synthetic)
     return out
 

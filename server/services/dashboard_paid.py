@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import calendar
+import math
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from .connection_resolver import resolve_connection_for_scope
@@ -19,6 +20,26 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except Exception:
         return 0.0
+
+
+def compute_roas(revenue: Any, investment: Any) -> Optional[float]:
+    """Única fonte de cálculo de ROAS: receita atribuída / investimento.
+
+    Nunca calcula média de ROAS de subgrupos — sempre soma receita e soma
+    investimento primeiro, e só então divide. Retorna None (não 0) quando
+    não há base válida para o cálculo, para a UI distinguir "0 real" de
+    "sem dados suficientes" e nunca usar um valor antigo/fallback.
+    """
+    spend = _safe_float(investment)
+    if spend <= 0:
+        return None
+    if revenue is None:
+        return None
+    rev = _safe_float(revenue)
+    result = rev / spend
+    if not math.isfinite(result):
+        return None
+    return result
 
 
 def _safe_int(value: Any) -> int:
@@ -151,7 +172,7 @@ def _finalize_paid_metric(metrics: Dict[str, float]) -> Dict[str, float]:
     out["cpc"] = (spend / clicks) if clicks > 0 else 0.0
     out["cpm"] = ((spend * 1000.0) / impressions) if impressions > 0 else 0.0
     out["ctr"] = ((clicks / impressions) * 100.0) if impressions > 0 else 0.0
-    out["roas"] = (revenue / spend) if spend > 0 else 0.0
+    out["roas"] = compute_roas(revenue, spend)
     return out
 
 
@@ -452,7 +473,7 @@ def _aggregate_top_creatives(rows: List[Dict[str, Any]], limit: int = 20) -> Lis
                 "cpc": (spend / clicks) if clicks > 0 else 0.0,
                 "cpm": ((spend * 1000.0) / impressions) if impressions > 0 else 0.0,
                 "ctr": ((clicks / impressions) * 100.0) if impressions > 0 else 0.0,
-                "roas": (revenue / spend) if spend > 0 else 0.0,
+                "roas": compute_roas(revenue, spend),
             }
         )
     out_sorted = sorted(out, key=lambda r: float(r.get("spend") or 0.0), reverse=True)
