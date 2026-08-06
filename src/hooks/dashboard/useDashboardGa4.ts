@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getGa4Report, syncGa4 } from "../../app/api";
+import { getGa4Report } from "../../app/api";
 import type { Ga4ReportResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
@@ -65,7 +65,6 @@ export default function useDashboardGa4({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const dataRef = useRef<Ga4ReportResponse | null>(cachedInitial);
-  const backgroundRefreshRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     dataRef.current = ga4Report;
@@ -135,16 +134,9 @@ export default function useDashboardGa4({
     };
   }, [activeClientId, isAuthenticated, reloadGa4]);
 
-  useEffect(() => {
-    if (!ga4Report?.meta?.stale || !ga4Report.meta.data_available) return;
-    const key = `${activeClientId}:${safePeriod.start}:${safePeriod.end}`;
-    if (backgroundRefreshRef.current.has(key)) return;
-    backgroundRefreshRef.current.add(key);
-    void syncGa4(
-      { start: safePeriod.start, end: safePeriod.end, days: safeDays },
-      { clientId: activeClientId }
-    ).then(() => reloadGa4({ force: true })).catch(() => undefined);
-  }, [activeClientId, ga4Report?.meta?.data_available, ga4Report?.meta?.stale, reloadGa4, safeDays, safePeriod.end, safePeriod.start]);
+  // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
+  // apenas exibido como tal; atualizar é ação explícita do usuário,
+  // orquestrada por src/app/syncOrchestrator.ts.
 
   return {
     ga4Report,

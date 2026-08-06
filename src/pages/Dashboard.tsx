@@ -28,6 +28,7 @@ import {
 } from "../hooks/dashboard/cache";
 import { resolveCommerceConnection, resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import { ensureDashboardPeriod } from "../hooks/dashboard/period";
+import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 
 import {
   refreshAll,
@@ -1420,11 +1421,15 @@ export default function Dashboard({
       syncTasks.push({
         provider: "meta_organic", connectionId: organicConnectionId,
         endpoint: "/api/ig/refresh_all",
-        promise: refreshAll(200, {
-          connectionId: organicConnectionId,
-          start: period.start,
-          end: period.end,
-        }),
+        promise: runExclusiveSync(
+          { clientId: activeClientId, provider: "meta_organic", connectionId: organicConnectionId },
+          () =>
+            refreshAll(200, {
+              connectionId: organicConnectionId,
+              start: period.start,
+              end: period.end,
+            })
+        ),
       });
     } else {
       dashLog("onRefresh:refreshAll:skip", {
@@ -1435,15 +1440,19 @@ export default function Dashboard({
       syncTasks.push({
         provider: "meta_ads", connectionId: paidConnectionId,
         endpoint: "/api/ads/sync",
-        promise: syncAds(
-          {
-            start: period.start,
-            end: period.end,
-          },
-          {
-            connectionId: paidConnectionId,
-            clientId: activeClientId,
-          }
+        promise: runExclusiveSync(
+          { clientId: activeClientId, provider: "meta_ads", connectionId: paidConnectionId },
+          () =>
+            syncAds(
+              {
+                start: period.start,
+                end: period.end,
+              },
+              {
+                connectionId: paidConnectionId,
+                clientId: activeClientId,
+              }
+            )
         ),
       });
     }
@@ -1500,9 +1509,10 @@ export default function Dashboard({
           message: errorMessage(rejectedSync.reason, "failed"),
         });
         const failure = rejectedSync.reason;
-        setErr(failure instanceof ApiError
-          ? `${failure.message}${failure.code ? ` Código: ${failure.code}.` : ""}${failure.requestId ? ` Request ID: ${failure.requestId}.` : ""}`
-          : errorMessage(failure, "Falha parcial ao atualizar. Mantendo a última leitura disponível."));
+        setErr(describeSyncError(
+          failure,
+          errorMessage(failure, "Falha parcial ao atualizar. Mantendo a última leitura disponível.")
+        ));
       }
       await Promise.allSettled([
         reloadSummary({ force: true, includeSecondary: true }),
@@ -1973,10 +1983,13 @@ export default function Dashboard({
       {
         key: "roas",
         label: "ROAS reportado",
-        value: paidExecutiveAvailable && safe(paidTotals?.roas) > 0 ? safe(paidTotals?.roas) : null,
+        value:
+          paidExecutiveAvailable && typeof paidTotals?.roas === "number" && Number.isFinite(paidTotals.roas)
+            ? paidTotals.roas
+            : null,
         previous: null,
         format: "ratio",
-        context: "Retorno reportado pela fonte de mídia; não é estimado pelo painel.",
+        context: "Retorno reportado a partir da receita atribuída pela plataforma de mídia.",
       },
       {
         key: "reach",
@@ -2315,6 +2328,9 @@ export default function Dashboard({
               </div>
 
               <div className="metricHeaderActions">
+                <span className="smallMuted" style={{ marginRight: 8 }}>
+                  Agrupar por:
+                </span>
                 <div className="metricGranularityToggle" role="group" aria-label="Granularidade do gráfico">
                   <button
                     type="button"
@@ -2538,9 +2554,22 @@ export default function Dashboard({
                   </div>
                   <div className="paidSummaryItem">
                     <span className="smallMuted">ROAS</span>
-                    <strong>{safe(paidTotals?.roas).toFixed(2)}x</strong>
+                    <strong>
+                      {typeof paidTotals?.roas === "number" && Number.isFinite(paidTotals.roas)
+                        ? `${paidTotals.roas.toFixed(2)}x`
+                        : "Sem dados"}
+                    </strong>
                   </div>
                 </div>
+              ) : null}
+              {paidData && hasPaidData ? (
+                <p className="smallMuted" style={{ marginTop: 4 }}>
+                  Investimento: {fmtCurrency(safe(paidTotals?.spend))} · Receita atribuída:{" "}
+                  {fmtCurrency(safe(paidTotals?.revenue))} · ROAS ={" "}
+                  {typeof paidTotals?.roas === "number" && Number.isFinite(paidTotals.roas)
+                    ? `${paidTotals.roas.toFixed(2)}x`
+                    : "Sem dados"}
+                </p>
               ) : null}
 
               {paidData && hasPaidData ? (

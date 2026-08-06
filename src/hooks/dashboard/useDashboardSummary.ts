@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getComments, getDashboard, getMedia, getStories, refreshAll } from "../../app/api";
+import { getComments, getDashboard, getMedia, getStories } from "../../app/api";
 import type {
   CommentItem,
   DashboardResponse,
@@ -111,7 +111,6 @@ export default function useDashboardSummary({
   );
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
-  const backgroundRefreshRef = useRef<Set<string>>(new Set());
 
   const dashCacheKey = useMemo(
     () =>
@@ -559,17 +558,9 @@ export default function useDashboardSummary({
     secondaryEnabled,
   ]);
 
-  useEffect(() => {
-    if (!data.dash?.stale || !data.dash.data_available || !resolvedConnectionId) return;
-    const key = `${activeClientId}:${resolvedConnectionId}:${safePeriod.start}:${safePeriod.end}`;
-    if (backgroundRefreshRef.current.has(key)) return;
-    backgroundRefreshRef.current.add(key);
-    void refreshAll(40, {
-      connectionId: resolvedConnectionId,
-      start: safePeriod.start,
-      end: safePeriod.end,
-    }).then(() => reloadSummary({ force: true, includeSecondary: true })).catch(() => undefined);
-  }, [activeClientId, data.dash?.data_available, data.dash?.stale, reloadSummary, resolvedConnectionId, safePeriod.end, safePeriod.start]);
+  // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
+  // apenas exibido como tal; atualizar é ação explícita do usuário,
+  // orquestrada por src/app/syncOrchestrator.ts.
 
   useEffect(() => {
     if (!secondaryEnabled || !isAuthenticated || !activeClientId || !resolvedConnectionId) return;
