@@ -745,7 +745,9 @@ export type PaidTotals = {
   ctr: number;
   conversions: number;
   revenue: number;
-  roas: number;
+  // null quando não há base válida (investimento = 0 ou sem receita
+  // atribuída) — nunca inventar 0,00x nesse caso.
+  roas: number | null;
 };
 
 export type PaidManagerMetrics = {

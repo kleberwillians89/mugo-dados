@@ -177,7 +177,7 @@ export default function ExecutiveOverview({
                 <span>{metric.label}</span>
                 <i aria-label={tone === "positive" ? "Resultado positivo" : tone === "attention" ? "Requer atenção" : "Estado neutro"} />
               </div>
-              <strong>{metric.value == null ? "Indisponível" : formatMetric(metric.value, metric.format)}</strong>
+              <strong>{metric.value == null ? "Sem dados" : formatMetric(metric.value, metric.format)}</strong>
               <p>{metric.context}</p>
               <footer>
                 {delta ? (
@@ -215,7 +215,7 @@ export default function ExecutiveOverview({
           ))}
         </ol>
         <div className="executiveCommerceGap">
-          <div><span>Retorno observado</span><strong>{roas == null ? "Indisponível" : formatMetric(roas, "ratio")}</strong></div>
+          <div><span>Retorno observado</span><strong>{roas == null ? "Sem dados" : formatMetric(roas, "ratio")}</strong></div>
           <p>Receita, pedidos, clientes e produtos não são inferidos neste painel quando a fonte comercial não está presente.</p>
         </div>
       </div>
