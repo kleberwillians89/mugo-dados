@@ -181,6 +181,7 @@ async def upsert_connection(
         details={"provider": provider, "external_key": external_key},
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return sanitize_connection(result)
 
 
@@ -239,6 +240,7 @@ async def disconnect_generic_connection(client_id: str, connection_id: str, user
         },
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     result = sanitize_connection(updated[0])
     result["disconnect_result"] = {
         "local_status": "disconnected",
@@ -274,6 +276,7 @@ async def update_connection_selection(
         details={"fields": sorted(metadata_patch.keys())},
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return sanitize_connection(updated[0])
 
 

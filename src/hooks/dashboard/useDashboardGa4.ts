@@ -65,16 +65,26 @@ export default function useDashboardGa4({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const dataRef = useRef<Ga4ReportResponse | null>(cachedInitial);
+  const cacheKeyRef = useRef(cacheKey);
 
   useEffect(() => {
     dataRef.current = ga4Report;
   }, [ga4Report]);
 
-  useEffect(() => {
-    if (!cachedInitial) return;
-    setGa4Report(cachedInitial);
+  // Troca de empresa (cacheKey inclui client_id) nunca pode deixar o
+  // relatório GA4 do tenant anterior visível — nem por um frame. Reset
+  // síncrono durante o render (não em useEffect, que só roda após o
+  // commit), inclusive quando o novo tenant ainda não tem nada em cache
+  // (antes, esse caso não limpava nada e mantinha o relatório antigo).
+  if (cacheKeyRef.current !== cacheKey) {
+    cacheKeyRef.current = cacheKey;
+    abortRef.current?.abort();
+    requestRef.current += 1;
     dataRef.current = cachedInitial;
-  }, [cachedInitial]);
+    setGa4Report(cachedInitial);
+    setGa4Error(null);
+    setGa4UpdatedAt(null);
+  }
 
   const reloadGa4 = useCallback(
     async (options?: { force?: boolean }) => {

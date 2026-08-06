@@ -7,6 +7,7 @@ import type {
   DashboardPeriodTotals,
   DashboardTotals,
   ClientConnectionsResponse,
+  ClientIntegrationsResponse,
   MetaDiscoverAssetsResponse,
   MetaOauthStartResponse,
   CommentsResponse,
@@ -1484,6 +1485,18 @@ export async function linkClientAssets(
 
 export async function listClientConnections(): Promise<ClientConnectionsResponse> {
   return http<ClientConnectionsResponse>(clientClientPath("/connections"));
+}
+
+/**
+ * Contrato canônico consolidado (Fase 3): uma chamada, todas as integrações,
+ * com status de autorização + status de sincronização + contas selecionadas.
+ * Não substitui listClientConnections/listGenericConnections nesta fase —
+ * ver nota de compatibilidade na entrega da Fase 3.
+ */
+export async function getClientIntegrations(options?: RequestSignalOptions): Promise<ClientIntegrationsResponse> {
+  return http<ClientIntegrationsResponse>(clientClientPath("/integrations"), {
+    signal: options?.signal,
+  });
 }
 
 export type MetaAdsSelectableAccount = {

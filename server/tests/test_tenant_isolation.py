@@ -25,6 +25,7 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(tenant, "require_user_id", AsyncMock(return_value="user-amalie")),
             patch.object(tenant, "sb_get_client_id_for_user", membership_lookup),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[{"client_id": "amalie", "role": "client_admin"}])),
             patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             with self.assertRaises(HTTPException) as raised:
@@ -40,6 +41,7 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
                 "sb_get_client_id_for_user",
                 AsyncMock(side_effect=PermissionError("Usuário sem acesso ao client_id informado")),
             ),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[{"client_id": "amalie", "role": "client_admin"}])),
             patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
         ):
             with self.assertRaises(HTTPException) as raised:
@@ -129,6 +131,60 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")):
             resolved = await tenant.require_client_read("amalie", "Bearer valid")
         self.assertEqual(resolved, "amalie")
+
+    async def test_agency_admin_can_resolve_explicit_company_without_per_client_membership(self):
+        # Papel agency_admin em QUALQUER empresa (não necessariamente a
+        # solicitada) deve bastar — equipe da agência não deve precisar de
+        # membership por cliente para acessar empresas autorizadas.
+        memberships = [{"client_id": "outra-empresa", "role": "agency_admin"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="agency-user")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch.object(tenant, "sb_select", AsyncMock(return_value=[{"id": "amalie"}]), create=True),
+            patch("server.services.ig_supabase.sb_select", AsyncMock(return_value=[{"id": "amalie"}])),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            resolved = await tenant.resolve_client_id("amalie", "Bearer valid")
+        self.assertEqual(resolved, "amalie")
+
+    async def test_agency_admin_still_requires_explicit_client_id(self):
+        memberships = [{"client_id": "outra-empresa", "role": "agency_admin"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="agency-user")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await tenant.resolve_client_id(None, "Bearer valid")
+        self.assertEqual(raised.exception.status_code, 400)
+
+    async def test_agency_admin_can_manage_company_without_per_client_membership(self):
+        memberships = [{"client_id": "outra-empresa", "role": "agency_admin"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="agency-user")),
+            patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            resolved = await tenant.require_client_manage("amalie", "Bearer valid")
+        self.assertEqual(resolved, "amalie")
+
+    async def test_plain_client_admin_membership_does_not_grant_cross_tenant_access(self):
+        # Sem papel agency_admin em nenhuma empresa, o isolamento permanece.
+        memberships = [{"client_id": "amalie", "role": "client_admin"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="user-amalie")),
+            patch.object(
+                tenant,
+                "sb_get_client_id_for_user",
+                AsyncMock(side_effect=PermissionError("Usuário sem acesso ao client_id informado")),
+            ),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await tenant.resolve_client_id("roove", "Bearer valid")
+        self.assertEqual(raised.exception.status_code, 403)
 
 
 if __name__ == "__main__":

@@ -219,42 +219,52 @@ export default function useDashboardSummary({
   const dataRef = useRef<SummaryData>(cachedInitial);
   const autoPrimaryKeyRef = useRef("");
   const autoSecondaryKeyRef = useRef("");
+  const cachedInitialRef = useRef(cachedInitial);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  useEffect(() => {
+  // Troca de empresa/conexão nunca pode deixar o resumo do tenant anterior
+  // visível — nem por um frame. `cachedInitial` é um novo objeto sempre que
+  // client_id, conexão, período ou autoLoadStories mudam (useMemo acima);
+  // comparamos por referência e resetamos de forma síncrona DURANTE o
+  // render (não em useEffect, que só roda após o commit), invalidando
+  // qualquer resposta em voo do contexto anterior.
+  if (cachedInitialRef.current !== cachedInitial) {
+    cachedInitialRef.current = cachedInitial;
+    abortRef.current?.abort();
+    requestRef.current += 1;
     if (resolvedConnectionId) {
-      setData(cachedInitial);
       dataRef.current = cachedInitial;
+      setData(cachedInitial);
       setSectionErrors(emptySectionErrors());
       setSummaryError(null);
-      return;
+    } else {
+      const emptyData: SummaryData = {
+        dash: null,
+        media: [],
+        comments: [],
+        commentsTotal: 0,
+        topWords: [],
+        stories: [],
+        storiesAvailable: true,
+        storiesMessage: null,
+        paid: null,
+      };
+      dataRef.current = emptyData;
+      setData(emptyData);
+      setLoadingSummary(false);
+      setRefreshingSummary(false);
+      setSectionLoading(emptySectionState());
+      setSectionRefreshing(emptySectionState());
+      setSectionErrors(emptySectionErrors());
+      setSectionUpdatedAt(emptyTimestamps());
+      setSummaryError(null);
     }
-    const emptyData: SummaryData = {
-      dash: null,
-      media: [],
-      comments: [],
-      commentsTotal: 0,
-      topWords: [],
-      stories: [],
-      storiesAvailable: true,
-      storiesMessage: null,
-      paid: null,
-    };
-    setData(emptyData);
-    dataRef.current = emptyData;
-    setLoadingSummary(false);
-    setRefreshingSummary(false);
-    setSectionLoading(emptySectionState());
-    setSectionRefreshing(emptySectionState());
-    setSectionErrors(emptySectionErrors());
-    setSectionUpdatedAt(emptyTimestamps());
-    setSummaryError(null);
     autoPrimaryKeyRef.current = "";
     autoSecondaryKeyRef.current = "";
-  }, [autoLoadStories, cachedInitial, resolvedConnectionId]);
+  }
 
   const reloadSummary = useCallback(async (options?: ReloadOptions) => {
     if (!isAuthenticated || !activeClientId) return null;

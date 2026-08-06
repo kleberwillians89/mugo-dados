@@ -34,6 +34,16 @@ async def require_user_id(authorization: Optional[str]) -> str:
     return user_id
 
 
+async def _has_agency_admin_membership(user_id: str) -> bool:
+    """
+    True quando o usuário possui papel agency_admin em QUALQUER empresa —
+    equipe da agência não deve precisar de membership por cliente para
+    acessar empresas autorizadas, diferente de client_admin/viewer.
+    """
+    memberships = await sb_get_client_memberships(user_id)
+    return any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
+
+
 async def resolve_client_id(client_id: Optional[str], authorization: Optional[str]) -> str:
     """
     Resolve tenant do request usando somente membership.
@@ -43,7 +53,7 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
     requested = (client_id or "").strip() or "-"
     from .platform_admin import is_platform_admin
     from .ig_supabase import sb_select
-    if await is_platform_admin(user_id):
+    if await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id):
         explicit_client_id = (client_id or "").strip()
         if not explicit_client_id:
             raise HTTPException(
@@ -82,7 +92,7 @@ async def require_user_client_access(user_id: str, client_id: str) -> str:
     cid = str(client_id or "").strip()
     if not uid or not cid:
         raise PermissionError("State OAuth sem usuário ou empresa.")
-    if await is_platform_admin(uid):
+    if await is_platform_admin(uid) or await _has_agency_admin_membership(uid):
         rows = await sb_select(
             "clients",
             select="id",
@@ -103,7 +113,7 @@ async def require_client_role(
     user_id = await require_user_id(authorization)
     resolved = await resolve_client_id(client_id, authorization)
     from .platform_admin import is_platform_admin
-    if await is_platform_admin(user_id):
+    if await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id):
         return resolved
     memberships = await sb_get_client_memberships(user_id)
     membership = next(
@@ -148,6 +158,8 @@ async def get_client_role(client_id: str, authorization: Optional[str]) -> str:
     from .platform_admin import is_platform_admin
     if await is_platform_admin(user_id):
         return "platform_admin"
+    if await _has_agency_admin_membership(user_id):
+        return "agency_admin"
     memberships = await sb_get_client_memberships(user_id)
     membership = next(
         (row for row in memberships if str(row.get("client_id") or "").strip() == resolved),

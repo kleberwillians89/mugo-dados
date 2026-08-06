@@ -41,6 +41,7 @@ from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
 from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
+from routes.integrations import router as integrations_router
 from routes.platform_admin import router as platform_admin_router
 from routes.admin_health import router as admin_health_router
 from routes.shopify import router as shopify_router
@@ -271,6 +272,7 @@ app.include_router(meta_legacy_router)
 app.include_router(invitations_router)
 app.include_router(intelligence_router)
 app.include_router(connections_router)
+app.include_router(integrations_router)
 app.include_router(platform_admin_router)
 app.include_router(admin_health_router)
 

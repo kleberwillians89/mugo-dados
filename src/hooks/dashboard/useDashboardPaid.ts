@@ -61,30 +61,32 @@ export default function useDashboardPaid({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const dataRef = useRef<PaidDashboardResponse | null>(cachedInitial);
+  const cacheKeyRef = useRef(cacheKey);
 
   useEffect(() => {
     dataRef.current = paidData;
   }, [paidData]);
 
-  useEffect(() => {
-    if (resolvedConnectionId) {
-      if (cachedInitial) {
-        setPaidData(cachedInitial);
-        dataRef.current = cachedInitial;
-      } else {
-        setPaidData(null);
-        dataRef.current = null;
-      }
-      setPaidError(null);
-      return;
-    }
-    setPaidData(null);
-    dataRef.current = null;
+  // Troca de empresa/conexão (cacheKey inclui client_id) nunca pode deixar
+  // o dado do tenant/conta anterior visível — nem por um frame. useState só
+  // usa o valor inicial na primeira montagem, então detectamos a mudança de
+  // cacheKey DURANTE o render (não em useEffect, que só roda após o commit)
+  // e trocamos de forma síncrona, além de invalidar qualquer resposta em
+  // voo do contexto anterior.
+  if (cacheKeyRef.current !== cacheKey) {
+    cacheKeyRef.current = cacheKey;
+    abortRef.current?.abort();
+    requestRef.current += 1;
+    const next = resolvedConnectionId ? cachedInitial : null;
+    dataRef.current = next;
+    setPaidData(next);
     setPaidError(null);
-    setLoadingPaid(false);
-    setRefreshingPaid(false);
-    setPaidUpdatedAt(null);
-  }, [cachedInitial, resolvedConnectionId]);
+    if (!resolvedConnectionId) {
+      setLoadingPaid(false);
+      setRefreshingPaid(false);
+      setPaidUpdatedAt(null);
+    }
+  }
 
   const reloadPaid = useCallback(
     async (options?: { force?: boolean }) => {

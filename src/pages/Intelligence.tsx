@@ -145,19 +145,33 @@ export default function Intelligence({ onLogout }: Props) {
   const requestVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const askController = useRef<AbortController | null>(null);
+  const cacheKeyRef = useRef(cacheKey);
+
+  // Troca de empresa (ou período) nunca pode deixar o snapshot/análise/
+  // histórico do tenant anterior visível — nem por um frame, e nem
+  // indefinidamente quando o novo tenant ainda não tem nada em cache
+  // (antes, esse caso não limpava snapshot/analysis/history, só ligava o
+  // loading). Reset síncrono durante o render, não em useEffect.
+  if (cacheKeyRef.current !== cacheKey) {
+    cacheKeyRef.current = cacheKey;
+    requestVersion.current += 1;
+    refreshController.current?.abort();
+    askController.current?.abort();
+    const nextCache = workspaceCache.get(cacheKey);
+    setSnapshot(nextCache?.snapshot || null);
+    setAnalysis(nextCache?.analysis || null);
+    setHistory(nextCache?.history || []);
+    setProviderConfigured(nextCache?.providerConfigured ?? null);
+    setLoading(!nextCache);
+    setError("");
+    setConversationId(null);
+    setMessages([]);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
     const version = ++requestVersion.current;
     const currentCache = workspaceCache.get(cacheKey);
-    if (currentCache) {
-      setSnapshot(currentCache.snapshot);
-      setAnalysis(currentCache.analysis);
-      setHistory(currentCache.history);
-      setProviderConfigured(currentCache.providerConfigured);
-    } else {
-      setLoading(true);
-    }
     setError("");
     void Promise.allSettled([
       getIntelligenceContext(period, { signal: controller.signal }),

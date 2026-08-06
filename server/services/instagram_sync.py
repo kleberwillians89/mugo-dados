@@ -20,6 +20,7 @@ from .ig_meta import (
 from .ig_supabase import sb_get_one, sb_insert, sb_select, sb_update, sb_upsert, sb_upload_public
 from .meta_oauth import fetch_instagram_identity
 from .meta_tokens import ensure_valid_meta_token
+from .runtime_cache import invalidate_namespace
 
 from .sync_locks import guarded_sync
 
@@ -94,6 +95,7 @@ async def _mark_connection_success(connection_id: str) -> None:
         },
         returning="minimal",
     )
+    await invalidate_namespace("client_integrations")
 
 
 async def _mark_connection_error(connection_id: str, message: str) -> None:
@@ -110,6 +112,7 @@ async def _mark_connection_error(connection_id: str, message: str) -> None:
         },
         returning="minimal",
     )
+    await invalidate_namespace("client_integrations")
 
 
 def _identity_candidates(identity: Dict[str, Any]) -> List[Dict[str, str]]:

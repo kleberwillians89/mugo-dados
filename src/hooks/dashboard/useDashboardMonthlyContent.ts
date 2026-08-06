@@ -72,28 +72,30 @@ export default function useDashboardMonthlyContent({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const rowsRef = useRef<MediaMonthlyItem[]>(cachedInitial?.months || []);
+  const cacheKeyRef = useRef(cacheKey);
 
   useEffect(() => {
     rowsRef.current = monthlyRows;
   }, [monthlyRows]);
 
-  useEffect(() => {
-    if (resolvedConnectionId) {
-      if (cachedInitial) {
-        const nextRows = cachedInitial.months || [];
-        setMonthlyRows(nextRows);
-        rowsRef.current = nextRows;
-      }
-      setMonthlyError(null);
-      return;
-    }
-    setMonthlyRows([]);
-    rowsRef.current = [];
+  // Troca de empresa/conexão nunca pode deixar a série mensal do tenant
+  // anterior visível — nem por um frame, e nem indefinidamente quando o
+  // novo tenant ainda não tem cache (antes, esse caso não limpava nada).
+  // Reset síncrono durante o render, não em useEffect.
+  if (cacheKeyRef.current !== cacheKey) {
+    cacheKeyRef.current = cacheKey;
+    abortRef.current?.abort();
+    requestRef.current += 1;
+    const nextRows = resolvedConnectionId ? cachedInitial?.months || [] : [];
+    setMonthlyRows(nextRows);
+    rowsRef.current = nextRows;
     setMonthlyError(null);
-    setLoadingMonthly(false);
-    setRefreshingMonthly(false);
-    setMonthlyUpdatedAt(null);
-  }, [cachedInitial, resolvedConnectionId]);
+    if (!resolvedConnectionId) {
+      setLoadingMonthly(false);
+      setRefreshingMonthly(false);
+      setMonthlyUpdatedAt(null);
+    }
+  }
 
   const reloadMonthly = useCallback(
     async (options?: { force?: boolean }) => {

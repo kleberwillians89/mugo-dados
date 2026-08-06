@@ -10,6 +10,7 @@ from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_get_one, sb_insert, sb_select, sb_update
 from .meta_http import MetaApiError, meta_get_json
 from .integration_errors import IntegrationError
+from .runtime_cache import invalidate_namespace
 
 
 def _meta_api_integration_error(exc: MetaApiError, *, operation: str) -> IntegrationError:
@@ -219,6 +220,7 @@ async def _patch_connection(connection_id: str, patch: Dict[str, Any], *, best_e
             patch=patch,
             returning="minimal",
         )
+        await invalidate_namespace("client_integrations")
     except Exception as exc:
         print(
             "[meta_tokens][patch_warn] "

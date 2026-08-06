@@ -931,6 +931,7 @@ async def save_manual_meta_assets(
         },
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return {
         "ok": True,
         "validated": validated,
@@ -1156,6 +1157,7 @@ async def activate_meta_organic_assets(
         },
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return {
         "authorization_connection_id": connection_id,
         "organic_connection_id": organic_connection_id,
@@ -1185,6 +1187,7 @@ async def finalize_meta_organic_activation(
         returning="minimal",
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
 
 
 async def create_discovery_handoff(
@@ -1637,6 +1640,7 @@ async def save_connections(
         raise _handoff_schema_error(exc) from exc
 
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return {
         "ok": True,
         "client_id": client_id,
@@ -1739,6 +1743,7 @@ async def select_paid_connection(*, client_id: str, ad_account_id: str, user_id:
         details={"provider": "meta", "ad_account_id": normalized},
     )
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return {
         "connection_id": _safe_str(selected.get("id")),
         "ad_account_id": normalized,
@@ -1824,6 +1829,7 @@ async def disconnect_connection(client_id: str, connection_id: str, user_id: str
         for generic in generic_rows:
             await disconnect_generic_connection(client_id, _safe_str(generic.get("id")), user_id)
     await invalidate_namespace("integration_connections")
+    await invalidate_namespace("client_integrations")
     return {
         "ok": True,
         "disconnect_result": {

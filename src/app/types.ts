@@ -563,6 +563,39 @@ export type ClientConnectionsResponse = {
   connections: MetaConnection[];
 };
 
+// Contrato canônico consolidado (Fase 3) — GET /api/clients/{client_id}/integrations.
+// Junta integration_connections (autorização) + meta_connections (operacional)
+// num único objeto por provedor. Aditivo: não substitui ClientConnectionsResponse
+// nem GenericConnection, que continuam servindo o Dashboard/Onboarding hoje.
+export type ClientIntegrationStatus =
+  | "disconnected"
+  | "connected"
+  | "needs_configuration"
+  | "token_expired"
+  | "permission_error";
+
+export type ClientIntegrationSyncStatus = "sync_success" | "sync_error" | null;
+
+export type ClientIntegrationConnection = {
+  provider: "meta" | "ga4" | "google_ads" | "shopify" | string;
+  connection_id: string;
+  status: ClientIntegrationStatus | string;
+  authorization_status: "valid" | "invalid" | string;
+  sync_status: ClientIntegrationSyncStatus;
+  account: { id?: string | null; name?: string | null; domain?: string | null };
+  assets: Record<string, string | null>;
+  last_sync_at: string | null;
+  last_successful_sync_at: string | null;
+  last_error: string | null;
+  updated_at: string | null;
+};
+
+export type ClientIntegrationsResponse = {
+  ok: boolean;
+  client_id: string;
+  connections: ClientIntegrationConnection[];
+};
+
 export type MetaOauthStartResponse = {
   ok: boolean;
   client_id: string;

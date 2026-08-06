@@ -38,6 +38,7 @@ import {
   startShopifyOAuth,
 } from "../app/api";
 import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
+import useClientIntegrations from "../hooks/useClientIntegrations";
 import {
   getActiveConnectionId,
   getSelectedConnectionId,
@@ -45,6 +46,7 @@ import {
   setSelectedConnectionId,
 } from "../app/connectionState";
 import type {
+  ClientIntegrationConnection,
   MetaConnection,
   MetaDiscoverAssetsResponse,
   MetaDiscoveredAdAccount,
@@ -109,6 +111,46 @@ function connectionTone(status: string): "red" | "yellow" | "green" {
   return "red";
 }
 
+/**
+ * Único ponto que decide o estado visual final de um card a partir do
+ * contrato canônico (GET /api/clients/{client_id}/integrations). Os
+ * endpoints legados (/api/connections, /api/clients/{id}/connections)
+ * continuam sendo usados para executar ações, mas nunca mais determinam
+ * este texto/tom.
+ */
+function canonicalStatusLabel(
+  entry: ClientIntegrationConnection | undefined,
+  isRefreshing: boolean
+): string {
+  if (!entry) return "Desconectado";
+  if (isRefreshing) return "Atualizando…";
+  if (entry.status === "disconnected") return "Desconectado";
+  if (entry.status === "token_expired") return "Token expirado";
+  if (entry.status === "permission_error") return "Permissão insuficiente";
+  if (entry.status === "needs_configuration") return "Configuração necessária";
+  if (entry.sync_status === "sync_error") return "Erro de sincronização";
+  if (entry.sync_status === "sync_success") return "Sincronizado";
+  return "Conectado";
+}
+
+function canonicalStatusTone(entry: ClientIntegrationConnection | undefined): "red" | "yellow" | "green" {
+  if (!entry) return "red";
+  if (entry.status === "disconnected") return "red";
+  if (entry.status === "token_expired" || entry.status === "permission_error") return "red";
+  if (entry.status === "needs_configuration") return "yellow";
+  if (entry.sync_status === "sync_error") return "yellow";
+  return "green";
+}
+
+function canonicalAccountLabel(entry: ClientIntegrationConnection | undefined): string | null {
+  if (!entry) return null;
+  const account = entry.account || {};
+  const name = account.name || account.domain || null;
+  if (name) return name;
+  const assets = entry.assets || {};
+  return assets.ad_account_name || assets.property_name || assets.instagram_account_name || null;
+}
+
 function integrationLogoSrc(id: string): string | null {
   if (id === "meta") return "/logoinstagram.png";
   return null;
@@ -169,6 +211,19 @@ export default function Onboarding({
   const [info, setInfo] = useState<string | null>(null);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
   const [genericConnections, setGenericConnections] = useState<GenericConnection[]>([]);
+  // Contrato canônico consolidado (Fase 3) — aditivo: enriquece os cards
+  // abaixo com status de sync mesclado de integration_connections +
+  // meta_connections, sem substituir os fetches existentes desta tela.
+  const canonicalIntegrations = useClientIntegrations({ enabled: isAuthenticated });
+  const canonicalIntegrationsRefetch = canonicalIntegrations.refetch;
+  // Ref em vez de dependência direta: loadConnections só precisa da versão
+  // mais recente do refetch canônico, sem precisar mudar de identidade
+  // (e sem recascatear o efeito de mount que depende de loadConnections)
+  // toda vez que o hook canônico re-renderiza.
+  const canonicalIntegrationsRefetchRef = useRef(canonicalIntegrationsRefetch);
+  useEffect(() => {
+    canonicalIntegrationsRefetchRef.current = canonicalIntegrationsRefetch;
+  }, [canonicalIntegrationsRefetch]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
   const [pendingAssets, setPendingAssets] = useState<MetaDiscoverAssetsResponse | null>(null);
   const [selectedIg, setSelectedIg] = useState<Record<string, boolean>>({});
@@ -209,6 +264,15 @@ export default function Onboarding({
   const [syncRuntime, setSyncRuntime] = useState<Array<Record<string, unknown>>>([]);
   const manualMetaFormRef = useRef<HTMLElement | null>(null);
   const processedOauthReturnRef = useRef<string | null>(null);
+  // Evita setState após desmontagem quando uma carga em andamento resolve
+  // depois que o componente já saiu da tela (troca de rota, logout etc.).
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const configWarning = getActiveClientConfigurationWarning();
 
@@ -219,23 +283,54 @@ export default function Onboarding({
     setSelectedAds({});
   }, []);
 
+  // Deduplica cargas concorrentes para o MESMO client_id (reutiliza a
+  // Promise em andamento). Uma troca real de empresa não fica presa a essa
+  // dedupe: como a chave é o client_id, uma carga para um client_id novo
+  // segue em paralelo normalmente.
+  const inFlightLoadRef = useRef<{ clientId: string; promise: Promise<{ meta: MetaConnection[]; generic: GenericConnection[] }> } | null>(null);
+
   const loadConnections = useCallback(async () => {
-    const [response, genericResponse] = await Promise.all([
-      listClientConnections(),
-      listGenericConnections(),
-    ]);
-    const nextConnections = response.connections || [];
-    setConnections(nextConnections);
-    setGenericConnections(genericResponse.connections || []);
+    const cid = getActiveClientId();
+    const inFlight = inFlightLoadRef.current;
+    if (inFlight && inFlight.clientId === cid) {
+      return inFlight.promise;
+    }
 
-    const nextActiveConnectionId = pickDefaultOrganicConnectionId(
-      nextConnections,
-      getActiveConnectionId()
-    );
-    setActiveConnection(nextActiveConnectionId);
-    setActiveConnectionId(nextActiveConnectionId);
+    const promise = (async () => {
+      const [response, genericResponse] = await Promise.all([
+        listClientConnections(),
+        listGenericConnections(),
+      ]);
+      if (!isMountedRef.current) {
+        return { meta: response.connections || [], generic: genericResponse.connections || [] };
+      }
+      const nextConnections = response.connections || [];
+      setConnections(nextConnections);
+      setGenericConnections(genericResponse.connections || []);
 
-    return { meta: nextConnections, generic: genericResponse.connections || [] };
+      const nextActiveConnectionId = pickDefaultOrganicConnectionId(
+        nextConnections,
+        getActiveConnectionId()
+      );
+      setActiveConnection(nextActiveConnectionId);
+      setActiveConnectionId(nextActiveConnectionId);
+
+      // Toda ação que recarrega conexões (conectar, reconectar, selecionar
+      // conta, sincronizar) também refaz a leitura canônica — sem exigir
+      // reload manual da página.
+      void canonicalIntegrationsRefetchRef.current();
+
+      return { meta: nextConnections, generic: genericResponse.connections || [] };
+    })();
+
+    inFlightLoadRef.current = { clientId: cid, promise };
+    try {
+      return await promise;
+    } finally {
+      if (inFlightLoadRef.current?.promise === promise) {
+        inFlightLoadRef.current = null;
+      }
+    }
   }, []);
 
   function clearOauthParamsFromUrl() {
@@ -392,7 +487,14 @@ export default function Onboarding({
     return () => {
       alive = false;
     };
-  }, [handleOauthRedirectParams, isAuthenticated, loadConnections]);
+    // activeClientIdForSelection é o único gatilho de "mudança real de
+    // empresa": troca de cliente sem reload de página (ex.: admin da
+    // agência trocando de empresa) precisa recarregar as conexões da nova
+    // empresa. handleOauthRedirectParams/loadConnections têm identidade
+    // estável (deps primitivas/refs) e não recascateiam este efeito por
+    // conta própria — só aparecem aqui para o efeito sempre usar a versão
+    // mais recente deles.
+  }, [activeClientIdForSelection, handleOauthRedirectParams, isAuthenticated, loadConnections]);
 
   useEffect(() => {
     setSelectedMetaAuthorizationId(getSelectedConnectionId(activeClientIdForSelection, "meta") || "");
@@ -1215,7 +1317,23 @@ export default function Onboarding({
               <div className="h1">Plataformas disponíveis</div>
               <div className="p">Cada produto possui autorização, estado e dados isolados por empresa.</div>
             </div>
+            <button
+              type="button"
+              className="btn btnGhost"
+              disabled={canonicalIntegrations.isRefreshing}
+              onClick={() => {
+                void canonicalIntegrationsRefetch();
+              }}
+              data-testid="refresh-canonical-integrations"
+            >
+              {canonicalIntegrations.isRefreshing ? "Verificando..." : "Verificar status"}
+            </button>
           </div>
+          {canonicalIntegrations.error ? (
+            <div className="smallMuted" style={{ marginTop: 8 }} role="status">
+              Não foi possível atualizar agora. Exibindo o último estado salvo.
+            </div>
+          ) : null}
           <div className="onboardingConnections">
             {INTEGRATION_REGISTRY.map((definition) => {
               const activeClientId = getActiveClientId();
@@ -1247,6 +1365,9 @@ export default function Onboarding({
                   : definition.id === "google_ads"
                     ? selectUsableGoogleConnection(genericConnections, "google_ads", activeClientId, requestedAuthorizationId) || undefined
                     : undefined;
+              const canonicalEntry = (canonicalIntegrations.lastValidConnections || []).find(
+                (item) => item.provider === definition.id
+              );
               const metaConnected =
                 definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
               const productStatus = definition.id === "ga4"
@@ -1277,6 +1398,13 @@ export default function Onboarding({
                   : definition.availability === "available"
                     ? "Não conectado"
                     : unavailableIntegrationLabel(definition.availability);
+              // O contrato canônico é a única fonte do estado visual final
+              // do card quando já existe uma conexão canônica; os estados de
+              // pré-seleção (nenhuma autorização escolhida ainda) continuam
+              // vindos do fluxo OAuth existente, que não é alterado aqui.
+              const displayStatus = canonicalEntry
+                ? canonicalStatusLabel(canonicalEntry, canonicalIntegrations.isRefreshing)
+                : status;
               const actionable = definition.availability === "available";
               const connectionState = String(connection?.status || "").toLowerCase();
               const shouldAuthorize = actionable && (
@@ -1287,9 +1415,10 @@ export default function Onboarding({
                 : definition.id === "meta" && !metaAdsOperational
                   ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
+              const displayTone = canonicalEntry ? canonicalStatusTone(canonicalEntry) : tone;
               const logoSrc = integrationLogoSrc(definition.id);
               return (
-              <div className={`onboardingConnBlock is-${tone}`} key={definition.id}>
+              <div className={`onboardingConnBlock is-${displayTone}`} key={definition.id}>
                 <div className="integrationCardHeading">
                   {logoSrc ? <img className="integrationOfficialLogo" src={logoSrc} alt={`${definition.name} logo`} /> : null}
                   <div>
@@ -1298,8 +1427,8 @@ export default function Onboarding({
                   </div>
                 </div>
                 <div className="integrationStateRow">
-                  <span className={`integrationLight is-${tone}`} aria-hidden="true" />
-                  <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : status}</strong>
+                  <span className={`integrationLight is-${displayTone}`} aria-hidden="true" />
+                  <strong>{definition.availability === "platform_update_pending" ? "Em desenvolvimento" : displayStatus}</strong>
                 </div>
                 {definition.id === "meta" ? <div className="smallMuted" style={{ marginTop: 8 }}>
                   Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
@@ -1333,16 +1462,20 @@ export default function Onboarding({
                     ))}
                   </select>
                 ) : null}
-                {(definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name) ? (
+                {canonicalEntry ? (
+                  <div className="smallMuted" style={{ marginTop: 10 }} data-testid={`integration-account-${definition.id}`}>
+                    {canonicalAccountLabel(canonicalEntry) ? <>Conta: {canonicalAccountLabel(canonicalEntry)}<br /></> : null}
+                    Última sincronização: {fmtDate(canonicalEntry.last_sync_at)}
+                    {canonicalEntry.last_error ? <><br />{canonicalEntry.last_error}</> : null}
+                    {canonicalIntegrations.isRefreshing ? <><br />Atualizando…</> : null}
+                  </div>
+                ) : (definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name) ? (
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
                     {definition.id === "meta" && selectedPaidConnection?.ad_account_id ? <>{selectedPaidConnection.ad_account_id}<br /></> : null}
                     Última sincronização: {fmtDate(definition.id === "meta" ? selectedPaidConnection?.last_sync_at || selectedPaidConnection?.last_synced_at : connection?.last_sync_at)}
                   </div>
                 ) : null}
-                {connection ? <div className={`syncStateChip ${(definition.id === "meta" ? selectedPaidConnection?.last_error : connection.last_error) ? "is-error" : (definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at) ? "is-updated" : "is-never"}`}>
-                  {(definition.id === "meta" ? selectedPaidConnection?.last_error : connection.last_error) ? "Falha na sincronização" : (definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at) ? `Atualizado · ${fmtDate(definition.id === "meta" ? selectedPaidConnection?.last_sync_at : connection.last_sync_at)}` : "Nunca sincronizado"}
-                </div> : null}
                 {definition.id === "shopify" ? (
                   <>
                     {matchingConnections.length > 1 ? (
