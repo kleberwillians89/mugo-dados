@@ -7,6 +7,12 @@ import Shell from "../components/Shell";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import { syncGa4 } from "../app/api";
+import {
+  getCampaignDisplayName,
+  getGa4ChannelLabel,
+  getGa4EventLabel,
+  getGa4EventTechnicalDetail,
+} from "../app/ga4Labels";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import type {
@@ -299,7 +305,7 @@ function GoogleChannelsTable({ rows }: { rows: Ga4ChannelRow[] }) {
             {rows.map((row) => (
               <tr key={`${row.source_medium}-${row.source}-${row.medium}`}>
                 <td>
-                  <div className="cellTitle">{row.source_medium || "Tráfego direto / indefinido"}</div>
+                  <div className="cellTitle">{getGa4ChannelLabel(row.source_medium)}</div>
                 </td>
                 <td>{row.source || "-"}</td>
                 <td>{row.medium || "-"}</td>
@@ -338,10 +344,10 @@ function GoogleCampaignsTable({ rows }: { rows: Ga4CampaignRow[] }) {
             {rows.map((row) => (
               <tr key={`${row.campaign_name}-${row.source_medium}`}>
                 <td>
-                  <div className="cellTitle">{row.campaign_name || "Campanha sem nome"}</div>
+                  <div className="cellTitle">{getCampaignDisplayName(row.campaign_name)}</div>
                   <div className="cellMuted">{row.source || "-"} / {row.medium || "-"}</div>
                 </td>
-                <td>{row.source_medium || "-"}</td>
+                <td>{getGa4ChannelLabel(row.source_medium) || "-"}</td>
                 <td>{formatFullNumber(row.sessions)}</td>
                 <td>{formatFullNumber(row.active_users)}</td>
                 <td>{formatFullNumber(row.total_users)}</td>
@@ -376,8 +382,14 @@ function GoogleEventsTable({ rows }: { rows: Ga4EventRow[] }) {
             {rows.map((row) => (
               <tr key={row.event_name}>
                 <td>
-                  <div className="cellTitle">{row.label || row.event_name}</div>
-                  {row.description ? <div className="cellMuted">{row.description}</div> : null}
+                  <div className="cellTitle">
+                    {row.label && row.label !== row.event_name ? row.label : getGa4EventLabel(row.event_name)}
+                  </div>
+                  {row.description ? (
+                    <div className="cellMuted">{row.description}</div>
+                  ) : getGa4EventTechnicalDetail(row.event_name) ? (
+                    <div className="cellMuted">{getGa4EventTechnicalDetail(row.event_name)}</div>
+                  ) : null}
                 </td>
                 <td>{formatFullNumber(row.event_count)}</td>
                 <td>{formatFullNumber(row.total_users)}</td>
@@ -632,7 +644,7 @@ export default function GoogleAnalytics({
         .slice(0, 5)
         .map((row: Ga4ChannelRow) => ({
           id: row.source_medium || `${row.source || "source"}-${row.medium || "medium"}`,
-          label: row.source_medium || "Tráfego direto / indefinido",
+          label: getGa4ChannelLabel(row.source_medium),
           meta: `${formatFullNumber(row.total_users)} usuários • ${formatFullNumber(row.event_count)} eventos`,
           value: `${formatFullNumber(row.sessions)} sessões`,
           subvalue: `${formatFullNumber(row.active_users)} usuários ativos`,
@@ -647,8 +659,8 @@ export default function GoogleAnalytics({
         .slice(0, 5)
         .map((row: Ga4CampaignRow) => ({
           id: `${row.campaign_name}-${row.source_medium || "campaign"}`,
-          label: row.campaign_name || "Campanha sem nome",
-          meta: `${row.source_medium || "origem não identificada"} • ${formatFullNumber(row.event_count)} eventos`,
+          label: getCampaignDisplayName(row.campaign_name),
+          meta: `${getGa4ChannelLabel(row.source_medium)} • ${formatFullNumber(row.event_count)} eventos`,
           value: `${formatFullNumber(row.sessions)} sessões`,
           subvalue: `${formatFullNumber(row.active_users)} usuários ativos`,
         })),

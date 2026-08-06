@@ -1,5 +1,6 @@
 import type { Ga4EventGroup, Ga4ReportResponse } from "../../app/types";
 import { formatSelectedPeriodLabel, type SelectedPeriodRange } from "../../app/periodRange";
+import { getGa4EventLabel, getGa4EventTechnicalDetail } from "../../app/ga4Labels";
 
 type Props = {
   report: Ga4ReportResponse | null;
@@ -96,8 +97,14 @@ function GroupTable({ group }: { group: Ga4EventGroup }) {
             {group.items.map((item) => (
               <tr key={item.event_name}>
                 <td>
-                  <div className="cellTitle">{item.label}</div>
-                  {item.description ? <div className="cellMuted">{item.description}</div> : null}
+                  <div className="cellTitle">
+                    {item.label && item.label !== item.event_name ? item.label : getGa4EventLabel(item.event_name)}
+                  </div>
+                  {item.description ? (
+                    <div className="cellMuted">{item.description}</div>
+                  ) : getGa4EventTechnicalDetail(item.event_name) ? (
+                    <div className="cellMuted">{getGa4EventTechnicalDetail(item.event_name)}</div>
+                  ) : null}
                 </td>
                 <td>{fmt(item.event_count)}</td>
                 <td>{fmt(item.total_users)}</td>
