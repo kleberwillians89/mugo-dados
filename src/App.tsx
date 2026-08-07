@@ -151,7 +151,7 @@ function PrimaryNavigation({
     { route: "google", label: "Analytics" },
     { route: "ecommerce", label: "E-commerce" },
     { route: "integrations", label: "Integrações" },
-    { route: "intelligence", label: "Inteligência IA" },
+    { route: "intelligence", label: "Inteligência" },
   ];
   if (platformAdmin) items.push({ route: "companies", label: "Administração" });
   return (

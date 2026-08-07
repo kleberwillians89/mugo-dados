@@ -195,22 +195,19 @@ button, input, select { font: inherit; }
 .primaryNavigation{
   position:relative;
   z-index:90;
-  padding:10px var(--shell-padding-x) 0;
+  padding:0 var(--shell-padding-x);
   background:#f2f0eb;
+  border-bottom:1px solid rgba(37,53,46,.1);
 }
 .primaryNavigationInner{
   width:min(var(--container),100%);
-  min-height:52px;
+  min-height:60px;
   margin:0 auto;
-  padding:7px 10px 7px 16px;
+  padding:0;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:18px;
-  border:1px solid rgba(37,53,46,.12);
-  border-radius:12px;
-  background:rgba(255,255,255,.94);
-  box-shadow:0 4px 14px rgba(28,43,36,.05);
+  gap:24px;
 }
 .primaryNavigationInner>strong{
   color:#153f35;
@@ -224,29 +221,34 @@ button, input, select { font: inherit; }
 .primaryNavigationLinks{
   display:flex;
   align-items:center;
-  gap:4px;
+  gap:2px;
+  height:100%;
   overflow-x:auto;
   scrollbar-width:none;
 }
 .primaryNavigationLinks::-webkit-scrollbar{display:none}
 .primaryNavigation button{
-  min-height:38px;
-  padding:8px 12px;
+  position:relative;
+  min-height:60px;
+  padding:0 14px;
   border:0;
-  border-radius:11px;
+  border-bottom:2px solid transparent;
   color:#5e6862;
   background:transparent;
   white-space:nowrap;
   cursor:pointer;
-  font-size:12px;
-  font-weight:750;
+  font-size:13px;
+  font-weight:650;
+  transition:color .16s ease, border-color .16s ease;
 }
-.primaryNavigation button:hover{color:#153f35;background:#eef3f0}
-.primaryNavigation button.isActive{color:#fff;background:#153f35}
-.primaryNavigation button:focus-visible{outline:3px solid rgba(168,120,31,.35);outline-offset:2px}
+.primaryNavigation button:hover{color:#153f35}
+.primaryNavigation button.isActive{color:#153f35;font-weight:750;border-bottom-color:#c79830}
+.primaryNavigation button:focus-visible{outline:2px solid rgba(168,120,31,.45);outline-offset:-2px;border-radius:6px}
 @media(max-width:720px){
   .primaryNavigation{padding:8px 10px 0}
-  .primaryNavigationInner{align-items:flex-start;flex-direction:column;gap:6px;padding:10px}
+  .primaryNavigationInner{align-items:flex-start;flex-direction:column;gap:6px;padding:10px;min-height:0}
+  .primaryNavigation button{min-height:44px;border-bottom:0;border-left:2px solid transparent;padding:0 12px}
+  .primaryNavigation button.isActive{border-left-color:#c79830}
   .primaryNavigationLinks{width:100%}
   .primaryNavigation button{min-height:44px}
 }
@@ -460,6 +462,10 @@ button, input, select { font: inherit; }
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
+}
+.panelHead-minimal{
+  justify-content: flex-end;
+  margin-bottom: 18px;
 }
 .panelTitle{
   font-size: 34px;
@@ -1795,18 +1801,27 @@ button, input, select { font: inherit; }
 .clientSwitcher{
   position:static;
   flex:0 0 auto;
-  min-width:240px;
-  display:grid;
-  grid-template-columns:32px minmax(90px,1fr) auto;
-  grid-template-areas:"avatar label status" "avatar select select";
-  align-items:center;
-  column-gap:8px;
-  row-gap:2px;
-  padding:5px 8px;
-  border-left:1px solid rgba(0,79,110,.14);
+  min-width:200px;
 }
+.clientSwitcherTrigger{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  padding:6px 10px 6px 6px;
+  border:1px solid transparent;
+  border-radius:12px;
+  background:transparent;
+  cursor:pointer;
+  text-align:left;
+  transition:background .15s ease, border-color .15s ease;
+}
+.clientSwitcherTrigger:hover{background:rgba(0,79,110,.05)}
+.clientSwitcher.is-open .clientSwitcherTrigger{background:#fff;border-color:rgba(0,79,110,.14);box-shadow:0 8px 20px rgba(21,48,59,.08)}
+.clientSwitcherTrigger:disabled{cursor:wait;opacity:.7}
 .clientSwitcherAvatar{
-  grid-area:avatar;
+  flex:0 0 auto;
   width:32px;
   height:32px;
   display:grid;
@@ -1817,17 +1832,61 @@ button, input, select { font: inherit; }
   font-size:13px;
   font-weight:800;
 }
-.clientSwitcherLabel{grid-area:label;color:#68757c;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-.clientSwitcher select{grid-area:select;min-width:0;border:0;background:transparent;color:#17252b;font-size:12px;font-weight:700;padding:0 18px 0 0;outline:none}
-.clientSwitcherLock{grid-area:status;display:flex;align-items:center;gap:4px;color:#41725b;font-size:9px;font-weight:700}
-.clientSwitcherLock i{width:6px;height:6px;border-radius:50%;background:#2f8f5b}
-.clientSwitcher.is-switching{opacity:.72;transition:opacity .15s ease}
-.clientSwitcher.is-switching select{cursor:wait}
-.clientSwitcher.is-switching .clientSwitcherLock i{background:#c79830;animation:clientSwitcherPulse 1s ease-in-out infinite}
-@keyframes clientSwitcherPulse{0%,100%{opacity:1}50%{opacity:.35}}
-@media(prefers-reduced-motion:reduce){.clientSwitcher.is-switching .clientSwitcherLock i{animation:none}}
+.clientSwitcherIdentity{display:grid;gap:1px;min-width:0;flex:1 1 auto}
+.clientSwitcherName{font-size:13px;font-weight:750;color:#17252b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clientSwitcherLabel{color:#68757c;font-size:10px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clientSwitcherChevron{flex:0 0 auto;color:#8a9298;transition:transform .16s ease}
+.clientSwitcher.is-open .clientSwitcherChevron{transform:rotate(180deg)}
+
+.clientSwitcherPanel{
+  position:absolute;
+  z-index:60;
+  margin-top:6px;
+  width:280px;
+  max-width:calc(100vw - 24px);
+  background:#fff;
+  border:1px solid rgba(0,79,110,.12);
+  border-radius:14px;
+  box-shadow:0 18px 40px rgba(21,48,59,.14);
+  padding:8px;
+  animation:clientSwitcherPanelIn .16s ease both;
+}
+@keyframes clientSwitcherPanelIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.clientSwitcherPanel{animation:none}}
+.clientSwitcherSearch{
+  width:100%;
+  border:1px solid rgba(0,79,110,.14);
+  border-radius:9px;
+  padding:8px 10px;
+  font-size:13px;
+  margin-bottom:6px;
+}
+.clientSwitcherList{display:grid;gap:2px;max-height:280px;overflow-y:auto}
+.clientSwitcherOption{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:9px 10px;
+  border:none;
+  border-radius:9px;
+  background:transparent;
+  cursor:pointer;
+  text-align:left;
+}
+.clientSwitcherOption:hover{background:rgba(0,79,110,.06)}
+.clientSwitcherOption.is-selected .clientSwitcherOptionName{color:#004f6e;font-weight:750}
+.clientSwitcherOptionName{font-size:13px;font-weight:650;color:#17252b}
+.clientSwitcherOptionStatus{font-size:11px;color:#68757c}
+.clientSwitcherEmpty{padding:12px 10px;font-size:12.5px;color:#68757c}
+
+.clientSwitcher.is-switching .clientSwitcherTrigger{opacity:.75}
+.clientSwitcher.is-switching .clientSwitcherLabel{color:#c79830;animation:clientSwitcherPulse 1s ease-in-out infinite}
+@keyframes clientSwitcherPulse{0%,100%{opacity:1}50%{opacity:.4}}
+@media(prefers-reduced-motion:reduce){.clientSwitcher.is-switching .clientSwitcherLabel{animation:none}}
 
 @media(max-width:980px){
   .primaryNavigationInner{flex-wrap:wrap}
-  .clientSwitcher{width:100%;min-width:0;border-left:0;border-top:1px solid rgba(0,79,110,.1);padding-top:8px}
+  .clientSwitcher{width:100%;min-width:0;border-top:1px solid rgba(0,79,110,.1);padding-top:8px}
+  .clientSwitcherPanel{width:100%;left:0;right:0}
 }

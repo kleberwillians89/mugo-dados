@@ -888,3 +888,40 @@
   .shopifyAttributionGrid{ grid-template-columns: 1fr; }
   .shopifyLifecycleBarLegend{ flex-direction: column; gap: 6px; }
 }
+
+/* Hero editorial da operação Shopify — substitui a grade de 6 KPIs */
+.shopifyPerformanceHero{
+  display: grid; gap: 8px;
+  padding: 34px 36px 28px;
+  border-radius: 24px;
+  background: linear-gradient(155deg, #1a1718 0%, #2b2724 120%);
+  color: #fff;
+  box-shadow: 0 20px 44px rgba(26,23,24,.18);
+}
+.shopifyPerformanceEyebrow{ font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; color: #d7db6a; }
+.shopifyPerformanceNarrative{
+  font-family: Georgia, "Iowan Old Style", serif; font-style: italic;
+  font-size: clamp(1.1rem, 1.9vw, 1.4rem); margin: 4px 0 2px; max-width: 44ch; color: #f2efe9;
+}
+.shopifyPerformanceMain{ display: flex; align-items: baseline; gap: 12px; margin-top: 6px; }
+.shopifyPerformanceMain strong{ font-size: clamp(2.2rem, 5vw, 3.2rem); font-weight: 850; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.shopifyPerformanceMain span{ font-size: 13px; font-weight: 700; color: rgba(255,255,255,.68); }
+.shopifyPerformanceSub{ display: flex; gap: 30px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.14); }
+.shopifyPerformanceSub div{ display: grid; gap: 3px; }
+.shopifyPerformanceSub span{ font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.58); }
+.shopifyPerformanceSub b{ font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.shopifyPerformanceFooter{ display: block; margin-top: 12px; font-size: 11.5px; color: rgba(255,255,255,.55); }
+.shopifyPerformanceSource{ display: block; margin-top: 2px; font-size: 11px; color: rgba(255,255,255,.4); }
+
+.shopifyChartHead{ display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.shopifyChartHeadTitle{ font-size: 15px; font-weight: 750; color: #1a1718; }
+.shopifyChartTabs{ display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(26,23,24,.06); }
+.shopifyChartTab{ border: none; background: transparent; cursor: pointer; font-size: 12.5px; font-weight: 700; padding: 6px 13px; border-radius: 999px; color: rgba(26,23,24,.55); }
+.shopifyChartTab:hover{ color: #1a1718; }
+.shopifyChartTab.is-active{ background: #fff; color: #1a1718; box-shadow: 0 6px 16px rgba(26,23,24,.1); }
+.shopifyChartGrid-single{ grid-template-columns: 1fr; }
+
+@media (max-width: 780px){
+  .shopifyPerformanceHero{ padding: 24px 20px; border-radius: 18px; }
+  .shopifyPerformanceSub{ gap: 20px; }
+}

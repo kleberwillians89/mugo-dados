@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { listGenericConnections, type GenericConnection } from "../app/api";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getSelectedConnectionId } from "../app/connectionState";
 import { usePeriod } from "../app/PeriodContext";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
 import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
 import Shell from "../components/Shell";
 import useDashboardFbits, { resolveCommerceConnection } from "../hooks/dashboard/useDashboardFbits";
@@ -48,8 +49,20 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard }: Omit<Prop
   );
 }
 
+const COMMERCE_CONNECTION_CACHE_TTL = 300_000;
+
 export default function Ecommerce(props: Props) {
-  const [connection, setConnection] = useState<GenericConnection | null | undefined>(undefined);
+  // Lido de forma síncrona do cache para nunca mostrar a tela "Carregando
+  // e-commerce" (que troca Shopify <-> FBits <-> vazio) ao voltar para esta
+  // rota — a fonte já conhecida permanece visível enquanto revalida em
+  // segundo plano.
+  const commerceCacheKey = useMemo(
+    () => buildDashboardCacheKey("commerce-connection", { clientId: getActiveClientId() }),
+    []
+  );
+  const [connection, setConnection] = useState<GenericConnection | null | undefined>(
+    () => readDashboardCache<GenericConnection | null>(commerceCacheKey) ?? undefined
+  );
 
   useEffect(() => {
     let active = true;
@@ -58,15 +71,19 @@ export default function Ecommerce(props: Props) {
         const clientId = getActiveClientId();
         const selectedId = getSelectedConnectionId(clientId, "shopify") ||
           getSelectedConnectionId(clientId, "fbits");
-        if (active) setConnection(resolveCommerceConnection(response.connections, selectedId) as GenericConnection | null);
+        const resolved = resolveCommerceConnection(response.connections, selectedId) as GenericConnection | null;
+        if (active) setConnection(resolved);
+        writeDashboardCache<GenericConnection | null>(commerceCacheKey, resolved, COMMERCE_CONNECTION_CACHE_TTL);
       })
       .catch(() => {
-        if (active) setConnection(null);
+        // Falha na revalidação nunca apaga uma fonte já conhecida (cache
+        // válido); só cai para "nenhuma fonte" quando não havia nada antes.
+        if (active) setConnection((current) => (current === undefined ? null : current));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [commerceCacheKey]);
 
   if (connection?.provider === "shopify") {
     return (

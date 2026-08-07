@@ -1075,10 +1075,17 @@ export default function GoogleAnalytics({
               <div className="googleSourceFilters isCampaign">
                 <label>
                   <span>Campanha GA4</span>
-                  <select className="select" value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)}>
-                    <option value="">Todas as campanhas</option>
-                    {campaignOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
+                  <input
+                    className="select"
+                    type="search"
+                    list="ga4-campaign-options"
+                    placeholder="Buscar campanha"
+                    value={campaignFilter}
+                    onChange={(event) => setCampaignFilter(event.target.value)}
+                  />
+                  <datalist id="ga4-campaign-options">
+                    {campaignOptions.map((option) => <option key={option} value={option} />)}
+                  </datalist>
                 </label>
               </div>
               <GoogleCampaignsTable rows={filteredCampaigns} />

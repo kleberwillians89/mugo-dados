@@ -227,3 +227,19 @@
     font-size: 22px;
   }
 }
+
+/* Providers "em breve" — demovidos da grade principal, tira competição visual */
+.onboardingComingSoon{
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px; border-top: 1px dashed rgba(0,79,110,.12);
+}
+.onboardingComingSoonPill{
+  font-size: 11px; font-weight: 700; color: #8a949a;
+  background: rgba(0,79,110,.05); border-radius: 999px; padding: 4px 10px;
+}
+
+/* Erro de integração humanizado — nunca cru na primeira camada */
+.integrationErrorNotice p{ margin: 0; font-size: 12.5px; color: #7a3b3b; line-height: 1.5; }
+.integrationErrorNotice details{ margin-top: 4px; }
+.integrationErrorNotice summary{ font-size: 11px; color: #8a949a; cursor: pointer; }
+.integrationErrorNotice details span{ display: block; margin-top: 4px; font-size: 11px; color: #a3a8ab; font-family: ui-monospace, monospace; }

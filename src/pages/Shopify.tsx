@@ -32,6 +32,14 @@ type Props = {
 };
 
 type PeriodPreset = "7d" | "30d" | "month" | "specific";
+type ShopifyMetricKey = "revenue" | "orders" | "customers" | "average_ticket";
+
+const SHOPIFY_METRIC_TABS: { key: ShopifyMetricKey; label: string; description: string }[] = [
+  { key: "revenue", label: "Receita", description: "Faturamento diário" },
+  { key: "orders", label: "Pedidos", description: "Pedidos diários" },
+  { key: "customers", label: "Clientes", description: "Clientes por período" },
+  { key: "average_ticket", label: "Ticket médio", description: "Ticket médio por período" },
+];
 type CustomerLifecycleFilter = "all" | "new" | "recurring";
 type CustomerSortBy = "total_spent" | "total_orders" | "last_purchase_at";
 
@@ -116,6 +124,7 @@ function ShopifyReportSkeleton() {
 
 export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport }: Props) {
   const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
+  const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
   );
@@ -214,48 +223,6 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 5 }).map((_, index) => currentYear - index);
   }, []);
-
-  const summaryCards = useMemo(() => {
-    if (!summary) return [];
-    return [
-      {
-        label: "Faturamento total",
-        value: formatShopifyCurrency(summary.revenue_total, currency),
-        hint: `${summary.paid_orders} pedidos pagos no período`,
-        tone: "accent" as const,
-      },
-      {
-        label: "Pedidos",
-        value: formatShopifyCompactNumber(summary.orders),
-        hint: `${summary.customers} clientes atendidos`,
-        tone: "default" as const,
-      },
-      {
-        label: "Ticket médio",
-        value: formatShopifyCurrency(summary.average_ticket, currency),
-        hint: "Média por pedido no período",
-        tone: "default" as const,
-      },
-      {
-        label: "Clientes",
-        value: formatShopifyCompactNumber(summary.customers),
-        hint: "Base com compra registrada",
-        tone: "default" as const,
-      },
-      {
-        label: "Pedidos pagos",
-        value: formatShopifyCompactNumber(summary.paid_orders),
-        hint: `${summary.orders ? Math.round((summary.paid_orders / summary.orders) * 100) : 0}% do total de pedidos`,
-        tone: "default" as const,
-      },
-      {
-        label: "Cancelados / reembolsados",
-        value: `${formatShopifyCompactNumber(summary.cancelled_orders)} / ${formatShopifyCompactNumber(summary.refunds_count)}`,
-        hint: `${formatShopifyCurrency(summary.refunded_amount, currency)} em reembolsos`,
-        tone: "default" as const,
-      },
-    ];
-  }, [currency, summary]);
 
   const filteredCustomers = useMemo(() => {
     const rows = customerData?.items || [];
@@ -485,60 +452,60 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
             ) : null}
 
             <section className="shopifySection" id="shopify-overview">
-              <ShopifySectionHeader
-                eyebrow="Resumo geral"
-                title="Operação consolidada"
-                description="Uma leitura rápida dos principais números para apresentação e acompanhamento executivo."
-              />
-              <div className="shopifyKpiGrid">
-                {summaryCards.map((card) => (
-                  <ShopifyKpiCard
-                    key={card.label}
-                    hint={card.hint}
-                    label={card.label}
-                    tone={card.tone}
-                    value={card.value}
-                  />
-                ))}
+              <div className="shopifyPerformanceHero">
+                <span className="shopifyPerformanceEyebrow">Operação Shopify</span>
+                <p className="shopifyPerformanceNarrative">A receita real da loja no período selecionado.</p>
+                <div className="shopifyPerformanceMain">
+                  <strong>{formatShopifyCurrency(summary?.revenue_total || 0, currency)}</strong>
+                  <span>Receita da loja</span>
+                </div>
+                <div className="shopifyPerformanceSub">
+                  <div><span>Pedidos</span><b>{formatShopifyCompactNumber(summary?.orders || 0)}</b></div>
+                  <div><span>Ticket médio</span><b>{formatShopifyCurrency(summary?.average_ticket || 0, currency)}</b></div>
+                  <div><span>Clientes</span><b>{formatShopifyCompactNumber(summary?.customers || 0)}</b></div>
+                </div>
+                {summary ? (
+                  <span className="shopifyPerformanceFooter">
+                    {formatShopifyCompactNumber(summary.paid_orders)} pedidos pagos
+                    {summary.cancelled_orders || summary.refunds_count
+                      ? ` · ${formatShopifyCompactNumber(summary.cancelled_orders)} cancelados · ${formatShopifyCompactNumber(summary.refunds_count)} reembolsos (${formatShopifyCurrency(summary.refunded_amount, currency)})`
+                      : ""}
+                  </span>
+                ) : null}
+                <span className="shopifyPerformanceSource">Fonte: Shopify</span>
               </div>
             </section>
 
             <section className="shopifySection">
-              <ShopifySectionHeader
-                eyebrow="Evolução"
-                title="Ritmo da operação"
-                description="Gráficos simples para leitura rápida de tendência ao longo do período selecionado."
-              />
-              <div className="shopifyChartGrid">
+              <div className="shopifyChartHead">
+                <span className="shopifyChartHeadTitle">Ritmo da operação</span>
+                <div className="shopifyChartTabs" role="tablist" aria-label="Métrica do gráfico">
+                  {SHOPIFY_METRIC_TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={shopifyChartMetric === tab.key}
+                      className={`shopifyChartTab${shopifyChartMetric === tab.key ? " is-active" : ""}`}
+                      onClick={() => setShopifyChartMetric(tab.key)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="shopifyChartGrid shopifyChartGrid-single">
                 <ShopifyChartCard
                   color="#1a1718"
                   data={report.trends.daily}
-                  dataKey="revenue"
-                  description="Faturamento diário"
-                  title="Faturamento"
-                  valueFormatter={(value) => formatShopifyCurrency(value, currency)}
-                />
-                <ShopifyChartCard
-                  color="#7b8470"
-                  data={report.trends.daily}
-                  dataKey="orders"
-                  description="Pedidos diários"
-                  title="Pedidos"
-                />
-                <ShopifyChartCard
-                  color="#c7b299"
-                  data={report.trends.daily}
-                  dataKey="customers"
-                  description="Clientes por período"
-                  title="Clientes"
-                />
-                <ShopifyChartCard
-                  color="#d7db6a"
-                  data={report.trends.daily}
-                  dataKey="average_ticket"
-                  description="Ticket médio por período"
-                  title="Ticket médio"
-                  valueFormatter={(value) => formatShopifyCurrency(value, currency)}
+                  dataKey={shopifyChartMetric}
+                  description={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.description || ""}
+                  title={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.label || ""}
+                  valueFormatter={
+                    shopifyChartMetric === "revenue" || shopifyChartMetric === "average_ticket"
+                      ? (value) => formatShopifyCurrency(value, currency)
+                      : undefined
+                  }
                 />
               </div>
             </section>

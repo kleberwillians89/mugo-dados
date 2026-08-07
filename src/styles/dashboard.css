@@ -1307,3 +1307,128 @@
   .topCampaigns{ padding: 18px; border-radius: 16px; }
   .topCampaignsHighlights{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ===== Performance Hero — composição editorial única (substitui grade de KPIs) ===== */
+.performanceHero{
+  display: grid;
+  gap: 10px;
+  padding: 38px 40px 34px;
+  border-radius: 26px;
+  background: linear-gradient(155deg, var(--executive-blue) 0%, #06303F 120%);
+  color: #fff;
+  box-shadow: 0 22px 48px rgba(6,48,63,.22);
+}
+.performanceHero .executiveEyebrow{ color: var(--executive-gold); }
+.performanceHero.is-empty{
+  background: #fff; color: var(--executive-blue);
+  border: 1px solid rgba(0,79,110,.1);
+  box-shadow: 0 10px 28px rgba(21,48,59,.045);
+}
+.performanceHero.is-empty .executiveEyebrow{ color: var(--executive-gold); }
+.performanceNarrative{
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-style: italic;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  line-height: 1.35;
+  margin: 6px 0 4px;
+  max-width: 46ch;
+  color: inherit;
+}
+.performanceMain{
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  margin-top: 6px;
+}
+.performanceMain strong{
+  font-size: clamp(2.4rem, 5.4vw, 3.6rem);
+  font-weight: 850;
+  letter-spacing: -.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.performanceMainLabel{
+  font-size: 13px; font-weight: 700; color: rgba(255,255,255,.72);
+}
+.performanceHero.is-empty .performanceMainLabel{ color: var(--executive-gray); }
+.performanceDelta{
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 750; padding: 5px 3px 0;
+}
+.performanceDelta.is-up{ color: #8FE3B7; }
+.performanceDelta.is-down{ color: #F0A79C; }
+.performanceDelta.is-neutral{ color: rgba(255,255,255,.6); }
+.performanceHero.is-empty .performanceDelta.is-up{ color: #198754; }
+.performanceHero.is-empty .performanceDelta.is-down{ color: var(--executive-red); }
+.performanceSub{
+  display: flex; gap: 32px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,.16);
+}
+.performanceHero.is-empty .performanceSub{ border-top-color: rgba(0,79,110,.1); }
+.performanceSub div{ display: grid; gap: 3px; }
+.performanceSub span{ font-size: 10.5px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: rgba(255,255,255,.6); }
+.performanceHero.is-empty .performanceSub span{ color: var(--executive-gray); }
+.performanceSub b{ font-size: 17px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.performanceSource{ font-size: 11px; color: rgba(255,255,255,.55); margin-top: 4px; }
+.performanceHero.is-empty .performanceSource{ color: var(--executive-gray); }
+
+/* ===== Campanhas + Atenção lado a lado ===== */
+.campaignsAttentionGrid{
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-top: 20px;
+}
+.attentionPanel{
+  display: grid; gap: 0;
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(0,79,110,.1);
+  box-shadow: 0 10px 28px rgba(21,48,59,.045);
+}
+.attentionPanelHead h3{ margin: 0 0 14px; font-size: 16px; letter-spacing: -.01em; color: #17313d; }
+.attentionRow{ padding: 14px 0; border-top: 1px solid rgba(0,79,110,.08); }
+.attentionRow:first-of-type{ border-top: none; padding-top: 0; }
+.attentionLabel{
+  display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; margin-bottom: 5px;
+}
+.attentionRow.is-risk .attentionLabel{ color: #b22234; }
+.attentionRow.is-opportunity .attentionLabel{ color: #c79830; }
+.attentionRow.is-action .attentionLabel{ color: #0b4f6c; }
+.attentionText{ margin: 0; font-size: 13px; color: #33454B; line-height: 1.5; }
+
+@media (max-width: 900px){
+  .campaignsAttentionGrid{ grid-template-columns: 1fr; }
+  .performanceHero{ padding: 28px 24px; border-radius: 20px; }
+  .performanceSub{ gap: 22px; }
+}
+
+/* ===== PerformanceChart — gráfico editorial com seletor de métrica ===== */
+.performanceChart{
+  margin-top: 20px;
+  padding: 26px 28px 20px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid rgba(0,79,110,.08);
+  box-shadow: 0 10px 28px rgba(21,48,59,.04);
+}
+.performanceChartHead{
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.performanceChartTitle{ font-size: 16px; font-weight: 750; color: #17313d; letter-spacing: -.01em; }
+.performanceChartTabs{ display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0,79,110,.06); }
+.performanceChartTab{
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; padding: 7px 14px; border-radius: 999px;
+  color: #647377; transition: background .16s ease, color .16s ease;
+}
+.performanceChartTab:hover{ color: #17313d; }
+.performanceChartTab.is-active{ background: #fff; color: #0b4f6c; box-shadow: 0 6px 16px rgba(21,48,59,.08); }
+.performanceChartViewport{ height: 300px; }
+@media (max-width: 760px){
+  .performanceChart{ padding: 20px 16px 14px; border-radius: 18px; }
+  .performanceChartViewport{ height: 240px; }
+}

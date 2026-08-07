@@ -172,6 +172,22 @@ function canonicalAccountLabel(entry: ClientIntegrationConnection | undefined): 
   return assets.ad_account_name || assets.property_name || assets.instagram_account_name || null;
 }
 
+/**
+ * Erro técnico bruto (código HTTP, mensagem de API) nunca aparece direto
+ * para o cliente — vira uma frase humana com o próximo passo, mantendo o
+ * detalhe técnico disponível separadamente para quem precisar dele.
+ */
+function humanizeIntegrationError(rawError: string, providerName: string): string {
+  const normalized = rawError.toLowerCase();
+  if (normalized.includes("permission") || normalized.includes("permissão") || normalized.includes("403")) {
+    return `A autorização da ${providerName} perdeu uma permissão necessária. Reconecte para continuar atualizando.`;
+  }
+  if (normalized.includes("token") || normalized.includes("401") || normalized.includes("expired")) {
+    return `A conexão com a ${providerName} expirou. Reconecte para retomar as atualizações.`;
+  }
+  return `Não conseguimos atualizar a ${providerName} agora. Os últimos dados salvos continuam disponíveis.`;
+}
+
 function integrationLogoSrc(id: string): string | null {
   if (id === "meta") return "/logoinstagram.png";
   return null;
@@ -1360,7 +1376,7 @@ export default function Onboarding({
             </div>
           ) : null}
           <div className="onboardingConnections">
-            {INTEGRATION_REGISTRY.map((definition) => {
+            {INTEGRATION_REGISTRY.filter((definition) => definition.availability === "available").map((definition) => {
               const activeClientId = getActiveClientId();
               const matchingConnections =
                 definition.id === "ga4"
@@ -1477,7 +1493,13 @@ export default function Onboarding({
                   <div className="smallMuted" style={{ marginTop: 8 }}>Conta: {canonicalAccountLabel(canonicalEntry)}</div>
                 ) : null}
                 {canonicalEntry?.last_error ? (
-                  <div className="smallMuted" style={{ marginTop: 8 }}>{canonicalEntry.last_error}</div>
+                  <div className="integrationErrorNotice" style={{ marginTop: 8 }}>
+                    <p>{humanizeIntegrationError(canonicalEntry.last_error, definition.name)}</p>
+                    <details>
+                      <summary>Detalhes técnicos</summary>
+                      <span>{canonicalEntry.last_error}</span>
+                    </details>
+                  </div>
                 ) : null}
                 {(() => {
                   const needsAttention =
@@ -1669,6 +1691,15 @@ export default function Onboarding({
               );
             })}
           </div>
+
+          {INTEGRATION_REGISTRY.some((definition) => definition.availability !== "available") ? (
+            <div className="onboardingComingSoon">
+              <span className="smallMuted">Em breve:</span>
+              {INTEGRATION_REGISTRY.filter((definition) => definition.availability !== "available").map((definition) => (
+                <span className="onboardingComingSoonPill" key={definition.id}>{definition.shortName}</span>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         {activeRole === "agency_admin" ? (
