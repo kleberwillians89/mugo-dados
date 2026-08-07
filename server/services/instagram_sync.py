@@ -362,6 +362,15 @@ async def _run_sync_for_client_and_ig(
                     "[ig_sync][meta_warning] "
                     f"block=story_insights client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
                 )
+            story_thumb_source = story.get("thumbnail_url") or story.get("media_url")
+            public_story_thumb = None
+            if story_thumb_source:
+                try:
+                    story_content, story_ctype = await download_image(story_thumb_source)
+                    story_path = f"clients/{client_id}/media/{story_id}/thumb.jpg"
+                    public_story_thumb = await sb_upload_public(story_path, story_content, story_ctype)
+                except Exception:
+                    public_story_thumb = None
             media_rows.append(
                 {
                     "client_id": client_id,
@@ -372,7 +381,10 @@ async def _run_sync_for_client_and_ig(
                     "caption": None,
                     "permalink": story.get("permalink"),
                     "timestamp": _normalize_meta_ts(story.get("timestamp")),
-                    "thumb_url": story.get("thumbnail_url") or story.get("media_url"),
+                    # Igual à mídia comum: baixa e persiste no storage próprio
+                    # antes de expor a URL — a CDN do Instagram é assinada e
+                    # expira, causando ERR_BLOCKED_BY_RESPONSE no frontend.
+                    "thumb_url": public_story_thumb or story_thumb_source,
                     "media_url": story.get("media_url"),
                     "thumbnail_url": story.get("thumbnail_url"),
                     "insights_json": story_insights or {},

@@ -20,8 +20,11 @@ async def require_user_id(authorization: Optional[str]) -> str:
     if user_id:
         return user_id
 
-    # Modo local/dev: permite usar API sem JWT
-    if _is_true(os.getenv("ALLOW_NO_AUTH", "")):
+    # Modo local/dev: permite usar API sem JWT. Nunca em produção, mesmo que
+    # ALLOW_NO_AUTH seja setado por engano — mesmo guard já usado para
+    # ALLOW_UNVERIFIED_JWT_DEV em auth.py.
+    environment = (os.getenv("APP_ENV") or "").strip().lower()
+    if _is_true(os.getenv("ALLOW_NO_AUTH", "")) and environment not in {"production", "prod"}:
         dev_user_id = _local_dev_user_id()
         print(
             "[tenant][auth_bypass] "

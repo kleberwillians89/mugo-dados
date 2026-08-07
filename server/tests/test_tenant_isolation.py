@@ -15,6 +15,28 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
                 await tenant.require_user_id(None)
         self.assertEqual(raised.exception.status_code, 401)
 
+    async def test_allow_no_auth_never_bypasses_in_production_even_if_set(self):
+        os.environ["ALLOW_NO_AUTH"] = "true"
+        os.environ["APP_ENV"] = "production"
+        try:
+            with patch.object(tenant, "get_user_id_from_bearer", AsyncMock(return_value=None)):
+                with self.assertRaises(HTTPException) as raised:
+                    await tenant.require_user_id(None)
+            self.assertEqual(raised.exception.status_code, 401)
+        finally:
+            os.environ["ALLOW_NO_AUTH"] = "false"
+            os.environ.pop("APP_ENV", None)
+
+    async def test_allow_no_auth_still_works_outside_production(self):
+        os.environ["ALLOW_NO_AUTH"] = "true"
+        os.environ.pop("APP_ENV", None)
+        try:
+            with patch.object(tenant, "get_user_id_from_bearer", AsyncMock(return_value=None)):
+                user_id = await tenant.require_user_id(None)
+            self.assertTrue(user_id)
+        finally:
+            os.environ["ALLOW_NO_AUTH"] = "false"
+
     async def test_amalie_user_cannot_request_roove(self):
         async def membership_lookup(user_id, requested_client_id=None):
             self.assertEqual(user_id, "user-amalie")

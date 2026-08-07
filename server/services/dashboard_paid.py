@@ -815,7 +815,9 @@ async def get_summary_dashboard(
         "clicks_paid": _safe_int(paid_totals.get("clicks")),
         "conversions_paid": _safe_float(paid_totals.get("conversions")),
         "revenue_paid": _safe_float(paid_totals.get("revenue")),
-        "roas_paid": _safe_float(paid_totals.get("roas")),
+        # roas já é None quando não há base confiável (ver compute_roas) —
+        # nunca usar _safe_float aqui, que converteria None em 0.0 falso.
+        "roas_paid": paid_totals.get("roas") if isinstance(paid_totals.get("roas"), (int, float)) else None,
     }
 
     return {

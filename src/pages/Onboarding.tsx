@@ -62,6 +62,7 @@ import {
   getActiveClientName,
   MUGO_APP_NAME,
 } from "../app/activeClient";
+import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 import AssetCombobox from "../components/AssetCombobox";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
@@ -729,26 +730,13 @@ export default function Onboarding({
     const validatedPageId = String(manualMetaValidation?.page?.id || (manualPageId || "")).trim();
     const validatedInstagramId = String(manualMetaValidation?.instagram?.id || (manualInstagramId || "")).trim();
     const activeClientId = getActiveClientId();
-    console.info("[meta-organic][temporary_diagnostic]", {
-      stage: "manual_save_clicked", selectedAuthorization: selectedMetaAuthorizationId,
-      manualMetaConnectionId, manualPageId, manualInstagramId, manualAdAccountId,
-      validationAvailable: Boolean(manualMetaValidation),
-    });
     if (!selectedMetaAuthorizationId) {
-      console.warn("[meta-organic][temporary_diagnostic]", {
-        stage: "manual_activate_not_called", condition: "connection_missing",
-        selectedMetaAuthorizationId, validationAvailable: Boolean(manualMetaValidation),
-      });
       return;
     }
     const connection = selectUsableMetaConnection(
       genericConnections, activeClientId, selectedMetaAuthorizationId
     );
     if (!connection) {
-      console.warn("[meta-organic][temporary_diagnostic]", {
-        stage: "manual_activate_not_called", condition: "selected_authorization_unusable",
-        selectedAuthorization: selectedMetaAuthorizationId, manualMetaConnectionId,
-      });
       setErr(`A conexão Meta selecionada não está ativa para ${getActiveClientName()}. Selecione ou reconecte a Meta.`);
       return;
     }
@@ -762,9 +750,6 @@ export default function Onboarding({
       && manualAdAccountId.replace(/^act_/, "") !== String(metadata.selected_ad_account_id || "").replace(/^act_/, "")
     );
     if (replacing && !window.confirm("Substituir o ativo Meta atualmente selecionado para esta empresa?")) {
-      console.warn("[meta-organic][temporary_diagnostic]", {
-        stage: "manual_activate_not_called", condition: "replacement_cancelled",
-      });
       return;
     }
     setSaving(true);
@@ -781,11 +766,6 @@ export default function Onboarding({
         await saveManualMetaAssets(connection.id, { ad_account_id: manualAdAccountId.trim() });
       }
       if (!validatedPageId || !validatedInstagramId) {
-        console.warn("[meta-organic][temporary_diagnostic]", {
-          stage: "manual_activate_not_called", condition: "manual_page_or_instagram_missing",
-          pagePresent: Boolean(validatedPageId), instagramPresent: Boolean(validatedInstagramId),
-          adAccountChanged,
-        });
         if (adAccountChanged) {
           await loadConnections();
           setManualMetaConnectionId(null);
@@ -796,11 +776,6 @@ export default function Onboarding({
         setErr("META_ORGANIC_ASSETS_REQUIRED: selecione uma Página e o Instagram profissional vinculado.");
         return;
       }
-      console.info("[meta-organic][temporary_diagnostic]", {
-        stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId,
-        selectedPage: validatedPageId, selectedInstagram: validatedInstagramId, activeClientId,
-        payload: { page_id: validatedPageId, instagram_id: validatedInstagramId },
-      });
       const result = await activateMetaOrganic(selectedMetaAuthorizationId, {
         page_id: validatedPageId, instagram_id: validatedInstagramId,
       });
@@ -823,10 +798,6 @@ export default function Onboarding({
         setErr(`Ativos Meta salvos, mas a sincronização inicial falhou.${String(initialSync?.code || result.code || "") ? ` Código: ${String(initialSync?.code || result.code)}.` : ""}${result.request_id ? ` Request ID: ${result.request_id}.` : ""}`);
         return;
       }
-      console.info("[meta-organic][temporary_diagnostic]", {
-        stage: "organic_activate_success", selectedAuthorization: selectedMetaAuthorizationId,
-        organic_connection_id: organicConnectionId, activeClientId,
-      });
       setManualMetaConnectionId(null);
       setManualMetaValidation(null);
       setInfo("Instagram orgânico configurado, salvo e sincronização inicial iniciada.");
@@ -863,14 +834,20 @@ export default function Onboarding({
     const startedAt = new Date().toISOString();
     setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
-      const result = await syncClientMetaAdsAccount(selectedPaidConnection.id);
+      // Dedup por (client_id, provider, connection_id): clique duplo no
+      // mesmo botão reaproveita a mesma chamada em voo em vez de disparar
+      // um segundo POST de sync.
+      const result = await runExclusiveSync(
+        { clientId: getActiveClientId(), provider: "meta_ads", connectionId: selectedPaidConnection.id },
+        () => syncClientMetaAdsAccount(selectedPaidConnection.id)
+      );
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || 0) }]);
       await loadConnections();
       const outcome = String(result.sync_outcome || result.job_status || "");
       setInfo(outcome === "success" ? "Meta Ads sincronizado e persistido." : `Sincronização Meta Ads: ${outcome || "resultado indisponível"}.`);
     } catch (error: unknown) {
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "meta_ads", connection_id: selectedPaidConnection.id, endpoint: "/api/clients/{client_id}/meta-ads/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
-      setErr(errorMessage(error, "A sincronização Meta Ads falhou."));
+      setErr(describeSyncError(error, "A sincronização Meta Ads falhou."));
     } finally {
       setSaving(false);
     }
@@ -927,13 +904,16 @@ export default function Onboarding({
     const startedAt = new Date().toISOString();
     setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
-      const result = await syncShopifyConnection(connectionId);
+      const result = await runExclusiveSync(
+        { clientId: getActiveClientId(), provider: "shopify", connectionId },
+        () => syncShopifyConnection(connectionId)
+      );
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || result.orders_saved || 0) }]);
       await loadConnections();
       setInfo("Pedidos, clientes e produtos da Shopify foram atualizados.");
     } catch (error: unknown) {
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
-      setErr(errorMessage(error, "Não foi possível sincronizar a loja Shopify."));
+      setErr(describeSyncError(error, "Não foi possível sincronizar a loja Shopify."));
     } finally {
       setSaving(false);
     }
@@ -953,14 +933,7 @@ export default function Onboarding({
   }
 
   async function onLinkSelectedAssets() {
-    console.info("[meta-organic][temporary_diagnostic]", {
-      stage: "link_button_handler_entered", selectedAuthorization: selectedMetaAuthorizationId,
-      selectedPages, selectedInstagram: selectedIg,
-      manualIds: { pageId: manualPageId, instagramId: manualInstagramId, adAccountId: manualAdAccountId },
-      handoffAvailable: Boolean(pendingAssets?.handoff),
-    });
     if (!pendingAssets?.handoff) {
-      console.warn("[meta-organic][temporary_diagnostic]", { stage: "blocked", condition: "missing_handoff" });
       setErr("Sessao OAuth invalida. Conecte novamente.");
       return;
     }
@@ -981,11 +954,6 @@ export default function Onboarding({
 
     try {
       if (instagramIds.length && (!selectedMetaAuthorizationId || instagramIds.length !== 1 || pageIds.length !== 1)) {
-        console.warn("[meta-organic][temporary_diagnostic]", {
-          stage: "blocked", condition: "explicit_selection_guard",
-          selectedAuthorization: selectedMetaAuthorizationId,
-          pageCount: pageIds.length, instagramCount: instagramIds.length,
-        });
         setErr("Selecione explicitamente uma autorização, uma Página e um Instagram para concluir o orgânico.");
         return;
       }
@@ -996,11 +964,6 @@ export default function Onboarding({
         ad_account_ids: adAccountIds,
       });
       if (instagramIds.length === 1 && pageIds.length === 1) {
-        console.info("[meta-organic][temporary_diagnostic]", {
-          stage: "calling_organic_activate", selectedAuthorization: selectedMetaAuthorizationId,
-          selectedPage: pageIds[0], selectedInstagram: instagramIds[0],
-          payload: { page_id: pageIds[0], instagram_id: instagramIds[0] },
-        });
         const activation = await activateMetaOrganic(selectedMetaAuthorizationId, {
           page_id: pageIds[0], instagram_id: instagramIds[0],
         });
@@ -1018,12 +981,6 @@ export default function Onboarding({
         }
         setActiveConnection(activation.organic_connection_id);
         setActiveConnectionId(activation.organic_connection_id);
-      } else {
-        console.warn("[meta-organic][temporary_diagnostic]", {
-          stage: "organic_activate_not_called", condition: "selection_count_not_exactly_one",
-          selectedAuthorization: selectedMetaAuthorizationId,
-          pageCount: pageIds.length, instagramCount: instagramIds.length,
-        });
       }
       setPendingAssets(null);
       setSelectedIg({});
@@ -1192,13 +1149,16 @@ export default function Onboarding({
     const startedAt = new Date().toISOString();
     setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "running", code: "-", request_id: "-", started_at: startedAt, finished_at: "-", rows_written: 0 }]);
     try {
-      const result = await syncGoogleConnection(connection.id);
+      const result = await runExclusiveSync(
+        { clientId: getActiveClientId(), provider: "ga4", connectionId: connection.id },
+        () => syncGoogleConnection(connection.id)
+      );
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "fulfilled", code: String(result.code || "OK"), request_id: String(result.request_id || ""), started_at: startedAt, finished_at: new Date().toISOString(), rows_written: Number(result.rows_written || 0) }]);
       await loadConnections();
       setInfo("Sincronização manual do GA4 concluída.");
     } catch (error: unknown) {
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "ga4", connection_id: connection.id, endpoint: "/api/oauth/google/{connection_id}/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
-      setErr(errorMessage(error, "Não foi possível sincronizar o GA4."));
+      setErr(describeSyncError(error, "Não foi possível sincronizar o GA4."));
     } finally {
       setSaving(false);
     }
@@ -1957,7 +1917,6 @@ export default function Onboarding({
 
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" onClick={() => {
-                console.info("[meta-organic][temporary_diagnostic]", { stage: "link_button_onclick", disabled: saving });
                 void onLinkSelectedAssets();
               }} disabled={saving}>
                 {saving ? "Salvando e importando..." : "Salvar conexão e importar dados"}
