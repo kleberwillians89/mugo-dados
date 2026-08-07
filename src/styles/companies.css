@@ -5,7 +5,7 @@
 .companiesActions{display:flex;gap:10px}.companiesCard{background:#fff;border:1px solid #dedbd3;border-radius:20px;padding:24px;margin-top:22px;box-shadow:0 12px 36px rgba(42,46,39,.07)}
 .companiesCard h2{margin:0 0 18px}.companiesForm{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr)) auto;gap:14px;align-items:end}
 .companiesForm label{display:grid;gap:7px;font-size:13px;font-weight:700}.companiesForm input,.companiesForm select{width:100%;border:1px solid #cfcbc2;border-radius:10px;padding:11px;background:#faf9f6}
-.companiesError{color:#a92c2c}.companiesSuccess{color:#286141}.companiesTableWrap{overflow:auto}.companiesTable{width:100%;border-collapse:collapse}.companiesTable th,.companiesTable td{text-align:left;padding:14px;border-bottom:1px solid #e8e5de}.companiesTable small{display:block;color:#74766f;margin-top:4px}.companiesStatus{background:#edf2e9;border-radius:99px;padding:5px 9px;font-size:12px}.companiesRowActions{display:flex;gap:8px;justify-content:flex-end;min-width:max-content}
+.companiesError{color:#a92c2c}.companiesSuccess{color:#286141}.companiesTableWrap{overflow-x:auto;overflow-y:visible}.companiesTable{width:100%;border-collapse:collapse}.companiesTable th,.companiesTable td{text-align:left;padding:14px;border-bottom:1px solid #e8e5de}.companiesTable small{display:block;color:#74766f;margin-top:4px}.companiesStatus{background:#edf2e9;border-radius:99px;padding:5px 9px;font-size:12px}.companiesRowActions{display:flex;gap:8px;justify-content:flex-end;min-width:max-content}
 @media(max-width:900px){.companiesPage{padding:20px}.companiesForm{grid-template-columns:1fr 1fr}.companiesHeader{align-items:flex-start}.companiesHeader h1{font-size:36px}}
 @media(max-width:560px){.companiesPage{padding:14px}.companiesHeader,.companiesListTitle{align-items:flex-start;flex-direction:column}.companiesForm{grid-template-columns:1fr}}
 
@@ -28,3 +28,50 @@
 .modalBody{padding:22px}
 .modalBody .companiesForm{grid-template-columns:1fr}
 @media(max-width:560px){.modalBackdrop{padding:0;align-items:flex-end}.modalPanel{max-width:100%;border-radius:18px 18px 0 0;max-height:85vh}}
+/* iOS Safari faz zoom automático em inputs com font-size < 16px ao focar */
+@media(max-width:640px){.wizardPane input,.wizardPane select,.companiesForm input,.companiesForm select{font-size:16px}}
+
+/* Wizard de nova empresa */
+.wizardSteps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px}
+.wizardStep{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#9aa2a8;padding:5px 10px;border-radius:999px;background:#f2f0ec}
+.wizardStep.is-active{color:#fff;background:#004f6e}
+.wizardStep.is-done{color:#286141;background:rgba(22,163,74,.12)}
+.wizardPane{display:grid;gap:14px}
+.wizardPane label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#17252b}
+.wizardPane input,.wizardPane select{border:1px solid #cfcbc2;border-radius:10px;padding:11px;background:#faf9f6;font-size:14px}
+.wizardCheckboxRow{display:flex;align-items:center;gap:8px;font-weight:700;flex-direction:row}
+.wizardCheckboxRow input{width:auto}
+.wizardHint{margin:0;color:#5f665f;font-size:13px;line-height:1.5}
+.wizardError{margin:0;color:#a92c2c;font-size:13px}
+.wizardReview{display:grid;gap:10px;margin:0}
+.wizardReview div{display:flex;justify-content:space-between;gap:12px;padding-bottom:8px;border-bottom:1px solid #ece9e2;font-size:13px}
+.wizardReview dt{color:#74766f;font-weight:700}
+.wizardReview dd{margin:0;text-align:right;color:#17252b;font-weight:700}
+.wizardDone{text-align:center;padding:12px 0}
+.wizardDoneCheck{width:52px;height:52px;margin:0 auto 14px;display:grid;place-items:center;border-radius:50%;background:rgba(22,163,74,.12);color:#166534;font-size:24px;font-weight:900}
+.wizardDone h3{margin:0 0 6px;font-size:20px}
+.wizardDone p{margin:0 0 20px;color:#5f665f}
+.wizardDoneActions{display:flex;flex-direction:column;gap:8px;align-items:stretch}
+
+/* Sub-navegação e tabela premium da Administração */
+.companiesTabs{display:flex;gap:4px;margin-top:22px;border-bottom:1px solid #dedbd3;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.companiesTab{background:none;border:none;padding:10px 14px;font-size:13px;font-weight:700;color:#74766f;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;flex:0 0 auto;white-space:nowrap;min-height:40px}
+.companiesTab:hover{color:#17252b}
+.companiesTab.is-active{color:#004f6e;border-bottom-color:#004f6e}
+
+.companiesRowMenu{position:relative;display:inline-block}
+.companiesRowMenu summary{list-style:none;cursor:pointer;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;font-size:18px;color:#5f665f}
+.companiesRowMenu summary::-webkit-details-marker{display:none}
+.companiesRowMenu summary:hover{background:#f2f0ec}
+.companiesRowMenu[open] summary{background:#ece9e2}
+.companiesRowMenuList{position:absolute;right:0;top:34px;z-index:20;min-width:180px;background:#fff;border:1px solid #dedbd3;border-radius:12px;box-shadow:0 14px 34px rgba(42,46,39,.14);padding:6px;display:grid;gap:2px}
+.companiesRowMenuList button{text-align:left;background:none;border:none;padding:9px 10px;border-radius:8px;font-size:13px;cursor:pointer;color:#17252b}
+.companiesRowMenuList button:hover{background:#f2f0ec}
+
+.companiesSkeletonTable{display:grid;gap:10px;margin-top:14px}
+.companiesSkeletonRow{height:44px;border-radius:10px}
+
+.rolesGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px}
+.rolesCard{background:#faf9f6;border:1px solid #e8e5de;border-radius:14px;padding:16px}
+.rolesCard span{display:block;font-size:13px;font-weight:800;color:#17252b;margin-bottom:6px}
+.rolesCard p{margin:0;color:#5f665f;font-size:13px;line-height:1.5}

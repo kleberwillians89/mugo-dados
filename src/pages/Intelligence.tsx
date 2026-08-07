@@ -56,6 +56,14 @@ const PRIORITY_LABELS: Record<IntelligenceAction["priority"], string> = {
   investigate: "Investigar",
 };
 
+type InsightGroup = "positive" | "risk" | "opportunity";
+
+const INSIGHT_GROUPS: { id: InsightGroup; title: string; categories: IntelligenceInsight["category"][] }[] = [
+  { id: "positive", title: "Avanços", categories: ["positive"] },
+  { id: "risk", title: "Riscos", categories: ["risk", "attention", "anomaly", "data_quality"] },
+  { id: "opportunity", title: "Oportunidades", categories: ["opportunity"] },
+];
+
 function formatDate(value?: string | null, includeTime = false) {
   if (!value) return "Não disponível";
   const parsed = new Date(value.length === 10 ? `${value}T12:00:00` : value);
@@ -379,24 +387,38 @@ export default function Intelligence({ onLogout }: Props) {
 
       <section className="intelSection">
         <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Leitura priorizada</span><h2>Insights</h2></div>
+          <div><span className="intelEyebrow">Leitura priorizada</span><h2>Avanços, riscos e oportunidades</h2></div>
           <p>Impacto, confiança, fontes e evidências ficam visíveis em cada conclusão.</p>
         </div>
         {content?.insights?.length ? (
-          <div className="intelInsightGrid">
-            {content.insights.map((insight, index) => (
-              <article className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
-                <div className="intelInsightTop">
-                  <span>{CATEGORY_LABELS[insight.category]}</span>
-                  <small>Impacto {insight.impact} · confiança {insight.confidence}</small>
+          <div className="intelInsightGroups">
+            {INSIGHT_GROUPS.map((group) => {
+              const items = content.insights.filter((insight) => group.categories.includes(insight.category));
+              if (!items.length) return null;
+              return (
+                <div className="intelInsightGroup" key={group.id}>
+                  <h3 className={`intelInsightGroupTitle is-${group.id}`}>{group.title}</h3>
+                  <div className="intelInsightGrid">
+                    {items.map((insight, index) => (
+                      <article className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
+                        <div className="intelInsightTop">
+                          <span>{CATEGORY_LABELS[insight.category]}</span>
+                          <small>Impacto {insight.impact} · confiança {insight.confidence}</small>
+                        </div>
+                        <h4>{insight.title}</h4>
+                        <span className="intelInsightBadge is-fact">Fato</span>
+                        <Evidence ids={insight.metric_ids} metrics={metrics} />
+                        <span className="intelInsightBadge is-interpretation">Interpretação</span>
+                        <p>{insight.interpretation}</p>
+                        <span className="intelInsightBadge is-recommendation">Recomendação</span>
+                        <div className="intelInsightAction"><strong>{insight.action}</strong><small>{insight.reason}</small></div>
+                        <div className="intelTags">{insight.sources.map((source) => <span key={source}>{source}</span>)}</div>
+                      </article>
+                    ))}
+                  </div>
                 </div>
-                <h3>{insight.title}</h3>
-                <p>{insight.interpretation}</p>
-                <Evidence ids={insight.metric_ids} metrics={metrics} />
-                <div className="intelInsightAction"><strong>Ação</strong><p>{insight.action}</p><small>{insight.reason}</small></div>
-                <div className="intelTags">{insight.sources.map((source) => <span key={source}>{source}</span>)}</div>
-              </article>
-            ))}
+              );
+            })}
           </div>
         ) : <div className="intelEmpty">Nenhum insight versionado para este período.</div>}
       </section>
@@ -419,7 +441,7 @@ export default function Intelligence({ onLogout }: Props) {
 
       <section className="intelSection">
         <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Execução</span><h2>Plano de ação</h2></div>
+          <div><span className="intelEyebrow">Execução</span><h2>Recomendações e próximas ações</h2></div>
           <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
         </div>
         {content?.actions?.length ? (

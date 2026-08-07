@@ -15,14 +15,14 @@ vi.mock("../app/api", () => ({
   listPlatformCompanies: vi.fn(async () => ({ ok: true, companies: mocks.companies })),
   createPlatformCompany: vi.fn(async () => {
     if (mocks.shouldRejectCreate) throw new Error("Empresa duplicada.");
-    return { ok: true };
+    return { ok: true, company: { id: "ruah", name: "Ruah Comércio Ltda", trade_name: "Ruah", status: "active" } };
   }),
-  updatePlatformCompany: vi.fn(async () => ({ ok: true })),
+  updatePlatformCompany: vi.fn(async () => ({ ok: true, company: { id: "amalie", name: "Amalie Ltda", trade_name: "Amalie", status: "active" } })),
   createClientInvitation: vi.fn(async () => ({ ok: true })),
 }));
 
 import Companies from "./Companies";
-import { createClientInvitation, createPlatformCompany } from "../app/api";
+import { createClientInvitation, createPlatformCompany, updatePlatformCompany } from "../app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -58,6 +58,7 @@ beforeEach(() => {
   mocks.shouldRejectCreate = false;
   vi.mocked(createPlatformCompany).mockClear();
   vi.mocked(createClientInvitation).mockClear();
+  vi.mocked(updatePlatformCompany).mockClear();
 });
 
 afterEach(async () => {
@@ -65,65 +66,87 @@ afterEach(async () => {
   container.remove();
 });
 
-describe("Companies — modal de empresa", () => {
-  it("formulário não aparece no fim da página por padrão (modal fechado)", async () => {
+async function advanceWizardToReview() {
+  fillInput("Razão social", "Ruah Comércio Ltda");
+  fillInput("E-mail do responsável", "contato@ruah.com");
+  await act(async () => {
+    findButton("Continuar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => {
+    findButton("Continuar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => {
+    findButton("Continuar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+describe("Companies — wizard de nova empresa", () => {
+  it("formulário não aparece no fim da página por padrão (drawer fechado)", async () => {
     await renderCompanies();
-    expect(container.querySelector(".modalBackdrop")).toBeNull();
-    expect(findButton("Nova empresa")).toBeTruthy();
+    expect(container.querySelector(".drawerBackdrop")).toBeNull();
+    expect(findButton("+ Nova empresa")).toBeTruthy();
   });
 
-  it("abre em modal ao clicar em 'Nova empresa' e fecha somente em sucesso", async () => {
+  it("abre em drawer (wizard) ao clicar em '+ Nova empresa' e fecha somente em sucesso", async () => {
     await renderCompanies();
     await act(async () => {
-      findButton("Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(container.querySelector(".modalBackdrop")).toBeTruthy();
+    expect(container.querySelector(".drawerBackdrop")).toBeTruthy();
 
-    fillInput("Razão social", "Ruah Comércio Ltda");
-    fillInput("E-mail do responsável", "contato@ruah.com");
+    await advanceWizardToReview();
 
     await act(async () => {
-      findButton("Criar empresa")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      findButton("Criar empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
     expect(createPlatformCompany).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Ruah Comércio Ltda", responsible_email: "contato@ruah.com" })
     );
-    expect(container.querySelector(".modalBackdrop")).toBeNull();
+    // Wizard avança para o passo "Concluído" em vez de fechar sozinho.
+    expect(container.textContent).toContain("Empresa criada");
   });
 
-  it("mantém o modal aberto e o formulário preenchido quando o backend retorna erro", async () => {
+  it("mantém o wizard aberto e os dados preenchidos quando o backend retorna erro", async () => {
     mocks.shouldRejectCreate = true;
     await renderCompanies();
     await act(async () => {
-      findButton("Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    fillInput("Razão social", "Ruah Comércio Ltda");
-    fillInput("E-mail do responsável", "contato@ruah.com");
+    await advanceWizardToReview();
 
     await act(async () => {
-      container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      findButton("Criar empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
-    expect(container.querySelector(".modalBackdrop")).toBeTruthy();
+    expect(container.querySelector(".drawerBackdrop")).toBeTruthy();
     expect(container.textContent).toContain("Empresa duplicada.");
-    const nameInput = [...container.querySelectorAll("input")].find((i) => (i as HTMLInputElement).value === "Ruah Comércio Ltda");
-    expect(nameInput).toBeTruthy();
   });
 
-  it("Cancelar fecha o modal sem enviar", async () => {
+  it("Continuar fica bloqueado até nome e e-mail do responsável serem preenchidos", async () => {
     await renderCompanies();
     await act(async () => {
-      findButton("Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    expect(findButton("Continuar")?.disabled).toBe(true);
+    fillInput("Razão social", "Ruah Comércio Ltda");
+    fillInput("E-mail do responsável", "contato@ruah.com");
+    expect(findButton("Continuar")?.disabled).toBe(false);
+  });
+
+  it("bloqueia envio duplo desabilitando o botão de criação durante o salvamento", async () => {
+    await renderCompanies();
     await act(async () => {
-      findButton("Cancelar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(container.querySelector(".modalBackdrop")).toBeNull();
-    expect(createPlatformCompany).not.toHaveBeenCalled();
+    await advanceWizardToReview();
+    const createButton = findButton("Criar empresa");
+    await act(async () => {
+      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(createPlatformCompany).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -153,7 +176,7 @@ describe("Companies — modal de convite de usuário", () => {
   });
 });
 
-describe("Companies — busca e resumo", () => {
+describe("Companies — busca, abas e resumo", () => {
   it("filtra a lista pela busca sem exigir F5", async () => {
     mocks.companies = [
       { id: "amalie", name: "Amalie Ltda", trade_name: "Amalie", status: "active" },
@@ -172,5 +195,45 @@ describe("Companies — busca e resumo", () => {
 
     expect(container.textContent).not.toContain("Amalie Ltda");
     expect(container.textContent).toContain("Ruah");
+  });
+
+  it("troca para a aba Permissões e mostra a explicação de cada papel", async () => {
+    await renderCompanies();
+    await act(async () => {
+      findButton("Permissões")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Mugô — gerencia todas as empresas.");
+    expect(container.textContent).toContain("Visualização somente leitura.");
+  });
+
+  it("troca para a aba Usuários e mostra o responsável de cada empresa", async () => {
+    await renderCompanies();
+    await act(async () => {
+      findButton("Usuários")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("a@amalie.com");
+  });
+});
+
+describe("Companies — editar empresa em drawer", () => {
+  it("abre o drawer de edição a partir do menu de ações e salva alterações", async () => {
+    await renderCompanies();
+    const menu = container.querySelector(".companiesRowMenu summary") as HTMLElement;
+    await act(async () => {
+      menu.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      // <details> abre via toggle nativo do DOM, não via clique sintético em jsdom;
+      // forçamos o estado aberto para simular o comportamento do navegador.
+      (menu.parentElement as HTMLDetailsElement).open = true;
+    });
+    await act(async () => {
+      findButton("Editar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector(".drawerBackdrop")).toBeTruthy();
+
+    await act(async () => {
+      findButton("Salvar alterações")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(updatePlatformCompany).toHaveBeenCalledWith("amalie", expect.objectContaining({ name: "Amalie Ltda" }));
   });
 });

@@ -819,3 +819,72 @@
     padding: 14px 12px;
   }
 }
+
+/* Novos × recorrentes — barra de proporção */
+.shopifyLifecycleBar{
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(26,23,24,.1);
+  border-radius: 16px;
+  background: #fff;
+}
+.shopifyLifecycleBarTrack{
+  display: flex;
+  height: 10px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(26,23,24,.06);
+}
+.shopifyLifecycleBarTrack .is-new{ background: #c7b299; }
+.shopifyLifecycleBarTrack .is-recurring{ background: #1a1718; }
+.shopifyLifecycleBarLegend{
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(26,23,24,.68);
+}
+.shopifyLifecycleBarLegend i{
+  display: inline-block;
+  width: 8px; height: 8px; margin-right: 6px;
+  border-radius: 50%;
+}
+.shopifyLifecycleBarLegend i.is-new{ background: #c7b299; }
+.shopifyLifecycleBarLegend i.is-recurring{ background: #1a1718; }
+
+/* Atribuição — comparação sem soma indevida entre plataformas */
+.shopifyAttributionGrid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 8px;
+}
+.shopifyAttributionCard{
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(26,23,24,.1);
+  border-radius: 18px;
+  background: #fff;
+}
+.shopifyAttributionCard.is-known{ border-color: rgba(26,23,24,.28); }
+.shopifyAttributionCard > span{ font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; color: rgba(26,23,24,.55); }
+.shopifyAttributionCard > strong{ font-size: 20px; letter-spacing: -.01em; }
+.shopifyAttributionCard > small{ color: rgba(26,23,24,.6); line-height: 1.5; }
+.shopifyAttributionNotice{
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-left: 3px solid rgba(26,23,24,.25);
+  background: rgba(26,23,24,.03);
+  font-size: 12px;
+  color: rgba(26,23,24,.7);
+  line-height: 1.5;
+}
+@media (max-width: 900px){
+  .shopifyAttributionGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px){
+  .shopifyAttributionGrid{ grid-template-columns: 1fr; }
+  .shopifyLifecycleBarLegend{ flex-direction: column; gap: 6px; }
+}

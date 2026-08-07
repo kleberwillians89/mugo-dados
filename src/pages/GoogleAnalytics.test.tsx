@@ -1,0 +1,132 @@
+// @vitest-environment jsdom
+
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Ga4ReportResponse } from "../app/types";
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock("../app/activeClient", () => ({
+  getActiveClientId: () => "amalie",
+  getActiveClientName: () => "Amalie",
+  getActiveClientConfigurationWarning: () => null,
+}));
+
+vi.mock("../app/PeriodContext", () => ({
+  usePeriod: () => ({
+    period: { start: "2026-08-01", end: "2026-08-31" },
+    periodDays: 31,
+    setCurrentMonthPeriod: () => {},
+    setMonthPeriod: () => {},
+    setPresetPeriod: () => {},
+  }),
+}));
+
+const emptyGroup = { key: "g", title: "T", description: "D", total_events: 0, total_users: 0, items: [] };
+
+const report: Ga4ReportResponse = {
+  ok: true,
+  client_id: "amalie",
+  property_id: "properties/1",
+  period: { start: "2026-08-01", end: "2026-08-31", days: 31 },
+  summary: {
+    sessions: 100, active_users: 80, total_users: 90, event_count: 500, purchases: 5,
+    purchase_revenue: 1000, total_revenue: 1000, average_daily_active_users: 3, average_daily_total_users: 3,
+  },
+  funnel: { view_item: 10, add_to_cart: 5, begin_checkout: 3, add_payment_info: 2, purchase: 1 },
+  commerce_journey: {
+    summary: {
+      view_item: 10, add_to_cart: 5, begin_checkout: 3, add_payment_info: 2, purchase: 1,
+      add_to_cart_rate: 50, checkout_rate: 60, payment_info_rate: 66, purchase_rate: 50, purchase_rate_from_view_item: 10,
+    },
+    items: [],
+  },
+  behavior: emptyGroup,
+  engagement: emptyGroup,
+  merchandising: emptyGroup,
+  trends: { daily: [] },
+  channels: [{ source_medium: "google / cpc", sessions: 40, active_users: 30, event_count: 100 } as Ga4ReportResponse["channels"][number]],
+  campaigns: [],
+  events: [],
+  meta: { daily_rows: 0, channel_rows: 1, campaign_rows: 0, event_rows: 0 },
+};
+
+vi.mock("../hooks/dashboard/useDashboardGa4", () => ({
+  default: () => ({
+    ga4Report: report,
+    loadingGa4: false,
+    refreshingGa4: false,
+    ga4Error: null,
+    ga4UpdatedAt: "2026-08-31T12:00:00Z",
+    reloadGa4: vi.fn(),
+  }),
+}));
+
+vi.mock("../app/api", () => ({
+  syncGa4: vi.fn(),
+}));
+
+import GoogleAnalytics from "./GoogleAnalytics";
+
+let container: HTMLDivElement;
+let root: ReturnType<typeof createRoot>;
+
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+async function renderGa4() {
+  await act(async () => {
+    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated />);
+  });
+  await act(async () => Promise.resolve());
+}
+
+function tabButton(label: string) {
+  return [...container.querySelectorAll('[role="tab"]')].find((el) => el.textContent === label) as HTMLButtonElement;
+}
+
+describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneamente)", () => {
+  it("começa em Visão geral e não mostra as seções de Aquisição/Comportamento", async () => {
+    await renderGa4();
+    expect(document.getElementById("google-summary")).toBeTruthy();
+    expect(document.getElementById("google-channels")).toBeNull();
+    expect(document.getElementById("google-events")).toBeNull();
+  });
+
+  it("troca para Aquisição e mostra Canais/Campanhas, escondendo Visão geral", async () => {
+    await renderGa4();
+    await act(async () => {
+      tabButton("Aquisição").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.getElementById("google-channels")).toBeTruthy();
+    expect(document.getElementById("google-campaigns")).toBeTruthy();
+    expect(document.getElementById("google-summary")).toBeNull();
+  });
+
+  it("troca para Comportamento e mostra Funnel/Eventos, escondendo Aquisição", async () => {
+    await renderGa4();
+    await act(async () => {
+      tabButton("Comportamento").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.getElementById("google-funnel")).toBeTruthy();
+    expect(document.getElementById("google-events")).toBeTruthy();
+    expect(document.getElementById("google-behavior")).toBeTruthy();
+    expect(document.getElementById("google-merchandising")).toBeTruthy();
+    expect(document.getElementById("google-channels")).toBeNull();
+  });
+
+  it("mostra a nota de fonte e o aviso de que os valores de receita seguem a atribuição do GA4", async () => {
+    await renderGa4();
+    expect(container.textContent).toContain("Fonte: Google Analytics 4");
+    expect(container.textContent).toContain("podem diferir da loja e das plataformas de mídia");
+  });
+});

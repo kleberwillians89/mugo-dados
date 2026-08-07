@@ -1,18 +1,11 @@
 import { useState } from "react";
 import type { ClientMembership } from "../app/api";
+import { ROLE_LABELS } from "../app/roles";
 
 type Props = {
   clients: ClientMembership[];
   activeClientId: string;
   onChange: (clientId: string) => void;
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  platform_admin: "Administrador da plataforma",
-  agency_admin: "Administrador da agência",
-  client_admin: "Administrador do cliente",
-  owner: "Responsável",
-  viewer: "Somente leitura",
 };
 
 export default function ClientSwitcher({ clients, activeClientId, onChange }: Props) {

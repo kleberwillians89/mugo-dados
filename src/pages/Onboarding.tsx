@@ -62,6 +62,7 @@ import {
   getActiveClientName,
   MUGO_APP_NAME,
 } from "../app/activeClient";
+import AssetCombobox from "../components/AssetCombobox";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
 import StatusBadge, { type StatusTone } from "../components/StatusBadge";
@@ -245,6 +246,10 @@ export default function Onboarding({
     canonicalIntegrationsRefetchRef.current = canonicalIntegrationsRefetch;
   }, [canonicalIntegrationsRefetch]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
+  // Cada card decide seu próprio estado padrão (expandido quando exige ação,
+  // recolhido quando já está conectado e sincronizado); o usuário pode
+  // sobrepor manualmente esse padrão por provider através de "Gerenciar".
+  const [expandedOverrides, setExpandedOverrides] = useState<Record<string, boolean>>({});
   const [pendingAssets, setPendingAssets] = useState<MetaDiscoverAssetsResponse | null>(null);
   const [selectedIg, setSelectedIg] = useState<Record<string, boolean>>({});
   const [selectedPages, setSelectedPages] = useState<Record<string, boolean>>({});
@@ -1468,33 +1473,58 @@ export default function Onboarding({
                   Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
                   Instagram orgânico: {dashboardReady ? "conectado" : "configuração pendente"}
                 </div> : null}
+                {canonicalEntry && canonicalAccountLabel(canonicalEntry) ? (
+                  <div className="smallMuted" style={{ marginTop: 8 }}>Conta: {canonicalAccountLabel(canonicalEntry)}</div>
+                ) : null}
+                {canonicalEntry?.last_error ? (
+                  <div className="smallMuted" style={{ marginTop: 8 }}>{canonicalEntry.last_error}</div>
+                ) : null}
+                {(() => {
+                  const needsAttention =
+                    !canonicalEntry || shouldAuthorize || connectionState === "selection_required" || matchingConnections.length > 1;
+                  const isExpanded = expandedOverrides[definition.id] ?? needsAttention;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btnGhost integrationManageToggle"
+                        onClick={() =>
+                          setExpandedOverrides((current) => ({ ...current, [definition.id]: !isExpanded }))
+                        }
+                        aria-expanded={isExpanded}
+                      >
+                        {isExpanded ? "Ocultar detalhes" : "Gerenciar"}
+                      </button>
+                      {isExpanded ? (<>
                 {definition.id === "meta" || definition.id === "ga4" || definition.id === "google_ads" ? (
-                  <select
-                    value={requestedAuthorizationId}
-                    onChange={(event) => {
-                      const id = event.target.value;
-                      if (definition.id === "meta") {
-                        setSelectedMetaAuthorizationId(id);
-                        setSelectedConnectionId(activeClientId, "meta", id || null);
-                        setManualMetaConnectionId(null);
-                      } else {
-                        const provider = definition.id as "ga4" | "google_ads";
-                        setSelectedGoogleAuthorizationIds((current) => ({ ...current, [provider]: id }));
-                        setSelectedConnectionId(activeClientId, provider, id || null);
-                        setGooglePickerId(null);
-                        setGooglePickerProduct(null);
-                      }
-                    }}
-                    disabled={!canManageConnections || saving}
-                    style={{ marginTop: 12, width: "100%" }}
-                  >
-                    <option value="">Selecione a autorização</option>
-                    {matchingConnections.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.account_name || item.external_key || item.id}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ marginTop: 12 }}>
+                    <AssetCombobox
+                      label="Autorização"
+                      placeholder="Selecione a autorização"
+                      value={requestedAuthorizationId}
+                      disabled={!canManageConnections || saving}
+                      options={matchingConnections.map((item) => ({
+                        value: item.id,
+                        label: item.account_name || item.external_key || item.id,
+                        subtitle: definition.name,
+                        meta: item.external_key && item.external_key !== item.account_name ? item.external_key : undefined,
+                      }))}
+                      emptyMessage="Nenhuma autorização encontrada."
+                      onChange={(id) => {
+                        if (definition.id === "meta") {
+                          setSelectedMetaAuthorizationId(id);
+                          setSelectedConnectionId(activeClientId, "meta", id || null);
+                          setManualMetaConnectionId(null);
+                        } else {
+                          const provider = definition.id as "ga4" | "google_ads";
+                          setSelectedGoogleAuthorizationIds((current) => ({ ...current, [provider]: id }));
+                          setSelectedConnectionId(activeClientId, provider, id || null);
+                          setGooglePickerId(null);
+                          setGooglePickerProduct(null);
+                        }
+                      }}
+                    />
+                  </div>
                 ) : null}
                 {canonicalEntry ? (
                   <div className="smallMuted" style={{ marginTop: 10 }} data-testid={`integration-account-${definition.id}`}>
@@ -1631,6 +1661,10 @@ export default function Onboarding({
                     </button>
                   </div>
                 ) : null}
+                      </>) : null}
+                    </>
+                  );
+                })()}
               </div>
               );
             })}
@@ -1653,36 +1687,52 @@ export default function Onboarding({
           <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">{googlePickerProduct === "ga4" ? "Selecionar propriedade GA4" : "Selecionar conta Google Ads"}</div>
             <div className="p">A seleção será vinculada somente à empresa ativa.</div>
-            {googlePickerProduct === "ga4" ? <label className="smallMuted">
-              Propriedade GA4
-              <select value={selectedGoogleProperty} onChange={(event) => void onSelectGooglePropertyForStreams(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
-                <option value="">Selecione uma propriedade</option>
-                {googleProperties.map((property) => (
-                  <option key={property.property} value={property.property}>
-                    {property.account_name || "Conta"} — {property.property_name || property.property}
-                  </option>
-                ))}
-              </select>
-              <span style={{ display: "block", marginTop: 14 }}>Stream GA4</span>
-              <select value={selectedGoogleStream} onChange={(event) => setSelectedGoogleStream(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
-                <option value="">Selecione um stream</option>
-                {googleStreams.map((stream) => {
+            {googlePickerProduct === "ga4" ? <div style={{ display: "grid", gap: 14 }}>
+              <AssetCombobox
+                label="Propriedade GA4"
+                placeholder="Selecione uma propriedade"
+                value={selectedGoogleProperty}
+                onChange={(propertyId) => void onSelectGooglePropertyForStreams(propertyId)}
+                emptyMessage="Nenhuma propriedade encontrada."
+                options={googleProperties.map((property) => ({
+                  value: property.property || "",
+                  label: property.property_name || property.property || "",
+                  subtitle: property.account_name || "Conta GA4",
+                  meta: property.property || undefined,
+                }))}
+              />
+              <AssetCombobox
+                label="Stream GA4"
+                placeholder="Selecione um stream"
+                value={selectedGoogleStream}
+                onChange={setSelectedGoogleStream}
+                emptyMessage="Nenhum stream encontrado."
+                options={googleStreams.map((stream) => {
                   const streamId = String(stream.name || "").split("/").pop() || "";
-                  return <option key={stream.name || streamId} value={streamId}>{stream.display_name || streamId} — {stream.type || "STREAM"}</option>;
+                  return {
+                    value: streamId,
+                    label: stream.display_name || streamId,
+                    subtitle: stream.type || "STREAM",
+                    meta: streamId,
+                  };
                 })}
-              </select>
-            </label> : null}
-            {googlePickerProduct === "ads" ? <label className="smallMuted" style={{ display: "block", marginTop: 14 }}>
-              Conta Google Ads
-              <select value={selectedGoogleAds} onChange={(event) => setSelectedGoogleAds(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
-                <option value="">Nenhuma conta selecionada</option>
-                {googleAdsAccounts.map((account) => (
-                  <option key={account.customer_id} value={account.customer_id}>
-                    {formatGoogleAdsAccountLabel(account)}
-                  </option>
-                ))}
-              </select>
-            </label> : null}
+              />
+            </div> : null}
+            {googlePickerProduct === "ads" ? <div style={{ marginTop: 14 }}>
+              <AssetCombobox
+                label="Conta Google Ads"
+                placeholder="Nenhuma conta selecionada"
+                value={selectedGoogleAds}
+                onChange={setSelectedGoogleAds}
+                emptyMessage="Nenhuma conta encontrada."
+                options={googleAdsAccounts.map((account) => ({
+                  value: account.customer_id,
+                  label: account.descriptive_name || formatGoogleAdsAccountLabel(account),
+                  subtitle: "Conta Google Ads",
+                  meta: account.customer_id.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"),
+                }))}
+              />
+            </div> : null}
             {googlePickerProduct === "ads" && googleAdsNotice ? <div className="smallMuted" style={{ marginTop: 8 }}>{googleAdsNotice}</div> : null}
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" disabled={saving} onClick={() => void onSaveGoogleSelection()}>
@@ -1730,17 +1780,19 @@ export default function Onboarding({
           <section className="card cardWide onboardingFinalizeCard" aria-live="polite">
             <div className="h1">Selecionar conta Meta Ads</div>
             <div className="p">Somente contas acessíveis pela autorização da empresa ativa são exibidas.</div>
-            <label className="smallMuted">
-              Conta de anúncios
-              <select value={selectedMetaAdsAccount} onChange={(event) => setSelectedMetaAdsAccount(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
-                <option value="">Selecione uma conta</option>
-                {metaAdsAccounts.map((account) => (
-                  <option key={account.ad_account_id} value={account.ad_account_id}>
-                    {account.ad_account_name || "Conta Meta Ads"} — {account.ad_account_id}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <AssetCombobox
+              label="Conta de anúncios"
+              placeholder="Selecione uma conta"
+              value={selectedMetaAdsAccount}
+              onChange={setSelectedMetaAdsAccount}
+              emptyMessage="Nenhuma conta encontrada."
+              options={metaAdsAccounts.map((account) => ({
+                value: account.ad_account_id,
+                label: account.ad_account_name || "Conta Meta Ads",
+                subtitle: "Meta Ads",
+                meta: account.ad_account_id,
+              }))}
+            />
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" disabled={saving || !selectedMetaAdsAccount} onClick={() => void onSaveMetaAdsAccount()}>
                 {saving ? "Salvando..." : "Salvar conta"}

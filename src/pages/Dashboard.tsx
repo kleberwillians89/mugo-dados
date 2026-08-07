@@ -1396,9 +1396,11 @@ export default function Dashboard({
       })
       .catch(() => {
         if (!alive) return;
-        setHasActiveConnection(null);
-        setConnections([]);
-        setActiveConnection(null);
+        if (!cachedConnections?.length) {
+          setHasActiveConnection(null);
+          setConnections([]);
+          setActiveConnection(null);
+        }
       });
 
     return () => {

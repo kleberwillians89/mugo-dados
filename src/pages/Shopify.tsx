@@ -68,6 +68,10 @@ function toErrorMessage(error: unknown) {
 }
 
 function asFilterNumber(value: string): number | null {
+  // Campo vazio significa "sem filtro" — Number("") é 0, não deve ser
+  // tratado como um limite real (senão "valor máximo" vazio esconde
+  // todo cliente com gasto positivo por padrão).
+  if (value.trim() === "") return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
   return numeric;
@@ -298,6 +302,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   ]);
 
   const customerSummary = useMemo(() => buildCustomerSummary(filteredCustomers), [filteredCustomers]);
+  const newCustomers = Math.max(customerSummary.totalCustomers - customerSummary.recurringCustomers, 0);
 
   const customerSummaryCards = useMemo(() => {
     return [
@@ -585,6 +590,25 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                     ))}
                   </div>
 
+                  {customerSummary.totalCustomers > 0 ? (
+                    <div className="shopifyLifecycleBar" aria-label="Novos contra recorrentes">
+                      <div className="shopifyLifecycleBarTrack">
+                        <span
+                          className="is-new"
+                          style={{ width: `${(newCustomers / customerSummary.totalCustomers) * 100}%` }}
+                        />
+                        <span
+                          className="is-recurring"
+                          style={{ width: `${(customerSummary.recurringCustomers / customerSummary.totalCustomers) * 100}%` }}
+                        />
+                      </div>
+                      <div className="shopifyLifecycleBarLegend">
+                        <span><i className="is-new" /> Novos — {formatShopifyCompactNumber(newCustomers)}</span>
+                        <span><i className="is-recurring" /> Recorrentes — {formatShopifyCompactNumber(customerSummary.recurringCustomers)}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="shopifyCustomerFeatureGrid">
                     <ShopifyExecutiveSummaryCard customers={filteredCustomers} />
                     <article className="shopifyFilterPanel">
@@ -645,6 +669,43 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 />
                 <ShopifyWebhookStatusCard technical={report.technical} />
               </div>
+            </section>
+
+            <section className="shopifySection" id="shopify-attribution">
+              <ShopifySectionHeader
+                eyebrow="Atribuição"
+                title="Shopify, Meta, GA4 e Google Ads"
+                description="Cada plataforma mede a receita à sua própria maneira."
+              />
+              <div className="shopifyAttributionGrid">
+                <article className="shopifyAttributionCard is-known">
+                  <span>Shopify</span>
+                  <strong>{formatShopifyCurrency(summary?.revenue_total || 0, currency)}</strong>
+                  <small>Receita real da loja no período — fonte de verdade para faturamento.</small>
+                </article>
+                <article className="shopifyAttributionCard">
+                  <span>Meta Ads</span>
+                  <strong>Ver no Dashboard</strong>
+                  <small>Receita atribuída pela Meta, calculada com o modelo de atribuição da própria plataforma.</small>
+                  <button type="button" className="btn btnGhost" onClick={onOpenDashboard}>Abrir Dashboard</button>
+                </article>
+                <article className="shopifyAttributionCard">
+                  <span>Google Analytics 4</span>
+                  <strong>Ver em Analytics</strong>
+                  <small>Receita observada pelo GA4 a partir do comportamento de navegação, não da loja.</small>
+                  {onOpenGoogleReport ? (
+                    <button type="button" className="btn btnGhost" onClick={onOpenGoogleReport}>Abrir Analytics</button>
+                  ) : null}
+                </article>
+                <article className="shopifyAttributionCard">
+                  <span>Google Ads</span>
+                  <strong>Ainda não sincronizado</strong>
+                  <small>A sincronização de métricas do Google Ads ainda não está disponível nesta etapa.</small>
+                </article>
+              </div>
+              <p className="shopifyAttributionNotice">
+                Essas plataformas utilizam modelos de atribuição diferentes. Os valores não devem ser somados.
+              </p>
             </section>
           </>
         ) : null}

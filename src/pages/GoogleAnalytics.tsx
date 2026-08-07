@@ -440,6 +440,7 @@ export default function GoogleAnalytics({
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
   const [selectedGa4ClientId, setSelectedGa4ClientId] = useState(resolveInitialGa4ClientId);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [ga4Tab, setGa4Tab] = useState<"overview" | "acquisition" | "behavior">("overview");
   const [channelFilter, setChannelFilter] = useState("");
   const [sourceMediumFilter, setSourceMediumFilter] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("");
@@ -762,35 +763,20 @@ export default function GoogleAnalytics({
                 Última leitura: {lastSyncedLabel || "aguardando sincronização"}
               </span>
             </div>
-            <div className="googleQuickNav">
-              <a className="googleQuickNavLink" href="#google-summary">
+            <div className="googleTabs" role="tablist" aria-label="Seções do Analytics">
+              <button type="button" role="tab" aria-selected={ga4Tab === "overview"} className={`googleTab${ga4Tab === "overview" ? " is-active" : ""}`} onClick={() => setGa4Tab("overview")}>
+                Visão geral
+              </button>
+              <button type="button" role="tab" aria-selected={ga4Tab === "acquisition"} className={`googleTab${ga4Tab === "acquisition" ? " is-active" : ""}`} onClick={() => setGa4Tab("acquisition")}>
+                Aquisição
+              </button>
+              <button type="button" role="tab" aria-selected={ga4Tab === "behavior"} className={`googleTab${ga4Tab === "behavior" ? " is-active" : ""}`} onClick={() => setGa4Tab("behavior")}>
                 Comportamento
-              </a>
-              <a className="googleQuickNavLink" href="#google-funnel">
-                Funnel
-              </a>
-              <a className="googleQuickNavLink" href="#google-daily">
-                Evolução
-              </a>
-              <a className="googleQuickNavLink" href="#google-channels">
-                Canais
-              </a>
-              <a className="googleQuickNavLink" href="#google-campaigns">
-                Campanhas
-              </a>
-              <a className="googleQuickNavLink" href="#google-events">
-                Eventos
-              </a>
-              <a className="googleQuickNavLink" href="#google-behavior">
-                Behavior
-              </a>
-              <a className="googleQuickNavLink" href="#google-engagement">
-                Engagement
-              </a>
-              <a className="googleQuickNavLink" href="#google-merchandising">
-                Merchandising
-              </a>
+              </button>
             </div>
+            <p className="googleAttributionNotice">
+              Fonte: Google Analytics 4. Os valores de receita seguem a atribuição do GA4 e podem diferir da loja e das plataformas de mídia.
+            </p>
           </div>
 
           <div className="googleFilterCard">
@@ -874,10 +860,11 @@ export default function GoogleAnalytics({
               </div>
             ) : null}
 
+            {ga4Tab === "overview" ? (
             <section className="googleSection" id="google-summary">
               <div className="sectionHeader">
                 <div>
-                  <div className="h1">Comportamento GA4</div>
+                  <div className="h1">Visão geral GA4</div>
                   <div className="p">Resumo executivo de tráfego, base de usuários e eventos observados no GA4.</div>
                 </div>
                 {lastSyncedLabel ? (
@@ -951,7 +938,9 @@ export default function GoogleAnalytics({
                 />
               </div>
             </section>
+            ) : null}
 
+            {ga4Tab === "behavior" ? (
             <section className="googleSection" id="google-funnel">
               <div className="sectionHeader">
                 <div>
@@ -1014,7 +1003,9 @@ export default function GoogleAnalytics({
                 </div>
               </div>
             </section>
+            ) : null}
 
+            {ga4Tab === "overview" ? (
             <section className="googleSection" id="google-daily">
               <div className="sectionHeader">
                 <div>
@@ -1026,7 +1017,10 @@ export default function GoogleAnalytics({
               </div>
               <GoogleDailyTable rows={dailyRows} />
             </section>
+            ) : null}
 
+            {ga4Tab === "acquisition" ? (
+            <>
             <section className="googleSection" id="google-channels">
               <div className="sectionHeader">
                 <div>
@@ -1089,7 +1083,11 @@ export default function GoogleAnalytics({
               </div>
               <GoogleCampaignsTable rows={filteredCampaigns} />
             </section>
+            </>
+            ) : null}
 
+            {ga4Tab === "behavior" ? (
+            <>
             <section className="googleSection" id="google-events">
               <div className="sectionHeader">
                 <div>
@@ -1146,6 +1144,8 @@ export default function GoogleAnalytics({
                 emptyMessage="Ainda não há eventos de merchandising para detalhar neste período."
               />
             </section>
+            </>
+            ) : null}
           </>
         ) : null}
       </div>

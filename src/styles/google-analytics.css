@@ -51,6 +51,14 @@
   color: #1a1718;
 }
 
+.googleAttributionNotice{
+  margin: 12px 0 0;
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(26,23,24,.55);
+}
+
 .googlePageSubtitle{
   margin: 0;
   max-width: 640px;
@@ -67,32 +75,37 @@
   flex-wrap: wrap;
 }
 
-.googleQuickNav{
+.googleTabs{
   margin-top: 22px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(26,23,24,.06);
 }
 
-.googleQuickNavLink{
+.googleTab{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
-  padding: 0 14px;
+  min-height: 36px;
+  padding: 0 16px;
   border-radius: 999px;
-  border: 1px solid rgba(26,23,24,.12);
-  background: rgba(255,255,255,.72);
-  color: rgba(26,23,24,.72);
+  border: none;
+  background: transparent;
+  color: rgba(26,23,24,.62);
   font-size: 13px;
   font-weight: 800;
-  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
 }
 
-.googleQuickNavLink:hover{
+.googleTab:hover{ color: rgba(26,23,24,.88); }
+
+.googleTab.is-active{
   background: #fff;
-  box-shadow: 0 12px 28px rgba(26,23,24,.08);
-  transform: translateY(-1px);
+  color: #1a1718;
+  box-shadow: 0 8px 20px rgba(26,23,24,.1);
 }
 
 .googleHeroTimestamp{
@@ -551,11 +564,12 @@
   }
 
   .googleHeroMeta,
-  .googleQuickNav,
+  .googleTabs,
   .googleShellActions{
     width: 100%;
     justify-content: flex-start;
   }
+  .googleTabs{ overflow-x: auto; }
 
   .googleShellActions .btn,
   .googleShellActions .btnLogout{

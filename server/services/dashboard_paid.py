@@ -42,6 +42,19 @@ def compute_roas(revenue: Any, investment: Any) -> Optional[float]:
     return result
 
 
+def compute_mer(shopify_total_revenue: Any, total_paid_media_spend: Any) -> Optional[float]:
+    """MER (Media Efficiency Ratio) = receita total da loja / investimento total em mídia paga.
+
+    Distinto de ROAS por provider: aqui a receita É a receita real da loja
+    (Shopify), nunca a receita atribuída por uma plataforma de mídia — e o
+    investimento soma todos os provedores pagos (Meta + Google Ads, quando
+    disponíveis). Nunca deve ser usado para substituir ou recalcular o ROAS
+    Meta/Google individualmente. Mesmas garantias de compute_roas: None
+    (nunca 0 falso) quando não há base válida.
+    """
+    return compute_roas(shopify_total_revenue, total_paid_media_spend)
+
+
 def _safe_int(value: Any) -> int:
     try:
         if value is None or value == "":
@@ -860,7 +873,7 @@ def _sum_grouped_rows(rows: List[Dict[str, Any]], key_name: str, name_key: str) 
                 "cpc": (spend / clicks) if clicks > 0 else 0.0,
                 "cpm": ((spend * 1000.0) / impressions) if impressions > 0 else 0.0,
                 "ctr": ((clicks / impressions) * 100.0) if impressions > 0 else 0.0,
-                "roas": (revenue / spend) if spend > 0 else 0.0,
+                "roas": compute_roas(revenue, spend),
             }
         )
     return sorted(out, key=lambda x: float(x.get("spend") or 0.0), reverse=True)

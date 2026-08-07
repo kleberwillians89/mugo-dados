@@ -100,15 +100,32 @@ function changeInput(input: HTMLInputElement, value: string) {
 }
 
 async function selectAuthorization(connectionId: string) {
-  const select = [...container.querySelectorAll("select")].find((item) =>
-    [...item.options].some((option) => option.value === connectionId)
-  );
-  expect(select).toBeTruthy();
+  // O seletor de autorização agora é um AssetCombobox (busca + teclado);
+  // abrimos cada combobox via foco até achar a opção cujo id termina com o
+  // connectionId, já que o valor não fica mais exposto num <option value>.
+  const inputs = [...container.querySelectorAll<HTMLInputElement>(".assetCombobox input")];
+  let option: HTMLElement | null = null;
+  for (const input of inputs) {
+    await act(async () => {
+      input.focus();
+    });
+    option = container.querySelector(`li[id$="-option-${connectionId}"]`);
+    if (option) break;
+    await act(async () => {
+      input.blur();
+    });
+  }
+  expect(option).toBeTruthy();
   await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
-    setter?.call(select, connectionId);
-    select?.dispatchEvent(new Event("change", { bubbles: true }));
+    option?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   });
+}
+
+function findComboboxInput(labelText: string): HTMLInputElement {
+  const label = [...container.querySelectorAll(".assetComboboxLabel")].find((item) => item.textContent === labelText);
+  const input = label?.closest(".assetCombobox")?.querySelector("input");
+  expect(input).toBeTruthy();
+  return input as HTMLInputElement;
 }
 
 beforeEach(() => {
@@ -310,6 +327,8 @@ describe("Onboarding integration actions", () => {
     expect(mocks.listProperties).toHaveBeenCalledWith("ga4-existing");
     expect(mocks.startGoogle).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Selecionar propriedade GA4");
+    const propertyInput = findComboboxInput("Propriedade GA4");
+    await act(async () => { propertyInput.focus(); });
     expect(container.textContent).toContain("Site Amalie");
   });
 
@@ -319,16 +338,16 @@ describe("Onboarding integration actions", () => {
     await selectAuthorization("ga4-existing");
     const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const propertySelect = [...container.querySelectorAll("select")].find((item) =>
-      [...item.options].some((option) => option.value === "properties/1")
-    );
-    expect(propertySelect).toBeTruthy();
+    const propertyInput = findComboboxInput("Propriedade GA4");
+    await act(async () => { propertyInput.focus(); });
+    const propertyOption = container.querySelector('li[id$="-option-properties/1"]') as HTMLElement;
+    expect(propertyOption).toBeTruthy();
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
-      setter?.call(propertySelect, "properties/1");
-      propertySelect?.dispatchEvent(new Event("change", { bubbles: true }));
+      propertyOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     });
     expect(mocks.listStreams).toHaveBeenCalledWith("ga4-existing", "properties/1");
+    const streamInput = findComboboxInput("Stream GA4");
+    await act(async () => { streamInput.focus(); });
     expect(container.textContent).toContain("Web Amalie");
     expect(container.textContent).toContain("Selecionar propriedade GA4");
     const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar seleção");
