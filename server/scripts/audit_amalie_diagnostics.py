@@ -10,6 +10,12 @@ O que faz:
   - Calcula, por fonte: última sincronização (last_sync_at) x última data
     de dado disponível (max stat_date / max timestamp) x jobs em execução
     ou travados.
+  - Lista TODAS as autorizações Meta e TODAS as conexões paid (não apenas
+    a hardcoded), para revelar contas/autorizações duplicadas ou obsoletas.
+  - Soma dia-a-dia (stat_date x spend) de ad_account_daily_stats por
+    connection_id no período (padrão: 01/mês-atual até hoje; sobrescreva
+    com META_AUDIT_SINCE/META_AUDIT_UNTIL), para comparar contra o total
+    real da conta no Meta Ads Manager.
 
 O que NUNCA faz:
   - Nenhum INSERT, UPDATE, DELETE ou RPC de mutação.
@@ -291,7 +297,70 @@ async def main() -> None:
                 coverage.append({"table": table, "error": f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"})
         report["data_coverage"] = coverage
 
+        # 6) Auditoria de spend Meta — trilha completa pedida:
+        #    todas as autorizações Meta, todas as conexões operacionais paid,
+        #    e a soma dia-a-dia de ad_account_daily_stats por connection_id
+        #    no período pedido, para comparar com o valor real da conta.
+        all_meta_authorizations = await _get(
+            client, "integration_connections",
+            params={"client_id": f"eq.{CLIENT_ID}", "provider": "eq.meta", "order": "created_at.desc", "limit": "50"},
+        )
+        report["meta_authorizations_all"] = [_scrub(r) for r in all_meta_authorizations]
+
+        all_paid_connections = await _get(
+            client, "meta_connections",
+            params={
+                "client_id": f"eq.{CLIENT_ID}",
+                "or": "(platform.eq.meta_ads,connection_type.eq.paid)",
+                "order": "updated_at.desc",
+                "limit": "50",
+            },
+        )
+        report["meta_paid_connections_all"] = [_scrub(r) for r in all_paid_connections]
+        if len(all_paid_connections) > 1:
+            report["meta_paid_connections_warning"] = (
+                f"ATENÇÃO: {len(all_paid_connections)} conexões paid ativas/registradas para {CLIENT_ID}. "
+                "Ambiguidade real de conta — confirmar qual ad_account_id é o correto antes de qualquer fix."
+            )
+
+        spend_since = _env("META_AUDIT_SINCE") or f"{now.year}-08-01"
+        spend_until = _env("META_AUDIT_UNTIL") or now.date().isoformat()
+        per_connection_daily: Dict[str, Any] = {}
+        for conn in all_paid_connections:
+            conn_id = str(conn.get("id") or "")
+            if not conn_id:
+                continue
+            daily_rows = await _get(
+                client, "ad_account_daily_stats",
+                params={
+                    "client_id": f"eq.{CLIENT_ID}",
+                    "connection_id": f"eq.{conn_id}",
+                    "and": f"(stat_date.gte.{spend_since},stat_date.lte.{spend_until})",
+                    "select": "stat_date,spend,ad_account_id",
+                    "order": "stat_date.asc",
+                    "limit": "1000",
+                },
+            )
+            total_spend = sum(float(r.get("spend") or 0) for r in daily_rows)
+            per_connection_daily[conn_id] = {
+                "ad_account_id": conn.get("ad_account_id"),
+                "ad_account_name": conn.get("ad_account_name"),
+                "period": {"since": spend_since, "until": spend_until},
+                "daily": [{"date": r.get("stat_date"), "spend": r.get("spend")} for r in daily_rows],
+                "total_persisted_spend": round(total_spend, 2),
+                "days_with_rows": len(daily_rows),
+            }
+        report["meta_spend_audit_by_connection"] = per_connection_daily
+
     print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    if report.get("meta_paid_connections_warning"):
+        print(f"\n{report['meta_paid_connections_warning']}")
+    for conn_id, info in report.get("meta_spend_audit_by_connection", {}).items():
+        print(
+            f"\n[meta_spend_audit] connection_id={conn_id} ad_account_id={info['ad_account_id']} "
+            f"ad_account_name={info['ad_account_name']} period={info['period']['since']}..{info['period']['until']} "
+            f"days_with_rows={info['days_with_rows']} TOTAL_PERSISTED_SPEND={info['total_persisted_spend']}"
+        )
 
 
 if __name__ == "__main__":

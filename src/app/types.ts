@@ -864,3 +864,28 @@ export type PaidDashboardResponse = {
     };
   };
 };
+
+export type CampaignRankingRow = {
+  campaign_id: string;
+  campaign_name?: string;
+  spend: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  roas: number | null;
+  last_stat_date?: string;
+};
+
+export type CampaignsListResponse = {
+  ok: boolean;
+  client_id: string;
+  connection_id?: string | null;
+  date_range?: { since: string; until: string };
+  campaigns: CampaignRankingRow[];
+  total: number;
+};

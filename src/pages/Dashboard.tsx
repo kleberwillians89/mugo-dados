@@ -21,6 +21,8 @@ import ExecutiveOverview, {
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
 import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyContent";
 import useDashboardPaid from "../hooks/dashboard/useDashboardPaid";
+import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
+import TopCampaignsRanking from "../components/dashboard/TopCampaignsRanking";
 import {
   buildDashboardCacheKey,
   readDashboardCache,
@@ -1001,12 +1003,34 @@ export default function Dashboard({
   const [notesAvailable, setNotesAvailable] = useState(true);
   const [notesMessage, setNotesMessage] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
-  const [hasActiveConnection, setHasActiveConnection] = useState<boolean | null>(null);
-  const [connections, setConnections] = useState<MetaConnection[]>([]);
+  // Estado inicial lido de forma síncrona do cache (sessionStorage/memória),
+  // não via useEffect: ao trocar de tela e voltar (remount), o componente
+  // volta a montar com connections=[] por um frame se o valor inicial for
+  // vazio, apagando temporariamente KPIs orgânicos e o dashboard pago
+  // mesmo com dado válido em cache — este era um ponto real de "dado some
+  // ao trocar de tela".
+  const paidConnectionIdCacheKey = useMemo(
+    () => buildDashboardCacheKey("meta-paid-connection-id", { clientId: activeClientId, extra: "dashboard" }),
+    [activeClientId]
+  );
+  const cachedConnectionsInitial = useMemo(
+    () => readDashboardCache<MetaConnection[]>(connectionsCacheKey) || [],
+    [connectionsCacheKey]
+  );
+  const [hasActiveConnection, setHasActiveConnection] = useState<boolean | null>(() =>
+    cachedConnectionsInitial.length
+      ? Boolean(pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()))
+      : null
+  );
+  const [connections, setConnections] = useState<MetaConnection[]>(cachedConnectionsInitial);
   const [commerceConnection, setCommerceConnection] = useState<GenericConnection | null>(null);
-  const [selectedPaidConnectionId, setSelectedPaidConnectionId] = useState<string | null>(null);
+  const [selectedPaidConnectionId, setSelectedPaidConnectionId] = useState<string | null>(() =>
+    readDashboardCache<string>(paidConnectionIdCacheKey)
+  );
   const [refreshRuntime, setRefreshRuntime] = useState<Array<Record<string, unknown>>>([]);
-  const [activeConnectionId, setActiveConnection] = useState<string | null>(null);
+  const [activeConnectionId, setActiveConnection] = useState<string | null>(() =>
+    cachedConnectionsInitial.length ? pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()) : null
+  );
   const [enablePaidStage, setEnablePaidStage] = useState(false);
   const [enableMonthlyStage, setEnableMonthlyStage] = useState(false);
   const [enableExtrasStage, setEnableExtrasStage] = useState(false);
@@ -1108,6 +1132,17 @@ export default function Dashboard({
     paidUpdatedAt,
     reloadPaid,
   } = useDashboardPaid({
+    isAuthenticated,
+    activeClientId,
+    activeConnectionId: paidConnectionId,
+    enabled: enablePaidStage,
+    period,
+  });
+  const {
+    campaignsData,
+    loadingCampaigns,
+    campaignsError,
+  } = useCampaignsRanking({
     isAuthenticated,
     activeClientId,
     activeConnectionId: paidConnectionId,
@@ -1378,7 +1413,18 @@ export default function Dashboard({
           const paid = selectUniqueConnection(nextConnections, (item) =>
             String(item.ad_account_id || "") === selectedAdAccountId && String(item.status || "").toLowerCase() !== "disconnected"
           );
-          setSelectedPaidConnectionId(String(paid?.id || "") || null);
+          const paidCandidates = nextConnections.filter(
+            (item) => String(item.status || "").toLowerCase() !== "disconnected"
+          );
+          // Se o ponteiro salvo (autorização em cache -> ad_account_id) não
+          // encontrou correspondência, mas existe exatamente UMA conexão paid
+          // ativa, usá-la evita exibir zero/dado antigo de uma conta que
+          // permanece conectada — a ambiguidade real (>1 conta) continua
+          // exigindo seleção explícita do usuário.
+          const paidFallbackId = !paid && paidCandidates.length === 1 ? paidCandidates[0].id : null;
+          const nextPaidConnectionId = String(paid?.id || paidFallbackId || "") || null;
+          setSelectedPaidConnectionId(nextPaidConnectionId);
+          writeDashboardCache<string | null>(paidConnectionIdCacheKey, nextPaidConnectionId, 300_000);
         } else {
           setSelectedPaidConnectionId(null);
         }
@@ -1406,7 +1452,7 @@ export default function Dashboard({
     return () => {
       alive = false;
     };
-  }, [activeClientId, connectionsCacheKey, isAuthenticated]);
+  }, [activeClientId, connectionsCacheKey, paidConnectionIdCacheKey, isAuthenticated]);
 
   async function onRefresh() {
     if (!activeClientId) {
@@ -2576,6 +2622,16 @@ export default function Dashboard({
                     ? `${paidTotals.roas.toFixed(2)}x`
                     : "Sem dados"}
                 </p>
+              ) : null}
+
+              {paidData && hasPaidData ? (
+                <div style={{ marginTop: 20 }}>
+                  <TopCampaignsRanking
+                    campaigns={campaignsData?.campaigns || []}
+                    loading={loadingCampaigns}
+                    error={campaignsError}
+                  />
+                </div>
               ) : null}
 
               {paidData && hasPaidData ? (

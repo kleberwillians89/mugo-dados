@@ -54,11 +54,18 @@ export function resolveOperationalMetaConnectionId(
       : platform === "meta_ads" || kind === "paid";
     return capabilityMatches && status !== "disconnected" && !connection.disconnected_at;
   });
-  if (!requested) return null;
-  const exact = candidates.filter((connection) => connection.id === requested);
-  if (exact.length !== 1) return null;
-  const [match] = exact;
-  return String(match.id || "") || null;
+  if (requested) {
+    const exact = candidates.filter((connection) => connection.id === requested);
+    if (exact.length === 1) return String(exact[0].id || "") || null;
+  }
+  // Sem correspondência exata (ex.: ponteiro de autorização em cache ficou
+  // desatualizado após uma reconexão) — se existe exatamente UMA conexão
+  // operacional elegível, usá-la é a única leitura correta possível, em vez
+  // de silenciosamente não exibir nenhum dado de uma conta que existe.
+  if (!requested && candidates.length === 1) {
+    return String(candidates[0].id || "") || null;
+  }
+  return null;
 }
 
 export function resolveCommerceConnection<T extends ConnectionRecord>(

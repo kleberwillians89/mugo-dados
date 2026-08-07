@@ -30,6 +30,7 @@ import type {
   MediaMonthlyResponse,
   MonthsResponse,
   PaidDashboardResponse,
+  CampaignsListResponse,
 } from "./types";
 import type { Period } from "./PeriodContext";
 import type {
@@ -1679,6 +1680,19 @@ export async function getDashboardPaid(
   return http<PaidDashboardResponse>(
     pathWithPeriodAndExtras("/api/dashboard/paid", period, 30, {
       connection_id: String(options?.connectionId || "").trim() || null,
+    }),
+    { signal: options?.signal }
+  );
+}
+
+export async function getCampaignsRanking(
+  period: number | PeriodQueryInput = 30,
+  options?: { connectionId?: string | null; limit?: number; signal?: AbortSignal }
+): Promise<CampaignsListResponse> {
+  return http<CampaignsListResponse>(
+    pathWithPeriodAndExtras("/api/campaigns", period, 30, {
+      connection_id: String(options?.connectionId || "").trim() || null,
+      limit: String(options?.limit || 8),
     }),
     { signal: options?.signal }
   );
