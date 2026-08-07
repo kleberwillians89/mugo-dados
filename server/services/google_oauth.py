@@ -687,7 +687,147 @@ async def list_google_ads_accounts(
         f"api_version={api_version} resource={resource} http_status={response.status_code} "
         f"accounts={len(accounts)} response_body={response.text}"
     )
+
+    login_customer_id: str | None = None
+    try:
+        row = await get_connection(client_id, connection_id)
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        login_customer_id = str(metadata.get("google_ads_login_customer_id") or "").strip() or None
+    except Exception as exc:
+        # Não bloqueia a listagem de contas por não conseguir ler o
+        # login_customer_id salvo — só perde essa otimização pontual.
+        print(f"[google_oauth][ads_accounts][login_customer_lookup_failed] connection_id={connection_id} error={exc.__class__.__name__}")
+    accounts_with_names = await _enrich_google_ads_account_names(
+        accounts,
+        token=token,
+        developer_token=developer_token,
+        api_version=api_version,
+        login_customer_id=login_customer_id,
+        request_id=request_id,
+    )
+    await _persist_google_ads_accounts_cache(
+        client_id=client_id, connection_id=connection_id, accounts=accounts_with_names,
+    )
+
     return {
-        "available": True, "accounts": accounts, "api_version": api_version,
+        "available": True, "accounts": accounts_with_names, "api_version": api_version,
         "request_id": request_id, "google_request_id": google_request_id or None,
     }
+
+
+async def _fetch_google_ads_customer_info(
+    *,
+    customer_id: str,
+    token: str,
+    developer_token: str,
+    api_version: str,
+    login_customer_id: str | None,
+) -> Dict[str, Any] | None:
+    """
+    Segunda etapa exigida pela Google Ads API: customers:listAccessibleCustomers
+    só retorna IDs. Para exibir um nome real, é preciso uma consulta GAQL
+    por conta. Retorna None em qualquer falha (conta sem permissão de
+    leitura, por exemplo) — quem chama já sabe cair para o fallback visual
+    "Conta {customer_id}".
+    """
+    url = f"https://googleads.googleapis.com/{api_version}/customers/{customer_id}/googleAds:search"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "developer-token": developer_token,
+        "Content-Type": "application/json",
+    }
+    if login_customer_id:
+        headers["login-customer-id"] = login_customer_id
+    query = (
+        "SELECT customer.id, customer.descriptive_name, customer.currency_code, "
+        "customer.time_zone, customer.manager, customer.test_account FROM customer LIMIT 1"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, headers=headers, json={"query": query})
+        if response.status_code >= 400:
+            return None
+        results = response.json().get("results") or []
+        if not results:
+            return None
+        customer = results[0].get("customer") or {}
+        return {
+            "descriptive_name": str(customer.get("descriptiveName") or "").strip() or None,
+            "currency_code": str(customer.get("currencyCode") or "").strip() or None,
+            "time_zone": str(customer.get("timeZone") or "").strip() or None,
+            "is_manager": bool(customer.get("manager")),
+            "is_test_account": bool(customer.get("testAccount")),
+        }
+    except Exception as exc:
+        # Deliberadamente amplo: uma conta sem permissão de leitura (comum
+        # em contas filhas listadas por uma manager account), um transporte
+        # indisponível ou qualquer outra falha nesta chamada extra NUNCA
+        # pode derrubar a listagem inteira — só essa conta cai para o
+        # fallback visual "Conta {customer_id}".
+        print(f"[google_oauth][ads_accounts][name_lookup_failed] customer_id={customer_id} error={exc.__class__.__name__}")
+        return None
+
+
+async def _enrich_google_ads_account_names(
+    accounts: List[Dict[str, Any]],
+    *,
+    token: str,
+    developer_token: str,
+    api_version: str,
+    login_customer_id: str | None,
+    request_id: str,
+) -> List[Dict[str, Any]]:
+    if not accounts:
+        return accounts
+    # return_exceptions=True: mesmo que _fetch_google_ads_customer_info
+    # (que já é defensiva) escape por algum caminho inesperado, uma conta
+    # com falha nunca derruba as outras nem a listagem inteira.
+    infos = await asyncio.gather(*[
+        _fetch_google_ads_customer_info(
+            customer_id=account["customer_id"], token=token, developer_token=developer_token,
+            api_version=api_version, login_customer_id=login_customer_id,
+        )
+        for account in accounts
+    ], return_exceptions=True)
+    enriched: List[Dict[str, Any]] = []
+    missing = 0
+    for account, info in zip(accounts, infos):
+        if isinstance(info, BaseException):
+            info = None
+        if info:
+            enriched.append({**account, **info, "updated_at": datetime.now(timezone.utc).isoformat()})
+        else:
+            missing += 1
+            enriched.append({**account, "updated_at": datetime.now(timezone.utc).isoformat()})
+    if missing:
+        print(
+            "[google_oauth][ads_accounts][name_enrichment] "
+            f"request_id={request_id} accounts={len(accounts)} missing_names={missing}"
+        )
+    return enriched
+
+
+async def _persist_google_ads_accounts_cache(
+    *, client_id: str, connection_id: str, accounts: List[Dict[str, Any]],
+) -> None:
+    """
+    Persistido em integration_connections.metadata (jsonb já existente) —
+    sem tabela nova. Reaproveitado nos selects em vez de repetir a consulta
+    GAQL a cada render; só é refeito ao conectar, atualizar contas,
+    selecionar nova autorização ou pedido explícito de atualização.
+    """
+    try:
+        row = await get_connection(client_id, connection_id)
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        metadata = {**metadata, "google_ads_accounts_cache": accounts}
+        await sb_update(
+            "integration_connections",
+            filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}"},
+            patch={"metadata": metadata, "updated_at": datetime.now(timezone.utc).isoformat()},
+            returning="minimal",
+        )
+    except Exception as exc:
+        print(
+            "[google_oauth][ads_accounts][cache_persist_warning] "
+            f"client_id={client_id} connection_id={connection_id} error={exc.__class__.__name__}"
+        )

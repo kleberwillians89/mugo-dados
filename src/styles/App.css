@@ -1821,6 +1821,11 @@ button, input, select { font: inherit; }
 .clientSwitcher select{grid-area:select;min-width:0;border:0;background:transparent;color:#17252b;font-size:12px;font-weight:700;padding:0 18px 0 0;outline:none}
 .clientSwitcherLock{grid-area:status;display:flex;align-items:center;gap:4px;color:#41725b;font-size:9px;font-weight:700}
 .clientSwitcherLock i{width:6px;height:6px;border-radius:50%;background:#2f8f5b}
+.clientSwitcher.is-switching{opacity:.72;transition:opacity .15s ease}
+.clientSwitcher.is-switching select{cursor:wait}
+.clientSwitcher.is-switching .clientSwitcherLock i{background:#c79830;animation:clientSwitcherPulse 1s ease-in-out infinite}
+@keyframes clientSwitcherPulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.clientSwitcher.is-switching .clientSwitcherLock i{animation:none}}
 
 @media(max-width:980px){
   .primaryNavigationInner{flex-wrap:wrap}

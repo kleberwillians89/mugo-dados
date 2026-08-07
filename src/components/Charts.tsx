@@ -73,11 +73,13 @@ export function MonthMixChart(props: {
     [props.data]
   );
   const { ref, w, h } = useChartSize();
+  const hasData = rows.some((row) => row.posts_total > 0 || row.reach_total > 0);
+  const maxBarSize = rows.length <= 4 ? 48 : rows.length <= 8 ? 38 : 28;
 
   return (
     <div className="chartHost" ref={ref}>
-      {w > 0 ? (
-        <BarChart width={w} height={h} data={rows}>
+      {w > 0 && hasData ? (
+        <BarChart width={w} height={h} data={rows} barCategoryGap="32%">
           <CartesianGrid strokeDasharray="4 4" stroke={CHART_COLORS.grid} />
           <XAxis dataKey="month" tick={AXIS_STYLE} tickMargin={8} />
           <YAxis yAxisId="left" tick={AXIS_STYLE} tickFormatter={(v) => formatCompactNumber(v)} />
@@ -94,9 +96,9 @@ export function MonthMixChart(props: {
             formatter={(value, name) => {
               const label =
                 name === "posts_total"
-                  ? "Posts publicados"
+                  ? "Posts publicados · Instagram"
                   : name === "reach_total"
-                    ? "Alcance mensal"
+                    ? "Alcance mensal · Instagram"
                     : String(name);
               return [fmtInt(value), label];
             }}
@@ -115,6 +117,7 @@ export function MonthMixChart(props: {
             name="posts_total"
             fill={CHART_COLORS.organicSoft}
             radius={[8, 8, 0, 0]}
+            maxBarSize={maxBarSize}
           />
           <Line
             type="monotone"
@@ -126,6 +129,11 @@ export function MonthMixChart(props: {
             dot={{ r: 2 }}
           />
         </BarChart>
+      ) : w > 0 ? (
+        <div className="chartEmptyState">
+          <div className="smallMuted">Sem dados de posts e alcance neste intervalo.</div>
+          <div className="smallMuted">Assim que o Instagram sincronizar o período, o gráfico é preenchido automaticamente.</div>
+        </div>
       ) : null}
     </div>
   );
@@ -151,10 +159,11 @@ export function MonthCompareLines(props: {
     [a, b]
   );
   const { ref, w, h } = useChartSize();
+  const hasData = rows.some((row) => row.a > 0 || row.b > 0);
 
   return (
     <div className="chartHost" ref={ref}>
-      {w > 0 ? (
+      {w > 0 && hasData ? (
         <LineChart width={w} height={h} data={rows}>
           <CartesianGrid strokeDasharray="4 4" stroke={CHART_COLORS.grid} />
           <XAxis dataKey="label" hide />
@@ -164,6 +173,7 @@ export function MonthCompareLines(props: {
             labelStyle={TOOLTIP_LABEL_STYLE}
             itemStyle={TOOLTIP_ITEM_STYLE}
             formatter={(value: unknown) => formatFullNumber(value)}
+            labelFormatter={(label) => `${label} · Instagram`}
           />
           <Legend />
           <Line
@@ -183,6 +193,11 @@ export function MonthCompareLines(props: {
             dot={{ r: 2 }}
           />
         </LineChart>
+      ) : w > 0 ? (
+        <div className="chartEmptyState">
+          <div className="smallMuted">Sem dados suficientes para comparar os meses selecionados.</div>
+          <div className="smallMuted">Selecione dois meses com sincronização concluída.</div>
+        </div>
       ) : null}
     </div>
   );

@@ -33,6 +33,7 @@ export default function ShopifyChartCard({
   valueFormatter,
 }: Props) {
   const gradientId = useId().replace(/:/g, "");
+  const hasData = data.some((row) => Number(row[dataKey] || 0) !== 0);
   const latestValue = data.length ? Number(data[data.length - 1][dataKey] || 0) : 0;
   const formatValue = valueFormatter || ((value: number) => new Intl.NumberFormat("pt-BR").format(value));
 
@@ -46,6 +47,12 @@ export default function ShopifyChartCard({
         <div className="shopifyChartValue">{formatValue(latestValue)}</div>
       </div>
 
+      {!hasData ? (
+        <div className="shopifyChartViewport chartEmptyState">
+          <div className="smallMuted">Sem dados de {title.toLowerCase()} neste período.</div>
+          <div className="smallMuted">O gráfico aparece assim que a Shopify sincronizar o período.</div>
+        </div>
+      ) : (
       <div className="shopifyChartViewport">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 6, right: 8, left: 8, bottom: 0 }}>
@@ -87,6 +94,7 @@ export default function ShopifyChartCard({
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      )}
     </article>
   );
 }

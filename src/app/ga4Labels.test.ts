@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyGa4Provider,
   getCampaignDisplayName,
   getCampaignIdDetail,
   getGa4ChannelLabel,
@@ -54,5 +55,53 @@ describe("campaign name resolution", () => {
   it("exposes the id only as secondary detail", () => {
     expect(getCampaignIdDetail("120233685343690476")).toBe("ID da campanha: 120233685343690476");
     expect(getCampaignIdDetail("")).toBeNull();
+  });
+});
+
+describe("classifyGa4Provider — nunca identificar campanha só pelo campaign_id", () => {
+  it("classifica facebook/paid_social como meta_ads, nunca google_ads", () => {
+    expect(classifyGa4Provider("facebook", "paid_social")).toBe("meta_ads");
+    expect(classifyGa4Provider("instagram", "paid")).toBe("meta_ads");
+  });
+
+  it("classifica google/cpc como google_ads", () => {
+    expect(classifyGa4Provider("google", "cpc")).toBe("google_ads");
+  });
+
+  it("nunca classifica facebook como google_ads mesmo com campaign_id numérico coincidente", () => {
+    // O mesmo número de campaign_id pode existir em contas Meta e Google
+    // Ads de forma totalmente independente — a classificação nunca pode
+    // depender do ID, só de source/medium.
+    const provider = classifyGa4Provider("facebook", "paid_social");
+    expect(provider).not.toBe("google_ads");
+  });
+
+  it("sem evidência suficiente, classifica como unknown", () => {
+    expect(classifyGa4Provider(null, null)).toBe("unknown");
+    expect(classifyGa4Provider("bing", "cpc")).toBe("unknown");
+  });
+});
+
+describe("getCampaignDisplayName com contexto de origem", () => {
+  it("uma campanha Meta com nome só numérico nunca aparece como 'Campanha não identificada' pura — mostra o provedor real", () => {
+    const label = getCampaignDisplayName("123456", { source: "facebook", medium: "paid_social" });
+    expect(label).toBe("Meta Ads — campanha 123456");
+    expect(label).not.toContain("Google");
+  });
+
+  it("uma campanha Google Ads com nome só numérico mostra o provedor real", () => {
+    const label = getCampaignDisplayName("123456", { source: "google", medium: "cpc" });
+    expect(label).toBe("Google Ads — campanha 123456");
+  });
+
+  it("sem evidência de origem, mantém o fallback neutro (comportamento anterior preservado)", () => {
+    expect(getCampaignDisplayName("123456", { source: null, medium: null })).toBe("Campanha não identificada");
+    expect(getCampaignDisplayName("123456")).toBe("Campanha não identificada");
+  });
+
+  it("nome de campanha real (não numérico) é sempre priorizado, com ou sem contexto", () => {
+    expect(getCampaignDisplayName("Vendas | Agosto", { source: "facebook", medium: "paid_social" })).toBe(
+      "Vendas | Agosto"
+    );
   });
 });

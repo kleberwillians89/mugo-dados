@@ -344,7 +344,9 @@ function GoogleCampaignsTable({ rows }: { rows: Ga4CampaignRow[] }) {
             {rows.map((row) => (
               <tr key={`${row.campaign_name}-${row.source_medium}`}>
                 <td>
-                  <div className="cellTitle">{getCampaignDisplayName(row.campaign_name)}</div>
+                  <div className="cellTitle">
+                    {getCampaignDisplayName(row.campaign_name, { source: row.source, medium: row.medium })}
+                  </div>
                   <div className="cellMuted">{row.source || "-"} / {row.medium || "-"}</div>
                 </td>
                 <td>{getGa4ChannelLabel(row.source_medium) || "-"}</td>
@@ -659,7 +661,7 @@ export default function GoogleAnalytics({
         .slice(0, 5)
         .map((row: Ga4CampaignRow) => ({
           id: `${row.campaign_name}-${row.source_medium || "campaign"}`,
-          label: getCampaignDisplayName(row.campaign_name),
+          label: getCampaignDisplayName(row.campaign_name, { source: row.source, medium: row.medium }),
           meta: `${getGa4ChannelLabel(row.source_medium)} • ${formatFullNumber(row.event_count)} eventos`,
           value: `${formatFullNumber(row.sessions)} sessões`,
           subvalue: `${formatFullNumber(row.active_users)} usuários ativos`,

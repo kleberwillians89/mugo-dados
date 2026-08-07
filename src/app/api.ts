@@ -1319,7 +1319,20 @@ export type GoogleGa4Stream = {
 export type GoogleAdsAccount = {
   customer_id: string;
   resource_name?: string;
+  descriptive_name?: string | null;
+  currency_code?: string | null;
+  time_zone?: string | null;
+  is_manager?: boolean;
+  is_test_account?: boolean;
 };
+
+/** "Amalie — 123-456-7890" quando há nome; nunca só o ID cru. */
+export function formatGoogleAdsAccountLabel(account: GoogleAdsAccount): string {
+  const formattedId = account.customer_id.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3");
+  return account.descriptive_name
+    ? `${account.descriptive_name} — ${formattedId}`
+    : `Conta ${formattedId}`;
+}
 
 export async function listGoogleGa4Properties(
   connectionId: string

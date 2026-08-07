@@ -8,6 +8,7 @@ export type ExecutiveMetric = {
   format?: "number" | "currency" | "ratio";
   context: string;
   inverse?: boolean;
+  source?: string;
 };
 
 export type ExecutiveSource = {
@@ -189,6 +190,7 @@ export default function ExecutiveOverview({
                   <span>Sem comparação confiável para este indicador</span>
                 )}
               </footer>
+              {metric.source ? <small className="executiveKpiSource">Fonte: {metric.source}</small> : null}
             </article>
           );
         })}

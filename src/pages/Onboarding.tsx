@@ -15,6 +15,7 @@ import {
   isUsableMetaConnection,
   selectUsableGoogleConnection,
   selectUsableMetaConnection,
+  formatGoogleAdsAccountLabel,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   listGoogleGa4Streams,
@@ -1676,7 +1677,9 @@ export default function Onboarding({
               <select value={selectedGoogleAds} onChange={(event) => setSelectedGoogleAds(event.target.value)} style={{ display: "block", width: "100%", marginTop: 8 }}>
                 <option value="">Nenhuma conta selecionada</option>
                 {googleAdsAccounts.map((account) => (
-                  <option key={account.customer_id} value={account.customer_id}>{account.customer_id}</option>
+                  <option key={account.customer_id} value={account.customer_id}>
+                    {formatGoogleAdsAccountLabel(account)}
+                  </option>
                 ))}
               </select>
             </label> : null}

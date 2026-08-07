@@ -190,6 +190,25 @@
   border-radius: 18px;
   background: #fff;
   box-shadow: 0 10px 28px rgba(21,48,59,.045);
+  animation: executive-card-enter .28s ease both;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.executiveKpi:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px rgba(21,48,59,.08);
+}
+.executiveKpiGrid .executiveKpi:nth-child(2){ animation-delay: .03s; }
+.executiveKpiGrid .executiveKpi:nth-child(3){ animation-delay: .06s; }
+.executiveKpiGrid .executiveKpi:nth-child(4){ animation-delay: .09s; }
+.executiveKpiGrid .executiveKpi:nth-child(5){ animation-delay: .12s; }
+.executiveKpiGrid .executiveKpi:nth-child(6){ animation-delay: .15s; }
+@keyframes executive-card-enter{
+  from{ opacity: 0; transform: translateY(6px); }
+  to{ opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce){
+  .executiveKpi{ animation: none; }
+  .executiveKpi:hover{ transform: none; }
 }
 .executiveKpiHead{
   display: flex;
@@ -237,6 +256,13 @@
 .executiveKpi footer b{ color: var(--executive-blue); }
 .executiveKpi.is-positive footer b{ color: #147443; }
 .executiveKpi.is-attention footer b{ color: var(--executive-red); }
+.executiveKpiSource{
+  display: block;
+  margin-top: 8px;
+  color: var(--executive-gray);
+  font-size: 10px;
+  letter-spacing: .02em;
+}
 
 .executiveJourney{
   display: grid;

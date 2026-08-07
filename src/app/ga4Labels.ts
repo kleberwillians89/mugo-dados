@@ -88,16 +88,84 @@ export function getGa4ChannelLabel(sourceMedium: string | null | undefined): str
 }
 
 /**
- * Nome de campanha para exibição. Nunca usa o ID numérico como título
- * principal — quando só há ID, retorna "Campanha não identificada" e quem
- * chama deve mostrar o ID como detalhe secundário via getCampaignIdDetail.
+ * Classificação canônica de origem (Bloco 5) — GA4 é uma camada de
+ * MEDIÇÃO, não uma plataforma de mídia: uma sessão medida pelo GA4 pode
+ * ter sido originada por uma campanha Meta, Google Ads, orgânico etc.
+ * Nunca inferir o provedor real só pelo campaign_id (o mesmo número pode
+ * existir em contas Meta e Google Ads de forma independente) — a
+ * classificação usa source/medium, os únicos sinais realmente
+ * disponíveis nos relatórios de canal/campanha do GA4 hoje.
  */
-export function getCampaignDisplayName(campaignName: string | null | undefined): string {
+export type Ga4CampaignProvider =
+  | "meta_ads"
+  | "google_ads"
+  | "ga4"
+  | "shopify"
+  | "organic_instagram"
+  | "direct"
+  | "referral"
+  | "email"
+  | "other"
+  | "unknown";
+
+export function classifyGa4Provider(
+  source: string | null | undefined,
+  medium: string | null | undefined
+): Ga4CampaignProvider {
+  const src = String(source || "").trim().toLowerCase();
+  const med = String(medium || "").trim().toLowerCase();
+
+  if (!src && !med) return "unknown";
+  if ((src === "facebook" || src === "instagram" || src === "ig") && (med.includes("paid") || med === "cpc")) {
+    return "meta_ads";
+  }
+  if (src === "google" && med === "cpc") return "google_ads";
+  if (med === "organic" || med.includes("organic search")) return "other";
+  if ((src === "instagram" || src === "ig") && med.includes("organic")) return "organic_instagram";
+  if (med === "email") return "email";
+  if (med === "referral") return "referral";
+  if (src === "(direct)" || med === "(none)") return "direct";
+  return "unknown";
+}
+
+const PROVIDER_LABELS: Record<Ga4CampaignProvider, string> = {
+  meta_ads: "Meta Ads",
+  google_ads: "Google Ads",
+  ga4: "GA4",
+  shopify: "Shopify",
+  organic_instagram: "Instagram orgânico",
+  direct: "Acesso direto",
+  referral: "Site de referência",
+  email: "E-mail",
+  other: "Outra origem",
+  unknown: "Origem não identificada",
+};
+
+export function getGa4ProviderLabel(provider: Ga4CampaignProvider): string {
+  return PROVIDER_LABELS[provider];
+}
+
+/**
+ * Nome de campanha para exibição. Nunca usa o ID numérico como título
+ * principal. Quando só há ID, o fallback inclui o provedor real (deduzido
+ * de source/medium) sempre que houver evidência — nunca "Campanha não
+ * identificada" quando o provedor for conhecido.
+ */
+export function getCampaignDisplayName(
+  campaignName: string | null | undefined,
+  context?: { source?: string | null; medium?: string | null }
+): string {
   const raw = String(campaignName || "").trim();
-  if (!raw) return "Campanha não identificada";
-  // Alguns relatórios da Meta/GA4 retornam só o ID numérico como "nome".
-  if (/^\d+$/.test(raw)) return "Campanha não identificada";
-  return raw;
+  const isNumericOnly = !raw || /^\d+$/.test(raw);
+  if (!isNumericOnly) return raw;
+
+  const provider = context ? classifyGa4Provider(context.source, context.medium) : "unknown";
+  if (provider === "unknown" || provider === "ga4" || provider === "other") {
+    return "Campanha não identificada";
+  }
+  return raw
+    ? `${getGa4ProviderLabel(provider)} — campanha ${raw}`
+    : `${getGa4ProviderLabel(provider)} — campanha não identificada`;
 }
 
 export function getCampaignIdDetail(campaignId: string | null | undefined): string | null {

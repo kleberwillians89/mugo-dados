@@ -551,15 +551,13 @@ function MetaChartCard({
   const hasOverlayLine = paidOverlaySeries.length > 1;
   const singlePointValue = pointCount === 1 ? safe(series[0]) : null;
   const isSinglePoint = pointCount === 1;
+  // Séries temporais com muitos pontos usam linha/área suave (acabamento premium);
+  // barras verticais ficam reservadas para 2-6 categorias, evitando barras estreitas
+  // e desproporcionais em séries diárias longas.
   const useBarChart = pointCount >= 2 && pointCount <= 6;
-  const preferBarOnLongSeries =
-    metric === "website_clicks" ||
-    metric === "profile_views" ||
-    metric === "total_interactions" ||
-    metric === "accounts_engaged";
-  const useLongSeriesBar = pointCount >= 7 && preferBarOnLongSeries;
-  const useLineChart = pointCount >= 7 && !useLongSeriesBar;
-  const usesBarVisualization = useBarChart || useLongSeriesBar;
+  const useLineChart = pointCount >= 7;
+  const usesBarVisualization = useBarChart;
+  const barMaxThickness = pointCount <= 4 ? 48 : 32;
   const isPrimary = variant === "primary";
   const comparisonText =
     previousPeriodTotal > 0
@@ -610,7 +608,7 @@ function MetaChartCard({
         data: series,
         borderWidth: 1,
         borderRadius: 10,
-        maxBarThickness: 42,
+        maxBarThickness: barMaxThickness,
         borderColor: isPartialCoverage ? CHART_COLORS.organicMuted : CHART_COLORS.organic,
         backgroundColor: CHART_COLORS.organicSoft,
       },
@@ -621,13 +619,13 @@ function MetaChartCard({
         data: paidOverlaySeries,
         borderWidth: 1,
         borderRadius: 10,
-        maxBarThickness: 42,
+        maxBarThickness: barMaxThickness,
         borderColor: CHART_COLORS.ads,
         backgroundColor: CHART_COLORS.adsSoft,
       });
     }
     return { labels, datasets };
-  }, [hasOverlay, isPartialCoverage, labels, paidOverlaySeries, series]);
+  }, [barMaxThickness, hasOverlay, isPartialCoverage, labels, paidOverlaySeries, series]);
 
   const hasSeries = series.some((value) => Number.isFinite(value));
   const lineOptions: ChartOptions<"line"> = useMemo(
@@ -1979,6 +1977,7 @@ export default function Dashboard({
         previous: null,
         format: "currency",
         context: "Valor investido nas campanhas Meta disponíveis no período.",
+        source: "Meta Ads",
       },
       {
         key: "roas",
@@ -1990,6 +1989,7 @@ export default function Dashboard({
         previous: null,
         format: "ratio",
         context: "Retorno reportado a partir da receita atribuída pela plataforma de mídia.",
+        source: "Meta Ads",
       },
       {
         key: "reach",
@@ -1998,6 +1998,7 @@ export default function Dashboard({
         previous: comparableOrganic ? safe(previousTotals?.reach) : null,
         format: "number",
         context: "Contas únicas alcançadas pelo conteúdo orgânico.",
+        source: "Instagram Graph",
       },
       {
         key: "interactions",
@@ -2006,6 +2007,7 @@ export default function Dashboard({
         previous: comparableOrganic ? safe(previousTotals?.total_interactions) : null,
         format: "number",
         context: "Ações de engajamento registradas pelo Instagram.",
+        source: "Instagram Graph",
       },
       {
         key: "profile_views",
@@ -2014,6 +2016,7 @@ export default function Dashboard({
         previous: comparableOrganic ? safe(previousTotals?.profile_views) : null,
         format: "number",
         context: "Sinal de intenção após o contato com o conteúdo.",
+        source: "Instagram Graph",
       },
       {
         key: "website_clicks",
@@ -2022,6 +2025,7 @@ export default function Dashboard({
         previous: comparableOrganic ? safe(previousTotals?.website_clicks) : null,
         format: "number",
         context: "Tráfego encaminhado pelo perfil para o destino configurado.",
+        source: "Instagram Graph",
       },
     ],
     [
