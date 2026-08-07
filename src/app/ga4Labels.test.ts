@@ -94,6 +94,13 @@ describe("getCampaignDisplayName com contexto de origem", () => {
     expect(label).toBe("Google Ads — campanha 123456");
   });
 
+  it("nunca mostra o literal técnico '(not set)' do GA4 como nome de campanha", () => {
+    expect(getCampaignDisplayName("(not set)")).toBe("Campanha não identificada");
+    expect(getCampaignDisplayName("(not set)", { source: "google", medium: "cpc" })).toBe(
+      "Google Ads — campanha não identificada"
+    );
+  });
+
   it("sem evidência de origem, mantém o fallback neutro (comportamento anterior preservado)", () => {
     expect(getCampaignDisplayName("123456", { source: null, medium: null })).toBe("Campanha não identificada");
     expect(getCampaignDisplayName("123456")).toBe("Campanha não identificada");

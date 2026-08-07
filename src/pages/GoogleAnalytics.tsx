@@ -7,6 +7,7 @@ import Shell from "../components/Shell";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import { syncGa4 } from "../app/api";
+import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   getCampaignDisplayName,
   getGa4ChannelLabel,
@@ -674,16 +675,20 @@ export default function GoogleAnalytics({
     setRefreshError(null);
     setSyncing(true);
     try {
-      await syncGa4({
-          start: selectedRange.start,
-          end: selectedRange.end,
-          days: periodDays,
-        }, {
-          clientId: activeGa4ClientId,
-        });
+      await runExclusiveSync(
+        { clientId: activeGa4ClientId, provider: "ga4" },
+        () =>
+          syncGa4({
+            start: selectedRange.start,
+            end: selectedRange.end,
+            days: periodDays,
+          }, {
+            clientId: activeGa4ClientId,
+          })
+      );
       await reloadGa4({ force: true });
     } catch (error: unknown) {
-      setRefreshError(toErrorMessage(error));
+      setRefreshError(isSyncAlreadyRunningError(error) ? describeSyncError(error, "") : toErrorMessage(error));
     } finally {
       setSyncing(false);
     }

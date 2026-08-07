@@ -155,7 +155,11 @@ export function getCampaignDisplayName(
   campaignName: string | null | undefined,
   context?: { source?: string | null; medium?: string | null }
 ): string {
-  const raw = String(campaignName || "").trim();
+  // "(not set)" é o valor técnico literal que o GA4 retorna para tráfego
+  // sem campanha associada — tratado como ausência de nome (igual a um ID
+  // numérico sem nome), nunca chega cru na UI.
+  const rawInput = String(campaignName || "").trim();
+  const raw = rawInput.toLowerCase() === "(not set)" ? "" : rawInput;
   const isNumericOnly = !raw || /^\d+$/.test(raw);
   if (!isNumericOnly) return raw;
 
