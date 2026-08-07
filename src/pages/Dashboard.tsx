@@ -23,13 +23,15 @@ import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyCo
 import useDashboardPaid from "../hooks/dashboard/useDashboardPaid";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import TopCampaignsRanking from "../components/dashboard/TopCampaignsRanking";
+import AttentionPanel from "../components/dashboard/AttentionPanel";
+import PerformanceChart from "../components/dashboard/PerformanceChart";
 import {
   buildDashboardCacheKey,
   readDashboardCache,
   writeDashboardCache,
 } from "../hooks/dashboard/cache";
 import { resolveCommerceConnection, resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
-import { ensureDashboardPeriod } from "../hooks/dashboard/period";
+import { ensureDashboardPeriod, previousDashboardPeriod } from "../hooks/dashboard/period";
 import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 
 import {
@@ -1138,6 +1140,18 @@ export default function Dashboard({
     enabled: enablePaidStage,
     period,
   });
+  // Janela imediatamente anterior de mesma duração — única fonte usada para
+  // a narrativa "+X% vs período anterior" do hero de mídia paga. Reaproveita
+  // o mesmo hook/cache/endpoint já usado para o período atual; nunca inventa
+  // comparação quando essa segunda leitura ainda não chegou.
+  const previousPaidPeriod = useMemo(() => previousDashboardPeriod(period), [period]);
+  const { paidData: previousPaidData } = useDashboardPaid({
+    isAuthenticated,
+    activeClientId,
+    activeConnectionId: paidConnectionId,
+    enabled: enablePaidStage,
+    period: previousPaidPeriod,
+  });
   const {
     campaignsData,
     loadingCampaigns,
@@ -2016,13 +2030,23 @@ export default function Dashboard({
   const paidExecutiveAvailable = Boolean(paidData && (paidHasRows || hasPaidData));
   const previousTotals = dash?.period_previous_totals;
   const comparableOrganic = organicExecutiveAvailable && !isPartialCoverage;
+  const comparablePaid = paidExecutiveAvailable && previousPaidData?.has_data === true;
   const executiveMetrics = useMemo<ExecutiveMetric[]>(
     () => [
+      {
+        key: "revenue",
+        label: "Receita atribuída Meta",
+        value: paidExecutiveAvailable ? safe(paidTotals?.revenue) : null,
+        previous: comparablePaid ? safe(previousPaidData?.totals?.revenue) : null,
+        format: "currency",
+        context: "Receita atribuída pela Meta às campanhas ativas no período.",
+        source: "Meta Ads",
+      },
       {
         key: "spend",
         label: "Investimento em mídia",
         value: paidExecutiveAvailable ? safe(paidTotals?.spend) : null,
-        previous: null,
+        previous: comparablePaid ? safe(previousPaidData?.totals?.spend) : null,
         format: "currency",
         context: "Valor investido nas campanhas Meta disponíveis no período.",
         source: "Meta Ads",
@@ -2034,9 +2058,21 @@ export default function Dashboard({
           paidExecutiveAvailable && typeof paidTotals?.roas === "number" && Number.isFinite(paidTotals.roas)
             ? paidTotals.roas
             : null,
-        previous: null,
+        previous:
+          comparablePaid && typeof previousPaidData?.totals?.roas === "number" && Number.isFinite(previousPaidData.totals.roas)
+            ? previousPaidData.totals.roas
+            : null,
         format: "ratio",
         context: "Retorno reportado a partir da receita atribuída pela plataforma de mídia.",
+        source: "Meta Ads",
+      },
+      {
+        key: "conversions",
+        label: "Compras Meta",
+        value: paidExecutiveAvailable ? safe(paidTotals?.conversions) : null,
+        previous: comparablePaid ? safe(previousPaidData?.totals?.conversions) : null,
+        format: "number",
+        context: "Compras atribuídas pela Meta às campanhas ativas no período.",
         source: "Meta Ads",
       },
       {
@@ -2078,10 +2114,12 @@ export default function Dashboard({
     ],
     [
       comparableOrganic,
+      comparablePaid,
       kpisFromDash,
       organicExecutiveAvailable,
       paidExecutiveAvailable,
       paidTotals,
+      previousPaidData,
       previousTotals,
     ]
   );
@@ -2220,12 +2258,7 @@ export default function Dashboard({
             </div>
           ) : null}
 
-          <div className="panelHead">
-            <div>
-              <div className="panelTitle">Visão Geral de Performance</div>
-              <div className="panelSub">Leituras separadas por fonte no período selecionado.</div>
-            </div>
-
+          <div className="panelHead panelHead-minimal">
             <div className="monthControls">
               <select
                 className="select"
@@ -2295,6 +2328,8 @@ export default function Dashboard({
             loading={loadingDash || loadingPaid}
             error={dashboardError}
           />
+
+          {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily} /> : null}
 
           {hasActiveConnection === false ? (
             <div className="panelBlock">
@@ -2521,36 +2556,45 @@ export default function Dashboard({
                 <div className="paidFilters" aria-label="Filtros Meta Ads">
                   <label>
                     <span>Campanha Meta</span>
-                    <select
+                    <input
                       className="select"
+                      type="search"
+                      list="paid-campaign-options"
+                      placeholder="Buscar campanha (ex.: Advantage)"
                       onChange={(event) => setPaidCampaignFilter(event.target.value)}
                       value={paidCampaignFilter}
-                    >
-                      <option value="">Todas as campanhas</option>
-                      {paidFilterOptions.campaigns.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    />
+                    <datalist id="paid-campaign-options">
+                      {paidFilterOptions.campaigns.map((option) => <option key={option} value={option} />)}
+                    </datalist>
                   </label>
                   <label>
                     <span>Conjunto</span>
-                    <select
+                    <input
                       className="select"
+                      type="search"
+                      list="paid-adset-options"
+                      placeholder="Buscar conjunto"
                       onChange={(event) => setPaidAdsetFilter(event.target.value)}
                       value={paidAdsetFilter}
-                    >
-                      <option value="">Todos os conjuntos</option>
-                      {paidFilterOptions.adsets.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    />
+                    <datalist id="paid-adset-options">
+                      {paidFilterOptions.adsets.map((option) => <option key={option} value={option} />)}
+                    </datalist>
                   </label>
                   <label>
                     <span>Anúncio</span>
-                    <select
+                    <input
                       className="select"
+                      type="search"
+                      list="paid-ad-options"
+                      placeholder="Buscar anúncio"
                       onChange={(event) => setPaidAdFilter(event.target.value)}
                       value={paidAdFilter}
-                    >
-                      <option value="">Todos os anúncios</option>
-                      {paidFilterOptions.ads.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    />
+                    <datalist id="paid-ad-options">
+                      {paidFilterOptions.ads.map((option) => <option key={option} value={option} />)}
+                    </datalist>
                   </label>
                   <label>
                     <span>Plataforma</span>
@@ -2625,12 +2669,13 @@ export default function Dashboard({
               ) : null}
 
               {paidData && hasPaidData ? (
-                <div style={{ marginTop: 20 }}>
+                <div className="campaignsAttentionGrid">
                   <TopCampaignsRanking
                     campaigns={campaignsData?.campaigns || []}
                     loading={loadingCampaigns}
                     error={campaignsError}
                   />
+                  <AttentionPanel metrics={executiveMetrics} />
                 </div>
               ) : null}
 
