@@ -10,8 +10,9 @@ import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
 import ShopifyWebhookStatusCard from "../components/shopify/ShopifyWebhookStatusCard";
 import { usePeriod } from "../app/PeriodContext";
-import { getShopifyCustomers, getShopifyReport } from "../app/api";
-import { getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
+import { getShopifyCustomers, getShopifyReport, resolveShopifyConnectionIdForRead, syncShopifyConnection } from "../app/api";
+import { getActiveClientId, getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
+import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   formatShopifyCompactNumber,
   formatShopifyCurrency,
@@ -30,6 +31,11 @@ type Props = {
   onOpenDashboard: () => void;
   onOpenGoogleReport?: () => void;
 };
+
+// Regra operacional do piloto: o botão manual sincroniza os últimos 60 dias
+// (histórico recente), nunca o histórico completo — evita reprocessar anos
+// de pedidos a cada clique.
+const SHOPIFY_MANUAL_SYNC_DAYS = 60;
 
 type PeriodPreset = "7d" | "30d" | "month" | "specific";
 type ShopifyMetricKey = "revenue" | "orders" | "customers" | "average_ticket";
@@ -136,6 +142,8 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncingShopify, setSyncingShopify] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [customersRefreshing, setCustomersRefreshing] = useState(false);
   const [customersError, setCustomersError] = useState<string | null>(null);
@@ -215,6 +223,38 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   useEffect(() => {
     void loadCustomers();
   }, [loadCustomers]);
+
+  const onRefreshData = useCallback(async () => {
+    setSyncNotice(null);
+    setSyncingShopify(true);
+    try {
+      const connectionId = await resolveShopifyConnectionIdForRead(getActiveClientId());
+      if (connectionId) {
+        try {
+          await runExclusiveSync(
+            { clientId: getActiveClientId(), provider: "shopify", connectionId },
+            () => syncShopifyConnection(connectionId, SHOPIFY_MANUAL_SYNC_DAYS)
+          );
+        } catch (syncError: unknown) {
+          if (isSyncAlreadyRunningError(syncError)) {
+            // Estado válido, nunca erro vermelho — outra sincronização
+            // (ex.: reconciliação periódica) já está rodando para esta loja.
+            setSyncNotice("Importação já está em andamento.");
+          } else {
+            // Preserva os dados já carregados (report/customerData não são
+            // tocados aqui) e mostra mensagem humana, sem reler os dados —
+            // a última leitura persistida válida continua na tela.
+            setError(describeSyncError(syncError, "Não foi possível sincronizar a loja Shopify agora."));
+            return;
+          }
+        }
+      }
+      // Sync concluído (ou já em andamento) — relê os dados persistidos.
+      await Promise.all([loadReport("refresh"), loadCustomers("refresh")]);
+    } finally {
+      setSyncingShopify(false);
+    }
+  }, [loadCustomers, loadReport]);
 
   const currency = report?.recent_orders[0]?.currency || "BRL";
   const summary = report?.summary;
@@ -426,16 +466,18 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
 
             <button
               className="btn btnPrimary shopifyRefreshButton"
-              disabled={refreshing || customersRefreshing}
+              disabled={syncingShopify || refreshing || customersRefreshing}
               onClick={() => {
-                void Promise.all([loadReport("refresh"), loadCustomers("refresh")]);
+                void onRefreshData();
               }}
               type="button"
             >
-              {refreshing || customersRefreshing ? "Atualizando..." : "Atualizar dados"}
+              {syncingShopify || refreshing || customersRefreshing ? "Atualizando..." : "Atualizar dados"}
             </button>
           </div>
         </section>
+
+        {syncNotice ? <div className="shopifyFeedbackCard">{syncNotice}</div> : null}
 
         {loading && !report ? <ShopifyReportSkeleton /> : null}
 

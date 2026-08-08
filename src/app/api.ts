@@ -1722,7 +1722,7 @@ export async function getExecutiveDashboard(
 // resolveCommerceConnection); com 0 ou 2+ conexões, segue sem connection_id
 // e deixa o backend responder 409 explicitamente (nunca escolhe sozinho
 // entre conexões ambíguas).
-async function resolveShopifyConnectionIdForRead(clientId: string): Promise<string | null> {
+export async function resolveShopifyConnectionIdForRead(clientId: string): Promise<string | null> {
   const stored = getSelectedConnectionId(clientId, "shopify");
   if (stored) return stored;
   try {
