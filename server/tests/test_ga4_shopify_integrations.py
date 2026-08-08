@@ -441,6 +441,21 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             "minha-loja.myshopify.com",
         )
 
+    def test_shopify_domain_normalization_accepts_bare_full_and_scheme_prefixed_forms(self):
+        # As três formas de entrada esperadas do formulário de conexão devem
+        # convergir para exatamente o mesmo domínio, uma única vez.
+        expected = "amalie-6421.myshopify.com"
+        self.assertEqual(shopify_oauth.normalize_shop_domain("amalie-6421"), expected)
+        self.assertEqual(shopify_oauth.normalize_shop_domain("amalie-6421.myshopify.com"), expected)
+        self.assertEqual(shopify_oauth.normalize_shop_domain("https://amalie-6421.myshopify.com"), expected)
+
+    def test_shopify_domain_normalization_never_doubles_suffix_or_scheme(self):
+        expected = "amalie-6421.myshopify.com"
+        self.assertEqual(shopify_oauth.normalize_shop_domain("https://https://amalie-6421.myshopify.com"), expected)
+        with self.assertRaises(RuntimeError):
+            # Sufixo já duplicado na entrada nunca é aceito silenciosamente.
+            shopify_oauth.normalize_shop_domain("amalie-6421.myshopify.com.myshopify.com")
+
     def test_shopify_admin_api_version_is_centralized(self):
         self.assertEqual(shopify_config.SHOPIFY_ADMIN_API_VERSION, "2026-07")
         self.assertEqual(
@@ -588,6 +603,86 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             connection_id="shopify-connection",
         )
         sync.assert_not_awaited()
+
+    async def test_token_exchange_404_raises_humanized_error_and_logs_safely(self):
+        output = io.StringIO()
+        request_obj = httpx.Request("POST", "https://amalie-6421.myshopify.com/admin/oauth/access_token")
+        not_found_response = httpx.Response(404, request=request_obj, json={"error": "not_found"})
+
+        async def fake_post(self, url, json=None, **kwargs):
+            return not_found_response
+
+        with (
+            patch.object(
+                shopify_oauth,
+                "settings",
+                return_value={
+                    "client_id": "public-client",
+                    "client_secret": "super-secret-value",
+                    "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+                },
+            ),
+            patch("httpx.AsyncClient.post", new=fake_post),
+            redirect_stdout(output),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.exchange_code(
+                    shop_domain="amalie-6421.myshopify.com", code="super-secret-code",
+                )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        log = output.getvalue()
+        self.assertIn(
+            "[shopify_oauth] stage=token_exchange shop=amalie-6421.myshopify.com "
+            "path=/admin/oauth/access_token status=404",
+            log,
+        )
+        self.assertNotIn("super-secret-value", log)
+        self.assertNotIn("super-secret-code", log)
+
+    async def test_callback_with_token_exchange_404_returns_error_redirect_without_persisting(self):
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
+        request = type(
+            "Request",
+            (),
+            {
+                "query_params": {
+                    "code": "secret-code",
+                    "state": "secret-state",
+                    "shop": "roove.myshopify.com",
+                    "hmac": "valid-hmac",
+                }
+            },
+        )()
+        session = {
+            "user_id": "user-roove",
+            "client_id": "roove",
+            "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            "context": {"shop_domain": "roove.myshopify.com"},
+        }
+        not_found = IntegrationError(
+            "O recurso solicitado não foi encontrado na Shopify.",
+            status_code=404, code="SHOPIFY_RESOURCE_NOT_FOUND", provider="shopify",
+        )
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(shopify_routes, "consume_oauth_state", AsyncMock(return_value=session)),
+            patch.object(
+                shopify_routes,
+                "safe_oauth_configuration",
+                return_value={"redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI},
+            ),
+            patch.object(shopify_routes, "require_user_client_access", AsyncMock()),
+            patch.object(shopify_routes, "exchange_code", AsyncMock(side_effect=not_found)),
+            patch.object(shopify_routes, "save_shopify_connection", AsyncMock()) as save,
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await shopify_routes.callback(request, background_tasks)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("shopify_oauth=error", response.headers["location"])
+        save.assert_not_awaited()
+        background_tasks.add_task.assert_not_called()
 
 
 class IntegrationErrorSafetyTests(unittest.TestCase):

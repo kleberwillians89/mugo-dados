@@ -81,9 +81,28 @@ def safe_oauth_configuration() -> Dict[str, str]:
 
 
 def normalize_shop_domain(value: str) -> str:
+    """Normaliza para exatamente "nomedaloja.myshopify.com", uma única vez.
+
+    Aceita "amalie-6421", "amalie-6421.myshopify.com" ou
+    "https://amalie-6421.myshopify.com" (inclusive com esquema duplicado,
+    ex.: "https://https://..."). Nunca produz um sufixo duplicado
+    (".myshopify.com.myshopify.com") — só concatena o sufixo quando ainda
+    não está presente.
+    """
     domain = str(value or "").strip().lower()
-    domain = domain.removeprefix("https://").removeprefix("http://").strip("/")
-    if "/" in domain or ":" in domain or not SHOP_DOMAIN_RE.fullmatch(domain):
+    while True:
+        stripped = re.sub(r"^[a-z][a-z0-9+.-]*://", "", domain)
+        if stripped == domain:
+            break
+        domain = stripped
+    # Só remove barras/pontos FINAIS (ex.: copiar a URL com "/" sobrando no
+    # fim) — um path real ("/algo") nunca é descartado silenciosamente,
+    # cai na validação abaixo e é rejeitado.
+    domain = domain.rstrip("/").strip(".")
+    has_stray_chars = any(char in domain for char in ("/", "?", "#", ":"))
+    if domain and not has_stray_chars and not domain.endswith(".myshopify.com"):
+        domain = f"{domain}.myshopify.com"
+    if not domain or has_stray_chars or not SHOP_DOMAIN_RE.fullmatch(domain):
         raise RuntimeError("Domínio Shopify inválido. Use nomedaloja.myshopify.com.")
     return domain
 
@@ -321,14 +340,26 @@ def verify_callback_hmac(params: Dict[str, str]) -> bool:
 
 
 async def exchange_code(*, shop_domain: str, code: str) -> Dict[str, Any]:
+    # Authorization Code Grant: SEMPRE o endpoint raiz da loja, nunca um
+    # recurso da Admin API versionada (nunca /admin/api/{version}/oauth/...).
     shop = normalize_shop_domain(shop_domain)
+    path = "/admin/oauth/access_token"
     config = settings()
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"https://{shop}/admin/oauth/access_token",
-            json={"client_id": config["client_id"], "client_secret": config["client_secret"], "code": code},
-        )
-    response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"https://{shop}{path}",
+                json={"client_id": config["client_id"], "client_secret": config["client_secret"], "code": code},
+            )
+            response.raise_for_status()
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        # Nunca logar query string, code ou secret — só loja, caminho e status.
+        print(f"[shopify_oauth] stage=token_exchange shop={shop} path={path} status={status if status is not None else 'network_error'}")
+        raise from_httpx_error(
+            "shopify", exc, operation="trocar o código de autorização por um token de acesso",
+        ) from exc
+    print(f"[shopify_oauth] stage=token_exchange shop={shop} path={path} status={response.status_code}")
     payload = response.json()
     if not payload.get("access_token"):
         raise RuntimeError("Shopify não retornou token offline.")
