@@ -46,8 +46,8 @@ import {
   getActiveClientId,
 } from "./activeClient";
 import { getSelectedPeriodRange } from "./periodRange";
-import { resolveCatalogConnection } from "./connectionManager";
-import { getSelectedConnectionId } from "./connectionState";
+import { resolveCatalogConnection, resolveCommerceConnection } from "./connectionManager";
+import { getSelectedConnectionId, setSelectedConnectionId } from "./connectionState";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
 const productionApiBase = "https://api.dados.mugoagencia.com.br";
@@ -1715,13 +1715,40 @@ export async function getExecutiveDashboard(
   );
 }
 
+// Fonte de verdade da conexão Shopify usada nas leituras é o backend, nunca
+// o localStorage isolado: com ponteiro local válido, respeita-o; sem
+// ponteiro e com exatamente UMA conexão Shopify ativa, resolve e persiste
+// essa (mesmo connection manager canônico usado pelo Ecommerce —
+// resolveCommerceConnection); com 0 ou 2+ conexões, segue sem connection_id
+// e deixa o backend responder 409 explicitamente (nunca escolhe sozinho
+// entre conexões ambíguas).
+async function resolveShopifyConnectionIdForRead(clientId: string): Promise<string | null> {
+  const stored = getSelectedConnectionId(clientId, "shopify");
+  if (stored) return stored;
+  try {
+    const { connections } = await listGenericConnections();
+    const resolved = resolveCommerceConnection(
+      connections.filter((connection) => connection.provider === "shopify"),
+      null
+    );
+    if (resolved?.id) {
+      setSelectedConnectionId(clientId, "shopify", resolved.id);
+      return resolved.id;
+    }
+  } catch {
+    // Sem lista de conexões disponível agora: segue sem connection_id.
+  }
+  return null;
+}
+
 export async function getShopifyReport(
   period: number | PeriodQueryInput = 30
 ): Promise<ShopifyReportResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const connectionId = await resolveShopifyConnectionIdForRead(getActiveClientId());
   const raw = await http<unknown>(pathWithPeriodAndExtras("/api/shopify/report", period, fallbackDays, {
-    connection_id: getSelectedConnectionId(getActiveClientId(), "shopify"),
+    connection_id: connectionId,
   }));
   return normalizeShopifyReport(raw);
 }
@@ -1731,8 +1758,9 @@ export async function getShopifyCustomers(
 ): Promise<ShopifyCustomersResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  const connectionId = await resolveShopifyConnectionIdForRead(getActiveClientId());
   const raw = await http<unknown>(pathWithPeriodAndExtras("/api/shopify/customers", period, fallbackDays, {
-    connection_id: getSelectedConnectionId(getActiveClientId(), "shopify"),
+    connection_id: connectionId,
   }));
   return normalizeShopifyCustomers(raw);
 }
