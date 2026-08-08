@@ -52,6 +52,7 @@ from services.ads_sync import sync_ads_for_client_period
 from services.bootstrap import bootstrap_meta_from_env
 from services.comments import get_comments
 from services.dashboard_paid import get_paid_dashboard, get_summary_dashboard, list_ads, list_campaigns
+from services.executive_dashboard import get_executive_summary
 from services.ig_dashboard import get_dashboard
 from services.ig_months import get_months
 from services.ig_supabase import sb_query
@@ -747,6 +748,31 @@ async def api_dashboard_summary(
         "stories": stories.get("stories", []),
         "paid": paid,
     }
+
+@app.get("/api/dashboard/executive")
+async def api_dashboard_executive(
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    days: int = Query(30, ge=1, le=365),
+    month: str | None = None,
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    include_previous_period: bool = Query(default=True),
+    authorization: str | None = Header(default=None),
+):
+    """Payload executivo (Shopify + Meta + Google Ads + GA4 + blended ROAS)
+    já com todos os números calculados no backend — Dashboard ("Operação
+    real") e Intelligence consomem este mesmo endpoint, nunca recalculam."""
+    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    return await get_executive_summary(
+        cid,
+        days=days,
+        month=month,
+        start=start,
+        end=end,
+        include_previous_period=include_previous_period,
+    )
+
 
 @app.post("/api/ads/sync")
 async def api_ads_sync(

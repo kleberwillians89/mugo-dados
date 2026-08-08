@@ -161,6 +161,34 @@ def _order_total_price(order: Dict[str, Any]) -> float:
     return max(0.0, _safe_float(order.get("total_price")))
 
 
+def compute_shopify_revenue(
+    orders: List[Dict[str, Any]], refunds: List[Dict[str, Any]]
+) -> Dict[str, float]:
+    """Regra de receita do Mugô Dados — única fonte de verdade, nunca
+    recalcular em outro lugar:
+
+      faturamento bruto (revenue_total) = soma de total_price dos pedidos
+        NÃO cancelados no período. Um pedido nunca é contado 2x porque
+        shopify_orders é upsert por (client_id, shopify_order_id).
+
+      receita líquida (net_revenue) = faturamento bruto - reembolsos do
+        período, nunca negativa. Pedido cancelado já não entra no bruto;
+        pedido totalmente reembolsado tem o reembolso descontado aqui.
+    """
+    revenue_total = sum(
+        _safe_float(order.get("total_price"))
+        for order in orders
+        if not _safe_str(order.get("cancelled_at"))
+    )
+    refunded_amount = sum(_safe_float(refund.get("total_refunded")) for refund in refunds)
+    net_revenue = max(revenue_total - refunded_amount, 0.0)
+    return {
+        "revenue_total": revenue_total,
+        "refunded_amount": refunded_amount,
+        "net_revenue": net_revenue,
+    }
+
+
 def _customer_lookup_key(customer_id: Any, email: Any) -> str:
     resolved_customer_id = _safe_str(customer_id)
     if resolved_customer_id:
@@ -222,17 +250,24 @@ def _build_customer_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-async def _select_shopify_refunds(
+async def _select_shopify_refunds_for_orders(
     *,
     client_id: str,
     shop_domain: str,
-    period: ShopifyReportPeriod,
+    order_ids: List[str],
 ) -> List[Dict[str, Any]]:
-    period_filter = (
-        f"(created_at_shopify.gte.{_iso_start_of_day(period.start)},"
-        f"created_at_shopify.lte.{_iso_end_of_day(period.end)})"
-    )
+    """Reembolsos dos pedidos informados — não filtra pela data do refund.
 
+    Usado para a receita líquida do período: um pedido de julho reembolsado
+    em agosto continua sendo desconto da receita de JULHO (o período do
+    pedido), nunca distorcendo silenciosamente o período em que o refund
+    aconteceu. Ver `compute_shopify_revenue`.
+    """
+    if not order_ids:
+        return []
+    orders_filter = _postgrest_in_filter(order_ids)
+    if not orders_filter:
+        return []
     try:
         return await sb_select(
             "shopify_refunds",
@@ -240,10 +275,10 @@ async def _select_shopify_refunds(
             filters={
                 "client_id": f"eq.{client_id}",
                 "shop_domain": f"eq.{shop_domain}",
-                "and": period_filter,
+                "shopify_order_id": orders_filter,
             },
             order="created_at_shopify.desc",
-            limit=500,
+            limit=max(len(order_ids) * 5, 100),
         )
     except httpx.HTTPStatusError as exc:
         if not (_is_column_compat_error(exc, "shop_domain") or _is_column_compat_error(exc, "note")):
@@ -253,10 +288,10 @@ async def _select_shopify_refunds(
             select="id,shopify_refund_id,shopify_order_id,total_refunded,created_at_shopify",
             filters={
                 "client_id": f"eq.{client_id}",
-                "and": period_filter,
+                "shopify_order_id": orders_filter,
             },
             order="created_at_shopify.desc",
-            limit=500,
+            limit=max(len(order_ids) * 5, 100),
         )
         return [
             {
@@ -266,6 +301,44 @@ async def _select_shopify_refunds(
             }
             for row in fallback_rows
         ]
+
+
+async def _select_shopify_refunds_occurred_in_period(
+    *,
+    client_id: str,
+    shop_domain: str,
+    period: ShopifyReportPeriod,
+) -> List[Dict[str, Any]]:
+    """Reembolsos cuja DATA do refund cai no período — métrica operacional
+    separada ("Reembolsos ocorridos no período"), nunca misturada com a
+    receita líquida (que ajusta pedidos do período pelos refunds DESSES
+    pedidos, independente de quando o refund ocorreu)."""
+    period_filter = (
+        f"(created_at_shopify.gte.{_iso_start_of_day(period.start)},"
+        f"created_at_shopify.lte.{_iso_end_of_day(period.end)})"
+    )
+    try:
+        return await sb_select(
+            "shopify_refunds",
+            select="id,shopify_refund_id,shopify_order_id,total_refunded,created_at_shopify",
+            filters={
+                "client_id": f"eq.{client_id}",
+                "shop_domain": f"eq.{shop_domain}",
+                "and": period_filter,
+            },
+            order="created_at_shopify.desc",
+            limit=500,
+        )
+    except httpx.HTTPStatusError as exc:
+        if not _is_column_compat_error(exc, "shop_domain"):
+            raise
+        return await sb_select(
+            "shopify_refunds",
+            select="id,shopify_refund_id,shopify_order_id,total_refunded,created_at_shopify",
+            filters={"client_id": f"eq.{client_id}", "and": period_filter},
+            order="created_at_shopify.desc",
+            limit=500,
+        )
 
 
 def _build_daily_trends(period: ShopifyReportPeriod, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -305,6 +378,66 @@ def _build_daily_trends(period: ShopifyReportPeriod, orders: List[Dict[str, Any]
             }
         )
     return trends
+
+
+def build_daily_commercial_series(
+    period: ShopifyReportPeriod,
+    orders: List[Dict[str, Any]],
+    refunds_of_period_orders: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Série diária SHOPIFY (gross/net/orders/pagos/cancelados/reembolso/
+    ticket médio) — mesma regra temporal do resumo do período (ver
+    `compute_shopify_revenue`): a receita líquida de um DIA é a receita dos
+    pedidos DAQUELE dia, ajustada pelos refunds DESSES pedidos, independente
+    de quando o refund ocorreu. Nunca soma receita acumulada nem mistura
+    pedidos de outro dia.
+    """
+    orders_by_day: Dict[str, List[Dict[str, Any]]] = {}
+    for order in orders:
+        key = _order_date_key(order)
+        if key:
+            orders_by_day.setdefault(key, []).append(order)
+
+    refunds_by_order_id: Dict[str, List[Dict[str, Any]]] = {}
+    for refund in refunds_of_period_orders:
+        order_id = _safe_str(refund.get("shopify_order_id"))
+        if order_id:
+            refunds_by_order_id.setdefault(order_id, []).append(refund)
+
+    series: List[Dict[str, Any]] = []
+    for offset in range(period.days):
+        day = period.start + timedelta(days=offset)
+        key = day.isoformat()
+        day_orders = orders_by_day.get(key, [])
+        day_order_ids = {_safe_str(order.get("shopify_order_id")) for order in day_orders}
+        day_refunds = [
+            refund
+            for order_id in day_order_ids
+            for refund in refunds_by_order_id.get(order_id, [])
+        ]
+        revenue = compute_shopify_revenue(day_orders, day_refunds)
+        orders_count = len(day_orders)
+        paid_orders_count = sum(
+            1
+            for order in day_orders
+            if _financial_status_label(order.get("financial_status")) in {"paid", "partially_paid"}
+        )
+        cancelled_orders_count = sum(
+            1 for order in day_orders if _safe_str(order.get("cancelled_at")) or _safe_str(order.get("cancel_reason"))
+        )
+        series.append(
+            {
+                "date": key,
+                "gross_revenue": round(revenue["revenue_total"], 2),
+                "net_revenue": round(revenue["net_revenue"], 2),
+                "orders": orders_count,
+                "paid_orders": paid_orders_count,
+                "cancelled_orders": cancelled_orders_count,
+                "refund_amount": round(revenue["refunded_amount"], 2),
+                "average_order_value": round(revenue["revenue_total"] / orders_count, 2) if orders_count else 0.0,
+            }
+        )
+    return series
 
 
 def _aggregate_top_products(order_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -455,17 +588,25 @@ async def build_shopify_report(
                 if _safe_str(row.get("shopify_customer_id"))
             }
 
-    refunds = await _select_shopify_refunds(
+    # Reembolsos DOS PEDIDOS do período (para a receita líquida — nunca
+    # filtrado pela data do refund) e reembolsos OCORRIDOS no período (para
+    # a métrica operacional separada) são duas consultas distintas de
+    # propósito: nunca misturar os dois conceitos.
+    refunds_of_period_orders = await _select_shopify_refunds_for_orders(
+        client_id=client_id,
+        shop_domain=shop_domain,
+        order_ids=order_ids,
+    )
+    refunds_occurred_in_period = await _select_shopify_refunds_occurred_in_period(
         client_id=client_id,
         shop_domain=shop_domain,
         period=period,
     )
 
-    revenue_total = sum(
-        _safe_float(order.get("total_price"))
-        for order in orders
-        if not _safe_str(order.get("cancelled_at"))
-    )
+    revenue = compute_shopify_revenue(orders, refunds_of_period_orders)
+    revenue_total = revenue["revenue_total"]
+    net_revenue = revenue["net_revenue"]
+    refunded_amount = revenue["refunded_amount"]
     orders_count = len(orders)
     customer_keys = {_customer_identity(order) for order in orders}
     paid_orders_count = sum(
@@ -476,8 +617,11 @@ async def build_shopify_report(
     cancelled_orders_count = sum(
         1 for order in orders if _safe_str(order.get("cancelled_at")) or _safe_str(order.get("cancel_reason"))
     )
-    refunds_count = len(refunds)
-    refunded_amount = sum(_safe_float(refund.get("total_refunded")) for refund in refunds)
+    refunds_count = len(refunds_of_period_orders)
+    refunds_occurred_in_period_count = len(refunds_occurred_in_period)
+    refunds_occurred_in_period_amount = sum(
+        _safe_float(refund.get("total_refunded")) for refund in refunds_occurred_in_period
+    )
 
     recent_webhooks = await list_recent_shopify_webhooks(
         client_id=client_id,
@@ -499,17 +643,29 @@ async def build_shopify_report(
         },
         "summary": {
             "revenue_total": round(revenue_total, 2),
+            "net_revenue": round(net_revenue, 2),
             "orders": orders_count,
             "average_ticket": round(revenue_total / orders_count, 2) if orders_count else 0.0,
             "customers": len(customer_keys),
             "paid_orders": paid_orders_count,
             "cancelled_orders": cancelled_orders_count,
+            # refunds_count/refunded_amount: reembolsos DOS PEDIDOS do
+            # período (o que já foi descontado em net_revenue acima).
             "refunds_count": refunds_count,
             "refunded_amount": round(refunded_amount, 2),
+            # Métrica operacional separada — reembolsos cuja DATA cai no
+            # período, mesmo que o pedido original seja de outro período.
+            # Nunca usada para calcular net_revenue/ROAS.
+            "refunds_occurred_in_period_count": refunds_occurred_in_period_count,
+            "refunds_occurred_in_period_amount": round(refunds_occurred_in_period_amount, 2),
         },
         "trends": {
             "daily": _build_daily_trends(period, orders),
         },
+        # Série diária com a mesma regra temporal do resumo do período
+        # (gross/net/pagos/cancelados/reembolso/ticket) — usada pelo
+        # Dashboard diário e pelo endpoint executivo.
+        "daily_commercial": build_daily_commercial_series(period, orders, refunds_of_period_orders),
         "recent_orders": _build_recent_orders(orders, items_by_order, customers_by_id),
         "top_products": _aggregate_top_products(order_items),
         "technical": {

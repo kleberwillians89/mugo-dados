@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List
 
 import httpx
 
+from .executive_dashboard import get_executive_summary
 from .generic_connections import list_generic_connections
 from .ig_supabase import sb_insert, sb_select, sb_update
 
@@ -188,6 +189,7 @@ def _metric(
     source: str,
     previous: float | None = None,
     variation: float | None = None,
+    extra: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     return {
         "id": metric_id,
@@ -198,6 +200,7 @@ def _metric(
         "source": source,
         "previous_value": round(previous, 2) if isinstance(previous, float) else previous,
         "variation_percent": variation,
+        **(extra or {}),
     }
 
 
@@ -400,12 +403,61 @@ async def calculate_intelligence_snapshot(
     paid_status = _status_for(paid_source)
     ga4_status = _status_for(ga4_source)
     instagram_status = _status_for(instagram_source)
+
+    # Contexto executivo real (Shopify líquido + ROAS combinado transparente):
+    # a IA nunca recalcula isso, só interpreta o que o backend já calculou.
+    # Se algo falhar aqui, a Intelligence degrada para os campos legados
+    # abaixo (revenue bruto / roas ad hoc) em vez de quebrar a tela.
+    try:
+        executive_context = await get_executive_summary(
+            client_id,
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            include_previous_period=True,
+        )
+    except Exception:
+        executive_context = None
+    executive_shopify = (executive_context or {}).get("shopify")
+    executive_previous_shopify = ((executive_context or {}).get("previous_period") or {}).get("shopify")
+    executive_deltas = (executive_context or {}).get("deltas") or {}
+    executive_total_media = (executive_context or {}).get("total_paid_media") or {}
+
+    net_revenue_value = executive_shopify.get("net_revenue") if executive_shopify else None
+    revenue_display = net_revenue_value if net_revenue_value is not None else (
+        revenue if commerce_status == "confirmed" else None
+    )
+    revenue_previous_display = (
+        executive_previous_shopify.get("net_revenue")
+        if executive_previous_shopify
+        else (previous_revenue if valid_previous_shop else None)
+    )
+    revenue_variation = (
+        (executive_deltas.get("shopify_net_revenue") or {}).get("percent")
+        if executive_shopify
+        else _variation(revenue, previous_revenue, bool(valid_previous_shop) and not shop_previous_failed)
+    )
+
+    blended_roas_value = executive_total_media.get("blended_roas")
+    included_paid_sources = executive_total_media.get("included_paid_sources") or []
+    roas_value = (
+        blended_roas_value
+        if executive_context is not None
+        else (revenue / investment if investment > 0 and commerce_status == "confirmed" else None)
+    )
+    roas_status = (
+        "confirmed"
+        if roas_value is not None
+        else "partial"
+        if executive_shopify and included_paid_sources
+        else "unavailable"
+    )
+
     metrics = [
         _metric(
-            "revenue", "Faturamento", revenue if commerce_status == "confirmed" else None,
+            "revenue", "Faturamento", revenue_display,
             fmt="currency", status=commerce_status, source="commerce",
-            previous=previous_revenue if valid_previous_shop else None,
-            variation=_variation(revenue, previous_revenue, bool(valid_previous_shop) and not shop_previous_failed),
+            previous=revenue_previous_display,
+            variation=revenue_variation,
         ),
         _metric(
             "investment", "Investimento", investment if paid_status in {"confirmed", "partial"} else None,
@@ -414,16 +466,10 @@ async def calculate_intelligence_snapshot(
             variation=_variation(investment, previous_investment, bool(paid_previous) and not paid_previous_failed),
         ),
         _metric(
-            "roas", "ROAS", revenue / investment if investment > 0 and commerce_status == "confirmed" else None,
-            fmt="decimal",
-            status=(
-                "partial"
-                if investment > 0 and commerce_status == "confirmed" and paid_status == "partial"
-                else "confirmed"
-                if investment > 0 and commerce_status == "confirmed" and paid_status == "confirmed"
-                else "unavailable"
-            ),
-            source="commerce+paid_media",
+            "roas", "ROAS", roas_value,
+            fmt="decimal", status=roas_status, source="commerce+paid_media",
+            variation=(executive_deltas.get("blended_roas") or {}).get("percent"),
+            extra={"included_paid_sources": included_paid_sources},
         ),
         _metric(
             "cpa", "CPA", investment / conversions if conversions > 0 else None,
@@ -583,6 +629,7 @@ async def calculate_intelligence_snapshot(
         "metrics": metrics,
         "crossings": crossings,
         "top_campaigns": top_campaigns if not campaigns_failed else [],
+        "executive_context": executive_context,
     }
 
 
@@ -707,6 +754,10 @@ async def generate_analysis(
                 "quality": snapshot["quality"],
                 "crossings": snapshot["crossings"],
                 "top_campaigns": snapshot["top_campaigns"],
+                # Números já calculados (Shopify líquido, ROAS combinado com
+                # fontes incluídas explícitas, GA4 separado) — a IA só
+                # interpreta, nunca soma/divide nada daqui.
+                "real_operation": snapshot.get("executive_context"),
             },
             schema=ANALYSIS_SCHEMA,
             instructions=(

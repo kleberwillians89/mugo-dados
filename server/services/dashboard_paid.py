@@ -42,17 +42,19 @@ def compute_roas(revenue: Any, investment: Any) -> Optional[float]:
     return result
 
 
-def compute_mer(shopify_total_revenue: Any, total_paid_media_spend: Any) -> Optional[float]:
-    """MER (Media Efficiency Ratio) = receita total da loja / investimento total em mídia paga.
+def compute_mer(shopify_net_revenue: Any, total_paid_media_spend: Any) -> Optional[float]:
+    """MER / "retorno real sobre mídia" = receita LÍQUIDA da loja (bruto -
+    reembolsos, nunca cancelados) / investimento total em mídia paga (Meta +
+    Google Ads, mesmo período).
 
     Distinto de ROAS por provider: aqui a receita É a receita real da loja
-    (Shopify), nunca a receita atribuída por uma plataforma de mídia — e o
-    investimento soma todos os provedores pagos (Meta + Google Ads, quando
-    disponíveis). Nunca deve ser usado para substituir ou recalcular o ROAS
-    Meta/Google individualmente. Mesmas garantias de compute_roas: None
-    (nunca 0 falso) quando não há base válida.
+    (Shopify), nunca a receita atribuída por uma plataforma de mídia.
+    Nunca deve ser usado para substituir ou recalcular o ROAS Meta/Google
+    individualmente — cada provider mantém seu próprio ROAS atribuído.
+    Mesmas garantias de compute_roas: None (nunca 0 falso, nunca Infinity)
+    quando não há base válida.
     """
-    return compute_roas(shopify_total_revenue, total_paid_media_spend)
+    return compute_roas(shopify_net_revenue, total_paid_media_spend)
 
 
 def _safe_int(value: Any) -> int:
