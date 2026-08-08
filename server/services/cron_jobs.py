@@ -7,6 +7,11 @@ from .ig_supabase import sb_get_active_meta_connections, sb_rpc
 from .instagram_sync import sync_instagram_connection
 from .job_runs import finish_job_run, start_job_run
 from .meta_tokens import ensure_valid_meta_token
+from .shopify_oauth import (
+    list_active_shopify_connections,
+    resolve_shopify_reconciliation_since,
+    sync_shopify_connection,
+)
 
 
 async def _acquire_lock(client_id: str, job_name: str, ttl_seconds: int) -> bool:
@@ -243,6 +248,65 @@ async def run_hourly_ads_sync(window_days: int = 7) -> Dict[str, Any]:
 
 async def run_daily_ads_sync(days: int = 7) -> Dict[str, Any]:
     return await run_hourly_ads_sync(window_days=days)
+
+
+async def run_shopify_reconciliation(fallback_days: int = 30) -> Dict[str, Any]:
+    """Reconciliação periódica leve — webhooks continuam sendo a fonte em
+    tempo real; isto só cobre updates perdidos por indisponibilidade
+    momentânea de webhook. sync_shopify_connection já usa guarded_sync
+    (lock por client_id+provider+connection_id), então nenhum lock extra é
+    necessário aqui — reaproveita o mesmo mecanismo do refresh manual."""
+    conns = await list_active_shopify_connections()
+    results: List[Dict[str, Any]] = []
+
+    for c in conns:
+        connection_id = str(c.get("id") or "").strip()
+        client_id = str(c.get("client_id") or "").strip()
+        if not connection_id or not client_id:
+            continue
+
+        run = await start_job_run(
+            job_name="shopify_reconciliation",
+            client_id=client_id,
+            connection_id=connection_id,
+            trigger_source="cron",
+            payload_json={"fallback_days": fallback_days},
+        )
+        try:
+            created_at_min = await resolve_shopify_reconciliation_since(
+                client_id, connection_id, fallback_days=fallback_days,
+            )
+            res = await sync_shopify_connection(
+                client_id=client_id, connection_id=connection_id, created_at_min=created_at_min,
+            )
+            await finish_job_run(
+                run["id"],
+                status="success",
+                client_id=client_id,
+                connection_id=connection_id,
+                payload_json={"created_at_min": created_at_min, "orders_synced": (res.get("synced") or {}).get("orders")},
+            )
+            results.append({"connection_id": connection_id, "client_id": client_id, "ok": True, "job_run_id": run["id"]})
+        except Exception as exc:
+            await finish_job_run(
+                run["id"],
+                status="error",
+                error=str(exc),
+                client_id=client_id,
+                connection_id=connection_id,
+                payload_json={"fallback_days": fallback_days},
+            )
+            results.append({"connection_id": connection_id, "client_id": client_id, "ok": False, "error": str(exc)[:240], "job_run_id": run["id"]})
+
+    ok_count = len([r for r in results if r.get("ok")])
+    return {
+        "ok": True,
+        "job": "shopify_reconciliation",
+        "connections_total": len(conns),
+        "connections_ok": ok_count,
+        "connections_fail": len(results) - ok_count,
+        "results": results,
+    }
 
 
 # Compat com endpoint legado /api/cron/ig_refresh_all

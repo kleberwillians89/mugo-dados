@@ -10,7 +10,12 @@ from services.env_loader import ensure_env_loaded
 ensure_env_loaded()
 
 from services.ads_sync import sync_ads_for_client_period
-from services.cron_jobs import run_daily_instagram_sync, run_hourly_ads_sync, run_token_refresh_job
+from services.cron_jobs import (
+    run_daily_instagram_sync,
+    run_hourly_ads_sync,
+    run_shopify_reconciliation,
+    run_token_refresh_job,
+)
 from services.ga4_sync import sync_ga4_for_period
 from services.meta_tokens import refresh_meta_token_for_connection
 
@@ -48,6 +53,8 @@ async def _run(args: argparse.Namespace) -> Any:
         )
     if args.command == "refresh-token":
         return await refresh_meta_token_for_connection(args.connection_id)
+    if args.command == "shopify-reconcile":
+        return await run_shopify_reconciliation(fallback_days=args.fallback_days)
     raise RuntimeError(f"Comando não suportado: {args.command}")
 
 
@@ -79,6 +86,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     refresh = sub.add_parser("refresh-token", help="Força refresh manual de uma conexão específica.")
     refresh.add_argument("--connection-id", required=True, help="Connection ID a ser renovado.")
+
+    shopify_reconcile = sub.add_parser(
+        "shopify-reconcile",
+        help="Reconciliação periódica leve de todas as lojas Shopify conectadas (webhooks continuam sendo a fonte em tempo real).",
+    )
+    shopify_reconcile.add_argument(
+        "--fallback-days", type=int, default=30,
+        help="Janela em dias quando ainda não houve sync anterior registrado.",
+    )
 
     return parser
 

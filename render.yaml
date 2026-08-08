@@ -62,3 +62,17 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-shopify-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    # Webhooks entregam vendas em tempo real; esta reconciliação só cobre
+    # updates perdidos por indisponibilidade momentânea de webhook.
+    schedule: "40 8,13,18,23 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py shopify-reconcile
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
