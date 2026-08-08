@@ -77,9 +77,17 @@ export function resolveCommerceConnection<T extends ConnectionRecord>(
     !connection.disconnected_at
   );
   const requested = String(requestedConnectionId || "").trim();
-  if (!requested) return null;
-  const exact = candidates.filter((connection) => connection.id === requested);
-  if (exact.length !== 1) return null;
-  const [match] = exact;
-  return match;
+  if (requested) {
+    const exact = candidates.filter((connection) => connection.id === requested);
+    if (exact.length === 1) return exact[0];
+  }
+  // Sem ponteiro local (ex.: acabou de conectar em outra aba/sessão, ou o
+  // OAuth ainda não persistiu a seleção) — se existe exatamente UMA conexão
+  // de comércio elegível, usá-la é a única leitura correta possível, em vez
+  // de mostrar "Conecte Shopify ou FBits" para uma loja que já está
+  // conectada. Com 0 ou 2+ candidatos, a ambiguidade real permanece.
+  if (!requested && candidates.length === 1) {
+    return candidates[0];
+  }
+  return null;
 }
