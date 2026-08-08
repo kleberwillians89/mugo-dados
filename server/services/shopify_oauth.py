@@ -532,34 +532,41 @@ async def _mark_shopify_sync_failed(*, client_id: str, connection_id: str, error
         pass
 
 
+async def _safe_finish_job_run(job_run: Dict[str, Any] | None, **kwargs: Any) -> None:
+    """finish_job_run é só observabilidade — nunca pode derrubar o resultado
+    real do sync (nem quando o próprio job_run nunca chegou a ser criado)."""
+    if not job_run or not job_run.get("id"):
+        return
+    try:
+        await finish_job_run(job_run["id"], **kwargs)
+    except Exception as exc:
+        print(f"[shopify_sync] stage=job_finish_warning error_type={exc.__class__.__name__}")
+
+
 async def sync_shopify_connection(
     *,
     client_id: str,
     connection_id: str,
     created_at_min: str | None = None,
 ) -> Dict[str, Any]:
+    print(f"[shopify_sync] stage=entry connection_id={connection_id} client_id={client_id}")
     # Sem lock, dois cliques (ou um clique coincidindo com uma chamada
     # automática) disparavam duas sincronizações Shopify em paralelo para a
     # mesma loja — chamadas duplicadas à API do Shopify e escritas
     # concorrentes de last_sync_at. Mesmo padrão de guarded_sync já usado em
-    # Meta Ads/Instagram/GA4.
+    # Meta Ads/Instagram/GA4. O lock sempre libera no fim do "async with",
+    # mesmo se qualquer coisa dentro do bloco lançar exceção.
     async with guarded_sync(
         client_id=client_id, provider="shopify", connection_id=connection_id,
         ttl_seconds=1800,
     ):
-        print(f"[shopify_sync] stage=start connection_id={connection_id} client_id={client_id}")
-        job_run = await start_job_run(
-            job_name="shopify_sync",
-            client_id=client_id,
-            connection_id=connection_id,
-            trigger_source="sync",
-            payload_json={"created_at_min": created_at_min},
-        )
         # Preenchido incrementalmente conforme cada estágio avança — usado
         # no payload_json do job_run tanto no sucesso quanto na falha, para
         # que /api/shopify/debug/sync-diagnostics sempre reflita até onde a
         # sincronização chegou, mesmo quando ela não termina.
         diagnostics: Dict[str, Any] = {"created_at_min": created_at_min}
+        job_run: Dict[str, Any] | None = None
+        shop_domain = "-"
         try:
             context = await resolve_shopify_connection_context(
                 client_id,
@@ -567,6 +574,34 @@ async def sync_shopify_connection(
                 required_scopes=("read_orders", "read_customers", "read_products"),
             )
             shop_domain = context.shop_domain
+            print(
+                "[shopify_sync] stage=context_resolved "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain}"
+            )
+
+            # Criar o job_run é só observabilidade — uma falha aqui (schema
+            # incompatível, Supabase indisponível, etc.) NUNCA pode impedir
+            # o sync real de rodar. Antes, esta chamada ficava fora de
+            # qualquer try/except: se ela lançasse, a exceção escapava do
+            # bloco inteiro sem nunca alcançar o tratamento de erro abaixo,
+            # sem gravar last_error e sem virar uma resposta HTTP tratada —
+            # daí o 500 opaco com last_sync permanecendo null.
+            try:
+                job_run = await start_job_run(
+                    job_name="shopify_sync",
+                    client_id=client_id,
+                    connection_id=connection_id,
+                    trigger_source="sync",
+                    payload_json={"created_at_min": created_at_min},
+                )
+                print(f"[shopify_sync] stage=job_started connection_id={connection_id} client_id={client_id}")
+            except Exception as job_exc:
+                job_run = None
+                print(
+                    "[shopify_sync] stage=job_started "
+                    f"connection_id={connection_id} client_id={client_id} status=warning "
+                    f"error_type={job_exc.__class__.__name__}"
+                )
 
             scope_report = await _check_shopify_scopes(context)
             diagnostics["scope_check"] = scope_report
@@ -739,8 +774,8 @@ async def sync_shopify_connection(
                     },
                     returning="minimal",
                 )
-            await finish_job_run(
-                job_run["id"],
+            await _safe_finish_job_run(
+                job_run,
                 status="success",
                 rows_upserted=orders_upserted + customers_upserted,
                 client_id=client_id,
@@ -775,27 +810,55 @@ async def sync_shopify_connection(
                     "refunds": refunds_upserted,
                 },
             }
+        except IntegrationError as exc:
+            # Erro operacional já conhecido/humanizado (scope ausente,
+            # Shopify recusou a chamada, etc.) — a causa real já está no
+            # próprio erro; só precisamos registrar e devolvê-lo como está.
+            error_message = exc.public_message or str(exc)
+            print(
+                "[shopify_sync] stage=failed "
+                f"connection_id={connection_id} client_id={client_id} status=error "
+                f"error_type={exc.__class__.__name__} error_code={exc.code} "
+                f"http_status={exc.status_code}"
+            )
+            diagnostics["error_type"] = exc.__class__.__name__
+            diagnostics["error_code"] = exc.code
+            diagnostics["http_status"] = exc.status_code
+            await _safe_finish_job_run(
+                job_run, status="error", error=error_message,
+                client_id=client_id, connection_id=connection_id, payload_json=diagnostics,
+            )
+            await _mark_shopify_sync_failed(client_id=client_id, connection_id=connection_id, error_message=error_message)
+            raise
         except Exception as exc:
+            # Qualquer outra falha (inclusive na própria instrumentação —
+            # ex.: job_run/Supabase incompatível, erro de rede inesperado):
+            # a causa real nunca pode se perder. Fica completa no log e em
+            # last_error; a exceção devolvida ao chamador (rota HTTP) é
+            # convertida para um IntegrationError seguro, para nunca deixar
+            # escapar um 500 opaco sem mensagem.
             error_message = str(exc)
             http_status = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "status_code", None)
             print(
-                "[shopify_sync] stage=complete "
+                "[shopify_sync] stage=failed "
                 f"connection_id={connection_id} client_id={client_id} status=error "
                 f"error_type={exc.__class__.__name__} "
                 f"http_status={http_status if http_status is not None else '-'}"
             )
             diagnostics["error_type"] = exc.__class__.__name__
             diagnostics["http_status"] = http_status
-            await finish_job_run(
-                job_run["id"],
-                status="error",
-                error=error_message,
-                client_id=client_id,
-                connection_id=connection_id,
-                payload_json=diagnostics,
+            await _safe_finish_job_run(
+                job_run, status="error", error=error_message,
+                client_id=client_id, connection_id=connection_id, payload_json=diagnostics,
             )
             await _mark_shopify_sync_failed(client_id=client_id, connection_id=connection_id, error_message=error_message)
-            raise
+            raise IntegrationError(
+                "Não foi possível concluir a sincronização da Shopify agora. "
+                "Os últimos dados persistidos continuam disponíveis.",
+                status_code=502,
+                code="SHOPIFY_SYNC_UNEXPECTED_ERROR",
+                provider="shopify",
+            ) from exc
 
 
 async def save_shopify_connection(

@@ -522,5 +522,83 @@ class SyncDiagnosticsPropagationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(error_payload["scope_check"]["read_orders"])
 
 
+class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
+    """Bug real de produção: start_job_run era chamado FORA do try/except —
+    se ele lançasse (schema incompatível, Supabase fora do ar), a exceção
+    escapava de sync_shopify_connection inteira, sem nunca alcançar o
+    tratamento de erro, sem gravar last_error, e a rota devolvia um 500
+    opaco com last_sync permanecendo null. Estes testes travam a correção:
+    job_run é estritamente best-effort em toda a função."""
+
+    async def test_job_run_creation_failure_never_prevents_the_sync_from_running(self):
+        async def fake_collection(context, resource, *, params=None):
+            return [{"id": 1001}] if resource == "orders.json" else []
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=RuntimeError("cron_job_runs schema mismatch"))),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", AsyncMock(return_value={"order_id": "1001", "items_upserted": 0})),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["synced"]["orders_upserted"], 1)
+        # last_sync_at é gravado normalmente mesmo com o job_run quebrado.
+        success_patch = sb_update_mock.await_args.kwargs["patch"]
+        self.assertIsNotNone(success_patch["last_sync_at"])
+        # finish_job_run nunca é chamado (job_run nunca existiu) — nem isso quebra nada.
+        finish_mock.assert_not_awaited()
+
+    async def test_unexpected_exception_never_escapes_as_a_raw_error_and_last_error_is_recorded(self):
+        # Simula exatamente o bug real: uma exceção não-IntegrationError
+        # nascendo bem no início da sincronização (ex.: dentro da própria
+        # observabilidade) — nunca pode virar um 500 sem causa registrada.
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=KeyError("unexpected"))),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(side_effect=RuntimeError("falha inesperada de rede"))),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        # A causa real (RuntimeError) nunca escapa crua — vira um
+        # IntegrationError com código/status previsíveis para a rota tratar.
+        self.assertEqual(raised.exception.code, "SHOPIFY_SYNC_UNEXPECTED_ERROR")
+        self.assertEqual(raised.exception.status_code, 502)
+        # last_error é gravado com a causa real, sem exigir novo OAuth
+        # (status da conexão nunca é tocado aqui).
+        failure_patch = sb_update_mock.await_args.kwargs["patch"]
+        self.assertIn("falha inesperada de rede", failure_patch["last_error"])
+        self.assertNotIn("status", failure_patch)
+
+    async def test_lock_still_releases_when_job_run_and_the_sync_both_fail(self):
+        rpc_calls = []
+
+        async def fake_rpc(name, _payload):
+            rpc_calls.append(name)
+            return True
+
+        with (
+            patch("services.sync_locks.sb_rpc", side_effect=fake_rpc),
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=RuntimeError("job infra down"))),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(side_effect=RuntimeError("Shopify indisponível"))),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+        ):
+            with self.assertRaises(IntegrationError):
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        self.assertIn("acquire_client_job_lock", rpc_calls)
+        self.assertIn("release_client_job_lock", rpc_calls)
+
+
 if __name__ == "__main__":
     unittest.main()
