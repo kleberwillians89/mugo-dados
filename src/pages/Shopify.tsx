@@ -439,12 +439,18 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
 
         {loading && !report ? <ShopifyReportSkeleton /> : null}
 
-        {!loading && error ? (
+        {!loading && error && !report ? (
           <div className="shopifyFeedbackCard isError">Não foi possível carregar os dados da Shopify. {error}</div>
         ) : null}
 
-        {!loading && !error && report ? (
+        {!loading && report ? (
           <>
+            {error ? (
+              <div className="shopifyFeedbackCard">
+                Não foi possível atualizar agora. Exibindo a última leitura disponível.
+              </div>
+            ) : null}
+
             {!hasBusinessData ? (
               <div className="shopifyFeedbackCard">
                 Ainda não há dados da Shopify neste período.
