@@ -182,6 +182,25 @@ export type ShopifyReportResponse = {
 // =========================
 // Executive summary (Shopify real revenue + blended ROAS)
 // =========================
+export type ExecutiveShopifyDailyPoint = {
+  date: string;
+  gross_revenue: number;
+  net_revenue: number;
+  orders: number;
+  paid_orders: number;
+  cancelled_orders: number;
+  refund_amount: number;
+  average_order_value: number;
+};
+
+export type ExecutiveMetaDailyPoint = {
+  date: string;
+  spend: number;
+  attributed_revenue: number;
+  purchases: number;
+  roas: number | null;
+};
+
 export type ExecutiveShopifySection = {
   connected: boolean;
   shop_domain?: string;
@@ -197,6 +216,7 @@ export type ExecutiveShopifySection = {
   average_order_value: number;
   new_customers: number;
   returning_customers: number;
+  daily: ExecutiveShopifyDailyPoint[];
 } | null;
 
 export type ExecutiveMetaSection = {
@@ -204,6 +224,7 @@ export type ExecutiveMetaSection = {
   spend: number | null;
   attributed_revenue: number | null;
   roas: number | null;
+  daily: ExecutiveMetaDailyPoint[];
 };
 
 export type ExecutiveGoogleAdsSection = {
@@ -228,6 +249,14 @@ export type ExecutiveGa4Section = {
   revenue: number;
 } | null;
 
+export type ExecutiveDailyPoint = {
+  date: string;
+  shopify: ExecutiveShopifyDailyPoint | null;
+  meta: ExecutiveMetaDailyPoint | null;
+  connected_paid_spend: number;
+  blended_roas: number | null;
+};
+
 export type ExecutivePeriodPayload = {
   period: { start: string; end: string; days: number };
   shopify: ExecutiveShopifySection;
@@ -235,6 +264,7 @@ export type ExecutivePeriodPayload = {
   google_ads: ExecutiveGoogleAdsSection;
   total_paid_media: ExecutiveTotalPaidMedia;
   ga4: ExecutiveGa4Section;
+  daily: ExecutiveDailyPoint[];
 };
 
 export type ExecutiveDelta = { absolute: number | null; percent: number | null };

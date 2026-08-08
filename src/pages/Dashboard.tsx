@@ -13,6 +13,7 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import StoriesPanel from "../components/dashboard/StoriesPanel";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
 import MetaStateNotice from "../components/dashboard/MetaStateNotice";
+import OperacaoReal from "../components/dashboard/OperacaoReal";
 import ExecutiveOverview, {
   type ExecutiveMetric,
   type ExecutiveSource,
@@ -21,6 +22,7 @@ import ExecutiveOverview, {
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
 import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyContent";
 import useDashboardPaid from "../hooks/dashboard/useDashboardPaid";
+import useExecutiveDashboard from "../hooks/dashboard/useExecutiveDashboard";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import TopCampaignsRanking from "../components/dashboard/TopCampaignsRanking";
 import AttentionPanel from "../components/dashboard/AttentionPanel";
@@ -1153,6 +1155,17 @@ export default function Dashboard({
     period: previousPaidPeriod,
   });
   const {
+    executiveData,
+    loadingExecutive,
+    executiveError,
+    reloadExecutive,
+  } = useExecutiveDashboard({
+    isAuthenticated,
+    activeClientId,
+    enabled: enablePaidStage,
+    period,
+  });
+  const {
     campaignsData,
     loadingCampaigns,
     campaignsError,
@@ -1577,6 +1590,7 @@ export default function Dashboard({
       await Promise.allSettled([
         reloadSummary({ force: true, includeSecondary: true }),
         reloadPaid({ force: true }),
+        reloadExecutive({ force: true }),
       ]);
       const refreshedConnections = await listClientConnections();
       const nextConnections = arrayOrEmpty<MetaConnection>(refreshedConnections.connections);
@@ -2328,6 +2342,8 @@ export default function Dashboard({
             loading={loadingDash || loadingPaid}
             error={dashboardError}
           />
+
+          <OperacaoReal data={executiveData} loading={loadingExecutive} error={executiveError} />
 
           {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily} /> : null}
 
