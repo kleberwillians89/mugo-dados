@@ -150,9 +150,14 @@ function PrimaryNavigation({
     { route: "dashboard", label: "Visão Geral" },
     { route: "google", label: "Analytics" },
     { route: "ecommerce", label: "E-commerce" },
-    { route: "integrations", label: "Integrações" },
     { route: "intelligence", label: "Inteligência" },
   ];
+  // Perfil somente-leitura nunca vê a aba de configuração de integrações
+  // (OAuth, reconexões, detalhe técnico) — nem no menu, nem acessível por
+  // navegação direta (ver guarda em resolveAuthenticatedView).
+  if (!isReadOnlyClientRole(getActiveClient()?.role)) {
+    items.splice(3, 0, { route: "integrations", label: "Integrações" });
+  }
   if (platformAdmin) items.push({ route: "companies", label: "Administração" });
   return (
     <nav className="primaryNavigation" aria-label="Navegação principal">
@@ -181,6 +186,14 @@ function PrimaryNavigation({
       </div>
     </nav>
   );
+}
+
+// Perfil somente-leitura (cliente final) nunca acessa configuração de OAuth,
+// reconexões nem detalhe técnico de integração — só quem gerencia a conta
+// (agency_admin/client_admin/owner/admin) chega em "Integrações".
+function isReadOnlyClientRole(role: string | null | undefined): boolean {
+  const normalized = String(role || "").toLowerCase();
+  return !["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(normalized);
 }
 
 export default function App() {
@@ -216,7 +229,14 @@ export default function App() {
           navigateToAppRoute("dashboard", { replace: true });
           setRoute("dashboard");
         }
-        setView(requestedRoute === "integrations" || hasSetupSignalInUrl() ? "setup" : "dashboard");
+        const wantsSetupView = requestedRoute === "integrations" || hasSetupSignalInUrl();
+        if (wantsSetupView && isReadOnlyClientRole(getActiveClient()?.role)) {
+          navigateToAppRoute("dashboard", { replace: true });
+          setRoute("dashboard");
+          setView("dashboard");
+          return;
+        }
+        setView(wantsSetupView ? "setup" : "dashboard");
         return;
       }
 
@@ -278,6 +298,12 @@ export default function App() {
       }
 
       if (requestedRoute === "integrations") {
+        if (isReadOnlyClientRole(getActiveClient()?.role)) {
+          navigateToAppRoute("dashboard", { replace: true });
+          setRoute("dashboard");
+          setView("dashboard");
+          return;
+        }
         setView("setup");
         return;
       }
