@@ -25,6 +25,7 @@ import type {
   FbitsOrdersSummaryResponse,
   ShopifyCustomersResponse,
   ShopifyReportResponse,
+  ExecutiveDashboardResponse,
   StoriesResponse,
   MediaResponse,
   MediaMonthlyResponse,
@@ -702,6 +703,7 @@ function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
     },
     summary: {
       revenue_total: asNumber(summary.revenue_total),
+      net_revenue: asNumber(summary.net_revenue),
       orders: asNumber(summary.orders),
       average_ticket: asNumber(summary.average_ticket),
       customers: asNumber(summary.customers),
@@ -709,6 +711,8 @@ function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
       cancelled_orders: asNumber(summary.cancelled_orders),
       refunds_count: asNumber(summary.refunds_count),
       refunded_amount: asNumber(summary.refunded_amount),
+      refunds_occurred_in_period_count: asNumber(summary.refunds_occurred_in_period_count),
+      refunds_occurred_in_period_amount: asNumber(summary.refunds_occurred_in_period_amount),
     },
     trends: {
       daily: daily.map((row) => {
@@ -893,6 +897,7 @@ function normalizeStories(raw: unknown): StoriesResponse {
         media_type: asString(item.media_type) || undefined,
         media_url: asString(item.media_url) || undefined,
         thumbnail_url: asString(item.thumbnail_url) || undefined,
+        thumb_url: asString(item.thumb_url) || undefined,
         timestamp: asString(item.timestamp) || undefined,
         permalink: asString(item.permalink) || undefined,
       };
@@ -1694,6 +1699,18 @@ export async function getCampaignsRanking(
       connection_id: String(options?.connectionId || "").trim() || null,
       limit: String(options?.limit || 8),
     }),
+    { signal: options?.signal }
+  );
+}
+
+export async function getExecutiveDashboard(
+  period: number | PeriodQueryInput = 30,
+  options?: { signal?: AbortSignal }
+): Promise<ExecutiveDashboardResponse> {
+  const fallbackDays =
+    typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
+  return http<ExecutiveDashboardResponse>(
+    pathWithPeriodAndExtras("/api/dashboard/executive", period, fallbackDays),
     { signal: options?.signal }
   );
 }

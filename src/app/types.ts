@@ -49,13 +49,20 @@ export type RefreshAllResponse = {
 // =========================
 export type ShopifyReportSummary = {
   revenue_total: number;
+  net_revenue: number;
   orders: number;
   average_ticket: number;
   customers: number;
   paid_orders: number;
   cancelled_orders: number;
+  // Reembolsos DOS PEDIDOS do período — já descontados em net_revenue.
   refunds_count: number;
   refunded_amount: number;
+  // Métrica operacional separada: reembolsos cuja DATA cai no período,
+  // mesmo que o pedido original seja de outro período. Nunca usar para
+  // recalcular net_revenue/ROAS no frontend.
+  refunds_occurred_in_period_count: number;
+  refunds_occurred_in_period_amount: number;
 };
 
 export type ShopifyTrendPoint = {
@@ -170,6 +177,79 @@ export type ShopifyReportResponse = {
   recent_orders: ShopifyRecentOrder[];
   top_products: ShopifyTopProduct[];
   technical: ShopifyTechnicalSummary;
+};
+
+// =========================
+// Executive summary (Shopify real revenue + blended ROAS)
+// =========================
+export type ExecutiveShopifySection = {
+  connected: boolean;
+  shop_domain?: string;
+  gross_revenue: number;
+  net_revenue: number;
+  orders: number;
+  paid_orders: number;
+  cancelled_orders: number;
+  refunds: number;
+  refunded_amount: number;
+  refunds_occurred_in_period_count: number;
+  refunds_occurred_in_period_amount: number;
+  average_order_value: number;
+  new_customers: number;
+  returning_customers: number;
+} | null;
+
+export type ExecutiveMetaSection = {
+  connected: boolean;
+  spend: number | null;
+  attributed_revenue: number | null;
+  roas: number | null;
+};
+
+export type ExecutiveGoogleAdsSection = {
+  connected: boolean;
+  reason?: string;
+  spend: number | null;
+  attributed_revenue: number | null;
+  roas: number | null;
+};
+
+export type ExecutiveTotalPaidMedia = {
+  paid_media_spend: number;
+  included_paid_sources: string[];
+  blended_roas: number | null;
+};
+
+export type ExecutiveGa4Section = {
+  connected: boolean;
+  sessions: number;
+  users: number;
+  purchases: number;
+  revenue: number;
+} | null;
+
+export type ExecutivePeriodPayload = {
+  period: { start: string; end: string; days: number };
+  shopify: ExecutiveShopifySection;
+  meta: ExecutiveMetaSection;
+  google_ads: ExecutiveGoogleAdsSection;
+  total_paid_media: ExecutiveTotalPaidMedia;
+  ga4: ExecutiveGa4Section;
+};
+
+export type ExecutiveDelta = { absolute: number | null; percent: number | null };
+
+export type ExecutiveDashboardResponse = ExecutivePeriodPayload & {
+  ok: boolean;
+  client_id: string;
+  previous_period: ExecutivePeriodPayload | null;
+  deltas: {
+    shopify_net_revenue: ExecutiveDelta;
+    shopify_orders: ExecutiveDelta;
+    meta_spend: ExecutiveDelta;
+    meta_roas: ExecutiveDelta;
+    blended_roas: ExecutiveDelta;
+  } | null;
 };
 
 // =========================
@@ -709,6 +789,10 @@ export type StoryItem = {
   media_type?: string;
   media_url?: string;
   thumbnail_url?: string;
+  // URL persistida no storage próprio (nunca expira/bloqueia por CORS,
+  // ao contrário da CDN assinada do Instagram). Preferir sempre a esta
+  // sobre thumbnail_url/media_url quando presente.
+  thumb_url?: string;
   timestamp?: string;
   permalink?: string;
 };

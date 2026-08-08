@@ -29,7 +29,10 @@ function isLikelyBlockedIgCdn(url?: string | null): boolean {
 }
 
 function StoryMedia({ story }: { story: StoryItem }) {
-  const primary = story.thumbnail_url || story.media_url || "";
+  // thumb_url é a URL persistida no storage próprio (nunca expira nem
+  // bloqueia por CORS); thumbnail_url/media_url são a CDN crua do
+  // Instagram e só servem de fallback temporário quando o upload falhou.
+  const primary = story.thumb_url || story.thumbnail_url || story.media_url || "";
   const blockedByPolicy = isLikelyBlockedIgCdn(primary);
   const [failed, setFailed] = useState(false);
 
