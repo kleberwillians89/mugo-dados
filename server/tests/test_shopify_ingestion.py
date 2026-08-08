@@ -40,6 +40,7 @@ class ReadOrdersScopeGuardTests(unittest.IsolatedAsyncioTestCase):
         orders_fetch = AsyncMock(return_value=[{"id": 1}])
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(
                 shopify_oauth,
                 "_check_shopify_scopes",
@@ -92,14 +93,20 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
             return []
 
         handle_order = AsyncMock(return_value={"order_id": "1001", "items_upserted": 2})
-        handle_customer = AsyncMock(return_value={"customer_id": "2001"})
+        customer_upsert_calls = []
+
+        async def fake_sb_upsert(table, rows, on_conflict=None):
+            if table == "shopify_customers":
+                customer_upsert_calls.append(rows)
+            return {"ok": True}
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_webhooks, "_handle_order_topic", handle_order),
-            patch.object(shopify_webhooks, "_handle_customer_topic", handle_customer),
+            patch.object(shopify_webhooks, "sb_upsert", fake_sb_upsert),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
@@ -110,7 +117,10 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["synced"]["orders"], 3)
         self.assertEqual(handle_order.await_count, 3)
-        self.assertEqual(handle_customer.await_count, 1)
+        # Clientes persistidos em UMA chamada em lote, não uma por cliente.
+        self.assertEqual(len(customer_upsert_calls), 1)
+        self.assertEqual(len(customer_upsert_calls[0]), 1)
+        self.assertEqual(result["synced"]["customers"], 1)
         # Confirma que o sucesso persiste last_sync_at (nunca deixa null).
         success_patch = sb_update_mock.await_args.kwargs["patch"]
         self.assertIsNotNone(success_patch["last_sync_at"])
@@ -136,6 +146,7 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_webhooks, "_handle_order_topic", flaky_handle_order),
@@ -166,6 +177,7 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_webhooks, "_handle_order_topic", always_failing_handle_order),
@@ -236,6 +248,7 @@ class ShopifyErrorNeverBecomesZeroTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_oauth, "sb_update", AsyncMock()) as sb_update_mock,
@@ -487,6 +500,7 @@ class SyncDiagnosticsPropagationTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_webhooks, "_handle_order_topic", failing_handle_order),
@@ -507,6 +521,7 @@ class SyncDiagnosticsPropagationTests(unittest.IsolatedAsyncioTestCase):
     async def test_scope_check_result_is_captured_in_job_run_payload_even_on_early_failure(self):
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(
                 shopify_oauth, "_check_shopify_scopes",
                 AsyncMock(return_value={"read_orders": False, "read_customers": True, "read_products": True}),
@@ -536,6 +551,7 @@ class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=RuntimeError("cron_job_runs schema mismatch"))),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
@@ -560,6 +576,7 @@ class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
         # observabilidade) — nunca pode virar um 500 sem causa registrada.
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=KeyError("unexpected"))),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(side_effect=RuntimeError("falha inesperada de rede"))),
@@ -589,6 +606,7 @@ class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("services.sync_locks.sb_rpc", side_effect=fake_rpc),
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "start_job_run", AsyncMock(side_effect=RuntimeError("job infra down"))),
             patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(side_effect=RuntimeError("Shopify indisponível"))),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),

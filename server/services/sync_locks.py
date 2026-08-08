@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator, Dict, Optional
 
-from .ig_supabase import sb_rpc
+from .ig_supabase import sb_rpc, sb_select
 from .integration_errors import IntegrationError
 
 
@@ -17,6 +18,31 @@ def build_sync_lock_name(
     if str(period_start).strip() or str(period_end).strip():
         parts.extend([str(period_start).strip() or "-", str(period_end).strip() or "-"])
     return ":".join(parts)
+
+
+async def peek_sync_lock(client_id: str, lock_name: str) -> Optional[Dict[str, Any]]:
+    """Leitura read-only do lock — nunca decide acquire/reject (isso
+    continua 100% na função SQL acquire_client_job_lock, já baseada em
+    TTL/lease e compartilhada com Meta/GA4/Instagram). Usada só para logar
+    reclaim de lock expirado (lock_age_seconds) sem tocar no schema."""
+    rows = await sb_select(
+        "cron_locks",
+        select="locked_until,updated_at",
+        filters={"client_id": f"eq.{client_id}", "job_name": f"eq.{lock_name}"},
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def is_sync_lock_stale(lock_row: Optional[Dict[str, Any]]) -> bool:
+    if not lock_row:
+        return False
+    locked_until = str(lock_row.get("locked_until") or "")
+    try:
+        expires_at = datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return expires_at < datetime.now(timezone.utc)
 
 
 async def acquire_sync_lock(client_id: str, lock_name: str, ttl_seconds: int) -> bool:

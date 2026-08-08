@@ -347,17 +347,11 @@ async def _mark_shopify_webhook_status(
     )
 
 
-async def _upsert_customer(
-    *,
-    client_id: str,
-    shop_domain: str,
-    payload: Dict[str, Any],
-) -> Optional[str]:
+def _build_customer_row(*, client_id: str, shop_domain: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     customer_id = _safe_id(payload.get("id"))
     if not customer_id:
         return None
-
-    row = {
+    return {
         "client_id": client_id,
         "shop_domain": _normalize_shop_domain(shop_domain),
         "shopify_customer_id": customer_id,
@@ -373,12 +367,62 @@ async def _upsert_customer(
         "raw_payload": payload,
     }
 
+
+async def _upsert_customer(
+    *,
+    client_id: str,
+    shop_domain: str,
+    payload: Dict[str, Any],
+) -> Optional[str]:
+    row = _build_customer_row(client_id=client_id, shop_domain=shop_domain, payload=payload)
+    if not row:
+        return None
     await sb_upsert(
         "shopify_customers",
         [row],
         on_conflict="client_id,shopify_customer_id",
     )
-    return customer_id
+    return row["shopify_customer_id"]
+
+
+def _chunked(items: List[Any], size: int) -> List[List[Any]]:
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+async def upsert_customers_batch(
+    *,
+    client_id: str,
+    shop_domain: str,
+    payloads: List[Dict[str, Any]],
+    chunk_size: int = 100,
+) -> Dict[str, int]:
+    """Upsert em lote — uma chamada por chunk em vez de uma por cliente.
+    Reduz dezenas/centenas de round-trips individuais (o gargalo real
+    observado em produção) para poucas chamadas. Se um chunk inteiro
+    falhar (registro com formato inesperado no meio do lote), cai para
+    upsert individual DENTRO do chunk só para isolar o(s) registro(s)
+    problemático(s) — nunca perde os demais do mesmo chunk."""
+    rows = [
+        row for row in (
+            _build_customer_row(client_id=client_id, shop_domain=shop_domain, payload=payload)
+            for payload in payloads
+        )
+        if row is not None
+    ]
+    upserted = 0
+    failed = 0
+    for chunk in _chunked(rows, chunk_size):
+        try:
+            await sb_upsert("shopify_customers", chunk, on_conflict="client_id,shopify_customer_id")
+            upserted += len(chunk)
+        except Exception:
+            for row in chunk:
+                try:
+                    await sb_upsert("shopify_customers", [row], on_conflict="client_id,shopify_customer_id")
+                    upserted += 1
+                except Exception:
+                    failed += 1
+    return {"upserted": upserted, "failed": failed}
 
 
 async def _upsert_order(

@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
@@ -23,7 +24,7 @@ from .integration_errors import IntegrationError, from_httpx_error
 from .job_runs import finish_job_run, start_job_run
 from .oauth_state import create_oauth_state
 from .shopify_config import shopify_admin_url
-from .sync_locks import guarded_sync
+from .sync_locks import build_sync_lock_name, guarded_sync, is_sync_lock_stale, peek_sync_lock
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
 SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products"]
@@ -549,17 +550,42 @@ async def sync_shopify_connection(
     connection_id: str,
     created_at_min: str | None = None,
 ) -> Dict[str, Any]:
+    sync_started_at = time.perf_counter()
     print(f"[shopify_sync] stage=entry connection_id={connection_id} client_id={client_id}")
     # Sem lock, dois cliques (ou um clique coincidindo com uma chamada
     # automática) disparavam duas sincronizações Shopify em paralelo para a
     # mesma loja — chamadas duplicadas à API do Shopify e escritas
     # concorrentes de last_sync_at. Mesmo padrão de guarded_sync já usado em
-    # Meta Ads/Instagram/GA4. O lock sempre libera no fim do "async with",
-    # mesmo se qualquer coisa dentro do bloco lançar exceção.
+    # Meta Ads/Instagram/GA4. A lock em si já é uma LEASE com TTL
+    # (public.acquire_client_job_lock / cron_locks.locked_until) — um
+    # processo morto/reiniciado nunca trava o próximo sync além do TTL,
+    # porque a função SQL reclama automaticamente locks expirados. O peek
+    # abaixo é só para log (nunca decide acquire/reject).
+    lock_name = build_sync_lock_name("shopify", connection_id)
+    existing_lock = await peek_sync_lock(client_id, lock_name)
+    was_stale = is_sync_lock_stale(existing_lock)
+    # TTL reduzido de 1800s para 900s agora que a persistência de clientes é
+    # em lote (bem mais rápida) — janela de recuperação automática mais
+    # curta em caso de crash/redeploy no meio de um sync.
     async with guarded_sync(
         client_id=client_id, provider="shopify", connection_id=connection_id,
-        ttl_seconds=1800,
+        ttl_seconds=900,
     ):
+        if was_stale and existing_lock:
+            lock_age_seconds = None
+            try:
+                updated_at = datetime.fromisoformat(str(existing_lock.get("updated_at")).replace("Z", "+00:00"))
+                lock_age_seconds = int((datetime.now(timezone.utc) - updated_at).total_seconds())
+            except (ValueError, TypeError):
+                lock_age_seconds = None
+            print(
+                "[shopify_sync] stage=lock_reclaimed "
+                f"connection_id={connection_id} client_id={client_id} "
+                f"lock_age_seconds={lock_age_seconds if lock_age_seconds is not None else '-'} "
+                f"previous_locked_until={existing_lock.get('locked_until')}"
+            )
+        else:
+            print(f"[shopify_sync] stage=lock_acquired connection_id={connection_id} client_id={client_id}")
         # Preenchido incrementalmente conforme cada estágio avança — usado
         # no payload_json do job_run tanto no sucesso quanto na falha, para
         # que /api/shopify/debug/sync-diagnostics sempre reflita até onde a
@@ -633,33 +659,13 @@ async def sync_shopify_connection(
             customers = await _fetch_shopify_collection(context, "customers.json", params={"limit": 250})
             products = await _fetch_shopify_collection(context, "products.json", params={"limit": 250})
 
-            from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
+            from .shopify_webhooks import _handle_order_topic, upsert_customers_batch
 
-            # Um único registro com payload inesperado nunca pode derrubar o
-            # lote inteiro silenciosamente — cada pedido/cliente é
-            # persistido de forma isolada, com contagem exata de recebidos/
-            # tentados/persistidos/falhos. Antes, uma exceção em QUALQUER
-            # item abortava o loop inteiro e o sync inteiro virava "erro",
-            # mesmo que dezenas de outros pedidos estivessem válidos.
-            customers_received = len(customers)
-            customers_upserted = 0
-            customers_failed = 0
-            for customer in customers:
-                try:
-                    await _handle_customer_topic(
-                        client_id=client_id,
-                        shop_domain=shop_domain,
-                        payload=customer,
-                    )
-                    customers_upserted += 1
-                except Exception as exc:
-                    customers_failed += 1
-                    print(
-                        "[shopify_sync] stage=persistence "
-                        f"connection_id={connection_id} client_id={client_id} "
-                        f"customer_upsert_error error_type={exc.__class__.__name__}"
-                    )
-
+            # ORDERS primeiro: o painel não pode depender de centenas de
+            # writes individuais de clientes só para os pedidos aparecerem.
+            # Um único pedido com payload inesperado nunca derruba o lote
+            # inteiro — cada pedido é persistido de forma isolada, com
+            # contagem exata de recebidos/tentados/persistidos/falhos.
             orders_received = len(orders)
             orders_parsed = sum(1 for order in orders if order.get("id") is not None)
             orders_upsert_attempted = orders_parsed
@@ -716,18 +722,16 @@ async def sync_shopify_connection(
                         )
                     else:
                         print(
-                            "[shopify_sync] stage=persistence "
+                            "[shopify_sync] stage=orders_persistence "
                             f"connection_id={connection_id} client_id={client_id} "
                             f"order_upsert_error error_type={exc.__class__.__name__}"
                         )
             print(
-                "[shopify_sync] stage=persistence "
+                "[shopify_sync] stage=orders_persistence "
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
                 f"orders_received={orders_received} orders_parsed={orders_parsed} "
                 f"orders_upsert_attempted={orders_upsert_attempted} orders_upserted={orders_upserted} "
                 f"orders_failed={orders_failed} "
-                f"customers_received={customers_received} customers_upserted={customers_upserted} "
-                f"customers_failed={customers_failed} "
                 f"items_received={items_received} items_upserted={items_upserted} "
                 f"refunds_received={refunds_received} refunds_upserted={refunds_upserted}"
             )
@@ -737,14 +741,33 @@ async def sync_shopify_connection(
                 "orders_upsert_attempted": orders_upsert_attempted,
                 "orders_upserted": orders_upserted,
                 "orders_failed": orders_failed,
-                "customers_received": customers_received,
-                "customers_upserted": customers_upserted,
-                "customers_failed": customers_failed,
                 "items_received": items_received,
                 "items_upserted": items_upserted,
                 "refunds_received": refunds_received,
                 "refunds_upserted": refunds_upserted,
                 "first_order_error": first_order_error,
+            })
+
+            # CUSTOMERS em lote: antes eram centenas de upserts individuais
+            # (um POST por cliente, o gargalo real observado em produção) —
+            # agora poucas chamadas em chunks de 100, com fallback para
+            # upsert individual só dentro do chunk que falhar.
+            customers_received = len(customers)
+            customer_batch_result = await upsert_customers_batch(
+                client_id=client_id, shop_domain=shop_domain, payloads=customers, chunk_size=100,
+            )
+            customers_upserted = customer_batch_result["upserted"]
+            customers_failed = customer_batch_result["failed"]
+            print(
+                "[shopify_sync] stage=customers_persistence "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
+                f"customers_received={customers_received} customers_upserted={customers_upserted} "
+                f"customers_failed={customers_failed}"
+            )
+            diagnostics.update({
+                "customers_received": customers_received,
+                "customers_upserted": customers_upserted,
+                "customers_failed": customers_failed,
             })
 
             if orders_received > 0 and orders_upserted == 0:
@@ -774,6 +797,8 @@ async def sync_shopify_connection(
                     },
                     returning="minimal",
                 )
+            duration_ms = int((time.perf_counter() - sync_started_at) * 1000)
+            diagnostics["duration_ms"] = duration_ms
             await _safe_finish_job_run(
                 job_run,
                 status="success",
@@ -784,7 +809,8 @@ async def sync_shopify_connection(
             )
             print(
                 "[shopify_sync] stage=complete "
-                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} status=success"
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
+                f"status=success duration_ms={duration_ms}"
             )
             return {
                 "ok": True,
@@ -815,15 +841,17 @@ async def sync_shopify_connection(
             # Shopify recusou a chamada, etc.) — a causa real já está no
             # próprio erro; só precisamos registrar e devolvê-lo como está.
             error_message = exc.public_message or str(exc)
+            duration_ms = int((time.perf_counter() - sync_started_at) * 1000)
             print(
                 "[shopify_sync] stage=failed "
                 f"connection_id={connection_id} client_id={client_id} status=error "
                 f"error_type={exc.__class__.__name__} error_code={exc.code} "
-                f"http_status={exc.status_code}"
+                f"http_status={exc.status_code} duration_ms={duration_ms}"
             )
             diagnostics["error_type"] = exc.__class__.__name__
             diagnostics["error_code"] = exc.code
             diagnostics["http_status"] = exc.status_code
+            diagnostics["duration_ms"] = duration_ms
             await _safe_finish_job_run(
                 job_run, status="error", error=error_message,
                 client_id=client_id, connection_id=connection_id, payload_json=diagnostics,
@@ -839,14 +867,16 @@ async def sync_shopify_connection(
             # escapar um 500 opaco sem mensagem.
             error_message = str(exc)
             http_status = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "status_code", None)
+            duration_ms = int((time.perf_counter() - sync_started_at) * 1000)
             print(
                 "[shopify_sync] stage=failed "
                 f"connection_id={connection_id} client_id={client_id} status=error "
                 f"error_type={exc.__class__.__name__} "
-                f"http_status={http_status if http_status is not None else '-'}"
+                f"http_status={http_status if http_status is not None else '-'} duration_ms={duration_ms}"
             )
             diagnostics["error_type"] = exc.__class__.__name__
             diagnostics["http_status"] = http_status
+            diagnostics["duration_ms"] = duration_ms
             await _safe_finish_job_run(
                 job_run, status="error", error=error_message,
                 client_id=client_id, connection_id=connection_id, payload_json=diagnostics,

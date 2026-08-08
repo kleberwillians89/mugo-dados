@@ -175,5 +175,76 @@ class BlendedRoasTests(unittest.TestCase):
         self.assertIsNone(compute_mer(1000, 0))
 
 
+class CustomerBatchUpsertTests(unittest.IsolatedAsyncioTestCase):
+    """Antes, o backfill fazia um POST individual por cliente (o gargalo
+    real observado em produção: dezenas/centenas de writes sequenciais).
+    upsert_customers_batch faz poucas chamadas em chunks."""
+
+    async def test_persists_many_customers_in_a_single_chunk_call(self):
+        payloads = [{"id": i, "email": f"c{i}@example.com"} for i in range(1, 6)]
+        calls = []
+
+        async def fake_upsert(table, rows, on_conflict=None):
+            calls.append((table, len(rows)))
+
+        with patch.object(shopify_webhooks, "sb_upsert", fake_upsert):
+            result = await shopify_webhooks.upsert_customers_batch(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com", payloads=payloads, chunk_size=100,
+            )
+
+        self.assertEqual(result, {"upserted": 5, "failed": 0})
+        self.assertEqual(calls, [("shopify_customers", 5)])  # uma única chamada, não 5
+
+    async def test_respects_chunk_size_splitting_into_multiple_batched_calls(self):
+        payloads = [{"id": i} for i in range(1, 251)]  # 250 clientes
+        calls = []
+
+        async def fake_upsert(table, rows, on_conflict=None):
+            calls.append(len(rows))
+
+        with patch.object(shopify_webhooks, "sb_upsert", fake_upsert):
+            result = await shopify_webhooks.upsert_customers_batch(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com", payloads=payloads, chunk_size=100,
+            )
+
+        self.assertEqual(result["upserted"], 250)
+        # 3 chamadas (100 + 100 + 50), nunca 250 chamadas individuais.
+        self.assertEqual(calls, [100, 100, 50])
+
+    async def test_chunk_failure_falls_back_to_individual_upserts_to_isolate_bad_records(self):
+        payloads = [{"id": 1}, {"id": 2}, {"id": 3}]
+        attempts = []
+
+        async def flaky_upsert(table, rows, on_conflict=None):
+            attempts.append(len(rows))
+            if len(rows) > 1:
+                raise RuntimeError("chunk rejeitado pelo Supabase")
+            if rows[0]["shopify_customer_id"] == "2":
+                raise RuntimeError("registro 2 é inválido")
+
+        with patch.object(shopify_webhooks, "sb_upsert", flaky_upsert):
+            result = await shopify_webhooks.upsert_customers_batch(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com", payloads=payloads, chunk_size=100,
+            )
+
+        # Chunk inteiro falhou -> fallback individual: 1 e 3 persistem, 2 falha isolado.
+        self.assertEqual(result, {"upserted": 2, "failed": 1})
+
+    async def test_customer_without_id_is_silently_skipped_not_counted_as_failed(self):
+        payloads = [{"id": 1}, {"no_id": True}]
+        calls = []
+
+        async def fake_upsert(table, rows, on_conflict=None):
+            calls.append(len(rows))
+
+        with patch.object(shopify_webhooks, "sb_upsert", fake_upsert):
+            result = await shopify_webhooks.upsert_customers_batch(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com", payloads=payloads, chunk_size=100,
+            )
+
+        self.assertEqual(result["upserted"], 1)
+        self.assertEqual(calls, [1])
+
+
 if __name__ == "__main__":
     unittest.main()

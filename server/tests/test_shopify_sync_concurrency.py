@@ -63,6 +63,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("services.sync_locks.sb_rpc", side_effect=rpc),
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
             patch.object(shopify_oauth, "_fetch_shopify_collection", slow_first_sync),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
@@ -96,6 +97,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 "resolve_shopify_connection_context",
                 AsyncMock(side_effect=lambda client_id, connection_id, required_scopes: _context(connection_id)),
             ),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
             patch.object(shopify_oauth, "_fetch_shopify_collection", empty_collection),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
@@ -121,6 +123,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("services.sync_locks.sb_rpc", side_effect=fake_rpc),
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
             patch.object(shopify_oauth, "_fetch_shopify_collection", empty_collection),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
@@ -141,6 +144,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("services.sync_locks.sb_rpc", side_effect=fake_rpc) as rpc_mock,
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
             patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
             patch.object(shopify_oauth, "_fetch_shopify_collection", failing_collection),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
@@ -152,6 +156,100 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
             release_calls = [c for c in rpc_mock.call_args_list if c.args[0] == "release_client_job_lock"]
             self.assertEqual(len(release_calls), 1)
+
+
+class StaleLockReclaimTests(unittest.IsolatedAsyncioTestCase):
+    """cron_locks já é uma LEASE com TTL (public.acquire_client_job_lock só
+    concede o lock de novo quando locked_until < now()) — um processo morto
+    nunca trava o Shopify além do TTL configurado. Estes testes travam a
+    detecção/observabilidade dessa recuperação automática (peek_sync_lock),
+    sem alterar a decisão real de acquire/reject, que continua 100% na
+    função SQL compartilhada com Meta/GA4/Instagram."""
+
+    async def test_active_recent_lock_returns_409_without_logging_a_reclaim(self):
+        import io
+        from contextlib import redirect_stdout
+
+        recent_lock = {
+            "locked_until": "2099-01-01T00:00:00+00:00",  # bem no futuro: lock válido
+            "updated_at": "2026-08-08T12:00:00+00:00",
+        }
+        output = io.StringIO()
+        with (
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=False)),  # RPC recusa: lock ainda válido
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=recent_lock)),
+            redirect_stdout(output),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
+
+        self.assertEqual(raised.exception.code, "SYNC_ALREADY_RUNNING")
+        self.assertNotIn("stage=lock_reclaimed", output.getvalue())
+
+    async def test_expired_lock_is_reclaimed_and_sync_proceeds(self):
+        import io
+        from contextlib import redirect_stdout
+
+        stale_lock = {
+            "locked_until": "2020-01-01T00:00:00+00:00",  # bem no passado: lock expirado
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }
+        output = io.StringIO()
+
+        async def empty_collection(*_args, **_kwargs):
+            return []
+
+        with (
+            # O RPC real (acquire_client_job_lock) reclama sozinho locks
+            # expirados — aqui simulamos exatamente esse retorno (True)
+            # para um lock que o peek mostra como stale.
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=stale_lock)),
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", empty_collection),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            redirect_stdout(output),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
+
+        self.assertTrue(result["ok"])
+        log = output.getvalue()
+        self.assertIn("stage=lock_reclaimed", log)
+        self.assertIn("lock_age_seconds=", log)
+        # Nunca loga token/secret — só idade do lock e o locked_until anterior.
+        self.assertNotIn("access_token", log)
+
+    async def test_crash_before_release_still_allows_the_next_sync_once_ttl_elapses(self):
+        # Simula o cenário real relatado: um processo morreu no meio de uma
+        # sync (nunca chamou release_client_job_lock), mas o TTL do lock já
+        # passou — a próxima tentativa precisa conseguir rodar, sem
+        # nenhuma intervenção manual no banco.
+        stale_lock = {
+            "locked_until": "2020-01-01T00:00:00+00:00",
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }
+
+        async def empty_collection(*_args, **_kwargs):
+            return []
+
+        with (
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=stale_lock)),
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "_check_shopify_scopes", _granted_scopes()),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", empty_collection),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
+
+        self.assertTrue(result["ok"])
+        success_patch = sb_update_mock.await_args.kwargs["patch"]
+        self.assertEqual(success_patch["status"], "connected")
 
 
 if __name__ == "__main__":
