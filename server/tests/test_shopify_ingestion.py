@@ -378,5 +378,149 @@ class WebhookSubscriptionIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item["topic"] == "customers/data_request" for item in result["failed"]))
 
 
+class DiagnosticsPersistedCountsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reports_count_and_date_range_per_table_without_pii(self):
+        from services import shopify_reporting
+
+        async def fake_select(table, *, select=None, filters=None, limit=None):
+            if table == "shopify_orders":
+                self.assertNotIn("raw_payload", select)
+                self.assertNotIn("email", select)
+                return [
+                    {"shopify_order_id": "1", "created_at_shopify": "2026-08-01T00:00:00Z"},
+                    {"shopify_order_id": "2", "created_at_shopify": "2026-08-05T00:00:00Z"},
+                ]
+            if table == "shopify_customers":
+                return [{"shopify_customer_id": "10", "created_at_shopify": "2026-08-01T00:00:00Z"}]
+            if table == "shopify_order_items":
+                return [{"shopify_line_item_id": "100"}, {"shopify_line_item_id": "101"}]
+            if table == "shopify_refunds":
+                return []
+            return []
+
+        with patch.object(shopify_reporting, "sb_select", fake_select):
+            result = await shopify_reporting.build_shopify_sync_diagnostics(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com",
+            )
+
+        self.assertEqual(result["shopify_orders"]["count"], 2)
+        self.assertEqual(result["shopify_orders"]["min_created_at_shopify"], "2026-08-01T00:00:00Z")
+        self.assertEqual(result["shopify_orders"]["max_created_at_shopify"], "2026-08-05T00:00:00Z")
+        self.assertEqual(result["shopify_customers"]["count"], 1)
+        self.assertEqual(result["shopify_order_items"]["count"], 2)
+        self.assertEqual(result["shopify_refunds"]["count"], 0)
+        self.assertIsNone(result["shopify_refunds"]["min_created_at_shopify"])
+
+    async def test_zero_orders_persisted_is_reported_as_zero_not_an_error(self):
+        from services import shopify_reporting
+
+        with patch.object(shopify_reporting, "sb_select", AsyncMock(return_value=[])):
+            result = await shopify_reporting.build_shopify_sync_diagnostics(
+                client_id="amalie", shop_domain="amalie-6421.myshopify.com",
+            )
+
+        self.assertEqual(result["shopify_orders"]["count"], 0)
+
+
+class SyncDiagnosticsEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_endpoint_combines_last_job_run_and_persisted_counts(self):
+        from routes import shopify as shopify_routes
+
+        last_run = {
+            "id": "job-run-1", "status": "error", "connection_id": "8e1780ef-17b0-4b0a-843e-f8c323141412",
+            "payload_json": {
+                "scope_check": {"read_orders": True, "read_customers": True, "read_products": True},
+                "orders_received": 12, "orders_upserted": 0, "orders_failed": 12,
+                "first_order_error": {"error_type": "HTTPStatusError", "error_code": "400", "db_message": "column mismatch"},
+            },
+        }
+        persisted = {
+            "shopify_orders": {"count": 0, "min_created_at_shopify": None, "max_created_at_shopify": None},
+            "shopify_customers": {"count": 0, "min_created_at_shopify": None, "max_created_at_shopify": None},
+            "shopify_order_items": {"count": 0, "min_created_at_shopify": None, "max_created_at_shopify": None},
+            "shopify_refunds": {"count": 0, "min_created_at_shopify": None, "max_created_at_shopify": None},
+        }
+
+        with (
+            patch.object(shopify_routes, "resolve_client_id", AsyncMock(return_value="amalie")),
+            patch.object(shopify_routes, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_routes, "list_job_runs", AsyncMock(return_value={"runs": [last_run]})),
+            patch.object(shopify_routes, "build_shopify_sync_diagnostics", AsyncMock(return_value=persisted)),
+        ):
+            payload = await shopify_routes.shopify_sync_diagnostics(
+                client_id="amalie", connection_id="8e1780ef-17b0-4b0a-843e-f8c323141412",
+                compare_graphql=False, x_client_id=None, authorization="Bearer valid",
+            )
+
+        self.assertEqual(payload["last_sync"]["payload_json"]["orders_received"], 12)
+        self.assertEqual(payload["last_sync"]["payload_json"]["orders_upserted"], 0)
+        self.assertEqual(payload["persisted"]["shopify_orders"]["count"], 0)
+        self.assertIsNone(payload["graphql_scope_check"])
+
+    async def test_endpoint_never_calls_graphql_unless_explicitly_requested(self):
+        from routes import shopify as shopify_routes
+
+        with (
+            patch.object(shopify_routes, "resolve_client_id", AsyncMock(return_value="amalie")),
+            patch.object(shopify_routes, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_routes, "list_job_runs", AsyncMock(return_value={"runs": []})),
+            patch.object(shopify_routes, "build_shopify_sync_diagnostics", AsyncMock(return_value={})),
+            patch.object(shopify_routes, "build_shopify_scope_diagnostic", AsyncMock()) as graphql_mock,
+        ):
+            await shopify_routes.shopify_sync_diagnostics(
+                client_id="amalie", connection_id=None, compare_graphql=False,
+                x_client_id=None, authorization="Bearer valid",
+            )
+
+        graphql_mock.assert_not_awaited()
+
+
+class SyncDiagnosticsPropagationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_order_error_is_captured_in_job_run_payload_on_total_failure(self):
+        orders = [{"id": 1001}, {"id": 1002}]
+
+        async def fake_collection(context, resource, *, params=None):
+            return orders if resource == "orders.json" else []
+
+        async def failing_handle_order(*, client_id, shop_domain, payload):
+            raise RuntimeError("valor de total_price fora do esperado")
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", failing_handle_order),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(IntegrationError):
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        error_payload = finish_mock.await_args.kwargs["payload_json"]
+        self.assertEqual(error_payload["orders_received"], 2)
+        self.assertEqual(error_payload["orders_upserted"], 0)
+        self.assertIsNotNone(error_payload["first_order_error"])
+        self.assertEqual(error_payload["first_order_error"]["error_type"], "RuntimeError")
+
+    async def test_scope_check_result_is_captured_in_job_run_payload_even_on_early_failure(self):
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(
+                shopify_oauth, "_check_shopify_scopes",
+                AsyncMock(return_value={"read_orders": False, "read_customers": True, "read_products": True}),
+            ),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(IntegrationError):
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        error_payload = finish_mock.await_args.kwargs["payload_json"]
+        self.assertFalse(error_payload["scope_check"]["read_orders"])
+
+
 if __name__ == "__main__":
     unittest.main()

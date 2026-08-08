@@ -31,8 +31,11 @@ from services.shopify_webhooks import (
 from services.shopify_reporting import (
     build_shopify_customers_report,
     build_shopify_report,
+    build_shopify_scope_diagnostic,
+    build_shopify_sync_diagnostics,
     resolve_shopify_report_period,
 )
+from services.job_runs import list_job_runs
 from services.generic_connections import get_connection
 from services.shopify_oauth import (
     mark_store_uninstalled,
@@ -48,6 +51,7 @@ SHOPIFY_ENDPOINTS = [
     "GET /api/shopify/report",
     "GET /api/shopify/customers",
     "GET /api/shopify/debug/recent-webhooks",
+    "GET /api/shopify/debug/sync-diagnostics",
     "GET /api/shopify/debug/recent-orders",
 ]
 
@@ -434,6 +438,70 @@ async def shopify_customers(
             exc=exc,
             status_code=500,
             code="shopify_customers_unexpected_error",
+        )
+
+
+@router.get("/api/shopify/debug/sync-diagnostics")
+async def shopify_sync_diagnostics(
+    client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
+    compare_graphql: bool = Query(default=False),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    """Diagnóstico read-only de ponta a ponta: último job de sync (com os
+    contadores gravados por sync_shopify_connection) + contagem real nas
+    tabelas persistidas. Nunca altera dados; nunca expõe token/PII."""
+    started = _started()
+    endpoint = "/api/shopify/debug/sync-diagnostics"
+    client_id = await resolve_client_id(client_id or x_client_id, authorization)
+    user_for_log = await _log_endpoint_call(
+        endpoint=endpoint,
+        authorization=authorization,
+        x_client_id=None,
+        client_id=client_id,
+    )
+    try:
+        context = await resolve_shopify_connection_context(client_id, connection_id=connection_id)
+        last_runs = await list_job_runs(
+            client_id=client_id,
+            connection_id=context.connection_id,
+            job_name="shopify_sync",
+            limit=1,
+        )
+        last_sync = (last_runs.get("runs") or [None])[0]
+        persisted = await build_shopify_sync_diagnostics(client_id=client_id, shop_domain=context.shop_domain)
+        graphql_scope_check = None
+        if compare_graphql:
+            graphql_scope_check = await build_shopify_scope_diagnostic(
+                shop_domain=context.shop_domain, access_token=context.access_token,
+            )
+        _log_endpoint_done(
+            endpoint=endpoint, started=started, user_id=user_for_log, x_client_id=None, client_id=client_id,
+        )
+        return {
+            "ok": True,
+            "client_id": client_id,
+            "connection_id": context.connection_id,
+            "shop_domain": context.shop_domain,
+            "last_sync": last_sync,
+            "persisted": persisted,
+            "graphql_scope_check": graphql_scope_check,
+        }
+    except HTTPException as exc:
+        _log_endpoint_error(endpoint=endpoint, exc=exc, user_id=user_for_log, x_client_id=None, client_id=client_id)
+        return _structured_error_response(
+            endpoint=endpoint, exc=exc, status_code=exc.status_code, code="shopify_sync_diagnostics_http_error",
+        )
+    except RuntimeError as exc:
+        _log_endpoint_error(endpoint=endpoint, exc=exc, user_id=user_for_log, x_client_id=None, client_id=client_id)
+        return _structured_error_response(
+            endpoint=endpoint, exc=exc, status_code=_runtime_error_status(exc), code="shopify_sync_diagnostics_runtime_error",
+        )
+    except Exception as exc:
+        _log_endpoint_error(endpoint=endpoint, exc=exc, user_id=user_for_log, x_client_id=None, client_id=client_id)
+        return _structured_error_response(
+            endpoint=endpoint, exc=exc, status_code=500, code="shopify_sync_diagnostics_unexpected_error",
         )
 
 

@@ -555,6 +555,11 @@ async def sync_shopify_connection(
             trigger_source="sync",
             payload_json={"created_at_min": created_at_min},
         )
+        # Preenchido incrementalmente conforme cada estágio avança — usado
+        # no payload_json do job_run tanto no sucesso quanto na falha, para
+        # que /api/shopify/debug/sync-diagnostics sempre reflita até onde a
+        # sincronização chegou, mesmo quando ela não termina.
+        diagnostics: Dict[str, Any] = {"created_at_min": created_at_min}
         try:
             context = await resolve_shopify_connection_context(
                 client_id,
@@ -564,6 +569,7 @@ async def sync_shopify_connection(
             shop_domain = context.shop_domain
 
             scope_report = await _check_shopify_scopes(context)
+            diagnostics["scope_check"] = scope_report
             if not scope_report["read_orders"]:
                 # read_orders é obrigatório para pedidos — nunca seguir em
                 # frente e deixar isso parecer "0 pedidos" comercial.
@@ -583,6 +589,7 @@ async def sync_shopify_connection(
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain}"
             )
             orders = await _fetch_shopify_collection(context, "orders.json", params=order_params)
+            diagnostics["orders_received"] = len(orders)
             print(
                 "[shopify_sync] stage=orders_response "
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
@@ -633,6 +640,7 @@ async def sync_shopify_connection(
             # aqui apenas para os campos de log solicitados nunca faltarem.
             refunds_received = 0
             refunds_upserted = 0
+            first_order_error: Dict[str, Any] | None = None
             for order in orders:
                 if order.get("id") is None:
                     orders_failed += 1
@@ -647,11 +655,36 @@ async def sync_shopify_connection(
                     orders_upserted += 1
                 except Exception as exc:
                     orders_failed += 1
-                    print(
-                        "[shopify_sync] stage=persistence "
-                        f"connection_id={connection_id} client_id={client_id} "
-                        f"order_upsert_error error_type={exc.__class__.__name__}"
-                    )
+                    db_status = getattr(getattr(exc, "response", None), "status_code", None)
+                    db_message = ""
+                    response_obj = getattr(exc, "response", None)
+                    if response_obj is not None:
+                        try:
+                            db_message = str(response_obj.text or "")[:300]
+                        except Exception:
+                            db_message = ""
+                    if first_order_error is None:
+                        # Só a PRIMEIRA exceção de persistência é capturada
+                        # em detalhe — o suficiente para diagnosticar a causa
+                        # raiz sem inundar o log com N repetições do mesmo erro.
+                        first_order_error = {
+                            "error_type": exc.__class__.__name__,
+                            "error_code": str(db_status) if db_status is not None else None,
+                            "db_message": db_message or None,
+                        }
+                        print(
+                            "[shopify_sync] stage=order_persistence_error "
+                            f"connection_id={connection_id} client_id={client_id} "
+                            f"error_type={first_order_error['error_type']} "
+                            f"error_code={first_order_error['error_code'] or '-'} "
+                            f"db_message={first_order_error['db_message'] or '-'}"
+                        )
+                    else:
+                        print(
+                            "[shopify_sync] stage=persistence "
+                            f"connection_id={connection_id} client_id={client_id} "
+                            f"order_upsert_error error_type={exc.__class__.__name__}"
+                        )
             print(
                 "[shopify_sync] stage=persistence "
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
@@ -663,6 +696,21 @@ async def sync_shopify_connection(
                 f"items_received={items_received} items_upserted={items_upserted} "
                 f"refunds_received={refunds_received} refunds_upserted={refunds_upserted}"
             )
+            diagnostics.update({
+                "orders_received": orders_received,
+                "orders_parsed": orders_parsed,
+                "orders_upsert_attempted": orders_upsert_attempted,
+                "orders_upserted": orders_upserted,
+                "orders_failed": orders_failed,
+                "customers_received": customers_received,
+                "customers_upserted": customers_upserted,
+                "customers_failed": customers_failed,
+                "items_received": items_received,
+                "items_upserted": items_upserted,
+                "refunds_received": refunds_received,
+                "refunds_upserted": refunds_upserted,
+                "first_order_error": first_order_error,
+            })
 
             if orders_received > 0 and orders_upserted == 0:
                 # A Shopify devolveu pedidos, mas NENHUM foi persistido —
@@ -697,15 +745,7 @@ async def sync_shopify_connection(
                 rows_upserted=orders_upserted + customers_upserted,
                 client_id=client_id,
                 connection_id=connection_id,
-                payload_json={
-                    "orders_received": orders_received,
-                    "orders_upserted": orders_upserted,
-                    "orders_failed": orders_failed,
-                    "customers_received": customers_received,
-                    "customers_upserted": customers_upserted,
-                    "items_received": items_received,
-                    "items_upserted": items_upserted,
-                },
+                payload_json=diagnostics,
             )
             print(
                 "[shopify_sync] stage=complete "
@@ -744,12 +784,15 @@ async def sync_shopify_connection(
                 f"error_type={exc.__class__.__name__} "
                 f"http_status={http_status if http_status is not None else '-'}"
             )
+            diagnostics["error_type"] = exc.__class__.__name__
+            diagnostics["http_status"] = http_status
             await finish_job_run(
                 job_run["id"],
                 status="error",
                 error=error_message,
                 client_id=client_id,
                 connection_id=connection_id,
+                payload_json=diagnostics,
             )
             await _mark_shopify_sync_failed(client_id=client_id, connection_id=connection_id, error_message=error_message)
             raise

@@ -679,6 +679,74 @@ async def build_shopify_report(
     }
 
 
+async def _table_diagnostics(
+    *, table: str, client_id: str, shop_domain: str, date_column: Optional[str], id_column: str,
+) -> Dict[str, Any]:
+    """Contagem read-only, sem PII: só id e a coluna de data (quando existe).
+    Nunca seleciona email/telefone/endereço nem raw_payload."""
+    select_fields = id_column if not date_column else f"{id_column},{date_column}"
+    try:
+        rows = await sb_select(
+            table,
+            select=select_fields,
+            filters={"client_id": f"eq.{client_id}", "shop_domain": f"eq.{shop_domain}"},
+            limit=5000,
+        )
+    except httpx.HTTPStatusError as exc:
+        if _is_column_compat_error(exc, "shop_domain"):
+            rows = await sb_select(
+                table, select=select_fields, filters={"client_id": f"eq.{client_id}"}, limit=5000,
+            )
+        else:
+            raise
+    dates = [str(row.get(date_column)) for row in rows if date_column and row.get(date_column)] if date_column else []
+    return {
+        "count": len(rows),
+        "min_created_at_shopify": min(dates) if dates else None,
+        "max_created_at_shopify": max(dates) if dates else None,
+    }
+
+
+async def build_shopify_sync_diagnostics(*, client_id: str, shop_domain: str) -> Dict[str, Any]:
+    """Diagnóstico read-only direto no Supabase — nunca altera dados. Usado
+    para responder objetivamente "há registros persistidos ou não?" sem
+    depender do relatório agregado."""
+    orders = await _table_diagnostics(
+        table="shopify_orders", client_id=client_id, shop_domain=shop_domain,
+        date_column="created_at_shopify", id_column="shopify_order_id",
+    )
+    customers = await _table_diagnostics(
+        table="shopify_customers", client_id=client_id, shop_domain=shop_domain,
+        date_column="created_at_shopify", id_column="shopify_customer_id",
+    )
+    order_items = await _table_diagnostics(
+        table="shopify_order_items", client_id=client_id, shop_domain=shop_domain,
+        date_column=None, id_column="shopify_line_item_id",
+    )
+    refunds = await _table_diagnostics(
+        table="shopify_refunds", client_id=client_id, shop_domain=shop_domain,
+        date_column="created_at_shopify", id_column="shopify_refund_id",
+    )
+    return {
+        "shopify_orders": orders,
+        "shopify_customers": customers,
+        "shopify_order_items": order_items,
+        "shopify_refunds": refunds,
+    }
+
+
+async def build_shopify_scope_diagnostic(*, shop_domain: str, access_token: str) -> Dict[str, bool]:
+    """Diagnóstico via GraphQL Admin, usado apenas para comparar contra o
+    REST orders.json quando orders_received=0 é inesperado (nunca substitui
+    o fluxo de sync real)."""
+    from types import SimpleNamespace
+
+    from .shopify_oauth import _check_shopify_scopes
+
+    context = SimpleNamespace(shop_domain=shop_domain, access_token=access_token, scopes=frozenset())
+    return await _check_shopify_scopes(context)
+
+
 async def build_shopify_customers_report(
     *,
     client_id: str,
