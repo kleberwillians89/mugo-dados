@@ -6,7 +6,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from urllib.parse import urlencode, urlsplit
 
@@ -368,37 +368,63 @@ async def exchange_code(*, shop_domain: str, code: str) -> Dict[str, Any]:
 
 async def fetch_shop(shop_domain: str, access_token: str) -> Dict[str, Any]:
     shop = normalize_shop_domain(shop_domain)
+    path = shopify_admin_url(shop, "shop.json")
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             response = await client.get(
-                shopify_admin_url(shop, "shop.json"),
+                path,
                 headers={"X-Shopify-Access-Token": access_token},
             )
             response.raise_for_status()
         except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            print(f"[shopify_oauth] stage=shop_fetch shop={shop} status={status if status is not None else 'network_error'}")
             raise from_httpx_error(
                 "shopify",
                 exc,
                 operation="consultar a loja",
             ) from exc
+    print(f"[shopify_oauth] stage=shop_fetch shop={shop} status={response.status_code}")
     return response.json().get("shop") or {}
 
 
-async def register_webhooks(shop_domain: str, access_token: str) -> None:
+async def register_webhooks(shop_domain: str, access_token: str) -> Dict[str, Any]:
+    """Registra cada tópico de forma independente — um tópico que falhe (ex.:
+    um tópico de compliance que a Shopify exige configurar via Partner
+    Dashboard em vez da API) nunca pode impedir o registro dos demais, nem
+    (na chamada feita pelo callback) impedir que a conexão OAuth já
+    persistida permaneça válida. Retorna um resumo seguro (sem token/secret)
+    para diagnóstico: registered/skipped/failed por tópico.
+    """
     shop = normalize_shop_domain(shop_domain)
     callback = _env("SHOPIFY_WEBHOOK_URL")
     if not callback.startswith("https://"):
         raise RuntimeError("SHOPIFY_WEBHOOK_URL HTTPS não configurada.")
+    registered: list[str] = []
+    skipped: list[str] = []
+    failed: list[Dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=30) as client:
         for topic in SHOPIFY_WEBHOOK_TOPICS:
-            response = await client.post(
-                shopify_admin_url(shop, "webhooks.json"),
-                headers={"X-Shopify-Access-Token": access_token},
-                json={"webhook": {"topic": topic, "address": callback, "format": "json"}},
-            )
-            if response.status_code == 422 and "already" in response.text.lower():
-                continue
-            response.raise_for_status()
+            try:
+                response = await client.post(
+                    shopify_admin_url(shop, "webhooks.json"),
+                    headers={"X-Shopify-Access-Token": access_token},
+                    json={"webhook": {"topic": topic, "address": callback, "format": "json"}},
+                )
+                if response.status_code == 422 and "already" in response.text.lower():
+                    skipped.append(topic)
+                    continue
+                response.raise_for_status()
+                registered.append(topic)
+            except Exception as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                failed.append({"topic": topic, "status": status if status is not None else "network_error"})
+    print(
+        "[shopify_oauth] stage=webhook_registration "
+        f"shop={shop} registered={len(registered)} skipped={len(skipped)} "
+        f"failed={[(item['topic'], item['status']) for item in failed]}"
+    )
+    return {"registered": registered, "skipped": skipped, "failed": failed}
 
 
 async def _fetch_shopify_collection(
@@ -575,6 +601,41 @@ async def save_shopify_connection(
         connection_id=str(connection.get("id") or ""),
         user_id=user_id,
     )
+
+
+async def list_active_shopify_connections() -> list[Dict[str, Any]]:
+    """Conexões Shopify conectadas de TODOS os clientes — alimenta o cron de
+    reconciliação periódica. Webhooks continuam sendo a fonte em tempo real;
+    isto é só um resync leve de segurança, nunca o mecanismo principal."""
+    return await sb_select(
+        "integration_connections",
+        select="id,client_id,external_key,status,metadata,last_sync_at,disconnected_at",
+        filters={"provider": "eq.shopify", "status": "eq.connected"},
+        order="updated_at.asc",
+        limit=200,
+    )
+
+
+async def resolve_shopify_reconciliation_since(
+    client_id: str, connection_id: str, *, fallback_days: int = 30
+) -> str:
+    """Início da janela de reconciliação: 1h antes do último sync bem-sucedido
+    (margem de segurança contra updates perdidos por atraso de webhook), ou
+    os últimos `fallback_days` dias quando ainda não houve sync registrado.
+    """
+    last_sync_at: str | None = None
+    try:
+        existing = await get_connection(client_id, connection_id)
+        last_sync_at = str(existing.get("last_sync_at") or "").strip() or None
+    except Exception:
+        last_sync_at = None
+    if last_sync_at:
+        try:
+            since = datetime.fromisoformat(last_sync_at.replace("Z", "+00:00")) - timedelta(hours=1)
+            return since.isoformat()
+        except ValueError:
+            pass
+    return (datetime.now(timezone.utc) - timedelta(days=fallback_days)).isoformat()
 
 
 async def resolve_store_by_domain(shop_domain: str) -> Dict[str, Any] | None:
