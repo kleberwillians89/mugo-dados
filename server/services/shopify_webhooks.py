@@ -113,6 +113,16 @@ def _pick_money(payload: Dict[str, Any], *keys: str) -> Optional[float]:
     return None
 
 
+def _parse_shopify_timestamp(value: Any) -> Optional[datetime]:
+    raw = _safe_str(value)
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _normalize_limit(limit: int, *, default: int = 20, maximum: int = 100) -> int:
     try:
         resolved = int(limit)
@@ -380,6 +390,20 @@ async def _upsert_order(
     order_id = _safe_id(payload.get("id"))
     if not order_id:
         raise RuntimeError("Webhook de pedido sem id da Shopify.")
+
+    # Guarda de ordenação: um webhook mais antigo entregue depois de um mais
+    # novo (reentrega, fora de ordem) nunca pode sobrescrever o estado mais
+    # recente já persistido para o mesmo pedido.
+    incoming_updated_at = _parse_shopify_timestamp(payload.get("updated_at"))
+    if incoming_updated_at is not None:
+        existing = await sb_get_one_by(
+            "shopify_orders",
+            filters={"client_id": f"eq.{client_id}", "shopify_order_id": f"eq.{order_id}"},
+            select="updated_at_shopify",
+        )
+        existing_updated_at = _parse_shopify_timestamp((existing or {}).get("updated_at_shopify"))
+        if existing_updated_at is not None and incoming_updated_at < existing_updated_at:
+            return order_id
 
     customer_payload = _safe_json(payload.get("customer"))
     customer_id = _safe_id(customer_payload.get("id")) or _safe_id(payload.get("customer_id"))

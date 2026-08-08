@@ -582,7 +582,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders"}),
             ),
             patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Roove"})),
-            patch.object(shopify_routes, "register_webhooks", AsyncMock()),
+            patch.object(shopify_routes, "register_webhooks", AsyncMock(return_value={"registered": [], "skipped": [], "failed": []})),
             patch.object(
                 shopify_routes,
                 "save_shopify_connection",
@@ -598,11 +598,92 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(secret, response.headers["location"])
         save.assert_awaited_once()
         background_tasks.add_task.assert_called_once_with(
-            sync,
+            shopify_routes._run_initial_sync_isolated,
             client_id="roove",
             connection_id="shopify-connection",
+            shop_domain="roove.myshopify.com",
         )
         sync.assert_not_awaited()
+
+    async def test_webhook_registration_failure_never_erases_a_valid_oauth_connection(self):
+        # Guerra room — PRIORIDADE 1: se o token exchange e o shop fetch
+        # funcionaram, a conexão precisa ficar persistida mesmo que o
+        # registro de webhooks falhe (ex.: um tópico de compliance rejeitado
+        # pela Shopify). O fluxo antigo envolvia tudo num único try/except e
+        # nunca chamava save_shopify_connection nesse caso.
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
+        request = type(
+            "Request",
+            (),
+            {
+                "query_params": {
+                    "code": "secret-code",
+                    "state": "secret-state",
+                    "shop": "amalie-6421.myshopify.com",
+                    "hmac": "valid-hmac",
+                }
+            },
+        )()
+        session = {
+            "user_id": "user-amalie",
+            "client_id": "amalie",
+            "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            "context": {"shop_domain": "amalie-6421.myshopify.com"},
+        }
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(shopify_routes, "consume_oauth_state", AsyncMock(return_value=session)),
+            patch.object(
+                shopify_routes,
+                "safe_oauth_configuration",
+                return_value={"redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI},
+            ),
+            patch.object(shopify_routes, "require_user_client_access", AsyncMock()),
+            patch.object(
+                shopify_routes,
+                "exchange_code",
+                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders"}),
+            ),
+            patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Amalie"})),
+            patch.object(
+                shopify_routes,
+                "register_webhooks",
+                AsyncMock(side_effect=RuntimeError("tópico de compliance rejeitado")),
+            ),
+            patch.object(
+                shopify_routes,
+                "save_shopify_connection",
+                AsyncMock(return_value={"id": "shopify-connection-amalie"}),
+            ) as save,
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await shopify_routes.callback(request, background_tasks)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("shopify_oauth=success", response.headers["location"])
+        save.assert_awaited_once()
+        # Mesmo com a falha de webhook, o backfill continua sendo agendado —
+        # a conexão está válida e utilizável.
+        background_tasks.add_task.assert_called_once_with(
+            shopify_routes._run_initial_sync_isolated,
+            client_id="amalie",
+            connection_id="shopify-connection-amalie",
+            shop_domain="amalie-6421.myshopify.com",
+        )
+
+    async def test_initial_sync_failure_never_disconnects_the_shopify_connection(self):
+        # A conexão já foi persistida antes do backfill rodar em background;
+        # uma falha no backfill (ex.: timeout, rate limit) só deve aparecer
+        # como log isolado — nunca reverter o status para desconectado.
+        with patch.object(
+            shopify_routes,
+            "sync_shopify_connection",
+            AsyncMock(side_effect=RuntimeError("backfill timeout")),
+        ):
+            # Não deve levantar — a falha é capturada e só logada.
+            await shopify_routes._run_initial_sync_isolated(
+                client_id="amalie", connection_id="shopify-connection-amalie", shop_domain="amalie-6421.myshopify.com",
+            )
 
     async def test_token_exchange_404_raises_humanized_error_and_logs_safely(self):
         output = io.StringIO()
