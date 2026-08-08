@@ -71,6 +71,43 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
 
+    async def test_two_distinct_users_of_the_same_tenant_both_resolve_to_amalie(self):
+        # Dois usuários (contas) diferentes, ambos com membership em
+        # client_id=amalie, precisam resolver para o MESMO client_id — é
+        # esse client_id que escopa toda leitura de dados persistidos no
+        # backend, garantindo que os dois vejam exatamente os mesmos dados.
+        async def membership_lookup(user_id, requested_client_id=None):
+            self.assertIn(user_id, {"user-amalie-a", "user-amalie-b"})
+            if requested_client_id != "amalie":
+                raise PermissionError("Usuário sem acesso ao client_id informado")
+            return "amalie"
+
+        for user_id in ("user-amalie-a", "user-amalie-b"):
+            with (
+                patch.object(tenant, "require_user_id", AsyncMock(return_value=user_id)),
+                patch.object(tenant, "sb_get_client_id_for_user", membership_lookup),
+                patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[{"client_id": "amalie", "role": "viewer"}])),
+                patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+            ):
+                resolved = await tenant.resolve_client_id("amalie", "Bearer valid")
+            self.assertEqual(resolved, "amalie")
+
+    async def test_viewer_role_can_read_but_cannot_manage_the_same_tenant(self):
+        # O perfil somente-leitura precisa continuar enxergando os dados
+        # (require_client_read) mesmo não podendo gerenciar conexões
+        # (require_client_role, sem "viewer" nos papéis permitidos por
+        # padrão) — dashboard/analytics/ecommerce/intelligence continuam
+        # acessíveis, integrações/OAuth continuam bloqueadas.
+        memberships = [{"client_id": "amalie", "role": "viewer"}]
+        with (
+            patch.object(tenant, "require_user_id", AsyncMock(return_value="viewer-amalie")),
+            patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=memberships)),
+            patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+        ):
+            resolved = await tenant.require_client_read("amalie", "Bearer valid")
+        self.assertEqual(resolved, "amalie")
+
     async def test_viewer_cannot_change_connection(self):
         memberships = [{"client_id": "amalie", "role": "viewer"}]
         with (
