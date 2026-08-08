@@ -62,7 +62,7 @@ import {
   getActiveClientName,
   MUGO_APP_NAME,
 } from "../app/activeClient";
-import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
+import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import AssetCombobox from "../components/AssetCombobox";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
@@ -483,16 +483,28 @@ export default function Onboarding({
             setInfo("Google Ads autorizado. Selecione a conta para concluir.");
           }
         } else if (provider === "Shopify" && connectionId) {
-          await syncShopifyConnection(connectionId);
+          // O callback OAuth já dispara o backfill inicial em background
+          // (server/routes/shopify_oauth.py) assim que a conexão é salva.
+          // Disparar outro POST /sync aqui é redundante e só colide com o
+          // lock do backfill em andamento (409 SYNC_ALREADY_RUNNING) — só
+          // relemos o estado persistido (conexão + seleção local).
+          setSelectedConnectionId(getActiveClientId(), "shopify", connectionId);
           await loadConnections();
-          setInfo("Shopify conectada e importação inicial concluída.");
+          setInfo("Shopify conectada. Importando pedidos, clientes e produtos em segundo plano.");
         } else {
           setInfo(`${provider || "Integração"} conectada com sucesso.`);
         }
       }
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
-      if (preserveMetaRetry) setOauthRetry("meta_discover");
+      // Uma sincronização já em andamento (ex.: o backfill iniciado pelo
+      // próprio callback OAuth) nunca é uma falha — é o estado esperado.
+      // Nunca vira erro vermelho nem afeta o retry de Meta.
+      if (isSyncAlreadyRunningError(error)) {
+        setInfo("Importando dados em segundo plano…");
+      } else {
+        setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
+        if (preserveMetaRetry) setOauthRetry("meta_discover");
+      }
     } finally {
       if (!preserveMetaRetry) clearOauthParamsFromUrl();
     }
@@ -913,7 +925,14 @@ export default function Onboarding({
       setInfo("Pedidos, clientes e produtos da Shopify foram atualizados.");
     } catch (error: unknown) {
       setSyncRuntime([{ tenant: getActiveClientId(), provider: "shopify", connection_id: connectionId, endpoint: "/api/oauth/shopify/{connection_id}/sync", status: "rejected", code: error instanceof ApiError ? error.code : "SYNC_FAILED", request_id: error instanceof ApiError ? error.requestId : "", started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0 }]);
-      setErr(describeSyncError(error, "Não foi possível sincronizar a loja Shopify."));
+      // Uma sincronização já em andamento (409 SYNC_ALREADY_RUNNING) é um
+      // estado válido, nunca uma falha da integração — não vira erro
+      // vermelho nem dispara retry automático.
+      if (isSyncAlreadyRunningError(error)) {
+        setInfo("Importando dados da Shopify em segundo plano…");
+      } else {
+        setErr(describeSyncError(error, "Não foi possível sincronizar a loja Shopify."));
+      }
     } finally {
       setSaving(false);
     }
