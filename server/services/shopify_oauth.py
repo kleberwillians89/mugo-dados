@@ -20,6 +20,7 @@ from .generic_connections import (
 from .connection_resolver import resolve_generic_connection
 from .ig_supabase import sb_insert, sb_select, sb_update
 from .integration_errors import IntegrationError, from_httpx_error
+from .job_runs import finish_job_run, start_job_run
 from .oauth_state import create_oauth_state
 from .shopify_config import shopify_admin_url
 from .sync_locks import guarded_sync
@@ -464,6 +465,73 @@ async def _fetch_shopify_collection(
     return rows
 
 
+async def _check_shopify_scopes(context: "ShopifyConnectionContext") -> Dict[str, bool]:
+    """Consulta os escopos REALMENTE concedidos à instalação via GraphQL
+    Admin (currentAppInstallation.accessScopes) — nunca confia apenas na
+    lista de scopes persistida no momento do OAuth, que pode ter ficado
+    desatualizada em relação ao que a Shopify concede de fato hoje.
+    """
+    query = "{ currentAppInstallation { accessScopes { handle } } }"
+    handles: set[str] = set()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                shopify_admin_url(context.shop_domain, "graphql.json"),
+                headers={
+                    "X-Shopify-Access-Token": context.access_token,
+                    "Content-Type": "application/json",
+                },
+                json={"query": query},
+            )
+            response.raise_for_status()
+        body = response.json()
+        scopes_data = (((body or {}).get("data") or {}).get("currentAppInstallation") or {}).get("accessScopes")
+        handles = {
+            str(item.get("handle") or "").strip()
+            for item in (scopes_data or [])
+            if isinstance(item, dict) and item.get("handle")
+        }
+    except Exception as exc:
+        print(
+            "[shopify_sync] stage=scope_check "
+            f"shop={context.shop_domain} status=check_failed error_type={exc.__class__.__name__}"
+        )
+        # Sem confirmar os scopes reais (falha de rede/GraphQL), cai para o
+        # que já está persistido em vez de bloquear o backfill por uma
+        # instabilidade transitória.
+        handles = set(context.scopes)
+
+    result = {
+        "read_orders": "read_orders" in handles,
+        "read_customers": "read_customers" in handles,
+        "read_products": "read_products" in handles,
+    }
+    print(
+        "[shopify_sync] stage=scope_check "
+        f"shop={context.shop_domain} "
+        f"read_orders={str(result['read_orders']).lower()} "
+        f"read_customers={str(result['read_customers']).lower()} "
+        f"read_products={str(result['read_products']).lower()}"
+    )
+    return result
+
+
+async def _mark_shopify_sync_failed(*, client_id: str, connection_id: str, error_message: str) -> None:
+    """Best-effort: grava last_error na conexão sem alterar status/derrubar
+    a conexão — uma falha de sync nunca pode parecer "desconectado"."""
+    if not connection_id:
+        return
+    try:
+        await sb_update(
+            "integration_connections",
+            filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}"},
+            patch={"last_error": error_message[:1000], "updated_at": datetime.now(timezone.utc).isoformat()},
+            returning="minimal",
+        )
+    except Exception:
+        pass
+
+
 async def sync_shopify_connection(
     *,
     client_id: str,
@@ -479,75 +547,142 @@ async def sync_shopify_connection(
         client_id=client_id, provider="shopify", connection_id=connection_id,
         ttl_seconds=1800,
     ):
-        context = await resolve_shopify_connection_context(
-            client_id,
+        print(f"[shopify_sync] stage=start connection_id={connection_id} client_id={client_id}")
+        job_run = await start_job_run(
+            job_name="shopify_sync",
+            client_id=client_id,
             connection_id=connection_id,
-            required_scopes=("read_orders", "read_customers", "read_products"),
+            trigger_source="sync",
+            payload_json={"created_at_min": created_at_min},
         )
-        order_params: Dict[str, Any] = {"status": "any", "limit": 250}
-        if str(created_at_min or "").strip():
-            order_params["created_at_min"] = str(created_at_min).strip()
-        orders = await _fetch_shopify_collection(
-            context,
-            "orders.json",
-            params=order_params,
-        )
-        customers = await _fetch_shopify_collection(
-            context,
-            "customers.json",
-            params={"limit": 250},
-        )
-        products = await _fetch_shopify_collection(
-            context,
-            "products.json",
-            params={"limit": 250},
-        )
+        try:
+            context = await resolve_shopify_connection_context(
+                client_id,
+                connection_id=connection_id,
+                required_scopes=("read_orders", "read_customers", "read_products"),
+            )
+            shop_domain = context.shop_domain
 
-        from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
+            scope_report = await _check_shopify_scopes(context)
+            if not scope_report["read_orders"]:
+                # read_orders é obrigatório para pedidos — nunca seguir em
+                # frente e deixar isso parecer "0 pedidos" comercial.
+                raise IntegrationError(
+                    "A conexão Shopify não possui a permissão read_orders concedida pela loja. "
+                    "Reconecte a integração para autorizar novamente.",
+                    status_code=403,
+                    code="SHOPIFY_MISSING_READ_ORDERS_SCOPE",
+                    provider="shopify",
+                )
 
-        item_count = 0
-        for customer in customers:
-            await _handle_customer_topic(
+            order_params: Dict[str, Any] = {"status": "any", "limit": 250}
+            if str(created_at_min or "").strip():
+                order_params["created_at_min"] = str(created_at_min).strip()
+            print(
+                "[shopify_sync] stage=orders_request "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain}"
+            )
+            orders = await _fetch_shopify_collection(context, "orders.json", params=order_params)
+            print(
+                "[shopify_sync] stage=orders_response "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
+                f"orders_received={len(orders)}"
+            )
+            customers = await _fetch_shopify_collection(context, "customers.json", params={"limit": 250})
+            products = await _fetch_shopify_collection(context, "products.json", params={"limit": 250})
+
+            from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
+
+            item_count = 0
+            # O backfill inicial não busca refunds.json (fora do escopo desta
+            # correção — refunds chegam via webhook refunds/create); mantido
+            # aqui apenas para o campo de log solicitado nunca faltar.
+            refund_count = 0
+            for customer in customers:
+                await _handle_customer_topic(
+                    client_id=client_id,
+                    shop_domain=shop_domain,
+                    payload=customer,
+                )
+            for order in orders:
+                result = await _handle_order_topic(
+                    client_id=client_id,
+                    shop_domain=shop_domain,
+                    payload=order,
+                )
+                item_count += int(result.get("items_upserted") or 0)
+                refund_count += int(result.get("refunds_upserted") or 0)
+            print(
+                "[shopify_sync] stage=persistence "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
+                f"orders_upserted={len(orders)} customers_upserted={len(customers)} "
+                f"items_upserted={item_count} refunds_upserted={refund_count}"
+            )
+
+            now = datetime.now(timezone.utc).isoformat()
+            if context.connection_id:
+                await sb_update(
+                    "integration_connections",
+                    filters={
+                        "id": f"eq.{context.connection_id}",
+                        "client_id": f"eq.{client_id}",
+                    },
+                    patch={
+                        "status": "connected",
+                        "last_sync_at": now,
+                        "last_error": None,
+                        "updated_at": now,
+                    },
+                    returning="minimal",
+                )
+            await finish_job_run(
+                job_run["id"],
+                status="success",
+                rows_upserted=len(orders) + len(customers),
                 client_id=client_id,
-                shop_domain=context.shop_domain,
-                payload=customer,
+                connection_id=connection_id,
+                payload_json={
+                    "orders_received": len(orders),
+                    "customers_upserted": len(customers),
+                    "items_upserted": item_count,
+                    "refunds_upserted": refund_count,
+                },
             )
-        for order in orders:
-            result = await _handle_order_topic(
+            print(
+                "[shopify_sync] stage=complete "
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} status=success"
+            )
+            return {
+                "ok": True,
+                "client_id": client_id,
+                "connection_id": context.connection_id,
+                "shop_domain": shop_domain,
+                "synced": {
+                    "orders": len(orders),
+                    "customers": len(customers),
+                    "products_checked": len(products),
+                    "order_items": item_count,
+                    "refunds": refund_count,
+                },
+            }
+        except Exception as exc:
+            error_message = str(exc)
+            http_status = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "status_code", None)
+            print(
+                "[shopify_sync] stage=complete "
+                f"connection_id={connection_id} client_id={client_id} status=error "
+                f"error_type={exc.__class__.__name__} "
+                f"http_status={http_status if http_status is not None else '-'}"
+            )
+            await finish_job_run(
+                job_run["id"],
+                status="error",
+                error=error_message,
                 client_id=client_id,
-                shop_domain=context.shop_domain,
-                payload=order,
+                connection_id=connection_id,
             )
-            item_count += int(result.get("items_upserted") or 0)
-
-        now = datetime.now(timezone.utc).isoformat()
-        if context.connection_id:
-            await sb_update(
-                "integration_connections",
-                filters={
-                    "id": f"eq.{context.connection_id}",
-                    "client_id": f"eq.{client_id}",
-                },
-                patch={
-                    "status": "connected",
-                    "last_sync_at": now,
-                    "last_error": None,
-                    "updated_at": now,
-                },
-                returning="minimal",
-            )
-        return {
-            "ok": True,
-            "client_id": client_id,
-            "connection_id": context.connection_id,
-            "shop_domain": context.shop_domain,
-            "synced": {
-                "orders": len(orders),
-                "customers": len(customers),
-                "products_checked": len(products),
-                "order_items": item_count,
-            },
-        }
+            await _mark_shopify_sync_failed(client_id=client_id, connection_id=connection_id, error_message=error_message)
+            raise
 
 
 async def save_shopify_connection(

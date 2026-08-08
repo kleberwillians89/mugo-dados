@@ -33,6 +33,7 @@ from services.shopify_reporting import (
     build_shopify_report,
     resolve_shopify_report_period,
 )
+from services.generic_connections import get_connection
 from services.shopify_oauth import (
     mark_store_uninstalled,
     resolve_shopify_connection_context,
@@ -284,6 +285,21 @@ async def shopify_report(
             shop_domain=context.shop_domain,
             period=period,
         )
+        # Zero só pode significar zero quando já existiu uma sincronização
+        # válida — sem isso, "0 pedidos" é indistinguível de "nunca
+        # importado". Best-effort: nunca falha o request por causa disto.
+        sync_state = {"has_synced": False, "last_sync_at": None, "last_error": None}
+        if context.connection_id:
+            try:
+                connection_row = await get_connection(client_id, context.connection_id)
+                sync_state = {
+                    "has_synced": bool(connection_row.get("last_sync_at")),
+                    "last_sync_at": connection_row.get("last_sync_at") or None,
+                    "last_error": connection_row.get("last_error") or None,
+                }
+            except Exception:
+                pass
+        payload["sync_state"] = sync_state
         _log_endpoint_done(
             endpoint=endpoint,
             started=started,
