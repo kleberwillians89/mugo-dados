@@ -593,31 +593,87 @@ async def sync_shopify_connection(
 
             from .shopify_webhooks import _handle_customer_topic, _handle_order_topic
 
-            item_count = 0
+            # Um único registro com payload inesperado nunca pode derrubar o
+            # lote inteiro silenciosamente — cada pedido/cliente é
+            # persistido de forma isolada, com contagem exata de recebidos/
+            # tentados/persistidos/falhos. Antes, uma exceção em QUALQUER
+            # item abortava o loop inteiro e o sync inteiro virava "erro",
+            # mesmo que dezenas de outros pedidos estivessem válidos.
+            customers_received = len(customers)
+            customers_upserted = 0
+            customers_failed = 0
+            for customer in customers:
+                try:
+                    await _handle_customer_topic(
+                        client_id=client_id,
+                        shop_domain=shop_domain,
+                        payload=customer,
+                    )
+                    customers_upserted += 1
+                except Exception as exc:
+                    customers_failed += 1
+                    print(
+                        "[shopify_sync] stage=persistence "
+                        f"connection_id={connection_id} client_id={client_id} "
+                        f"customer_upsert_error error_type={exc.__class__.__name__}"
+                    )
+
+            orders_received = len(orders)
+            orders_parsed = sum(1 for order in orders if order.get("id") is not None)
+            orders_upsert_attempted = orders_parsed
+            orders_upserted = 0
+            orders_failed = 0
+            items_received = sum(
+                len(order.get("line_items")) if isinstance(order.get("line_items"), list) else 0
+                for order in orders
+            )
+            items_upserted = 0
             # O backfill inicial não busca refunds.json (fora do escopo desta
             # correção — refunds chegam via webhook refunds/create); mantido
-            # aqui apenas para o campo de log solicitado nunca faltar.
-            refund_count = 0
-            for customer in customers:
-                await _handle_customer_topic(
-                    client_id=client_id,
-                    shop_domain=shop_domain,
-                    payload=customer,
-                )
+            # aqui apenas para os campos de log solicitados nunca faltarem.
+            refunds_received = 0
+            refunds_upserted = 0
             for order in orders:
-                result = await _handle_order_topic(
-                    client_id=client_id,
-                    shop_domain=shop_domain,
-                    payload=order,
-                )
-                item_count += int(result.get("items_upserted") or 0)
-                refund_count += int(result.get("refunds_upserted") or 0)
+                if order.get("id") is None:
+                    orders_failed += 1
+                    continue
+                try:
+                    result = await _handle_order_topic(
+                        client_id=client_id,
+                        shop_domain=shop_domain,
+                        payload=order,
+                    )
+                    items_upserted += int(result.get("items_upserted") or 0)
+                    orders_upserted += 1
+                except Exception as exc:
+                    orders_failed += 1
+                    print(
+                        "[shopify_sync] stage=persistence "
+                        f"connection_id={connection_id} client_id={client_id} "
+                        f"order_upsert_error error_type={exc.__class__.__name__}"
+                    )
             print(
                 "[shopify_sync] stage=persistence "
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
-                f"orders_upserted={len(orders)} customers_upserted={len(customers)} "
-                f"items_upserted={item_count} refunds_upserted={refund_count}"
+                f"orders_received={orders_received} orders_parsed={orders_parsed} "
+                f"orders_upsert_attempted={orders_upsert_attempted} orders_upserted={orders_upserted} "
+                f"orders_failed={orders_failed} "
+                f"customers_received={customers_received} customers_upserted={customers_upserted} "
+                f"customers_failed={customers_failed} "
+                f"items_received={items_received} items_upserted={items_upserted} "
+                f"refunds_received={refunds_received} refunds_upserted={refunds_upserted}"
             )
+
+            if orders_received > 0 and orders_upserted == 0:
+                # A Shopify devolveu pedidos, mas NENHUM foi persistido —
+                # nunca reportar isso como sucesso silencioso (o report
+                # ficaria com orders=0 sem nenhum sinal de que algo falhou).
+                raise IntegrationError(
+                    f"{orders_received} pedidos recebidos da Shopify, mas nenhum pôde ser persistido.",
+                    status_code=502,
+                    code="SHOPIFY_ORDERS_PERSISTENCE_FAILED",
+                    provider="shopify",
+                )
 
             now = datetime.now(timezone.utc).isoformat()
             if context.connection_id:
@@ -638,14 +694,17 @@ async def sync_shopify_connection(
             await finish_job_run(
                 job_run["id"],
                 status="success",
-                rows_upserted=len(orders) + len(customers),
+                rows_upserted=orders_upserted + customers_upserted,
                 client_id=client_id,
                 connection_id=connection_id,
                 payload_json={
-                    "orders_received": len(orders),
-                    "customers_upserted": len(customers),
-                    "items_upserted": item_count,
-                    "refunds_upserted": refund_count,
+                    "orders_received": orders_received,
+                    "orders_upserted": orders_upserted,
+                    "orders_failed": orders_failed,
+                    "customers_received": customers_received,
+                    "customers_upserted": customers_upserted,
+                    "items_received": items_received,
+                    "items_upserted": items_upserted,
                 },
             )
             print(
@@ -658,11 +717,22 @@ async def sync_shopify_connection(
                 "connection_id": context.connection_id,
                 "shop_domain": shop_domain,
                 "synced": {
-                    "orders": len(orders),
-                    "customers": len(customers),
+                    "orders_received": orders_received,
+                    "orders_upserted": orders_upserted,
+                    "orders_failed": orders_failed,
+                    "customers_received": customers_received,
+                    "customers_upserted": customers_upserted,
+                    "customers_failed": customers_failed,
                     "products_checked": len(products),
-                    "order_items": item_count,
-                    "refunds": refund_count,
+                    "items_received": items_received,
+                    "items_upserted": items_upserted,
+                    "refunds_received": refunds_received,
+                    "refunds_upserted": refunds_upserted,
+                    # Compat: alguns chamadores ainda leem estas chaves.
+                    "orders": orders_upserted,
+                    "customers": customers_upserted,
+                    "order_items": items_upserted,
+                    "refunds": refunds_upserted,
                 },
             }
         except Exception as exc:

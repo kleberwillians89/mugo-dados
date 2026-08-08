@@ -118,6 +118,71 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
         finish_mock.assert_awaited_once()
         self.assertEqual(finish_mock.await_args.kwargs["status"], "success")
 
+    async def test_one_bad_order_never_aborts_the_rest_of_the_batch(self):
+        # Regressão específica pedida pelo war room: antes, uma exceção em
+        # QUALQUER pedido abortava o loop inteiro — os demais pedidos
+        # válidos (mesmo vindo DEPOIS do problemático) nunca chegavam a ser
+        # tentados, e o sync inteiro virava "erro" sem indicar quantos
+        # pedidos realmente existiam.
+        orders = [{"id": 1001}, {"id": 1002}, {"id": 1003}]
+
+        async def fake_collection(context, resource, *, params=None):
+            return orders if resource == "orders.json" else []
+
+        async def flaky_handle_order(*, client_id, shop_domain, payload):
+            if payload["id"] == 1002:
+                raise RuntimeError("payload inesperado da Shopify")
+            return {"order_id": str(payload["id"]), "items_upserted": 1}
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", flaky_handle_order),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["synced"]["orders_received"], 3)
+        self.assertEqual(result["synced"]["orders_upserted"], 2)
+        self.assertEqual(result["synced"]["orders_failed"], 1)
+        self.assertEqual(finish_mock.await_args.kwargs["status"], "success")
+
+    async def test_all_orders_failing_to_persist_is_reported_as_error_not_silent_success(self):
+        # Se a Shopify devolveu pedidos mas NENHUM foi persistido, isso
+        # nunca pode terminar como "sucesso" com orders=0 — precisa ficar
+        # visível como falha operacional real.
+        orders = [{"id": 1001}, {"id": 1002}]
+
+        async def fake_collection(context, resource, *, params=None):
+            return orders if resource == "orders.json" else []
+
+        async def always_failing_handle_order(*, client_id, shop_domain, payload):
+            raise RuntimeError("schema incompatível")
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", always_failing_handle_order),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        self.assertEqual(raised.exception.code, "SHOPIFY_ORDERS_PERSISTENCE_FAILED")
+        self.assertEqual(finish_mock.await_args.kwargs["status"], "error")
+        # Nunca escreve status=connected/last_sync_at como se tivesse dado certo.
+        for call in sb_update_mock.await_args_list:
+            self.assertNotIn("last_sync_at", call.kwargs.get("patch", {}))
+
 
 class PaginationTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_pages_are_collected_and_persisted(self):
