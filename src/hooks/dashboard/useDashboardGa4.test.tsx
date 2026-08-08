@@ -5,14 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import useDashboardGa4 from "./useDashboardGa4";
 import { clearDashboardCacheByPrefix } from "./cache";
+import { getSelectedConnectionId, setSelectedConnectionId } from "../../app/connectionState";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("../../app/api", () => ({
   getGa4Report: vi.fn(),
+  listGenericConnections: vi.fn(),
 }));
 
-import { getGa4Report } from "../../app/api";
+import { getGa4Report, listGenericConnections } from "../../app/api";
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -28,6 +30,8 @@ async function mount(node: React.ReactElement) {
 
 beforeEach(() => {
   clearDashboardCacheByPrefix("ga4");
+  window.localStorage.removeItem("mugo_dados.selected_connections");
+  vi.mocked(listGenericConnections).mockResolvedValue({ ok: true, client_id: "amalie", connections: [] });
 });
 
 afterEach(() => {
@@ -147,5 +151,66 @@ describe("useDashboardGa4 — isolamento entre tenants", () => {
     });
     expect(latest?.ga4Report).toEqual(amalieReport);
     expect(latest?.ga4Report).not.toEqual(rooveReport);
+  });
+});
+
+describe("useDashboardGa4 — evita 409 CONNECTION_SELECTION_REQUIRED quando há exatamente uma conexão GA4", () => {
+  it("sem ponteiro local e com uma única conexão GA4 ativa, persiste o connection_id antes de ler o relatório", async () => {
+    vi.mocked(listGenericConnections).mockResolvedValue({
+      ok: true,
+      client_id: "amalie",
+      connections: [
+        { id: "ga4-conn-1", client_id: "amalie", provider: "ga4", status: "connected" } as never,
+        { id: "meta-conn-1", client_id: "amalie", provider: "meta", status: "connected" } as never,
+      ],
+    });
+    const mocked = vi.mocked(getGa4Report);
+    mocked.mockResolvedValueOnce({ meta: {}, daily: [] } as never);
+
+    expect(getSelectedConnectionId("amalie", "ga4")).toBeNull();
+    await mount(<Harness clientId="amalie" onState={() => {}} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getSelectedConnectionId("amalie", "ga4")).toBe("ga4-conn-1");
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("com duas conexões GA4 ativas, nunca escolhe sozinho — ambiguidade real continua exigindo seleção explícita", async () => {
+    vi.mocked(listGenericConnections).mockResolvedValue({
+      ok: true,
+      client_id: "amalie",
+      connections: [
+        { id: "ga4-conn-1", client_id: "amalie", provider: "ga4", status: "connected" } as never,
+        { id: "ga4-conn-2", client_id: "amalie", provider: "ga4", status: "connected" } as never,
+      ],
+    });
+    const mocked = vi.mocked(getGa4Report);
+    mocked.mockResolvedValueOnce({ meta: {}, daily: [] } as never);
+
+    await mount(<Harness clientId="amalie" onState={() => {}} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getSelectedConnectionId("amalie", "ga4")).toBeNull();
+  });
+
+  it("ponteiro já persistido localmente não é sobrescrito nem relista conexões", async () => {
+    setSelectedConnectionId("amalie", "ga4", "ga4-existing");
+    const mocked = vi.mocked(getGa4Report);
+    mocked.mockResolvedValueOnce({ meta: {}, daily: [] } as never);
+
+    await mount(<Harness clientId="amalie" onState={() => {}} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getSelectedConnectionId("amalie", "ga4")).toBe("ga4-existing");
+    expect(listGenericConnections).not.toHaveBeenCalled();
   });
 });
