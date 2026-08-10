@@ -127,7 +127,9 @@ async def get_comments(
     )
 
     filters = {"client_id": f"eq.{client_id}"}
-  
+    if resolved_connection_id:
+        filters["connection_id"] = f"eq.{resolved_connection_id}"
+
     if since_dt and until_dt:
         filters["and"] = f"(timestamp.gte.{since_dt.isoformat()},timestamp.lte.{until_dt.isoformat()})"
     elif since_dt:
@@ -135,13 +137,25 @@ async def get_comments(
 
     try:
         # 1) Comentários por timestamp (janela tradicional), com paginação.
-        rows = await sb_select(
-            "ig_comments",
-            filters=filters,
-            order="timestamp.desc",
-            limit=safe_limit,
-            offset=safe_offset,
-        )
+        try:
+            rows = await sb_select(
+                "ig_comments",
+                filters=filters,
+                order="timestamp.desc",
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+        except httpx.HTTPStatusError as exc:
+            if not (resolved_connection_id and _is_missing_column_error(exc, "connection_id")):
+                raise
+            filters.pop("connection_id", None)
+            rows = await sb_select(
+                "ig_comments",
+                filters=filters,
+                order="timestamp.desc",
+                limit=safe_limit,
+                offset=safe_offset,
+            )
     except httpx.HTTPStatusError as exc:
         # Compat: ambiente ainda sem tabela ig_comments
         if exc.response is None or exc.response.status_code != 404:
@@ -222,13 +236,26 @@ async def get_comments(
                 "client_id": f"eq.{client_id}",
                 "media_id": f"in.({in_clause})",
             }
+            if resolved_connection_id:
+                chunk_filters["connection_id"] = f"eq.{resolved_connection_id}"
             try:
-                chunk_rows = await sb_select(
-                    "ig_comments",
-                    filters=chunk_filters,
-                    order="timestamp.desc",
-                    limit=max(safe_limit, 150),
-                )
+                try:
+                    chunk_rows = await sb_select(
+                        "ig_comments",
+                        filters=chunk_filters,
+                        order="timestamp.desc",
+                        limit=max(safe_limit, 150),
+                    )
+                except httpx.HTTPStatusError as exc:
+                    if not (resolved_connection_id and _is_missing_column_error(exc, "connection_id")):
+                        raise
+                    chunk_filters.pop("connection_id", None)
+                    chunk_rows = await sb_select(
+                        "ig_comments",
+                        filters=chunk_filters,
+                        order="timestamp.desc",
+                        limit=max(safe_limit, 150),
+                    )
             except httpx.HTTPStatusError as exc:
                 if exc.response is None or exc.response.status_code != 404:
                     raise

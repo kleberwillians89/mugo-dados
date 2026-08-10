@@ -15,6 +15,14 @@ function monthKey(ts?: string | null) {
   return format(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)), "yyyy-MM");
 }
 
+export function classifyInstagramMedia(media: Pick<IgMediaItem, "media_type" | "media_product_type">) {
+  const productType = String(media.media_product_type || "").toUpperCase();
+  const mediaType = String(media.media_type || "").toUpperCase();
+  if (productType === "STORY" || mediaType === "STORY") return "story";
+  if (productType === "REELS" || mediaType === "REELS") return "reel";
+  return "post";
+}
+
 export function buildMonthAgg(media: IgMediaItem[]): MonthAgg[] {
   const map = new Map<string, MonthAgg>();
 
@@ -38,9 +46,9 @@ export function buildMonthAgg(media: IgMediaItem[]): MonthAgg[] {
       skip_rate_avg: 0,
     };
 
-    const type = (m.media_product_type || "").toUpperCase();
-    if (type === "REELS") cur.reels += 1;
-    else cur.posts += 1;
+    const contentType = classifyInstagramMedia(m);
+    if (contentType === "reel") cur.reels += 1;
+    else if (contentType === "post") cur.posts += 1;
 
     const ins = m.insights || {};
     cur.reach += n(ins.reach);
@@ -53,7 +61,7 @@ export function buildMonthAgg(media: IgMediaItem[]): MonthAgg[] {
     cur.shares += n(ins.shares);
     cur.saved += n(ins.saved);
 
-    if (type === "REELS") {
+    if (contentType === "reel") {
       cur.avg_watch_ms += n(ins.ig_reels_avg_watch_time);
       cur.skip_rate_avg += n(ins.reels_skip_rate);
     }
@@ -86,4 +94,3 @@ export function pct(now: number, prev: number) {
   if (!prev) return now ? 100 : 0;
   return Math.round(((now - prev) / prev) * 100);
 }
-

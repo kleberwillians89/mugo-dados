@@ -697,23 +697,6 @@ async def _fetch_boosted_insight_rows(
                 request_context=request_context,
             )
             insight_source = "entity_insights_daily"
-            if not rows:
-                rows = await fetch_entity_insights(
-                    entity_id=ad_id,
-                    access_token=access_token,
-                    since=since,
-                    until=until,
-                    level=None,
-                    fields=(
-                        "date_start,date_stop,ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,"
-                        "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
-                    ),
-                    time_increment="all_days",
-                    limit=200,
-                    request_context=request_context,
-                )
-                if rows:
-                    insight_source = "entity_insights_all_days"
         except Exception as exc:
             failed_ads += 1
             print(

@@ -74,8 +74,8 @@ class WideReconciliationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(cron_jobs, "sb_get_active_meta_connections", AsyncMock(return_value=conns)),
             patch.object(cron_jobs, "_acquire_lock", AsyncMock(return_value=True)),
             patch.object(cron_jobs, "_release_lock", AsyncMock()),
-            patch.object(cron_jobs, "start_job_run", AsyncMock(return_value={"id": "job-ig"})),
-            patch.object(cron_jobs, "finish_job_run", AsyncMock()),
+            patch.object(cron_jobs, "_safe_start_job_run", AsyncMock(return_value={"id": "job-ig"})),
+            patch.object(cron_jobs, "_safe_finish_job_run", AsyncMock()),
             patch.object(cron_jobs, "sync_instagram_connection", AsyncMock(return_value={"media": [{}], "comments_saved": 0})) as sync,
         ):
             result = await cron_jobs.run_daily_instagram_sync(limit=250, process_thumbnails=False)
@@ -83,6 +83,21 @@ class WideReconciliationTests(unittest.IsolatedAsyncioTestCase):
             connection_id="ig-a", limit=250, process_thumbnails=False,
         )
         self.assertEqual(result["job"], "organic_wide_reconciliation")
+
+    async def test_instagram_sync_survives_cron_job_run_fk_failure(self):
+        connection_id = "00bb094c-337a-49b3-b2bc-5aec75d79da5"
+        conns = [{"id": connection_id, "client_id": "amalie", "platform": "instagram", "connection_type": "organic"}]
+        with (
+            patch.object(cron_jobs, "sb_get_active_meta_connections", AsyncMock(return_value=conns)),
+            patch.object(cron_jobs, "_acquire_lock", AsyncMock(return_value=True)),
+            patch.object(cron_jobs, "_release_lock", AsyncMock()),
+            patch.object(cron_jobs, "start_job_run", AsyncMock(side_effect=RuntimeError("23503 cron_job_runs_connection_id_fkey"))),
+            patch.object(cron_jobs, "sync_instagram_connection", AsyncMock(return_value={"media": [{}], "comments_saved": 2})) as sync,
+        ):
+            result = await cron_jobs.run_daily_instagram_sync(limit=60)
+        sync.assert_awaited_once_with(connection_id=connection_id, limit=60, process_thumbnails=True)
+        self.assertEqual(result["connections_ok"], 1)
+        self.assertIsNone(result["results"][0]["job_run_id"])
 
 
 if __name__ == "__main__":

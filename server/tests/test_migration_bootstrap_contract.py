@@ -35,20 +35,27 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 30)
+        self.assertEqual(len(names), 31)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-5], "20260811_000026_dashboard_read_model.sql")
-        self.assertEqual(names[-4], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
-        self.assertEqual(names[-3], "20260813_000028_shopify_read_model_canonical_metrics.sql")
-        self.assertEqual(names[-2], "20260814_000029_shopify_recognized_sales_metrics.sql")
-        self.assertEqual(names[-1], "20260815_000030_shopify_recognized_customer_metrics.sql")
+        self.assertEqual(names[-2], "20260815_000030_shopify_recognized_customer_metrics.sql")
+        self.assertEqual(names[-1], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 31)))
+        self.assertEqual(logical_numbers, list(range(1, 32)))
+
+    def test_cron_job_runs_supports_both_connection_catalogs(self):
+        sql = (
+            MIGRATIONS / "20260816_000031_cron_job_runs_polymorphic_connections.sql"
+        ).read_text().lower()
+        self.assertIn("references public.meta_connections(id)", sql)
+        self.assertIn("references public.integration_connections(id)", sql)
+        self.assertIn("unexpected cron_job_runs.connection_id reference", sql)
+        self.assertIn("trg_cron_job_runs_resolve_connection", sql)
+        self.assertIn("new.meta_connection_id := new.connection_id", sql)
 
     def test_shopify_recognized_sales_are_separate_from_non_cancelled_orders(self):
         sql = (

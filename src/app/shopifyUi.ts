@@ -32,7 +32,10 @@ export function formatShopifyCompactNumber(value: number): string {
 
 export function formatShopifyShortDate(value?: string | null): string {
   if (!value) return "Sem data";
-  const parsed = new Date(value);
+  const civil = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = civil
+    ? new Date(Number(civil[1]), Number(civil[2]) - 1, Number(civil[3]))
+    : new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Sem data";
   return parsed.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -42,7 +45,10 @@ export function formatShopifyShortDate(value?: string | null): string {
 
 export function formatShopifyLongDate(value?: string | null): string {
   if (!value) return "Sem data";
-  const parsed = new Date(value);
+  const civil = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = civil
+    ? new Date(Number(civil[1]), Number(civil[2]) - 1, Number(civil[3]))
+    : new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Sem data";
   return parsed.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -56,6 +62,7 @@ export function formatShopifyDateTime(value?: string | null): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Sem registro";
   return parsed.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

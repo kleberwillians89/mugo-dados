@@ -74,6 +74,17 @@ function resolveApiBase(): string {
 }
 
 const API_BASE = resolveApiBase();
+const inFlightRouteReads = new Map<string, Promise<unknown>>();
+
+function dedupeInFlight<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const existing = inFlightRouteReads.get(key);
+  if (existing) return existing as Promise<T>;
+  const pending = load().finally(() => {
+    if (inFlightRouteReads.get(key) === pending) inFlightRouteReads.delete(key);
+  });
+  inFlightRouteReads.set(key, pending);
+  return pending;
+}
 
 type JsonRecord = Record<string, unknown>;
 type PeriodQueryInput = Partial<Period> & { days?: number; month?: string };
@@ -1793,7 +1804,11 @@ export async function getShopifyReport(
 ): Promise<ShopifyReportResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
-  const raw = await http<unknown>(pathWithPeriod("/api/shopify/report", period, fallbackDays));
+  const path = pathWithPeriod("/api/shopify/report", period, fallbackDays);
+  const raw = await dedupeInFlight(
+    `shopify-report:${getActiveClientId()}:${path}`,
+    () => http<unknown>(path),
+  );
   return normalizeShopifyReport(raw);
 }
 
@@ -1802,7 +1817,11 @@ export async function getShopifyCustomers(
 ): Promise<ShopifyCustomersResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
-  const raw = await http<unknown>(pathWithPeriod("/api/shopify/customers", period, fallbackDays));
+  const path = pathWithPeriod("/api/shopify/customers", period, fallbackDays);
+  const raw = await dedupeInFlight(
+    `shopify-customers:${getActiveClientId()}:${path}`,
+    () => http<unknown>(path),
+  );
   return normalizeShopifyCustomers(raw);
 }
 

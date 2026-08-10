@@ -137,4 +137,22 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     const reportCall = fetchMock.mock.calls.find((call) => urlOf(call).includes("/api/shopify/report"));
     expect(urlOf(reportCall)).not.toContain("connection_id=");
   });
+
+  it("deduplica somente requests simultâneas do mesmo tenant e período", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchMock = vi.fn(async () => {
+      await gate;
+      return jsonResponse(shopifyReportBody);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const period = { start: "2026-08-01", end: "2026-08-08", days: 8 };
+    const first = getShopifyReport(period);
+    const second = getShopifyReport(period);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    release();
+    await Promise.all([first, second]);
+    await getShopifyReport(period);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

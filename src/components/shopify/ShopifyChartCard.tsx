@@ -34,7 +34,7 @@ export default function ShopifyChartCard({
 }: Props) {
   const gradientId = useId().replace(/:/g, "");
   const hasData = data.some((row) => Number(row[dataKey] || 0) !== 0);
-  const latestValue = data.length ? Number(data[data.length - 1][dataKey] || 0) : 0;
+  const totalValue = data.reduce((total, row) => total + Number(row[dataKey] || 0), 0);
   const formatValue = valueFormatter || ((value: number) => new Intl.NumberFormat("pt-BR").format(value));
 
   return (
@@ -44,7 +44,9 @@ export default function ShopifyChartCard({
           <div className="shopifyMiniLabel">{title}</div>
           {description ? <p className="shopifyChartDescription">{description}</p> : null}
         </div>
-        <div className="shopifyChartValue">{formatValue(latestValue)}</div>
+        <div className="shopifyChartValue" aria-label={`${title} total no período`}>
+          {formatValue(totalValue)}
+        </div>
       </div>
 
       {!hasData ? (
@@ -79,11 +81,12 @@ export default function ShopifyChartCard({
                 boxShadow: "0 18px 40px rgba(26,23,24,.12)",
               }}
               formatter={(value) => formatValue(Number(value))}
-              labelFormatter={(value) => formatShopifyShortDate(String(value))}
+              labelFormatter={(value) => `Data: ${formatShopifyShortDate(String(value))}`}
             />
             <Area
               activeDot={{ r: 4, strokeWidth: 0, fill: color }}
               dataKey={dataKey}
+              name={title}
               fill={`url(#${gradientId})`}
               stroke={color}
               strokeLinecap="round"

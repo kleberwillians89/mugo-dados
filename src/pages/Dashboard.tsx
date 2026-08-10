@@ -54,7 +54,7 @@ import {
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { hasInstagramSnapshotData } from "../app/dashboardDataState";
 
-import { buildMonthAgg, getMonth, monthsList, pct } from "../app/aggregate";
+import { buildMonthAgg, classifyInstagramMedia, getMonth, monthsList, pct } from "../app/aggregate";
 
 import type {
   DashboardDailyRow,
@@ -1988,14 +1988,8 @@ export default function Dashboard({
   const deferredNotes = useDeferredValue(notes);
   const organicContentCounts = useMemo(() => {
     const rows = arrayOrEmpty<IgMediaItem>(mediaFiltered);
-    const reels = rows.filter(
-      (media) => String(media.media_product_type || "").toUpperCase() === "REELS"
-    ).length;
-    const posts = rows.filter((media) => {
-      const productType = String(media.media_product_type || "").toUpperCase();
-      const mediaType = String(media.media_type || "").toUpperCase();
-      return productType !== "REELS" && productType !== "STORY" && mediaType !== "STORY";
-    }).length;
+    const reels = rows.filter((media) => classifyInstagramMedia(media) === "reel").length;
+    const posts = rows.filter((media) => classifyInstagramMedia(media) === "post").length;
     const mediaCommentCount = rows.reduce(
       (total, media) => total + mediaInsightValue(media, "comments"),
       0

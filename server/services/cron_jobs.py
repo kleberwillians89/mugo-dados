@@ -40,6 +40,30 @@ async def _release_lock(client_id: str, job_name: str) -> None:
     )
 
 
+async def _safe_start_job_run(**kwargs: Any) -> Dict[str, Any] | None:
+    try:
+        return await start_job_run(**kwargs)
+    except Exception as exc:
+        print(
+            "[cron][observability_warning] stage=start_job_run "
+            f"job_name={kwargs.get('job_name')} connection_id={kwargs.get('connection_id')} "
+            f"error_type={exc.__class__.__name__}"
+        )
+        return None
+
+
+async def _safe_finish_job_run(run: Dict[str, Any] | None, **kwargs: Any) -> None:
+    if not run or not run.get("id"):
+        return
+    try:
+        await finish_job_run(run["id"], **kwargs)
+    except Exception as exc:
+        print(
+            "[cron][observability_warning] stage=finish_job_run "
+            f"job_run_id={run.get('id')} error_type={exc.__class__.__name__}"
+        )
+
+
 async def run_token_refresh_job() -> Dict[str, Any]:
     conns = await sb_get_active_meta_connections()
     results: List[Dict[str, Any]] = []
@@ -63,7 +87,7 @@ async def run_token_refresh_job() -> Dict[str, Any]:
             )
             continue
 
-        run = await start_job_run(
+        run = await _safe_start_job_run(
             job_name="meta_token_refresh",
             client_id=client_id,
             connection_id=connection_id,
@@ -78,18 +102,18 @@ async def run_token_refresh_job() -> Dict[str, Any]:
                 platform=str(c.get("platform") or ""),
                 connection_type=str(c.get("connection_type") or ""),
             )
-            await finish_job_run(
-                run["id"],
+            await _safe_finish_job_run(
+                run,
                 status="success",
                 client_id=client_id,
                 connection_id=connection_id,
                 ad_account_id=str(c.get("ad_account_id") or "").strip() or None,
                 payload_json={"platform": c.get("platform"), "connection_type": c.get("connection_type")},
             )
-            results.append({"connection_id": connection_id, "client_id": client_id, "ok": True, "job_run_id": run["id"]})
+            results.append({"connection_id": connection_id, "client_id": client_id, "ok": True, "job_run_id": (run or {}).get("id")})
         except Exception as exc:
-            await finish_job_run(
-                run["id"],
+            await _safe_finish_job_run(
+                run,
                 status="error",
                 error=str(exc),
                 client_id=client_id,
@@ -97,7 +121,7 @@ async def run_token_refresh_job() -> Dict[str, Any]:
                 ad_account_id=str(c.get("ad_account_id") or "").strip() or None,
                 payload_json={"platform": c.get("platform"), "connection_type": c.get("connection_type")},
             )
-            results.append({"connection_id": connection_id, "client_id": client_id, "ok": False, "error": str(exc)[:240], "job_run_id": run["id"]})
+            results.append({"connection_id": connection_id, "client_id": client_id, "ok": False, "error": str(exc)[:240], "job_run_id": (run or {}).get("id")})
         finally:
             await _release_lock(client_id, job_name)
 
@@ -127,7 +151,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
             results.append({"connection_id": connection_id, "client_id": client_id, "ok": False, "skipped": True, "reason": "locked"})
             continue
 
-        run = await start_job_run(
+        run = await _safe_start_job_run(
             job_name="instagram_organic_sync",
             client_id=client_id,
             connection_id=connection_id,
@@ -141,8 +165,8 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
             res = await sync_instagram_connection(
                 connection_id=connection_id, limit=limit, process_thumbnails=process_thumbnails,
             )
-            await finish_job_run(
-                run["id"],
+            await _safe_finish_job_run(
+                run,
                 status="success",
                 client_id=client_id,
                 connection_id=connection_id,
@@ -162,12 +186,12 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
                     "ok": True,
                     "comments_saved": res.get("comments_saved", 0),
                     "media_count": len(res.get("media") or []),
-                    "job_run_id": run["id"],
+                    "job_run_id": (run or {}).get("id"),
                 }
             )
         except Exception as exc:
-            await finish_job_run(
-                run["id"],
+            await _safe_finish_job_run(
+                run,
                 status="error",
                 error=str(exc),
                 client_id=client_id,
@@ -183,7 +207,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
                     "client_id": client_id,
                     "ok": False,
                     "error": str(exc)[:240],
-                    "job_run_id": run["id"],
+                    "job_run_id": (run or {}).get("id"),
                 }
             )
         finally:
