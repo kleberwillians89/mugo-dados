@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import calendar
 import math
 from datetime import date, datetime, timedelta, timezone
@@ -533,16 +534,18 @@ async def get_paid_dashboard(
     adset: str | None = None,
     ad: str | None = None,
     platform: str | None = None,
+    resolved_connection: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     since, until = _date_window(days, month, start=start, end=end)
     requested_connection_id = str(connection_id or "").strip()
-    resolved_connection = await resolve_connection_for_scope(
-        client_id=client_id,
-        platform="meta_ads",
-        connection_type="paid",
-        requested_connection_id=requested_connection_id or None,
-        require_ad_account=True,
-    )
+    if resolved_connection is None:
+        resolved_connection = await resolve_connection_for_scope(
+            client_id=client_id,
+            platform="meta_ads",
+            connection_type="paid",
+            requested_connection_id=requested_connection_id or None,
+            require_ad_account=True,
+        )
     resolved_connection_id = str(resolved_connection.get("connection_id") or "").strip()
     resolved_ad_account_id = str((resolved_connection.get("row") or {}).get("ad_account_id") or "").strip()
     connection_source = str(resolved_connection.get("source") or "none").strip() or "none"
@@ -593,33 +596,22 @@ async def get_paid_dashboard(
                 },
             },
         }
-    account_rows, account_mode = await _select_paid_rows(
-        table="ad_account_daily_stats",
-        client_id=client_id,
-        since=since,
-        until=until,
-        resolved_connection_id=resolved_connection_id,
-        resolved_ad_account_id=resolved_ad_account_id,
-        limit=10000,
-    )
-    ad_rows, ad_mode = await _select_paid_rows(
-        table="ad_daily_stats",
-        client_id=client_id,
-        since=since,
-        until=until,
-        resolved_connection_id=resolved_connection_id,
-        resolved_ad_account_id=resolved_ad_account_id,
-        limit=20000,
-    )
-    promoted_rows, promoted_mode = await _select_paid_rows(
-        table="promoted_post_daily_stats",
-        client_id=client_id,
-        since=since,
-        until=until,
-        resolved_connection_id=resolved_connection_id,
-        resolved_ad_account_id=resolved_ad_account_id,
-        limit=20000,
-        allow_missing_table=True,
+    (account_rows, account_mode), (ad_rows, ad_mode), (promoted_rows, promoted_mode) = await asyncio.gather(
+        _select_paid_rows(
+            table="ad_account_daily_stats", client_id=client_id, since=since, until=until,
+            resolved_connection_id=resolved_connection_id, resolved_ad_account_id=resolved_ad_account_id,
+            limit=10000,
+        ),
+        _select_paid_rows(
+            table="ad_daily_stats", client_id=client_id, since=since, until=until,
+            resolved_connection_id=resolved_connection_id, resolved_ad_account_id=resolved_ad_account_id,
+            limit=20000,
+        ),
+        _select_paid_rows(
+            table="promoted_post_daily_stats", client_id=client_id, since=since, until=until,
+            resolved_connection_id=resolved_connection_id, resolved_ad_account_id=resolved_ad_account_id,
+            limit=20000, allow_missing_table=True,
+        ),
     )
 
     merged_detail_rows, promoted_unique_rows = _merge_promoted_rows(

@@ -31,6 +31,7 @@ from .meta_tokens import (
 from .integration_errors import IntegrationError
 from .sync_locks import acquire_sync_lock, build_sync_lock_name, release_sync_lock
 from .periods import resolve_period
+from .dashboard_read_model import refresh_dashboard_read_model_safely
 CATALOG_EFFECTIVE_STATUSES = [
     "ACTIVE",
     "INACTIVE",
@@ -1428,11 +1429,11 @@ async def sync_ads_for_client_period(
                     "account_id,account_name,date_start,date_stop,"
                     "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values,purchase_roas"
                 ),
-                time_increment="all_days",
-                limit=50,
-                request_context={**request_context, "query_mode": "account_aggregate"},
+                time_increment=1,
+                limit=500,
+                request_context={**request_context, "query_mode": "account_daily"},
             )
-            account_query_mode = "all_days"
+            account_query_mode = "daily"
             print(
                 "[ads_sync][graph_request_complete] "
                 f"client_id={cid} connection_id={resolved_connection_id} level=account "
@@ -1478,6 +1479,21 @@ async def sync_ads_for_client_period(
                     "sync_outcome": "no_data",
                     "job_status": "skipped",
                 }
+            account_rows = _to_upsert_ready_ad_account_rows(
+                client_id=cid,
+                connection_id=resolved_connection_id,
+                meta_connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id,
+                ad_account_name=ad_account_name,
+                since=period_since,
+                raw_rows=account_rows_raw,
+            )
+            account_upsert = await _upsert_ad_account_daily_stats(account_rows)
+            print(
+                "[ads_sync][checkpoint] "
+                f"stage=account_daily client_id={cid} connection_id={resolved_connection_id} "
+                f"received={len(account_rows_raw)} saved={int(account_upsert.get('upserted') or 0)}"
+            )
             print(
                 "[ads_sync][graph_request_start] "
                 f"client_id={cid} connection_id={resolved_connection_id} level=campaign "
@@ -1502,6 +1518,17 @@ async def sync_ads_for_client_period(
                 "[ads_sync][graph_request_complete] "
                 f"client_id={cid} connection_id={resolved_connection_id} level=campaign "
                 f"duration_ms={int((time.monotonic() - graph_request_started_at) * 1000)} rows={len(campaign_rows_raw)}"
+            )
+            campaign_rows = _to_upsert_ready_campaign_rows(
+                client_id=cid, connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id, ad_account_name=ad_account_name,
+                since=period_since, raw_rows=campaign_rows_raw,
+            )
+            campaign_upsert = await _upsert_campaign_daily_stats(campaign_rows)
+            print(
+                "[ads_sync][checkpoint] "
+                f"stage=campaign_daily client_id={cid} connection_id={resolved_connection_id} "
+                f"received={len(campaign_rows_raw)} saved={int(campaign_upsert.get('upserted') or 0)}"
             )
             print(
                 "[ads_sync][graph_request_start] "
@@ -1528,6 +1555,17 @@ async def sync_ads_for_client_period(
                 "[ads_sync][graph_request_complete] "
                 f"client_id={cid} connection_id={resolved_connection_id} level=ad "
                 f"duration_ms={int((time.monotonic() - graph_request_started_at) * 1000)} rows={len(ad_rows_raw)}"
+            )
+            ad_rows = _to_upsert_ready_ad_rows(
+                client_id=cid, connection_id=resolved_connection_id,
+                ad_account_id=ad_account_id, ad_account_name=ad_account_name,
+                since=period_since, raw_rows=ad_rows_raw,
+            )
+            ad_upsert = await _upsert_ad_daily_stats(ad_rows)
+            print(
+                "[ads_sync][checkpoint] "
+                f"stage=ad_daily client_id={cid} connection_id={resolved_connection_id} "
+                f"received={len(ad_rows_raw)} saved={int(ad_upsert.get('upserted') or 0)}"
             )
             boosted_rows_raw: List[Dict[str, Any]] = []
             try:
@@ -1684,38 +1722,6 @@ async def sync_ads_for_client_period(
                         f"source=insights_maximum_synthetic rows_boosted={len(boosted_rows_raw)} "
                         f"rows_boosted_for_classic={len(boosted_rows_for_classic)}"
                     )
-            campaign_rows_with_boosted = list(campaign_rows_raw)
-            campaign_rows_with_boosted.extend(
-                [row for row in boosted_rows_for_classic if _safe_str(row.get("campaign_id"))]
-            )
-            ad_rows_with_boosted = list(ad_rows_raw)
-            ad_rows_with_boosted.extend(boosted_rows_for_classic)
-
-            account_rows = _to_upsert_ready_ad_account_rows(
-                client_id=cid,
-                connection_id=resolved_connection_id,
-                meta_connection_id=resolved_connection_id,
-                ad_account_id=ad_account_id,
-                ad_account_name=ad_account_name,
-                since=period_since,
-                raw_rows=account_rows_raw,
-            )
-            campaign_rows = _to_upsert_ready_campaign_rows(
-                client_id=cid,
-                connection_id=resolved_connection_id,
-                ad_account_id=ad_account_id,
-                ad_account_name=ad_account_name,
-                since=period_since,
-                raw_rows=campaign_rows_with_boosted,
-            )
-            ad_rows = _to_upsert_ready_ad_rows(
-                client_id=cid,
-                connection_id=resolved_connection_id,
-                ad_account_id=ad_account_id,
-                ad_account_name=ad_account_name,
-                since=period_since,
-                raw_rows=ad_rows_with_boosted,
-            )
             promoted_post_rows = _to_upsert_ready_promoted_post_rows(
                 client_id=cid,
                 connection_id=resolved_connection_id,
@@ -1732,9 +1738,6 @@ async def sync_ads_for_client_period(
                 f"rows_account={len(account_rows)} rows_campaign={len(campaign_rows)} "
                 f"rows_ad={len(ad_rows)} rows_promoted={len(promoted_post_rows)}"
             )
-            account_upsert = await _upsert_ad_account_daily_stats(account_rows)
-            campaign_upsert = await _upsert_campaign_daily_stats(campaign_rows)
-            ad_upsert = await _upsert_ad_daily_stats(ad_rows)
             promoted_upsert = await _upsert_promoted_post_daily_stats(promoted_post_rows)
             print(
                 "[ads_sync][persistence_complete] "
@@ -1763,6 +1766,14 @@ async def sync_ads_for_client_period(
                 await mark_connection_sync_partial(resolved_connection_id)
             else:
                 await mark_connection_sync_success(resolved_connection_id)
+
+            if persisted_account_rows > 0:
+                await refresh_dashboard_read_model_safely(
+                    client_id=cid,
+                    start=period_since,
+                    end=period_until,
+                    provider="meta",
+                )
 
             print(
                 "[ads_sync][done] "

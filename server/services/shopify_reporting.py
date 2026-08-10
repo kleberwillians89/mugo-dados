@@ -527,16 +527,16 @@ async def build_shopify_report(
         order="created_at_shopify.desc",
         limit=5000,
     )
-    coverage_filters = {"client_id": f"eq.{client_id}", "shop_domain": f"eq.{shop_domain}"}
-    earliest_rows = await sb_select(
-        "shopify_orders", select="created_at_shopify", filters=coverage_filters,
-        order="created_at_shopify.asc", limit=1,
-    )
+    order_dates = [value for value in (_order_date_key(order) for order in orders) if value]
+    data_min_in_period = min(order_dates) if order_dates else None
+    data_max_in_period = max(order_dates) if order_dates else None
     latest_rows = await sb_select(
-        "shopify_orders", select="created_at_shopify", filters=coverage_filters,
-        order="created_at_shopify.desc", limit=1,
+        "shopify_orders",
+        select="created_at_shopify",
+        filters={"client_id": f"eq.{client_id}", "shop_domain": f"eq.{shop_domain}"},
+        order="created_at_shopify.desc",
+        limit=1,
     )
-    data_min_available = _order_date_key(earliest_rows[0]) if earliest_rows else None
     data_max_available = _order_date_key(latest_rows[0]) if latest_rows else None
 
     order_ids = [_safe_str(order.get("shopify_order_id")) for order in orders if _safe_str(order.get("shopify_order_id"))]
@@ -610,6 +610,10 @@ async def build_shopify_report(
     refunded_amount = revenue["refunded_amount"]
     orders_count = len(orders)
     customer_keys = {_customer_identity(order) for order in orders}
+    returning_customers = sum(
+        1 for customer_id in set(customer_ids)
+        if _safe_int((customers_by_id.get(customer_id) or {}).get("orders_count")) > 1
+    )
     paid_orders_count = sum(
         1
         for order in orders
@@ -643,7 +647,8 @@ async def build_shopify_report(
             "days": period.days,
         },
         "coverage": {
-            "data_min_available": data_min_available,
+            "data_min_in_period": data_min_in_period,
+            "data_max_in_period": data_max_in_period,
             "data_max_available": data_max_available,
             "has_data_in_period": bool(orders),
         },
@@ -653,6 +658,7 @@ async def build_shopify_report(
             "orders": orders_count,
             "average_ticket": round(revenue_total / orders_count, 2) if orders_count else 0.0,
             "customers": len(customer_keys),
+            "returning_customers": returning_customers,
             "paid_orders": paid_orders_count,
             "cancelled_orders": cancelled_orders_count,
             # refunds_count/refunded_amount: reembolsos DOS PEDIDOS do

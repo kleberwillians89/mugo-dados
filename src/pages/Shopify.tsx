@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Shell from "../components/Shell";
 import ShopifyChartCard from "../components/shopify/ShopifyChartCard";
 import ShopifyCustomerFilters from "../components/shopify/ShopifyCustomerFilters";
@@ -8,9 +8,9 @@ import ShopifyKpiCard from "../components/shopify/ShopifyKpiCard";
 import ShopifyOrdersTable from "../components/shopify/ShopifyOrdersTable";
 import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
-import ShopifyWebhookStatusCard from "../components/shopify/ShopifyWebhookStatusCard";
 import { usePeriod } from "../app/PeriodContext";
-import { getShopifyCustomers, getShopifyReport, resolveShopifyConnectionIdForRead, syncShopifyConnection } from "../app/api";
+import { resolveShopifyConnectionIdForRead, syncShopifyConnection } from "../app/api";
+import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { getActiveClientId, getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
 import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
@@ -75,12 +75,6 @@ function resolveInitialPreset(start: string, end: string, days: number): PeriodP
   return "specific";
 }
 
-function toErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return "Não foi possível carregar os dados da Shopify.";
-}
-
 function asFilterNumber(value: string): number | null {
   // Campo vazio significa "sem filtro" — Number("") é 0, não deve ser
   // tratado como um limite real (senão "valor máximo" vazio esconde
@@ -137,27 +131,21 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const initialDate = todayDateInput();
   const [selectedMonth, setSelectedMonth] = useState(initialDate.month);
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
-  const [report, setReport] = useState<ShopifyReportResponse | null>(null);
-  const [customerData, setCustomerData] = useState<ShopifyCustomersResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const model = useDashboardSnapshot(period.start, period.end);
   const [error, setError] = useState<string | null>(null);
   const [syncingShopify, setSyncingShopify] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
-  const [customersLoading, setCustomersLoading] = useState(true);
-  const [customersRefreshing, setCustomersRefreshing] = useState(false);
-  const [customersError, setCustomersError] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [minTotalSpent, setMinTotalSpent] = useState("");
   const [maxTotalSpent, setMaxTotalSpent] = useState("");
   const [minOrders, setMinOrders] = useState("");
   const [customerLifecycle, setCustomerLifecycle] = useState<CustomerLifecycleFilter>("all");
   const [customerSortBy, setCustomerSortBy] = useState<CustomerSortBy>("total_spent");
-  const customerDataRef = useRef<ShopifyCustomersResponse | null>(null);
-
-  useEffect(() => {
-    customerDataRef.current = customerData;
-  }, [customerData]);
+  const customerData = useMemo<ShopifyCustomersResponse>(() => ({
+    ok: true, client_id: getActiveClientId(),
+    period: { start: period.start, end: period.end, days: periodDays }, count: 0,
+    summary: { total_customers: 0, recurring_customers: 0, multi_order_customers: 0 }, items: [],
+  }), [period.end, period.start, periodDays]);
 
   useEffect(() => {
     const startDate = new Date(`${period.start}T00:00:00`);
@@ -167,62 +155,18 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     setPreset(resolveInitialPreset(period.start, period.end, periodDays));
   }, [period.end, period.start, periodDays]);
 
-  const loadReport = useCallback(
-    async (mode: "initial" | "refresh" = "initial") => {
-      if (mode === "refresh") {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      setError(null);
-
-      try {
-        const next = await getShopifyReport({
-          start: period.start,
-          end: period.end,
-          days: periodDays,
-        });
-        setReport(next);
-      } catch (requestError: unknown) {
-        setError(toErrorMessage(requestError));
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [period.end, period.start, periodDays]
-  );
-
-  useEffect(() => {
-    void loadReport();
-  }, [loadReport]);
-
-  const loadCustomers = useCallback(async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "refresh" && customerDataRef.current) {
-      setCustomersRefreshing(true);
-    } else {
-      setCustomersLoading(true);
-    }
-    setCustomersError(null);
-
-    try {
-      const next = await getShopifyCustomers({
-        start: period.start,
-        end: period.end,
-        days: periodDays,
-      });
-      setCustomerData(next);
-    } catch (requestError: unknown) {
-      setCustomersError(toErrorMessage(requestError));
-    } finally {
-      setCustomersLoading(false);
-      setCustomersRefreshing(false);
-    }
-  }, [period.end, period.start, periodDays]);
-
-  useEffect(() => {
-    void loadCustomers();
-  }, [loadCustomers]);
+  const report = useMemo<ShopifyReportResponse | null>(() => {
+    if (!model.snapshot && model.loading) return null;
+    const total = (key: keyof (typeof model.daily)[number]) => model.daily.reduce((sum, row) => sum + Number(row[key] || 0), 0);
+    const orders = total("shopify_orders"), net = total("shopify_net_revenue"), gross = total("shopify_gross_revenue"), refunds = total("shopify_refunds");
+    const source = model.sources.find((item) => item.provider === "shopify");
+    return { ok: true, client_id: getActiveClientId(), period: { start: period.start, end: period.end, days: periodDays },
+      coverage: { data_min_in_period: model.daily[0]?.metric_date || null, data_max_in_period: model.daily.at(-1)?.metric_date || null, data_max_available: source?.data_max_available || null, has_data_in_period: model.daily.length > 0 },
+      summary: { revenue_total: gross, net_revenue: net, orders, average_ticket: orders ? net / orders : 0, customers: total("shopify_customers"), paid_orders: total("shopify_paid_orders"), cancelled_orders: 0, refunds_count: refunds ? 1 : 0, refunded_amount: refunds, refunds_occurred_in_period_count: refunds ? 1 : 0, refunds_occurred_in_period_amount: refunds },
+      trends: { daily: model.daily.map((row) => ({ date: row.metric_date, revenue: Number(row.shopify_net_revenue || 0), orders: Number(row.shopify_orders || 0), customers: Number(row.shopify_customers || 0), average_ticket: Number(row.shopify_orders) ? Number(row.shopify_net_revenue || 0) / Number(row.shopify_orders) : 0 })) },
+      recent_orders: [], top_products: model.products.map((row) => ({ product_id: String(row.product_id), title: String(row.product_title || "Produto"), variant_title: String(row.variant || ""), quantity_sold: Number(row.quantity || 0), revenue: Number(row.net_revenue || 0) })),
+      technical: { last_success_at: source?.last_success_at || null, last_received_at: source?.last_success_at || null, processed_count: 0, error_count: 0, recent_errors: [], recent_webhooks: [] } };
+  }, [model, period.end, period.start, periodDays]);
 
   const onRefreshData = useCallback(async () => {
     setSyncNotice(null);
@@ -250,11 +194,11 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
         }
       }
       // Sync concluído (ou já em andamento) — relê os dados persistidos.
-      await Promise.all([loadReport("refresh"), loadCustomers("refresh")]);
+      await model.refetch();
     } finally {
       setSyncingShopify(false);
     }
-  }, [loadCustomers, loadReport]);
+  }, [model]);
 
   const currency = report?.recent_orders[0]?.currency || "BRL";
   const summary = report?.summary;
@@ -398,7 +342,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
             <h1 className="shopifyPageTitle">Dados da Shopify</h1>
             <p className="shopifyPageSubtitle">Visão da operação da loja da {getActiveClientName()}.</p>
             <div className="shopifyHeroMeta">
-              <span className="pill">{report?.shop_domain || "Loja ainda não conectada"}</span>
+              <span className="pill">Shopify</span>
               <span className="shopifyHeroTimestamp">
                 Última leitura: {formatShopifyDateTime(report?.technical.last_received_at)}
               </span>
@@ -466,26 +410,26 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
 
             <button
               className="btn btnPrimary shopifyRefreshButton"
-              disabled={syncingShopify || refreshing || customersRefreshing}
+              disabled={syncingShopify || model.refreshing}
               onClick={() => {
                 void onRefreshData();
               }}
               type="button"
             >
-              {syncingShopify || refreshing || customersRefreshing ? "Atualizando..." : "Atualizar dados"}
+              {syncingShopify || model.refreshing ? "Atualizando..." : "Atualizar dados"}
             </button>
           </div>
         </section>
 
         {syncNotice ? <div className="shopifyFeedbackCard">{syncNotice}</div> : null}
 
-        {loading && !report ? <ShopifyReportSkeleton /> : null}
+        {model.loading && !report ? <ShopifyReportSkeleton /> : null}
 
-        {!loading && error && !report ? (
+        {!model.loading && error && !report ? (
           <div className="shopifyFeedbackCard isError">Não foi possível carregar os dados da Shopify. {error}</div>
         ) : null}
 
-        {!loading && report ? (
+        {!model.loading && report ? (
           <>
             {error ? (
               <div className="shopifyFeedbackCard">
@@ -565,13 +509,13 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 description="Visão comercial da base Shopify para identificar os melhores compradores, recorrência e profundidade de compra."
                 action={
                   <div className="shopifySectionStatus">
-                    {customersRefreshing ? <span className="pill">Atualizando...</span> : null}
+                    {model.refreshing ? <span className="pill">Atualizando...</span> : null}
                     <span className="pill">{formatShopifyCompactNumber(filteredCustomers.length)} clientes</span>
                   </div>
                 }
               />
 
-              {customersLoading && !customerData ? (
+              {model.loading && !customerData ? (
                 <div className="shopifyCustomerSkeleton">
                   <div className="shopifyCustomerSummaryGrid">
                     {Array.from({ length: 4 }).map((_, index) => (
@@ -586,13 +530,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 </div>
               ) : null}
 
-              {!customersLoading && customersError ? (
-                <div className="shopifyFeedbackCard isError">
-                  Não foi possível carregar a visão de clientes Shopify. {customersError}
-                </div>
-              ) : null}
-
-              {!customersLoading && !customersError && customerData ? (
+              {!model.loading && customerData ? (
                 <>
                   <div className="shopifyCustomerSummaryGrid">
                     {customerSummaryCards.map((card) => (
@@ -676,14 +614,6 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 <ShopifyTopProductsCard products={report.top_products} />
               </div>
 
-              <div>
-                <ShopifySectionHeader
-                  eyebrow="Apoio técnico"
-                  title="Saúde da integração"
-                  description="Bloco discreto para acompanhamento da entrada de webhooks e possíveis falhas."
-                />
-                <ShopifyWebhookStatusCard technical={report.technical} />
-              </div>
             </section>
 
             <section className="shopifySection" id="shopify-attribution">
@@ -714,8 +644,8 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 </article>
                 <article className="shopifyAttributionCard">
                   <span>Google Ads</span>
-                  <strong>Ainda não sincronizado</strong>
-                  <small>A sincronização de métricas do Google Ads ainda não está disponível nesta etapa.</small>
+                  <strong>Ver no Dashboard</strong>
+                  <small>Retorno atribuído pelo Google Ads no período selecionado.</small>
                 </article>
               </div>
               <p className="shopifyAttributionNotice">

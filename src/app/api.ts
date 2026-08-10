@@ -334,7 +334,9 @@ function toHeaders(init?: HeadersInit): Headers {
   return h;
 }
 
-async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
+const inFlightGets = new Map<string, Promise<unknown>>();
+
+async function executeHttp<T>(path: string, init: RequestInit = {}): Promise<T> {
   const safePath = path.split("?", 1)[0];
   const token = await getAccessToken();
   if (!token && !isLocalAuthEnabled()) {
@@ -421,6 +423,25 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (res.status === 204) return {} as T;
   return (await res.json()) as T;
+}
+
+function http<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = String(init.method || "GET").toUpperCase();
+  if (method !== "GET") return executeHttp<T>(path, init);
+
+  const key = `${getActiveClientId() || ""}:${path}`;
+  const existing = inFlightGets.get(key);
+  if (existing) return existing as Promise<T>;
+
+  // A caller may stop observing a GET, but an identical consumer can still
+  // reuse the same backend work. The shared request owns only its timeout.
+  const sharedInit = { ...init };
+  delete sharedInit.signal;
+  const request = executeHttp<T>(path, sharedInit).finally(() => {
+    if (inFlightGets.get(key) === request) inFlightGets.delete(key);
+  });
+  inFlightGets.set(key, request);
+  return request;
 }
 
 export async function listClients(): Promise<ClientsResponse> {
@@ -703,7 +724,8 @@ function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
       days: asNumber(period.days, 30),
     },
     coverage: Object.keys(coverage).length ? {
-      data_min_available: asString(coverage.data_min_available) || null,
+      data_min_in_period: asString(coverage.data_min_in_period) || null,
+      data_max_in_period: asString(coverage.data_max_in_period) || null,
       data_max_available: asString(coverage.data_max_available) || null,
       has_data_in_period: Boolean(coverage.has_data_in_period),
     } : undefined,

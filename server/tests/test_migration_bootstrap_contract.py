@@ -35,16 +35,34 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 24)
-        self.assertEqual(names[-6], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-1], "20260805_000024_ga4_selection_metrics.sql")
+        self.assertEqual(len(names), 26)
+        self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
+        self.assertEqual(names[-3], "20260805_000024_ga4_selection_metrics.sql")
+        self.assertEqual(names[-2], "20260810_000025_google_ads_daily_stats.sql")
+        self.assertEqual(names[-1], "20260811_000026_dashboard_read_model.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 25)))
+        self.assertEqual(logical_numbers, list(range(1, 27)))
+
+    def test_dashboard_read_model_is_tenant_scoped_read_only_and_incremental(self):
+        sql = (MIGRATIONS / "20260811_000026_dashboard_read_model.sql").read_text().lower()
+        for table in (
+            "dashboard_daily_metrics", "dashboard_campaign_metrics",
+            "dashboard_product_metrics", "dashboard_source_snapshots",
+        ):
+            self.assertIn(f"create table if not exists public.{table}", sql)
+            self.assertIn(f"alter table public.{table} enable row level security", sql)
+            self.assertIn("public.is_client_member(client_id)", sql)
+        self.assertIn("grant select on public.dashboard_daily_metrics", sql)
+        self.assertIn("from anon, authenticated", sql)
+        self.assertIn("grant execute on function public.refresh_dashboard_read_model", sql)
+        self.assertIn("to service_role", sql)
+        refresh_body = sql.split("create or replace function public.refresh_dashboard_read_model", 1)[1]
+        self.assertNotIn("delete from dashboard_", refresh_body)
 
 
 if __name__ == "__main__":

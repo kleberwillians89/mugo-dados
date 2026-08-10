@@ -13,19 +13,72 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, timedelta
+import time
 from typing import Any, Dict, Optional
 
 from .dashboard_paid import _date_window, _safe_float, _safe_int, compute_mer, get_paid_dashboard
+from .connection_resolver import resolve_connection_for_scope
 from .ga4_connections import resolve_ga4_connection_context
 from .ga4_reporting import build_ga4_report, resolve_ga4_report_period
 from .generic_connections import get_connection
+from .google_ads import build_google_ads_report, resolve_google_ads_context
 from .ig_dashboard import get_dashboard as get_organic_dashboard
 from .shopify_oauth import resolve_shopify_connection_context
-from .shopify_reporting import (
-    build_shopify_customers_report,
-    build_shopify_report,
-    resolve_shopify_report_period,
-)
+from .shopify_reporting import build_shopify_report, resolve_shopify_report_period
+
+_UNAVAILABLE = object()
+
+
+async def _timed(block: str, awaitable: Any) -> Any:
+    started = time.perf_counter()
+    try:
+        return await awaitable
+    finally:
+        print(f"[executive_timing] block={block} duration_ms={int((time.perf_counter() - started) * 1000)}")
+
+
+async def _optional(awaitable: Any) -> Any:
+    try:
+        return await awaitable
+    except Exception:
+        return _UNAVAILABLE
+
+
+async def _resolve_contexts(
+    client_id: str,
+    *,
+    meta_connection_id: Optional[str],
+    shopify_connection_id: Optional[str],
+    ga4_connection_id: Optional[str],
+) -> Dict[str, Any]:
+    shopify, meta, ga4, google_ads, instagram = await asyncio.gather(
+        _optional(resolve_shopify_connection_context(
+            client_id, connection_id=shopify_connection_id,
+            required_scopes=("read_orders", "read_customers"),
+        )),
+        _optional(resolve_connection_for_scope(
+            client_id=client_id, platform="meta_ads", connection_type="paid",
+            requested_connection_id=meta_connection_id, require_ad_account=True,
+        )),
+        _optional(resolve_ga4_connection_context(client_id, ga4_connection_id)),
+        _optional(resolve_google_ads_context(client_id)),
+        _optional(resolve_connection_for_scope(
+            client_id=client_id, platform="instagram", connection_type="organic",
+        )),
+    )
+    shopify_row = None
+    if shopify is not _UNAVAILABLE and shopify and shopify.connection_id:
+        shopify_row = await _optional(get_connection(client_id, shopify.connection_id))
+        if shopify_row is _UNAVAILABLE:
+            shopify_row = {}
+    return {
+        "shopify": shopify,
+        "shopify_row": shopify_row or {},
+        "meta": meta,
+        "ga4": ga4,
+        "google_ads": google_ads,
+        "instagram": instagram,
+    }
 
 
 def _previous_window(since: str, until: str) -> tuple[str, str]:
@@ -38,25 +91,28 @@ def _previous_window(since: str, until: str) -> tuple[str, str]:
 
 
 async def _build_shopify_section(
-    *, client_id: str, connection_id: Optional[str], since: str, until: str
+    *, client_id: str, connection_id: Optional[str], since: str, until: str,
+    context: Any = None, connection_row: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    try:
-        context = await resolve_shopify_connection_context(
-            client_id, connection_id=connection_id, required_scopes=("read_orders", "read_customers"),
-        )
-    except Exception:
+    if context is None:
+        try:
+            context = await resolve_shopify_connection_context(
+                client_id, connection_id=connection_id, required_scopes=("read_orders", "read_customers"),
+            )
+        except Exception:
+            return None
+    elif context is _UNAVAILABLE:
         return None
     period = resolve_shopify_report_period(start=since, end=until)
     report = await build_shopify_report(client_id=client_id, shop_domain=context.shop_domain, period=period)
-    customers = await build_shopify_customers_report(client_id=client_id, shop_domain=context.shop_domain, period=period)
-    try:
-        connection_row = await get_connection(client_id, context.connection_id) if context.connection_id else {}
-    except Exception:
-        connection_row = {}
+    if connection_row is None:
+        try:
+            connection_row = await get_connection(client_id, context.connection_id) if context.connection_id else {}
+        except Exception:
+            connection_row = {}
     summary = report.get("summary") or {}
-    customers_summary = customers.get("summary") or {}
-    total_customers = _safe_int(customers_summary.get("total_customers"))
-    returning_customers = _safe_int(customers_summary.get("recurring_customers"))
+    total_customers = _safe_int(summary.get("customers"))
+    returning_customers = _safe_int(summary.get("returning_customers"))
     daily = report.get("daily_commercial") or []
     coverage = report.get("coverage") or {}
     requires_reauth = str(connection_row.get("status") or "").lower() in {"reauth_required", "token_expired"}
@@ -66,7 +122,8 @@ async def _build_shopify_section(
         "connection_state": "reauth_required" if requires_reauth else "connected",
         "sync_state": "error" if last_error else "idle",
         "last_success_at": connection_row.get("last_sync_at"),
-        "data_min_available": coverage.get("data_min_available"),
+        "data_min_in_period": coverage.get("data_min_in_period"),
+        "data_max_in_period": coverage.get("data_max_in_period"),
         "data_max_available": coverage.get("data_max_available"),
         "stale": bool(last_error and connection_row.get("last_sync_at")),
         "last_error": last_error,
@@ -92,12 +149,16 @@ async def _build_shopify_section(
 
 
 async def _build_meta_section(
-    *, client_id: str, connection_id: Optional[str], since: str, until: str
+    *, client_id: str, connection_id: Optional[str], since: str, until: str,
+    resolved_connection: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     # Erro isolado: uma falha ao consultar o Meta nunca pode derrubar o
     # payload inteiro (Shopify/GA4 continuam disponíveis na mesma resposta).
     try:
-        paid = await get_paid_dashboard(client_id, connection_id=connection_id, start=since, end=until)
+        paid = await get_paid_dashboard(
+            client_id, connection_id=connection_id, start=since, end=until,
+            resolved_connection=resolved_connection,
+        )
     except Exception:
         return {"connected": False, "spend": None, "attributed_revenue": None, "roas": None, "daily": []}
     connected = bool(paid.get("connection_id"))
@@ -135,24 +196,42 @@ async def _build_meta_section(
     }
 
 
-def _build_google_ads_section() -> Dict[str, Any]:
-    # Gasto do Google Ads ainda não é persistido — nunca simular um total
-    # "Meta + Google" com dado que não existe.
+async def _build_google_ads_section(
+    *, client_id: str, since: str, until: str, context: Any = None,
+) -> Dict[str, Any]:
+    if context is _UNAVAILABLE:
+        return {"connected": False, "reason": "google_ads_not_configured", "spend": None, "conversion_value": None, "roas": None, "daily": []}
+    if context is None:
+        try:
+            context = await resolve_google_ads_context(client_id)
+        except Exception:
+            return {"connected": False, "reason": "google_ads_not_configured", "spend": None, "conversion_value": None, "roas": None, "daily": []}
+    report = await build_google_ads_report(client_id=client_id, context=context, start=since, end=until)
+    totals = report.get("totals") or {}
     return {
-        "connected": False,
-        "reason": "google_ads_spend_not_persisted",
-        "spend": None,
-        "attributed_revenue": None,
-        "roas": None,
+        "connected": True,
+        "data_available": bool(report.get("data_available")),
+        "connection_state": "connected",
+        "sync_state": "idle",
+        "data_max_available": report.get("data_max_available"),
+        "coverage": report.get("coverage"),
+        "spend": _safe_float(totals.get("spend")) if report.get("data_available") else None,
+        "conversion_value": _safe_float(totals.get("conversion_value")) if report.get("data_available") else None,
+        "attributed_revenue": _safe_float(totals.get("conversion_value")) if report.get("data_available") else None,
+        "roas": totals.get("roas") if report.get("data_available") else None,
+        "daily": report.get("daily") or [],
     }
 
 
 async def _build_ga4_section(
-    *, client_id: str, connection_id: Optional[str], since: str, until: str
+    *, client_id: str, connection_id: Optional[str], since: str, until: str, context: Any = None,
 ) -> Optional[Dict[str, Any]]:
-    try:
-        context = await resolve_ga4_connection_context(client_id, connection_id)
-    except Exception:
+    if context is None:
+        try:
+            context = await resolve_ga4_connection_context(client_id, connection_id)
+        except Exception:
+            return None
+    elif context is _UNAVAILABLE:
         return None
     period = resolve_ga4_report_period(start=since, end=until)
     report = await build_ga4_report(client_id=client_id, property_id=context.property_id, period=period)
@@ -184,11 +263,13 @@ async def _build_ga4_section(
 
 
 async def _build_instagram_section(
-    *, client_id: str, connection_id: Optional[str], since: str, until: str
+    *, client_id: str, connection_id: Optional[str], since: str, until: str,
+    resolved_connection: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     try:
         report = await get_organic_dashboard(
             client_id=client_id, connection_id=connection_id, start=since, end=until,
+            resolved_connection=resolved_connection,
         )
     except Exception:
         return None
@@ -217,7 +298,7 @@ def _build_total_paid_media(
     if meta.get("connected") and meta.get("spend") is not None:
         included_paid_sources.append("meta")
         spend += _safe_float(meta.get("spend"))
-    if google_ads.get("connected"):
+    if google_ads.get("connected") and google_ads.get("spend") is not None:
         included_paid_sources.append("google_ads")
         spend += _safe_float(google_ads.get("spend"))
     net_revenue = shopify.get("net_revenue") if shopify else None
@@ -292,12 +373,15 @@ async def _build_period_payload(
     meta_connection_id: Optional[str],
     shopify_connection_id: Optional[str],
     ga4_connection_id: Optional[str],
+    contexts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    shopify_result, meta_result, ga4_result, instagram_result = await asyncio.gather(
-        _build_shopify_section(client_id=client_id, connection_id=shopify_connection_id, since=since, until=until),
-        _build_meta_section(client_id=client_id, connection_id=meta_connection_id, since=since, until=until),
-        _build_ga4_section(client_id=client_id, connection_id=ga4_connection_id, since=since, until=until),
-        _build_instagram_section(client_id=client_id, connection_id=None, since=since, until=until),
+    contexts = contexts or {}
+    shopify_result, meta_result, ga4_result, google_ads_result, instagram_result = await asyncio.gather(
+        _timed("shopify", _build_shopify_section(client_id=client_id, connection_id=shopify_connection_id, since=since, until=until, context=contexts.get("shopify"), connection_row=contexts.get("shopify_row"))),
+        _timed("meta_paid", _build_meta_section(client_id=client_id, connection_id=meta_connection_id, since=since, until=until, resolved_connection=contexts.get("meta"))),
+        _timed("ga4", _build_ga4_section(client_id=client_id, connection_id=ga4_connection_id, since=since, until=until, context=contexts.get("ga4"))),
+        _timed("google_ads", _build_google_ads_section(client_id=client_id, since=since, until=until, context=contexts.get("google_ads"))),
+        _timed("instagram", _build_instagram_section(client_id=client_id, connection_id=None, since=since, until=until, resolved_connection=contexts.get("instagram"))),
         return_exceptions=True,
     )
     shopify = None if isinstance(shopify_result, Exception) else shopify_result
@@ -307,8 +391,11 @@ async def _build_period_payload(
         if isinstance(meta_result, Exception) else meta_result
     )
     ga4 = None if isinstance(ga4_result, Exception) else ga4_result
+    google_ads = (
+        {"connected": False, "reason": "google_ads_read_error", "spend": None, "conversion_value": None, "roas": None, "daily": []}
+        if isinstance(google_ads_result, Exception) else google_ads_result
+    )
     instagram = None if isinstance(instagram_result, Exception) else instagram_result
-    google_ads = _build_google_ads_section()
     total_paid_media = _build_total_paid_media(meta=meta, google_ads=google_ads, shopify=shopify)
     daily = _build_daily_series(
         since=since, until=until, shopify=shopify, meta=meta, ga4=ga4, instagram=instagram,
@@ -339,22 +426,30 @@ async def get_executive_summary(
     include_previous_period: bool = True,
 ) -> Dict[str, Any]:
     since, until = _date_window(days, month, start=start, end=end)
-    current = await _build_period_payload(
-        client_id=client_id, since=since, until=until, days=days,
+    started = time.perf_counter()
+    contexts = await _timed("connections", _resolve_contexts(
+        client_id,
         meta_connection_id=meta_connection_id,
         shopify_connection_id=shopify_connection_id,
         ga4_connection_id=ga4_connection_id,
-    )
-
+    ))
     previous_payload = None
     deltas = None
     if include_previous_period:
         prev_since, prev_until = _previous_window(since, until)
-        previous_payload = await _build_period_payload(
-            client_id=client_id, since=prev_since, until=prev_until, days=days,
-            meta_connection_id=meta_connection_id,
-            shopify_connection_id=shopify_connection_id,
-            ga4_connection_id=ga4_connection_id,
+        current, previous_payload = await asyncio.gather(
+            _build_period_payload(
+                client_id=client_id, since=since, until=until, days=days,
+                meta_connection_id=meta_connection_id, shopify_connection_id=shopify_connection_id,
+                ga4_connection_id=ga4_connection_id,
+                contexts=contexts,
+            ),
+            _timed("comparison", _build_period_payload(
+                client_id=client_id, since=prev_since, until=prev_until, days=days,
+                meta_connection_id=meta_connection_id, shopify_connection_id=shopify_connection_id,
+                ga4_connection_id=ga4_connection_id,
+                contexts=contexts,
+            )),
         )
         cur_shopify = current.get("shopify") or {}
         prev_shopify = previous_payload.get("shopify") or {}
@@ -369,6 +464,15 @@ async def get_executive_summary(
             "meta_roas": _delta(cur_meta.get("roas"), prev_meta.get("roas")),
             "blended_roas": _delta(cur_total.get("blended_roas"), prev_total.get("blended_roas")),
         }
+    else:
+        current = await _build_period_payload(
+            client_id=client_id, since=since, until=until, days=days,
+            meta_connection_id=meta_connection_id, shopify_connection_id=shopify_connection_id,
+            ga4_connection_id=ga4_connection_id,
+            contexts=contexts,
+        )
+
+    print(f"[executive_timing] block=total duration_ms={int((time.perf_counter() - started) * 1000)}")
 
     return {
         "ok": True,

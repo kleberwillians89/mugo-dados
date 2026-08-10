@@ -9,7 +9,6 @@ from typing import Any, Dict, Iterable, List
 
 import httpx
 
-from .executive_dashboard import get_executive_summary
 from .periods import resolve_period
 from .generic_connections import list_generic_connections
 from .ig_supabase import sb_insert, sb_select, sb_update
@@ -246,6 +245,52 @@ def _status_for(source: Dict[str, Any]) -> str:
     }.get(_text(source.get("status")), "unavailable")
 
 
+async def _read_model_executive_context(
+    client_id: str, start_date: date, end_date: date, previous_start: date, previous_end: date
+) -> Dict[str, Any]:
+    rows, snapshots = await asyncio.gather(
+        _query_period(
+            "dashboard_daily_metrics", client_id=client_id, select="*", date_column="metric_date",
+            start=previous_start, end=end_date, limit=800,
+        ),
+        sb_select("dashboard_source_snapshots", filters={"client_id": f"eq.{client_id}"}, limit=20),
+    )
+    by_provider = {_text(row.get("provider")): row for row in snapshots}
+
+    def section(period_start: date, period_end: date) -> Dict[str, Any]:
+        selected = [row for row in rows if period_start.isoformat() <= _text(row.get("metric_date")) <= period_end.isoformat()]
+        net = _sum(selected, "shopify_net_revenue")
+        orders = _sum(selected, "shopify_orders")
+        meta_spend = _sum(selected, "meta_spend")
+        meta_revenue = _sum(selected, "meta_attributed_revenue")
+        google_spend = _sum(selected, "google_ads_spend")
+        google_value = _sum(selected, "google_ads_conversion_value")
+        paid = meta_spend + google_spend
+        source = lambda provider: by_provider.get(provider, {})
+        return {
+            "shopify": {"connected": True, "data_available": any(row.get("shopify_net_revenue") is not None for row in selected), "net_revenue": net, "orders": orders, "average_order_value": net / orders if orders else None, "new_customers": _sum(selected, "shopify_customers"), "returning_customers": None, "last_success_at": source("shopify").get("last_success_at"), "data_max_available": source("shopify").get("data_max_available")},
+            "meta": {"connected": True, "data_available": any(row.get("meta_spend") is not None for row in selected), "spend": meta_spend, "attributed_revenue": meta_revenue, "roas": meta_revenue / meta_spend if meta_spend else None, "last_success_at": source("meta").get("last_success_at"), "data_max_available": source("meta").get("data_max_available")},
+            "google_ads": {"connected": True, "data_available": any(row.get("google_ads_spend") is not None for row in selected), "spend": google_spend, "attributed_revenue": google_value, "roas": google_value / google_spend if google_spend else None, "last_success_at": source("google_ads").get("last_success_at"), "data_max_available": source("google_ads").get("data_max_available")},
+            "ga4": {"connected": True, "data_available": any(row.get("ga4_sessions") is not None for row in selected), "sessions": _sum(selected, "ga4_sessions"), "users": _sum(selected, "ga4_users"), "last_success_at": source("ga4").get("last_success_at"), "data_max_available": source("ga4").get("data_max_available")},
+            "instagram": {"connected": True, "data_available": any(row.get("instagram_reach") is not None for row in selected), "last_success_at": source("instagram").get("last_success_at"), "data_max_available": source("instagram").get("data_max_available")},
+            "total_paid_media": {"paid_media_spend": paid, "included_paid_sources": [provider for provider, value in (("meta", meta_spend), ("google_ads", google_spend)) if value], "blended_roas": net / paid if paid else None},
+        }
+
+    current = section(start_date, end_date)
+    previous = section(previous_start, previous_end)
+    def delta(current_value: Any, previous_value: Any) -> Dict[str, float | None]:
+        current_number, previous_number = _number(current_value), _number(previous_value)
+        return {"absolute": current_number - previous_number, "percent": ((current_number - previous_number) / abs(previous_number) * 100) if previous_number else None}
+    current["previous_period"] = previous
+    current["deltas"] = {
+        "shopify_net_revenue": delta(current["shopify"]["net_revenue"], previous["shopify"]["net_revenue"]),
+        "shopify_orders": delta(current["shopify"]["orders"], previous["shopify"]["orders"]),
+        "meta_spend": delta(current["meta"]["spend"], previous["meta"]["spend"]),
+        "blended_roas": delta(current["total_paid_media"]["blended_roas"], previous["total_paid_media"]["blended_roas"]),
+    }
+    return current
+
+
 async def calculate_intelligence_snapshot(
     *,
     client_id: str,
@@ -257,6 +302,71 @@ async def calculate_intelligence_snapshot(
     period_days = (end_date - start_date).days + 1
     previous_end = start_date - timedelta(days=1)
     previous_start = previous_end - timedelta(days=period_days - 1)
+
+    executive_context = await _read_model_executive_context(
+        client_id, start_date, end_date, previous_start, previous_end
+    )
+    current = executive_context or {}
+    previous = current.get("previous_period") or {}
+    deltas = current.get("deltas") or {}
+    shopify = current.get("shopify") or {}
+    meta = current.get("meta") or {}
+    google_ads = current.get("google_ads") or {}
+    ga4 = current.get("ga4") or {}
+    instagram = current.get("instagram") or {}
+    total_media = current.get("total_paid_media") or {}
+
+    def provider_source(source_id: str, label: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        coverage = payload.get("coverage") if isinstance(payload.get("coverage"), dict) else {}
+        connected = bool(payload.get("connected"))
+        available = bool(payload.get("data_available", connected and payload.get("data_max_available")))
+        state = "partial" if coverage.get("is_partial") else "available" if available else "connected_no_data" if connected else "not_connected"
+        return {
+            "id": source_id, "label": label, "status": state,
+            "connected": connected, "last_sync_at": payload.get("last_success_at"),
+            "data_max_available": payload.get("data_max_available"), "coverage": coverage,
+            "last_error": payload.get("last_error"),
+        }
+
+    sources = [
+        provider_source("commerce", "E-commerce", shopify),
+        provider_source("meta", "Meta Ads", meta),
+        provider_source("google_ads", "Google Ads", google_ads),
+        provider_source("ga4", "Google Analytics 4", ga4),
+        provider_source("instagram", "Instagram", instagram),
+    ]
+    prev_shopify = previous.get("shopify") or {}
+    prev_meta = previous.get("meta") or {}
+    metrics = [
+        _metric("revenue", "Faturamento", shopify.get("net_revenue"), fmt="currency", status="confirmed" if shopify.get("net_revenue") is not None else "unavailable", source="shopify", previous=prev_shopify.get("net_revenue"), variation=(deltas.get("shopify_net_revenue") or {}).get("percent")),
+        _metric("orders", "Pedidos", shopify.get("orders"), fmt="integer", status="confirmed" if shopify.get("orders") is not None else "unavailable", source="shopify", previous=prev_shopify.get("orders"), variation=(deltas.get("shopify_orders") or {}).get("percent")),
+        _metric("average_ticket", "Ticket médio", shopify.get("average_order_value"), fmt="currency", status="confirmed" if shopify.get("average_order_value") is not None else "unavailable", source="shopify"),
+        _metric("new_customers", "Novos clientes", shopify.get("new_customers"), fmt="integer", status="confirmed" if shopify.get("new_customers") is not None else "unavailable", source="shopify"),
+        _metric("repeat_customers", "Clientes recorrentes", shopify.get("returning_customers"), fmt="integer", status="confirmed" if shopify.get("returning_customers") is not None else "unavailable", source="shopify"),
+        _metric("meta_investment", "Investimento Meta", meta.get("spend"), fmt="currency", status="partial" if (meta.get("coverage") or {}).get("is_partial") else "confirmed" if meta.get("spend") is not None else "unavailable", source="meta", previous=prev_meta.get("spend"), variation=(deltas.get("meta_spend") or {}).get("percent")),
+        _metric("google_ads_investment", "Investimento Google Ads", google_ads.get("spend"), fmt="currency", status="partial" if (google_ads.get("coverage") or {}).get("is_partial") else "confirmed" if google_ads.get("spend") is not None else "unavailable", source="google_ads"),
+        _metric("investment", "Investimento total", total_media.get("paid_media_spend"), fmt="currency", status="confirmed" if total_media.get("paid_media_spend") is not None else "unavailable", source="paid_media", extra={"included_paid_sources": total_media.get("included_paid_sources") or []}),
+        _metric("roas", "Retorno real geral", total_media.get("blended_roas"), fmt="decimal", status="confirmed" if total_media.get("blended_roas") is not None else "unavailable", source="shopify+paid_media", variation=(deltas.get("blended_roas") or {}).get("percent"), extra={"included_paid_sources": total_media.get("included_paid_sources") or []}),
+        _metric("sessions", "Sessões", ga4.get("sessions"), fmt="integer", status="confirmed" if ga4.get("sessions") is not None else "unavailable", source="ga4"),
+    ]
+    available_sources = sum(1 for source in sources if source["status"] in {"available", "partial"})
+    quality_score = round(available_sources / len(sources) * 100)
+    return {
+        "client": {"id": client_id, "name": "Empresa ativa"},
+        "period": {
+            "start": start_date.isoformat(), "end": end_date.isoformat(), "days": period_days,
+            "previous_start": previous_start.isoformat(), "previous_end": previous_end.isoformat(),
+        },
+        "sources": sources,
+        "quality": {
+            "score": quality_score, "status": "good" if quality_score >= 75 else "partial" if quality_score >= 40 else "limited",
+            "available_sources": available_sources, "total_sources": len(sources), "errors": 0,
+            "message": "Qualidade baseada exclusivamente no contexto executivo persistido.",
+        },
+        "last_sync_at": max((str(source.get("last_sync_at") or "") for source in sources), default="") or None,
+        "metrics": metrics, "crossings": [], "top_campaigns": [],
+        "executive_context": executive_context,
+    }
 
     shop_select = "shopify_order_id,customer_id,email,total_price,cancelled_at,created_at_shopify"
     paid_select = "stat_date,spend,conversions,revenue,updated_at"

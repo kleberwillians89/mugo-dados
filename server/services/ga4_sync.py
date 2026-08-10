@@ -12,6 +12,7 @@ from .ga4_reporting import GA4ReportPeriod, resolve_ga4_report_period
 from .ig_supabase import sb_delete, sb_insert_many, sb_upsert
 from .job_runs import finish_job_run, start_job_run
 from .single_tenant import resolve_ga4_context_for_client
+from .dashboard_read_model import refresh_dashboard_read_model_safely
 
 GA4_FUNNEL_EVENTS = ("view_item", "add_to_cart", "begin_checkout", "purchase")
 GA4_REPORT_METRICS = (
@@ -530,6 +531,12 @@ async def _sync_ga4_for_period(
             await _upsert_with_compatibility(
                 table="ga4_daily_stats", rows=daily_rows,
                 on_conflict="client_id,property_id,stat_date",
+            )
+            await refresh_dashboard_read_model_safely(
+                client_id=resolved_client_id,
+                start=period.start.isoformat(),
+                end=period.end.isoformat(),
+                provider="ga4",
             )
         channel_report = await _run_named_report(
             "channels",

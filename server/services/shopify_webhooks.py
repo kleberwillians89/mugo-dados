@@ -968,6 +968,25 @@ async def process_shopify_webhook_event(
         else:
             result = {"ignored": True}
 
+        if topic.startswith("orders/") or topic == "refunds/create":
+            order_payload = payload_json if topic.startswith("orders/") else _safe_json(payload_json.get("order"))
+            order_date = _safe_str(order_payload.get("created_at"))[:10]
+            if not order_date and topic == "refunds/create" and input_order_id:
+                persisted_order = await sb_get_one_by(
+                    "shopify_orders",
+                    filters={"client_id": f"eq.{client_id}", "shopify_order_id": f"eq.{input_order_id}"},
+                    select="created_at_shopify",
+                )
+                order_date = _safe_str((persisted_order or {}).get("created_at_shopify"))[:10]
+            if len(order_date) == 10:
+                from .dashboard_read_model import refresh_dashboard_read_model_safely
+                await refresh_dashboard_read_model_safely(
+                    client_id=client_id,
+                    start=order_date,
+                    end=order_date,
+                    provider="shopify",
+                )
+
         await _mark_shopify_webhook_status(event_id, status="processed")
         _log_shopify_event(
             status="processed",

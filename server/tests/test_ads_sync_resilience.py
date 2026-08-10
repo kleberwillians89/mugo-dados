@@ -149,6 +149,32 @@ class NoDataPathTests(_BaseAdsSyncTest):
         self.assertEqual(len(self.release_lock_calls), 1)
 
 
+class DailyCheckpointTests(_BaseAdsSyncTest):
+    async def test_daily_rows_are_saved_before_optional_boosted_failure(self):
+        account = [{"date_start": f"2026-08-{day:02d}", "spend": "10"} for day in range(4, 11)]
+        campaign = [{"date_start": "2026-08-04", "campaign_id": "c1", "spend": "10"}]
+        ads = [{"date_start": "2026-08-04", "campaign_id": "c1", "adset_id": "s1", "ad_id": "a1", "spend": "10"}]
+        fetch = AsyncMock(side_effect=[account, campaign, ads])
+        self._install(ads_sync, "fetch_ad_account_insights", fetch)
+        ads_sync._fetch_boosted_insight_rows.side_effect = RuntimeError("catalog unavailable")
+        ads_sync._upsert_ad_account_daily_stats.return_value = {"upserted": 7, "skipped": False}
+        ads_sync._upsert_campaign_daily_stats.return_value = {"upserted": 1, "skipped": False}
+        ads_sync._upsert_ad_daily_stats.return_value = {"upserted": 1, "skipped": False}
+        ads_sync._readback_persisted_rows.return_value = {
+            **_empty_readback(), "ad_account_daily_stats": {"count": 7, "mode": "connection_scope"},
+        }
+
+        result = await ads_sync.sync_ads_for_client_period(
+            client_id="amalie", since="2026-08-04", until="2026-08-10", connection_id="conn-1",
+        )
+
+        self.assertEqual(fetch.await_args_list[0].kwargs["time_increment"], 1)
+        ads_sync._upsert_ad_account_daily_stats.assert_awaited_once()
+        ads_sync._upsert_campaign_daily_stats.assert_awaited_once()
+        ads_sync._upsert_ad_daily_stats.assert_awaited_once()
+        self.assertEqual(result["saved"]["ad_account_daily_stats"], 7)
+
+
 class LockIdentityTests(unittest.TestCase):
     def test_lock_name_ignores_since_and_until(self):
         with_period = build_sync_lock_name("meta_ads", "conn-1", "2026-07-01", "2026-07-31")

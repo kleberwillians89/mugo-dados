@@ -789,6 +789,20 @@ async def sync_shopify_connection(
                     provider="shopify",
                 )
 
+            persisted_order_dates = sorted({
+                str(order.get("created_at") or "")[:10]
+                for order in orders
+                if len(str(order.get("created_at") or "")) >= 10
+            })
+            if orders_upserted > 0 and persisted_order_dates:
+                from .dashboard_read_model import refresh_dashboard_read_model_safely
+                await refresh_dashboard_read_model_safely(
+                    client_id=client_id,
+                    start=persisted_order_dates[0],
+                    end=persisted_order_dates[-1],
+                    provider="shopify",
+                )
+
             now = datetime.now(timezone.utc).isoformat()
             if context.connection_id:
                 await sb_update(

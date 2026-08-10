@@ -1,107 +1,22 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCampaignsRanking } from "../../app/api";
+import { useCallback, useMemo } from "react";
+import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import type { CampaignsListResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
-import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "./cache";
 
-type Params = {
-  isAuthenticated: boolean;
-  activeClientId: string;
-  activeConnectionId?: string | null;
-  enabled?: boolean;
-  period?: DashboardPeriod | null;
-};
-
-function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-export default function useCampaignsRanking({
-  isAuthenticated,
-  activeClientId,
-  activeConnectionId,
-  enabled = true,
-  period,
-}: Params) {
-  const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
-  const resolvedConnectionId = useMemo(() => String(activeConnectionId || "").trim(), [activeConnectionId]);
-  const cacheKey = useMemo(
-    () =>
-      buildDashboardCacheKey("campaigns-ranking", {
-        clientId: activeClientId,
-        connectionId: resolvedConnectionId || "-",
-        start: safePeriod.start,
-        end: safePeriod.end,
-      }),
-    [activeClientId, resolvedConnectionId, safePeriod.end, safePeriod.start]
-  );
-  const cachedInitial = useMemo(
-    () => (resolvedConnectionId ? readDashboardCache<CampaignsListResponse>(cacheKey) : null),
-    [cacheKey, resolvedConnectionId]
-  );
-
-  const [campaignsData, setCampaignsData] = useState<CampaignsListResponse | null>(cachedInitial);
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [campaignsError, setCampaignsError] = useState<string | null>(null);
-  const requestRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const dataRef = useRef<CampaignsListResponse | null>(cachedInitial);
-  const cacheKeyRef = useRef(cacheKey);
-
-  useEffect(() => {
-    dataRef.current = campaignsData;
-  }, [campaignsData]);
-
-  if (cacheKeyRef.current !== cacheKey) {
-    cacheKeyRef.current = cacheKey;
-    abortRef.current?.abort();
-    requestRef.current += 1;
-    const next = resolvedConnectionId ? cachedInitial : null;
-    dataRef.current = next;
-    setCampaignsData(next);
-    setCampaignsError(null);
-  }
-
-  const reloadCampaigns = useCallback(async () => {
-    if (!isAuthenticated || !activeClientId || !resolvedConnectionId || !enabled) return null;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const reqId = ++requestRef.current;
-    setLoadingCampaigns(!dataRef.current);
-    setCampaignsError(null);
-    try {
-      const response = await getCampaignsRanking(
-        { start: safePeriod.start, end: safePeriod.end },
-        { connectionId: resolvedConnectionId, limit: 8, signal: controller.signal }
-      );
-      if (reqId !== requestRef.current) return null;
-      startTransition(() => setCampaignsData(response));
-      dataRef.current = response;
-      writeDashboardCache<CampaignsListResponse>(cacheKey, response, 180_000);
-      return response;
-    } catch (error: unknown) {
-      if (isAbortError(error) || reqId !== requestRef.current) return null;
-      setCampaignsError(errorMessage(error, "Erro ao carregar campanhas"));
-      return null;
-    } finally {
-      if (reqId === requestRef.current) setLoadingCampaigns(false);
+export default function useCampaignsRanking({ activeClientId, enabled=true, period }: { isAuthenticated:boolean;activeClientId:string;activeConnectionId?:string|null;enabled?:boolean;period?:DashboardPeriod|null }) {
+  const safe=useMemo(()=>ensureDashboardPeriod(period),[period]);
+  const model=useDashboardSnapshot(safe.start,safe.end);
+  const campaignsData=useMemo<CampaignsListResponse|null>(()=>{
+    if(!enabled||!activeClientId||(!model.snapshot&&model.loading))return null;
+    const grouped=new Map<string,Record<string,number|string>>();
+    for(const row of model.campaigns.filter(item=>item.provider==="meta")){
+      const id=String(row.campaign_id);const current=grouped.get(id)||{campaign_id:id,campaign_name:String(row.campaign_name||id),spend:0,impressions:0,reach:0,clicks:0,conversions:0,revenue:0,last_stat_date:""};
+      for(const key of ["spend","impressions","reach","clicks","conversions","revenue"] as const)current[key]=Number(current[key]||0)+Number(row[key]||0);
+      current.last_stat_date=String(row.metric_date);grouped.set(id,current);
     }
-  }, [activeClientId, cacheKey, enabled, isAuthenticated, resolvedConnectionId, safePeriod.end, safePeriod.start]);
-
-  useEffect(() => {
-    if (!enabled || !isAuthenticated || !activeClientId || !resolvedConnectionId) return;
-    void reloadCampaigns();
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, [activeClientId, enabled, isAuthenticated, reloadCampaigns, resolvedConnectionId]);
-
-  return { campaignsData, loadingCampaigns, campaignsError, reloadCampaigns };
+    const campaigns=[...grouped.values()].map(row=>{const spend=Number(row.spend),impressions=Number(row.impressions),clicks=Number(row.clicks),revenue=Number(row.revenue);return {...row,cpc:clicks?spend/clicks:0,cpm:impressions?spend*1000/impressions:0,ctr:impressions?clicks*100/impressions:0,roas:spend?revenue/spend:null};}).sort((a,b)=>Number((b as Record<string,unknown>).spend)-Number((a as Record<string,unknown>).spend)).slice(0,8);
+    return {ok:true,client_id:activeClientId,date_range:{since:safe.start,until:safe.end},campaigns:campaigns as CampaignsListResponse["campaigns"],total:campaigns.length};
+  },[activeClientId,enabled,model.campaigns,model.loading,model.snapshot,safe.end,safe.start]);
+  const reloadCampaigns=useCallback(()=>model.refetch() as Promise<unknown> as Promise<CampaignsListResponse|null>,[model]);
+  return {campaignsData,loadingCampaigns:model.loading&&!campaignsData,campaignsError:model.error,reloadCampaigns};
 }

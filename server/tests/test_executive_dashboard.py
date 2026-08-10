@@ -103,19 +103,52 @@ class ShopifyRevenueTemporalConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["summary"]["net_revenue"], 200.0)
         self.assertEqual(report["summary"]["cancelled_orders"], 1)
 
+    async def test_shopify_summary_daily_invariants_and_global_freshness(self):
+        period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-10")
+        orders = [
+            _order("1001", "200.00", created="2026-08-05T12:00:00Z"),
+            {**_order("1002", "400.00", created="2026-08-06T12:00:00Z"), "customer_id": "cust-2", "email": "b@amalie.com"},
+        ]
+
+        async def fake_select(table, *, select=None, filters=None, order=None, limit=None):
+            if table == "shopify_orders" and select == "created_at_shopify":
+                return [{"created_at_shopify": "2026-08-20T12:00:00Z"}]
+            if table == "shopify_orders":
+                return orders
+            if table == "shopify_customers":
+                return [{"shopify_customer_id": "cust-1", "orders_count": 2}, {"shopify_customer_id": "cust-2", "orders_count": 1}]
+            return []
+
+        with (
+            patch.object(shopify_reporting, "sb_select", fake_select),
+            patch.object(shopify_reporting, "list_recent_shopify_webhooks", AsyncMock(return_value=[])),
+        ):
+            report = await shopify_reporting.build_shopify_report(
+                client_id="amalie", shop_domain="amalie.myshopify.com", period=period,
+            )
+
+        summary = report["summary"]
+        self.assertEqual(sum(day["revenue"] for day in report["trends"]["daily"]), summary["revenue_total"])
+        self.assertEqual(sum(day["orders"] for day in report["trends"]["daily"]), summary["orders"])
+        self.assertEqual(summary["average_ticket"], summary["revenue_total"] / summary["orders"])
+        self.assertEqual(summary["customers"], 2)
+        self.assertEqual(summary["returning_customers"], 1)
+        self.assertEqual(report["coverage"]["data_max_in_period"], "2026-08-06")
+        self.assertEqual(report["coverage"]["data_max_available"], "2026-08-20")
+
 
 class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):
     async def test_blended_roas_uses_same_period_for_shopify_and_meta(self):
         seen_windows: list[tuple[str, str, str]] = []
 
-        async def fake_shopify_section(*, client_id, connection_id, since, until):
+        async def fake_shopify_section(*, client_id, connection_id, since, until, **_kwargs):
             seen_windows.append(("shopify", since, until))
             return {"connected": True, "net_revenue": 1000.0, "gross_revenue": 1000.0, "orders": 10,
                     "paid_orders": 10, "cancelled_orders": 0, "refunds": 0, "refunded_amount": 0.0,
                     "refunds_occurred_in_period_count": 0, "refunds_occurred_in_period_amount": 0.0,
                     "average_order_value": 100.0, "new_customers": 5, "returning_customers": 5}
 
-        async def fake_meta_section(*, client_id, connection_id, since, until):
+        async def fake_meta_section(*, client_id, connection_id, since, until, **_kwargs):
             seen_windows.append(("meta", since, until))
             return {"connected": True, "spend": 500.0, "attributed_revenue": 2000.0, "roas": 4.0}
 
@@ -146,7 +179,9 @@ class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total_paid_media"]["included_paid_sources"], ["meta"])
 
     async def test_google_ads_absence_is_never_treated_as_connected_with_zero_spend(self):
-        section = ed._build_google_ads_section()
+        section = await ed._build_google_ads_section(
+            client_id="amalie", since="2026-08-01", until="2026-08-10", context=ed._UNAVAILABLE,
+        )
         self.assertFalse(section["connected"])
         self.assertIsNone(section["spend"])
         self.assertNotIn("google_ads", ed._build_total_paid_media(
@@ -168,7 +203,9 @@ class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(section["data_available"])
         self.assertIsNone(section["spend"])
         total = ed._build_total_paid_media(
-            meta=section, google_ads=ed._build_google_ads_section(), shopify={"net_revenue": 100.0},
+            meta=section, google_ads=await ed._build_google_ads_section(
+                client_id="amalie", since="2026-08-01", until="2026-08-10", context=ed._UNAVAILABLE,
+            ), shopify={"net_revenue": 100.0},
         )
         self.assertIsNone(total["paid_media_spend"])
         self.assertEqual(total["included_paid_sources"], [])
@@ -189,7 +226,7 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         }
 
         with (
-            patch.object(intelligence, "get_executive_summary", AsyncMock(return_value=fake_executive)),
+            patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=fake_executive)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):
@@ -211,7 +248,7 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         from services import intelligence
 
         with (
-            patch.object(intelligence, "get_executive_summary", AsyncMock(return_value=None)),
+            patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=None)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):
@@ -241,7 +278,7 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
             "deltas": None,
         }
         with (
-            patch.object(intelligence, "get_executive_summary", AsyncMock(return_value=fake_executive)),
+            patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=fake_executive)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):

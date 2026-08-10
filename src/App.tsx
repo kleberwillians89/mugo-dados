@@ -6,7 +6,7 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { getPlatformProfile, listClients, listPlatformCompanies, openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
+import { openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
@@ -19,6 +19,7 @@ import Login from "./pages/Login";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
+import { DashboardDataProvider } from "./app/DashboardDataContext";
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -196,6 +197,29 @@ function isReadOnlyClientRole(role: string | null | undefined): boolean {
   return !["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(normalized);
 }
 
+async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: boolean; clients: ClientMembership[] }> {
+  if (!supabase) return { platformAdmin: false, clients: [] };
+  const [adminResult, membershipsResult] = await Promise.all([
+    supabase.from("platform_admins").select("user_id").eq("user_id", userId).maybeSingle(),
+    supabase.from("client_memberships").select("client_id,role").eq("user_id", userId),
+  ]);
+  if (membershipsResult.error) throw membershipsResult.error;
+  const platformAdmin = Boolean(adminResult.data) && !adminResult.error;
+  const membershipRows = membershipsResult.data || [];
+  const ids = membershipRows.map((row) => String(row.client_id));
+  const clientsResult = platformAdmin
+    ? await supabase.from("clients").select("id,name,trade_name").order("name")
+    : ids.length
+      ? await supabase.from("clients").select("id,name,trade_name").in("id", ids)
+      : { data: [], error: null };
+  if (clientsResult.error) throw clientsResult.error;
+  const names = new Map((clientsResult.data || []).map((row) => [String(row.id), String(row.trade_name || row.name || row.id)]));
+  const clients = platformAdmin
+    ? (clientsResult.data || []).map((row) => ({ client_id: String(row.id), name: String(row.trade_name || row.name || row.id), role: "platform_admin" }))
+    : membershipRows.map((row) => ({ client_id: String(row.client_id), name: names.get(String(row.client_id)) || String(row.client_id), role: String(row.role || "viewer") }));
+  return { platformAdmin, clients };
+}
+
 export default function App() {
   const authBootstrapError = getSupabaseBootstrapError();
   const [session, setSession] = useState<Session | null>(null);
@@ -244,23 +268,19 @@ export default function App() {
       setBootError(null);
 
       if (!localMode) {
-        const profile = await getPlatformProfile();
-        setPlatformAdmin(profile.is_platform_admin);
-        if (requestedRoute === "companies" && !profile.is_platform_admin) {
+        const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
+        setPlatformAdmin(bootstrap.platformAdmin);
+        if (requestedRoute === "companies" && !bootstrap.platformAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
           navigateToAppRoute("dashboard", { replace: true });
           setRoute("dashboard");
           requestedRoute = "dashboard";
         }
-        const availableClients = profile.is_platform_admin
-          ? (await listPlatformCompanies()).companies.map((company) => ({
-              client_id: company.id, name: company.trade_name || company.name, role: "platform_admin",
-            }))
-          : (await listClients()).clients || [];
+        const availableClients = bootstrap.clients;
         setClients(availableClients);
         setResolvedUserId(activeSession?.user.id || null);
         const stored = getActiveClient();
-        if (profile.is_platform_admin && !stored && requestedRoute !== "companies") {
+        if (bootstrap.platformAdmin && !stored && requestedRoute !== "companies") {
           navigateToAppRoute("companies", { replace: true });
           setRoute("companies");
           setView("dashboard");
@@ -270,7 +290,7 @@ export default function App() {
           availableClients.find((client) => client.client_id === stored?.id) ||
           availableClients[0];
         if (!selected) {
-          if (profile.is_platform_admin) {
+          if (bootstrap.platformAdmin) {
             setActiveClientId("");
             setView("dashboard");
             return;
@@ -614,6 +634,7 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
+      <DashboardDataProvider clientId={activeClientId} enabled={!!activeClientId && (!!session || localMode)}>
       <PrimaryNavigation
         route={route}
         platformAdmin={platformAdmin}
@@ -666,6 +687,7 @@ export default function App() {
       </>
       )}
       </Suspense>
+      </DashboardDataProvider>
     </DashboardErrorBoundary>
   );
 }

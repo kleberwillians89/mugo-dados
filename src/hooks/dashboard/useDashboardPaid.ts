@@ -1,175 +1,39 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDashboardPaid } from "../../app/api";
-import type { PaidDashboardResponse } from "../../app/types";
+import { useCallback, useMemo } from "react";
+import type { PaidDashboardResponse, PaidTotals } from "../../app/types";
+import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
-import {
-  buildDashboardCacheKey,
-  readDashboardCache,
-  writeDashboardCache,
-} from "./cache";
 
-type Params = {
-  isAuthenticated: boolean;
-  activeClientId: string;
-  activeConnectionId?: string | null;
-  enabled?: boolean;
-  period?: DashboardPeriod | null;
-  filters?: { campaign?: string; adset?: string; ad?: string; platform?: string };
-};
+type Params = { isAuthenticated: boolean; activeClientId: string; activeConnectionId?: string | null; enabled?: boolean; period?: DashboardPeriod | null; filters?: { campaign?: string; adset?: string; ad?: string; platform?: string } };
+const sum = (rows: Array<Record<string, unknown>>, key: string) => rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
 
-function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-export default function useDashboardPaid({
-  isAuthenticated,
-  activeClientId,
-  activeConnectionId,
-  enabled = true,
-  period,
-  filters,
-}: Params) {
+export default function useDashboardPaid({ activeClientId, enabled = true, period, filters }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
-  const resolvedConnectionId = useMemo(
-    () => String(activeConnectionId || "").trim(),
-    [activeConnectionId]
-  );
-  const cacheKey = useMemo(
-    () =>
-      buildDashboardCacheKey("paid", {
-        clientId: activeClientId,
-        connectionId: resolvedConnectionId || "-",
-        start: safePeriod.start,
-        end: safePeriod.end,
-        extra: [filters?.campaign, filters?.adset, filters?.ad, filters?.platform]
-          .map((value) => String(value || "").trim().toLowerCase())
-          .join("|"),
-      }),
-    [activeClientId, filters?.ad, filters?.adset, filters?.campaign, filters?.platform, resolvedConnectionId, safePeriod.end, safePeriod.start]
-  );
-  const cachedInitial = useMemo(
-    () => readDashboardCache<PaidDashboardResponse>(cacheKey),
-    [cacheKey]
-  );
-
-  const [paidData, setPaidData] = useState<PaidDashboardResponse | null>(cachedInitial);
-  const [loadingPaid, setLoadingPaid] = useState(false);
-  const [refreshingPaid, setRefreshingPaid] = useState(false);
-  const [paidError, setPaidError] = useState<string | null>(null);
-  const [paidUpdatedAt, setPaidUpdatedAt] = useState<string | null>(null);
-  const requestRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const dataRef = useRef<PaidDashboardResponse | null>(cachedInitial);
-  const cacheKeyRef = useRef(cacheKey);
-
-  useEffect(() => {
-    dataRef.current = paidData;
-  }, [paidData]);
-
-  // Troca de empresa/conexão (cacheKey inclui client_id) nunca pode deixar
-  // o dado do tenant/conta anterior visível — nem por um frame. useState só
-  // usa o valor inicial na primeira montagem, então detectamos a mudança de
-  // cacheKey DURANTE o render (não em useEffect, que só roda após o commit)
-  // e trocamos de forma síncrona, além de invalidar qualquer resposta em
-  // voo do contexto anterior.
-  if (cacheKeyRef.current !== cacheKey) {
-    cacheKeyRef.current = cacheKey;
-    abortRef.current?.abort();
-    requestRef.current += 1;
-    const current = dataRef.current;
-    const currentMatchesResolved = Boolean(
-      current && resolvedConnectionId && String(current.connection_id || "") === resolvedConnectionId
-    );
-    const next = cachedInitial || (currentMatchesResolved ? current : null);
-    dataRef.current = next;
-    setPaidData(next);
-    setPaidError(null);
-  }
-
-  const reloadPaid = useCallback(
-    async (options?: { force?: boolean }) => {
-      if (!isAuthenticated || !activeClientId) return null;
-      const force = !!options?.force;
-      if (!enabled && !force) {
-        return dataRef.current;
-      }
-      const cached = !force ? readDashboardCache<PaidDashboardResponse>(cacheKey) : null;
-      if (cached) {
-        setPaidData(cached);
-        dataRef.current = cached;
-      }
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      const reqId = ++requestRef.current;
-      const hasExistingData = Boolean(dataRef.current || cached);
-
-      setLoadingPaid(!hasExistingData);
-      setRefreshingPaid(hasExistingData);
-      setPaidError(null);
-
-      try {
-        const response = await getDashboardPaid(
-          {
-            start: safePeriod.start,
-            end: safePeriod.end,
-          },
-          {
-            connectionId: resolvedConnectionId || undefined,
-            campaign: filters?.campaign,
-            adset: filters?.adset,
-            ad: filters?.ad,
-            platform: filters?.platform,
-            signal: controller.signal,
-          }
-        );
-        if (reqId !== requestRef.current) return null;
-        startTransition(() => {
-          setPaidData(response);
-        });
-        dataRef.current = response;
-        setPaidUpdatedAt(new Date().toISOString());
-        writeDashboardCache<PaidDashboardResponse>(cacheKey, response, 180_000);
-        return response;
-      } catch (error: unknown) {
-        if (isAbortError(error) || reqId !== requestRef.current) return null;
-        setPaidError(errorMessage(error, "Erro ao carregar dados de Ads"));
-        return null;
-      } finally {
-        if (reqId === requestRef.current) {
-          setLoadingPaid(false);
-          setRefreshingPaid(false);
-        }
-      }
-    },
-    [activeClientId, cacheKey, enabled, filters?.ad, filters?.adset, filters?.campaign, filters?.platform, isAuthenticated, resolvedConnectionId, safePeriod.end, safePeriod.start]
-  );
-
-  useEffect(() => {
-    if (!enabled || !isAuthenticated || !activeClientId) return;
-    void reloadPaid();
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, [activeClientId, enabled, isAuthenticated, reloadPaid]);
-
-  // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
-  // apenas exibido como tal (ver freshness); atualizar é ação explícita do
-  // usuário, orquestrada por src/app/syncOrchestrator.ts.
-
-  return {
-    paidData,
-    loadingPaid,
-    refreshingPaid,
-    paidError,
-    paidUpdatedAt,
-    reloadPaid,
-  };
+  const model = useDashboardSnapshot(safePeriod.start, safePeriod.end);
+  const paidData = useMemo<PaidDashboardResponse | null>(() => {
+    if (!activeClientId || !enabled || (!model.snapshot && model.loading)) return null;
+    const daily = model.daily.map((row) => {
+      const spend = row.meta_spend; const revenue = row.meta_attributed_revenue;
+      return { date: row.metric_date, spend, revenue, conversions: row.meta_purchases, impressions: row.meta_impressions,
+        reach: row.meta_reach, clicks: row.meta_clicks, cpc: spend != null && row.meta_clicks ? spend / row.meta_clicks : null,
+        cpm: spend != null && row.meta_impressions ? spend * 1000 / row.meta_impressions : null,
+        ctr: row.meta_clicks != null && row.meta_impressions ? row.meta_clicks * 100 / row.meta_impressions : null,
+        roas: spend != null && spend > 0 && revenue != null ? revenue / spend : null };
+    });
+    const numericRows = daily as Array<Record<string, unknown>>;
+    const totals: PaidTotals = { spend: sum(numericRows,"spend"), revenue: sum(numericRows,"revenue"), conversions: sum(numericRows,"conversions"),
+      impressions: sum(numericRows,"impressions"), reach: sum(numericRows,"reach"), clicks: sum(numericRows,"clicks"), cpc: null,cpm:null,ctr:null,roas:null };
+    totals.cpc = totals.spend != null && totals.clicks ? totals.spend / totals.clicks : null;
+    totals.cpm = totals.spend != null && totals.impressions ? totals.spend * 1000 / totals.impressions : null;
+    totals.ctr = totals.clicks != null && totals.impressions ? totals.clicks * 100 / totals.impressions : null;
+    totals.roas = totals.spend != null && totals.spend > 0 && totals.revenue != null ? totals.revenue / totals.spend : null;
+    const campaigns = model.campaigns.filter((row) => row.provider === "meta" && (!filters?.campaign || String(row.campaign_id) === filters.campaign));
+    const source = model.sources.find((item) => item.provider === "meta");
+    return { ok:true, client_id:activeClientId, days:daily.length, date_range:{since:safePeriod.start,until:safePeriod.end},
+      has_data:daily.length>0,data_available:daily.length>0,last_sync_at:source?.last_success_at || null,
+      row_count:daily.length,first_stat_date:daily[0]?.date || null,last_stat_date:daily.at(-1)?.date || null,
+      daily,totals,accounts:[],top_creatives:[], manager_metrics:{link_clicks:sum(model.daily as unknown as Array<Record<string,unknown>>,"meta_link_clicks"),video_views:sum(model.daily as unknown as Array<Record<string,unknown>>,"meta_video_views"),page_engagement:0,post_engagement:0,profile_visits:0},
+      sources:{rows:{campaign_daily_stats:campaigns.length,aggregated_rows:daily.length},totals:{consolidated:totals}} };
+  }, [activeClientId, enabled, filters, model.campaigns, model.daily, model.loading, model.snapshot, model.sources, safePeriod.end, safePeriod.start]);
+  const reloadPaid = useCallback(async (options?: { force?: boolean }) => { void options; return model.refetch() as Promise<unknown> as Promise<PaidDashboardResponse | null>; }, [model]);
+  return { paidData, loadingPaid:model.loading && !paidData, refreshingPaid:model.refreshing, paidError:model.error, paidUpdatedAt:model.snapshot?.fetchedAt || null, reloadPaid };
 }

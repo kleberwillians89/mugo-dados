@@ -377,6 +377,13 @@ async def sync(
 ):
     cid = await require_client_role(client_id or x_client_id, authorization)
     row = await get_connection(cid, connection_id)
+    provider = str(row.get("provider") or "").strip()
+    if provider == "google_ads":
+        from services.google_ads import sync_google_ads
+
+        return await sync_google_ads(
+            client_id=cid, connection_id=connection_id, start=None, end=None, days=days,
+        )
     if not google_capabilities(row)["ga4_authorized"]:
         raise IntegrationError(
             "A conexão selecionada não possui autorização válida para o Analytics.",
@@ -408,4 +415,4 @@ async def sync(
         trigger_source="manual_oauth_connection",
         record_job_run=True,
     )
-    return {"ok": True, "ga4": payload, "google_ads": {"synced": False, "reason": "Sincronização Google Ads ainda não implementada."}}
+    return {"ok": True, "ga4": payload}

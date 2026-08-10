@@ -4,11 +4,14 @@ import type { ChartData, ChartOptions } from "chart.js";
 import type { PaidTotals } from "../../app/types";
 import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "./chartTheme";
 
-type MetricKey = "revenue" | "spend" | "roas" | "conversions";
+type MetricKey = "revenue" | "spend" | "reach" | "impressions" | "clicks" | "roas" | "conversions";
 
 const METRIC_TABS: { key: MetricKey; label: string }[] = [
   { key: "revenue", label: "Receita" },
   { key: "spend", label: "Investimento" },
+  { key: "reach", label: "Alcance" },
+  { key: "impressions", label: "Impressões" },
+  { key: "clicks", label: "Cliques" },
   { key: "roas", label: "ROAS" },
   { key: "conversions", label: "Compras" },
 ];

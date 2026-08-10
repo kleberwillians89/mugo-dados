@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getComments, getDashboard, getMedia, getStories } from "../../app/api";
+import { getComments, getMedia, getStories } from "../../app/api";
+import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import type {
   CommentItem,
   DashboardResponse,
@@ -101,10 +102,11 @@ export default function useDashboardSummary({
   activeClientId,
   activeConnectionId,
   secondaryEnabled = true,
-  autoLoadStories = true,
+  autoLoadStories = false,
   period,
 }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
+  const model = useDashboardSnapshot(safePeriod.start, safePeriod.end);
   const resolvedConnectionId = useMemo(
     () => String(activeConnectionId || "").trim(),
     [activeConnectionId]
@@ -268,29 +270,6 @@ export default function useDashboardSummary({
 
   const reloadSummary = useCallback(async (options?: ReloadOptions) => {
     if (!isAuthenticated || !activeClientId) return null;
-    if (!resolvedConnectionId) {
-      const emptyData: SummaryData = {
-        dash: null,
-        media: [],
-        comments: [],
-        commentsTotal: 0,
-        topWords: [],
-        stories: [],
-        storiesAvailable: true,
-        storiesMessage: null,
-        paid: null,
-      };
-      setData(emptyData);
-      dataRef.current = emptyData;
-      setSummaryError(null);
-      setLoadingSummary(false);
-      setRefreshingSummary(false);
-      setSectionLoading(emptySectionState());
-      setSectionRefreshing(emptySectionState());
-      setSectionErrors(emptySectionErrors());
-      return null;
-    }
-
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -349,16 +328,19 @@ export default function useDashboardSummary({
 
     const loadDash = async () => {
       try {
-        const dash = await getDashboard(
-          {
-            start: safePeriod.start,
-            end: safePeriod.end,
-          },
-          {
-            connectionId: resolvedConnectionId,
-            signal: controller.signal,
-          }
-        );
+        const daily = model.daily.map((row) => ({ date: row.metric_date,
+          impressions: Number(row.instagram_impressions || 0), reach: Number(row.instagram_reach || 0),
+          total_interactions: Number(row.instagram_interactions || 0), website_clicks: Number(row.instagram_website_clicks || 0),
+          profile_views: Number(row.instagram_profile_views || 0), accounts_engaged: 0, followers: Number(row.instagram_followers || 0) }));
+        const sum = (key: keyof (typeof daily)[number]) => daily.reduce((total, row) => total + Number(row[key] || 0), 0);
+        const source = model.sources.find((item) => item.provider === "instagram");
+        const totals = { impressions: sum("impressions"), reach: sum("reach"), total_interactions: sum("total_interactions"), website_clicks: sum("website_clicks"), profile_views: sum("profile_views"), accounts_engaged: 0 };
+        const dash: DashboardResponse = { ok: true, client_id: activeClientId, days: daily.length, start: safePeriod.start, end: safePeriod.end,
+          daily, period_totals: { ...totals, followers_growth: daily.length > 1 ? daily.at(-1)!.followers - daily[0].followers : 0, followers_current: daily.at(-1)?.followers || 0 },
+          totals_last_days: totals, followers_growth_last_days: 0, monthly_totals: totals, last_month_totals: totals,
+          monthly_followers_growth: 0, last_month_followers_growth: 0,
+          monthly_growth_percent: { impressions:0,reach:0,total_interactions:0,website_clicks:0,profile_views:0,accounts_engaged:0,followers:0 },
+          data_available: daily.length > 0, last_sync_at: source?.last_success_at || null };
         if (reqId !== requestRef.current) return;
         writeDashboardCache<DashboardResponse>(dashCacheKey, dash, 180_000);
         startTransition(() => {
@@ -373,6 +355,10 @@ export default function useDashboardSummary({
 
     const loadSecondaryTasks = async () => {
       const tasks: Promise<void>[] = [];
+      if (!resolvedConnectionId) {
+        markSectionDone("media", null); markSectionDone("comments", null); markSectionDone("stories", null);
+        return;
+      }
       if (!onlyStories) {
         tasks.push(
           (async () => {
@@ -539,6 +525,8 @@ export default function useDashboardSummary({
     dashCacheKey,
     isAuthenticated,
     mediaCacheKey,
+    model.daily,
+    model.sources,
     resolvedConnectionId,
     safePeriod.end,
     safePeriod.start,
@@ -546,7 +534,7 @@ export default function useDashboardSummary({
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !activeClientId || !resolvedConnectionId) return;
+    if (!isAuthenticated || !activeClientId) return;
     const requestKey = dashCacheKey;
     const secondaryRequestKey = `${dashCacheKey}|stories=${autoLoadStories ? 1 : 0}`;
     if (autoPrimaryKeyRef.current === requestKey) return;
@@ -564,7 +552,6 @@ export default function useDashboardSummary({
     dashCacheKey,
     isAuthenticated,
     reloadSummary,
-    resolvedConnectionId,
     secondaryEnabled,
   ]);
 

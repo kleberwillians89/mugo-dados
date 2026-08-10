@@ -21,6 +21,7 @@ from services.ga4_reporting import (
 from services.ga4_sync import sync_ga4_for_period
 from services.ga4_connections import resolve_ga4_connection_context
 from services.google_oauth import get_google_access_token
+from services.google_ads import build_google_ads_report, resolve_google_ads_context, sync_google_ads
 from services.tenant import require_user_id, resolve_client_id
 
 router = APIRouter(tags=["google"])
@@ -31,7 +32,42 @@ GOOGLE_ENDPOINTS = [
     "GET /api/google/ga4/channels",
     "GET /api/google/ga4/campaigns",
     "GET /api/google/ga4/events",
+    "POST /api/google/ads/sync",
+    "GET /api/google/ads/report",
 ]
+
+
+@router.post("/api/google/ads/sync")
+async def google_ads_sync(
+    start: str | None = Query(default=None), end: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=366), client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await resolve_client_id(_pick_ga4_client_id(client_id, x_client_id), authorization)
+    await require_user_id(authorization)
+    return await sync_google_ads(
+        client_id=cid, connection_id=connection_id, start=start, end=end, days=days,
+    )
+
+
+@router.get("/api/google/ads/report")
+async def google_ads_report(
+    start: str | None = Query(default=None), end: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=366), client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await resolve_client_id(_pick_ga4_client_id(client_id, x_client_id), authorization)
+    await require_user_id(authorization)
+    context = await resolve_google_ads_context(cid, connection_id)
+    period = resolve_ga4_report_period(start=start, end=end, days=days)
+    return await build_google_ads_report(
+        client_id=cid, context=context,
+        start=period.start.isoformat(), end=period.end.isoformat(),
+    )
 
 
 def _pick_ga4_client_id(client_id: str | None, x_client_id: str | None) -> str | None:

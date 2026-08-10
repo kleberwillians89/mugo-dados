@@ -23,6 +23,7 @@ from .meta_tokens import ensure_valid_meta_token
 from .runtime_cache import invalidate_namespace
 
 from .sync_locks import guarded_sync
+from .dashboard_read_model import refresh_dashboard_read_model_safely
 
 
 def _utc_date_str() -> str:
@@ -479,6 +480,12 @@ async def _run_sync_for_client_and_ig(
             on_conflict="client_id,snapshot_date",
         )
         persisted_snapshot = True
+        await refresh_dashboard_read_model_safely(
+            client_id=client_id,
+            start=_utc_date_str(),
+            end=_utc_date_str(),
+            provider="instagram",
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code not in {400, 404, 409}:
             raise

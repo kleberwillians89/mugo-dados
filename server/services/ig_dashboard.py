@@ -245,15 +245,17 @@ async def get_dashboard(
     month: str | None = None,
     start: str | None = None,
     end: str | None = None,
+    resolved_connection: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     cid = _resolve_client_id(client_id)
     requested_connection_id = str(connection_id or "").strip()
-    resolved_connection = await resolve_connection_for_scope(
-        client_id=cid,
-        platform="instagram",
-        connection_type="organic",
-        requested_connection_id=requested_connection_id or None,
-    )
+    if resolved_connection is None:
+        resolved_connection = await resolve_connection_for_scope(
+            client_id=cid,
+            platform="instagram",
+            connection_type="organic",
+            requested_connection_id=requested_connection_id or None,
+        )
     resolved_connection_id = str(resolved_connection.get("connection_id") or "").strip()
     connection_source = str(resolved_connection.get("source") or "none").strip() or "none"
     since_date, until_date = _resolve_window(days=days, month=month, start=start, end=end)

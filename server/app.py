@@ -729,15 +729,6 @@ async def api_dashboard_summary(
         offset=0,
     )
 
-    stories = await get_stories(
-        client_id=cid,
-        connection_id=validated_connection_id,
-        days=days,
-        start=start,
-        end=end,
-        limit=50,
-    )
-
     # 🔹 (opcional) manter paid
     paid = await get_summary_dashboard(
         client_id=cid,
@@ -755,7 +746,6 @@ async def api_dashboard_summary(
         "media": media.get("media", []),
         "comments": comments.get("comments", []),
         "top_words": comments.get("top_words", []),
-        "stories": stories.get("stories", []),
         "paid": paid,
     }
 

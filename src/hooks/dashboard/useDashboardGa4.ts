@@ -1,159 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getGa4Report } from "../../app/api";
+import { useCallback, useMemo } from "react";
 import type { Ga4ReportResponse } from "../../app/types";
+import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
-import {
-  buildDashboardCacheKey,
-  readDashboardCache,
-  writeDashboardCache,
-} from "./cache";
 
-type Params = {
-  isAuthenticated: boolean;
-  activeClientId: string;
-  period?: DashboardPeriod | null;
-};
-
-function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-function periodDays(start: string, end: string): number {
-  const startDate = new Date(`${String(start || "").trim()}T00:00:00`);
-  const endDate = new Date(`${String(end || "").trim()}T00:00:00`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 30;
-  const diff = endDate.getTime() - startDate.getTime();
-  if (!Number.isFinite(diff) || diff < 0) return 30;
-  return Math.max(1, Math.floor(diff / 86_400_000) + 1);
-}
-
-export default function useDashboardGa4({
-  isAuthenticated,
-  activeClientId,
-  period,
-}: Params) {
+export default function useDashboardGa4({ activeClientId, period }: { isAuthenticated:boolean; activeClientId:string; period?:DashboardPeriod|null }) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
-  const cacheKey = useMemo(
-    () =>
-      buildDashboardCacheKey("ga4", {
-        clientId: activeClientId,
-        start: safePeriod.start,
-        end: safePeriod.end,
-      }),
-    [activeClientId, safePeriod.end, safePeriod.start]
-  );
-  const safeDays = useMemo(
-    () => periodDays(safePeriod.start, safePeriod.end),
-    [safePeriod.end, safePeriod.start]
-  );
-  const cachedInitial = useMemo(
-    () => (activeClientId ? readDashboardCache<Ga4ReportResponse>(cacheKey) : null),
-    [activeClientId, cacheKey]
-  );
-
-  const [ga4Report, setGa4Report] = useState<Ga4ReportResponse | null>(cachedInitial);
-  const [loadingGa4, setLoadingGa4] = useState(false);
-  const [refreshingGa4, setRefreshingGa4] = useState(false);
-  const [ga4Error, setGa4Error] = useState<string | null>(null);
-  const [ga4UpdatedAt, setGa4UpdatedAt] = useState<string | null>(null);
-  const requestRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const dataRef = useRef<Ga4ReportResponse | null>(cachedInitial);
-  const cacheKeyRef = useRef(cacheKey);
-
-  useEffect(() => {
-    dataRef.current = ga4Report;
-  }, [ga4Report]);
-
-  // Troca de empresa (cacheKey inclui client_id) nunca pode deixar o
-  // relatório GA4 do tenant anterior visível — nem por um frame. Reset
-  // síncrono durante o render (não em useEffect, que só roda após o
-  // commit), inclusive quando o novo tenant ainda não tem nada em cache
-  // (antes, esse caso não limpava nada e mantinha o relatório antigo).
-  if (cacheKeyRef.current !== cacheKey) {
-    cacheKeyRef.current = cacheKey;
-    abortRef.current?.abort();
-    requestRef.current += 1;
-    dataRef.current = cachedInitial;
-    setGa4Report(cachedInitial);
-    setGa4Error(null);
-    setGa4UpdatedAt(null);
-  }
-
-  const reloadGa4 = useCallback(
-    async (options?: { force?: boolean }) => {
-      if (!isAuthenticated || !activeClientId) return null;
-
-      const force = !!options?.force;
-      const cached = !force ? readDashboardCache<Ga4ReportResponse>(cacheKey) : null;
-      if (cached) {
-        setGa4Report(cached);
-        dataRef.current = cached;
-      }
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      const reqId = ++requestRef.current;
-      const hasExistingData = Boolean(dataRef.current || cached);
-
-      setLoadingGa4(!hasExistingData);
-      setRefreshingGa4(hasExistingData);
-      setGa4Error(null);
-
-      try {
-        const response = await getGa4Report({
-          start: safePeriod.start,
-          end: safePeriod.end,
-          days: safeDays,
-        }, {
-          clientId: activeClientId,
-          signal: controller.signal,
-        });
-        if (reqId !== requestRef.current) return null;
-        setGa4Report(response);
-        dataRef.current = response;
-        setGa4UpdatedAt(new Date().toISOString());
-        writeDashboardCache<Ga4ReportResponse>(cacheKey, response, 180_000);
-        return response;
-      } catch (error: unknown) {
-        if (isAbortError(error) || reqId !== requestRef.current) return null;
-        setGa4Error(errorMessage(error, "Erro ao carregar dados de GA4"));
-        return null;
-      } finally {
-        if (reqId === requestRef.current) {
-          setLoadingGa4(false);
-          setRefreshingGa4(false);
-        }
-      }
-    },
-    [activeClientId, cacheKey, isAuthenticated, safeDays, safePeriod.end, safePeriod.start]
-  );
-
-  useEffect(() => {
-    if (!isAuthenticated || !activeClientId) return;
-    void reloadGa4();
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, [activeClientId, isAuthenticated, reloadGa4]);
-
-  // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
-  // apenas exibido como tal; atualizar é ação explícita do usuário,
-  // orquestrada por src/app/syncOrchestrator.ts.
-
-  return {
-    ga4Report,
-    loadingGa4,
-    refreshingGa4,
-    ga4Error,
-    ga4UpdatedAt,
-    reloadGa4,
-  };
+  const model = useDashboardSnapshot(safePeriod.start, safePeriod.end);
+  const ga4Report = useMemo<Ga4ReportResponse | null>(() => {
+    if (!activeClientId || (!model.snapshot && model.loading)) return null;
+    const daily = model.daily.map((row) => ({ date:row.metric_date,sessions:Number(row.ga4_sessions||0),active_users:Number(row.ga4_users||0),total_users:Number(row.ga4_users||0),event_count:Number(row.ga4_events||0),ecommerce_purchases:Number(row.ga4_purchases||0),purchase_revenue:Number(row.ga4_revenue||0),total_revenue:Number(row.ga4_revenue||0),view_item_count:0,add_to_cart_count:0,begin_checkout_count:0,purchase_count:Number(row.ga4_purchases||0) }));
+    const total = (key:keyof typeof daily[number]) => daily.reduce((value,row) => value + Number(row[key]||0),0);
+    const source=model.sources.find((item)=>item.provider==="ga4");
+    const emptyGroup=(key:string,title:string)=>({key,title,description:"",total_events:0,total_users:0,items:[]});
+    return {ok:true,client_id:activeClientId,property_id:"read-model",period:{start:safePeriod.start,end:safePeriod.end,days:daily.length},
+      summary:{sessions:total("sessions"),active_users:total("active_users"),total_users:total("total_users"),event_count:total("event_count"),purchases:total("ecommerce_purchases"),purchase_revenue:total("purchase_revenue"),total_revenue:total("total_revenue"),average_daily_active_users:daily.length?total("active_users")/daily.length:0,average_daily_total_users:daily.length?total("total_users")/daily.length:0},
+      funnel:{view_item:0,add_to_cart:0,begin_checkout:0,add_payment_info:0,purchase:total("ecommerce_purchases")},
+      commerce_journey:{summary:{view_item:0,add_to_cart:0,begin_checkout:0,add_payment_info:0,purchase:total("ecommerce_purchases"),add_to_cart_rate:0,checkout_rate:0,payment_info_rate:0,purchase_rate:0,purchase_rate_from_view_item:0},items:[]},
+      behavior:emptyGroup("behavior","Comportamento"),engagement:emptyGroup("engagement","Engajamento"),merchandising:emptyGroup("merchandising","Produtos"),trends:{daily},channels:[],campaigns:[],events:[],meta:{last_synced_at:source?.last_success_at||null,data_available:daily.length>0,daily_rows:daily.length,channel_rows:0,campaign_rows:0,event_rows:0}};
+  },[activeClientId,model.daily,model.loading,model.snapshot,model.sources,safePeriod.end,safePeriod.start]);
+  const reloadGa4=useCallback(async(options?:{force?:boolean})=>{void options;return model.refetch() as Promise<unknown> as Promise<Ga4ReportResponse|null>;},[model]);
+  return {ga4Report,loadingGa4:model.loading&&!ga4Report,refreshingGa4:model.refreshing,ga4Error:model.error,ga4UpdatedAt:model.snapshot?.fetchedAt||null,reloadGa4};
 }

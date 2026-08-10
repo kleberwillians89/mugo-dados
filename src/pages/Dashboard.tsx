@@ -1097,7 +1097,6 @@ export default function Dashboard({
   const comments = summaryData.comments;
   const commentsTotal = safe(summaryData.commentsTotal);
   const topWords = summaryData.topWords;
-  const stories = summaryData.stories;
   
   const loadingDash = sectionLoading.dash;
   const loadingMedia = sectionLoading.media;
@@ -1117,7 +1116,6 @@ export default function Dashboard({
     mediaData.length > 0 ||
     comments.length > 0 ||
     commentsTotal > 0 ||
-    stories.length > 0 ||
     safe(dash?.period_totals?.followers_current) > 0;
   const {
     monthlyRows,
@@ -1739,26 +1737,8 @@ export default function Dashboard({
     },
     [paidAdFilter, paidAdsetFilter, paidCampaignFilter, paidData, paidPlatformFilter]
   );
-  const paidTopBoostedPosts = useMemo(
-    () => {
-      const campaignNeedle = paidCampaignFilter.trim().toLowerCase();
-      const adsetNeedle = paidAdsetFilter.trim().toLowerCase();
-      const adNeedle = paidAdFilter.trim().toLowerCase();
-      const platformNeedle = paidPlatformFilter.trim().toLowerCase();
-      return (Array.isArray(paidData?.top_boosted_posts) ? paidData.top_boosted_posts : []).filter((creative) => (
-        (!campaignNeedle || String(creative.campaign_name || "").toLowerCase().includes(campaignNeedle)) &&
-        (!adsetNeedle || `${creative.adset_name || ""} ${creative.adset_id || ""}`.toLowerCase().includes(adsetNeedle)) &&
-        (!adNeedle || `${creative.ad_name || ""} ${creative.ad_id || ""}`.toLowerCase().includes(adNeedle)) &&
-        (!platformNeedle || String(creative.source_platform || "").toLowerCase().includes(platformNeedle))
-      ));
-    },
-    [paidAdFilter, paidAdsetFilter, paidCampaignFilter, paidData, paidPlatformFilter]
-  );
   const paidFilterRows = useMemo(
-    () => [
-      ...(Array.isArray(paidData?.top_creatives) ? paidData.top_creatives : []),
-      ...(Array.isArray(paidData?.top_boosted_posts) ? paidData.top_boosted_posts : []),
-    ],
+    () => Array.isArray(paidData?.top_creatives) ? paidData.top_creatives : [],
     [paidData]
   );
   const paidFilterOptions = useMemo(() => {
@@ -1774,33 +1754,15 @@ export default function Dashboard({
     };
   }, [paidFilterRows]);
   const paidManagerMetrics = paidData?.manager_metrics;
-  const paidSourceTotals = paidData?.sources?.totals;
-  const paidSourceManagerMetrics = paidData?.sources?.manager_metrics;
-  const paidSourceCards = useMemo(
-    () => [
-      {
-        key: "classic_ads",
-        title: "Campanhas Meta",
-        description: "Conjunto de anúncios que não vieram como impulsionamento identificado.",
-        totals: paidSourceTotals?.classic_ads,
-        metrics: paidSourceManagerMetrics?.classic_ads,
-      },
-      {
-        key: "boosted_posts",
-        title: "Impulsionamentos Instagram",
-        description: "Posts impulsionados mapeados no período e exibidos separadamente.",
-        totals: paidSourceTotals?.boosted_posts,
-        metrics: paidSourceManagerMetrics?.boosted_posts,
-      },
-    ],
-    [paidSourceManagerMetrics, paidSourceTotals]
-  );
   const paidDateRangeLabel = useMemo(() => {
     const since = String(paidData?.date_range?.since || paidData?.first_stat_date || "").trim();
     const until = String(paidData?.date_range?.until || paidData?.last_stat_date || "").trim();
     if (!since || !until) return formatPeriodLabel(period.start, period.end);
     return `${formatDatePtBr(since)} - ${formatDatePtBr(until)}`;
   }, [paidData, period.end, period.start]);
+  const paidCoverageLabel = paidData?.coverage?.is_partial
+    ? `Dado parcial · até ${paidData.last_stat_date ? formatDatePtBr(paidData.last_stat_date) : "sem data"} · ${safe(paidData.coverage.covered_days)}/${safe(paidData.coverage.expected_days)} dias`
+    : "";
   const dashboardError = err || dashError || bootstrapError || null;
   const coverage = dash?.coverage;
   const coveredDays = safe(coverage?.covered_days);
@@ -1950,11 +1912,6 @@ export default function Dashboard({
     const reels = rows.filter(
       (media) => String(media.media_product_type || "").toUpperCase() === "REELS"
     ).length;
-    const storiesInMedia = rows.filter((media) => {
-      const productType = String(media.media_product_type || "").toUpperCase();
-      const mediaType = String(media.media_type || "").toUpperCase();
-      return productType === "STORY" || mediaType === "STORY";
-    }).length;
     const posts = rows.filter((media) => {
       const productType = String(media.media_product_type || "").toUpperCase();
       const mediaType = String(media.media_type || "").toUpperCase();
@@ -1967,10 +1924,9 @@ export default function Dashboard({
     return {
       posts,
       reels,
-      stories: Math.max(storiesInMedia, arrayOrEmpty(stories).length),
       comments: Math.max(commentsTotal, arrayOrEmpty(comments).length, mediaCommentCount),
     };
-  }, [comments, commentsTotal, mediaFiltered, stories]);
+  }, [comments, commentsTotal, mediaFiltered]);
   const organicMetricCards = useMemo(
     () => [
       { label: "Seguidores", value: kpisFromDash.followers },
@@ -1981,7 +1937,6 @@ export default function Dashboard({
       { label: "Cliques no link", value: kpisFromDash.website_clicks },
       { label: "Posts", value: organicContentCounts.posts },
       { label: "Reels", value: organicContentCounts.reels },
-      { label: "Stories", value: organicContentCounts.stories },
       { label: "Comentários", value: organicContentCounts.comments },
     ],
     [kpisFromDash, organicContentCounts]
@@ -2183,8 +2138,8 @@ export default function Dashboard({
         detail: executiveData?.shopify?.connected
           ? executiveData.shopify.orders > 0
             ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos · ${providerFreshnessDetail(executiveData.shopify)}`
-            : executiveData.shopify.data_min_available && executiveData.shopify.data_max_available
-              ? `Sem pedidos no recorte; cobertura ${formatDatePtBr(executiveData.shopify.data_min_available)} a ${formatDatePtBr(executiveData.shopify.data_max_available)}`
+            : executiveData.shopify.data_min_in_period && executiveData.shopify.data_max_in_period
+              ? `Sem pedidos no recorte; cobertura ${formatDatePtBr(executiveData.shopify.data_min_in_period)} a ${formatDatePtBr(executiveData.shopify.data_max_in_period)}`
               : "Sem pedidos Shopify persistidos"
           : executiveError
             ? "Falha parcial na leitura Shopify"
@@ -2235,7 +2190,6 @@ export default function Dashboard({
       mediaFiltered: deferredMediaFiltered.length,
       comments: comments.length,
       notes: notes.length,
-      stories: stories.length,
       err: err || "",
     });
   }, [
@@ -2246,7 +2200,6 @@ export default function Dashboard({
     deferredMediaFiltered.length,
     comments.length,
     notes.length,
-    stories.length,
     err,
   ]);
 
@@ -2401,7 +2354,7 @@ export default function Dashboard({
                 <div className="organicSourceHeader">
                   <div>
                     <div className="h1">Meta Orgânico / Instagram</div>
-                    <div className="p">Posts, reels, stories, alcance, engajamento e comentários vindos da conexão orgânica.</div>
+                    <div className="p">Posts, reels, alcance, engajamento e comentários vindos da conexão orgânica.</div>
                   </div>
                   <span className="pill">Fonte: Instagram Graph · {formatSelectedPeriodLabel(period)}</span>
                 </div>
@@ -2434,7 +2387,7 @@ export default function Dashboard({
                         ? "Instagram orgânico ainda não conectado."
                         : "Instagram orgânico conectado, aguardando sincronização."
                   }
-                  secondaryMessage="Comentários, stories e reels aparecem assim que o Instagram Graph retornar o detalhamento."
+                  secondaryMessage="Comentários e reels aparecem quando houver detalhamento persistido."
                 />
               </div>
             )}
@@ -2558,7 +2511,7 @@ export default function Dashboard({
               <div className="sectionHeader">
                 <div>
                   <div className="h1">Campanhas de Ads</div>
-                  <div className="p">Leitura consolidada da conta e separação dos impulsionamentos do Instagram.</div>
+                  <div className="p">Leitura consolidada da conta Meta Ads.</div>
                 </div>
                 <div className="dashboardSectionMeta">
                   {paidLastUpdatedLabel ? <span className="dashboardTimestamp">{paidLastUpdatedLabel}</span> : null}
@@ -2566,6 +2519,7 @@ export default function Dashboard({
                   <div className="smallMuted">
                     Status Ads: {paidStatusLabel} • {paidDateRangeLabel}
                   </div>
+                  {paidCoverageLabel ? <div className="smallMuted">{paidCoverageLabel}</div> : null}
                 </div>
               </div>
 
@@ -2714,36 +2668,6 @@ export default function Dashboard({
                 </div>
               ) : null}
 
-              {paidData && hasPaidData ? (
-                <div className="paidSourceGrid">
-                  {paidSourceCards.map((source) => (
-                    <div className="paidSourceCard" key={source.key}>
-                      <div className="paidSourceCardHead">
-                        <div>
-                          <div className="h1">{source.title}</div>
-                          <div className="p">{source.description}</div>
-                        </div>
-                        <span className="pill">{fmtCurrency(safe(source.totals?.spend))}</span>
-                      </div>
-                      <div className="paidSourceMetrics">
-                        <div>
-                          <span className="smallMuted">Impressões</span>
-                          <strong>{fmt(safe(source.totals?.impressions))}</strong>
-                        </div>
-                        <div>
-                          <span className="smallMuted">Cliques no link</span>
-                          <strong>{fmt(safe(source.metrics?.link_clicks))}</strong>
-                        </div>
-                        <div>
-                          <span className="smallMuted">Views de vídeo</span>
-                          <strong>{fmt(safe(source.metrics?.video_views))}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
               {paidError && paidData ? (
                 <div className="metaInlineNotice">Falha parcial ao atualizar Ads. Exibindo a última leitura disponível.</div>
               ) : null}
@@ -2786,48 +2710,6 @@ export default function Dashboard({
                             <td>{fmt(safe(creative.clicks))}</td>
                             <td>{safe(creative.ctr).toFixed(2)}%</td>
                             <td>{fmtCurrency(safe(creative.cpc))}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : null}
-
-              {paidData && paidTopBoostedPosts.length ? (
-                <div className="adsAccountsSection">
-                  <div className="sectionHeader sectionHeaderSecondary">
-                    <div>
-                      <div className="h1">Top conteúdos impulsionados</div>
-                      <div className="p">Posts do Instagram identificados como impulsionados no período.</div>
-                    </div>
-                  </div>
-                  <div className="tableWrap">
-                    <table className="table adsAccountsTable">
-                      <thead>
-                        <tr>
-                          <th>Conteúdo</th>
-                          <th>Investimento</th>
-                          <th>Impressões</th>
-                          <th>Cliques</th>
-                          <th>CTR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paidTopBoostedPosts.slice(0, 8).map((creative, index) => (
-                          <tr key={String(creative.post_id || creative.ad_id || `boosted-${index}`)}>
-                            <td>
-                              <div className="cellTitle">{String(creative.ad_name || "Conteúdo impulsionado")}</div>
-                              <div className="cellMuted">
-                                {creative.post_id
-                                  ? `Post ${creative.post_id}`
-                                  : String(creative.ad_id || "Sem ID")}
-                              </div>
-                            </td>
-                            <td>{fmtCurrency(safe(creative.spend))}</td>
-                            <td>{fmt(safe(creative.impressions))}</td>
-                            <td>{fmt(safe(creative.clicks))}</td>
-                            <td>{safe(creative.ctr).toFixed(2)}%</td>
                           </tr>
                         ))}
                       </tbody>
@@ -3018,7 +2900,7 @@ export default function Dashboard({
               <div>
                 <div className="h1">Conteúdo orgânico</div>
                 <div className="p">
-                  Reels, posts e stories com leitura visual, métricas e link. Conteúdos no período: {deferredMediaFiltered.length}.
+                  Reels e posts com leitura visual, métricas e link. Conteúdos no período: {deferredMediaFiltered.length}.
                 </div>
               </div>
               <div className="dashboardSectionMeta">

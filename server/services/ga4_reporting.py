@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -524,25 +525,19 @@ async def build_ga4_report(
         period=period,
     )
 
-    daily_source_rows = await _select_ga4_daily_rows(
-        client_id=resolved_client_id,
-        property_id=resolved_property_id,
-        period=resolved_period,
-    )
-    channel_source_rows = await _select_ga4_channel_rows(
-        client_id=resolved_client_id,
-        property_id=resolved_property_id,
-        period=resolved_period,
-    )
-    campaign_source_rows = await _select_ga4_campaign_rows(
-        client_id=resolved_client_id,
-        property_id=resolved_property_id,
-        period=resolved_period,
-    )
-    event_source_rows = await _select_ga4_event_rows(
-        client_id=resolved_client_id,
-        property_id=resolved_property_id,
-        period=resolved_period,
+    daily_source_rows, channel_source_rows, campaign_source_rows, event_source_rows = await asyncio.gather(
+        _select_ga4_daily_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
+        ),
+        _select_ga4_channel_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
+        ),
+        _select_ga4_campaign_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
+        ),
+        _select_ga4_event_rows(
+            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
+        ),
     )
 
     daily_rows = _build_daily_rows(resolved_period, daily_source_rows)

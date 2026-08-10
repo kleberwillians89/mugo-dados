@@ -171,7 +171,8 @@ export type ShopifyReportResponse = {
     days: number;
   };
   coverage?: {
-    data_min_available?: string | null;
+    data_min_in_period?: string | null;
+    data_max_in_period?: string | null;
     data_max_available?: string | null;
     has_data_in_period: boolean;
   };
@@ -214,7 +215,8 @@ export type ExecutiveShopifySection = {
   stale?: boolean;
   last_error?: string | null;
   reauth_required?: boolean;
-  data_min_available?: string | null;
+  data_min_in_period?: string | null;
+  data_max_in_period?: string | null;
   data_max_available?: string | null;
   shop_domain?: string;
   gross_revenue: number;
@@ -251,9 +253,16 @@ export type ExecutiveMetaSection = {
 export type ExecutiveGoogleAdsSection = {
   connected: boolean;
   reason?: string;
+  data_available?: boolean;
+  connection_state?: string;
+  sync_state?: string;
+  data_max_available?: string | null;
+  coverage?: { covered_days: number; expected_days: number; is_partial: boolean };
   spend: number | null;
+  conversion_value?: number | null;
   attributed_revenue: number | null;
   roas: number | null;
+  daily?: Array<Record<string, unknown>>;
 };
 
 export type ExecutiveTotalPaidMedia = {
