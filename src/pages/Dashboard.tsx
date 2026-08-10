@@ -43,10 +43,15 @@ import {
   updateNote,
   listClientConnections,
   listGenericConnections,
+  selectUsableGoogleConnection,
   syncAds,
+  syncGa4,
+  syncGoogleConnection,
+  syncShopifyConnection,
   ApiError,
   type GenericConnection,
 } from "../app/api";
+import { useDashboardSnapshot } from "../app/DashboardDataContext";
 
 import { buildMonthAgg, getMonth, monthsList, pct } from "../app/aggregate";
 
@@ -1082,7 +1087,6 @@ export default function Dashboard({
     sectionRefreshing,
     sectionErrors,
     sectionUpdatedAt,
-    reloadSummary,
   } = useDashboardSummary({
     isAuthenticated,
     activeClientId,
@@ -1136,7 +1140,6 @@ export default function Dashboard({
     refreshingPaid,
     paidError,
     paidUpdatedAt,
-    reloadPaid,
   } = useDashboardPaid({
     isAuthenticated,
     activeClientId,
@@ -1172,7 +1175,6 @@ export default function Dashboard({
     executiveData,
     loadingExecutive,
     executiveError,
-    reloadExecutive,
   } = useExecutiveDashboard({
     isAuthenticated,
     activeClientId,
@@ -1196,6 +1198,7 @@ export default function Dashboard({
     !comments.length &&
     (loadingDash || refreshingDash || summarySettled);
   const paidPanelLoading = loadingPaid || (!enablePaidStage && !paidData);
+  const dashboardSnapshot = useDashboardSnapshot();
   const onLogoutClick = useCallback(async () => {
     if (onLogout) {
       await onLogout();
@@ -1515,31 +1518,46 @@ export default function Dashboard({
     setErr(null);
     setSyncing(true);
     const startedAt = new Date().toISOString();
-    let refreshOrganicConnectionId = organicConnectionId;
-    let refreshPaidConnectionId = paidConnectionId;
-    if (!refreshOrganicConnectionId || !refreshPaidConnectionId) {
-      let refreshedConnections;
-      try {
-        refreshedConnections = await listClientConnections();
-      } catch (connectionError: unknown) {
-        setErr(describeSyncError(connectionError, "Não foi possível preparar a atualização agora."));
-        setSyncing(false);
-        return;
-      }
-      const candidates = arrayOrEmpty<MetaConnection>(refreshedConnections.connections);
-      refreshOrganicConnectionId = refreshOrganicConnectionId || resolveOperationalMetaConnectionId(
-        candidates,
-        "organic",
-        getActiveConnectionId()
-      );
-      const paidCandidates = candidates.filter((item) =>
-        String(item.platform || "").toLowerCase() === "meta_ads" &&
-        String(item.connection_type || "").toLowerCase() === "paid" &&
-        String(item.status || "").toLowerCase() !== "disconnected" &&
-        item.requires_reauth !== true
-      );
-      refreshPaidConnectionId = refreshPaidConnectionId || (paidCandidates.length === 1 ? paidCandidates[0].id : null);
+    let metaConnections: MetaConnection[] = [];
+    let genericConnections: GenericConnection[] = [];
+    try {
+      const [metaResult, genericResult] = await Promise.all([
+        listClientConnections(),
+        listGenericConnections(),
+      ]);
+      metaConnections = arrayOrEmpty<MetaConnection>(metaResult.connections);
+      genericConnections = arrayOrEmpty<GenericConnection>(genericResult.connections);
+    } catch (connectionError: unknown) {
+      setErr(describeSyncError(connectionError, "Não foi possível preparar a atualização agora."));
+      setSyncing(false);
+      return;
     }
+    const refreshOrganicConnectionId = resolveOperationalMetaConnectionId(
+      metaConnections, "organic", organicConnectionId || getActiveConnectionId()
+    );
+    const paidCandidates = metaConnections.filter((item) =>
+      String(item.platform || "").toLowerCase() === "meta_ads" &&
+      String(item.connection_type || "").toLowerCase() === "paid" &&
+      String(item.status || "").toLowerCase() !== "disconnected" &&
+      item.requires_reauth !== true
+    );
+    const refreshPaidConnectionId = paidCandidates.some((item) => item.id === paidConnectionId)
+      ? paidConnectionId
+      : paidCandidates.length === 1 ? paidCandidates[0].id : null;
+    const shopifyConnection = resolveCommerceConnection(
+      genericConnections.filter((item) => item.provider === "shopify"),
+      getSelectedConnectionId(activeClientId, "shopify")
+    );
+    const ga4Connection = selectUsableGoogleConnection(
+      genericConnections, "ga4", activeClientId, getSelectedConnectionId(activeClientId, "ga4")
+    );
+    const googleAdsConnection = selectUsableGoogleConnection(
+      genericConnections, "google_ads", activeClientId, getSelectedConnectionId(activeClientId, "google_ads")
+    );
+    const refreshDays = Math.max(
+      1,
+      Math.round((Date.parse(period.end) - Date.parse(period.start)) / 86_400_000) + 1
+    );
     const syncTasks: Array<{ provider: string; connectionId: string; endpoint: string; promise: Promise<unknown> }> = [];
     if (refreshOrganicConnectionId) {
       syncTasks.push({
@@ -1577,6 +1595,36 @@ export default function Dashboard({
                 clientId: activeClientId,
               }
             )
+        ),
+      });
+    }
+    if (shopifyConnection) {
+      syncTasks.push({
+        provider: "shopify", connectionId: shopifyConnection.id,
+        endpoint: `/api/oauth/shopify/${shopifyConnection.id}/sync`,
+        promise: runExclusiveSync(
+          { clientId: activeClientId, provider: "shopify", connectionId: shopifyConnection.id },
+          () => syncShopifyConnection(shopifyConnection.id, refreshDays)
+        ),
+      });
+    }
+    if (ga4Connection) {
+      syncTasks.push({
+        provider: "ga4", connectionId: ga4Connection.id,
+        endpoint: "/api/google/ga4/sync",
+        promise: runExclusiveSync(
+          { clientId: activeClientId, provider: "ga4", connectionId: ga4Connection.id },
+          () => syncGa4(period, { clientId: activeClientId, connectionId: ga4Connection.id })
+        ),
+      });
+    }
+    if (googleAdsConnection) {
+      syncTasks.push({
+        provider: "google_ads", connectionId: googleAdsConnection.id,
+        endpoint: `/api/oauth/google/${googleAdsConnection.id}/sync`,
+        promise: runExclusiveSync(
+          { clientId: activeClientId, provider: "google_ads", connectionId: googleAdsConnection.id },
+          () => syncGoogleConnection(googleAdsConnection.id)
         ),
       });
     }
@@ -1638,15 +1686,10 @@ export default function Dashboard({
           errorMessage(failure, "Falha parcial ao atualizar. Mantendo a última leitura disponível.")
         ));
       }
-      await Promise.allSettled([
-        reloadSummary({ force: true, includeSecondary: true }),
-        reloadPaid({ force: true }),
-        reloadExecutive({ force: true }),
-      ]);
-      const refreshedConnections = await listClientConnections();
-      const nextConnections = arrayOrEmpty<MetaConnection>(refreshedConnections.connections);
-      setConnections(nextConnections);
-      writeDashboardCache<MetaConnection[]>(connectionsCacheKey, nextConnections, 300_000);
+      await dashboardSnapshot.refetch();
+      setConnections(metaConnections);
+      setCommerceConnection(shopifyConnection || null);
+      writeDashboardCache<MetaConnection[]>(connectionsCacheKey, metaConnections, 300_000);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao atualizar dados"));
     } finally {
@@ -2246,16 +2289,16 @@ export default function Dashboard({
       themeClass={themeClass}
       title=""
       right={
-        <DashboardHeader
+          <DashboardHeader
           activeView="meta"
           statusChips={[
             {
-              connected: hasActiveConnection === true,
-              label: `${hasActiveConnection === true ? "Orgânico conectado" : "Orgânico aguardando conexão"}${organicLastUpdatedLabel ? ` • ${organicLastUpdatedLabel}` : ""}`,
+              connected: hasActiveConnection === true || executiveData?.instagram?.connected === true,
+              label: `${hasActiveConnection === true || executiveData?.instagram?.connected === true ? "Orgânico conectado" : "Orgânico sem dados"}${organicLastUpdatedLabel ? ` • ${organicLastUpdatedLabel}` : ""}`,
             },
             {
-              connected: hasPaidConnection,
-              label: `${hasPaidConnection ? "Ads conectado" : "Ads aguardando conexão"}${paidLastUpdatedLabel ? ` • ${paidLastUpdatedLabel}` : ""}`,
+              connected: hasPaidConnection || executiveData?.meta?.connected === true,
+              label: `${hasPaidConnection || executiveData?.meta?.connected === true ? "Ads conectado" : "Ads sem dados"}${paidLastUpdatedLabel ? ` • ${paidLastUpdatedLabel}` : ""}`,
             },
           ]}
           periodPreset={periodPreset}
@@ -2324,11 +2367,15 @@ export default function Dashboard({
             </div>
           ) : null}
 
+          <OperacaoReal data={executiveData} loading={loadingExecutive} error={executiveError} />
+
           <ExecutiveOverview
             companyName={commerceConnection?.account_name || getActiveClientName() || "E-commerce conectado"}
             commercePlatform={
               commerceConnection?.provider === "shopify"
                 ? "Shopify"
+                : executiveData?.shopify?.connected
+                  ? "Shopify"
                 : commerceConnection?.provider
                   ? "Plataforma de comércio"
                   : null
@@ -2349,11 +2396,9 @@ export default function Dashboard({
             error={dashboardError}
           />
 
-          <OperacaoReal data={executiveData} loading={loadingExecutive} error={executiveError} />
-
           {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily} /> : null}
 
-          {hasActiveConnection === false ? (
+          {hasActiveConnection === false && !executiveData?.instagram?.connected ? (
             <div className="panelBlock">
               <div className="card cardWide">
                 <div className="sectionHeader">

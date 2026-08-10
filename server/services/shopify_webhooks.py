@@ -521,6 +521,11 @@ async def _upsert_order(
             "current_total_price_set",
             "current_total_price",
         ),
+        "current_total_price": _pick_money(
+            payload,
+            "current_total_price_set",
+            "current_total_price",
+        ),
         "total_tax": _pick_money(
             payload,
             "total_tax_set",
@@ -705,10 +710,22 @@ async def _handle_order_topic(
         shopify_order_id=order_id,
         payload=payload,
     )
+    refunds_upserted = 0
+    for refund_payload in payload.get("refunds") or []:
+        refund = _safe_json(refund_payload)
+        if not _safe_id(refund.get("id")):
+            continue
+        await _upsert_refund(
+            client_id=client_id,
+            shop_domain=shop_domain,
+            payload={**refund, "order_id": refund.get("order_id") or order_id},
+        )
+        refunds_upserted += 1
     return {
         "order_id": order_id,
         "customer_id": customer_id,
         "items_upserted": items_upserted,
+        "refunds_upserted": refunds_upserted,
     }
 
 

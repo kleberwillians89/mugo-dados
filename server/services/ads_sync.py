@@ -203,34 +203,55 @@ def _synthetic_boosted_rows_from_maximum_insights(
         out.append(synthetic)
     return out
 
-def _extract_conversions_and_revenue(row: Dict[str, Any]) -> Dict[str, float]:
-    conversion_types = {
-        "purchase",
-        "omni_purchase",
-        "offsite_conversion.fb_pixel_purchase",
-        "onsite_web_purchase",
-        "app_custom_event.fb_mobile_purchase",
+_CANONICAL_PURCHASE_ACTION_TYPES = (
+    "offsite_conversion.fb_pixel_purchase",
+    "omni_purchase",
+    "purchase",
+)
+
+
+def extract_canonical_purchase_metrics(
+    actions: Any, action_values: Any
+) -> Dict[str, Any]:
+    """Select one purchase alias and never add competing attribution aliases."""
+
+    def values_by_type(items: Any) -> Dict[str, float]:
+        totals: Dict[str, float] = {}
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            action_type = _safe_str(item.get("action_type")).lower()
+            if not action_type:
+                continue
+            totals[action_type] = totals.get(action_type, 0.0) + _safe_float(item.get("value"))
+        return totals
+
+    counts = values_by_type(actions)
+    values = values_by_type(action_values)
+    selected = next(
+        (
+            action_type
+            for action_type in _CANONICAL_PURCHASE_ACTION_TYPES
+            if action_type in counts or action_type in values
+        ),
+        None,
+    )
+    return {
+        "purchase_count": counts.get(selected, 0.0) if selected else 0.0,
+        "purchase_value": values.get(selected, 0.0) if selected else 0.0,
+        "purchase_action_type_selected": selected,
     }
-    conversions = 0.0
-    revenue = 0.0
 
-    for action in row.get("actions") or []:
-        if not isinstance(action, dict):
-            continue
-        action_type = _safe_str(action.get("action_type")).lower()
-        value = _safe_float(action.get("value"))
-        if action_type in conversion_types or "purchase" in action_type:
-            conversions += value
 
-    for action in row.get("action_values") or []:
-        if not isinstance(action, dict):
-            continue
-        action_type = _safe_str(action.get("action_type")).lower()
-        value = _safe_float(action.get("value"))
-        if action_type in conversion_types or "purchase" in action_type:
-            revenue += value
-
-    return {"conversions": conversions, "revenue": revenue}
+def _extract_conversions_and_revenue(row: Dict[str, Any]) -> Dict[str, Any]:
+    purchase = extract_canonical_purchase_metrics(
+        row.get("actions"), row.get("action_values")
+    )
+    return {
+        "conversions": purchase["purchase_count"],
+        "revenue": purchase["purchase_value"],
+        "purchase_action_type_selected": purchase["purchase_action_type_selected"],
+    }
 
 
 def _metrics_payload(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1488,6 +1509,12 @@ async def sync_ads_for_client_period(
                 since=period_since,
                 raw_rows=account_rows_raw,
             )
+            selected_purchase_actions = sorted({
+                str(metrics["purchase_action_type_selected"])
+                for raw_row in account_rows_raw
+                for metrics in [_extract_conversions_and_revenue(raw_row)]
+                if metrics.get("purchase_action_type_selected")
+            })
             account_upsert = await _upsert_ad_account_daily_stats(account_rows)
             print(
                 "[ads_sync][checkpoint] "
@@ -1789,6 +1816,15 @@ async def sync_ads_for_client_period(
                 f"persisted_campaign={int((persisted_readback.get('campaign_daily_stats') or {}).get('count') or 0)} "
                 f"persisted_ad={int((persisted_readback.get('ad_daily_stats') or {}).get('count') or 0)} "
                 f"persisted_promoted={int((persisted_readback.get('promoted_post_daily_stats') or {}).get('count') or 0)}"
+            )
+            print(
+                "[refresh][meta] "
+                f"client_id={cid} start={period_since} end={period_until} "
+                f"raw_rows={len(account_rows_raw)} read_model_rows={persisted_account_rows} "
+                f"spend={sum(float(row.get('spend') or 0) for row in account_rows):.6f} "
+                f"purchases={sum(float(row.get('conversions') or 0) for row in account_rows):.6f} "
+                f"revenue={sum(float(row.get('revenue') or 0) for row in account_rows):.6f} "
+                f"selected_purchase_action={','.join(selected_purchase_actions) or '-'}"
             )
             result = {
                 "ok": True,

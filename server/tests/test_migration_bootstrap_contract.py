@@ -35,19 +35,52 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 27)
+        self.assertEqual(len(names), 29)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-4], "20260805_000024_ga4_selection_metrics.sql")
-        self.assertEqual(names[-3], "20260810_000025_google_ads_daily_stats.sql")
-        self.assertEqual(names[-2], "20260811_000026_dashboard_read_model.sql")
-        self.assertEqual(names[-1], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
+        self.assertEqual(names[-4], "20260811_000026_dashboard_read_model.sql")
+        self.assertEqual(names[-3], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
+        self.assertEqual(names[-2], "20260813_000028_shopify_read_model_canonical_metrics.sql")
+        self.assertEqual(names[-1], "20260814_000029_shopify_recognized_sales_metrics.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 28)))
+        self.assertEqual(logical_numbers, list(range(1, 30)))
+
+    def test_shopify_recognized_sales_are_separate_from_non_cancelled_orders(self):
+        sql = (
+            MIGRATIONS / "20260814_000029_shopify_recognized_sales_metrics.sql"
+        ).read_text().lower()
+        self.assertIn("current_total_price numeric(18, 2)", sql)
+        self.assertIn("shopify_orders_created", sql)
+        self.assertIn("shopify_orders_non_cancelled", sql)
+        self.assertIn("shopify_pending_orders", sql)
+        self.assertIn("shopify_sales_revenue", sql)
+        self.assertIn("in ('paid', 'partially_refunded')", sql)
+        self.assertIn("shopify_net_revenue = coalesce(x.sales_revenue, 0)", sql)
+        self.assertIn("shopify_orders = x.recognized_orders", sql)
+        self.assertNotIn("delete from shopify_", sql)
+        self.assertIn("from public, anon, authenticated", sql)
+
+    def test_shopify_read_model_excludes_cancelled_orders_and_materializes_customer_keys(self):
+        sql = (
+            MIGRATIONS / "20260813_000028_shopify_read_model_canonical_metrics.sql"
+        ).read_text().lower()
+        self.assertIn("o.cancelled_at is null", sql)
+        self.assertIn("nullif(trim(coalesce(o.cancel_reason, '')), '') is null", sql)
+        self.assertIn("shopify_customer_keys text[]", sql)
+        self.assertIn("count(distinct nullif(trim(o.customer_id), ''))", sql)
+        self.assertIn("array_agg(distinct ('customer_md5:' || md5(trim(o.customer_id)))", sql)
+        self.assertNotIn("o.email", sql)
+        self.assertIn("at time zone 'america/sao_paulo'", sql)
+        self.assertIn("between p_start and p_end", sql)
+        self.assertIn("update dashboard_daily_metrics set", sql)
+        self.assertIn("delete from dashboard_product_metrics", sql)
+        self.assertNotIn("delete from shopify_", sql)
+        self.assertIn("from public, anon, authenticated", sql)
+        self.assertIn("to service_role", sql)
 
     def test_dashboard_read_model_is_tenant_scoped_read_only_and_incremental(self):
         sql = (MIGRATIONS / "20260811_000026_dashboard_read_model.sql").read_text().lower()

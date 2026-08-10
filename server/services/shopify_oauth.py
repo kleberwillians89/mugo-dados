@@ -23,6 +23,7 @@ from .ig_supabase import sb_insert, sb_select, sb_update
 from .integration_errors import IntegrationError, from_httpx_error
 from .job_runs import finish_job_run, start_job_run
 from .oauth_state import create_oauth_state
+from .periods import DEFAULT_TENANT_TIMEZONE, local_date, resolve_period
 from .shopify_config import shopify_admin_url
 from .sync_locks import build_sync_lock_name, guarded_sync, is_sync_lock_stale, peek_sync_lock
 
@@ -548,7 +549,10 @@ async def sync_shopify_connection(
     *,
     client_id: str,
     connection_id: str,
+    updated_at_min: str | None = None,
     created_at_min: str | None = None,
+    created_at_max: str | None = None,
+    reconciliation_period: tuple[str, str] | None = None,
 ) -> Dict[str, Any]:
     sync_started_at = time.perf_counter()
     print(f"[shopify_sync] stage=entry connection_id={connection_id} client_id={client_id}")
@@ -590,7 +594,11 @@ async def sync_shopify_connection(
         # no payload_json do job_run tanto no sucesso quanto na falha, para
         # que /api/shopify/debug/sync-diagnostics sempre reflita até onde a
         # sincronização chegou, mesmo quando ela não termina.
-        diagnostics: Dict[str, Any] = {"created_at_min": created_at_min}
+        diagnostics: Dict[str, Any] = {
+            "updated_at_min": updated_at_min,
+            "created_at_min": created_at_min,
+            "created_at_max": created_at_max,
+        }
         job_run: Dict[str, Any] | None = None
         shop_domain = "-"
         try:
@@ -618,7 +626,7 @@ async def sync_shopify_connection(
                     client_id=client_id,
                     connection_id=connection_id,
                     trigger_source="sync",
-                    payload_json={"created_at_min": created_at_min},
+                    payload_json=diagnostics,
                 )
                 print(f"[shopify_sync] stage=job_started connection_id={connection_id} client_id={client_id}")
             except Exception as job_exc:
@@ -643,11 +651,17 @@ async def sync_shopify_connection(
                 )
 
             order_params: Dict[str, Any] = {"status": "any", "limit": 250}
+            if str(updated_at_min or "").strip():
+                order_params["updated_at_min"] = str(updated_at_min).strip()
             if str(created_at_min or "").strip():
                 order_params["created_at_min"] = str(created_at_min).strip()
+            if str(created_at_max or "").strip():
+                order_params["created_at_max"] = str(created_at_max).strip()
             print(
                 "[shopify_sync] stage=orders_request "
-                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain}"
+                f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
+                f"updated_at_min={updated_at_min or '-'} created_at_min={created_at_min or '-'} "
+                f"created_at_max={created_at_max or '-'}"
             )
             orders = await _fetch_shopify_collection(context, "orders.json", params=order_params)
             diagnostics["orders_received"] = len(orders)
@@ -676,10 +690,10 @@ async def sync_shopify_connection(
                 for order in orders
             )
             items_upserted = 0
-            # O backfill inicial não busca refunds.json (fora do escopo desta
-            # correção — refunds chegam via webhook refunds/create); mantido
-            # aqui apenas para os campos de log solicitados nunca faltarem.
-            refunds_received = 0
+            refunds_received = sum(
+                len(order.get("refunds")) if isinstance(order.get("refunds"), list) else 0
+                for order in orders
+            )
             refunds_upserted = 0
             first_order_error: Dict[str, Any] | None = None
             for order in orders:
@@ -693,6 +707,7 @@ async def sync_shopify_connection(
                         payload=order,
                     )
                     items_upserted += int(result.get("items_upserted") or 0)
+                    refunds_upserted += int(result.get("refunds_upserted") or 0)
                     orders_upserted += 1
                 except Exception as exc:
                     orders_failed += 1
@@ -789,19 +804,25 @@ async def sync_shopify_connection(
                     provider="shopify",
                 )
 
-            persisted_order_dates = sorted({
-                str(order.get("created_at") or "")[:10]
-                for order in orders
-                if len(str(order.get("created_at") or "")) >= 10
-            })
+            persisted_order_dates = sorted(filter(None, (
+                _shopify_order_local_date(order) for order in orders
+            )))
             if orders_upserted > 0 and persisted_order_dates:
                 from .dashboard_read_model import refresh_dashboard_read_model_safely
-                await refresh_dashboard_read_model_safely(
+                projection = await refresh_dashboard_read_model_safely(
                     client_id=client_id,
                     start=persisted_order_dates[0],
                     end=persisted_order_dates[-1],
                     provider="shopify",
                 )
+                if not projection.get("ok"):
+                    raise IntegrationError(
+                        "Os dados Shopify foram persistidos, mas a projeção do dashboard não foi concluída.",
+                        status_code=502,
+                        code="SHOPIFY_PROJECTION_FAILED",
+                        provider="shopify",
+                        retryable=True,
+                    )
 
             now = datetime.now(timezone.utc).isoformat()
             if context.connection_id:
@@ -834,7 +855,7 @@ async def sync_shopify_connection(
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
                 f"status=success duration_ms={duration_ms}"
             )
-            return {
+            response: Dict[str, Any] = {
                 "ok": True,
                 "client_id": client_id,
                 "connection_id": context.connection_id,
@@ -858,6 +879,11 @@ async def sync_shopify_connection(
                     "refunds": refunds_upserted,
                 },
             }
+            if reconciliation_period is not None:
+                response["reconciliation"] = _build_shopify_reconciliation_matrix(
+                    orders, start=reconciliation_period[0], end=reconciliation_period[1]
+                )
+            return response
         except IntegrationError as exc:
             # Erro operacional já conhecido/humanizado (scope ausente,
             # Shopify recusou a chamada, etc.) — a causa real já está no
@@ -982,23 +1008,169 @@ async def list_active_shopify_connections() -> list[Dict[str, Any]]:
 async def resolve_shopify_reconciliation_since(
     client_id: str, connection_id: str, *, fallback_days: int = 30
 ) -> str:
-    """Início da janela de reconciliação: 1h antes do último sync bem-sucedido
-    (margem de segurança contra updates perdidos por atraso de webhook), ou
-    os últimos `fallback_days` dias quando ainda não houve sync registrado.
-    """
-    last_sync_at: str | None = None
+    """Start 48h before the latest durable Shopify order update."""
+    shop_domain = ""
     try:
         existing = await get_connection(client_id, connection_id)
-        last_sync_at = str(existing.get("last_sync_at") or "").strip() or None
+        shop_domain = normalize_shop_domain(str(existing.get("external_key") or ""))
     except Exception:
-        last_sync_at = None
-    if last_sync_at:
+        shop_domain = ""
+    filters = {"client_id": f"eq.{client_id}"}
+    if shop_domain:
+        filters["shop_domain"] = f"eq.{shop_domain}"
+    try:
+        rows = await sb_select(
+            "shopify_orders",
+            select="updated_at_shopify",
+            filters=filters,
+            order="updated_at_shopify.desc.nullslast",
+            limit=1,
+        )
+    except Exception:
+        rows = []
+    raw_watermark = str((rows[0] if rows else {}).get("updated_at_shopify") or "").strip()
+    if raw_watermark:
         try:
-            since = datetime.fromisoformat(last_sync_at.replace("Z", "+00:00")) - timedelta(hours=1)
+            since = datetime.fromisoformat(raw_watermark.replace("Z", "+00:00")) - timedelta(hours=48)
             return since.isoformat()
         except ValueError:
             pass
     return (datetime.now(timezone.utc) - timedelta(days=fallback_days)).isoformat()
+
+
+def _shopify_order_local_date(order: Dict[str, Any]) -> str | None:
+    raw = str(order.get("created_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return local_date(parsed, DEFAULT_TENANT_TIMEZONE).isoformat()
+
+
+def _shopify_money(payload: Dict[str, Any], key: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, dict):
+        value = (value.get("shop_money") or value).get("amount")
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _shopify_refund_amount(order: Dict[str, Any]) -> float:
+    total = 0.0
+    for refund in order.get("refunds") or []:
+        for transaction in (refund if isinstance(refund, dict) else {}).get("transactions") or []:
+            if str(transaction.get("kind") or "").lower() in {"refund", "suggested_refund"}:
+                total += _shopify_money(transaction, "amount")
+    return total
+
+
+def _build_shopify_reconciliation_matrix(
+    orders: list[Dict[str, Any]], *, start: str, end: str
+) -> Dict[str, Any]:
+    period = resolve_period(start=start, end=end, max_days=366)
+    buckets = {day: {
+        "date": day, "orders_created": 0, "orders_non_cancelled": 0,
+        "orders_paid": 0, "orders_pending": 0, "orders_partially_refunded": 0,
+        "orders_refunded": 0, "gross_total_price": 0.0, "current_total_price": 0.0,
+        "refund_amount": 0.0, "net_revenue": 0.0, "orders": [],
+    } for day in period.dates()}
+    recognized = {"paid", "partially_refunded"}
+    for order in orders:
+        day = _shopify_order_local_date(order)
+        if day not in buckets:
+            continue
+        bucket = buckets[day]
+        status = str(order.get("financial_status") or "unknown").lower()
+        cancelled = bool(order.get("cancelled_at") or str(order.get("cancel_reason") or "").strip())
+        total_price = _shopify_money(order, "total_price")
+        current_total = _shopify_money(order, "current_total_price") or total_price
+        refund_amount = _shopify_refund_amount(order)
+        bucket["orders_created"] += 1
+        if not cancelled:
+            bucket["orders_non_cancelled"] += 1
+            bucket["gross_total_price"] += total_price
+            bucket["current_total_price"] += current_total
+        if status == "paid":
+            bucket["orders_paid"] += 1
+        elif status == "pending":
+            bucket["orders_pending"] += 1
+        elif status == "partially_refunded":
+            bucket["orders_partially_refunded"] += 1
+        elif status == "refunded":
+            bucket["orders_refunded"] += 1
+        if not cancelled and status in recognized:
+            bucket["refund_amount"] += refund_amount
+            bucket["net_revenue"] += max(total_price - refund_amount, 0.0)
+        bucket["orders"].append({
+            "shopify_order_id": str(order.get("id") or ""),
+            "order_number": order.get("order_number"), "name": order.get("name"),
+            "financial_status": status, "created_at": order.get("created_at"),
+            "updated_at": order.get("updated_at"), "cancelled_at": order.get("cancelled_at"),
+            "total_price": round(total_price, 2), "current_total_price": round(current_total, 2),
+            "refund_amount": round(refund_amount, 2),
+        })
+    for bucket in buckets.values():
+        for key in ("gross_total_price", "current_total_price", "refund_amount", "net_revenue"):
+            bucket[key] = round(float(bucket[key]), 2)
+    return {"period": {"start": period.start.isoformat(), "end": period.end.isoformat()}, "daily": list(buckets.values())}
+
+
+async def reconcile_shopify_period(
+    *, client_id: str, connection_id: str, start: str, end: str
+) -> Dict[str, Any]:
+    period = resolve_period(start=start, end=end, max_days=366)
+    utc_start, utc_end = period.utc_bounds()
+    result = await sync_shopify_connection(
+        client_id=client_id,
+        connection_id=connection_id,
+        created_at_min=utc_start.isoformat(),
+        created_at_max=utc_end.isoformat(),
+        reconciliation_period=(period.start.isoformat(), period.end.isoformat()),
+    )
+    api_matrix = dict(result.get("reconciliation") or {})
+    raw_rows = await sb_select(
+        "shopify_orders",
+        select="raw_payload",
+        filters={
+            "client_id": f"eq.{client_id}",
+            "shop_domain": f"eq.{result.get('shop_domain')}",
+            "and": (
+                f"(created_at_shopify.gte.{utc_start.isoformat()},"
+                f"created_at_shopify.lte.{utc_end.isoformat()})"
+            ),
+        },
+        order="created_at_shopify.asc",
+        limit=1000,
+    )
+    raw_matrix = _build_shopify_reconciliation_matrix(
+        [row.get("raw_payload") for row in raw_rows if isinstance(row.get("raw_payload"), dict)],
+        start=period.start.isoformat(), end=period.end.isoformat(),
+    )
+    read_model_rows = await sb_select(
+        "dashboard_daily_metrics",
+        select=(
+            "metric_date,shopify_orders_created,shopify_orders_non_cancelled,"
+            "shopify_paid_orders,shopify_pending_orders,shopify_gross_revenue,"
+            "shopify_sales_revenue,shopify_net_revenue,shopify_refunds"
+        ),
+        filters={
+            "client_id": f"eq.{client_id}",
+            "and": f"(metric_date.gte.{period.start.isoformat()},metric_date.lte.{period.end.isoformat()})",
+        },
+        order="metric_date.asc",
+        limit=366,
+    )
+    result["reconciliation"] = {
+        "period": api_matrix.get("period"),
+        "api": api_matrix.get("daily") or [],
+        "raw": raw_matrix.get("daily") or [],
+        "read_model": read_model_rows,
+    }
+    return result
 
 
 async def resolve_store_by_domain(shop_domain: str) -> Dict[str, Any] | None:

@@ -168,7 +168,7 @@ def compute_shopify_revenue(
     revenue_total = sum(
         _safe_float(order.get("total_price"))
         for order in orders
-        if not _safe_str(order.get("cancelled_at"))
+        if not _is_cancelled_order(order)
     )
     refunded_amount = sum(_safe_float(refund.get("total_refunded")) for refund in refunds)
     net_revenue = max(revenue_total - refunded_amount, 0.0)

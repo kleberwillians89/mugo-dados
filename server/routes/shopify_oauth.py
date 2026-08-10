@@ -15,6 +15,7 @@ from services.shopify_oauth import (
     fetch_shop,
     normalize_shop_domain,
     register_webhooks,
+    reconcile_shopify_period,
     resolve_shopify_reconciliation_since,
     safe_oauth_configuration,
     select_shopify_connection,
@@ -221,11 +222,30 @@ async def sync_store(
     # sincronização bem-sucedida (mesma janela usada pelo cron de
     # reconciliação periódica), em vez de refazer o histórico inteiro a cada
     # clique. Sem sync anterior, cai para a janela de `days`.
-    created_at_min = await resolve_shopify_reconciliation_since(cid, connection_id, fallback_days=days)
+    updated_at_min = await resolve_shopify_reconciliation_since(cid, connection_id, fallback_days=days)
     return await sync_shopify_connection(
         client_id=cid,
         connection_id=connection_id,
-        created_at_min=created_at_min,
+        updated_at_min=updated_at_min,
+    )
+
+
+@router.post("/{connection_id}/reconcile")
+async def reconcile_store_period(
+    connection_id: str,
+    start: str = Query(...),
+    end: str = Query(...),
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(
+        client_id or x_client_id,
+        authorization,
+        allowed_roles=("agency_admin", "client_admin"),
+    )
+    return await reconcile_shopify_period(
+        client_id=cid, connection_id=connection_id, start=start, end=end,
     )
 
 

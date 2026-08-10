@@ -8,7 +8,10 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-from services.ads_sync import _synthetic_boosted_rows_from_maximum_insights
+from services.ads_sync import (
+    _synthetic_boosted_rows_from_maximum_insights,
+    extract_canonical_purchase_metrics,
+)
 from services.dashboard_paid import _sum_grouped_rows, compute_mer, compute_roas
 
 
@@ -62,6 +65,60 @@ class ComputeMerTests(unittest.TestCase):
         self.assertAlmostEqual(mer, 2.0)
         self.assertAlmostEqual(roas_meta, 10.0)
         self.assertNotEqual(mer, roas_meta)
+
+
+class CanonicalMetaPurchaseTests(unittest.TestCase):
+    def test_competing_purchase_aliases_are_not_added(self):
+        aliases = (
+            "offsite_conversion.fb_pixel_purchase",
+            "omni_purchase",
+            "onsite_web_app_purchase",
+            "onsite_web_purchase",
+            "purchase",
+            "web_in_store_purchase",
+        )
+        result = extract_canonical_purchase_metrics(
+            [{"action_type": action_type, "value": "1"} for action_type in aliases],
+            [{"action_type": action_type, "value": "500"} for action_type in aliases],
+        )
+        self.assertEqual(result["purchase_count"], 1)
+        self.assertEqual(result["purchase_value"], 500)
+        self.assertEqual(
+            result["purchase_action_type_selected"],
+            "offsite_conversion.fb_pixel_purchase",
+        )
+
+    def test_falls_back_to_omni_then_purchase(self):
+        omni = extract_canonical_purchase_metrics(
+            [{"action_type": "omni_purchase", "value": "1"}],
+            [{"action_type": "omni_purchase", "value": "500"}],
+        )
+        purchase = extract_canonical_purchase_metrics(
+            [{"action_type": "purchase", "value": "1"}],
+            [{"action_type": "purchase", "value": "500"}],
+        )
+        self.assertEqual(omni, {
+            "purchase_count": 1.0,
+            "purchase_value": 500.0,
+            "purchase_action_type_selected": "omni_purchase",
+        })
+        self.assertEqual(purchase, {
+            "purchase_count": 1.0,
+            "purchase_value": 500.0,
+            "purchase_action_type_selected": "purchase",
+        })
+
+    def test_does_not_mix_count_and_value_from_different_aliases(self):
+        result = extract_canonical_purchase_metrics(
+            [{"action_type": "offsite_conversion.fb_pixel_purchase", "value": "1"}],
+            [{"action_type": "omni_purchase", "value": "500"}],
+        )
+        self.assertEqual(result["purchase_count"], 1)
+        self.assertEqual(result["purchase_value"], 0)
+        self.assertEqual(
+            result["purchase_action_type_selected"],
+            "offsite_conversion.fb_pixel_purchase",
+        )
 
 
 class SumGroupedRowsRoasTests(unittest.TestCase):

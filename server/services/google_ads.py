@@ -13,6 +13,7 @@ from .google_oauth import get_google_access_token
 from .ig_supabase import sb_select, sb_upsert
 from .integration_errors import IntegrationError
 from .periods import resolve_period
+from .sync_locks import guarded_sync
 from .dashboard_read_model import refresh_dashboard_read_model_safely
 
 
@@ -86,7 +87,7 @@ def _parse_result(client_id: str, context: GoogleAdsContext, item: Dict[str, Any
     }
 
 
-async def sync_google_ads(
+async def _sync_google_ads(
     *, client_id: str, connection_id: str | None, start: str | None, end: str | None, days: int,
 ) -> Dict[str, Any]:
     context = await resolve_google_ads_context(client_id, connection_id)
@@ -148,6 +149,18 @@ async def sync_google_ads(
         "period": {"start": period.start.isoformat(), "end": period.end.isoformat(), "days": period.days},
         "rows_received": len(rows), "rows_upserted": len(rows),
     }
+
+
+async def sync_google_ads(
+    *, client_id: str, connection_id: str | None, start: str | None, end: str | None, days: int,
+) -> Dict[str, Any]:
+    async with guarded_sync(
+        client_id=client_id, provider="google_ads", connection_id=str(connection_id or "resolved"),
+        ttl_seconds=1800,
+    ):
+        return await _sync_google_ads(
+            client_id=client_id, connection_id=connection_id, start=start, end=end, days=days,
+        )
 
 
 async def build_google_ads_report(

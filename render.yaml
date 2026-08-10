@@ -46,7 +46,7 @@ services:
     rootDir: server
     schedule: "5 * * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_jobs.py ads-sync-hourly --days 3
+    startCommand: python run_jobs.py ads-sync-hourly --days 7
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2
@@ -58,21 +58,103 @@ services:
     rootDir: server
     schedule: "20 */3 * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_jobs.py ga4-sync --days 3
+    startCommand: python run_jobs.py ga4-sync-all --days 3
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2
 
   - type: cron
-    name: mugo-dados-shopify-reconciliation
+    name: mugo-dados-google-ads-sync
     env: python
     plan: starter
     rootDir: server
-    # Webhooks entregam vendas em tempo real; esta reconciliação só cobre
-    # updates perdidos por indisponibilidade momentânea de webhook.
-    schedule: "40 8,13,18,23 * * *"
+    schedule: "35 */3 * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_jobs.py shopify-reconcile
+    startCommand: python run_jobs.py google-ads-sync --days 7
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-shopify-incremental
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "*/30 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py shopify-reconcile --fallback-days 30
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-shopify-historical-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "25 7 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py shopify-historical-reconcile --days 14
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-shopify-wide-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "40 8 * * 0"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py shopify-historical-reconcile --days 90
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-meta-ads-wide-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "45 2 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py ads-sync-hourly --days 30
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-ga4-wide-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "15 3 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py ga4-sync-all --days 30
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-google-ads-wide-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "45 3 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py google-ads-sync --days 30
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
+    name: mugo-dados-instagram-wide-reconciliation
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "20 9 * * 0"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py organic-sync --limit 250 --skip-thumbnails
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2

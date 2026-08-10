@@ -11,6 +11,7 @@ import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard
 import { usePeriod } from "../app/PeriodContext";
 import { resolveShopifyConnectionIdForRead, syncShopifyConnection } from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
+import { countUniqueShopifyCustomers } from "../app/shopifyReadModel";
 import { getActiveClientId, getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
 import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
@@ -162,7 +163,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     const source = model.sources.find((item) => item.provider === "shopify");
     return { ok: true, client_id: getActiveClientId(), period: { start: period.start, end: period.end, days: periodDays },
       coverage: { data_min_in_period: model.daily[0]?.metric_date || null, data_max_in_period: model.daily.at(-1)?.metric_date || null, data_max_available: source?.data_max_available || null, has_data_in_period: model.daily.length > 0 },
-      summary: { revenue_total: gross, net_revenue: net, orders, average_ticket: orders ? net / orders : 0, customers: total("shopify_customers"), paid_orders: total("shopify_paid_orders"), cancelled_orders: 0, refunds_count: refunds ? 1 : 0, refunded_amount: refunds, refunds_occurred_in_period_count: refunds ? 1 : 0, refunds_occurred_in_period_amount: refunds },
+      summary: { revenue_total: gross, net_revenue: net, orders, average_ticket: orders ? net / orders : 0, customers: countUniqueShopifyCustomers(model.daily), paid_orders: total("shopify_paid_orders"), cancelled_orders: 0, refunds_count: refunds ? 1 : 0, refunded_amount: refunds, refunds_occurred_in_period_count: refunds ? 1 : 0, refunds_occurred_in_period_amount: refunds },
       trends: { daily: model.daily.map((row) => ({ date: row.metric_date, revenue: Number(row.shopify_net_revenue || 0), orders: Number(row.shopify_orders || 0), customers: Number(row.shopify_customers || 0), average_ticket: Number(row.shopify_orders) ? Number(row.shopify_net_revenue || 0) / Number(row.shopify_orders) : 0 })) },
       recent_orders: [], top_products: model.products.map((row) => ({ product_id: String(row.product_id), title: String(row.product_title || "Produto"), variant_title: String(row.variant || ""), quantity_sold: Number(row.quantity || 0), revenue: Number(row.net_revenue || 0) })),
       technical: { last_success_at: source?.last_success_at || null, last_received_at: source?.last_success_at || null, processed_count: 0, error_count: 0, recent_errors: [], recent_webhooks: [] } };

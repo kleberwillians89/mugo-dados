@@ -6,7 +6,9 @@ import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from 
 export type DashboardDailyMetric = {
   client_id: string; metric_date: string; updated_at: string;
   shopify_net_revenue: number | null; shopify_gross_revenue: number | null;
-  shopify_orders: number | null; shopify_paid_orders: number | null; shopify_customers: number | null; shopify_refunds: number | null;
+  shopify_orders: number | null; shopify_paid_orders: number | null; shopify_customers: number | null; shopify_customer_keys: string[] | null; shopify_refunds: number | null;
+  shopify_orders_created?: number | null; shopify_orders_non_cancelled?: number | null;
+  shopify_pending_orders?: number | null; shopify_sales_revenue?: number | null;
   meta_spend: number | null; meta_attributed_revenue: number | null; meta_purchases: number | null;
   meta_impressions: number | null; meta_reach: number | null; meta_clicks: number | null; meta_link_clicks: number | null; meta_video_views: number | null;
   google_ads_spend: number | null; google_ads_conversion_value: number | null; google_ads_conversions: number | null;

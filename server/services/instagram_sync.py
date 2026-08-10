@@ -76,6 +76,62 @@ def _schema_warning(block: str, client_id: str, connection_id: str, exc: httpx.H
     )
 
 
+def _thumbnail_error_detail(exc: Exception) -> tuple[str, str]:
+    if not isinstance(exc, httpx.HTTPStatusError) or exc.response is None:
+        return "-", exc.__class__.__name__
+    body = (exc.response.text or "").strip().replace("\n", " ")
+    return str(exc.response.status_code), body[:240] or exc.__class__.__name__
+
+
+async def _process_thumbnail_jobs(
+    *, client_id: str, jobs: List[Dict[str, str]]
+) -> Dict[str, int]:
+    success = 0
+    failed = 0
+    skipped = 0
+    storage_unavailable = False
+    for job in jobs:
+        if storage_unavailable:
+            skipped += 1
+            continue
+        media_id = job["media_id"]
+        path = job["path"]
+        content = b""
+        content_type = "-"
+        try:
+            content, content_type = await download_image(job["source_url"])
+            if not content:
+                raise ValueError("empty_thumbnail_body")
+            public_url = await sb_upload_public(path, content, content_type)
+            await sb_update(
+                "ig_media",
+                filters={"client_id": f"eq.{client_id}", "media_id": f"eq.{media_id}"},
+                patch={"thumb_url": public_url},
+                returning="minimal",
+            )
+            success += 1
+        except Exception as exc:
+            failed += 1
+            status, detail = _thumbnail_error_detail(exc)
+            content_type = str(content_type or "-")
+            content_length = len(content)
+            print(
+                "[ig_sync][thumbnail_warning] "
+                f"client_id={client_id} media_id={media_id} status_code={status} "
+                f"content_type={content_type} content_length={content_length} "
+                f"path={path} error={detail}"
+            )
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                if exc.response.status_code == 400:
+                    storage_unavailable = True
+    if skipped:
+        print(
+            "[ig_sync][thumbnail_circuit_open] "
+            f"client_id={client_id} skipped={skipped} reason=storage_http_400"
+        )
+    return {"success": success, "failed": failed, "skipped": skipped}
+
+
 async def _resolve_connection_by_id(connection_id: str) -> Optional[Dict[str, Any]]:
     rows = await sb_select("meta_connections", filters={"id": f"eq.{connection_id}"}, limit=1)
     return rows[0] if rows else None
@@ -253,6 +309,8 @@ async def _run_sync_for_client_and_ig(
     persisted_comments = 0
     persisted_media = 0
     persisted_snapshot = False
+    read_model_refreshed = False
+    thumbnail_jobs: List[Dict[str, str]] = []
 
     for m in media:
         media_id = str(m.get("id") or "").strip()
@@ -305,14 +363,12 @@ async def _run_sync_for_client_and_ig(
         if not thumb_url and media_type in {"IMAGE", "CAROUSEL_ALBUM"}:
             thumb_url = m.get("media_url")
 
-        public_thumb = None
         if thumb_url:
-            try:
-                content, ctype = await download_image(thumb_url)
-                path = f"clients/{client_id}/media/{media_id}/thumb.jpg"
-                public_thumb = await sb_upload_public(path, content, ctype)
-            except Exception:
-                public_thumb = None
+            thumbnail_jobs.append({
+                "media_id": media_id,
+                "source_url": str(thumb_url),
+                "path": f"clients/{client_id}/media/{media_id}/thumb.jpg",
+            })
 
         enriched.append(
             {
@@ -323,8 +379,7 @@ async def _run_sync_for_client_and_ig(
                 "timestamp": m.get("timestamp"),
                 "permalink": m.get("permalink"),
                 "insights": insights,
-                "thumb_url": public_thumb
-                or m.get("thumbnail_url")
+                "thumb_url": m.get("thumbnail_url")
                 or (m.get("media_url") if media_type in {"IMAGE", "CAROUSEL_ALBUM"} else None),
             }
         )
@@ -339,8 +394,7 @@ async def _run_sync_for_client_and_ig(
                 "caption": m.get("caption"),
                 "permalink": m.get("permalink"),
                 "timestamp": _normalize_meta_ts(m.get("timestamp")),
-                "thumb_url": public_thumb
-                or m.get("thumbnail_url")
+                "thumb_url": m.get("thumbnail_url")
                 or (m.get("media_url") if media_type in {"IMAGE", "CAROUSEL_ALBUM"} else None),
                 "media_url": m.get("media_url"),
                 "thumbnail_url": m.get("thumbnail_url"),
@@ -364,14 +418,12 @@ async def _run_sync_for_client_and_ig(
                     f"block=story_insights client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
                 )
             story_thumb_source = story.get("thumbnail_url") or story.get("media_url")
-            public_story_thumb = None
             if story_thumb_source:
-                try:
-                    story_content, story_ctype = await download_image(story_thumb_source)
-                    story_path = f"clients/{client_id}/media/{story_id}/thumb.jpg"
-                    public_story_thumb = await sb_upload_public(story_path, story_content, story_ctype)
-                except Exception:
-                    public_story_thumb = None
+                thumbnail_jobs.append({
+                    "media_id": story_id,
+                    "source_url": str(story_thumb_source),
+                    "path": f"clients/{client_id}/media/{story_id}/thumb.jpg",
+                })
             media_rows.append(
                 {
                     "client_id": client_id,
@@ -382,10 +434,7 @@ async def _run_sync_for_client_and_ig(
                     "caption": None,
                     "permalink": story.get("permalink"),
                     "timestamp": _normalize_meta_ts(story.get("timestamp")),
-                    # Igual à mídia comum: baixa e persiste no storage próprio
-                    # antes de expor a URL — a CDN do Instagram é assinada e
-                    # expira, causando ERR_BLOCKED_BY_RESPONSE no frontend.
-                    "thumb_url": public_story_thumb or story_thumb_source,
+                    "thumb_url": story_thumb_source,
                     "media_url": story.get("media_url"),
                     "thumbnail_url": story.get("thumbnail_url"),
                     "insights_json": story_insights or {},
@@ -480,12 +529,6 @@ async def _run_sync_for_client_and_ig(
             on_conflict="client_id,snapshot_date",
         )
         persisted_snapshot = True
-        await refresh_dashboard_read_model_safely(
-            client_id=client_id,
-            start=_utc_date_str(),
-            end=_utc_date_str(),
-            provider="instagram",
-        )
     except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code not in {400, 404, 409}:
             raise
@@ -512,6 +555,7 @@ async def _run_sync_for_client_and_ig(
         "comments_saved": persisted_comments,
         "media_saved": persisted_media,
         "snapshot_saved": persisted_snapshot,
+        "read_model_refreshed": read_model_refreshed,
         "persisted": {
             "media": persisted_media,
             "comments": persisted_comments,
@@ -519,10 +563,13 @@ async def _run_sync_for_client_and_ig(
         },
         "block_status": block_status,
         "warnings": warnings,
+        "_thumbnail_jobs": thumbnail_jobs,
     }
 
 
-async def _sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict[str, Any]:
+async def _sync_instagram_connection(
+    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True,
+) -> Dict[str, Any]:
     conn = await _resolve_connection_by_id(connection_id)
     if not conn:
         raise RuntimeError("Conexão Instagram não encontrada.")
@@ -570,10 +617,34 @@ async def _sync_instagram_connection(connection_id: str, limit: int = 40) -> Dic
             limit=limit,
         )
         await _mark_connection_success(connection_id)
+        if res.get("snapshot_saved"):
+            read_model_result = await refresh_dashboard_read_model_safely(
+                client_id=client_id,
+                start=_utc_date_str(),
+                end=_utc_date_str(),
+                provider="instagram",
+            )
+            res["read_model_refreshed"] = bool(read_model_result.get("ok"))
+        thumbnail_jobs = res.pop("_thumbnail_jobs", [])
+        thumbnail_result = (
+            await _process_thumbnail_jobs(
+                client_id=client_id,
+                jobs=thumbnail_jobs if isinstance(thumbnail_jobs, list) else [],
+            )
+            if process_thumbnails
+            else {"success": 0, "failed": 0, "skipped": len(thumbnail_jobs), "circuit_open": False}
+        )
+        if thumbnail_result["failed"] or thumbnail_result["skipped"]:
+            res.setdefault("warnings", []).append(
+                "Algumas miniaturas não foram atualizadas; os dados orgânicos foram preservados."
+            )
+        res["thumbnails"] = thumbnail_result
         print(
             "[ig_sync] success "
             f"client_id={client_id} connection_id={connection_id} media={len(res.get('media') or [])} "
-            f"comments_saved={res.get('comments_saved') or 0}"
+            f"comments_saved={res.get('comments_saved') or 0} "
+            f"thumb_success={thumbnail_result['success']} thumb_failed={thumbnail_result['failed']} "
+            f"thumb_skipped={thumbnail_result['skipped']}"
         )
         return {**res, "connection_id": connection_id}
     except Exception as exc:
@@ -585,14 +656,18 @@ async def _sync_instagram_connection(connection_id: str, limit: int = 40) -> Dic
         raise
 
 
-async def sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict[str, Any]:
+async def sync_instagram_connection(
+    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True,
+) -> Dict[str, Any]:
     conn = await _resolve_connection_by_id(connection_id)
     client_id = str((conn or {}).get("client_id") or "").strip()
     async with guarded_sync(
         client_id=client_id, provider="meta_organic", connection_id=connection_id,
         ttl_seconds=1800,
     ):
-        return await _sync_instagram_connection(connection_id, limit=limit)
+        return await _sync_instagram_connection(
+            connection_id, limit=limit, process_thumbnails=process_thumbnails,
+        )
 
 
 async def sync_instagram_for_client(

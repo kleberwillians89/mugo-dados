@@ -81,6 +81,89 @@ class ReadOrdersScopeGuardTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
+    async def test_incremental_uses_updated_cursor_and_upserts_new_and_existing_orders(self):
+        orders = [
+            {"id": 2008, "created_at": "2026-08-09T13:17:24Z", "updated_at": "2026-08-10T10:00:00Z", "refunds": [{"id": 8001}]},
+            {"id": 2009, "created_at": "2026-08-10T11:00:00Z", "updated_at": "2026-08-10T11:00:00Z"},
+            {"id": 2010, "created_at": "2026-08-10T12:00:00Z", "updated_at": "2026-08-10T12:00:00Z"},
+            {"id": 2011, "created_at": "2026-08-10T13:00:00Z", "updated_at": "2026-08-10T13:00:00Z"},
+        ]
+        requested_params = {}
+        persisted = {"2008": {"id": 2008, "financial_status": "pending"}}
+
+        async def fake_collection(context, resource, *, params=None):
+            if resource == "orders.json":
+                requested_params.update(params or {})
+                return orders
+            return []
+
+        async def upsert_order(*, client_id, shop_domain, payload):
+            persisted[str(payload["id"])] = dict(payload)
+            return {
+                "order_id": str(payload["id"]),
+                "items_upserted": 0,
+                "refunds_upserted": len(payload.get("refunds") or []),
+            }
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", upsert_order),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch(
+                "services.dashboard_read_model.refresh_dashboard_read_model_safely",
+                AsyncMock(return_value={"ok": True}),
+            ) as read_model_refresh,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(
+                client_id="amalie", connection_id="conn-1",
+                updated_at_min="2026-08-07T10:00:00+00:00",
+            )
+
+        self.assertEqual(requested_params["updated_at_min"], "2026-08-07T10:00:00+00:00")
+        self.assertNotIn("created_at_min", requested_params)
+        self.assertEqual(set(persisted), {"2008", "2009", "2010", "2011"})
+        self.assertEqual(result["synced"]["orders_upserted"], 4)
+        self.assertEqual(result["synced"]["refunds_upserted"], 1)
+        read_model_refresh.assert_awaited_once_with(
+            client_id="amalie", start="2026-08-09", end="2026-08-10", provider="shopify",
+        )
+
+    async def test_pending_order_is_updated_in_place_when_api_returns_paid(self):
+        persisted = {"id": 2007, "financial_status": "pending"}
+
+        async def fake_collection(context, resource, *, params=None):
+            return ([{"id": 2007, "financial_status": "paid", "created_at": "2026-08-09T10:00:00Z"}]
+                    if resource == "orders.json" else [])
+
+        async def upsert_order(*, client_id, shop_domain, payload):
+            self.assertEqual(payload["id"], persisted["id"])
+            persisted.update(payload)
+            return {"order_id": "2007", "items_upserted": 0}
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", upsert_order),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            await shopify_oauth.sync_shopify_connection(
+                client_id="amalie", connection_id="conn-1", updated_at_min="2026-08-07T00:00:00Z",
+            )
+
+        self.assertEqual(persisted["financial_status"], "paid")
+
     async def test_shopify_200_with_orders_persists_them_and_reports_success(self):
         orders = [{"id": 1001}, {"id": 1002}, {"id": 1003}]
         customers = [{"id": 2001}]
@@ -221,6 +304,78 @@ class PaginationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(rows), 3)
         self.assertEqual([row["id"] for row in rows], [1, 2, 3])
+
+
+class ReconciliationWatermarkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_watermark_comes_from_raw_updated_at_with_48_hour_overlap(self):
+        with (
+            patch.object(shopify_oauth, "get_connection", AsyncMock(return_value={
+                "external_key": "amalie-6421.myshopify.com",
+                "last_sync_at": "2026-08-10T20:00:00Z",
+            })),
+            patch.object(shopify_oauth, "sb_select", AsyncMock(return_value=[{
+                "updated_at_shopify": "2026-08-09T10:17:24Z",
+            }])) as select,
+        ):
+            since = await shopify_oauth.resolve_shopify_reconciliation_since(
+                "amalie", "conn-1", fallback_days=7,
+            )
+
+        self.assertEqual(since, "2026-08-07T10:17:24+00:00")
+        self.assertEqual(select.await_args.kwargs["filters"]["shop_domain"], "eq.amalie-6421.myshopify.com")
+
+
+class HistoricalReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_period_uses_created_bounds_and_returns_daily_audit(self):
+        captured = {}
+
+        async def fake_sync(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True, "shop_domain": "amalie.myshopify.com",
+                "reconciliation": {"period": {"start": "2026-08-01", "end": "2026-08-10"}, "daily": []},
+            }
+
+        with (
+            patch.object(shopify_oauth, "sync_shopify_connection", fake_sync),
+            patch.object(shopify_oauth, "sb_select", AsyncMock(side_effect=[[], []])) as select,
+        ):
+            result = await shopify_oauth.reconcile_shopify_period(
+                client_id="amalie", connection_id="conn-1",
+                start="2026-08-01", end="2026-08-10",
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured["created_at_min"], "2026-08-01T03:00:00+00:00")
+        self.assertEqual(captured["created_at_max"], "2026-08-11T02:59:59.999999+00:00")
+        self.assertEqual(captured["reconciliation_period"], ("2026-08-01", "2026-08-10"))
+        self.assertNotIn("updated_at_min", captured)
+        self.assertEqual(select.await_count, 2)
+        self.assertEqual(set(result["reconciliation"]), {"period", "api", "raw", "read_model"})
+
+    def test_matrix_separates_pending_and_compares_total_and_current_total(self):
+        matrix = shopify_oauth._build_shopify_reconciliation_matrix([
+            {
+                "id": 2004, "order_number": 2004, "financial_status": "paid",
+                "created_at": "2026-08-04T03:30:00Z", "updated_at": "2026-08-04T04:00:00Z",
+                "total_price": "820.48", "current_total_price": "816.52",
+                "refunds": [{"id": 1, "transactions": [{"kind": "refund", "amount": "3.96"}]}],
+            },
+            {
+                "id": 2007, "financial_status": "pending",
+                "created_at": "2026-08-09T13:00:00Z", "total_price": "375.46",
+            },
+        ], start="2026-08-01", end="2026-08-10")
+
+        aug4 = matrix["daily"][3]
+        aug9 = matrix["daily"][8]
+        self.assertEqual(aug4["orders_paid"], 1)
+        self.assertEqual(aug4["gross_total_price"], 820.48)
+        self.assertEqual(aug4["current_total_price"], 816.52)
+        self.assertEqual(aug4["refund_amount"], 3.96)
+        self.assertEqual(aug4["net_revenue"], 816.52)
+        self.assertEqual(aug9["orders_pending"], 1)
+        self.assertEqual(aug9["net_revenue"], 0.0)
 
 
 class ShopifyErrorNeverBecomesZeroTests(unittest.IsolatedAsyncioTestCase):
@@ -538,6 +693,30 @@ class SyncDiagnosticsPropagationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_projection_failure_preserves_raw_but_does_not_mark_sync_success(self):
+        async def fake_collection(context, resource, *, params=None):
+            return ([{"id": 2004, "created_at": "2026-08-04T10:00:00Z"}]
+                    if resource == "orders.json" else [])
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_webhooks, "_handle_order_topic", AsyncMock(return_value={"order_id": "2004", "items_upserted": 0})),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as update,
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": False, "preserved": True})),
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
+
+        self.assertEqual(raised.exception.code, "SHOPIFY_PROJECTION_FAILED")
+        success_patches = [call.kwargs.get("patch", {}) for call in update.await_args_list]
+        self.assertFalse(any(patch.get("last_sync_at") for patch in success_patches))
+
     """Bug real de produção: start_job_run era chamado FORA do try/except —
     se ele lançasse (schema incompatível, Supabase fora do ar), a exceção
     escapava de sync_shopify_connection inteira, sem nunca alcançar o

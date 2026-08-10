@@ -17,7 +17,11 @@ import os  # noqa: E402
 os.environ.setdefault("SHOPIFY_APP_SECRET", "test-shopify-secret-01234567")
 
 from services import shopify_webhooks  # noqa: E402
-from services.shopify_reporting import compute_shopify_revenue  # noqa: E402
+from services.shopify_reporting import (  # noqa: E402
+    _customer_lookup_key,
+    _is_cancelled_order,
+    compute_shopify_revenue,
+)
 from services.dashboard_paid import compute_mer  # noqa: E402
 
 
@@ -43,6 +47,25 @@ class ShopifyHmacTests(unittest.TestCase):
         is_valid, _computed, _debug = shopify_webhooks.validate_shopify_hmac(b"{}", None)
         self.assertFalse(is_valid)
 
+
+class ShopifyOrderPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_total_and_current_total_are_persisted_separately(self):
+        upsert = AsyncMock()
+        with (
+            patch.object(shopify_webhooks, "sb_get_one_by", AsyncMock(return_value=None)),
+            patch.object(shopify_webhooks, "sb_upsert", upsert),
+        ):
+            await shopify_webhooks._upsert_order(
+                client_id="amalie", shop_domain="amalie.myshopify.com",
+                payload={
+                    "id": 2004, "total_price": "820.48",
+                    "current_total_price": "816.52", "updated_at": "2026-08-04T10:00:00Z",
+                },
+            )
+
+        row = upsert.await_args.args[1][0]
+        self.assertEqual(row["total_price"], 820.48)
+        self.assertEqual(row["current_total_price"], 816.52)
 
 class ShopifyWebhookDedupTests(unittest.IsolatedAsyncioTestCase):
     async def test_same_webhook_id_delivered_twice_is_registered_once(self):
@@ -164,6 +187,25 @@ class ShopifyRevenueRuleTests(unittest.TestCase):
         orders = [{"total_price": "100.00", "cancelled_at": None}]
         result = compute_shopify_revenue(orders, [])
         self.assertEqual(result["revenue_total"], 100.0)
+
+    def test_period_fixture_excludes_cancelled_and_deduplicates_customers(self):
+        orders = [
+            {"shopify_order_id": "a", "customer_id": "1", "email": None, "total_price": 500, "cancelled_at": None, "cancel_reason": None},
+            {"shopify_order_id": "b", "customer_id": "1", "email": None, "total_price": 300, "cancelled_at": None, "cancel_reason": None},
+            {"shopify_order_id": "c", "customer_id": "2", "email": None, "total_price": 400, "cancelled_at": None, "cancel_reason": "customer"},
+            {"shopify_order_id": "d", "customer_id": "3", "email": None, "total_price": 600, "cancelled_at": None, "cancel_reason": None},
+        ]
+        valid_orders = [order for order in orders if not _is_cancelled_order(order)]
+        revenue = compute_shopify_revenue(valid_orders, [{"total_refunded": 100}])
+        customers = {
+            _customer_lookup_key(order.get("customer_id"), order.get("email"))
+            for order in valid_orders
+        }
+        self.assertEqual(len(valid_orders), 3)
+        self.assertEqual(len(customers), 2)
+        self.assertEqual(revenue["revenue_total"], 1400)
+        self.assertEqual(revenue["net_revenue"], 1300)
+        self.assertAlmostEqual(revenue["net_revenue"] / len(valid_orders), 1300 / 3)
 
 
 class BlendedRoasTests(unittest.TestCase):

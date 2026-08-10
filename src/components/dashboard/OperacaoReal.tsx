@@ -70,8 +70,8 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
   return (
     <section className="operacaoReal" aria-labelledby="operacao-real-title">
       <header className="operacaoRealHead">
-        <span className="executiveEyebrow">Operação real</span>
-        <h2 id="operacao-real-title">Receita real do e-commerce</h2>
+        <span className="executiveEyebrow">Operação Shopify</span>
+        <h2 id="operacao-real-title">A receita real da loja no período selecionado.</h2>
       </header>
 
       {error ? <div className="executiveNotice isError">Não foi possível atualizar a operação real. A última leitura válida foi preservada.</div> : null}
@@ -84,7 +84,7 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
           </div>
           <div className="operacaoRealTodayGrid">
             <div className="operacaoRealMetric">
-              <span>Receita ecommerce</span>
+              <span>Receita real</span>
               <strong>{currency(todayRow?.shopify?.net_revenue)}</strong>
             </div>
             <div className="operacaoRealMetric">
@@ -109,7 +109,7 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
 
       <div className="operacaoRealGrid">
         <div className="operacaoRealMetric">
-          <span>Receita real (líquida)</span>
+          <span>Receita real</span>
           <strong>{currency(shopify.net_revenue)}</strong>
         </div>
         <div className="operacaoRealMetric">
