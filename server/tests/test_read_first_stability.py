@@ -22,6 +22,35 @@ def operational(connection_id: str, *, platform: str, connection_type: str, stat
 
 
 class ProviderResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_generic_provider_resolves_unique_connection_without_browser_state(self):
+        row = {
+            "id": "ga4-1", "client_id": "amalie", "provider": "ga4",
+            "status": "error", "requires_reauth": False,
+        }
+        select = AsyncMock(return_value=[row])
+        resolved = await connection_resolver.resolve_generic_connection(
+            client_id="amalie", provider="ga4", require_token=False, select_fn=select,
+        )
+
+        self.assertEqual(resolved["id"], "ga4-1")
+        select.assert_awaited_once_with(
+            "integration_connections",
+            filters={"client_id": "eq.amalie", "provider": "eq.ga4"},
+            limit=100,
+        )
+
+    async def test_generic_provider_ambiguity_is_explicit(self):
+        rows = [
+            {"id": "shop-1", "client_id": "amalie", "provider": "shopify", "status": "connected"},
+            {"id": "shop-2", "client_id": "amalie", "provider": "shopify", "status": "connected"},
+        ]
+        with self.assertRaises(IntegrationError) as raised:
+            await connection_resolver.resolve_generic_connection(
+                client_id="amalie", provider="shopify", require_token=False,
+                select_fn=AsyncMock(return_value=rows),
+            )
+        self.assertEqual(raised.exception.code, "CONNECTION_AMBIGUOUS")
+
     async def test_unique_paid_and_organic_connections_resolve_independently_without_browser_state(self):
         rows = [
             operational("organic-1", platform="instagram", connection_type="organic"),

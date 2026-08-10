@@ -155,6 +155,21 @@ function formatUpdatedAtLabel(value: string | null | undefined): string | null {
   })}`;
 }
 
+function providerFreshnessDetail(provider: {
+  data_max_available?: string | null;
+  last_success_at?: string | null;
+  stale?: boolean;
+  sync_state?: string;
+  last_error?: string | null;
+} | null | undefined): string {
+  const parts: string[] = [];
+  if (provider?.data_max_available) parts.push(`Dados até ${formatDatePtBr(provider.data_max_available)}`);
+  const updated = formatUpdatedAtLabel(provider?.last_success_at);
+  if (updated) parts.push(updated);
+  if (provider?.stale || provider?.sync_state === "error") parts.push("última atualização pendente");
+  return parts.join(" · ") || "Sem snapshot persistido";
+}
+
 type DashboardMetricKey = keyof DashboardTotals;
 
 type MetaMetricKey =
@@ -2153,7 +2168,7 @@ export default function Dashboard({
         detail: paidError
           ? "Falha parcial na leitura"
           : paidExecutiveAvailable
-            ? paidLastUpdatedLabel || "Dados disponíveis"
+            ? providerFreshnessDetail(executiveData?.meta) || paidLastUpdatedLabel || "Dados disponíveis"
             : paidSyncStatus === "skipped"
               ? paidConnection?.last_error || "Nenhum agregado retornado no período"
               : paidSyncStatus === "partial"
@@ -2163,17 +2178,26 @@ export default function Dashboard({
               : "Fonte não conectada",
       },
       {
-        label: "Dados comerciais",
+        label: "Shopify",
         state: executiveData?.shopify?.connected ? "connected" : executiveError ? "error" : "waiting",
         detail: executiveData?.shopify?.connected
           ? executiveData.shopify.orders > 0
-            ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos Shopify no período`
+            ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos · ${providerFreshnessDetail(executiveData.shopify)}`
             : executiveData.shopify.data_min_available && executiveData.shopify.data_max_available
               ? `Sem pedidos no recorte; cobertura ${formatDatePtBr(executiveData.shopify.data_min_available)} a ${formatDatePtBr(executiveData.shopify.data_max_available)}`
               : "Sem pedidos Shopify persistidos"
           : executiveError
             ? "Falha parcial na leitura Shopify"
             : "Sem dados Shopify para este período",
+      },
+      {
+        label: "GA4",
+        state: executiveData?.ga4?.connected ? "connected" : executiveError ? "error" : "waiting",
+        detail: executiveData?.ga4?.connected
+          ? providerFreshnessDetail(executiveData.ga4)
+          : executiveError
+            ? "Falha parcial na leitura GA4"
+            : "Sem snapshot GA4 persistido",
       },
     ],
     [
@@ -2188,6 +2212,8 @@ export default function Dashboard({
       paidConnection?.last_error,
       paidSyncStatus,
       executiveData?.shopify,
+      executiveData?.meta,
+      executiveData?.ga4,
       executiveError,
     ]
   );
@@ -2328,7 +2354,7 @@ export default function Dashboard({
                   ? "Período anterior equivalente"
                   : "Dados insuficientes"
             }
-            updatedLabel={organicLastUpdatedLabel || paidLastUpdatedLabel || "Aguardando primeira atualização"}
+            updatedLabel="Atualizações individuais por fonte"
             partialCoverage={isPartialCoverage ? partialCoverageLabel : null}
             metrics={executiveMetrics}
             sources={executiveSources}

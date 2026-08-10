@@ -44,7 +44,7 @@ async def resolve_ga4_connection_context(
                 provider="google",
             )
         status = _text(row.get("status")).lower()
-        if status in {"needs_reauth", "reauth_required", "token_expired", "error"}:
+        if status in {"needs_reauth", "reauth_required", "token_expired"} or bool(row.get("requires_reauth")):
             raise IntegrationError(
                 "A autorização Google expirou ou requer nova conexão.",
                 status_code=401,

@@ -192,7 +192,7 @@ async def resolve_shopify_connection_context(
             provider="shopify",
         )
     status = str(row.get("status") or "").strip().lower()
-    if status in {"needs_reauth", "reauth_required", "token_expired", "error"}:
+    if status in {"needs_reauth", "reauth_required", "token_expired"} or bool(row.get("requires_reauth")):
         raise IntegrationError(
             "A conexão Shopify requer nova autorização.",
             status_code=401,

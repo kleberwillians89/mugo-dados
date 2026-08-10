@@ -27,7 +27,7 @@ def _is_status_active_like(row: Dict[str, Any]) -> bool:
     return status in {"active", "connected", "ok", "error", "stale"} and not requires_reauth
 
 
-_GENERIC_ALLOWED_STATUSES = {"connected", "selection_required"}
+_GENERIC_ALLOWED_STATUSES = {"connected", "active", "ok", "selection_required", "error", "stale"}
 
 
 async def resolve_generic_connection(
@@ -93,9 +93,10 @@ async def resolve_generic_connection(
             )
         candidates = [row]
     else:
-        raise IntegrationError(
-            "Selecione explicitamente a conexão antes de continuar.",
-            status_code=409, code="CONNECTION_SELECTION_REQUIRED", provider=expected_provider,
+        candidates = await select(
+            "integration_connections",
+            filters={"client_id": f"eq.{cid}", "provider": f"eq.{expected_provider}"},
+            limit=100,
         )
 
     connected: list[Dict[str, Any]] = []
@@ -124,6 +125,9 @@ async def resolve_generic_connection(
         status = _safe_str(row.get("status")).lower()
         disconnected = bool(_safe_str(row.get("disconnected_at"))) or status == "disconnected"
         if disconnected:
+            disconnected_seen = True
+            continue
+        if bool(row.get("requires_reauth")) or status in {"needs_reauth", "reauth_required", "token_expired"}:
             disconnected_seen = True
             continue
         if status in _GENERIC_ALLOWED_STATUSES:

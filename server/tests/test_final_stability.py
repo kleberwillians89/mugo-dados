@@ -61,7 +61,7 @@ class ConnectionResolutionScaleTests(unittest.IsolatedAsyncioTestCase):
                 client_id="amalie", provider="ga4", require_token=False,
                 select_fn=AsyncMock(return_value=ambiguous),
             )
-        self.assertEqual(raised.exception.code, "CONNECTION_SELECTION_REQUIRED")
+        self.assertEqual(raised.exception.code, "CONNECTION_AMBIGUOUS")
         disconnected = [connection("amalie", "google_ads", status="disconnected", disconnected_at="2026-01-01")]
         with self.assertRaises(IntegrationError) as raised:
             await connection_resolver.resolve_generic_connection(

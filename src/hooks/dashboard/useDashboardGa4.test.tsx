@@ -154,8 +154,8 @@ describe("useDashboardGa4 — isolamento entre tenants", () => {
   });
 });
 
-describe("useDashboardGa4 — evita 409 CONNECTION_SELECTION_REQUIRED quando há exatamente uma conexão GA4", () => {
-  it("sem ponteiro local e com uma única conexão GA4 ativa, persiste o connection_id antes de ler o relatório", async () => {
+describe("useDashboardGa4 — leitura canônica por tenant", () => {
+  it("sem ponteiro local lê o relatório sem bootstrap de conexões no navegador", async () => {
     vi.mocked(listGenericConnections).mockResolvedValue({
       ok: true,
       client_id: "amalie",
@@ -174,7 +174,8 @@ describe("useDashboardGa4 — evita 409 CONNECTION_SELECTION_REQUIRED quando há
       await Promise.resolve();
     });
 
-    expect(getSelectedConnectionId("amalie", "ga4")).toBe("ga4-conn-1");
+    expect(getSelectedConnectionId("amalie", "ga4")).toBeNull();
+    expect(listGenericConnections).not.toHaveBeenCalled();
     expect(mocked).toHaveBeenCalledTimes(1);
   });
 

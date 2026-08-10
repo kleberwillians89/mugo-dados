@@ -208,6 +208,12 @@ export type ExecutiveMetaDailyPoint = {
 
 export type ExecutiveShopifySection = {
   connected: boolean;
+  connection_state?: string;
+  sync_state?: string;
+  last_success_at?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
+  reauth_required?: boolean;
   data_min_available?: string | null;
   data_max_available?: string | null;
   shop_domain?: string;
@@ -228,6 +234,13 @@ export type ExecutiveShopifySection = {
 
 export type ExecutiveMetaSection = {
   connected: boolean;
+  connection_state?: string;
+  sync_state?: string;
+  last_success_at?: string | null;
+  data_max_available?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
+  reauth_required?: boolean;
   data_available?: boolean;
   spend: number | null;
   attributed_revenue: number | null;
@@ -251,11 +264,30 @@ export type ExecutiveTotalPaidMedia = {
 
 export type ExecutiveGa4Section = {
   connected: boolean;
+  connection_state?: string;
+  sync_state?: string;
+  last_success_at?: string | null;
+  data_max_available?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
+  reauth_required?: boolean;
   data_available?: boolean;
   sessions: number | null;
   users: number | null;
   purchases: number | null;
   revenue: number | null;
+} | null;
+
+export type ExecutiveInstagramSection = {
+  connected: boolean;
+  connection_state?: string;
+  sync_state?: string;
+  last_success_at?: string | null;
+  data_max_available?: string | null;
+  stale?: boolean;
+  last_error?: string | null;
+  reauth_required?: boolean;
+  daily?: Array<Record<string, unknown>>;
 } | null;
 
 export type ExecutiveDailyPoint = {
@@ -273,6 +305,7 @@ export type ExecutivePeriodPayload = {
   google_ads: ExecutiveGoogleAdsSection;
   total_paid_media: ExecutiveTotalPaidMedia;
   ga4: ExecutiveGa4Section;
+  instagram?: ExecutiveInstagramSection;
   daily: ExecutiveDailyPoint[];
 };
 

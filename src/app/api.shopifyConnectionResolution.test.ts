@@ -52,7 +52,7 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     window.localStorage.clear();
   });
 
-  it("uma única conexão Shopify ativa: resolve e envia connection_id automaticamente, e persiste a seleção", async () => {
+  it("browser novo lê Shopify por tenant sem consultar ou persistir connection_id", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/connections")) {
@@ -70,8 +70,9 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
 
     const reportCall = fetchMock.mock.calls.find((call) => urlOf(call).includes("/api/shopify/report"));
     expect(reportCall).toBeDefined();
-    expect(urlOf(reportCall)).toContain("connection_id=8e1780ef-17b0-4b0a-843e-f8c323141412");
-    expect(getSelectedConnectionId("amalie", "shopify")).toBe("8e1780ef-17b0-4b0a-843e-f8c323141412");
+    expect(urlOf(reportCall)).not.toContain("connection_id=");
+    expect(fetchMock.mock.calls.some((call) => urlOf(call).includes("/api/connections"))).toBe(false);
+    expect(getSelectedConnectionId("amalie", "shopify")).toBeNull();
   });
 
   it("mesma resolução para /api/shopify/customers", async () => {
@@ -90,7 +91,7 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     await getShopifyCustomers({ start: "2026-08-01", end: "2026-08-08", days: 8 });
 
     const customersCall = fetchMock.mock.calls.find((call) => urlOf(call).includes("/api/shopify/customers"));
-    expect(urlOf(customersCall)).toContain("connection_id=conn-unica");
+    expect(urlOf(customersCall)).not.toContain("connection_id=");
   });
 
   it("duas conexões Shopify ativas: nunca escolhe sozinho — connection_id fica ausente e o backend decide", async () => {
@@ -120,7 +121,7 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     expect(getSelectedConnectionId("amalie", "shopify")).toBeNull();
   });
 
-  it("com ponteiro local já persistido, respeita-o e nunca relista conexões", async () => {
+  it("ponteiro local não interfere na leitura canônica por tenant", async () => {
     setSelectedConnectionId("amalie", "shopify", "conn-ja-selecionada");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -134,6 +135,6 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     const calledConnectionsEndpoint = fetchMock.mock.calls.some((call) => urlOf(call).includes("/api/connections"));
     expect(calledConnectionsEndpoint).toBe(false);
     const reportCall = fetchMock.mock.calls.find((call) => urlOf(call).includes("/api/shopify/report"));
-    expect(urlOf(reportCall)).toContain("connection_id=conn-ja-selecionada");
+    expect(urlOf(reportCall)).not.toContain("connection_id=");
   });
 });

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getGa4Report, listGenericConnections } from "../../app/api";
-import { getSelectedConnectionId, setSelectedConnectionId } from "../../app/connectionState";
+import { getGa4Report } from "../../app/api";
 import type { Ga4ReportResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
@@ -8,34 +7,6 @@ import {
   readDashboardCache,
   writeDashboardCache,
 } from "./cache";
-
-const ACTIVE_CONNECTION_STATUSES = new Set(["connected", "active", "ok"]);
-
-// A leitura GA4 exige connection_id explícito no backend (nunca escolhe
-// sozinho entre várias contas). Quando o ponteiro local (localStorage)
-// ainda não existe — ex.: conexão feita em outra sessão/navegador — mas a
-// empresa tem exatamente UMA conexão GA4 ativa, persistimos esse único
-// candidato como selecionado antes de ler. Nunca escolhe entre 2+ conexões:
-// aí a ambiguidade real precisa continuar exigindo seleção explícita.
-async function ensureGa4ConnectionSelected(clientId: string): Promise<void> {
-  if (getSelectedConnectionId(clientId, "ga4")) return;
-  try {
-    const { connections } = await listGenericConnections();
-    const candidates = (connections || []).filter(
-      (connection) =>
-        connection.client_id === clientId &&
-        connection.provider === "ga4" &&
-        !connection.disconnected_at &&
-        ACTIVE_CONNECTION_STATUSES.has(String(connection.status || "").trim().toLowerCase())
-    );
-    if (candidates.length === 1) {
-      setSelectedConnectionId(clientId, "ga4", candidates[0].id);
-    }
-  } catch {
-    // Sem lista de conexões disponível: segue sem connection_id — o
-    // backend responde 409 explicitamente, nunca um fallback silencioso.
-  }
-}
 
 type Params = {
   isAuthenticated: boolean;
@@ -137,7 +108,6 @@ export default function useDashboardGa4({
       setGa4Error(null);
 
       try {
-        await ensureGa4ConnectionSelected(activeClientId);
         const response = await getGa4Report({
           start: safePeriod.start,
           end: safePeriod.end,
