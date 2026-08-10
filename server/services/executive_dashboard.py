@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from .dashboard_paid import _date_window, _safe_float, _safe_int, compute_mer, get_paid_dashboard
 from .ga4_connections import resolve_ga4_connection_context
 from .ga4_reporting import build_ga4_report, resolve_ga4_report_period
+from .ig_dashboard import get_dashboard as get_organic_dashboard
 from .shopify_oauth import resolve_shopify_connection_context
 from .shopify_reporting import (
     build_shopify_customers_report,
@@ -138,6 +139,27 @@ async def _build_ga4_section(
         # com a receita real da loja (Shopify) nem com receita atribuída
         # (Meta/Google Ads). É uma métrica própria, de outra fonte.
         "revenue": _safe_float(summary.get("total_revenue")),
+        "daily": (report.get("trends") or {}).get("daily") or [],
+        "freshness": (report.get("meta") or {}).get("freshness"),
+    }
+
+
+async def _build_instagram_section(
+    *, client_id: str, connection_id: Optional[str], since: str, until: str
+) -> Optional[Dict[str, Any]]:
+    try:
+        report = await get_organic_dashboard(
+            client_id=client_id, connection_id=connection_id, start=since, end=until,
+        )
+    except Exception:
+        return None
+    return {
+        "connected": bool(report.get("connection_id")),
+        "last_success_at": report.get("last_sync_at"),
+        "stale": report.get("stale"),
+        "last_error": report.get("last_error"),
+        "coverage": report.get("coverage"),
+        "daily": report.get("daily") or [],
     }
 
 
@@ -162,7 +184,9 @@ def _build_total_paid_media(
 
 
 def _build_daily_series(
-    *, shopify: Optional[Dict[str, Any]], meta: Dict[str, Any], included_paid_sources: list[str]
+    *, shopify: Optional[Dict[str, Any]], meta: Dict[str, Any], included_paid_sources: list[str],
+    since: str | None = None, until: str | None = None, ga4: Optional[Dict[str, Any]] = None,
+    instagram: Optional[Dict[str, Any]] = None,
 ) -> list[Dict[str, Any]]:
     """Combina as séries diárias já calculadas de Shopify e Meta por data —
     nunca recalcula nada aqui, só junta pelo mesmo dia. blended_roas do dia
@@ -170,7 +194,14 @@ def _build_daily_series(
     receita acumulada nem spend de outro dia)."""
     shopify_daily = {row["date"]: row for row in (shopify or {}).get("daily") or [] if row.get("date")}
     meta_daily = {row["date"]: row for row in meta.get("daily") or [] if row.get("date")}
-    dates = sorted(set(shopify_daily.keys()) | set(meta_daily.keys()))
+    ga4_daily = {row["date"]: row for row in (ga4 or {}).get("daily") or [] if row.get("date")}
+    instagram_daily = {row["date"]: row for row in (instagram or {}).get("daily") or [] if row.get("date")}
+    if since and until:
+        first_day = date.fromisoformat(since)
+        last_day = date.fromisoformat(until)
+        dates = [(first_day + timedelta(days=offset)).isoformat() for offset in range((last_day - first_day).days + 1)]
+    else:
+        dates = sorted(set(shopify_daily) | set(meta_daily) | set(ga4_daily) | set(instagram_daily))
 
     series: list[Dict[str, Any]] = []
     for day in dates:
@@ -188,7 +219,10 @@ def _build_daily_series(
                 "date": day,
                 "shopify": shopify_row,
                 "meta": meta_row,
+                "ga4": ga4_daily.get(day),
+                "instagram": instagram_daily.get(day),
                 "connected_paid_spend": round(connected_paid_spend, 2) if (meta_row and "meta" in included_paid_sources) else 0.0,
+                "blended_return": blended_roas,
                 "blended_roas": blended_roas,
             }
         )
@@ -223,9 +257,13 @@ async def _build_period_payload(
     ga4 = await _build_ga4_section(
         client_id=client_id, connection_id=ga4_connection_id, since=since, until=until,
     )
+    instagram = await _build_instagram_section(
+        client_id=client_id, connection_id=None, since=since, until=until,
+    )
     total_paid_media = _build_total_paid_media(meta=meta, google_ads=google_ads, shopify=shopify)
     daily = _build_daily_series(
-        shopify=shopify, meta=meta, included_paid_sources=total_paid_media["included_paid_sources"],
+        since=since, until=until, shopify=shopify, meta=meta, ga4=ga4, instagram=instagram,
+        included_paid_sources=total_paid_media["included_paid_sources"],
     )
     return {
         "period": {"start": since, "end": until, "days": (date.fromisoformat(until) - date.fromisoformat(since)).days + 1},
@@ -234,6 +272,7 @@ async def _build_period_payload(
         "google_ads": google_ads,
         "total_paid_media": total_paid_media,
         "ga4": ga4,
+        "instagram": instagram,
         "daily": daily,
     }
 

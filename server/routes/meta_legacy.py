@@ -28,6 +28,7 @@ from services.cron_jobs import (
 )
 from services.ig_refresh import refresh_all
 from services.ads_sync import sync_ads_for_client_period
+from services.periods import resolve_period
 from services.instagram_sync import discover_instagram_identity_for_connection, sync_instagram_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
@@ -640,11 +641,13 @@ async def api_sync_meta_ads_account(
 ):
     cid = await require_client_role(client_id, authorization)
     body = payload or {}
+    requested_days = max(1, min(int(body.get("days") or 30), 365))
+    default_period = resolve_period(days=requested_days, max_days=365)
     return await sync_ads_for_client_period(
         client_id=cid,
         connection_id=str(body.get("connection_id") or "") or None,
-        since=str(body.get("since") or "2026-07-02"),
-        until=str(body.get("until") or "2026-07-31"),
+        since=str(body.get("since") or default_period.start.isoformat()),
+        until=str(body.get("until") or default_period.end.isoformat()),
         job_name="meta_ads_manual_account_sync",
         trigger_source="manual",
         record_job_run=True,

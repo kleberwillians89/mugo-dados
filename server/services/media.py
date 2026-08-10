@@ -8,6 +8,7 @@ import httpx
 
 from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_select
+from .periods import resolve_period
 
 
 def _utc_now() -> datetime:
@@ -30,14 +31,8 @@ def _resolve_window(
     start: str | None,
     end: str | None,
 ) -> tuple[datetime, datetime | None]:
-    start_date = _parse_date(start)
-    end_date = _parse_date(end)
-    if start_date and end_date:
-        if start_date > end_date:
-            start_date, end_date = end_date, start_date
-        since_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
-        until_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
-        return since_dt, until_dt
+    if _parse_date(start) and _parse_date(end):
+        return resolve_period(start=start, end=end, days=days, max_days=3650).utc_bounds()
 
     safe_days = max(1, min(days, 3650))
     since_dt = _utc_now() - timedelta(days=safe_days - 1)

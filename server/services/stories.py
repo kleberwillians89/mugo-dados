@@ -8,6 +8,7 @@ from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_get_one
 from .meta_tokens import ensure_valid_meta_token
 from .ig_meta import fetch_stories, fetch_story_insights
+from .periods import resolve_period
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -21,17 +22,8 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _resolve_period(days: int, start: str | None, end: str | None) -> tuple[date, date]:
-    start_date = _parse_date(start)
-    end_date = _parse_date(end)
-    if start_date and end_date:
-        if start_date > end_date:
-            start_date, end_date = end_date, start_date
-        return start_date, end_date
-
-    safe_days = max(1, min(int(days or 30), 3650))
-    until = datetime.now(timezone.utc).date()
-    since = until - timedelta(days=safe_days - 1)
-    return since, until
+    period = resolve_period(start=start, end=end, days=days, max_days=3650)
+    return period.start, period.end
 
 
 def _story_in_range(story: Dict[str, Any], since: date, until: date) -> bool:

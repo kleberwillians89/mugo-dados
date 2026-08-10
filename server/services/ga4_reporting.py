@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .ig_supabase import sb_select
 from .freshness import source_freshness
+from .periods import resolve_period
 
 GA4_EVENT_GROUPS: Dict[str, Dict[str, Any]] = {
     "behavior": {
@@ -140,21 +141,8 @@ def resolve_ga4_report_period(
     end: Optional[str] = None,
     days: int = 30,
 ) -> GA4ReportPeriod:
-    start_date = _parse_date_input(start)
-    end_date = _parse_date_input(end)
-    safe_days = max(1, min(int(days or 30), 366))
-
-    if start_date and end_date:
-        if start_date <= end_date:
-            return GA4ReportPeriod(start=start_date, end=end_date, days=_period_days(start_date, end_date))
-        return GA4ReportPeriod(start=end_date, end=start_date, days=_period_days(end_date, start_date))
-
-    today = datetime.now(timezone.utc).date()
-    period_end = end_date or today
-    period_start = start_date or (period_end - timedelta(days=safe_days - 1))
-    if period_start > period_end:
-        period_start, period_end = period_end, period_start
-    return GA4ReportPeriod(start=period_start, end=period_end, days=_period_days(period_start, period_end))
+    period = resolve_period(start=start, end=end, days=days, max_days=366)
+    return GA4ReportPeriod(start=period.start, end=period.end, days=period.days)
 
 
 def _empty_daily_map(period: GA4ReportPeriod) -> Dict[str, Dict[str, Any]]:

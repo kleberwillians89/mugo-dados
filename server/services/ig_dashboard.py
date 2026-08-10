@@ -6,6 +6,7 @@ import httpx
 from .connection_resolver import resolve_connection_for_scope
 from .freshness import source_freshness
 from .ig_supabase import sb_select
+from .periods import DEFAULT_TENANT_TIMEZONE, local_date, resolve_period
 
 
 def _resolve_client_id(client_id: str | None) -> str:
@@ -65,21 +66,8 @@ def _resolve_window(
     start: str | None = None,
     end: str | None = None,
 ) -> Tuple[date, date]:
-    start_date = _parse_iso_date(start)
-    end_date = _parse_iso_date(end)
-    if start_date and end_date:
-        if start_date > end_date:
-            start_date, end_date = end_date, start_date
-        return start_date, end_date
-
-    if month:
-        month_start, month_end = _month_range(month)
-        return date.fromisoformat(month_start), date.fromisoformat(month_end)
-
-    safe_days = max(1, min(int(days or 30), 3650))
-    until = datetime.now(timezone.utc).date()
-    since = until - timedelta(days=safe_days - 1)
-    return since, until
+    period = resolve_period(start=start, end=end, days=days, month=month, max_days=3650)
+    return period.start, period.end
 
 
 def _empty_totals() -> Dict[str, int]:
@@ -282,9 +270,11 @@ async def get_dashboard(
 
     rows = await _query_snapshot_rows(cid, since_date, until_date, resolved_connection_id or None)
 
+    period = resolve_period(start=since_iso, end=until_iso, max_days=3650)
+    period_start_utc, period_end_utc = period.utc_bounds()
     media_filters = {
         "client_id": f"eq.{cid}",
-        "and": f"(timestamp.gte.{since_iso}T00:00:00,timestamp.lte.{until_iso}T23:59:59)",
+        "and": f"(timestamp.gte.{period_start_utc.isoformat()},timestamp.lte.{period_end_utc.isoformat()})",
     }
     if resolved_connection_id:
         media_filters["connection_id"] = f"eq.{resolved_connection_id}"
@@ -302,7 +292,7 @@ async def get_dashboard(
             raise
         fallback_filters = {
             "client_id": f"eq.{cid}",
-            "and": f"(timestamp.gte.{since_iso}T00:00:00,timestamp.lte.{until_iso}T23:59:59)",
+            "and": f"(timestamp.gte.{period_start_utc.isoformat()},timestamp.lte.{period_end_utc.isoformat()})",
         }
         media_rows_period = await sb_select(
             "ig_media",
@@ -324,8 +314,12 @@ async def get_dashboard(
             ts = str(m.get("timestamp") or "")
             if len(ts) < 10:
                 continue
-            d = ts[:10]
-            d_parsed = _parse_iso_date(d)
+            try:
+                parsed_timestamp = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                d_parsed = local_date(parsed_timestamp, DEFAULT_TENANT_TIMEZONE)
+                d = d_parsed.isoformat()
+            except ValueError:
+                continue
             if not d_parsed:
                 continue
             if d_parsed < since_date or d_parsed > until_date:

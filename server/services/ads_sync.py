@@ -30,6 +30,7 @@ from .meta_tokens import (
 )
 from .integration_errors import IntegrationError
 from .sync_locks import acquire_sync_lock, build_sync_lock_name, release_sync_lock
+from .periods import resolve_period
 CATALOG_EFFECTIVE_STATUSES = [
     "ACTIVE",
     "INACTIVE",
@@ -273,10 +274,8 @@ async def _load_connection(connection_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _date_window(days: int) -> tuple[str, str]:
-    d = max(1, min(days, 365))
-    until = datetime.now(timezone.utc).date()
-    since = until - timedelta(days=d - 1)
-    return since.isoformat(), until.isoformat()
+    period = resolve_period(days=days, max_days=365)
+    return period.start.isoformat(), period.end.isoformat()
 
 
 def _parse_iso_date_or_raise(value: str, field_name: str) -> date:

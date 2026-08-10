@@ -11,6 +11,7 @@ from .freshness import source_freshness
 from .ig_dashboard import get_dashboard as get_organic_dashboard
 from .ig_supabase import sb_select
 from .meta_tokens import serialize_connection_status
+from .periods import resolve_period
 
 
 def _safe_float(value: Any) -> float:
@@ -91,19 +92,8 @@ def _date_window(
     start: str | None = None,
     end: str | None = None,
 ) -> Tuple[str, str]:
-    start_date = _parse_iso_date(start)
-    end_date = _parse_iso_date(end)
-    if start_date and end_date:
-        if start_date > end_date:
-            start_date, end_date = end_date, start_date
-        return start_date.isoformat(), end_date.isoformat()
-
-    if month:
-        return _month_range(month)
-    d = max(1, min(days, 365))
-    until = datetime.now(timezone.utc).date()
-    since = until - timedelta(days=d - 1)
-    return since.isoformat(), until.isoformat()
+    period = resolve_period(start=start, end=end, days=days, month=month, max_days=365)
+    return period.start.isoformat(), period.end.isoformat()
 
 
 def _is_missing_column_error(exc: httpx.HTTPStatusError, column_name: str) -> bool:

@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List
 import httpx
 
 from .executive_dashboard import get_executive_summary
+from .periods import resolve_period
 from .generic_connections import list_generic_connections
 from .ig_supabase import sb_insert, sb_select, sb_update
 
@@ -121,20 +122,10 @@ def _text(value: Any) -> str:
 
 
 def _parse_period(start: str | None, end: str | None, days: int = 30) -> tuple[date, date]:
-    today = datetime.now(timezone.utc).date()
-    try:
-        start_date = date.fromisoformat(_text(start)[:10]) if start else None
-        end_date = date.fromisoformat(_text(end)[:10]) if end else None
-    except ValueError as exc:
-        raise RuntimeError("Período inválido. Use datas no formato AAAA-MM-DD.") from exc
-    if not start_date or not end_date:
-        end_date = today
-        start_date = today - timedelta(days=max(1, min(days, 366)) - 1)
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-    if (end_date - start_date).days > 365:
+    period = resolve_period(start=start, end=end, days=days, max_days=366)
+    if period.days > 366:
         raise RuntimeError("O período da análise não pode ultrapassar 366 dias.")
-    return start_date, end_date
+    return period.start, period.end
 
 
 def _period_filter(column: str, start: date, end: date) -> str:

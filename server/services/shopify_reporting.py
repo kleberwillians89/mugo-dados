@@ -9,6 +9,7 @@ import httpx
 
 from .ig_supabase import _is_column_compat_error, sb_select
 from .shopify_webhooks import list_recent_shopify_webhooks
+from .periods import DEFAULT_TENANT_TIMEZONE, local_date, resolve_period
 
 
 def _safe_str(value: Any) -> str:
@@ -66,11 +67,13 @@ def _parse_shopify_datetime(value: Any) -> Optional[datetime]:
 
 
 def _iso_start_of_day(day: date) -> str:
-    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc).isoformat()
+    start, _ = resolve_period(start=day.isoformat(), end=day.isoformat()).utc_bounds()
+    return start.isoformat()
 
 
 def _iso_end_of_day(day: date) -> str:
-    return datetime(day.year, day.month, day.day, 23, 59, 59, 999999, tzinfo=timezone.utc).isoformat()
+    _, end = resolve_period(start=day.isoformat(), end=day.isoformat()).utc_bounds()
+    return end.isoformat()
 
 
 def _period_days(start: date, end: date) -> int:
@@ -90,21 +93,8 @@ def resolve_shopify_report_period(
     end: Optional[str] = None,
     days: int = 30,
 ) -> ShopifyReportPeriod:
-    start_date = _parse_date_input(start)
-    end_date = _parse_date_input(end)
-    safe_days = max(1, min(int(days or 30), 366))
-
-    if start_date and end_date:
-        if start_date <= end_date:
-            return ShopifyReportPeriod(start=start_date, end=end_date, days=_period_days(start_date, end_date))
-        return ShopifyReportPeriod(start=end_date, end=start_date, days=_period_days(end_date, start_date))
-
-    today = datetime.now(timezone.utc).date()
-    period_end = end_date or today
-    period_start = start_date or (period_end - timedelta(days=safe_days - 1))
-    if period_start > period_end:
-        period_start, period_end = period_end, period_start
-    return ShopifyReportPeriod(start=period_start, end=period_end, days=_period_days(period_start, period_end))
+    period = resolve_period(start=start, end=end, days=days, max_days=366)
+    return ShopifyReportPeriod(start=period.start, end=period.end, days=period.days)
 
 
 def _postgrest_in_filter(values: Iterable[str]) -> Optional[str]:
@@ -120,7 +110,7 @@ def _order_date_key(order: Dict[str, Any]) -> Optional[str]:
     parsed = _parse_shopify_datetime(order.get("created_at_shopify"))
     if not parsed:
         return None
-    return parsed.date().isoformat()
+    return local_date(parsed, DEFAULT_TENANT_TIMEZONE).isoformat()
 
 
 def _customer_identity(order: Dict[str, Any]) -> str:

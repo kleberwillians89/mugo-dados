@@ -733,7 +733,9 @@ async def api_dashboard_summary(
     # 🔹 (opcional) manter paid
     paid = await get_summary_dashboard(
         client_id=cid,
-        connection_id=validated_connection_id,
+        # `connection_id` desta rota pertence ao escopo orgânico legado. Meta
+        # Ads resolve sua própria conexão paid e nunca herda um id Instagram.
+        connection_id=None,
         days=days,
         month=month,
         start=start,
