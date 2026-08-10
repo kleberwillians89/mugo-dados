@@ -1249,7 +1249,7 @@ export default function Onboarding({
               <button className="btn btnGold" type="button" disabled={saving || !canManageConnections} onClick={() => void onResumeMetaSelection(metaGenericConnection)}>
                 {saving ? "Carregando ativos..." : "Selecionar ativos"}
               </button>
-            ) : !metaGenericConnection || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(String(metaGenericConnection.status || "").toLowerCase()) ? (
+            ) : !metaGenericConnection || ["disconnected", "expired", "token_expired", "reauth_required"].includes(String(metaGenericConnection.status || "").toLowerCase()) ? (
               <button className="btn btnGold" type="button" disabled={oauthLoading || !canManageConnections} onClick={() => void onStartOAuth()}>
                 {oauthLoading ? "Redirecionando..." : "Conectar com Meta"}
               </button>
@@ -1428,7 +1428,7 @@ export default function Onboarding({
               const actionable = definition.availability === "available";
               const connectionState = String(connection?.status || "").toLowerCase();
               const shouldAuthorize = actionable && (
-                (!connection && matchingConnections.length === 0) || ["disconnected", "expired", "token_expired", "error", "reauth_required"].includes(connectionState)
+                (!connection && matchingConnections.length === 0) || ["disconnected", "expired", "token_expired", "reauth_required"].includes(connectionState)
               );
               const tone = definition.availability === "platform_update_pending"
                 ? "yellow"

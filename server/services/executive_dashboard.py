@@ -11,12 +11,14 @@ Meta) do que fingir um total que não existe.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 from .dashboard_paid import _date_window, _safe_float, _safe_int, compute_mer, get_paid_dashboard
 from .ga4_connections import resolve_ga4_connection_context
 from .ga4_reporting import build_ga4_report, resolve_ga4_report_period
+from .generic_connections import get_connection
 from .ig_dashboard import get_dashboard as get_organic_dashboard
 from .shopify_oauth import resolve_shopify_connection_context
 from .shopify_reporting import (
@@ -47,12 +49,27 @@ async def _build_shopify_section(
     period = resolve_shopify_report_period(start=since, end=until)
     report = await build_shopify_report(client_id=client_id, shop_domain=context.shop_domain, period=period)
     customers = await build_shopify_customers_report(client_id=client_id, shop_domain=context.shop_domain, period=period)
+    try:
+        connection_row = await get_connection(client_id, context.connection_id) if context.connection_id else {}
+    except Exception:
+        connection_row = {}
     summary = report.get("summary") or {}
     customers_summary = customers.get("summary") or {}
     total_customers = _safe_int(customers_summary.get("total_customers"))
     returning_customers = _safe_int(customers_summary.get("recurring_customers"))
+    daily = report.get("daily_commercial") or []
+    available_dates = [str(row.get("date")) for row in daily if _safe_int(row.get("orders")) > 0]
+    requires_reauth = str(connection_row.get("status") or "").lower() in {"reauth_required", "token_expired"}
+    last_error = connection_row.get("last_error")
     return {
         "connected": True,
+        "connection_state": "reauth_required" if requires_reauth else "connected",
+        "sync_state": "error" if last_error else "idle",
+        "last_success_at": connection_row.get("last_sync_at"),
+        "data_max_available": max(available_dates) if available_dates else None,
+        "stale": bool(last_error and connection_row.get("last_sync_at")),
+        "last_error": last_error,
+        "reauth_required": requires_reauth,
         "shop_domain": context.shop_domain,
         "gross_revenue": _safe_float(summary.get("revenue_total")),
         "net_revenue": _safe_float(summary.get("net_revenue")),
@@ -69,7 +86,7 @@ async def _build_shopify_section(
         # Série diária já calculada com a mesma regra temporal do resumo
         # (ver build_daily_commercial_series) — consumida pelo Dashboard
         # diário sem recálculo no frontend.
-        "daily": report.get("daily_commercial") or [],
+        "daily": daily,
     }
 
 
@@ -83,6 +100,7 @@ async def _build_meta_section(
     except Exception:
         return {"connected": False, "spend": None, "attributed_revenue": None, "roas": None, "daily": []}
     connected = bool(paid.get("connection_id"))
+    data_available = bool(paid.get("has_data"))
     totals = paid.get("totals") or {}
     roas = totals.get("roas") if isinstance(totals.get("roas"), (int, float)) else None
     daily_source = paid.get("daily") or []
@@ -98,12 +116,20 @@ async def _build_meta_section(
         }
         for row in daily_source
         if row.get("date")
-    ] if connected else []
+    ] if data_available else []
     return {
         "connected": connected,
-        "spend": _safe_float(totals.get("spend")) if connected else None,
-        "attributed_revenue": _safe_float(totals.get("revenue")) if connected else None,
-        "roas": roas,
+        "data_available": data_available,
+        "connection_state": ((paid.get("connection_status") or {}).get("connection_state") or ("connected" if connected else "setup_required")),
+        "sync_state": ((paid.get("connection_status") or {}).get("sync_state") or ("stale" if paid.get("stale") else "idle")),
+        "last_success_at": paid.get("last_sync_at"),
+        "data_max_available": paid.get("last_stat_date"),
+        "stale": bool(paid.get("stale")),
+        "last_error": paid.get("last_error"),
+        "reauth_required": bool((paid.get("connection_status") or {}).get("requires_reauth")),
+        "spend": _safe_float(totals.get("spend")) if data_available else None,
+        "attributed_revenue": _safe_float(totals.get("revenue")) if data_available else None,
+        "roas": roas if data_available else None,
         "daily": daily,
     }
 
@@ -130,16 +156,28 @@ async def _build_ga4_section(
     period = resolve_ga4_report_period(start=since, end=until)
     report = await build_ga4_report(client_id=client_id, property_id=context.property_id, period=period)
     summary = report.get("summary") or {}
+    data_available = bool((report.get("meta") or {}).get("data_available"))
     return {
-        "connected": bool((report.get("meta") or {}).get("data_available")),
-        "sessions": _safe_int(summary.get("sessions")),
-        "users": _safe_int(summary.get("total_users")),
-        "purchases": _safe_int(summary.get("purchases")),
+        "connected": True,
+        "data_available": data_available,
+        "connection_state": "connected",
+        "sync_state": "stale" if (report.get("meta") or {}).get("stale") else "idle",
+        "last_success_at": (report.get("meta") or {}).get("last_synced_at"),
+        "data_max_available": max(
+            (str(row.get("date")) for row in (report.get("trends") or {}).get("daily") or [] if row.get("date")),
+            default=None,
+        ),
+        "stale": bool((report.get("meta") or {}).get("stale")),
+        "last_error": None,
+        "reauth_required": False,
+        "sessions": _safe_int(summary.get("sessions")) if data_available else None,
+        "users": _safe_int(summary.get("total_users")) if data_available else None,
+        "purchases": _safe_int(summary.get("purchases")) if data_available else None,
         # Receita SOMENTE do GA4 (tracking do site) — nunca somar/misturar
         # com a receita real da loja (Shopify) nem com receita atribuída
         # (Meta/Google Ads). É uma métrica própria, de outra fonte.
-        "revenue": _safe_float(summary.get("total_revenue")),
-        "daily": (report.get("trends") or {}).get("daily") or [],
+        "revenue": _safe_float(summary.get("total_revenue")) if data_available else None,
+        "daily": ((report.get("trends") or {}).get("daily") or []) if data_available else [],
         "freshness": (report.get("meta") or {}).get("freshness"),
     }
 
@@ -155,9 +193,16 @@ async def _build_instagram_section(
         return None
     return {
         "connected": bool(report.get("connection_id")),
+        "connection_state": "connected" if report.get("connection_id") else "setup_required",
+        "sync_state": "stale" if report.get("stale") else "error" if report.get("last_error") else "idle",
         "last_success_at": report.get("last_sync_at"),
+        "data_max_available": max(
+            (str(row.get("date")) for row in report.get("daily") or [] if row.get("date")),
+            default=None,
+        ),
         "stale": report.get("stale"),
         "last_error": report.get("last_error"),
+        "reauth_required": False,
         "coverage": report.get("coverage"),
         "daily": report.get("daily") or [],
     }
@@ -168,7 +213,7 @@ def _build_total_paid_media(
 ) -> Dict[str, Any]:
     included_paid_sources: list[str] = []
     spend = 0.0
-    if meta.get("connected"):
+    if meta.get("connected") and meta.get("spend") is not None:
         included_paid_sources.append("meta")
         spend += _safe_float(meta.get("spend"))
     if google_ads.get("connected"):
@@ -177,7 +222,7 @@ def _build_total_paid_media(
     net_revenue = shopify.get("net_revenue") if shopify else None
     blended_roas = compute_mer(net_revenue, spend) if (shopify and included_paid_sources) else None
     return {
-        "paid_media_spend": round(spend, 2) if included_paid_sources else 0.0,
+        "paid_media_spend": round(spend, 2) if included_paid_sources else None,
         "included_paid_sources": included_paid_sources,
         "blended_roas": blended_roas,
     }
@@ -247,19 +292,22 @@ async def _build_period_payload(
     shopify_connection_id: Optional[str],
     ga4_connection_id: Optional[str],
 ) -> Dict[str, Any]:
-    shopify = await _build_shopify_section(
-        client_id=client_id, connection_id=shopify_connection_id, since=since, until=until,
+    shopify_result, meta_result, ga4_result, instagram_result = await asyncio.gather(
+        _build_shopify_section(client_id=client_id, connection_id=shopify_connection_id, since=since, until=until),
+        _build_meta_section(client_id=client_id, connection_id=meta_connection_id, since=since, until=until),
+        _build_ga4_section(client_id=client_id, connection_id=ga4_connection_id, since=since, until=until),
+        _build_instagram_section(client_id=client_id, connection_id=None, since=since, until=until),
+        return_exceptions=True,
     )
-    meta = await _build_meta_section(
-        client_id=client_id, connection_id=meta_connection_id, since=since, until=until,
+    shopify = None if isinstance(shopify_result, Exception) else shopify_result
+    meta = (
+        {"connected": False, "connection_state": "setup_required", "sync_state": "error", "spend": None,
+         "attributed_revenue": None, "roas": None, "daily": [], "last_error": str(meta_result)[:240]}
+        if isinstance(meta_result, Exception) else meta_result
     )
+    ga4 = None if isinstance(ga4_result, Exception) else ga4_result
+    instagram = None if isinstance(instagram_result, Exception) else instagram_result
     google_ads = _build_google_ads_section()
-    ga4 = await _build_ga4_section(
-        client_id=client_id, connection_id=ga4_connection_id, since=since, until=until,
-    )
-    instagram = await _build_instagram_section(
-        client_id=client_id, connection_id=None, since=since, until=until,
-    )
     total_paid_media = _build_total_paid_media(meta=meta, google_ads=google_ads, shopify=shopify)
     daily = _build_daily_series(
         since=since, until=until, shopify=shopify, meta=meta, ga4=ga4, instagram=instagram,

@@ -49,8 +49,8 @@ export default function useDashboardPaid({
     [activeClientId, resolvedConnectionId, safePeriod.end, safePeriod.start]
   );
   const cachedInitial = useMemo(
-    () => (resolvedConnectionId ? readDashboardCache<PaidDashboardResponse>(cacheKey) : null),
-    [cacheKey, resolvedConnectionId]
+    () => readDashboardCache<PaidDashboardResponse>(cacheKey),
+    [cacheKey]
   );
 
   const [paidData, setPaidData] = useState<PaidDashboardResponse | null>(cachedInitial);
@@ -77,30 +77,19 @@ export default function useDashboardPaid({
     cacheKeyRef.current = cacheKey;
     abortRef.current?.abort();
     requestRef.current += 1;
-    const next = resolvedConnectionId ? cachedInitial : null;
+    const current = dataRef.current;
+    const currentMatchesResolved = Boolean(
+      current && resolvedConnectionId && String(current.connection_id || "") === resolvedConnectionId
+    );
+    const next = cachedInitial || (currentMatchesResolved ? current : null);
     dataRef.current = next;
     setPaidData(next);
     setPaidError(null);
-    if (!resolvedConnectionId) {
-      setLoadingPaid(false);
-      setRefreshingPaid(false);
-      setPaidUpdatedAt(null);
-    }
   }
 
   const reloadPaid = useCallback(
     async (options?: { force?: boolean }) => {
       if (!isAuthenticated || !activeClientId) return null;
-      if (!resolvedConnectionId) {
-        setPaidData(null);
-        dataRef.current = null;
-        setPaidError(null);
-        setLoadingPaid(false);
-        setRefreshingPaid(false);
-        setPaidUpdatedAt(null);
-        return null;
-      }
-
       const force = !!options?.force;
       if (!enabled && !force) {
         return dataRef.current;
@@ -128,7 +117,7 @@ export default function useDashboardPaid({
             end: safePeriod.end,
           },
           {
-            connectionId: resolvedConnectionId,
+            connectionId: resolvedConnectionId || undefined,
             signal: controller.signal,
           }
         );
@@ -155,12 +144,12 @@ export default function useDashboardPaid({
   );
 
   useEffect(() => {
-    if (!enabled || !isAuthenticated || !activeClientId || !resolvedConnectionId) return;
+    if (!enabled || !isAuthenticated || !activeClientId) return;
     void reloadPaid();
     return () => {
       abortRef.current?.abort();
     };
-  }, [activeClientId, enabled, isAuthenticated, reloadPaid, resolvedConnectionId]);
+  }, [activeClientId, enabled, isAuthenticated, reloadPaid]);
 
   // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
   // apenas exibido como tal (ver freshness); atualizar é ação explícita do

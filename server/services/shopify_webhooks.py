@@ -389,6 +389,28 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def _customer_row_recency(row: Dict[str, Any]) -> tuple[datetime, datetime]:
+    minimum = datetime.min.replace(tzinfo=timezone.utc)
+    updated = _parse_shopify_timestamp(row.get("updated_at_shopify")) or minimum
+    created = _parse_shopify_timestamp(row.get("created_at_shopify")) or minimum
+    return updated, created
+
+
+def _deduplicate_customer_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Deduplica pela constraint real UNIQUE(client_id, shopify_customer_id).
+
+    Mantém a versão Shopify mais recente; em empate, a última ocorrência do
+    payload vence de forma determinística.
+    """
+    unique: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in rows:
+        key = (_safe_str(row.get("client_id")), _safe_str(row.get("shopify_customer_id")))
+        current = unique.get(key)
+        if current is None or _customer_row_recency(row) >= _customer_row_recency(current):
+            unique[key] = row
+    return list(unique.values())
+
+
 async def upsert_customers_batch(
     *,
     client_id: str,
@@ -409,20 +431,40 @@ async def upsert_customers_batch(
         )
         if row is not None
     ]
+    unique_rows = _deduplicate_customer_rows(rows)
+    duplicates_removed = len(rows) - len(unique_rows)
+    chunks = _chunked(unique_rows, max(1, int(chunk_size or 100)))
     upserted = 0
     failed = 0
-    for chunk in _chunked(rows, chunk_size):
+    for chunk_index, chunk in enumerate(chunks, start=1):
         try:
             await sb_upsert("shopify_customers", chunk, on_conflict="client_id,shopify_customer_id")
             upserted += len(chunk)
-        except Exception:
+        except Exception as chunk_exc:
+            print(
+                "[shopify_sync] stage=customers_chunk_fallback "
+                f"chunk={chunk_index}/{len(chunks)} rows={len(chunk)} "
+                f"error_type={chunk_exc.__class__.__name__}"
+            )
             for row in chunk:
                 try:
                     await sb_upsert("shopify_customers", [row], on_conflict="client_id,shopify_customer_id")
                     upserted += 1
-                except Exception:
+                except Exception as row_exc:
                     failed += 1
-    return {"upserted": upserted, "failed": failed}
+                    print(
+                        "[shopify_sync] stage=customer_persistence_error "
+                        f"chunk={chunk_index}/{len(chunks)} customer_id={row.get('shopify_customer_id')} "
+                        f"error_type={row_exc.__class__.__name__}"
+                    )
+    return {
+        "received": len(payloads),
+        "unique": len(unique_rows),
+        "duplicates_removed": duplicates_removed,
+        "chunks": len(chunks),
+        "upserted": upserted,
+        "failed": failed,
+    }
 
 
 async def _upsert_order(

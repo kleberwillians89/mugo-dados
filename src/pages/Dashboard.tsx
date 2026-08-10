@@ -1035,7 +1035,10 @@ export default function Dashboard({
   const [activeConnectionId, setActiveConnection] = useState<string | null>(() =>
     cachedConnectionsInitial.length ? pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()) : null
   );
-  const [enablePaidStage, setEnablePaidStage] = useState(false);
+  // Leituras persistidas de Ads e do executivo começam junto com o orgânico.
+  // Nenhuma delas chama upstream; postergar esta etapa fazia Shopify/Meta
+  // parecerem ausentes enquanto Instagram ainda carregava.
+  const [enablePaidStage, setEnablePaidStage] = useState(true);
   const [enableMonthlyStage, setEnableMonthlyStage] = useState(false);
   const [enableExtrasStage, setEnableExtrasStage] = useState(false);
   const organicConnectionId = String(activeConnectionId || "").trim() || null;
@@ -1440,8 +1443,11 @@ export default function Dashboard({
           const paid = selectUniqueConnection(nextConnections, (item) =>
             String(item.ad_account_id || "") === selectedAdAccountId && String(item.status || "").toLowerCase() !== "disconnected"
           );
-          const paidCandidates = nextConnections.filter(
-            (item) => String(item.status || "").toLowerCase() !== "disconnected"
+          const paidCandidates = nextConnections.filter((item) =>
+            String(item.platform || "").toLowerCase() === "meta_ads" &&
+            String(item.connection_type || "").toLowerCase() === "paid" &&
+            String(item.status || "").toLowerCase() !== "disconnected" &&
+            item.requires_reauth !== true
           );
           // Se o ponteiro salvo (autorização em cache -> ad_account_id) não
           // encontrou correspondência, mas existe exatamente UMA conexão paid
@@ -1630,7 +1636,7 @@ export default function Dashboard({
   );
 
   const paidTotals = paidData?.totals;
-  const hasPaidConnection = Boolean(paidConnectionId);
+  const hasPaidConnection = Boolean(paidData?.connection_id || paidConnectionId);
   const organicConnection = useMemo(
     () => selectUniqueConnection(
       arrayOrEmpty<MetaConnection>(connections),
@@ -1676,7 +1682,7 @@ export default function Dashboard({
     safe(paidTotals?.clicks) > 0;
   const paidStatusLabel = !hasPaidConnection
     ? "Sem conexão de Ads"
-    : paidConnectionStatus === "error" || paidConnectionStatus === "needs_reauth"
+    : paidConnectionStatus === "needs_reauth" || paidConnection?.requires_reauth === true
       ? "Conexão de Ads com erro"
     : loadingPaid
       ? "Carregando Ads"
@@ -1693,7 +1699,7 @@ export default function Dashboard({
           : "Aguardando atualização";
   const paidEmptyMessage = !hasPaidConnection
     ? "Sem conexão de Ads ativa para o cliente ativo."
-    : paidConnectionStatus === "error" || paidConnectionStatus === "needs_reauth"
+    : paidConnectionStatus === "needs_reauth" || paidConnection?.requires_reauth === true
       ? "A conexão de Ads precisa de atenção antes da próxima sincronização."
       : loadingPaid
         ? "Carregando dados de Ads..."
@@ -2179,8 +2185,12 @@ export default function Dashboard({
       },
       {
         label: "Dados comerciais",
-        state: "waiting",
-        detail: "Não carregados nesta visão Meta",
+        state: executiveData?.shopify?.connected ? "connected" : executiveError ? "error" : "waiting",
+        detail: executiveData?.shopify?.connected
+          ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos Shopify no período`
+          : executiveError
+            ? "Falha parcial na leitura Shopify"
+            : "Sem dados Shopify para este período",
       },
     ],
     [
@@ -2194,6 +2204,8 @@ export default function Dashboard({
       paidLastUpdatedLabel,
       paidConnection?.last_error,
       paidSyncStatus,
+      executiveData?.shopify,
+      executiveError,
     ]
   );
   const metaRenderKey = [

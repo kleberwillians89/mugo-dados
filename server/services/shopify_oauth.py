@@ -758,14 +758,22 @@ async def sync_shopify_connection(
             )
             customers_upserted = customer_batch_result["upserted"]
             customers_failed = customer_batch_result["failed"]
+            customers_unique = customer_batch_result["unique"]
+            customers_duplicates_removed = customer_batch_result["duplicates_removed"]
+            customers_chunks = customer_batch_result["chunks"]
             print(
                 "[shopify_sync] stage=customers_persistence "
                 f"connection_id={connection_id} client_id={client_id} shop_domain={shop_domain} "
-                f"customers_received={customers_received} customers_upserted={customers_upserted} "
+                f"customers_received={customers_received} customers_unique={customers_unique} "
+                f"customers_duplicates_removed={customers_duplicates_removed} customers_chunks={customers_chunks} "
+                f"customers_upserted={customers_upserted} "
                 f"customers_failed={customers_failed}"
             )
             diagnostics.update({
                 "customers_received": customers_received,
+                "customers_unique": customers_unique,
+                "customers_duplicates_removed": customers_duplicates_removed,
+                "customers_chunks": customers_chunks,
                 "customers_upserted": customers_upserted,
                 "customers_failed": customers_failed,
             })

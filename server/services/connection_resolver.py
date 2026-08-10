@@ -24,7 +24,7 @@ def _is_status_active_like(row: Dict[str, Any]) -> bool:
     is_active = _safe_str(row.get("is_active")).lower()
     if is_active in {"false", "0", "no", "off"}:
         return False
-    return status in {"active", "connected", "ok"} and not requires_reauth
+    return status in {"active", "connected", "ok", "error", "stale"} and not requires_reauth
 
 
 _GENERIC_ALLOWED_STATUSES = {"connected", "selection_required"}
@@ -264,9 +264,26 @@ async def resolve_connection_for_scope(
             "row": selected,
         }
 
-    return {
-        "resolved": False,
-        "connection_id": None,
-        "source": "selection_required",
-        "row": None,
-    }
+    rows = await sb_select(
+        "meta_connections",
+        select=select_fields,
+        filters={"client_id": f"eq.{cid}"},
+        limit=100,
+    )
+    candidates = [row for row in rows if _matches_scope(row) and _is_status_active_like(row)]
+    if len(candidates) == 1:
+        selected = candidates[0]
+        return {
+            "resolved": True,
+            "connection_id": _safe_str(selected.get("id")),
+            "source": "unique_scope",
+            "row": selected,
+        }
+    if len(candidates) > 1:
+        raise IntegrationError(
+            "Mais de uma conexão operacional ativa corresponde ao provedor solicitado.",
+            status_code=409,
+            code="CONNECTION_AMBIGUOUS",
+            provider=_safe_str(platform) or "meta",
+        )
+    return {"resolved": False, "connection_id": None, "source": "not_configured", "row": None}

@@ -221,6 +221,7 @@ export type ExecutiveShopifySection = {
 
 export type ExecutiveMetaSection = {
   connected: boolean;
+  data_available?: boolean;
   spend: number | null;
   attributed_revenue: number | null;
   roas: number | null;
@@ -236,17 +237,18 @@ export type ExecutiveGoogleAdsSection = {
 };
 
 export type ExecutiveTotalPaidMedia = {
-  paid_media_spend: number;
+  paid_media_spend: number | null;
   included_paid_sources: string[];
   blended_roas: number | null;
 };
 
 export type ExecutiveGa4Section = {
   connected: boolean;
-  sessions: number;
-  users: number;
-  purchases: number;
-  revenue: number;
+  data_available?: boolean;
+  sessions: number | null;
+  users: number | null;
+  purchases: number | null;
+  revenue: number | null;
 } | null;
 
 export type ExecutiveDailyPoint = {

@@ -117,13 +117,20 @@ def _is_active(conn: Dict[str, Any]) -> bool:
 def serialize_connection_status(conn: Dict[str, Any]) -> Dict[str, Any]:
     expiry = conn.get("token_expires_at") or conn.get("expires_at")
     last_sync = conn.get("last_sync_at") or conn.get("last_synced_at")
+    requires_reauth = _requires_reauth(conn)
+    disconnected = _safe_str(conn.get("status")).lower() == "disconnected" or bool(conn.get("disconnected_at"))
+    connection_state = "disconnected" if disconnected else "reauth_required" if requires_reauth else "connected"
+    last_sync_status = _safe_str(conn.get("last_sync_status")) or "never"
+    sync_state = "error" if last_sync_status == "error" else "stale" if last_sync_status in {"partial", "skipped"} else "idle"
     return {
         "id": _safe_str(conn.get("id")) or None,
         "client_id": _safe_str(conn.get("client_id")) or None,
         "platform": _safe_str(conn.get("platform")),
         "connection_type": _safe_str(conn.get("connection_type")),
         "status": _safe_str(conn.get("status")) or "active",
-        "requires_reauth": _requires_reauth(conn),
+        "requires_reauth": requires_reauth,
+        "connection_state": connection_state,
+        "sync_state": sync_state,
         "is_active": _is_active(conn),
         "token_expires_at": expiry,
         "expires_at": expiry,
@@ -131,7 +138,7 @@ def serialize_connection_status(conn: Dict[str, Any]) -> Dict[str, Any]:
         "last_validated_at": conn.get("last_validated_at"),
         "last_sync_at": last_sync,
         "last_synced_at": last_sync,
-        "last_sync_status": _safe_str(conn.get("last_sync_status")) or "never",
+        "last_sync_status": last_sync_status,
         "last_error": _safe_str(conn.get("last_error")) or None,
         "connected_at": conn.get("connected_at"),
         "updated_at": conn.get("updated_at"),
@@ -349,7 +356,7 @@ async def mark_connection_sync_error(
     await _patch_connection(
         connection_id,
         {
-            "status": "needs_reauth" if requires_reauth else "error",
+            "status": "needs_reauth" if requires_reauth else "active",
             "requires_reauth": bool(requires_reauth),
             "is_active": False if requires_reauth else True,
             "last_error": (error or "")[:1000],
