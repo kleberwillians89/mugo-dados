@@ -35,18 +35,19 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 26)
+        self.assertEqual(len(names), 27)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-3], "20260805_000024_ga4_selection_metrics.sql")
-        self.assertEqual(names[-2], "20260810_000025_google_ads_daily_stats.sql")
-        self.assertEqual(names[-1], "20260811_000026_dashboard_read_model.sql")
+        self.assertEqual(names[-4], "20260805_000024_ga4_selection_metrics.sql")
+        self.assertEqual(names[-3], "20260810_000025_google_ads_daily_stats.sql")
+        self.assertEqual(names[-2], "20260811_000026_dashboard_read_model.sql")
+        self.assertEqual(names[-1], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 27)))
+        self.assertEqual(logical_numbers, list(range(1, 28)))
 
     def test_dashboard_read_model_is_tenant_scoped_read_only_and_incremental(self):
         sql = (MIGRATIONS / "20260811_000026_dashboard_read_model.sql").read_text().lower()
@@ -63,6 +64,40 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertIn("to service_role", sql)
         refresh_body = sql.split("create or replace function public.refresh_dashboard_read_model", 1)[1]
         self.assertNotIn("delete from dashboard_", refresh_body)
+
+    def test_dashboard_read_model_platform_admin_select_is_additive(self):
+        member_sql = (MIGRATIONS / "20260811_000026_dashboard_read_model.sql").read_text().lower()
+        admin_sql = (
+            MIGRATIONS / "20260812_000027_dashboard_read_model_platform_admin_select.sql"
+        ).read_text().lower()
+        policy_names = (
+            "dashboard_daily_platform_admin_select",
+            "dashboard_campaign_platform_admin_select",
+            "dashboard_product_platform_admin_select",
+            "dashboard_sources_platform_admin_select",
+        )
+        self.assertEqual(member_sql.count("using (public.is_client_member(client_id))"), 4)
+        self.assertNotIn("drop policy", admin_sql)
+        for policy_name in policy_names:
+            self.assertIn(f"create policy {policy_name}", admin_sql)
+        self.assertEqual(admin_sql.count("for select to authenticated"), 4)
+        self.assertEqual(admin_sql.count("using (public.is_platform_admin())"), 4)
+
+    def test_dashboard_read_model_browser_roles_remain_read_only(self):
+        sql = (
+            MIGRATIONS / "20260812_000027_dashboard_read_model_platform_admin_select.sql"
+        ).read_text().lower()
+        self.assertIn("from anon, authenticated", sql)
+        self.assertIn("to authenticated", sql)
+        self.assertNotIn("for insert", sql)
+        self.assertNotIn("for update", sql)
+        self.assertNotIn("for delete", sql)
+        self.assertIn(
+            "revoke all on function public.refresh_dashboard_read_model(text, date, date, text)",
+            sql,
+        )
+        self.assertIn("from public, anon, authenticated", sql)
+        self.assertIn("to service_role", sql)
 
 
 if __name__ == "__main__":
