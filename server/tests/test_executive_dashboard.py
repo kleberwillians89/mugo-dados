@@ -155,6 +155,24 @@ class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):
             shopify=None,
         )["included_paid_sources"])
 
+    async def test_connected_meta_without_period_coverage_is_missing_not_zero(self):
+        with patch.object(ed, "get_paid_dashboard", AsyncMock(return_value={
+            "connection_id": "paid-1", "has_data": False, "totals": {"spend": 0, "revenue": 0},
+            "daily": [], "connection_status": {"connection_state": "connected", "sync_state": "stale"},
+        })):
+            section = await ed._build_meta_section(
+                client_id="amalie", connection_id=None, since="2026-08-10", until="2026-08-10",
+            )
+
+        self.assertTrue(section["connected"])
+        self.assertFalse(section["data_available"])
+        self.assertIsNone(section["spend"])
+        total = ed._build_total_paid_media(
+            meta=section, google_ads=ed._build_google_ads_section(), shopify={"net_revenue": 100.0},
+        )
+        self.assertIsNone(total["paid_media_spend"])
+        self.assertEqual(total["included_paid_sources"], [])
+
 
 class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCase):
     async def test_intelligence_roas_and_revenue_metrics_come_from_backend_executive_summary(self):
@@ -208,6 +226,32 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         self.assertIn("revenue", metrics_by_id)
         self.assertIn("roas", metrics_by_id)
         self.assertIsNone(snapshot["executive_context"])
+
+    async def test_intelligence_keeps_four_provider_freshness_and_null_values(self):
+        from services import intelligence
+
+        fake_executive = {
+            "period": {"start": "2026-08-10", "end": "2026-08-10", "days": 1},
+            "shopify": {"connected": True, "net_revenue": None, "data_max_available": "2026-08-09"},
+            "meta": {"connected": True, "spend": None, "data_max_available": "2026-08-09", "stale": True},
+            "ga4": {"connected": True, "sessions": None, "data_max_available": "2026-08-09"},
+            "instagram": {"connected": True, "data_max_available": "2026-08-09"},
+            "total_paid_media": {"paid_media_spend": None, "included_paid_sources": [], "blended_roas": None},
+            "previous_period": None,
+            "deltas": None,
+        }
+        with (
+            patch.object(intelligence, "get_executive_summary", AsyncMock(return_value=fake_executive)),
+            patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
+            patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
+        ):
+            snapshot = await intelligence.calculate_intelligence_snapshot(
+                client_id="amalie", start="2026-08-10", end="2026-08-10",
+            )
+
+        self.assertEqual(snapshot["executive_context"], fake_executive)
+        self.assertIsNone(next(metric for metric in snapshot["metrics"] if metric["id"] == "revenue")["value"])
+        self.assertIsNone(next(metric for metric in snapshot["metrics"] if metric["id"] == "roas")["value"])
 
 
 if __name__ == "__main__":

@@ -527,6 +527,17 @@ async def build_shopify_report(
         order="created_at_shopify.desc",
         limit=5000,
     )
+    coverage_filters = {"client_id": f"eq.{client_id}", "shop_domain": f"eq.{shop_domain}"}
+    earliest_rows = await sb_select(
+        "shopify_orders", select="created_at_shopify", filters=coverage_filters,
+        order="created_at_shopify.asc", limit=1,
+    )
+    latest_rows = await sb_select(
+        "shopify_orders", select="created_at_shopify", filters=coverage_filters,
+        order="created_at_shopify.desc", limit=1,
+    )
+    data_min_available = _order_date_key(earliest_rows[0]) if earliest_rows else None
+    data_max_available = _order_date_key(latest_rows[0]) if latest_rows else None
 
     order_ids = [_safe_str(order.get("shopify_order_id")) for order in orders if _safe_str(order.get("shopify_order_id"))]
     customer_ids = [_safe_str(order.get("customer_id")) for order in orders if _safe_str(order.get("customer_id"))]
@@ -630,6 +641,11 @@ async def build_shopify_report(
             "start": period.start.isoformat(),
             "end": period.end.isoformat(),
             "days": period.days,
+        },
+        "coverage": {
+            "data_min_available": data_min_available,
+            "data_max_available": data_max_available,
+            "has_data_in_period": bool(orders),
         },
         "summary": {
             "revenue_total": round(revenue_total, 2),

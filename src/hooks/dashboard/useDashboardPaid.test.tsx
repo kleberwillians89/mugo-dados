@@ -51,10 +51,12 @@ afterEach(() => {
 function Harness({
   clientId,
   connectionId,
+  filters,
   onState,
 }: {
   clientId: string;
-  connectionId: string;
+  connectionId?: string;
+  filters?: { campaign?: string; adset?: string; ad?: string; platform?: string };
   onState: (state: ReturnType<typeof useDashboardPaid>) => void;
 }) {
   const state = useDashboardPaid({
@@ -62,12 +64,48 @@ function Harness({
     activeClientId: clientId,
     activeConnectionId: connectionId,
     period: { start: "2026-08-01", end: "2026-08-08" },
+    filters,
   });
   onState(state);
   return null;
 }
 
 describe("useDashboardPaid — persistência real ao desmontar/remontar (troca de tela)", () => {
+  it("filtros compostos fazem somente GET persistido com o mesmo período", async () => {
+    vi.mocked(getDashboardPaid).mockResolvedValueOnce({ totals: { spend: 100 }, daily: [] } as never);
+    await mount(
+      <Harness
+        clientId="amalie"
+        connectionId="paid-1"
+        filters={{ campaign: "Agosto", adset: "Mulheres", ad: "Video A", platform: "instagram" }}
+        onState={() => {}}
+      />
+    );
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getDashboardPaid).toHaveBeenCalledTimes(1);
+    expect(getDashboardPaid).toHaveBeenCalledWith(
+      { start: "2026-08-01", end: "2026-08-08" },
+      expect.objectContaining({
+        connectionId: "paid-1", campaign: "Agosto", adset: "Mulheres", ad: "Video A", platform: "instagram",
+      })
+    );
+  });
+
+  it("browser novo sem connection_id ainda faz GET para o backend resolver a conexão paid", async () => {
+    const response = { connection_id: "paid-amalie", totals: { spend: 900 }, daily: [] };
+    vi.mocked(getDashboardPaid).mockResolvedValueOnce(response as never);
+
+    let latest: ReturnType<typeof useDashboardPaid> | null = null;
+    await mount(<Harness clientId="amalie" onState={(state) => { latest = state; }} />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getDashboardPaid).toHaveBeenCalledWith(
+      { start: "2026-08-01", end: "2026-08-08" },
+      expect.objectContaining({ connectionId: undefined })
+    );
+    expect(latest?.paidData).toEqual(response);
+  });
   it("remontar com os mesmos parâmetros mostra o snapshot em cache imediatamente, sem esperar novo fetch", async () => {
     const firstResponse = { totals: { spend: 1294 }, daily: [] };
     const mocked = vi.mocked(getDashboardPaid);

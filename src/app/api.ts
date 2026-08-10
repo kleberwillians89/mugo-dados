@@ -685,6 +685,7 @@ function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
   const summary = asRecord(report.summary);
   const trends = asRecord(report.trends);
   const technical = asRecord(report.technical);
+  const coverage = asRecord(report.coverage);
 
   const daily = Array.isArray(trends.daily) ? trends.daily : [];
   const recentOrders = Array.isArray(report.recent_orders) ? report.recent_orders : [];
@@ -701,6 +702,11 @@ function normalizeShopifyReport(raw: unknown): ShopifyReportResponse {
       end: asString(period.end),
       days: asNumber(period.days, 30),
     },
+    coverage: Object.keys(coverage).length ? {
+      data_min_available: asString(coverage.data_min_available) || null,
+      data_max_available: asString(coverage.data_max_available) || null,
+      has_data_in_period: Boolean(coverage.has_data_in_period),
+    } : undefined,
     summary: {
       revenue_total: asNumber(summary.revenue_total),
       net_revenue: asNumber(summary.net_revenue),
@@ -1680,11 +1686,22 @@ export async function getMediaMonthly(
 
 export async function getDashboardPaid(
   period: number | PeriodQueryInput = 30,
-  options?: { connectionId?: string | null; signal?: AbortSignal }
+  options?: {
+    connectionId?: string | null;
+    campaign?: string;
+    adset?: string;
+    ad?: string;
+    platform?: string;
+    signal?: AbortSignal;
+  }
 ): Promise<PaidDashboardResponse> {
   return http<PaidDashboardResponse>(
     pathWithPeriodAndExtras("/api/dashboard/paid", period, 30, {
       connection_id: String(options?.connectionId || "").trim() || null,
+      campaign: String(options?.campaign || "").trim() || null,
+      adset: String(options?.adset || "").trim() || null,
+      ad: String(options?.ad || "").trim() || null,
+      platform: String(options?.platform || "").trim() || null,
     }),
     { signal: options?.signal }
   );

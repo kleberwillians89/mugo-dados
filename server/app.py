@@ -559,6 +559,10 @@ async def api_dashboard_paid(
     month: str | None = None,
     start: str | None = Query(default=None),
     end: str | None = Query(default=None),
+    campaign: str | None = Query(default=None),
+    adset: str | None = Query(default=None),
+    ad: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
     started = _started()
@@ -587,6 +591,10 @@ async def api_dashboard_paid(
             month=month,
             start=start,
             end=end,
+            campaign=campaign,
+            adset=adset,
+            ad=ad,
+            platform=platform,
         )
         paid_sources = payload.get("sources") or {}
         paid_rows = paid_sources.get("rows") or {}

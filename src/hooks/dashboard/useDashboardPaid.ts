@@ -14,6 +14,7 @@ type Params = {
   activeConnectionId?: string | null;
   enabled?: boolean;
   period?: DashboardPeriod | null;
+  filters?: { campaign?: string; adset?: string; ad?: string; platform?: string };
 };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -32,6 +33,7 @@ export default function useDashboardPaid({
   activeConnectionId,
   enabled = true,
   period,
+  filters,
 }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
   const resolvedConnectionId = useMemo(
@@ -45,8 +47,11 @@ export default function useDashboardPaid({
         connectionId: resolvedConnectionId || "-",
         start: safePeriod.start,
         end: safePeriod.end,
+        extra: [filters?.campaign, filters?.adset, filters?.ad, filters?.platform]
+          .map((value) => String(value || "").trim().toLowerCase())
+          .join("|"),
       }),
-    [activeClientId, resolvedConnectionId, safePeriod.end, safePeriod.start]
+    [activeClientId, filters?.ad, filters?.adset, filters?.campaign, filters?.platform, resolvedConnectionId, safePeriod.end, safePeriod.start]
   );
   const cachedInitial = useMemo(
     () => readDashboardCache<PaidDashboardResponse>(cacheKey),
@@ -118,6 +123,10 @@ export default function useDashboardPaid({
           },
           {
             connectionId: resolvedConnectionId || undefined,
+            campaign: filters?.campaign,
+            adset: filters?.adset,
+            ad: filters?.ad,
+            platform: filters?.platform,
             signal: controller.signal,
           }
         );
@@ -140,7 +149,7 @@ export default function useDashboardPaid({
         }
       }
     },
-    [activeClientId, cacheKey, enabled, isAuthenticated, resolvedConnectionId, safePeriod.end, safePeriod.start]
+    [activeClientId, cacheKey, enabled, filters?.ad, filters?.adset, filters?.campaign, filters?.platform, isAuthenticated, resolvedConnectionId, safePeriod.end, safePeriod.start]
   );
 
   useEffect(() => {

@@ -58,7 +58,7 @@ async def _build_shopify_section(
     total_customers = _safe_int(customers_summary.get("total_customers"))
     returning_customers = _safe_int(customers_summary.get("recurring_customers"))
     daily = report.get("daily_commercial") or []
-    available_dates = [str(row.get("date")) for row in daily if _safe_int(row.get("orders")) > 0]
+    coverage = report.get("coverage") or {}
     requires_reauth = str(connection_row.get("status") or "").lower() in {"reauth_required", "token_expired"}
     last_error = connection_row.get("last_error")
     return {
@@ -66,7 +66,8 @@ async def _build_shopify_section(
         "connection_state": "reauth_required" if requires_reauth else "connected",
         "sync_state": "error" if last_error else "idle",
         "last_success_at": connection_row.get("last_sync_at"),
-        "data_max_available": max(available_dates) if available_dates else None,
+        "data_min_available": coverage.get("data_min_available"),
+        "data_max_available": coverage.get("data_max_available"),
         "stale": bool(last_error and connection_row.get("last_sync_at")),
         "last_error": last_error,
         "reauth_required": requires_reauth,

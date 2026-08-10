@@ -192,7 +192,11 @@ class CustomerBatchUpsertTests(unittest.IsolatedAsyncioTestCase):
                 client_id="amalie", shop_domain="amalie-6421.myshopify.com", payloads=payloads, chunk_size=100,
             )
 
-        self.assertEqual(result, {"upserted": 5, "failed": 0})
+        self.assertEqual(result["upserted"], 5)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["unique"], 5)
+        self.assertEqual(result["duplicates_removed"], 0)
+        self.assertEqual(result["chunks"], 1)
         self.assertEqual(calls, [("shopify_customers", 5)])  # uma única chamada, não 5
 
     async def test_respects_chunk_size_splitting_into_multiple_batched_calls(self):
@@ -208,6 +212,7 @@ class CustomerBatchUpsertTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result["upserted"], 250)
+        self.assertEqual(result["chunks"], 3)
         # 3 chamadas (100 + 100 + 50), nunca 250 chamadas individuais.
         self.assertEqual(calls, [100, 100, 50])
 
@@ -228,7 +233,30 @@ class CustomerBatchUpsertTests(unittest.IsolatedAsyncioTestCase):
             )
 
         # Chunk inteiro falhou -> fallback individual: 1 e 3 persistem, 2 falha isolado.
-        self.assertEqual(result, {"upserted": 2, "failed": 1})
+        self.assertEqual(result["upserted"], 2)
+        self.assertEqual(result["failed"], 1)
+
+    async def test_deduplicates_constraint_key_and_keeps_latest_shopify_version(self):
+        payloads = [
+            {"id": 42, "email": "old@example.com", "updated_at": "2026-08-09T12:00:00Z"},
+            {"id": 42, "email": "new@example.com", "updated_at": "2026-08-10T12:00:00Z"},
+        ]
+        written = []
+
+        async def fake_upsert(table, rows, on_conflict=None):
+            written.extend(rows)
+
+        with patch.object(shopify_webhooks, "sb_upsert", fake_upsert):
+            result = await shopify_webhooks.upsert_customers_batch(
+                client_id="amalie", shop_domain="amalie.myshopify.com", payloads=payloads, chunk_size=100,
+            )
+
+        self.assertEqual(result["received"], 2)
+        self.assertEqual(result["unique"], 1)
+        self.assertEqual(result["duplicates_removed"], 1)
+        self.assertEqual(result["chunks"], 1)
+        self.assertEqual(result["upserted"], 1)
+        self.assertEqual(written[0]["email"], "new@example.com")
 
     async def test_customer_without_id_is_silently_skipped_not_counted_as_failed(self):
         payloads = [{"id": 1}, {"no_id": True}]

@@ -10,7 +10,6 @@ import CommentsPanel from "../components/CommentsPanel";
 import NotesPanel from "../components/NotesPanel";
 import { MonthCompareLines, MonthMixChart } from "../components/Charts";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
-import StoriesPanel from "../components/dashboard/StoriesPanel";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
 import MetaStateNotice from "../components/dashboard/MetaStateNotice";
 import OperacaoReal from "../components/dashboard/OperacaoReal";
@@ -486,11 +485,7 @@ function MetaChartCard({
   const periodTotal =
     metric === "followers"
       ? safe(dash?.period_totals?.followers_growth ?? dash?.followers_growth_last_days ?? 0)
-      : safe(
-          dash?.period_totals?.[metric as DashboardMetricKey] ??
-            dash?.totals_last_days?.[metric as DashboardMetricKey] ??
-            0
-        );
+      : series.reduce((total, value) => total + safe(value), 0);
 
   const previousPeriodTotal =
     metric === "followers"
@@ -1088,22 +1083,17 @@ export default function Dashboard({
   const commentsTotal = safe(summaryData.commentsTotal);
   const topWords = summaryData.topWords;
   const stories = summaryData.stories;
-  const storiesAvailableFromApi = summaryData.storiesAvailable;
-  const storiesMessageFromApi = summaryData.storiesMessage;
   
   const loadingDash = sectionLoading.dash;
   const loadingMedia = sectionLoading.media;
   const loadingComments = sectionLoading.comments;
-  const loadingStories = sectionLoading.stories;
   const refreshingDash = sectionRefreshing.dash || (refreshingSummary && !!dash);
   const refreshingMedia = sectionRefreshing.media || (refreshingSummary && mediaData.length > 0);
   const refreshingComments = sectionRefreshing.comments || (refreshingSummary && comments.length > 0);
-  const refreshingStories = sectionRefreshing.stories || (refreshingSummary && stories.length > 0);
   
   const dashError = sectionErrors.dash;
   const mediaError = sectionErrors.media;
   const commentsError = sectionErrors.comments;
-  const storiesError = sectionErrors.stories;
   const summarySettled = Boolean(dash) || Boolean(dashError);
   
   const mediaHasMore = false;
@@ -1114,10 +1104,6 @@ export default function Dashboard({
     commentsTotal > 0 ||
     stories.length > 0 ||
     safe(dash?.period_totals?.followers_current) > 0;
-  const storiesAvailable = storiesAvailableFromApi || stories.length > 0 || hasSummaryOrganicData;
-  const storiesMessage =
-    storiesMessageFromApi ||
-    (stories.length || hasSummaryOrganicData ? "" : "Stories ainda não sincronizados.");
   const {
     monthlyRows,
     loadingMonthly,
@@ -1144,6 +1130,12 @@ export default function Dashboard({
     activeConnectionId: paidConnectionId,
     enabled: enablePaidStage,
     period,
+    filters: {
+      campaign: paidCampaignFilter,
+      adset: paidAdsetFilter,
+      ad: paidAdFilter,
+      platform: paidPlatformFilter,
+    },
   });
   // Janela imediatamente anterior de mesma duração — única fonte usada para
   // a narrativa "+X% vs período anterior" do hero de mídia paga. Reaproveita
@@ -1156,6 +1148,12 @@ export default function Dashboard({
     activeConnectionId: paidConnectionId,
     enabled: enablePaidStage,
     period: previousPaidPeriod,
+    filters: {
+      campaign: paidCampaignFilter,
+      adset: paidAdsetFilter,
+      ad: paidAdFilter,
+      platform: paidPlatformFilter,
+    },
   });
   const {
     executiveData,
@@ -1667,9 +1665,6 @@ export default function Dashboard({
   const commentsLastUpdatedLabel =
     formatUpdatedAtLabel(sectionUpdatedAt.comments) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
-  const storiesLastUpdatedLabel =
-    formatUpdatedAtLabel(sectionUpdatedAt.stories) ||
-    formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
   const monthlyLastUpdatedLabel =
     formatUpdatedAtLabel(monthlyUpdatedAt) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
@@ -1934,7 +1929,6 @@ export default function Dashboard({
   const deferredMediaFiltered = useDeferredValue(mediaFiltered);
   const deferredComments = useDeferredValue(comments);
   const deferredTopWords = useDeferredValue(topWords);
-  const deferredStories = useDeferredValue(stories);
   const deferredNotes = useDeferredValue(notes);
   const organicContentCounts = useMemo(() => {
     const rows = arrayOrEmpty<IgMediaItem>(mediaFiltered);
@@ -1979,26 +1973,11 @@ export default function Dashboard({
   );
   const mediaPanelLoading = loadingMedia || secondaryOrganicLoading;
   const commentsPanelLoading = loadingComments || secondaryOrganicLoading;
-  const storiesPanelLoading = loadingStories;
   const monthlyPanelLoading = loadingMonthly || (!enableMonthlyStage && !monthlyRows.length);
 
   const handleLoadMoreMedia = useCallback(() => {}, []);
 
   const handleLoadMoreComments = useCallback(() => {}, []);
-
-  const handleRetryStories = useCallback(() => {
-    reloadSummary({
-      force: true,
-      includeSecondary: true,
-      secondaryOnly: true,
-      loadStories: true,
-      onlyStories: true,
-    }).catch((error: unknown) =>
-      dashLog("handleRetryStories:error", {
-        message: errorMessage(error, "Erro ao carregar stories"),
-      })
-    );
-  }, [reloadSummary]);
 
   const metricCards = useMemo(
     () => [
@@ -2187,7 +2166,11 @@ export default function Dashboard({
         label: "Dados comerciais",
         state: executiveData?.shopify?.connected ? "connected" : executiveError ? "error" : "waiting",
         detail: executiveData?.shopify?.connected
-          ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos Shopify no período`
+          ? executiveData.shopify.orders > 0
+            ? `${executiveData.shopify.orders.toLocaleString("pt-BR")} pedidos Shopify no período`
+            : executiveData.shopify.data_min_available && executiveData.shopify.data_max_available
+              ? `Sem pedidos no recorte; cobertura ${formatDatePtBr(executiveData.shopify.data_min_available)} a ${formatDatePtBr(executiveData.shopify.data_max_available)}`
+              : "Sem pedidos Shopify persistidos"
           : executiveError
             ? "Falha parcial na leitura Shopify"
             : "Sem dados Shopify para este período",
@@ -2227,7 +2210,6 @@ export default function Dashboard({
       comments: comments.length,
       notes: notes.length,
       stories: stories.length,
-      storiesAvailable,
       err: err || "",
     });
   }, [
@@ -2239,7 +2221,6 @@ export default function Dashboard({
     comments.length,
     notes.length,
     stories.length,
-    storiesAvailable,
     err,
   ]);
 
@@ -3119,26 +3100,6 @@ export default function Dashboard({
             </MetaBlockBoundary>
           </div>
 
-          <div className="panelBlock">
-            <MetaBlockBoundary
-              resetKey={`stories:${metaRenderKey}`}
-              title="Stories"
-              description="Stories e disponibilidade da API"
-            >
-              <StoriesPanel
-                stories={deferredStories}
-                loading={storiesPanelLoading}
-                refreshing={refreshingStories}
-                error={storiesError}
-                storiesAvailable={storiesAvailable}
-                storiesMessage={
-                  storiesPanelLoading ? "Carregando stories do período..." : storiesMessage
-                }
-                updatedAtLabel={storiesLastUpdatedLabel}
-                onRetry={handleRetryStories}
-              />
-            </MetaBlockBoundary>
-          </div>
         </div>
 
         {SHOW_PRESENTATION_EXTRAS ? (

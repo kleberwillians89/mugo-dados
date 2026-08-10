@@ -13,7 +13,8 @@ const METRIC_TABS: { key: MetricKey; label: string }[] = [
   { key: "conversions", label: "Compras" },
 ];
 
-function formatValue(metric: MetricKey, value: number): string {
+function formatValue(metric: MetricKey, value: number | null): string {
+  if (value == null) return "Sem dados";
   if (metric === "revenue" || metric === "spend") {
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
   }
@@ -24,16 +25,20 @@ function formatValue(metric: MetricKey, value: number): string {
 export default function PerformanceChart({
   daily,
 }: {
-  daily: Array<{ date: string } & PaidTotals> | undefined;
+  daily: Array<{ date: string; missing?: boolean } & PaidTotals> | undefined;
 }) {
   const [metric, setMetric] = useState<MetricKey>("revenue");
   const rows = useMemo(() => daily || [], [daily]);
-  const hasData = rows.some((row) => Number(row[metric] ?? 0) !== 0);
+  const hasData = rows.some((row) => row[metric] != null);
+  const coveredDays = rows.filter((row) => !row.missing && row[metric] != null).length;
+  const coverageLabel = rows.length > 0 && coveredDays < rows.length
+    ? `Cobertura: ${coveredDays} de ${rows.length} dias`
+    : null;
 
   const labels = useMemo(() => rows.map((row) => formatDatePtBr(row.date).replace(/ de \d{4}$/, "")), [rows]);
-  const series = useMemo(() => rows.map((row) => Number(row[metric] ?? 0)), [rows, metric]);
+  const series = useMemo(() => rows.map((row) => row[metric] == null ? null : Number(row[metric])), [rows, metric]);
 
-  const chartData: ChartData<"line", number[], string> = useMemo(
+  const chartData: ChartData<"line", Array<number | null>, string> = useMemo(
     () => ({
       labels,
       datasets: [
@@ -75,7 +80,7 @@ export default function PerformanceChart({
           displayColors: false,
           callbacks: {
             title: (items) => `Data: ${labels[items[0]?.dataIndex ?? 0] || ""}`,
-            label: (item) => `${formatValue(metric, Number(item.parsed.y))} · Fonte: Meta Ads`,
+            label: (item) => `${formatValue(metric, item.parsed.y == null ? null : Number(item.parsed.y))} · Fonte: Meta Ads`,
           },
         },
       },
@@ -103,7 +108,10 @@ export default function PerformanceChart({
   return (
     <div className="performanceChart">
       <div className="performanceChartHead">
-        <span className="performanceChartTitle">Desempenho</span>
+        <div>
+          <span className="performanceChartTitle">Desempenho</span>
+          {coverageLabel ? <div className="smallMuted">{coverageLabel}</div> : null}
+        </div>
         <div className="performanceChartTabs" role="tablist" aria-label="Métrica do gráfico de desempenho">
           {METRIC_TABS.map((tab) => (
             <button

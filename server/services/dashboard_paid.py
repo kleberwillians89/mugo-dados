@@ -245,13 +245,13 @@ def _fill_daily_range(
         for row in rows
         if str(row.get("date") or "").strip()
     }
-    zero_metrics = _finalize_paid_metric(_paid_totals_template())
+    missing_metrics = {key: None for key in _paid_totals_template()}
 
     out: List[Dict[str, Any]] = []
     cursor = start_date
     while cursor <= end_date:
         key = cursor.isoformat()
-        out.append(by_date.get(key, {"date": key, **zero_metrics}))
+        out.append(by_date.get(key, {"date": key, **missing_metrics, "missing": True}))
         cursor += timedelta(days=1)
     return out
 
@@ -378,6 +378,11 @@ def _aggregate_paid_rows(
         "totals": _finalize_paid_metric(totals),
         "first_stat_date": first_stat_date,
         "last_stat_date": last_stat_date,
+        "coverage": {
+            "covered_days": len(set(stat_dates)),
+            "expected_days": len(daily),
+            "is_partial": len(set(stat_dates)) < len(daily),
+        },
     }
 
 
@@ -485,6 +490,38 @@ def _aggregate_top_creatives(rows: List[Dict[str, Any]], limit: int = 20) -> Lis
     return out_sorted[: max(1, int(limit))]
 
 
+def _filter_paid_detail_rows(
+    rows: List[Dict[str, Any]],
+    *,
+    campaign: str | None = None,
+    adset: str | None = None,
+    ad: str | None = None,
+    platform: str | None = None,
+) -> List[Dict[str, Any]]:
+    needles = {
+        "campaign": str(campaign or "").strip().lower(),
+        "adset": str(adset or "").strip().lower(),
+        "ad": str(ad or "").strip().lower(),
+        "platform": str(platform or "").strip().lower(),
+    }
+    if not any(needles.values()):
+        return rows
+
+    def matches(row: Dict[str, Any]) -> bool:
+        campaign_text = f"{row.get('campaign_name') or ''} {row.get('campaign_id') or ''}".lower()
+        adset_text = f"{row.get('adset_name') or ''} {row.get('adset_id') or ''}".lower()
+        ad_text = f"{row.get('ad_name') or ''} {row.get('ad_id') or ''}".lower()
+        platform_text = str(row.get("source_platform") or "").lower()
+        return (
+            (not needles["campaign"] or needles["campaign"] in campaign_text)
+            and (not needles["adset"] or needles["adset"] in adset_text)
+            and (not needles["ad"] or needles["ad"] in ad_text)
+            and (not needles["platform"] or needles["platform"] in platform_text)
+        )
+
+    return [row for row in rows if matches(row)]
+
+
 async def get_paid_dashboard(
     client_id: str,
     connection_id: str | None = None,
@@ -492,6 +529,10 @@ async def get_paid_dashboard(
     month: str | None = None,
     start: str | None = None,
     end: str | None = None,
+    campaign: str | None = None,
+    adset: str | None = None,
+    ad: str | None = None,
+    platform: str | None = None,
 ) -> Dict[str, Any]:
     since, until = _date_window(days, month, start=start, end=end)
     requested_connection_id = str(connection_id or "").strip()
@@ -602,14 +643,20 @@ async def get_paid_dashboard(
         not in promoted_keys
     ]
     source_consolidated_rows = list(classic_exclusive_rows) + list(promoted_rows)
-    aggregate_rows = account_rows if account_rows else merged_detail_rows
-    aggregate_level = "account_rows" if account_rows else "detail_rows"
-    creative_rows = merged_detail_rows if merged_detail_rows else account_rows
+    filters_applied = any(str(value or "").strip() for value in (campaign, adset, ad, platform))
+    filtered_detail_rows = _filter_paid_detail_rows(
+        merged_detail_rows, campaign=campaign, adset=adset, ad=ad, platform=platform,
+    )
+    aggregate_rows = filtered_detail_rows if filters_applied else (account_rows if account_rows else merged_detail_rows)
+    aggregate_level = "filtered_detail_rows" if filters_applied else "account_rows" if account_rows else "detail_rows"
+    creative_rows = filtered_detail_rows if filters_applied else (merged_detail_rows if merged_detail_rows else account_rows)
     aggregated = _aggregate_paid_rows(aggregate_rows, since=since, until=until)
     first_stat_date = aggregated.get("first_stat_date")
     last_stat_date = aggregated.get("last_stat_date")
     manager_metrics = (
-        _aggregate_action_metrics(account_rows)
+        _aggregate_action_metrics(filtered_detail_rows)
+        if filters_applied
+        else _aggregate_action_metrics(account_rows)
         if account_rows
         else _aggregate_action_metrics(source_consolidated_rows)
     )
@@ -663,6 +710,7 @@ async def get_paid_dashboard(
     )
 
     if not aggregate_rows:
+        empty_daily = _fill_daily_range([], since=since, until=until)
         return {
             "ok": True,
             "client_id": client_id,
@@ -681,7 +729,14 @@ async def get_paid_dashboard(
             "freshness": freshness,
             "last_error": connection_row.get("last_error"),
             "message": "sem dados pagos no período",
-            "daily": [],
+            "daily": empty_daily,
+            "coverage": {"covered_days": 0, "expected_days": len(empty_daily), "is_partial": bool(empty_daily)},
+            "applied_filters": {
+                "campaign": str(campaign or "").strip() or None,
+                "adset": str(adset or "").strip() or None,
+                "ad": str(ad or "").strip() or None,
+                "platform": str(platform or "").strip() or None,
+            },
             "totals": _finalize_paid_metric(_paid_totals_template()),
             "manager_metrics": _manager_metrics_template(),
             "accounts": [],
@@ -727,6 +782,7 @@ async def get_paid_dashboard(
         "row_count": len(aggregate_rows),
         "first_stat_date": first_stat_date,
         "last_stat_date": last_stat_date,
+        "coverage": aggregated.get("coverage"),
         "has_data": True,
         "data_available": True,
         "last_sync_at": freshness["last_sync_at"],
@@ -734,6 +790,12 @@ async def get_paid_dashboard(
         "freshness": freshness,
         "last_error": connection_row.get("last_error"),
         "message": "",
+        "applied_filters": {
+            "campaign": str(campaign or "").strip() or None,
+            "adset": str(adset or "").strip() or None,
+            "ad": str(ad or "").strip() or None,
+            "platform": str(platform or "").strip() or None,
+        },
         "daily": aggregated.get("daily") or [],
         "totals": aggregated.get("totals") or _finalize_paid_metric(_paid_totals_template()),
         "manager_metrics": manager_metrics,

@@ -170,6 +170,11 @@ export type ShopifyReportResponse = {
     end: string;
     days: number;
   };
+  coverage?: {
+    data_min_available?: string | null;
+    data_max_available?: string | null;
+    has_data_in_period: boolean;
+  };
   summary: ShopifyReportSummary;
   trends: {
     daily: ShopifyTrendPoint[];
@@ -203,6 +208,8 @@ export type ExecutiveMetaDailyPoint = {
 
 export type ExecutiveShopifySection = {
   connected: boolean;
+  data_min_available?: string | null;
+  data_max_available?: string | null;
   shop_domain?: string;
   gross_revenue: number;
   net_revenue: number;
@@ -813,6 +820,7 @@ export type NotesResponse = {
   limit?: number;
   available?: boolean;
   message?: string;
+  applied_filters?: { campaign?: string | null; adset?: string | null; ad?: string | null; platform?: string | null };
   notes: NoteItem[];
 };
 
@@ -885,15 +893,15 @@ export type MediaMonthlyResponse = {
 };
 
 export type PaidTotals = {
-  spend: number;
-  impressions: number;
-  reach: number;
-  clicks: number;
-  cpc: number;
-  cpm: number;
-  ctr: number;
-  conversions: number;
-  revenue: number;
+  spend: number | null;
+  impressions: number | null;
+  reach: number | null;
+  clicks: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  ctr: number | null;
+  conversions: number | null;
+  revenue: number | null;
   // null quando não há base válida (investimento = 0 ou sem receita
   // atribuída) — nunca inventar 0,00x nesse caso.
   roas: number | null;
@@ -924,7 +932,8 @@ export type PaidDashboardResponse = {
   row_count?: number;
   first_stat_date?: string | null;
   last_stat_date?: string | null;
-  daily: Array<{ date: string } & PaidTotals>;
+  coverage?: { covered_days: number; expected_days: number; is_partial: boolean };
+  daily: Array<{ date: string; missing?: boolean } & PaidTotals>;
   totals: PaidTotals;
   manager_metrics?: PaidManagerMetrics;
   accounts: Array<{

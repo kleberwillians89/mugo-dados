@@ -11,10 +11,42 @@ if str(SERVER_DIR) not in sys.path:
 
 from services import executive_dashboard as ed  # noqa: E402
 from services import shopify_reporting  # noqa: E402
-from services.dashboard_paid import _aggregate_paid_rows  # noqa: E402
+from services.dashboard_paid import _aggregate_paid_rows, _filter_paid_detail_rows  # noqa: E402
 
 
 class MetaDailyRoasTests(unittest.TestCase):
+    def test_august_revenue_never_includes_july_rows(self):
+        rows = [
+            {"stat_date": "2026-07-31", "spend": 1000, "revenue": 100000},
+            {"stat_date": "2026-08-01", "spend": 5000, "revenue": 20000},
+        ]
+        august_rows = [row for row in rows if "2026-08-01" <= row["stat_date"] <= "2026-08-31"]
+        aggregated = _aggregate_paid_rows(august_rows, since="2026-08-01", until="2026-08-31")
+        self.assertEqual(aggregated["totals"]["revenue"], 20000)
+        self.assertEqual(aggregated["totals"]["spend"], 5000)
+        self.assertEqual(aggregated["totals"]["roas"], 4)
+
+    def test_missing_days_are_null_and_coverage_is_explicit(self):
+        aggregated = _aggregate_paid_rows(
+            [{"stat_date": "2026-08-02", "spend": 10, "revenue": 20}],
+            since="2026-08-01", until="2026-08-03",
+        )
+        by_date = {row["date"]: row for row in aggregated["daily"]}
+        self.assertIsNone(by_date["2026-08-01"]["spend"])
+        self.assertTrue(by_date["2026-08-01"]["missing"])
+        self.assertEqual(aggregated["coverage"], {"covered_days": 1, "expected_days": 3, "is_partial": True})
+
+    def test_composed_paid_filters_use_the_intersection(self):
+        rows = [
+            {"campaign_name": "Agosto", "adset_name": "Mulheres", "ad_name": "Video A", "source_platform": "instagram"},
+            {"campaign_name": "Agosto", "adset_name": "Homens", "ad_name": "Video A", "source_platform": "instagram"},
+            {"campaign_name": "Agosto", "adset_name": "Mulheres", "ad_name": "Video B", "source_platform": "facebook"},
+        ]
+        filtered = _filter_paid_detail_rows(
+            rows, campaign="agosto", adset="mulheres", ad="video a", platform="instagram",
+        )
+        self.assertEqual(filtered, [rows[0]])
+
     def test_daily_meta_roas_uses_same_day_revenue_over_same_day_spend(self):
         rows = [
             {"stat_date": "2026-08-01", "spend": "100.00", "revenue_micros": None, "revenue": "500.00", "conversions": "5", "impressions": "1000", "clicks": "50"},
