@@ -5,11 +5,19 @@ export type ActiveClient = {
 };
 
 const ACTIVE_CLIENT_STORAGE_KEY = "mugo_dados.active_client";
+const LEGACY_CLIENT_ALIASES: Record<string, string> = {
+  "9cd90217-ccba-4467-a095-eedc21fe6e86": "amalie",
+};
+
+export function canonicalizeClientId(value: string | null | undefined): string {
+  const id = String(value || "").trim();
+  return LEGACY_CLIENT_ALIASES[id] || id;
+}
 
 function readStoredClient(): ActiveClient | null {
   try {
     const parsed = JSON.parse(localStorage.getItem(ACTIVE_CLIENT_STORAGE_KEY) || "null");
-    const id = String(parsed?.id || "").trim();
+    const id = canonicalizeClientId(parsed?.id);
     const name = String(parsed?.name || "").trim();
     return id ? { id, name: name || "Cliente", role: parsed?.role || null } : null;
   } catch {
@@ -21,7 +29,7 @@ export const MUGO_APP_NAME = "Mugô Dados";
 export const MUGO_TAGLINE = "Inteligência de dados para decisões mais claras.";
 
 export function setActiveClient(client: ActiveClient): void {
-  const id = String(client.id || "").trim();
+  const id = canonicalizeClientId(client.id);
   if (!id) throw new Error("Não é possível selecionar um cliente sem ID.");
   localStorage.setItem(
     ACTIVE_CLIENT_STORAGE_KEY,

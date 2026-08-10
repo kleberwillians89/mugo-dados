@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearTenantBrowserState,
+  canonicalizeClientId,
   getActiveClient,
   getActiveClientId,
   setActiveClient,
@@ -11,6 +12,12 @@ describe("estado multiempresa no navegador", () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+  });
+
+  it("normaliza o tenant legado da Amalie para o identificador operacional", () => {
+    expect(canonicalizeClientId("9cd90217-ccba-4467-a095-eedc21fe6e86")).toBe("amalie");
+    setActiveClient({ id: "9cd90217-ccba-4467-a095-eedc21fe6e86", name: "Amalie" });
+    expect(getActiveClientId()).toBe("amalie");
   });
 
   it("troca a empresa ativa sem manter a empresa anterior", () => {

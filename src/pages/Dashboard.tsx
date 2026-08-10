@@ -1411,6 +1411,15 @@ export default function Dashboard({
       return;
     }
 
+    // Conexões são configuração administrativa e não participam do first paint.
+    // A descoberta necessária ao sync manual acontece somente em onRefresh.
+    if (!SHOW_PRESENTATION_EXTRAS) {
+      setEnablePaidStage(true);
+      setEnableMonthlyStage(true);
+      setEnableExtrasStage(false);
+      return;
+    }
+
     let alive = true;
     const cachedConnections = readDashboardCache<MetaConnection[]>(connectionsCacheKey);
     if (cachedConnections?.length) {
@@ -1506,16 +1515,41 @@ export default function Dashboard({
     setErr(null);
     setSyncing(true);
     const startedAt = new Date().toISOString();
+    let refreshOrganicConnectionId = organicConnectionId;
+    let refreshPaidConnectionId = paidConnectionId;
+    if (!refreshOrganicConnectionId || !refreshPaidConnectionId) {
+      let refreshedConnections;
+      try {
+        refreshedConnections = await listClientConnections();
+      } catch (connectionError: unknown) {
+        setErr(describeSyncError(connectionError, "Não foi possível preparar a atualização agora."));
+        setSyncing(false);
+        return;
+      }
+      const candidates = arrayOrEmpty<MetaConnection>(refreshedConnections.connections);
+      refreshOrganicConnectionId = refreshOrganicConnectionId || resolveOperationalMetaConnectionId(
+        candidates,
+        "organic",
+        getActiveConnectionId()
+      );
+      const paidCandidates = candidates.filter((item) =>
+        String(item.platform || "").toLowerCase() === "meta_ads" &&
+        String(item.connection_type || "").toLowerCase() === "paid" &&
+        String(item.status || "").toLowerCase() !== "disconnected" &&
+        item.requires_reauth !== true
+      );
+      refreshPaidConnectionId = refreshPaidConnectionId || (paidCandidates.length === 1 ? paidCandidates[0].id : null);
+    }
     const syncTasks: Array<{ provider: string; connectionId: string; endpoint: string; promise: Promise<unknown> }> = [];
-    if (organicConnectionId) {
+    if (refreshOrganicConnectionId) {
       syncTasks.push({
-        provider: "meta_organic", connectionId: organicConnectionId,
+        provider: "meta_organic", connectionId: refreshOrganicConnectionId,
         endpoint: "/api/ig/refresh_all",
         promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "meta_organic", connectionId: organicConnectionId },
+          { clientId: activeClientId, provider: "meta_organic", connectionId: refreshOrganicConnectionId },
           () =>
             refreshAll(200, {
-              connectionId: organicConnectionId,
+              connectionId: refreshOrganicConnectionId,
               start: period.start,
               end: period.end,
             })
@@ -1526,12 +1560,12 @@ export default function Dashboard({
         reason: "missing_organic_connection",
       });
     }
-    if (paidConnectionId) {
+    if (refreshPaidConnectionId) {
       syncTasks.push({
-        provider: "meta_ads", connectionId: paidConnectionId,
+        provider: "meta_ads", connectionId: refreshPaidConnectionId,
         endpoint: "/api/ads/sync",
         promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "meta_ads", connectionId: paidConnectionId },
+          { clientId: activeClientId, provider: "meta_ads", connectionId: refreshPaidConnectionId },
           () =>
             syncAds(
               {
@@ -1539,7 +1573,7 @@ export default function Dashboard({
                 end: period.end,
               },
               {
-                connectionId: paidConnectionId,
+                connectionId: refreshPaidConnectionId,
                 clientId: activeClientId,
               }
             )

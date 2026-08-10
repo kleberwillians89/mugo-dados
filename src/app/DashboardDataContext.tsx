@@ -23,6 +23,8 @@ export type DashboardSnapshot = { daily: DashboardDailyMetric[]; sources: Dashbo
 
 type Value = { snapshot: DashboardSnapshot | null; loading: boolean; refreshing: boolean; error: string | null; refetch: () => Promise<DashboardSnapshot | null> };
 const DashboardDataContext = createContext<Value | null>(null);
+const bootstrapCompleted = new Set<string>();
+const inFlightSnapshots = new Map<string, Promise<DashboardSnapshot | null>>();
 
 function dateDaysAgo(days: number) {
   const value = new Date();
@@ -30,7 +32,7 @@ function dateDaysAgo(days: number) {
   return value.toISOString().slice(0, 10);
 }
 
-export function DashboardDataProvider({ clientId, enabled, children }: { clientId: string; enabled: boolean; children: ReactNode }) {
+export function DashboardDataProvider({ clientId, tenantReady, enabled, children }: { clientId: string; tenantReady: boolean; enabled: boolean; children: ReactNode }) {
   const cacheKey = useMemo(() => buildDashboardCacheKey("read-model-v1", { clientId }), [clientId]);
   const cached = useMemo(() => clientId ? readDashboardCache<DashboardSnapshot>(cacheKey) : null, [cacheKey, clientId]);
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(cached);
@@ -39,16 +41,25 @@ export function DashboardDataProvider({ clientId, enabled, children }: { clientI
   const [error, setError] = useState<string | null>(null);
   const currentClient = useRef(clientId);
   const snapshotRef = useRef(snapshot);
+  const generationRef = useRef(0);
   snapshotRef.current = snapshot;
 
   if (currentClient.current !== clientId) {
+    generationRef.current += 1;
     currentClient.current = clientId;
+    bootstrapCompleted.delete(clientId);
     setSnapshot(cached);
     setError(null);
   }
 
-  const refetch = useCallback(async () => {
-    if (!enabled || !clientId || !supabase) return null;
+  const loadSnapshot = useCallback(async (manual: boolean) => {
+    if (!enabled || !tenantReady || !clientId || !supabase) return null;
+    if (!manual && bootstrapCompleted.has(clientId)) return snapshotRef.current;
+    const existingRequest = inFlightSnapshots.get(clientId);
+    if (existingRequest) return existingRequest;
+    const requestedClientId = clientId;
+    const requestedGeneration = generationRef.current;
+    const request = (async (): Promise<DashboardSnapshot | null> => {
     const hadSnapshot = Boolean(snapshotRef.current || readDashboardCache<DashboardSnapshot>(cacheKey));
     setLoading(!hadSnapshot);
     setRefreshing(hadSnapshot);
@@ -71,23 +82,29 @@ export function DashboardDataProvider({ clientId, enabled, children }: { clientI
         products: (productsResult.data || []) as DashboardProductMetric[],
         fetchedAt: new Date().toISOString(), queryCount: 4,
       };
+      if (currentClient.current !== requestedClientId || generationRef.current !== requestedGeneration) return null;
       setSnapshot(next);
       writeDashboardCache(cacheKey, next, 15 * 60_000);
       performance.mark("snapshot-ready");
       performance.measure("time_to_snapshot_ms", "dashboard-start", "snapshot-ready");
       const duration = performance.getEntriesByName("time_to_snapshot_ms").at(-1)?.duration;
       console.info("[dashboard_snapshot]", { client_id: clientId, time_to_snapshot_ms: Math.round(duration || 0), supabase_queries: 4 });
+      bootstrapCompleted.add(requestedClientId);
       return next;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Falha ao ler o snapshot.");
+      if (currentClient.current === requestedClientId && generationRef.current === requestedGeneration) setError(cause instanceof Error ? cause.message : "Falha ao ler o snapshot.");
       return null;
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (currentClient.current === requestedClientId && generationRef.current === requestedGeneration) { setLoading(false); setRefreshing(false); }
     }
-  }, [cacheKey, clientId, enabled]);
+    })();
+    inFlightSnapshots.set(clientId, request);
+    try { return await request; } finally { if (inFlightSnapshots.get(clientId) === request) inFlightSnapshots.delete(clientId); }
+  }, [cacheKey, clientId, enabled, tenantReady]);
 
-  useEffect(() => { void refetch(); }, [refetch]);
+  const refetch = useCallback(() => loadSnapshot(true), [loadSnapshot]);
+
+  useEffect(() => { void loadSnapshot(false); }, [loadSnapshot]);
   const value = useMemo(() => ({ snapshot, loading, refreshing, error, refetch }), [error, loading, refetch, refreshing, snapshot]);
   return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;
 }

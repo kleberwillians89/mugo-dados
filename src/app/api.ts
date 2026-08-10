@@ -301,8 +301,15 @@ function pathWithClientId(path: string, clientId?: string | null): string {
   return `${base}?${params.toString()}`;
 }
 
+let cachedAccessToken: string | null | undefined;
+
+export function setApiAccessToken(token: string | null | undefined): void {
+  cachedAccessToken = token;
+}
+
 async function getAccessToken(): Promise<string | null> {
   if (isLocalAuthEnabled()) return null;
+  if (cachedAccessToken !== undefined) return cachedAccessToken;
   if (!supabase) {
     throw new Error(
       getSupabaseBootstrapError() ||
@@ -310,7 +317,8 @@ async function getAccessToken(): Promise<string | null> {
     );
   }
   const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+  cachedAccessToken = data.session?.access_token ?? null;
+  return cachedAccessToken;
 }
 
 function toHeaders(init?: HeadersInit): Headers {

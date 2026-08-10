@@ -6,13 +6,13 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { openPlatformCompany, type ClientMembership, type PlatformCompany } from "./app/api";
+import { openPlatformCompany, setApiAccessToken, type ClientMembership, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
-import { clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
+import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
 import Login from "./pages/Login";
@@ -213,10 +213,22 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
       ? await supabase.from("clients").select("id,name,trade_name").in("id", ids)
       : { data: [], error: null };
   if (clientsResult.error) throw clientsResult.error;
-  const names = new Map((clientsResult.data || []).map((row) => [String(row.id), String(row.trade_name || row.name || row.id)]));
-  const clients = platformAdmin
-    ? (clientsResult.data || []).map((row) => ({ client_id: String(row.id), name: String(row.trade_name || row.name || row.id), role: "platform_admin" }))
-    : membershipRows.map((row) => ({ client_id: String(row.client_id), name: names.get(String(row.client_id)) || String(row.client_id), role: String(row.role || "viewer") }));
+  const clientRows = clientsResult.data || [];
+  const nativeCanonicalIds = new Set(
+    clientRows
+      .map((row) => String(row.id))
+      .filter((id) => canonicalizeClientId(id) === id)
+  );
+  const canonicalRows = clientRows.filter((row) => {
+    const rawId = String(row.id);
+    const canonicalId = canonicalizeClientId(rawId);
+    return rawId === canonicalId || !nativeCanonicalIds.has(canonicalId);
+  });
+  const names = new Map(canonicalRows.map((row) => [canonicalizeClientId(String(row.id)), String(row.trade_name || row.name || row.id)]));
+  const candidates = platformAdmin
+    ? canonicalRows.map((row) => ({ client_id: canonicalizeClientId(String(row.id)), name: String(row.trade_name || row.name || row.id), role: "platform_admin" }))
+    : membershipRows.map((row) => { const id = canonicalizeClientId(String(row.client_id)); return { client_id: id, name: names.get(id) || id, role: String(row.role || "viewer") }; });
+  const clients = [...new Map(candidates.map((client) => [client.client_id, client])).values()];
   return { platformAdmin, clients };
 }
 
@@ -230,8 +242,13 @@ export default function App() {
   const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
   const [clients, setClients] = useState<ClientMembership[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
-  const [activeClientId, setActiveClientId] = useState(() => getActiveClient()?.id || "");
+  const [activeClientId, setActiveClientId] = useState("");
+  const [tenantReady, setTenantReady] = useState(false);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setApiAccessToken(localMode ? null : session?.access_token ?? null);
+  }, [localMode, session]);
 
   const resolveAuthenticatedView = useCallback(
     async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
@@ -266,6 +283,7 @@ export default function App() {
 
       setView("loading");
       setBootError(null);
+      setTenantReady(false);
 
       if (!localMode) {
         const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
@@ -305,6 +323,7 @@ export default function App() {
           role: selected.role,
         });
         setActiveClientId(selected.client_id);
+        setTenantReady(true);
       }
 
       if (requestedRoute === "not_found") {
@@ -358,6 +377,9 @@ export default function App() {
 
       if (localMode) {
         if (!mounted) return;
+        const localClientId = getActiveClient()?.id || "";
+        setActiveClientId(localClientId);
+        setTenantReady(Boolean(localClientId));
         setSession(null);
         setBootError(null);
         setView("dashboard");
@@ -445,8 +467,9 @@ export default function App() {
       setAuthInitializing(false);
       if (!nextSession) {
         clearTenantBrowserState();
-        setClients([]);
-        setActiveClientId("");
+      setClients([]);
+      setActiveClientId("");
+      setTenantReady(false);
         setResolvedUserId(null);
         clearSetupUrlParams();
         setBootError(null);
@@ -569,28 +592,37 @@ export default function App() {
   );
 
   const handleLocalLogin = useCallback(() => {
+    const localClientId = getActiveClient()?.id || "";
     setLocalMode(true);
     setBootError(null);
     setSession(null);
     setAuthInitializing(false);
+    setActiveClientId(localClientId);
+    setTenantReady(Boolean(localClientId));
     setView("dashboard");
   }, []);
 
   const handleClientChange = useCallback((clientId: string) => {
-    const client = clients.find((item) => item.client_id === clientId);
+    const canonicalId = canonicalizeClientId(clientId);
+    const client = clients.find((item) => item.client_id === canonicalId);
     if (!client) return;
+    setTenantReady(false);
     clearTenantBrowserState();
     setActiveClient({ id: client.client_id, name: client.name, role: client.role });
     setActiveConnectionId(null);
     setActiveClientId(client.client_id);
+    setTenantReady(true);
   }, [clients]);
 
   const handleOpenCompany = useCallback(async (company: PlatformCompany) => {
-    await openPlatformCompany(company.id);
+    const canonicalId = canonicalizeClientId(company.id);
+    await openPlatformCompany(canonicalId);
+    setTenantReady(false);
     clearTenantBrowserState();
-    setActiveClient({ id: company.id, name: company.trade_name || company.name, role: "platform_admin" });
+    setActiveClient({ id: canonicalId, name: company.trade_name || company.name, role: "platform_admin" });
     setActiveConnectionId(null);
-    setActiveClientId(company.id);
+    setActiveClientId(canonicalId);
+    setTenantReady(true);
     openRoute("dashboard");
   }, [openRoute]);
 
@@ -634,7 +666,7 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
-      <DashboardDataProvider clientId={activeClientId} enabled={!!activeClientId && (!!session || localMode)}>
+      <DashboardDataProvider clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <PrimaryNavigation
         route={route}
         platformAdmin={platformAdmin}
