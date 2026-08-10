@@ -128,13 +128,77 @@ class ShopifyRevenueTemporalConsistencyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         summary = report["summary"]
-        self.assertEqual(sum(day["revenue"] for day in report["trends"]["daily"]), summary["revenue_total"])
+        self.assertEqual(sum(day["revenue"] for day in report["trends"]["daily"]), summary["net_revenue"])
         self.assertEqual(sum(day["orders"] for day in report["trends"]["daily"]), summary["orders"])
         self.assertEqual(summary["average_ticket"], summary["revenue_total"] / summary["orders"])
         self.assertEqual(summary["customers"], 2)
         self.assertEqual(summary["returning_customers"], 1)
         self.assertEqual(report["coverage"]["data_max_in_period"], "2026-08-06")
         self.assertEqual(report["coverage"]["data_max_available"], "2026-08-20")
+
+    async def test_pending_order_is_visible_but_excluded_from_commercial_totals(self):
+        period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-10")
+        paid = _order("1001", "200.00", created="2026-08-05T12:00:00Z")
+        pending = {**_order("1002", "900.00", created="2026-08-06T12:00:00Z"), "financial_status": "pending"}
+
+        async def fake_select(table, *, select=None, filters=None, order=None, limit=None):
+            if table == "shopify_orders" and select == "created_at_shopify":
+                return [{"created_at_shopify": pending["created_at_shopify"]}]
+            if table == "shopify_orders":
+                return [paid, pending]
+            return []
+
+        with (
+            patch.object(shopify_reporting, "sb_select", fake_select),
+            patch.object(shopify_reporting, "list_recent_shopify_webhooks", AsyncMock(return_value=[])),
+        ):
+            report = await shopify_reporting.build_shopify_report(
+                client_id="amalie", shop_domain="amalie.myshopify.com", period=period,
+            )
+
+        self.assertEqual(report["summary"]["orders"], 1)
+        self.assertEqual(report["summary"]["net_revenue"], 200.0)
+        self.assertEqual(len(report["recent_orders"]), 2)
+        self.assertIn("pending", [order["financial_status"] for order in report["recent_orders"]])
+
+
+class ShopifyCustomerKpiConsistencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_customer_kpis_only_use_recognized_orders(self):
+        period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-10")
+        previous_a = {**_order("a-previous", "50.00", created="2026-07-20T12:00:00Z"), "customer_id": "A", "email": ""}
+        period_orders = [
+            {**_order("a-current", "100.00", created="2026-08-02T12:00:00Z"), "customer_id": "A", "email": ""},
+            {**_order("b-1", "140.00", created="2026-08-03T12:00:00Z"), "customer_id": "B", "email": ""},
+            {**_order("b-2", "160.00", created="2026-08-04T12:00:00Z"), "customer_id": "B", "email": ""},
+            {**_order("c-pending", "999.00", created="2026-08-05T12:00:00Z"), "customer_id": "C", "email": "", "financial_status": "pending"},
+        ]
+
+        async def fake_select(table, *, select=None, filters=None, order=None, limit=None):
+            filters = filters or {}
+            if table == "shopify_customers":
+                return [
+                    {"shopify_customer_id": "A", "first_name": "Cliente", "last_name": "A"},
+                    {"shopify_customer_id": "B", "first_name": "Cliente", "last_name": "B"},
+                ]
+            if table == "shopify_refunds":
+                return []
+            if table == "shopify_orders" and "and" in filters:
+                return period_orders
+            if table == "shopify_orders" and "customer_id" in filters:
+                return [previous_a, *period_orders]
+            return []
+
+        with patch.object(shopify_reporting, "sb_select", fake_select):
+            report = await shopify_reporting.build_shopify_customers_report(
+                client_id="amalie", shop_domain="amalie.myshopify.com", period=period,
+            )
+
+        self.assertEqual(report["summary"]["total_customers"], 2)
+        self.assertEqual(report["summary"]["recurring_customers"], 1)
+        self.assertEqual(report["summary"]["multi_order_customers"], 1)
+        self.assertEqual(report["summary"]["top_customer"]["name"], "Cliente B")
+        self.assertEqual(report["summary"]["top_customer"]["total_spent"], 300.0)
+        self.assertNotIn("C", [row["shopify_customer_id"] for row in report["items"]])
 
 
 class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):

@@ -147,6 +147,13 @@ def _is_cancelled_order(order: Dict[str, Any]) -> bool:
     return bool(_safe_str(order.get("cancelled_at")) or _safe_str(order.get("cancel_reason")))
 
 
+def _is_recognized_order(order: Dict[str, Any]) -> bool:
+    return (
+        not _is_cancelled_order(order)
+        and _financial_status_label(order.get("financial_status")) in {"paid", "partially_refunded"}
+    )
+
+
 def _order_total_price(order: Dict[str, Any]) -> float:
     return max(0.0, _safe_float(order.get("total_price")))
 
@@ -331,7 +338,11 @@ async def _select_shopify_refunds_occurred_in_period(
         )
 
 
-def _build_daily_trends(period: ShopifyReportPeriod, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _build_daily_trends(
+    period: ShopifyReportPeriod,
+    orders: List[Dict[str, Any]],
+    refunds: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     buckets: Dict[str, Dict[str, Any]] = {}
     for offset in range(period.days):
         day = period.start + timedelta(days=offset)
@@ -344,12 +355,21 @@ def _build_daily_trends(period: ShopifyReportPeriod, orders: List[Dict[str, Any]
             "average_ticket": 0.0,
         }
 
+    refunds_by_order: Dict[str, float] = {}
+    for refund in refunds:
+        order_id = _safe_str(refund.get("shopify_order_id"))
+        refunds_by_order[order_id] = refunds_by_order.get(order_id, 0.0) + _safe_float(refund.get("total_refunded"))
+
     for order in orders:
         key = _order_date_key(order)
         if not key or key not in buckets:
             continue
         bucket = buckets[key]
-        bucket["revenue"] += _safe_float(order.get("total_price"))
+        bucket["revenue"] += max(
+            _safe_float(order.get("total_price"))
+            - refunds_by_order.get(_safe_str(order.get("shopify_order_id")), 0.0),
+            0.0,
+        )
         bucket["orders"] += 1
         bucket["customers"].add(_customer_identity(order))
 
@@ -410,7 +430,7 @@ def build_daily_commercial_series(
         paid_orders_count = sum(
             1
             for order in day_orders
-            if _financial_status_label(order.get("financial_status")) in {"paid", "partially_paid"}
+            if _is_recognized_order(order)
         )
         cancelled_orders_count = sum(
             1 for order in day_orders if _safe_str(order.get("cancelled_at")) or _safe_str(order.get("cancel_reason"))
@@ -527,7 +547,8 @@ async def build_shopify_report(
         order="created_at_shopify.desc",
         limit=5000,
     )
-    order_dates = [value for value in (_order_date_key(order) for order in orders) if value]
+    recognized_orders = [order for order in orders if _is_recognized_order(order)]
+    order_dates = [value for value in (_order_date_key(order) for order in recognized_orders) if value]
     data_min_in_period = min(order_dates) if order_dates else None
     data_max_in_period = max(order_dates) if order_dates else None
     latest_rows = await sb_select(
@@ -540,7 +561,11 @@ async def build_shopify_report(
     data_max_available = _order_date_key(latest_rows[0]) if latest_rows else None
 
     order_ids = [_safe_str(order.get("shopify_order_id")) for order in orders if _safe_str(order.get("shopify_order_id"))]
-    customer_ids = [_safe_str(order.get("customer_id")) for order in orders if _safe_str(order.get("customer_id"))]
+    recognized_order_ids = {
+        _safe_str(order.get("shopify_order_id")) for order in recognized_orders
+        if _safe_str(order.get("shopify_order_id"))
+    }
+    customer_ids = [_safe_str(order.get("customer_id")) for order in recognized_orders if _safe_str(order.get("customer_id"))]
 
     items_by_order: Dict[str, List[Dict[str, Any]]] = {}
     if order_ids:
@@ -596,7 +621,7 @@ async def build_shopify_report(
     refunds_of_period_orders = await _select_shopify_refunds_for_orders(
         client_id=client_id,
         shop_domain=shop_domain,
-        order_ids=order_ids,
+        order_ids=sorted(recognized_order_ids),
     )
     refunds_occurred_in_period = await _select_shopify_refunds_occurred_in_period(
         client_id=client_id,
@@ -604,20 +629,19 @@ async def build_shopify_report(
         period=period,
     )
 
-    revenue = compute_shopify_revenue(orders, refunds_of_period_orders)
+    revenue = compute_shopify_revenue(recognized_orders, refunds_of_period_orders)
     revenue_total = revenue["revenue_total"]
     net_revenue = revenue["net_revenue"]
     refunded_amount = revenue["refunded_amount"]
-    orders_count = len(orders)
-    customer_keys = {_customer_identity(order) for order in orders}
+    orders_count = len(recognized_orders)
+    customer_keys = {_customer_identity(order) for order in recognized_orders}
     returning_customers = sum(
         1 for customer_id in set(customer_ids)
         if _safe_int((customers_by_id.get(customer_id) or {}).get("orders_count")) > 1
     )
     paid_orders_count = sum(
         1
-        for order in orders
-        if _financial_status_label(order.get("financial_status")) in {"paid", "partially_paid"}
+        for order in recognized_orders
     )
     cancelled_orders_count = sum(
         1 for order in orders if _safe_str(order.get("cancelled_at")) or _safe_str(order.get("cancel_reason"))
@@ -656,7 +680,7 @@ async def build_shopify_report(
             "revenue_total": round(revenue_total, 2),
             "net_revenue": round(net_revenue, 2),
             "orders": orders_count,
-            "average_ticket": round(revenue_total / orders_count, 2) if orders_count else 0.0,
+            "average_ticket": round(net_revenue / orders_count, 2) if orders_count else 0.0,
             "customers": len(customer_keys),
             "returning_customers": returning_customers,
             "paid_orders": paid_orders_count,
@@ -672,14 +696,17 @@ async def build_shopify_report(
             "refunds_occurred_in_period_amount": round(refunds_occurred_in_period_amount, 2),
         },
         "trends": {
-            "daily": _build_daily_trends(period, orders),
+            "daily": _build_daily_trends(period, recognized_orders, refunds_of_period_orders),
         },
         # Série diária com a mesma regra temporal do resumo do período
         # (gross/net/pagos/cancelados/reembolso/ticket) — usada pelo
         # Dashboard diário e pelo endpoint executivo.
-        "daily_commercial": build_daily_commercial_series(period, orders, refunds_of_period_orders),
+        "daily_commercial": build_daily_commercial_series(period, recognized_orders, refunds_of_period_orders),
         "recent_orders": _build_recent_orders(orders, items_by_order, customers_by_id),
-        "top_products": _aggregate_top_products(order_items),
+        "top_products": _aggregate_top_products([
+            item for item in order_items
+            if _safe_str(item.get("shopify_order_id")) in recognized_order_ids
+        ]),
         "technical": {
             "last_success_at": processed_webhooks[0]["processed_at"] if processed_webhooks else None,
             "last_received_at": recent_webhooks[0]["received_at"] if recent_webhooks else None,
@@ -784,7 +811,11 @@ async def build_shopify_customers_report(
         limit=5000,
     )
 
-    qualifying_orders = [order for order in period_orders if _customer_lookup_key(order.get("customer_id"), order.get("email"))]
+    qualifying_orders = [
+        order for order in period_orders
+        if _is_recognized_order(order)
+        and _customer_lookup_key(order.get("customer_id"), order.get("email"))
+    ]
     customer_ids = sorted({
         _safe_str(order.get("customer_id"))
         for order in qualifying_orders
@@ -824,7 +855,7 @@ async def build_shopify_customers_report(
             await sb_select(
                 "shopify_orders",
                 select=(
-                    "shopify_order_id,shop_domain,name,email,customer_id,total_price,cancelled_at,"
+                    "shopify_order_id,shop_domain,name,email,customer_id,financial_status,total_price,cancelled_at,"
                     "cancel_reason,created_at_shopify,updated_at_shopify"
                 ),
                 filters={
@@ -842,7 +873,7 @@ async def build_shopify_customers_report(
             await sb_select(
                 "shopify_orders",
                 select=(
-                    "shopify_order_id,shop_domain,name,email,customer_id,total_price,cancelled_at,"
+                    "shopify_order_id,shop_domain,name,email,customer_id,financial_status,total_price,cancelled_at,"
                     "cancel_reason,created_at_shopify,updated_at_shopify"
                 ),
                 filters={
@@ -856,6 +887,15 @@ async def build_shopify_customers_report(
         )
 
     all_time_orders = _dedupe_orders(all_time_orders)
+    refund_rows = await _select_shopify_refunds_for_orders(
+        client_id=client_id,
+        shop_domain=shop_domain,
+        order_ids=[_safe_str(order.get("shopify_order_id")) for order in qualifying_orders],
+    )
+    refunds_by_order: Dict[str, float] = {}
+    for refund in refund_rows:
+        order_id = _safe_str(refund.get("shopify_order_id"))
+        refunds_by_order[order_id] = refunds_by_order.get(order_id, 0.0) + _safe_float(refund.get("total_refunded"))
 
     grouped: Dict[str, Dict[str, Any]] = {}
     for order in qualifying_orders:
@@ -881,11 +921,11 @@ async def build_shopify_customers_report(
             },
         )
 
-        if _is_cancelled_order(order):
-            continue
-
         entry["total_orders"] += 1
-        entry["total_spent"] += _order_total_price(order)
+        entry["total_spent"] += max(
+            _order_total_price(order) - refunds_by_order.get(_safe_str(order.get("shopify_order_id")), 0.0),
+            0.0,
+        )
 
     for order in all_time_orders:
         key = _customer_lookup_key(order.get("customer_id"), order.get("email"))
@@ -893,7 +933,7 @@ async def build_shopify_customers_report(
             continue
 
         entry = grouped[key]
-        if _is_cancelled_order(order):
+        if not _is_recognized_order(order):
             continue
 
         created_at = order.get("created_at_shopify")
@@ -909,9 +949,12 @@ async def build_shopify_customers_report(
     rows: List[Dict[str, Any]] = []
     for entry in grouped.values():
         total_orders = _safe_int(entry.get("total_orders"))
-        all_time_orders_count = max(
-            _safe_int(entry.get("all_time_orders")),
-            _safe_int(_safe_json(customers_by_id.get(_safe_str(entry.get("shopify_customer_id")))).get("orders_count")),
+        all_time_orders_count = _safe_int(entry.get("all_time_orders"))
+        has_prior_purchase = any(
+            _customer_lookup_key(order.get("customer_id"), order.get("email")) == entry.get("customer_key")
+            and _is_recognized_order(order)
+            and (_order_date_key(order) or period.start.isoformat()) < period.start.isoformat()
+            for order in all_time_orders
         )
         rows.append(
             {
@@ -920,7 +963,7 @@ async def build_shopify_customers_report(
                 "average_ticket": round(
                     _safe_float(entry.get("total_spent")) / total_orders, 2
                 ) if total_orders else 0.0,
-                "status": "recurring" if all_time_orders_count > 1 else "new",
+                "status": "recurring" if has_prior_purchase else "new",
                 "all_time_orders": all_time_orders_count,
             }
         )

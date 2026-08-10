@@ -35,19 +35,20 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 29)
+        self.assertEqual(len(names), 30)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-4], "20260811_000026_dashboard_read_model.sql")
-        self.assertEqual(names[-3], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
-        self.assertEqual(names[-2], "20260813_000028_shopify_read_model_canonical_metrics.sql")
-        self.assertEqual(names[-1], "20260814_000029_shopify_recognized_sales_metrics.sql")
+        self.assertEqual(names[-5], "20260811_000026_dashboard_read_model.sql")
+        self.assertEqual(names[-4], "20260812_000027_dashboard_read_model_platform_admin_select.sql")
+        self.assertEqual(names[-3], "20260813_000028_shopify_read_model_canonical_metrics.sql")
+        self.assertEqual(names[-2], "20260814_000029_shopify_recognized_sales_metrics.sql")
+        self.assertEqual(names[-1], "20260815_000030_shopify_recognized_customer_metrics.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 30)))
+        self.assertEqual(logical_numbers, list(range(1, 31)))
 
     def test_shopify_recognized_sales_are_separate_from_non_cancelled_orders(self):
         sql = (
@@ -79,6 +80,17 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertIn("update dashboard_daily_metrics set", sql)
         self.assertIn("delete from dashboard_product_metrics", sql)
         self.assertNotIn("delete from shopify_", sql)
+        self.assertIn("from public, anon, authenticated", sql)
+        self.assertIn("to service_role", sql)
+
+    def test_shopify_customer_metrics_follow_recognized_sales_rule(self):
+        sql = (
+            MIGRATIONS / "20260815_000030_shopify_recognized_customer_metrics.sql"
+        ).read_text().lower()
+        self.assertIn("refresh_dashboard_read_model_000029", sql)
+        self.assertIn("in ('paid', 'partially_refunded')", sql)
+        self.assertIn("shopify_customer_keys = r.customer_keys", sql)
+        self.assertIn("shopify_customers = 0", sql)
         self.assertIn("from public, anon, authenticated", sql)
         self.assertIn("to service_role", sql)
 

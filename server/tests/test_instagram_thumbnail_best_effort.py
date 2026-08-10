@@ -35,7 +35,7 @@ class InstagramThumbnailBestEffortTests(unittest.IsolatedAsyncioTestCase):
         upload.assert_awaited_once()
         update.assert_not_awaited()
 
-    async def test_connection_is_marked_success_before_best_effort_thumbnails(self):
+    async def test_snapshot_and_connection_success_precede_best_effort_thumbnails(self):
         events: list[str] = []
 
         async def mark_success(_connection_id: str) -> None:
@@ -69,7 +69,7 @@ class InstagramThumbnailBestEffortTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await instagram_sync._sync_instagram_connection("organic-1")
 
-        self.assertEqual(events, ["connection_success", "read_model", "thumbnails"])
+        self.assertEqual(events, ["read_model", "connection_success", "thumbnails"])
         self.assertTrue(result["ok"])
         self.assertTrue(result["read_model_refreshed"])
         self.assertIn("miniaturas", result["warnings"][0].lower())

@@ -616,7 +616,6 @@ async def _sync_instagram_connection(
             access_token=access_token,
             limit=limit,
         )
-        await _mark_connection_success(connection_id)
         if res.get("snapshot_saved"):
             read_model_result = await refresh_dashboard_read_model_safely(
                 client_id=client_id,
@@ -625,6 +624,9 @@ async def _sync_instagram_connection(
                 provider="instagram",
             )
             res["read_model_refreshed"] = bool(read_model_result.get("ok"))
+            if not res["read_model_refreshed"]:
+                raise RuntimeError("Instagram persistido, mas o read model não foi atualizado.")
+        await _mark_connection_success(connection_id)
         thumbnail_jobs = res.pop("_thumbnail_jobs", [])
         thumbnail_result = (
             await _process_thumbnail_jobs(

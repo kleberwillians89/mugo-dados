@@ -9,7 +9,12 @@ import ShopifyOrdersTable from "../components/shopify/ShopifyOrdersTable";
 import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
 import { usePeriod } from "../app/PeriodContext";
-import { resolveShopifyConnectionIdForRead, syncShopifyConnection } from "../app/api";
+import {
+  getShopifyCustomers,
+  getShopifyReport,
+  resolveShopifyConnectionIdForRead,
+  syncShopifyConnection,
+} from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { countUniqueShopifyCustomers } from "../app/shopifyReadModel";
 import { getActiveClientId, getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
@@ -142,11 +147,9 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const [minOrders, setMinOrders] = useState("");
   const [customerLifecycle, setCustomerLifecycle] = useState<CustomerLifecycleFilter>("all");
   const [customerSortBy, setCustomerSortBy] = useState<CustomerSortBy>("total_spent");
-  const customerData = useMemo<ShopifyCustomersResponse>(() => ({
-    ok: true, client_id: getActiveClientId(),
-    period: { start: period.start, end: period.end, days: periodDays }, count: 0,
-    summary: { total_customers: 0, recurring_customers: 0, multi_order_customers: 0 }, items: [],
-  }), [period.end, period.start, periodDays]);
+  const [customerData, setCustomerData] = useState<ShopifyCustomersResponse | null>(null);
+  const [detailReport, setDetailReport] = useState<ShopifyReportResponse | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(true);
 
   useEffect(() => {
     const startDate = new Date(`${period.start}T00:00:00`);
@@ -154,6 +157,30 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     setSelectedMonth(startDate.getMonth() + 1);
     setSelectedYear(startDate.getFullYear());
     setPreset(resolveInitialPreset(period.start, period.end, periodDays));
+  }, [period.end, period.start, periodDays]);
+
+  useEffect(() => {
+    let active = true;
+    setDetailsLoading(true);
+    setCustomerData(null);
+    setDetailReport(null);
+    const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
+    void Promise.all([getShopifyReport(selectedPeriod), getShopifyCustomers(selectedPeriod)])
+      .then(([nextReport, nextCustomers]) => {
+        if (!active) return;
+        setDetailReport(nextReport);
+        setCustomerData(nextCustomers);
+      })
+      .catch((loadError: unknown) => {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os detalhes da Shopify.");
+      })
+      .finally(() => {
+        if (active) setDetailsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [period.end, period.start, periodDays]);
 
   const report = useMemo<ShopifyReportResponse | null>(() => {
@@ -165,9 +192,9 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
       coverage: { data_min_in_period: model.daily[0]?.metric_date || null, data_max_in_period: model.daily.at(-1)?.metric_date || null, data_max_available: source?.data_max_available || null, has_data_in_period: model.daily.length > 0 },
       summary: { revenue_total: gross, net_revenue: net, orders, average_ticket: orders ? net / orders : 0, customers: countUniqueShopifyCustomers(model.daily), paid_orders: total("shopify_paid_orders"), cancelled_orders: 0, refunds_count: refunds ? 1 : 0, refunded_amount: refunds, refunds_occurred_in_period_count: refunds ? 1 : 0, refunds_occurred_in_period_amount: refunds },
       trends: { daily: model.daily.map((row) => ({ date: row.metric_date, revenue: Number(row.shopify_net_revenue || 0), orders: Number(row.shopify_orders || 0), customers: Number(row.shopify_customers || 0), average_ticket: Number(row.shopify_orders) ? Number(row.shopify_net_revenue || 0) / Number(row.shopify_orders) : 0 })) },
-      recent_orders: [], top_products: model.products.map((row) => ({ product_id: String(row.product_id), title: String(row.product_title || "Produto"), variant_title: String(row.variant || ""), quantity_sold: Number(row.quantity || 0), revenue: Number(row.net_revenue || 0) })),
+      recent_orders: detailReport?.recent_orders || [], top_products: model.products.map((row) => ({ product_id: String(row.product_id), title: String(row.product_title || "Produto"), variant_title: String(row.variant || ""), quantity_sold: Number(row.quantity || 0), revenue: Number(row.net_revenue || 0) })),
       technical: { last_success_at: source?.last_success_at || null, last_received_at: source?.last_success_at || null, processed_count: 0, error_count: 0, recent_errors: [], recent_webhooks: [] } };
-  }, [model, period.end, period.start, periodDays]);
+  }, [detailReport?.recent_orders, model, period.end, period.start, periodDays]);
 
   const onRefreshData = useCallback(async () => {
     setSyncNotice(null);
@@ -196,10 +223,17 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
       }
       // Sync concluído (ou já em andamento) — relê os dados persistidos.
       await model.refetch();
+      const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
+      const [nextReport, nextCustomers] = await Promise.all([
+        getShopifyReport(selectedPeriod),
+        getShopifyCustomers(selectedPeriod),
+      ]);
+      setDetailReport(nextReport);
+      setCustomerData(nextCustomers);
     } finally {
       setSyncingShopify(false);
     }
-  }, [model]);
+  }, [model, period.end, period.start, periodDays]);
 
   const currency = report?.recent_orders[0]?.currency || "BRL";
   const summary = report?.summary;
@@ -449,7 +483,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 <span className="shopifyPerformanceEyebrow">Operação Shopify</span>
                 <p className="shopifyPerformanceNarrative">A receita real da loja no período selecionado.</p>
                 <div className="shopifyPerformanceMain">
-                  <strong>{formatShopifyCurrency(summary?.revenue_total || 0, currency)}</strong>
+                  <strong>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</strong>
                   <span>Receita da loja</span>
                 </div>
                 <div className="shopifyPerformanceSub">
@@ -516,7 +550,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 }
               />
 
-              {model.loading && !customerData ? (
+              {detailsLoading && !customerData ? (
                 <div className="shopifyCustomerSkeleton">
                   <div className="shopifyCustomerSummaryGrid">
                     {Array.from({ length: 4 }).map((_, index) => (
@@ -626,7 +660,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
               <div className="shopifyAttributionGrid">
                 <article className="shopifyAttributionCard is-known">
                   <span>Shopify</span>
-                  <strong>{formatShopifyCurrency(summary?.revenue_total || 0, currency)}</strong>
+                  <strong>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</strong>
                   <small>Receita real da loja no período — fonte de verdade para faturamento.</small>
                 </article>
                 <article className="shopifyAttributionCard">

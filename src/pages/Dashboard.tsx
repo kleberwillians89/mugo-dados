@@ -52,6 +52,7 @@ import {
   type GenericConnection,
 } from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
+import { hasInstagramSnapshotData } from "../app/dashboardDataState";
 
 import { buildMonthAgg, getMonth, monthsList, pct } from "../app/aggregate";
 
@@ -1845,11 +1846,12 @@ export default function Dashboard({
   const coveredDays = safe(coverage?.covered_days);
   const expectedDays = safe(coverage?.expected_days);
   const isPartialCoverage = Boolean(coverage?.is_partial) && expectedDays > 0;
-  const organicAwaitingMetrics = hasDash && coveredDays <= 0;
-  const hasPersistedOrganicData =
-    hasSummaryOrganicData ||
-    coveredDays > 0 ||
-    Object.values(kpisFromDash).some((value) => value > 0);
+  const hasPersistedOrganicData = hasInstagramSnapshotData({
+    summaryHasData: hasSummaryOrganicData,
+    coveredDays,
+    metricValues: Object.values(kpisFromDash),
+  });
+  const organicAwaitingMetrics = hasDash && !hasPersistedOrganicData;
   const partialCoverageLabel = `Dados parciais: ${coveredDays}/${expectedDays} dias`;
 
   const monthAggRaw = useMemo(() => {
@@ -2072,7 +2074,7 @@ export default function Dashboard({
     }));
   }, [deferredMediaFiltered]);
 
-  const organicExecutiveAvailable = hasDash && hasPersistedOrganicData && coveredDays > 0;
+  const organicExecutiveAvailable = hasDash && hasPersistedOrganicData;
   const paidExecutiveAvailable = Boolean(paidData && (paidHasRows || hasPaidData));
   const previousTotals = dash?.period_previous_totals;
   const comparableOrganic = organicExecutiveAvailable && !isPartialCoverage;

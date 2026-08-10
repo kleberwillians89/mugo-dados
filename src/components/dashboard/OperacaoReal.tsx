@@ -39,7 +39,12 @@ function sourceLabel(source: string): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 export default function OperacaoReal({ data, loading = false, error = null }: Props) {
@@ -49,6 +54,7 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
   const today = todayIso();
   const periodIncludesToday = Boolean(data?.period && data.period.start <= today && data.period.end >= today);
   const todayRow = periodIncludesToday ? (data?.daily || []).find((row) => row.date === today) ?? null : null;
+  const todayCovered = Boolean(shopify?.data_max_available && shopify.data_max_available >= today);
 
   if (loading && !data) {
     return (
@@ -80,12 +86,14 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
         <div className="operacaoRealToday">
           <div className="operacaoRealTodayHead">
             <span className="executiveEyebrow">Hoje</span>
-            <span className="operacaoRealTodayNotice">Os dados de hoje ainda podem sofrer alterações.</span>
+            <span className="operacaoRealTodayNotice">
+              {todayCovered ? "Os dados de hoje ainda podem sofrer alterações." : "Ainda não atualizado hoje"}
+            </span>
           </div>
           <div className="operacaoRealTodayGrid">
             <div className="operacaoRealMetric">
               <span>Receita real</span>
-              <strong>{currency(todayRow?.shopify?.net_revenue)}</strong>
+              <strong>{todayCovered ? currency(todayRow?.shopify?.net_revenue ?? 0) : "Ainda não atualizado"}</strong>
             </div>
             <div className="operacaoRealMetric">
               <span>Investimento Meta</span>
@@ -97,11 +105,11 @@ export default function OperacaoReal({ data, loading = false, error = null }: Pr
             </div>
             <div className="operacaoRealMetric">
               <span>Pedidos</span>
-              <strong>{integer(todayRow?.shopify?.orders)}</strong>
+              <strong>{todayCovered ? integer(todayRow?.shopify?.orders ?? 0) : "Ainda não atualizado"}</strong>
             </div>
             <div className="operacaoRealMetric">
               <span>Ticket médio</span>
-              <strong>{currency(todayRow?.shopify?.average_order_value)}</strong>
+              <strong>{todayCovered ? currency(todayRow?.shopify?.average_order_value ?? 0) : "Ainda não atualizado"}</strong>
             </div>
           </div>
         </div>

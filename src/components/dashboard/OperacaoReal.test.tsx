@@ -4,7 +4,9 @@ import OperacaoReal from "./OperacaoReal";
 import type { ExecutiveDashboardResponse } from "../../app/types";
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
 }
 
 function baseData(overrides: Partial<ExecutiveDashboardResponse>): ExecutiveDashboardResponse {
@@ -44,6 +46,7 @@ describe("OperacaoReal — painel HOJE", () => {
     const today = todayIso();
     const data = baseData({
       period: { start: today, end: today, days: 1 },
+      shopify: { ...baseData({}).shopify!, data_max_available: today },
       daily: [
         {
           date: today,
@@ -59,6 +62,24 @@ describe("OperacaoReal — painel HOJE", () => {
     expect(markup).toMatch(/480,00/);
     expect(markup).toMatch(/100,00/);
     expect(markup).toContain("4.00x");
+  });
+
+  it("distingue ausência de cobertura hoje de zero real", () => {
+    const today = todayIso();
+    const missing = renderToStaticMarkup(<OperacaoReal data={baseData({
+      period: { start: today, end: today, days: 1 },
+      shopify: { ...baseData({}).shopify!, data_max_available: "2020-01-01" },
+    })} />);
+    expect(missing).toContain("Ainda não atualizado hoje");
+    expect(missing).not.toContain("<span>Receita real</span><strong>Sem dados</strong>");
+    expect(missing).not.toContain("<span>Pedidos</span><strong>Sem dados</strong>");
+
+    const coveredZero = renderToStaticMarkup(<OperacaoReal data={baseData({
+      period: { start: today, end: today, days: 1 },
+      shopify: { ...baseData({}).shopify!, data_max_available: today },
+    })} />);
+    expect(coveredZero).toMatch(/R\$.*0,00/);
+    expect(coveredZero).toContain(">0<");
   });
 
   it("não mostra o bloco HOJE quando o período selecionado não inclui o dia atual", () => {
