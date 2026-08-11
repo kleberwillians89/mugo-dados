@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -22,6 +22,7 @@ type Props = {
   dataKey: string;
   color: string;
   valueFormatter?: (value: number) => string;
+  periodValue?: number;
 };
 
 export default function ShopifyChartCard({
@@ -31,10 +32,13 @@ export default function ShopifyChartCard({
   dataKey,
   color,
   valueFormatter,
+  periodValue,
 }: Props) {
   const gradientId = useId().replace(/:/g, "");
   const hasData = data.some((row) => Number(row[dataKey] || 0) !== 0);
   const totalValue = data.reduce((total, row) => total + Number(row[dataKey] || 0), 0);
+  const [hoveredValue, setHoveredValue] = useState<number | null>(null);
+  const displayValue = hoveredValue ?? periodValue ?? totalValue;
   const formatValue = valueFormatter || ((value: number) => new Intl.NumberFormat("pt-BR").format(value));
 
   return (
@@ -45,7 +49,7 @@ export default function ShopifyChartCard({
           {description ? <p className="shopifyChartDescription">{description}</p> : null}
         </div>
         <div className="shopifyChartValue" aria-label={`${title} total no período`}>
-          {formatValue(totalValue)}
+          {formatValue(displayValue)}
         </div>
       </div>
 
@@ -57,7 +61,16 @@ export default function ShopifyChartCard({
       ) : (
       <div className="shopifyChartViewport">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 8, left: 8, bottom: 0 }}>
+          <AreaChart
+            data={data}
+            margin={{ top: 6, right: 8, left: 8, bottom: 0 }}
+            onMouseLeave={() => setHoveredValue(null)}
+            onMouseMove={(state) => {
+              const payload = state as unknown as { activePayload?: Array<{ value?: unknown }> };
+              const value = Number(payload.activePayload?.[0]?.value);
+              setHoveredValue(Number.isFinite(value) ? value : null);
+            }}
+          >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.24} />

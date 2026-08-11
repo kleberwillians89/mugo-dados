@@ -807,22 +807,31 @@ async def sync_shopify_connection(
             persisted_order_dates = sorted(filter(None, (
                 _shopify_order_local_date(order) for order in orders
             )))
-            if orders_upserted > 0 and persisted_order_dates:
-                from .dashboard_read_model import refresh_dashboard_read_model_safely
-                projection = await refresh_dashboard_read_model_safely(
-                    client_id=client_id,
-                    start=persisted_order_dates[0],
-                    end=persisted_order_dates[-1],
+            coverage_end = (
+                reconciliation_period[1]
+                if reconciliation_period is not None
+                else local_date(datetime.now(timezone.utc), DEFAULT_TENANT_TIMEZONE).isoformat()
+            )
+            coverage_start = (
+                reconciliation_period[0]
+                if reconciliation_period is not None
+                else persisted_order_dates[0] if persisted_order_dates else coverage_end
+            )
+            from .dashboard_read_model import refresh_dashboard_read_model_safely
+            projection = await refresh_dashboard_read_model_safely(
+                client_id=client_id,
+                start=coverage_start,
+                end=coverage_end,
+                provider="shopify",
+            )
+            if not projection.get("ok"):
+                raise IntegrationError(
+                    "Os dados Shopify foram persistidos, mas a projeção do dashboard não foi concluída.",
+                    status_code=502,
+                    code="SHOPIFY_PROJECTION_FAILED",
                     provider="shopify",
+                    retryable=True,
                 )
-                if not projection.get("ok"):
-                    raise IntegrationError(
-                        "Os dados Shopify foram persistidos, mas a projeção do dashboard não foi concluída.",
-                        status_code=502,
-                        code="SHOPIFY_PROJECTION_FAILED",
-                        provider="shopify",
-                        retryable=True,
-                    )
 
             now = datetime.now(timezone.utc).isoformat()
             if context.connection_id:

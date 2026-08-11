@@ -193,6 +193,7 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
         ):
             result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
@@ -236,6 +237,7 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()) as finish_mock,
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
         ):
             result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")
@@ -245,6 +247,36 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["synced"]["orders_upserted"], 2)
         self.assertEqual(result["synced"]["orders_failed"], 1)
         self.assertEqual(finish_mock.await_args.kwargs["status"], "success")
+
+    async def test_zero_order_day_advances_coverage_to_completed_reconciliation_end(self):
+        async def fake_collection(context, resource, *, params=None):
+            return []
+
+        with (
+            patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
+            patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
+            patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
+            patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
+            patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch(
+                "services.dashboard_read_model.refresh_dashboard_read_model_safely",
+                AsyncMock(return_value={"ok": True}),
+            ) as read_model_refresh,
+            patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
+        ):
+            result = await shopify_oauth.sync_shopify_connection(
+                client_id="amalie",
+                connection_id="conn-1",
+                reconciliation_period=("2026-08-01", "2026-08-10"),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["synced"]["orders_received"], 0)
+        read_model_refresh.assert_awaited_once_with(
+            client_id="amalie", start="2026-08-01", end="2026-08-10", provider="shopify",
+        )
 
     async def test_all_orders_failing_to_persist_is_reported_as_error_not_silent_success(self):
         # Se a Shopify devolveu pedidos mas NENHUM foi persistido, isso
@@ -737,6 +769,7 @@ class ObservabilityNeverBreaksTheSyncTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_webhooks, "_handle_order_topic", AsyncMock(return_value={"order_id": "1001", "items_upserted": 0})),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             patch("services.sync_locks.sb_rpc", AsyncMock(return_value=True)),
         ):
             result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-1")

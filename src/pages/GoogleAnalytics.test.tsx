@@ -46,10 +46,16 @@ const report: Ga4ReportResponse = {
   engagement: emptyGroup,
   merchandising: emptyGroup,
   trends: { daily: [] },
-  channels: [{ source_medium: "google / cpc", sessions: 40, active_users: 30, event_count: 100 } as Ga4ReportResponse["channels"][number]],
-  campaigns: [],
+  channels: Array.from({ length: 3 }, (_, index) => ({
+    source_medium: `source-${index} / organic`, sessions: 40 - index, active_users: 30 - index,
+    total_users: 35 - index, event_count: 100 - index,
+  } as Ga4ReportResponse["channels"][number])),
+  campaigns: Array.from({ length: 2 }, (_, index) => ({
+    campaign_name: `Campaign ${index + 1}`, source_medium: "google / cpc",
+    sessions: 20 - index, active_users: 15 - index, total_users: 18 - index, event_count: 50 - index,
+  } as Ga4ReportResponse["campaigns"][number])),
   events: [],
-  meta: { daily_rows: 0, channel_rows: 1, campaign_rows: 0, event_rows: 0 },
+  meta: { daily_rows: 0, channel_rows: 3, campaign_rows: 2, event_rows: 0 },
 };
 
 vi.mock("../hooks/dashboard/useDashboardGa4", () => ({
@@ -95,6 +101,13 @@ function tabButton(label: string) {
 }
 
 describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneamente)", () => {
+  it("mostra todos os 3 canais e as 2 campanhas disponíveis", async () => {
+    await renderGa4();
+    const lists = container.querySelectorAll(".googleSecondaryGrid .googleListRows");
+    expect(lists[0]?.querySelectorAll(".googleListRow")).toHaveLength(3);
+    expect(lists[1]?.querySelectorAll(".googleListRow")).toHaveLength(2);
+  });
+
   it("começa em Visão geral e não mostra as seções de Aquisição/Comportamento", async () => {
     await renderGa4();
     expect(document.getElementById("google-summary")).toBeTruthy();

@@ -135,6 +135,7 @@ async def get_comments(
     elif since_dt:
         filters["timestamp"] = f"gte.{since_dt.isoformat()}"
 
+    comments_connection_scoped = False
     try:
         # 1) Comentários por timestamp (janela tradicional), com paginação.
         try:
@@ -145,6 +146,7 @@ async def get_comments(
                 limit=safe_limit,
                 offset=safe_offset,
             )
+            comments_connection_scoped = bool(resolved_connection_id)
         except httpx.HTTPStatusError as exc:
             if not (resolved_connection_id and _is_missing_column_error(exc, "connection_id")):
                 raise
@@ -209,7 +211,7 @@ async def get_comments(
         media_ids = []
         media_count = 0
 
-    if resolved_connection_id:
+    if resolved_connection_id and not comments_connection_scoped:
         media_id_set = set(media_ids)
         if media_id_set:
             rows = [

@@ -528,6 +528,13 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                   dataKey={shopifyChartMetric}
                   description={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.description || ""}
                   title={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.label || ""}
+                  periodValue={
+                    shopifyChartMetric === "average_ticket"
+                      ? summary?.average_ticket
+                      : shopifyChartMetric === "customers"
+                        ? summary?.customers
+                        : undefined
+                  }
                   valueFormatter={
                     shopifyChartMetric === "revenue" || shopifyChartMetric === "average_ticket"
                       ? (value) => formatShopifyCurrency(value, currency)

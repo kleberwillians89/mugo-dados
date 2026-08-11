@@ -551,14 +551,16 @@ async def build_shopify_report(
     order_dates = [value for value in (_order_date_key(order) for order in recognized_orders) if value]
     data_min_in_period = min(order_dates) if order_dates else None
     data_max_in_period = max(order_dates) if order_dates else None
-    latest_rows = await sb_select(
-        "shopify_orders",
-        select="created_at_shopify",
-        filters={"client_id": f"eq.{client_id}", "shop_domain": f"eq.{shop_domain}"},
-        order="created_at_shopify.desc",
+    coverage_rows = await sb_select(
+        "dashboard_source_snapshots",
+        select="data_max_available",
+        filters={"client_id": f"eq.{client_id}", "provider": "eq.shopify"},
         limit=1,
     )
-    data_max_available = _order_date_key(latest_rows[0]) if latest_rows else None
+    data_max_available = (
+        _safe_str(coverage_rows[0].get("data_max_available")) or None
+        if coverage_rows else None
+    )
 
     order_ids = [_safe_str(order.get("shopify_order_id")) for order in orders if _safe_str(order.get("shopify_order_id"))]
     recognized_order_ids = {

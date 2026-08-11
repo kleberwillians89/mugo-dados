@@ -41,6 +41,31 @@ class InstagramCommentScopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("timestamp.lte.2026-08-11T02:59:59.999999+00:00", comment_filters["and"])
         self.assertEqual(result["comments"][0]["comment_id"], "comment-1")
 
+    async def test_connection_scoped_comments_do_not_depend_on_media_lookup(self):
+        connection_id = "00bb094c-337a-49b3-b2bc-5aec75d79da5"
+        persisted_comments = [
+            {"comment_id": f"comment-{index}", "media_id": f"media-{index}", "timestamp": "2026-08-10T12:00:00Z"}
+            for index in range(16)
+        ]
+
+        async def select(table, **kwargs):
+            return [] if table == "ig_media" else persisted_comments
+
+        with (
+            patch.object(
+                comments,
+                "resolve_connection_for_scope",
+                AsyncMock(return_value={"connection_id": connection_id, "source": "requested"}),
+            ),
+            patch.object(comments, "sb_select", side_effect=select),
+        ):
+            result = await comments.get_comments(
+                "amalie", connection_id=connection_id, start="2026-08-10", end="2026-08-10"
+            )
+
+        self.assertEqual(len(result["comments"]), 16)
+        self.assertEqual(result["total"], 16)
+
 
 if __name__ == "__main__":
     unittest.main()

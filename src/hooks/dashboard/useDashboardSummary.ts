@@ -157,12 +157,8 @@ export default function useDashboardSummary({
 
   const cachedInitial = useMemo<SummaryData>(
     () => {
-      const cachedComments = resolvedConnectionId
-        ? readDashboardCache<{ comments: CommentItem[]; commentsTotal?: number; topWords: TopWord[] }>(commentsCacheKey)
-        : null;
-      const cachedStoriesRaw = resolvedConnectionId
-        ? readDashboardCache<StoryItem[] | StoriesCachePayload>(storiesCacheKey)
-        : null;
+      const cachedComments = readDashboardCache<{ comments: CommentItem[]; commentsTotal?: number; topWords: TopWord[] }>(commentsCacheKey);
+      const cachedStoriesRaw = readDashboardCache<StoryItem[] | StoriesCachePayload>(storiesCacheKey);
       const hasCachedStories =
         Array.isArray(cachedStoriesRaw) ||
         (typeof cachedStoriesRaw === "object" && cachedStoriesRaw !== null);
@@ -181,33 +177,25 @@ export default function useDashboardSummary({
                 : null,
           };
       return {
-        dash: resolvedConnectionId ? readDashboardCache<DashboardResponse>(dashCacheKey) : null,
-        media: resolvedConnectionId
-          ? arrayOrEmpty<IgMediaItem>(readDashboardCache<IgMediaItem[]>(mediaCacheKey))
-          : [],
+        dash: readDashboardCache<DashboardResponse>(dashCacheKey),
+        media: arrayOrEmpty<IgMediaItem>(readDashboardCache<IgMediaItem[]>(mediaCacheKey)),
         comments: arrayOrEmpty<CommentItem>(cachedComments?.comments),
         commentsTotal:
           typeof cachedComments?.commentsTotal === "number"
             ? cachedComments.commentsTotal
             : arrayOrEmpty<CommentItem>(cachedComments?.comments).length,
         topWords: arrayOrEmpty<TopWord>(cachedComments?.topWords),
-        stories: resolvedConnectionId ? cachedStories.stories : [],
-        storiesAvailable: resolvedConnectionId
-          ? hasCachedStories
-            ? cachedStories.available
-            : autoLoadStories
-          : true,
-        storiesMessage: resolvedConnectionId
-          ? hasCachedStories
-            ? cachedStories.message
-            : autoLoadStories
-              ? null
-              : "Stories ao vivo ficam sob demanda. Use “Tentar novamente” para consultar a API."
-          : null,
+        stories: cachedStories.stories,
+        storiesAvailable: hasCachedStories ? cachedStories.available : autoLoadStories,
+        storiesMessage: hasCachedStories
+          ? cachedStories.message
+          : autoLoadStories
+            ? null
+            : "Stories ao vivo ficam sob demanda. Use “Tentar novamente” para consultar a API.",
         paid: null,
       };
     },
-    [autoLoadStories, commentsCacheKey, dashCacheKey, mediaCacheKey, resolvedConnectionId, storiesCacheKey]
+    [autoLoadStories, commentsCacheKey, dashCacheKey, mediaCacheKey, storiesCacheKey]
   );
 
   const [data, setData] = useState<SummaryData>(cachedInitial);
@@ -237,33 +225,10 @@ export default function useDashboardSummary({
     cachedInitialRef.current = cachedInitial;
     abortRef.current?.abort();
     requestRef.current += 1;
-    if (resolvedConnectionId) {
-      dataRef.current = cachedInitial;
-      setData(cachedInitial);
-      setSectionErrors(emptySectionErrors());
-      setSummaryError(null);
-    } else {
-      const emptyData: SummaryData = {
-        dash: null,
-        media: [],
-        comments: [],
-        commentsTotal: 0,
-        topWords: [],
-        stories: [],
-        storiesAvailable: true,
-        storiesMessage: null,
-        paid: null,
-      };
-      dataRef.current = emptyData;
-      setData(emptyData);
-      setLoadingSummary(false);
-      setRefreshingSummary(false);
-      setSectionLoading(emptySectionState());
-      setSectionRefreshing(emptySectionState());
-      setSectionErrors(emptySectionErrors());
-      setSectionUpdatedAt(emptyTimestamps());
-      setSummaryError(null);
-    }
+    dataRef.current = cachedInitial;
+    setData(cachedInitial);
+    setSectionErrors(emptySectionErrors());
+    setSummaryError(null);
     autoPrimaryKeyRef.current = "";
     autoSecondaryKeyRef.current = "";
   }
@@ -355,10 +320,6 @@ export default function useDashboardSummary({
 
     const loadSecondaryTasks = async () => {
       const tasks: Promise<void>[] = [];
-      if (!resolvedConnectionId) {
-        markSectionDone("media", null); markSectionDone("comments", null); markSectionDone("stories", null);
-        return;
-      }
       if (!onlyStories) {
         tasks.push(
           (async () => {
@@ -560,7 +521,7 @@ export default function useDashboardSummary({
   // orquestrada por src/app/syncOrchestrator.ts.
 
   useEffect(() => {
-    if (!secondaryEnabled || !isAuthenticated || !activeClientId || !resolvedConnectionId) return;
+    if (!secondaryEnabled || !isAuthenticated || !activeClientId) return;
     const requestKey = `${dashCacheKey}|stories=${autoLoadStories ? 1 : 0}`;
     if (autoSecondaryKeyRef.current === requestKey) return;
     autoSecondaryKeyRef.current = requestKey;

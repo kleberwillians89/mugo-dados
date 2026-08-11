@@ -69,6 +69,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
         ):
             first = __import__("asyncio").create_task(
                 shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
@@ -103,6 +104,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
         ):
             result_a = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="conn-a")
             result_b = await shopify_oauth.sync_shopify_connection(client_id="ruah", connection_id="conn-b")
@@ -129,6 +131,7 @@ class ShopifySyncConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
         ):
             await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
 
@@ -211,6 +214,7 @@ class StaleLockReclaimTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             redirect_stdout(output),
         ):
             result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
@@ -244,6 +248,7 @@ class StaleLockReclaimTests(unittest.IsolatedAsyncioTestCase):
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])) as sb_update_mock,
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),
             patch.object(shopify_oauth, "finish_job_run", AsyncMock()),
+            patch("services.dashboard_read_model.refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
         ):
             result = await shopify_oauth.sync_shopify_connection(client_id="amalie", connection_id="shopify-conn-1")
 

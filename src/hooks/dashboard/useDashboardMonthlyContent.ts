@@ -56,13 +56,11 @@ export default function useDashboardMonthlyContent({
     [activeClientId, resolvedConnectionId]
   );
   const cachedInitial = useMemo(() => {
-    const cached = resolvedConnectionId
-      ? readDashboardCache<MonthlyCachePayload>(cacheKey)
-      : null;
+    const cached = readDashboardCache<MonthlyCachePayload>(cacheKey);
     return cached
       ? { months: arrayOrEmpty<MediaMonthlyItem>(cached.months) }
       : null;
-  }, [cacheKey, resolvedConnectionId]);
+  }, [cacheKey]);
 
   const [monthlyRows, setMonthlyRows] = useState<MediaMonthlyItem[]>(cachedInitial?.months || []);
   const [loadingMonthly, setLoadingMonthly] = useState(false);
@@ -86,30 +84,15 @@ export default function useDashboardMonthlyContent({
     cacheKeyRef.current = cacheKey;
     abortRef.current?.abort();
     requestRef.current += 1;
-    const nextRows = resolvedConnectionId ? cachedInitial?.months || [] : [];
+    const nextRows = cachedInitial?.months || [];
     setMonthlyRows(nextRows);
     rowsRef.current = nextRows;
     setMonthlyError(null);
-    if (!resolvedConnectionId) {
-      setLoadingMonthly(false);
-      setRefreshingMonthly(false);
-      setMonthlyUpdatedAt(null);
-    }
   }
 
   const reloadMonthly = useCallback(
     async (options?: { force?: boolean }) => {
       if (!isAuthenticated || !activeClientId) return [] as MediaMonthlyItem[];
-      if (!resolvedConnectionId) {
-        setMonthlyRows([]);
-        rowsRef.current = [];
-        setMonthlyError(null);
-        setLoadingMonthly(false);
-        setRefreshingMonthly(false);
-        setMonthlyUpdatedAt(null);
-        return [] as MediaMonthlyItem[];
-      }
-
       const force = !!options?.force;
       if (!enabled && !force) {
         return rowsRef.current;
@@ -163,7 +146,7 @@ export default function useDashboardMonthlyContent({
   );
 
   useEffect(() => {
-    if (!enabled || !isAuthenticated || !activeClientId || !resolvedConnectionId) return;
+    if (!enabled || !isAuthenticated || !activeClientId) return;
     void reloadMonthly();
     return () => {
       abortRef.current?.abort();

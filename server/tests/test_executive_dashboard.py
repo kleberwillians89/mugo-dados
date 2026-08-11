@@ -37,6 +37,27 @@ class ShopifyRevenueTemporalConsistencyTests(unittest.IsolatedAsyncioTestCase):
     """Corresponde ao caso do usuário: pedido de julho reembolsado em agosto
     não pode distorcer silenciosamente a receita líquida de agosto."""
 
+    async def test_today_coverage_uses_persisted_coverage_not_last_sync_timestamp(self):
+        context = type("Context", (), {"shop_domain": "amalie.myshopify.com", "connection_id": "conn-1"})()
+        report = {
+            "summary": {"orders": 0, "average_ticket": 0, "customers": 0},
+            "coverage": {"data_max_available": "2026-08-10"},
+            "daily_commercial": [],
+        }
+        with patch.object(ed, "build_shopify_report", AsyncMock(return_value=report)):
+            section = await ed._build_shopify_section(
+                client_id="amalie",
+                connection_id="conn-1",
+                since="2026-08-10",
+                until="2026-08-10",
+                context=context,
+                connection_row={"last_sync_at": "2026-08-09T12:00:00Z", "status": "connected"},
+            )
+
+        self.assertEqual(section["data_max_available"], "2026-08-10")
+        self.assertEqual(section["orders"], 0)
+        self.assertEqual(section["average_order_value"], 0.0)
+
     async def test_refund_of_out_of_period_order_never_distorts_in_period_net_revenue(self):
         period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-31")
         august_order = _order("1001", "200.00", created="2026-08-05T00:00:00Z")
@@ -111,8 +132,8 @@ class ShopifyRevenueTemporalConsistencyTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         async def fake_select(table, *, select=None, filters=None, order=None, limit=None):
-            if table == "shopify_orders" and select == "created_at_shopify":
-                return [{"created_at_shopify": "2026-08-20T12:00:00Z"}]
+            if table == "dashboard_source_snapshots":
+                return [{"data_max_available": "2026-08-20"}]
             if table == "shopify_orders":
                 return orders
             if table == "shopify_customers":
@@ -163,6 +184,42 @@ class ShopifyRevenueTemporalConsistencyTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ShopifyCustomerKpiConsistencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fifteen_orders_keep_report_and_customer_section_at_fourteen_customers(self):
+        period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-10")
+        period_orders = [
+            {
+                **_order(str(index), "100.00", created=f"2026-08-{(index % 10) + 1:02d}T12:00:00Z"),
+                "customer_id": str(min(index, 14)),
+                "email": "",
+            }
+            for index in range(1, 16)
+        ]
+
+        async def fake_select(table, *, select=None, filters=None, order=None, limit=None):
+            filters = filters or {}
+            if table == "shopify_orders" and select == "created_at_shopify":
+                return [{"created_at_shopify": "2026-08-10T12:00:00Z"}]
+            if table == "shopify_orders":
+                return period_orders
+            if table == "shopify_customers":
+                return [{"shopify_customer_id": str(index), "orders_count": 1} for index in range(1, 15)]
+            return []
+
+        with (
+            patch.object(shopify_reporting, "sb_select", fake_select),
+            patch.object(shopify_reporting, "list_recent_shopify_webhooks", AsyncMock(return_value=[])),
+        ):
+            report = await shopify_reporting.build_shopify_report(
+                client_id="amalie", shop_domain="amalie.myshopify.com", period=period,
+            )
+            customers = await shopify_reporting.build_shopify_customers_report(
+                client_id="amalie", shop_domain="amalie.myshopify.com", period=period,
+            )
+
+        self.assertEqual(report["summary"]["orders"], 15)
+        self.assertEqual(report["summary"]["customers"], 14)
+        self.assertEqual(customers["summary"]["total_customers"], 14)
+
     async def test_customer_kpis_only_use_recognized_orders(self):
         period = shopify_reporting.resolve_shopify_report_period(start="2026-08-01", end="2026-08-10")
         previous_a = {**_order("a-previous", "50.00", created="2026-07-20T12:00:00Z"), "customer_id": "A", "email": ""}

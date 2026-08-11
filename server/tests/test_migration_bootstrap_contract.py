@@ -35,17 +35,27 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 31)
+        self.assertEqual(len(names), 32)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-2], "20260815_000030_shopify_recognized_customer_metrics.sql")
-        self.assertEqual(names[-1], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
+        self.assertEqual(names[-2], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
+        self.assertEqual(names[-1], "20260817_000032_shopify_explicit_sync_coverage.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 32)))
+        self.assertEqual(logical_numbers, list(range(1, 33)))
+
+    def test_shopify_coverage_uses_completed_query_end(self):
+        sql = (
+            MIGRATIONS / "20260817_000032_shopify_explicit_sync_coverage.sql"
+        ).read_text().lower()
+        self.assertIn("refresh_dashboard_read_model_000030", sql)
+        self.assertIn("if p_provider = 'shopify'", sql)
+        self.assertIn("p_client_id, 'shopify', now(), p_start, p_end", sql)
+        self.assertIn("data_max_available = greatest", sql)
+        self.assertNotIn("max(metric_date)", sql)
 
     def test_cron_job_runs_supports_both_connection_catalogs(self):
         sql = (
