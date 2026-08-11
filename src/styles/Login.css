@@ -82,6 +82,7 @@
 
 .loginBrandCopy {
   max-width: 620px;
+  min-width: 0;
 }
 
 .loginBrandEyebrow {
@@ -92,6 +93,7 @@
   text-transform: uppercase;
   font-weight: 700;
   color: #b22234;
+  overflow-wrap: anywhere;
 }
 
 .loginBrandCopy h1 {
@@ -129,6 +131,7 @@
 
 .loginEcosystem{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:28px}
 .loginEcosystemItem{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 12px;border:1px solid #e0ddd7;border-radius:14px;background:rgba(255,255,255,.7)}
+.loginPlatformLogo{flex:0 0 36px;width:36px;height:36px;object-fit:contain}
 .loginEcosystemItem div{display:grid;min-width:0}.loginEcosystemItem strong{font-size:13px;color:#25302b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.loginEcosystemItem small{font-size:11px;color:#748078;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* LADO DIREITO */

@@ -49,23 +49,16 @@ class ClientIntegrationsRouteTests(unittest.IsolatedAsyncioTestCase):
                 await routes.get_client_integrations("amalie", authorization=None)
         self.assertEqual(raised.exception.status_code, 401)
 
-    async def test_viewer_can_read_own_company_connections(self):
-        canonical = {
-            "client_id": "amalie",
-            "connections": [{"provider": "meta", "connection_id": "c1", "status": "connected"}],
-        }
+    async def test_viewer_cannot_read_technical_integrations(self):
         with (
             patch.object(tenant, "require_user_id", AsyncMock(return_value="viewer-amalie")),
             patch.object(tenant, "sb_get_client_id_for_user", AsyncMock(return_value="amalie")),
             patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[{"client_id": "amalie", "role": "viewer"}])),
             patch("services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
-            patch.object(routes, "get_client_connections", AsyncMock(return_value=canonical)),
-            patch.object(routes, "get_cached_or_load", _bypass_cache),
         ):
-            result = await routes.get_client_integrations("amalie", authorization="Bearer valid")
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["connections"][0]["connection_id"], "c1")
+            with self.assertRaises(HTTPException) as raised:
+                await routes.get_client_integrations("amalie", authorization="Bearer valid")
+        self.assertEqual(raised.exception.status_code, 403)
 
     async def test_viewer_cannot_read_a_different_company(self):
         with (

@@ -10,7 +10,7 @@ describe("mobile product experience contracts", () => {
     const css = readFileSync(path.join(root, "src/styles/App.css"), "utf8");
     expect(app).toContain('className="mobileBottomNav"');
     expect(app).toContain("Visão Geral");
-    expect(app).toContain("E-commerce");
+    expect(app).toContain("Ecommerce");
     expect(app).toContain("Inteligência");
     expect(css).toContain("env(safe-area-inset-bottom)");
     expect(css).toContain("grid-template-columns:repeat(5,minmax(0,1fr))");
@@ -18,8 +18,8 @@ describe("mobile product experience contracts", () => {
 
   it("keeps restricted destinations behind the existing role checks", () => {
     const app = readFileSync(path.join(root, "src/App.tsx"), "utf8");
-    expect(app).toMatch(/!isReadOnlyClientRole\(getActiveClient\(\)\?\.role\)[\s\S]*onOpen\("integrations"\)/);
-    expect(app).toMatch(/platformAdmin[\s\S]*onOpen\("companies"\)/);
+    expect(app).toMatch(/platformAdmin \|\| agencyAdmin[\s\S]*onOpen\("integrations"\)/);
+    expect(app).toMatch(/platformAdmin \|\| agencyAdmin[\s\S]*onOpen\("companies"\)/);
   });
 
   it("prevents long campaign names from controlling mobile width", () => {

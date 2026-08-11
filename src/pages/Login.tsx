@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
 import { INTEGRATION_REGISTRY } from "../app/integrationRegistry";
+import { getIntegrationPlatformBrand } from "../app/brandRegistry";
+import { PlatformLogo } from "../components/BrandLogo";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
 import "../styles/Login.css";
@@ -244,14 +246,18 @@ export default function Login({
           </div>
 
           <div className="loginEcosystem" aria-label="Ecossistema de integrações">
-            {INTEGRATION_REGISTRY.map((provider) => (
-              <div className="loginEcosystemItem" key={provider.id}>
-                <div>
-                  <strong>{provider.name}</strong>
-                  <small>{provider.resources[0]}</small>
+            {INTEGRATION_REGISTRY.map((provider) => {
+              const platformBrand = getIntegrationPlatformBrand(provider.id);
+              return (
+                <div className="loginEcosystemItem" key={provider.id}>
+                  {platformBrand ? <PlatformLogo platform={platformBrand} size={36} className="loginPlatformLogo" /> : null}
+                  <div>
+                    <strong>{provider.name}</strong>
+                    <small>{provider.resources[0]}</small>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 

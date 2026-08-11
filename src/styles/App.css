@@ -1848,6 +1848,9 @@ button, input, select { font: inherit; }
   transition:background .15s ease, border-color .15s ease;
 }
 .clientSwitcherTrigger:hover{background:rgba(0,79,110,.05)}
+.clientSwitcherStatic .clientSwitcherTrigger{cursor:default}
+.clientSwitcherStatic .clientSwitcherTrigger:hover{background:transparent}
+.intelPoweredBy{display:block;margin-top:3px;color:#68757c;font-size:11px;font-weight:650}
 .clientSwitcher.is-open .clientSwitcherTrigger{background:#fff;border-color:rgba(0,79,110,.14);box-shadow:0 8px 20px rgba(21,48,59,.08)}
 .clientSwitcherTrigger:disabled{cursor:wait;opacity:.7}
 .clientSwitcherAvatar{

@@ -5,7 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException
 
 from services.invitations import create_invitation
-from services.tenant import get_client_role, require_client_manage, require_user_id
+from services.tenant import get_client_role, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 
@@ -13,7 +13,11 @@ router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 @router.post("")
 async def invite(payload: Dict[str, Any], authorization: str | None = Header(default=None)):
     requested_client_id = str(payload.get("client_id") or "").strip()
-    cid = await require_client_manage(requested_client_id, authorization)
+    cid = await require_client_role(
+        requested_client_id,
+        authorization,
+        allowed_roles=("agency_admin",),
+    )
     user_id = await require_user_id(authorization)
     requested_role = str(payload.get("role") or "viewer")
     inviter_role = await get_client_role(cid, authorization)

@@ -34,7 +34,15 @@ async def is_platform_admin(user_id: str) -> bool:
 
 async def require_platform_admin(authorization: str | None) -> str:
     user_id = await require_user_id(authorization)
-    if not await is_platform_admin(user_id):
+    from .tenant import _has_agency_admin_membership
+    platform_access = await is_platform_admin(user_id)
+    agency_access = False
+    if not platform_access:
+        try:
+            agency_access = await _has_agency_admin_membership(user_id)
+        except Exception:
+            agency_access = False
+    if not platform_access and not agency_access:
         raise HTTPException(status_code=403, detail="Acesso exclusivo do administrador da plataforma.")
     return user_id
 

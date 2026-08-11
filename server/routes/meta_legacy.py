@@ -160,7 +160,11 @@ async def api_oauth_meta_start(
 ):
     try:
         user_id = await require_user_id(authorization)
-        cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+        cid = await require_client_role(
+            _pick_client_id(client_id, x_client_id),
+            authorization,
+            allowed_roles=("agency_admin",),
+        )
         settings = get_meta_oauth_settings(
             require_redirect_uri=True, require_login_config_id=True, debug=False,
         )

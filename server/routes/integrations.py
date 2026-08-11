@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header
 
 from services.connections_service import get_client_connections
-from services.tenant import require_client_read
+from services.tenant import require_client_role
 from services.runtime_cache import get_cached_or_load
 
 router = APIRouter(prefix="/api/clients", tags=["integrations"])
@@ -20,7 +20,7 @@ async def get_client_integrations(
     apenas contexto — require_client_read confere contra memberships/
     platform_admin/agency_admin e nunca confia cegamente no X-Client-Id.
     """
-    cid = await require_client_read(client_id or x_client_id, authorization)
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
     result, _ = await get_cached_or_load(
         namespace="client_integrations",
         key=cid,

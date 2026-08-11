@@ -7,7 +7,7 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { openPlatformCompany, setApiAccessToken, type ClientMembership, type PlatformCompany } from "./app/api";
+import { listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
@@ -136,6 +136,7 @@ function AppLoading() {
 function PrimaryNavigation({
   route,
   platformAdmin,
+  agencyAdmin,
   onOpen,
   clients,
   activeClientId,
@@ -144,6 +145,7 @@ function PrimaryNavigation({
 }: {
   route: AppRoute;
   platformAdmin: boolean;
+  agencyAdmin: boolean;
   onOpen: (route: AppRoute) => void;
   clients?: ClientMembership[];
   activeClientId?: string;
@@ -153,17 +155,18 @@ function PrimaryNavigation({
   const [moreOpen, setMoreOpen] = useState(false);
   const items: Array<{ route: AppRoute; label: string }> = [
     { route: "dashboard", label: "Visão Geral" },
-    { route: "google", label: "Analytics" },
-    { route: "ecommerce", label: "E-commerce" },
+    { route: "meta", label: "Meta" },
+    { route: "google", label: "Google" },
+    { route: "ecommerce", label: "Ecommerce" },
     { route: "intelligence", label: "Inteligência" },
   ];
   // Perfil somente-leitura nunca vê a aba de configuração de integrações
   // (OAuth, reconexões, detalhe técnico) — nem no menu, nem acessível por
   // navegação direta (ver guarda em resolveAuthenticatedView).
-  if (!isReadOnlyClientRole(getActiveClient()?.role)) {
-    items.splice(3, 0, { route: "integrations", label: "Integrações" });
+  if (platformAdmin || agencyAdmin) {
+    items.push({ route: "integrations", label: "Integrações" });
+    items.push({ route: "companies", label: "Administração" });
   }
-  if (platformAdmin) items.push({ route: "companies", label: "Administração" });
   return (
     <nav className="primaryNavigation" aria-label="Navegação principal">
       <div className="primaryNavigationInner">
@@ -198,9 +201,9 @@ function PrimaryNavigation({
       <div className="mobileBottomNav" aria-label="Navegação mobile">
         {[
           { route: "dashboard" as const, label: "Visão Geral", Icon: House },
-          { route: "google" as const, label: "Analytics", Icon: BarChart3 },
-          { route: "ecommerce" as const, label: "E-commerce", Icon: ShoppingBag },
-          { route: "intelligence" as const, label: "Inteligência", Icon: BrainCircuit },
+          { route: "meta" as const, label: "Meta", Icon: BarChart3 },
+          { route: "google" as const, label: "Google", Icon: BarChart3 },
+          { route: "ecommerce" as const, label: "Ecommerce", Icon: ShoppingBag },
         ].map(({ route: itemRoute, label, Icon }) => (
           <button key={itemRoute} type="button" aria-current={route === itemRoute ? "page" : undefined} onClick={() => { setMoreOpen(false); onOpen(itemRoute); }}>
             <Icon size={20} aria-hidden="true" /><span>{label}</span>
@@ -212,10 +215,11 @@ function PrimaryNavigation({
       </div>
       {moreOpen ? (
         <div className="mobileMoreMenu" role="menu">
-          {!isReadOnlyClientRole(getActiveClient()?.role) ? (
+          <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("intelligence"); }}><BrainCircuit size={19} />Inteligência</button>
+          {platformAdmin || agencyAdmin ? (
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("integrations"); }}><SlidersHorizontal size={19} />Integrações</button>
           ) : null}
-          {platformAdmin ? (
+          {platformAdmin || agencyAdmin ? (
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("companies"); }}><Building2 size={19} />Administração</button>
           ) : null}
           <button type="button" role="menuitem" onClick={() => void onLogout()}><LogOut size={19} />Sair</button>
@@ -230,11 +234,11 @@ function PrimaryNavigation({
 // (agency_admin/client_admin/owner/admin) chega em "Integrações".
 function isReadOnlyClientRole(role: string | null | undefined): boolean {
   const normalized = String(role || "").toLowerCase();
-  return !["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(normalized);
+  return !["platform_admin", "agency_admin"].includes(normalized);
 }
 
-async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: boolean; clients: ClientMembership[] }> {
-  if (!supabase) return { platformAdmin: false, clients: [] };
+async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: boolean; agencyAdmin: boolean; clients: ClientMembership[] }> {
+  if (!supabase) return { platformAdmin: false, agencyAdmin: false, clients: [] };
   const [adminResult, membershipsResult] = await Promise.all([
     supabase.from("platform_admins").select("user_id").eq("user_id", userId).maybeSingle(),
     supabase.from("client_memberships").select("client_id,role").eq("user_id", userId),
@@ -242,6 +246,11 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
   if (membershipsResult.error) throw membershipsResult.error;
   const platformAdmin = Boolean(adminResult.data) && !adminResult.error;
   const membershipRows = membershipsResult.data || [];
+  const agencyAdmin = membershipRows.some((row) => String(row.role || "") === "agency_admin");
+  if (agencyAdmin && !platformAdmin) {
+    const response = await listClients();
+    return { platformAdmin, agencyAdmin, clients: response.clients || [] };
+  }
   const ids = membershipRows.map((row) => String(row.client_id));
   const clientsResult = platformAdmin
     ? await supabase.from("clients").select("id,name,trade_name").order("name")
@@ -265,7 +274,7 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
     ? canonicalRows.map((row) => ({ client_id: canonicalizeClientId(String(row.id)), name: String(row.trade_name || row.name || row.id), role: "platform_admin" }))
     : membershipRows.map((row) => { const id = canonicalizeClientId(String(row.client_id)); return { client_id: id, name: names.get(id) || id, role: String(row.role || "viewer") }; });
   const clients = [...new Map(candidates.map((client) => [client.client_id, client])).values()];
-  return { platformAdmin, clients };
+  return { platformAdmin, agencyAdmin, clients };
 }
 
 export default function App() {
@@ -278,6 +287,7 @@ export default function App() {
   const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
   const [clients, setClients] = useState<ClientMembership[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
+  const [agencyAdmin, setAgencyAdmin] = useState(false);
   const [activeClientId, setActiveClientId] = useState("");
   const [tenantReady, setTenantReady] = useState(false);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
@@ -301,7 +311,7 @@ export default function App() {
       const sameAuthenticatedContext =
         Boolean(activeSession?.user.id) && resolvedUserId === activeSession?.user.id;
       if (sameAuthenticatedContext) {
-        if (requestedRoute === "companies" && !platformAdmin) {
+        if (requestedRoute === "companies" && !platformAdmin && !agencyAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
           navigateToAppRoute("dashboard", { replace: true });
           setRoute("dashboard");
@@ -324,7 +334,8 @@ export default function App() {
       if (!localMode) {
         const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
         setPlatformAdmin(bootstrap.platformAdmin);
-        if (requestedRoute === "companies" && !bootstrap.platformAdmin) {
+        setAgencyAdmin(bootstrap.agencyAdmin);
+        if (requestedRoute === "companies" && !bootstrap.platformAdmin && !bootstrap.agencyAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
           navigateToAppRoute("dashboard", { replace: true });
           setRoute("dashboard");
@@ -400,7 +411,7 @@ export default function App() {
       // carrega seus dados progressivamente e mantém seu último estado válido.
       setView("dashboard");
     },
-    [localMode, platformAdmin, resolvedUserId, route, session]
+    [agencyAdmin, localMode, platformAdmin, resolvedUserId, route, session]
   );
 
   useEffect(() => {
@@ -683,6 +694,7 @@ export default function App() {
         <PrimaryNavigation
           route="integrations"
           platformAdmin={platformAdmin}
+          agencyAdmin={agencyAdmin}
           onOpen={openRoute}
           clients={clients}
           activeClientId={activeClientId}
@@ -707,6 +719,7 @@ export default function App() {
       <PrimaryNavigation
         route={route}
         platformAdmin={platformAdmin}
+        agencyAdmin={agencyAdmin}
         onOpen={openRoute}
         clients={clients}
         activeClientId={activeClientId}
@@ -716,7 +729,7 @@ export default function App() {
       <Suspense fallback={<AppLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("dashboard")} />
-      ) : route === "companies" && platformAdmin ? (
+      ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}
           onOpenCompany={(company) => void handleOpenCompany(company)}

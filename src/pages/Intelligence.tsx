@@ -301,12 +301,10 @@ export default function Intelligence({ onLogout }: Props) {
     <main className="intelligencePage">
       <header className="intelHeader">
         <div className="intelIdentity">
-          <span className="intelMonogram" aria-hidden="true">
-            {(snapshot?.client.name || getActiveClientName() || "M").slice(0, 2).toUpperCase()}
-          </span>
           <div>
             <span className="intelEyebrow">Central de decisão</span>
-            <h1>Inteligência IA</h1>
+            <h1>Mugô Inteligência</h1>
+            <small className="intelPoweredBy">Powered by OpenAI</small>
             <p>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</p>
           </div>
         </div>

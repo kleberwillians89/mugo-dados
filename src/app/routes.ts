@@ -1,5 +1,6 @@
 export type AppRoute =
   | "dashboard"
+  | "meta"
   | "google"
   | "ecommerce"
   | "integrations"
@@ -10,6 +11,7 @@ export type AppRoute =
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";
+  if (normalized.startsWith("/meta")) return "meta";
   if (normalized.startsWith("/integracoes")) return "integrations";
   if (normalized.startsWith("/inteligencia")) return "intelligence";
   if (normalized.startsWith("/ecommerce")) return "ecommerce";
@@ -24,6 +26,7 @@ export function getCurrentAppRoute(): AppRoute {
 
 export function getPathForRoute(route: AppRoute): string {
   if (route === "companies") return "/empresas";
+  if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";
   if (route === "intelligence") return "/inteligencia";
   if (route === "google") return "/google";

@@ -25,6 +25,7 @@ export default function ClientSwitcher({ clients, activeClientId, onChange }: Pr
   const activeClient = clients.find((client) => client.client_id === activeClientId);
   const roleLabel = activeClient?.role ? ROLE_LABELS[activeClient.role] || activeClient.role : null;
   const pendingClient = pendingId ? clients.find((client) => client.client_id === pendingId) : null;
+  const isSingleTenant = clients.length === 1;
 
   const needle = query.trim().toLowerCase();
   const filtered = needle
@@ -45,6 +46,20 @@ export default function ClientSwitcher({ clients, activeClientId, onChange }: Pr
         setQuery("");
       }
     }, 100);
+  }
+
+  if (isSingleTenant) {
+    return (
+      <div className="clientSwitcher clientSwitcherStatic" aria-label={`Empresa ativa: ${activeClient?.name || "Empresa"}`}>
+        <div className="clientSwitcherTrigger">
+          <ClientLogo clientId={activeClientId} displayName={activeClient?.name} size={32} className="clientSwitcherAvatar" />
+          <span className="clientSwitcherIdentity">
+            <span className="clientSwitcherName">{activeClient?.name || "Empresa"}</span>
+            <span className="clientSwitcherLabel">Empresa ativa{roleLabel ? ` · ${roleLabel}` : ""}</span>
+          </span>
+        </div>
+      </div>
+    );
   }
 
   return (

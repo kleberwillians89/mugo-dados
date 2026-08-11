@@ -61,7 +61,9 @@ test("combina o diário do read model com 3 canais e 2 campanhas reais", async (
   const node = document.createElement("div");
   const root = createRoot(node);
   await act(async () => root.render(<Harness />));
-  await act(async () => Promise.resolve());
+  for (let attempt = 0; attempt < 20 && node.textContent !== "20:3:2"; attempt += 1) {
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 5)));
+  }
   expect(node.textContent).toBe("20:3:2");
   act(() => root.unmount());
 });

@@ -11,6 +11,17 @@ async def list_clients_for_user(user_id: str) -> Dict[str, Any]:
     started = time.perf_counter()
     memberships = await sb_get_client_memberships(user_id)
 
+    is_agency_admin = any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
+    if is_agency_admin:
+        rows = await sb_select("clients", select="id,name,created_at", order="name.asc")
+        return {
+            "ok": True,
+            "clients": [
+                {"client_id": row.get("id"), "role": "agency_admin", "name": row.get("name") or "Sem nome", "created_at": row.get("created_at")}
+                for row in rows
+            ],
+        }
+
     clients: List[Dict[str, Any]] = []
     for m in memberships:
         cid = str(m.get("client_id") or "").strip()

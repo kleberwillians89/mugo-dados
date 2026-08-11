@@ -22,7 +22,7 @@ describe("session and tenant controls", () => {
     });
   });
 
-  it("renders the selected company with an accessible tenant selector", () => {
+  it("renders a single tenant as a static identity without a selector", () => {
     const markup = renderToStaticMarkup(
       <ClientSwitcher
         activeClientId="roove"
@@ -30,7 +30,8 @@ describe("session and tenant controls", () => {
         onChange={() => {}}
       />
     );
-    expect(markup).toContain('aria-label="Selecionar empresa"');
+    expect(markup).toContain('aria-label="Empresa ativa: Roove"');
+    expect(markup).not.toContain("<button");
     expect(markup).toContain("Roove");
     expect(markup).toContain("Empresa ativa");
   });
