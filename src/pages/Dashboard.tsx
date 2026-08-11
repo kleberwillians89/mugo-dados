@@ -12,7 +12,6 @@ import { MonthCompareLines, MonthMixChart } from "../components/Charts";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
 import MetaStateNotice from "../components/dashboard/MetaStateNotice";
-import OperacaoReal from "../components/dashboard/OperacaoReal";
 import ExecutiveOverview, {
   type ExecutiveMetric,
   type ExecutiveSource,
@@ -1174,7 +1173,6 @@ export default function Dashboard({
   });
   const {
     executiveData,
-    loadingExecutive,
     executiveError,
   } = useExecutiveDashboard({
     isAuthenticated,
@@ -2372,8 +2370,6 @@ export default function Dashboard({
               ).join(" | ") : "nenhuma ação disparada"}
             </div>
           ) : null}
-
-          <OperacaoReal data={executiveData} loading={loadingExecutive} error={executiveError} />
 
           <ExecutiveOverview
             companyName={commerceConnection?.account_name || getActiveClientName() || "E-commerce conectado"}

@@ -57,7 +57,10 @@ const analysis = {
 const snapshot = {
   client: { id: "amalie", name: "Amalie" },
   period: { start: "2026-08-01", end: "2026-08-31", days: 31, previous_start: "2026-07-01", previous_end: "2026-07-31" },
-  sources: [{ id: "meta_ads", label: "Meta Ads", status: "available" as const, connected: true, data_points: 30, covered_days: 30, last_sync_at: "2026-08-31T12:00:00Z" }],
+  sources: [
+    { id: "meta_ads", label: "Meta Ads", status: "available" as const, connected: true, data_points: 30, covered_days: 30, last_sync_at: "2026-08-31T12:00:00Z" },
+    { id: "google_ads", label: "Google Ads", status: "connected_no_data" as const, connected: true, data_points: 0, covered_days: 0, last_sync_at: null },
+  ],
   quality: { score: 90, status: "good" as const, available_sources: 2, total_sources: 2, errors: 0, message: "ok" },
   last_sync_at: "2026-08-31T12:00:00Z",
   metrics: analysis.metrics_snapshot,
@@ -121,5 +124,20 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
   it("mostra a fonte de cada métrica de evidência", async () => {
     await renderIntelligence();
     expect(container.textContent).toContain("meta_ads");
+  });
+
+  it("traduz status técnico de fonte para linguagem do cliente", async () => {
+    await renderIntelligence();
+    expect(container.textContent).toContain("Conectado • sem dados no período");
+    expect(container.textContent).not.toContain("connected_no_data");
+  });
+
+  it("mantém a análise gerada sem banner de erro atrasado", async () => {
+    await renderIntelligence();
+    const button = [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar análise");
+    await act(async () => button?.click());
+    await act(async () => Promise.resolve());
+    expect(container.textContent).toContain("Receita cresceu no período.");
+    expect(container.querySelector(".intelError")).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
 import api_support
+from services import generic_connections
 from routes import google_oauth as google_routes
 from routes import meta_legacy as meta_routes
 from routes import shopify_oauth as shopify_routes
@@ -26,6 +27,45 @@ from server.services.integration_errors import (
     provider_http_error,
 )
 from server.services import shopify_config
+
+
+class ShopifyReauthorizationPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_same_shop_updates_existing_connection_id_instead_of_inserting(self):
+        existing = {
+            "id": "shopify-connection-amalie",
+            "client_id": "amalie",
+            "provider": "shopify",
+            "external_key": "amalie-6421.myshopify.com",
+            "status": "connected",
+            "metadata": {"shop_domain": "amalie-6421.myshopify.com"},
+            "scopes": ["read_orders"],
+        }
+        insert = AsyncMock()
+        with (
+            patch.object(generic_connections, "sb_select", AsyncMock(return_value=[existing])),
+            patch.object(
+                generic_connections, "sb_update",
+                AsyncMock(return_value=[{**existing, "scopes": list(shopify_oauth.SHOPIFY_SCOPES)}]),
+            ) as update,
+            patch.object(generic_connections, "sb_insert", insert),
+            patch.object(generic_connections, "encrypt_secret", return_value="encrypted-token"),
+            patch.object(generic_connections, "audit_connection", AsyncMock()),
+            patch.object(generic_connections, "invalidate_namespace", AsyncMock()),
+        ):
+            result = await generic_connections.upsert_connection(
+                client_id="amalie",
+                provider="shopify",
+                external_key="amalie-6421.myshopify.com",
+                token_payload='{"access_token":"secret-token"}',
+                user_id="user-amalie",
+                status="connected",
+                scopes=list(shopify_oauth.SHOPIFY_SCOPES),
+                metadata={"shop_domain": "amalie-6421.myshopify.com"},
+            )
+
+        self.assertEqual(result["id"], "shopify-connection-amalie")
+        self.assertEqual(update.await_args.kwargs["filters"]["id"], "eq.shopify-connection-amalie")
+        insert.assert_not_awaited()
 
 
 def google_row(*, metadata=None, status="connected", client_id="roove"):
@@ -378,7 +418,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         output = io.StringIO()
         authorization = (
             "https://roove.myshopify.com/admin/oauth/authorize?"
-            "client_id=public-client&scope=read_orders%2Cread_customers%2Cread_products&"
+            "client_id=public-client&scope=read_orders%2Cread_all_orders%2Cread_customers%2Cread_products&"
             "redirect_uri=https%3A%2F%2Fapi.dados.mugoagencia.com.br%2Fapi%2Foauth%2Fshopify%2Fcallback&"
             "state=secret-state-value"
         )
@@ -577,9 +617,13 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 shopify_routes,
                 "exchange_code",
-                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders"}),
+                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders,read_all_orders,read_customers,read_products"}),
             ),
             patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Roove"})),
+            patch.object(shopify_routes, "validate_shopify_oauth_scopes", AsyncMock(return_value={
+                "read_orders": True, "read_all_orders": True,
+                "read_customers": True, "read_products": True,
+            })) as validate_scopes,
             patch.object(shopify_routes, "register_webhooks", AsyncMock(return_value={"registered": [], "skipped": [], "failed": []})),
             patch.object(
                 shopify_routes,
@@ -595,6 +639,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         for secret in ("secret-code", "secret-state", "secret-token"):
             self.assertNotIn(secret, response.headers["location"])
         save.assert_awaited_once()
+        validate_scopes.assert_awaited_once()
         background_tasks.add_task.assert_called_once_with(
             shopify_routes._run_initial_sync_isolated,
             client_id="roove",
@@ -640,9 +685,13 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 shopify_routes,
                 "exchange_code",
-                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders"}),
+                AsyncMock(return_value={"access_token": "secret-token", "scope": "read_orders,read_all_orders,read_customers,read_products"}),
             ),
             patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Amalie"})),
+            patch.object(shopify_routes, "validate_shopify_oauth_scopes", AsyncMock(return_value={
+                "read_orders": True, "read_all_orders": True,
+                "read_customers": True, "read_products": True,
+            })),
             patch.object(
                 shopify_routes,
                 "register_webhooks",

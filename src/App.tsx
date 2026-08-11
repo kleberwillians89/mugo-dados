@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { BarChart3, BrainCircuit, House, MoreHorizontal, ShoppingBag, SlidersHorizontal, Building2, LogOut } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { BarChart3, BrainCircuit, MoreHorizontal, ShoppingBag, SlidersHorizontal, Building2, LogOut } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import {
   disableLocalAuth,
@@ -13,6 +13,7 @@ import {
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
+import { shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
@@ -123,7 +124,7 @@ function AppLoading() {
       <section className="appBootContent">
         <div className="appBootIntro">
           <span className="appBootSpinner" aria-hidden="true" />
-          <div><h1>Visão geral</h1><p>Validando sessão e empresa ativa…</p></div>
+          <div><h1>Meta</h1><p>Validando sessão e empresa ativa…</p></div>
         </div>
         <div className="appBootGrid" aria-hidden="true">
           <span /><span /><span /><span />
@@ -154,7 +155,6 @@ function PrimaryNavigation({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const items: Array<{ route: AppRoute; label: string }> = [
-    { route: "dashboard", label: "Visão Geral" },
     { route: "meta", label: "Meta" },
     { route: "google", label: "Google" },
     { route: "ecommerce", label: "Ecommerce" },
@@ -170,7 +170,9 @@ function PrimaryNavigation({
   return (
     <nav className="primaryNavigation" aria-label="Navegação principal">
       <div className="primaryNavigationInner">
-        <MugoLogo variant="responsive" className="primaryNavigationBrand" />
+        <button className="primaryNavigationBrandButton" type="button" aria-label="Abrir Meta" onClick={() => onOpen("meta")}>
+          <MugoLogo variant="responsive" className="primaryNavigationBrand" />
+        </button>
         <div className="primaryNavigationLinks">
           {items.map((item) => (
             <button
@@ -193,17 +195,19 @@ function PrimaryNavigation({
         ) : null}
       </div>
       <div className="mobileHeaderRow">
-        <MugoLogo variant="symbol" className="mobileHeaderBrand" />
+        <button className="mobileHeaderBrandButton" type="button" aria-label="Abrir Meta" onClick={() => onOpen("meta")}>
+          <MugoLogo variant="symbol" className="mobileHeaderBrand" />
+        </button>
         {clients && activeClientId && onClientChange ? (
           <ClientSwitcher clients={clients} activeClientId={activeClientId} onChange={onClientChange} />
         ) : null}
       </div>
       <div className="mobileBottomNav" aria-label="Navegação mobile">
         {[
-          { route: "dashboard" as const, label: "Visão Geral", Icon: House },
           { route: "meta" as const, label: "Meta", Icon: BarChart3 },
           { route: "google" as const, label: "Google", Icon: BarChart3 },
           { route: "ecommerce" as const, label: "Ecommerce", Icon: ShoppingBag },
+          { route: "intelligence" as const, label: "Inteligência", Icon: BrainCircuit },
         ].map(({ route: itemRoute, label, Icon }) => (
           <button key={itemRoute} type="button" aria-current={route === itemRoute ? "page" : undefined} onClick={() => { setMoreOpen(false); onOpen(itemRoute); }}>
             <Icon size={20} aria-hidden="true" /><span>{label}</span>
@@ -215,7 +219,6 @@ function PrimaryNavigation({
       </div>
       {moreOpen ? (
         <div className="mobileMoreMenu" role="menu">
-          <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("intelligence"); }}><BrainCircuit size={19} />Inteligência</button>
           {platformAdmin || agencyAdmin ? (
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("integrations"); }}><SlidersHorizontal size={19} />Integrações</button>
           ) : null}
@@ -291,6 +294,8 @@ export default function App() {
   const [activeClientId, setActiveClientId] = useState("");
   const [tenantReady, setTenantReady] = useState(false);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+  const authBootstrapCompletedRef = useRef(false);
+  const knownSessionUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     setApiAccessToken(localMode ? null : session?.access_token ?? null);
@@ -308,18 +313,22 @@ export default function App() {
         return;
       }
 
+      if (requestedRoute === "meta" && window.location.pathname !== "/meta") {
+        navigateToAppRoute("meta", { replace: true });
+      }
+
       const sameAuthenticatedContext =
         Boolean(activeSession?.user.id) && resolvedUserId === activeSession?.user.id;
       if (sameAuthenticatedContext) {
         if (requestedRoute === "companies" && !platformAdmin && !agencyAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
-          navigateToAppRoute("dashboard", { replace: true });
-          setRoute("dashboard");
+          navigateToAppRoute("meta", { replace: true });
+          setRoute("meta");
         }
         const wantsSetupView = requestedRoute === "integrations" || hasSetupSignalInUrl();
         if (wantsSetupView && isReadOnlyClientRole(getActiveClient()?.role)) {
-          navigateToAppRoute("dashboard", { replace: true });
-          setRoute("dashboard");
+          navigateToAppRoute("meta", { replace: true });
+          setRoute("meta");
           setView("dashboard");
           return;
         }
@@ -337,20 +346,14 @@ export default function App() {
         setAgencyAdmin(bootstrap.agencyAdmin);
         if (requestedRoute === "companies" && !bootstrap.platformAdmin && !bootstrap.agencyAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
-          navigateToAppRoute("dashboard", { replace: true });
-          setRoute("dashboard");
-          requestedRoute = "dashboard";
+          navigateToAppRoute("meta", { replace: true });
+          setRoute("meta");
+          requestedRoute = "meta";
         }
         const availableClients = bootstrap.clients;
         setClients(availableClients);
         setResolvedUserId(activeSession?.user.id || null);
         const stored = getActiveClient();
-        if (bootstrap.platformAdmin && !stored && requestedRoute !== "companies") {
-          navigateToAppRoute("companies", { replace: true });
-          setRoute("companies");
-          setView("dashboard");
-          return;
-        }
         const selected =
           availableClients.find((client) => client.client_id === stored?.id) ||
           availableClients[0];
@@ -385,8 +388,8 @@ export default function App() {
 
       if (requestedRoute === "integrations") {
         if (isReadOnlyClientRole(getActiveClient()?.role)) {
-          navigateToAppRoute("dashboard", { replace: true });
-          setRoute("dashboard");
+          navigateToAppRoute("meta", { replace: true });
+          setRoute("meta");
           setView("dashboard");
           return;
         }
@@ -482,6 +485,7 @@ export default function App() {
         }
 
         if (!mounted) return;
+        knownSessionUserRef.current = nextSession?.user.id ?? null;
         setSession(nextSession);
       } catch (error: unknown) {
         if (!mounted) return;
@@ -489,6 +493,7 @@ export default function App() {
         setSession(null);
       } finally {
         if (mounted) {
+          authBootstrapCompletedRef.current = true;
           setAuthInitializing(false);
         }
       }
@@ -505,6 +510,13 @@ export default function App() {
     const { data: sub } = authClient.auth.onAuthStateChange((event, next) => {
       if (!mounted) return;
       const nextSession = next ?? null;
+      const nextUserId = nextSession?.user.id ?? null;
+      const openMeta = shouldOpenMetaAfterSignIn({
+        event,
+        bootstrapCompleted: authBootstrapCompletedRef.current,
+        knownUserId: knownSessionUserRef.current,
+        nextUserId,
+      });
       authDebug("onAuthStateChange", {
         event,
         hasSession: !!nextSession,
@@ -512,6 +524,11 @@ export default function App() {
       });
       setSession(nextSession);
       setAuthInitializing(false);
+      knownSessionUserRef.current = nextUserId;
+      if (openMeta) {
+        navigateToAppRoute("meta", { replace: true });
+        setRoute("meta");
+      }
       if (!nextSession) {
         clearTenantBrowserState();
       setClients([]);
@@ -626,7 +643,7 @@ export default function App() {
 
   const handleSetupCompleted = useCallback(async () => {
     clearSetupUrlParams();
-    openRoute("dashboard");
+    openRoute("meta");
     setView("dashboard");
   }, [openRoute]);
 
@@ -670,7 +687,7 @@ export default function App() {
     setActiveConnectionId(null);
     setActiveClientId(canonicalId);
     setTenantReady(true);
-    openRoute("dashboard");
+    openRoute("meta");
   }, [openRoute]);
 
   if (view === "loading") {
@@ -728,12 +745,12 @@ export default function App() {
       />
       <Suspense fallback={<AppLoading />}>
       {route === "not_found" ? (
-        <NotFound onGoHome={() => openRoute("dashboard")} />
+        <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}
           onOpenCompany={(company) => void handleOpenCompany(company)}
-          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenDashboard={() => openRoute("meta")}
         />
       ) : (
       <>
@@ -747,14 +764,14 @@ export default function App() {
           key={`google:${activeClientId}`}
           isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
-          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenDashboard={() => openRoute("meta")}
         />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}
           isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
-          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenDashboard={() => openRoute("meta")}
           onOpenGoogleReport={() => openRoute("google")}
         />
       ) : (

@@ -91,6 +91,9 @@ type PeriodQueryInput = Partial<Period> & { days?: number; month?: string };
 type RequestSignalOptions = {
   signal?: AbortSignal;
 };
+type HttpRequestInit = RequestInit & {
+  timeoutMs?: number;
+};
 type ClientRequestOptions = RequestSignalOptions & {
   clientId?: string | null;
 };
@@ -355,7 +358,7 @@ function toHeaders(init?: HeadersInit): Headers {
 
 const inFlightGets = new Map<string, Promise<unknown>>();
 
-async function executeHttp<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise<T> {
   const safePath = path.split("?", 1)[0];
   const token = await getAccessToken();
   if (!token && !isLocalAuthEnabled()) {
@@ -369,15 +372,17 @@ async function executeHttp<T>(path: string, init: RequestInit = {}): Promise<T> 
   if (activeClientId) headers.set("X-Client-Id", activeClientId);
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort("timeout"), 25_000);
+  const timeoutId = window.setTimeout(() => controller.abort("timeout"), init.timeoutMs ?? 25_000);
   const originalSignal = init.signal;
   const abortFromCaller = () => controller.abort(originalSignal?.reason);
   originalSignal?.addEventListener("abort", abortFromCaller, { once: true });
 
   let res: Response;
   try {
+    const fetchInit = { ...init };
+    delete fetchInit.timeoutMs;
     res = await fetch(`${API_BASE}${path}`, {
-      ...init,
+      ...fetchInit,
       headers,
       signal: controller.signal,
     });
@@ -387,7 +392,7 @@ async function executeHttp<T>(path: string, init: RequestInit = {}): Promise<T> 
     }
     const warning = getActiveClientConfigurationWarning();
     throw new ApiError(
-      [warning, "API indisponível no momento. Verifique se o backend está rodando."]
+      [warning, "Não foi possível acessar os dados agora. Tente novamente em alguns instantes."]
         .filter(Boolean)
         .join(" "),
       { status: 0, code: controller.signal.aborted ? "REQUEST_TIMEOUT" : "NETWORK_ERROR", retryable: true }
@@ -444,7 +449,7 @@ async function executeHttp<T>(path: string, init: RequestInit = {}): Promise<T> 
   return (await res.json()) as T;
 }
 
-function http<T>(path: string, init: RequestInit = {}): Promise<T> {
+function http<T>(path: string, init: HttpRequestInit = {}): Promise<T> {
   const method = String(init.method || "GET").toUpperCase();
   if (method !== "GET") return executeHttp<T>(path, init);
 
@@ -534,6 +539,7 @@ export async function generateIntelligenceAnalysis(
     method: "POST",
     body: JSON.stringify(period),
     signal: options?.signal,
+    timeoutMs: 100_000,
   });
 }
 
@@ -562,6 +568,7 @@ export async function askIntelligence(payload: {
     method: "POST",
     body: JSON.stringify(payload),
     signal: options?.signal,
+    timeoutMs: 100_000,
   });
 }
 

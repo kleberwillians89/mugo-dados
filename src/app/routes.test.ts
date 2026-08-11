@@ -8,7 +8,10 @@ describe("platform routes", () => {
   });
 
   it("keeps tenant reports on their existing routes", () => {
-    expect(getAppRouteFromPath("/")).toBe("dashboard");
+    expect(getAppRouteFromPath("/")).toBe("meta");
+    expect(getAppRouteFromPath("/dashboard")).toBe("meta");
+    expect(getAppRouteFromPath("/overview")).toBe("meta");
+    expect(getAppRouteFromPath("/visao-geral")).toBe("meta");
     expect(getAppRouteFromPath("/google")).toBe("google");
     expect(getAppRouteFromPath("/ecommerce")).toBe("ecommerce");
     expect(getAppRouteFromPath("/integracoes")).toBe("integrations");

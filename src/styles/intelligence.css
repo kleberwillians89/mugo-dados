@@ -74,4 +74,42 @@
 @media(max-width:1180px){.intelHeader{grid-template-columns:1fr auto}.intelHeaderMeta{grid-column:1/-1;grid-row:2}.intelMetricGrid{grid-template-columns:repeat(3,1fr)}.intelActionColumns{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:820px){.intelligencePage{padding:14px}.intelHeader{grid-template-columns:1fr}.intelHeaderActions{grid-row:auto}.intelHeaderMeta{grid-template-columns:repeat(2,1fr)}.intelExecutive{grid-template-columns:1fr}.intelSectionTitle{align-items:start;flex-direction:column}.intelSectionTitle>p{text-align:left}.intelMetricGrid{grid-template-columns:repeat(2,1fr)}.intelInsightGrid,.intelCrossGrid{grid-template-columns:1fr}.intelHistoryList>button{grid-template-columns:1fr 1fr}.intelHistoryList>button span:last-child{display:none}.intelAnswerSections{grid-template-columns:1fr}}
 @media(max-width:520px){.intelligencePage{padding:10px}.intelHeader,.intelSection,.intelAssistant{padding:16px;border-radius:18px}.intelHeaderMeta{grid-template-columns:1fr 1fr}.intelHeaderMeta>span{padding:8px}.intelHeaderActions{display:grid;grid-template-columns:1fr 1fr}.intelExecutive{padding:20px;border-radius:18px}.intelExecutiveMain h2{font-size:27px}.intelMetricGrid,.intelActionColumns,.intelSkeletonMetrics,.intelSkeletonBody{grid-template-columns:1fr}.intelMetric{min-height:140px}.intelAskForm{bottom:max(8px,env(safe-area-inset-bottom));padding:10px}.intelAskForm>div{align-items:stretch;flex-direction:column}.intelAskForm button{min-height:46px}.intelMessage{max-width:100%}.intelHistoryList>button{grid-template-columns:1fr}.intelHistoryList>button span:nth-child(2){display:none}}
+/* Recomposição estrutural para telas estreitas: conteúdo quebra em fluxo
+   vertical, sem depender de escala proporcional nem largura mínima. */
+.intelligencePage{overflow-x:clip}
+.intelligencePage *{overflow-wrap:anywhere}
+.intelIdentity h1{font-size:42px;letter-spacing:0}
+.intelExecutiveMain h2{font-size:42px;letter-spacing:0}
+.intelSectionTitle h2,.intelAssistantIntro h2{font-size:32px;letter-spacing:0}
+.intelMetric strong{font-size:30px;letter-spacing:0}
+@media(max-width:820px){
+  .intelIdentity h1{font-size:34px}
+  .intelSourceBar{flex-wrap:wrap;overflow:visible}
+  .intelSource{flex:1 1 220px;white-space:normal}
+  .intelExecutiveMain h2{font-size:32px}
+  .intelSectionTitle h2,.intelAssistantIntro h2{font-size:28px}
+}
+@media(max-width:560px){
+  .intelHeader,.intelSection,.intelAssistant{padding:14px;border-radius:8px}
+  .intelIdentity h1{font-size:28px}
+  .intelHeaderMeta{grid-template-columns:1fr}
+  .intelHeaderMeta>span{padding:9px 0;border-left:0;border-top:1px solid #e1ded7}
+  .intelHeaderActions{grid-template-columns:1fr}
+  .intelHeaderActions .btn{width:100%;min-height:44px}
+  .intelSourceBar{align-items:stretch;padding-top:12px}
+  .intelSourceBar>strong{flex:1 0 100%}
+  .intelSource{flex:1 1 100%;justify-content:space-between;border-radius:8px}
+  .intelExecutive{padding:18px 16px;border-radius:8px}
+  .intelExecutiveMain h2{font-size:25px}
+  .intelExecutiveMain p{font-size:14px}
+  .intelExecutiveGrid article{padding:13px;border-radius:8px}
+  .intelSectionTitle h2,.intelAssistantIntro h2{font-size:24px}
+  .intelMetricGrid,.intelActionColumns,.intelSkeletonMetrics,.intelSkeletonBody{grid-template-columns:1fr}
+  .intelMetric{min-height:0;padding:14px;border-radius:8px;gap:14px}
+  .intelMetric strong{font-size:26px}
+  .intelInsight{padding:15px;border-radius:8px}
+  .intelInsightTop{display:grid}
+  .intelInsight h4{font-size:19px}
+  .intelMessage{padding:14px;border-radius:8px}
+}
 @media(prefers-reduced-motion:reduce){.intelSkeletonHero,.intelSkeletonMetrics span,.intelSkeletonBody span{animation:none}.intelHistoryList>button{scroll-behavior:auto}}

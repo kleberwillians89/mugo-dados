@@ -6,6 +6,7 @@ import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -103,6 +104,64 @@ ANSWER_SCHEMA = {
         ],
     },
 }
+
+ANALYSIS_INSTRUCTIONS = """
+Você é a camada de interpretação executiva do Mugô Dados. Use somente o JSON recebido.
+Os valores, totais, razões e variações já foram calculados pelo backend: nunca os recalcule,
+complete, estime ou substitua. Ausente, null, disconnected e connected_no_data não são zero.
+
+Raciocine nesta ordem: o que mudou; magnitude; referência comparável; impacto de negócio;
+relações sustentadas; riscos ou contradições; oportunidade; próximo passo proporcional.
+Priorize poucas conclusões por magnitude, impacto e qualidade. metric_changes separa variação
+percentual, impacto absoluto e importância da métrica. material_metric_ids são candidatos, não
+uma ordem automática; primary_metric_ids podem disputar o destaque principal. Uma mudança pequena
+em supporting_metric_ids pode ser evidência secundária de uma contradição, nunca destaque isolado.
+O resumo executivo deve ter de uma a três frases e contar uma única história.
+
+Separe rigorosamente fato, interpretação e hipótese. Afirme fatos demonstrados com clareza.
+Uma interpretação deve citar metric_ids que, em conjunto, a sustentem. Possíveis explicações
+devem usar linguagem de hipótese ("os dados sugerem", "vale investigar", "ocorreu no mesmo
+período") e nunca "porque", "causou", "provou" ou equivalentes sem evidência causal explícita.
+
+Leia métricas relacionadas em conjunto quando disponíveis: receita com pedidos e ticket;
+investimento com receita atribuída, compras e ROAS; sessões com conversão, pedidos e receita.
+Procure contradições úteis, como receita e pedidos em direções opostas. Não use benchmark ou
+meta que não esteja no payload. Não classifique automaticamente alta como boa ou queda como ruim.
+
+Respeite analysis_policy. Cobertura indica até que data existem dados; freshness indica quando o
+job terminou. Não confunda esses conceitos. Não cruze fontes quando cross_source_comparison_allowed
+for falso e explique limitações quando covers_period_end for falso.
+Se includes_partial_today for verdadeiro, registre que os dados de hoje ainda estão em formação
+e não compare o dia incompleto com um dia completo. Métricas em unavailable_metric_ids não podem
+sustentar conclusão. Sem comparação anterior, descreva nível observado sem inventar tendência.
+
+Cada insight deve conter metric_ids e sources válidos. Recomendações com baixa evidência devem
+mandar investigar; com evidência moderada, testar; somente evidência forte permite priorizar,
+escalar ou corrigir. Evite recomendações genéricas. Não escreva algarismos nos textos; a interface
+renderiza números canônicos a partir dos metric_ids. Não prometa resultado.
+""".strip()
+
+ANSWER_INSTRUCTIONS = """
+Responda em português brasileiro usando somente os agregados fornecidos. A resposta deve partir
+da pergunta de negócio, selecionar poucas evidências materiais e distinguir fato, interpretação
+e hipótese. Não recalcule nem invente valores; null e fonte sem dados não significam zero.
+Não conclua causalidade a partir de simultaneidade e não use benchmark ou meta ausente.
+Respeite analysis_policy, inclusive temporalidade entre fontes e parcialidade do dia atual.
+Use apenas metric_ids existentes. Recomendações devem ser específicas e proporcionais à evidência:
+investigar quando limitada, testar quando moderada e priorizar somente quando forte.
+Não escreva algarismos nos textos; os valores são exibidos a partir dos metric_ids.
+""".strip()
+
+INTELLIGENCE_NOISE_PERCENT_THRESHOLD = float(os.getenv("INTELLIGENCE_NOISE_PERCENT_THRESHOLD", "5"))
+INTELLIGENCE_MATERIAL_CURRENCY_ABSOLUTE = float(os.getenv("INTELLIGENCE_MATERIAL_CURRENCY_ABSOLUTE", "10000"))
+INTELLIGENCE_CROSS_SOURCE_MAX_LAG_HOURS = float(os.getenv("INTELLIGENCE_CROSS_SOURCE_MAX_LAG_HOURS", "6"))
+
+PRIMARY_BUSINESS_METRICS = {"revenue", "orders", "average_ticket", "investment", "roas", "conversions"}
+RELATED_METRIC_GROUPS = (
+    {"revenue", "orders", "average_ticket"},
+    {"investment", "meta_revenue", "revenue", "roas", "conversions", "cpa"},
+    {"sessions", "conversion_rate", "orders", "revenue"},
+)
 
 
 def provider_configured() -> bool:
@@ -744,6 +803,138 @@ def _extract_output_text(response: Dict[str, Any]) -> str:
     return ""
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    text = _text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = snapshot.get("metrics") or []
+    sources = snapshot.get("sources") or []
+    period = snapshot.get("period") or {}
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()
+    active_sources = [source for source in sources if source.get("status") in {"available", "partial"}]
+    sync_times = [
+        parsed.astimezone(timezone.utc)
+        for source in active_sources
+        if (parsed := _parse_timestamp(source.get("last_sync_at"))) is not None
+    ]
+    sync_spread_hours = (
+        round((max(sync_times) - min(sync_times)).total_seconds() / 3600, 2)
+        if len(sync_times) >= 2 else None
+    )
+    unavailable = [
+        metric["id"] for metric in metrics
+        if metric.get("value") is None or metric.get("status") in {"unavailable", "disconnected", "error"}
+    ]
+    comparable = [
+        metric["id"] for metric in metrics
+        if metric.get("previous_value") is not None and metric.get("variation_percent") is not None
+    ]
+    metric_changes = []
+    for metric in metrics:
+        current, previous = metric.get("value"), metric.get("previous_value")
+        variation = metric.get("variation_percent")
+        absolute = (
+            round(_number(current) - _number(previous), 2)
+            if current is not None and previous is not None else None
+        )
+        metric_id = metric["id"]
+        percent_material = variation is not None and abs(_number(variation)) >= INTELLIGENCE_NOISE_PERCENT_THRESHOLD
+        absolute_material = (
+            metric.get("format") == "currency"
+            and absolute is not None
+            and abs(absolute) >= INTELLIGENCE_MATERIAL_CURRENCY_ABSOLUTE
+        )
+        metric_changes.append({
+            "metric_id": metric_id,
+            "absolute_change": absolute,
+            "percent_change": variation,
+            "business_importance": "primary" if metric_id in PRIMARY_BUSINESS_METRICS else "supporting",
+            "percent_material": percent_material,
+            "absolute_material": absolute_material,
+            "material_candidate": percent_material or absolute_material,
+            "primary_candidate": (
+                absolute_material
+                if metric.get("format") == "currency"
+                else percent_material and metric_id in PRIMARY_BUSINESS_METRICS
+            ),
+        })
+    changes_by_id = {item["metric_id"]: item for item in metric_changes}
+    supporting = set()
+    for group in RELATED_METRIC_GROUPS:
+        group_changes = [changes_by_id[item] for item in group if item in changes_by_id and changes_by_id[item]["percent_change"] is not None]
+        directions = {1 if _number(item["percent_change"]) > 0 else -1 if _number(item["percent_change"]) < 0 else 0 for item in group_changes}
+        if 1 in directions and -1 in directions:
+            supporting.update(item["metric_id"] for item in group_changes)
+    includes_partial_today = period.get("start", "") <= today <= period.get("end", "")
+    coverage_by_source = {
+        source["id"]: _text(source.get("data_max_available")) or None for source in active_sources
+    }
+    coverage_values = [value for value in coverage_by_source.values() if value]
+    if len(active_sources) <= 1:
+        temporal_mode, sources_temporally_compatible = "single_source", True
+    elif len(coverage_values) == len(active_sources):
+        temporal_mode = "coverage"
+        sources_temporally_compatible = len(set(coverage_values)) == 1
+    elif len(sync_times) == len(active_sources) and sync_spread_hours is not None:
+        temporal_mode = "freshness_fallback"
+        sources_temporally_compatible = sync_spread_hours <= INTELLIGENCE_CROSS_SOURCE_MAX_LAG_HOURS
+    else:
+        temporal_mode, sources_temporally_compatible = "insufficient_temporal_evidence", False
+    complete_sources = all(source.get("status") == "available" for source in sources if source.get("connected"))
+    return {
+        "includes_partial_today": includes_partial_today,
+        "today_date": today if includes_partial_today else None,
+        "comparable_metric_ids": comparable,
+        "metric_changes": metric_changes,
+        "material_metric_ids": [item["metric_id"] for item in metric_changes if item["material_candidate"]],
+        "primary_metric_ids": [item["metric_id"] for item in metric_changes if item["primary_candidate"]],
+        "supporting_metric_ids": sorted(supporting),
+        "unavailable_metric_ids": unavailable,
+        "source_sync_spread_hours": sync_spread_hours,
+        "source_coverage": coverage_by_source,
+        "common_coverage_through": coverage_values[0] if coverage_values and len(set(coverage_values)) == 1 else None,
+        "covers_period_end": bool(coverage_values) and all(value >= period.get("end", "") for value in coverage_values),
+        "temporal_compatibility_mode": temporal_mode,
+        "cross_source_comparison_allowed": sources_temporally_compatible and complete_sources,
+        "quality_label": "Qualidade dos dados",
+        "causal_evidence_available": False,
+        "noise_percent_threshold": INTELLIGENCE_NOISE_PERCENT_THRESHOLD,
+        "material_currency_absolute_threshold": INTELLIGENCE_MATERIAL_CURRENCY_ABSOLUTE,
+        "cross_source_max_lag_hours_fallback": INTELLIGENCE_CROSS_SOURCE_MAX_LAG_HOURS,
+    }
+
+
+def _validate_analysis_grounding(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> None:
+    allowed_metrics = {metric["id"] for metric in snapshot.get("metrics") or []}
+    allowed_sources = {source["id"] for source in snapshot.get("sources") or []}
+    forbidden_causal = re.compile(r"\b(causou|provou|certamente|sem dúvida|aconteceu porque)\b", re.IGNORECASE)
+    all_text = json.dumps(analysis, ensure_ascii=False)
+    if forbidden_causal.search(all_text):
+        raise RuntimeError("AI_UNSUPPORTED_CAUSALITY")
+    policy = _build_analysis_policy(snapshot)
+    if policy["includes_partial_today"] and not re.search(r"hoje.{0,60}(formação|parcial)", all_text, re.IGNORECASE):
+        raise RuntimeError("AI_MISSING_PARTIAL_TODAY_LIMITATION")
+    for insight in analysis.get("insights") or []:
+        metric_ids = [item for item in insight.get("metric_ids") or [] if item in allowed_metrics]
+        sources = [item for item in insight.get("sources") or [] if item in allowed_sources]
+        if not metric_ids or not sources:
+            raise RuntimeError("AI_UNGROUNDED_INSIGHT")
+        if not policy["cross_source_comparison_allowed"] and len(set(sources)) > 1:
+            raise RuntimeError("AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
+    for action in analysis.get("actions") or []:
+        sources = [item for item in action.get("sources") or [] if item in allowed_sources]
+        if action.get("metric_id") not in allowed_metrics or not sources:
+            raise RuntimeError("AI_UNGROUNDED_ACTION")
+
+
 def _assert_no_untrusted_numeric_text(value: Any, path: str = "response") -> None:
     """Números exibidos devem vir dos objetos de métricas calculados pelo backend."""
     if isinstance(value, str):
@@ -855,20 +1046,16 @@ async def generate_analysis(
                 "quality": snapshot["quality"],
                 "crossings": snapshot["crossings"],
                 "top_campaigns": snapshot["top_campaigns"],
+                "analysis_policy": _build_analysis_policy(snapshot),
                 # Números já calculados (Shopify líquido, ROAS combinado com
                 # fontes incluídas explícitas, GA4 separado) — a IA só
                 # interpreta, nunca soma/divide nada daqui.
                 "real_operation": snapshot.get("executive_context"),
             },
             schema=ANALYSIS_SCHEMA,
-            instructions=(
-                "Você é a central analítica do Mugô Dados. Interprete somente o JSON recebido. "
-                "Não invente números, não trate ausente como zero e não afirme causalidade. "
-                "Evidências devem ser referenciadas apenas por metric_ids e sources existentes. "
-                "Não escreva algarismos nos textos; os números serão renderizados pelo backend a partir dos metric_ids. "
-                "Recomendações são hipóteses práticas, nunca promessas de resultado."
-            ),
+            instructions=ANALYSIS_INSTRUCTIONS,
         )
+        _validate_analysis_grounding(analysis, snapshot)
         analysis = _sanitize_analysis(analysis, snapshot)
         saved = await sb_insert(
             "ai_analyses",
@@ -1016,15 +1203,10 @@ async def ask_intelligence(
             "quality": snapshot["quality"],
             "crossings": snapshot["crossings"],
             "top_campaigns": snapshot["top_campaigns"],
+            "analysis_policy": _build_analysis_policy(snapshot),
         },
         schema=ANSWER_SCHEMA,
-        instructions=(
-            "Responda sobre a empresa usando somente os agregados fornecidos. "
-            "Não invente valores e não conclua causalidade a partir de correlação. "
-            "Use metric_ids existentes para sustentar a resposta. "
-            "Não escreva algarismos nos textos; os valores serão exibidos a partir dos metric_ids. "
-            "Inclua limitações e próximos passos concretos, sem prometer resultados."
-        ),
+        instructions=ANSWER_INSTRUCTIONS,
     )
     allowed_metrics = {metric["id"] for metric in snapshot["metrics"]}
     answer["metric_ids"] = [item for item in answer.get("metric_ids") or [] if item in allowed_metrics]

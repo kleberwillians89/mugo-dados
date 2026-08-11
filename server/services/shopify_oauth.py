@@ -7,7 +7,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict
 from urllib.parse import urlencode, urlsplit
 
@@ -28,7 +28,7 @@ from .shopify_config import shopify_admin_url
 from .sync_locks import build_sync_lock_name, guarded_sync, is_sync_lock_stale, peek_sync_lock
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
-SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products"]
+SHOPIFY_SCOPES = ["read_orders", "read_all_orders", "read_customers", "read_products"]
 SHOPIFY_PRODUCTION_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback"
 SHOPIFY_WEBHOOK_TOPICS = [
     "orders/create",
@@ -440,8 +440,11 @@ async def _fetch_shopify_collection(
     query = dict(params or {})
     rows: list[Dict[str, Any]] = []
     collection_key = resource.split(".", 1)[0]
+    pages = 0
+    page_cap_reached = False
     async with httpx.AsyncClient(timeout=45) as client:
-        for _ in range(20):
+        for page_number in range(1, 21):
+            pages = page_number
             try:
                 response = await client.get(
                     url,
@@ -462,8 +465,19 @@ async def _fetch_shopify_collection(
             next_link = response.links.get("next", {}).get("url")
             if not next_link:
                 break
+            if page_number == 20:
+                page_cap_reached = True
+                break
             url = str(next_link)
             query = {}
+    print(
+        "[shopify_sync] stage=collection_pagination "
+        f"collection={collection_key} pages={pages} rows={len(rows)} "
+        f"page_cap_reached={str(page_cap_reached).lower()} "
+        f"created_at_min={str((params or {}).get('created_at_min') or '-')} "
+        f"created_at_max={str((params or {}).get('created_at_max') or '-')} "
+        f"updated_at_min={str((params or {}).get('updated_at_min') or '-')}"
+    )
     return rows
 
 
@@ -505,6 +519,7 @@ async def _check_shopify_scopes(context: "ShopifyConnectionContext") -> Dict[str
 
     result = {
         "read_orders": "read_orders" in handles,
+        "read_all_orders": "read_all_orders" in handles,
         "read_customers": "read_customers" in handles,
         "read_products": "read_products" in handles,
     }
@@ -512,10 +527,36 @@ async def _check_shopify_scopes(context: "ShopifyConnectionContext") -> Dict[str
         "[shopify_sync] stage=scope_check "
         f"shop={context.shop_domain} "
         f"read_orders={str(result['read_orders']).lower()} "
+        f"read_all_orders_granted={str(result['read_all_orders']).lower()} "
         f"read_customers={str(result['read_customers']).lower()} "
         f"read_products={str(result['read_products']).lower()}"
     )
     return result
+
+
+async def validate_shopify_oauth_scopes(
+    *, shop_domain: str, access_token: str, required_scopes: tuple[str, ...]
+) -> Dict[str, bool]:
+    """Validate the token against Shopify without persisting or logging it."""
+    context = ShopifyConnectionContext(
+        client_id="oauth_callback",
+        connection_id=None,
+        shop_domain=normalize_shop_domain(shop_domain),
+        access_token=str(access_token or "").strip(),
+        scopes=frozenset(),
+        auth_mode="oauth",
+    )
+    granted = await _check_shopify_scopes(context)
+    missing = [scope for scope in required_scopes if not granted.get(scope, False)]
+    if missing:
+        raise IntegrationError(
+            "A Shopify não concedeu todas as permissões solicitadas. Autorize novamente a loja.",
+            status_code=403,
+            code="SHOPIFY_INSUFFICIENT_SCOPE",
+            provider="shopify",
+            diagnostics={"missing_scopes": missing},
+        )
+    return granted
 
 
 async def _mark_shopify_sync_failed(*, client_id: str, connection_id: str, error_message: str) -> None:
@@ -647,6 +688,18 @@ async def sync_shopify_connection(
                     "Reconecte a integração para autorizar novamente.",
                     status_code=403,
                     code="SHOPIFY_MISSING_READ_ORDERS_SCOPE",
+                    provider="shopify",
+                )
+            requires_all_orders = bool(
+                reconciliation_period
+                and date.fromisoformat(reconciliation_period[0])
+                < local_date(datetime.now(timezone.utc), DEFAULT_TENANT_TIMEZONE) - timedelta(days=60)
+            )
+            if requires_all_orders and not scope_report.get("read_all_orders", False):
+                raise IntegrationError(
+                    "A conexão Shopify não possui read_all_orders para consultar pedidos com mais de 60 dias.",
+                    status_code=403,
+                    code="SHOPIFY_READ_ALL_ORDERS_REQUIRED",
                     provider="shopify",
                 )
 

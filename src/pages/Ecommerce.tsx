@@ -27,7 +27,7 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard }: Omit<Prop
       subtitle={`Fonte principal: FBits · ${getActiveClientName()}`}
       right={
         <div className="shopifyShellActions">
-          <button className="btn btnGhost" onClick={onOpenDashboard} type="button">Visão geral</button>
+          <button className="btn btnGhost" onClick={onOpenDashboard} type="button">Meta</button>
           <button className="btn btnPrimary" onClick={() => void report.reloadFbits({ force: true })} type="button">
             Atualizar dados
           </button>

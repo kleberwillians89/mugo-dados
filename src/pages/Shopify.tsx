@@ -62,11 +62,24 @@ function toDateInput(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function canonicalTodayIso() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
+function formatCivilDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Sao_Paulo",
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
+}
+
 function todayDateInput() {
-  const now = new Date();
+  const [year, month] = canonicalTodayIso().split("-").map(Number);
   return {
-    month: now.getMonth() + 1,
-    year: now.getFullYear(),
+    month,
+    year,
   };
 }
 
@@ -237,6 +250,10 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
 
   const currency = report?.recent_orders[0]?.currency || "BRL";
   const summary = report?.summary;
+  const today = canonicalTodayIso();
+  const todayRow = model.snapshot?.daily?.find((row) => row.metric_date === today) || null;
+  const shopifyCoverage = model.sources.find((source) => source.provider === "shopify")?.data_max_available || null;
+  const todayCovered = Boolean(shopifyCoverage && shopifyCoverage >= today);
   const hasBusinessData = Boolean((summary?.orders || 0) > 0 || (report?.top_products.length || 0) > 0);
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -481,15 +498,27 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
             <section className="shopifySection" id="shopify-overview">
               <div className="shopifyPerformanceHero">
                 <span className="shopifyPerformanceEyebrow">Operação Shopify</span>
-                <p className="shopifyPerformanceNarrative">A receita real da loja no período selecionado.</p>
-                <div className="shopifyPerformanceMain">
-                  <strong>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</strong>
-                  <span>Receita da loja</span>
+                <p className="shopifyPerformanceNarrative">Receita real da loja</p>
+                <div className="shopifyPerformanceWindow isToday">
+                  <div className="shopifyPerformanceWindowHead">
+                    <div><b>Hoje</b><span>{formatCivilDate(today)}</span></div>
+                    <small>{todayCovered ? "Os dados de hoje ainda podem sofrer alterações." : "Ainda não atualizado hoje"}</small>
+                  </div>
+                  <div className="shopifyPerformanceMetrics">
+                    <div><span>Receita real</span><b>{todayCovered ? formatShopifyCurrency(todayRow?.shopify_net_revenue || 0, currency) : "Ainda não atualizado"}</b></div>
+                    <div><span>Pedidos</span><b>{todayCovered ? formatShopifyCompactNumber(todayRow?.shopify_orders || 0) : "Ainda não atualizado"}</b></div>
+                    <div><span>Ticket médio</span><b>{todayCovered ? formatShopifyCurrency(todayRow?.shopify_orders ? Number(todayRow.shopify_net_revenue || 0) / Number(todayRow.shopify_orders) : 0, currency) : "Ainda não atualizado"}</b></div>
+                  </div>
                 </div>
-                <div className="shopifyPerformanceSub">
-                  <div><span>Pedidos</span><b>{formatShopifyCompactNumber(summary?.orders || 0)}</b></div>
-                  <div><span>Ticket médio</span><b>{formatShopifyCurrency(summary?.average_ticket || 0, currency)}</b></div>
-                  <div><span>Clientes</span><b>{formatShopifyCompactNumber(summary?.customers || 0)}</b></div>
+                <div className="shopifyPerformanceWindow">
+                  <div className="shopifyPerformanceWindowHead">
+                    <div><b>Período selecionado</b><span>{formatCivilDate(period.start)} — {formatCivilDate(period.end)}</span></div>
+                  </div>
+                  <div className="shopifyPerformanceMetrics">
+                    <div><span>Receita real</span><b>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</b></div>
+                    <div><span>Pedidos</span><b>{formatShopifyCompactNumber(summary?.orders || 0)}</b></div>
+                    <div><span>Ticket médio</span><b>{formatShopifyCurrency(summary?.average_ticket || 0, currency)}</b></div>
+                  </div>
                 </div>
                 {summary ? (
                   <span className="shopifyPerformanceFooter">

@@ -16,6 +16,16 @@ const METRIC_TABS: { key: MetricKey; label: string }[] = [
   { key: "conversions", label: "Compras" },
 ];
 
+const METRIC_QUESTIONS: Record<MetricKey, string> = {
+  revenue: "Como a receita evoluiu?",
+  spend: "Como o investimento evoluiu?",
+  reach: "Como o alcance evoluiu?",
+  impressions: "Como as impressões evoluíram?",
+  clicks: "Como os cliques evoluíram?",
+  roas: "Como o ROAS evoluiu?",
+  conversions: "Como as compras evoluíram?",
+};
+
 function formatValue(metric: MetricKey, value: number | null): string {
   if (value == null) return "Sem dados";
   if (metric === "revenue" || metric === "spend") {
@@ -112,7 +122,8 @@ export default function PerformanceChart({
     <div className="performanceChart">
       <div className="performanceChartHead">
         <div>
-          <span className="performanceChartTitle">Desempenho</span>
+          <span className="performanceChartTitle">{METRIC_QUESTIONS[metric]}</span>
+          <div className="smallMuted">Evolução diária no período selecionado · Fonte: Meta Ads</div>
           {coverageLabel ? <div className="smallMuted">{coverageLabel}</div> : null}
         </div>
         <div className="performanceChartTabs" role="tablist" aria-label="Métrica do gráfico de desempenho">

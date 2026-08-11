@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from services.generic_connections import disconnect_generic_connection, get_connection
 from services.oauth_state import consume_oauth_state
 from services.shopify_oauth import (
+    SHOPIFY_SCOPES,
     authorization_url,
     exchange_code,
     fetch_shop,
@@ -21,6 +22,7 @@ from services.shopify_oauth import (
     select_shopify_connection,
     sync_shopify_connection,
     save_shopify_connection,
+    validate_shopify_oauth_scopes,
     verify_callback_hmac,
 )
 from services.tenant import require_client_role, require_user_client_access, require_user_id
@@ -137,6 +139,14 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
         token = await exchange_code(shop_domain=shop_domain, code=code)
         stage = "shop_fetch"
         shop = await fetch_shop(shop_domain, str(token.get("access_token") or ""))
+
+        stage = "scope_validation"
+        await validate_shopify_oauth_scopes(
+            shop_domain=shop_domain,
+            access_token=str(token.get("access_token") or ""),
+            required_scopes=tuple(SHOPIFY_SCOPES),
+        )
+        _log_stage(stage, client_id=client_id, shop_domain=shop_domain, status="ok")
 
         # A partir daqui a autorização é válida e o token existe: a conexão é
         # persistida IMEDIATAMENTE. Webhook e backfill são etapas

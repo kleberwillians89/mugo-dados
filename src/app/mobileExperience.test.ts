@@ -9,7 +9,7 @@ describe("mobile product experience contracts", () => {
     const app = readFileSync(path.join(root, "src/App.tsx"), "utf8");
     const css = readFileSync(path.join(root, "src/styles/App.css"), "utf8");
     expect(app).toContain('className="mobileBottomNav"');
-    expect(app).toContain("Visão Geral");
+    expect(app).not.toContain('label: "Visão Geral"');
     expect(app).toContain("Ecommerce");
     expect(app).toContain("Inteligência");
     expect(css).toContain("env(safe-area-inset-bottom)");

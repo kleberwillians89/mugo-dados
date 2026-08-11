@@ -60,8 +60,9 @@ describe("OperacaoReal — painel HOJE", () => {
     const markup = renderToStaticMarkup(<OperacaoReal data={data} />);
     expect(markup).toContain("Os dados de hoje ainda podem sofrer alterações.");
     expect(markup).toMatch(/480,00/);
-    expect(markup).toMatch(/100,00/);
-    expect(markup).toContain("4.00x");
+    expect(markup).toContain("Período selecionado");
+    expect(markup).not.toContain("Investimento Meta");
+    expect(markup).not.toContain("ROAS Meta");
   });
 
   it("distingue ausência de cobertura hoje de zero real", () => {
@@ -88,11 +89,11 @@ describe("OperacaoReal — painel HOJE", () => {
     expect(markup).not.toContain("Os dados de hoje ainda podem sofrer alterações.");
   });
 
-  it("retorno sobre mídia mostra rótulo correto conforme fontes incluídas", () => {
+  it("mantém mídia e ROAS fora da visão de operação da loja", () => {
     const onlyMeta = baseData({});
     const markup = renderToStaticMarkup(<OperacaoReal data={onlyMeta} />);
-    expect(markup).toContain("Retorno sobre mídia conectada");
-    expect(markup).not.toContain("Retorno real sobre mídia");
+    expect(markup).not.toContain("Investimento em mídia");
+    expect(markup).not.toContain("Retorno sobre mídia");
   });
 
   it("sem Shopify conectado, o bloco inteiro não é renderizado", () => {

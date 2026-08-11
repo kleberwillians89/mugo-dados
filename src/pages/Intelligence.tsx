@@ -101,6 +101,14 @@ function metricMap(metrics: IntelligenceMetric[]) {
   return new Map(metrics.map((metric) => [metric.id, metric]));
 }
 
+function sourceStatusLabel(status: string): string {
+  if (status === "available") return "Com dados";
+  if (status === "connected_no_data") return "Conectado • sem dados no período";
+  if (status === "not_connected") return "Não conectado";
+  if (status === "error") return "Temporariamente indisponível";
+  return "Dados insuficientes no período";
+}
+
 function IntelligenceSkeleton() {
   return (
     <div className="intelSkeleton" aria-label="Carregando inteligência" aria-busy="true">
@@ -239,9 +247,13 @@ export default function Intelligence({ onLogout }: Props) {
     refreshController.current = controller;
     try {
       const result = await generateIntelligenceAnalysis(period, { signal: controller.signal });
+      // A resposta recém-gerada passa a ser autoritativa. Leituras iniciais
+      // atrasadas não podem reintroduzir um erro antigo sobre essa versão.
+      requestVersion.current += 1;
       setSnapshot(result.snapshot);
       setAnalysis(result.analysis);
       setProviderConfigured(result.provider_configured);
+      setError("");
       const nextHistory = [result.analysis, ...history.filter((item) => item.id !== result.analysis.id)];
       setHistory(nextHistory);
       workspaceCache.set(cacheKey, {
@@ -316,7 +328,7 @@ export default function Intelligence({ onLogout }: Props) {
         </div>
         <div className="intelHeaderActions">
           <button className="btn btnPrimary" onClick={() => void refreshAnalysis()} disabled={refreshing}>
-            {refreshing ? "Atualizando análise…" : "Atualizar análise"}
+            {refreshing ? "Gerando análise..." : "Atualizar análise"}
           </button>
           <button className="btn btnGhost" onClick={() => void onLogout()}>Sair</button>
         </div>
@@ -326,7 +338,7 @@ export default function Intelligence({ onLogout }: Props) {
         <strong>Fontes</strong>
         {(snapshot?.sources || []).map((source) => (
           <span className={`intelSource is-${source.status}`} key={source.id}>
-            {source.label}<small>{source.status === "available" ? "com dados" : source.status.replace("_", " ")}</small>
+            {source.label}<small>{sourceStatusLabel(source.status)}</small>
           </span>
         ))}
       </section>
@@ -334,10 +346,9 @@ export default function Intelligence({ onLogout }: Props) {
       {error ? <div className="intelError" role="alert">{error}</div> : null}
       {providerConfigured === false || analysis?.status === "configuration_pending" ? (
         <section className="intelConfigState">
-          <strong>Provedor de IA aguardando configuração</strong>
+          <strong>Análise temporariamente indisponível</strong>
           <p>
-            As métricas abaixo são reais e foram calculadas pelo backend. Configure `OPENAI_API_KEY`
-            exclusivamente no backend para liberar diagnósticos e conversas. Nenhuma resposta foi simulada.
+            Os dados da empresa continuam disponíveis. A geração de novas análises será liberada assim que o serviço for restabelecido.
           </p>
         </section>
       ) : null}
@@ -345,7 +356,7 @@ export default function Intelligence({ onLogout }: Props) {
       <section className="intelExecutive">
         <div className="intelExecutiveMain">
           <span className="intelEyebrow">Resumo executivo</span>
-          <h2>{content?.executive.overall || "Ainda não existe uma análise salva para este período."}</h2>
+          <h2>{content?.executive.overall || "Ainda não existe uma análise para este período."}</h2>
           <p>
             {content
               ? content.executive.priority_action

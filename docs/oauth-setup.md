@@ -128,7 +128,7 @@ Checklist:
 
 1. Crie o app e defina a App URL para o frontend oficial.
 2. Cadastre os callbacks Shopify oficial e local.
-3. Configure apenas `read_orders`, `read_customers` e `read_products`.
+3. Configure `read_orders`, `read_all_orders`, `read_customers` e `read_products`.
 4. Cadastre webhooks de pedidos, clientes e `app/uninstalled`.
 5. Cadastre `customers/data_request`, `customers/redact` e `shop/redact`.
 6. Aponte todos ao endpoint oficial de webhooks.

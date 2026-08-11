@@ -344,6 +344,9 @@ class ShopifySecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         query = parse_qs(urlparse(value).query)
         self.assertEqual(query["redirect_uri"], [shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI])
+        requested_scopes = set(query["scope"][0].split(","))
+        self.assertIn("read_orders", requested_scopes)
+        self.assertIn("read_all_orders", requested_scopes)
         self.assertNotIn("%25", value)
 
 
