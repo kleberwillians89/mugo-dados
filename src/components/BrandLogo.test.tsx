@@ -21,7 +21,7 @@ describe("brand registry", () => {
   });
 
   it("centralizes the exact integration logo mapping", () => {
-    expect(PLATFORM_LOGOS[getIntegrationPlatformBrand("meta")!]).toBe("/platforms/instagram.png");
+    expect(PLATFORM_LOGOS[getIntegrationPlatformBrand("meta")!]).toBe("/platforms/meta.png");
     expect(PLATFORM_LOGOS[getIntegrationPlatformBrand("ga4")!]).toBe("/platforms/googleads.png");
     expect(PLATFORM_LOGOS[getIntegrationPlatformBrand("google_ads")!]).toBe("/platforms/googleads.png");
     expect(PLATFORM_LOGOS[getIntegrationPlatformBrand("shopify")!]).toBe("/platforms/ecommerce.png");

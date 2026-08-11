@@ -7,7 +7,7 @@ import Login from "./Login";
 describe("Login platform branding", () => {
   it("renders every integration with the centralized real logo mapping", () => {
     const markup = renderToStaticMarkup(<Login />);
-    expect(markup).toContain("/platforms/instagram.png");
+    expect(markup).toContain("/platforms/meta.png");
     expect(markup.match(/\/platforms\/googleads\.png/g)).toHaveLength(2);
     expect(markup.match(/\/platforms\/ecommerce\.png/g)).toHaveLength(2);
     expect(markup).toContain("/platforms/googlemerchant.png");

@@ -29,6 +29,7 @@ export function getClientBrand(clientId: string, displayName?: string): ClientBr
 }
 
 export const PLATFORM_LOGOS = {
+  meta: "/platforms/meta.png",
   instagram: "/platforms/instagram.png",
   facebook: "/platforms/facebook.png",
   tiktok: "/platforms/tiktok.png",
@@ -41,7 +42,7 @@ export const PLATFORM_LOGOS = {
 export type PlatformBrand = keyof typeof PLATFORM_LOGOS;
 
 export const INTEGRATION_PLATFORM_BRANDS = {
-  meta: "instagram",
+  meta: "meta",
   ga4: "googleads",
   google_ads: "googleads",
   shopify: "ecommerce",
