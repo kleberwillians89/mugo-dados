@@ -237,10 +237,7 @@ export default function Onboarding({
   const activeRole = getActiveClient()?.role || "viewer";
   const canManageConnections =
     activeRole === "platform_admin" ||
-    activeRole === "agency_admin" ||
-    activeRole === "client_admin" ||
-    activeRole === "owner" ||
-    activeRole === "admin";
+    activeRole === "agency_admin";
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -382,6 +379,7 @@ export default function Onboarding({
       params.delete("connection_id");
       params.delete("handoff");
       params.delete("error");
+      params.delete("code");
       params.delete("integration_product");
       params.delete("google_product");
       params.delete("view");
@@ -410,6 +408,7 @@ export default function Onboarding({
     const handoff = String(params.get("handoff") || "").trim();
     const callbackConnectionId = String(params.get("connection_id") || "").trim();
     const oauthError = String(params.get("error") || "").trim();
+    const oauthErrorCode = String(params.get("code") || "").trim();
 
     if (!oauthStatus) return;
     let preserveMetaRetry = false;
@@ -420,6 +419,9 @@ export default function Onboarding({
       }
 
       if (oauthStatus === "error") {
+        if (provider === "Shopify" && oauthErrorCode === "SHOPIFY_INSUFFICIENT_SCOPE") {
+          throw new Error("A Shopify não concedeu acesso ao histórico completo de pedidos. A conexão atual não foi alterada.");
+        }
         throw new Error(oauthError || "Falha no OAuth da integracao.");
       }
 
@@ -875,12 +877,12 @@ export default function Onboarding({
     }
   }
 
-  async function onStartShopifyOAuth() {
+  async function onStartShopifyOAuth(domainOverride?: string) {
     if (!canManageConnections) return;
     setOauthLoading(true);
     setErr(null);
     try {
-      const response = await startShopifyOAuth(shopifyDomain);
+      const response = await startShopifyOAuth(domainOverride || shopifyDomain);
       window.location.assign(response.authorization_url);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Informe um domínio válido nomedaloja.myshopify.com."));
@@ -1182,7 +1184,10 @@ export default function Onboarding({
 
   async function onDisconnectGeneric(connection: GenericConnection) {
     if (disconnectingId) return;
-    if (!window.confirm("Desconectar esta integração? O histórico importado será preservado.")) return;
+    const confirmation = connection.provider === "shopify"
+      ? "Desconectar a Shopify?\n\nA sincronização será interrompida. Os dados históricos e dashboards já importados serão preservados. Novos dados não serão sincronizados até uma nova conexão."
+      : "Desconectar esta integração? O histórico importado será preservado.";
+    if (!window.confirm(confirmation)) return;
     setDisconnectingId(connection.id);
     setErr(null);
     try {
@@ -1379,9 +1384,11 @@ export default function Onboarding({
                 ? selectUsableMetaConnection(genericConnections, activeClientId, requestedAuthorizationId) || undefined
                 : definition.id === "ga4"
                   ? selectUsableGoogleConnection(genericConnections, "ga4", activeClientId, requestedAuthorizationId) || undefined
-                  : definition.id === "google_ads"
-                    ? selectUsableGoogleConnection(genericConnections, "google_ads", activeClientId, requestedAuthorizationId) || undefined
-                    : undefined;
+                    : definition.id === "google_ads"
+                      ? selectUsableGoogleConnection(genericConnections, "google_ads", activeClientId, requestedAuthorizationId) || undefined
+                    : definition.id === "shopify"
+                      ? matchingConnections.find((item) => item.id === getSelectedConnectionId(activeClientId, "shopify")) || matchingConnections[0]
+                      : undefined;
               const canonicalEntry = (canonicalIntegrations.lastValidConnections || []).find(
                 (item) => item.provider === definition.id
               );
@@ -1419,20 +1426,25 @@ export default function Onboarding({
               // do card quando já existe uma conexão canônica; os estados de
               // pré-seleção (nenhuma autorização escolhida ainda) continuam
               // vindos do fluxo OAuth existente, que não é alterado aqui.
-              const displayStatus = canonicalEntry
+              const connectionState = String(connection?.status || "").toLowerCase();
+              const shopifyNeedsReauth = definition.id === "shopify" && Boolean(connection) &&
+                connectionState !== "disconnected" && !connection?.scopes?.includes("read_all_orders");
+              const displayStatus = shopifyNeedsReauth
+                ? "Atualização de permissão necessária"
+                : canonicalEntry
                 ? canonicalStatusLabel(canonicalEntry, canonicalIntegrations.isRefreshing)
                 : status;
               const actionable = definition.availability === "available";
-              const connectionState = String(connection?.status || "").toLowerCase();
               const shouldAuthorize = actionable && (
-                (!connection && matchingConnections.length === 0) || ["disconnected", "expired", "token_expired", "reauth_required"].includes(connectionState)
+                (!connection && matchingConnections.length === 0) ||
+                (definition.id !== "shopify" && ["disconnected", "expired", "token_expired", "reauth_required"].includes(connectionState))
               );
               const tone = definition.availability === "platform_update_pending"
                 ? "yellow"
                 : definition.id === "meta" && !metaAdsOperational
                   ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
-              const displayTone = canonicalEntry ? canonicalStatusTone(canonicalEntry) : tone;
+              const displayTone = shopifyNeedsReauth ? "yellow" : canonicalEntry ? canonicalStatusTone(canonicalEntry) : tone;
               const platformBrand = getIntegrationPlatformBrand(definition.id);
               return (
               <div className={`onboardingConnBlock is-${displayTone}`} key={definition.id}>
@@ -1452,7 +1464,7 @@ export default function Onboarding({
                   ) : canonicalEntry ? (
                     <StatusBadge
                       label={displayStatus}
-                      tone={canonicalStatusBadgeTone(canonicalEntry, canonicalIntegrations.isRefreshing) as StatusTone}
+                      tone={shopifyNeedsReauth ? "warning" : canonicalStatusBadgeTone(canonicalEntry, canonicalIntegrations.isRefreshing) as StatusTone}
                     />
                   ) : (
                     <>
@@ -1477,9 +1489,14 @@ export default function Onboarding({
                     </details>
                   </div>
                 ) : null}
+                {shopifyNeedsReauth ? (
+                  <div className="integrationErrorNotice" style={{ marginTop: 8 }}>
+                    <p>Atualize a autorização da Shopify para liberar o histórico completo de pedidos.</p>
+                  </div>
+                ) : null}
                 {(() => {
                   const needsAttention =
-                    !canonicalEntry || shouldAuthorize || connectionState === "selection_required" || matchingConnections.length > 1;
+                    !canonicalEntry || shopifyNeedsReauth || shouldAuthorize || connectionState === "selection_required" || matchingConnections.length > 1;
                   const isExpanded = expandedOverrides[definition.id] ?? needsAttention;
                   return (
                     <>
@@ -1645,18 +1662,28 @@ export default function Onboarding({
                       </>
                     ) : null}
                     {definition.id === "shopify" ? (
-                      <button
-                        className="btn btnGhost"
-                        type="button"
-                        disabled={!canManageConnections || saving}
-                        onClick={() => void onSyncShopify(connection.id)}
-                      >
-                        Atualizar dados
-                      </button>
+                      <>
+                        <button
+                          className="btn btnPrimary"
+                          type="button"
+                          disabled={!canManageConnections || oauthLoading}
+                          onClick={() => void onStartShopifyOAuth(String(connection.metadata?.shop_domain || connection.external_key || ""))}
+                        >
+                          {oauthLoading ? "Abrindo Shopify..." : connectionState === "disconnected" ? "Conectar Shopify" : "Atualizar permissões"}
+                        </button>
+                        {connectionState !== "disconnected" ? <button
+                          className="btn btnGhost"
+                          type="button"
+                          disabled={!canManageConnections || saving}
+                          onClick={() => void onSyncShopify(connection.id)}
+                        >
+                          Atualizar dados
+                        </button> : null}
+                      </>
                     ) : null}
-                    <button className="btn btnGhost" type="button" disabled={!canManageConnections || disconnectingId === connection.id} onClick={() => void onDisconnectGeneric(connection)}>
+                    {connectionState !== "disconnected" ? <button className="btn btnGhost" type="button" disabled={!canManageConnections || disconnectingId === connection.id} onClick={() => void onDisconnectGeneric(connection)}>
                       {disconnectingId === connection.id ? "Desconectando..." : "Desconectar"}
-                    </button>
+                    </button> : definition.id === "shopify" ? <span className="smallMuted">Dados históricos preservados.</span> : null}
                   </div>
                 ) : null}
                       </>) : null}

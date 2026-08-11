@@ -73,6 +73,24 @@ vi.mock("../app/api", () => ({
   syncGa4: vi.fn(),
 }));
 
+vi.mock("../components/dashboard/PerformanceChart", () => ({
+  default: () => <div data-testid="google-ads-performance-chart" />,
+}));
+
+vi.mock("../app/DashboardDataContext", () => ({
+  useDashboardSnapshot: () => ({
+    daily: [{
+      metric_date: "2026-08-10",
+      google_ads_spend: 100,
+      google_ads_conversion_value: 450,
+      google_ads_conversions: 5,
+      google_ads_impressions: 1000,
+      google_ads_clicks: 50,
+    }],
+    sources: [{ provider: "google_ads", last_success_at: "2026-08-10T12:00:00Z" }],
+  }),
+}));
+
 import GoogleAnalytics from "./GoogleAnalytics";
 
 let container: HTMLDivElement;
@@ -141,5 +159,25 @@ describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneam
     await renderGa4();
     expect(container.textContent).toContain("Fonte: Google Analytics 4");
     expect(container.textContent).toContain("podem diferir da loja e das plataformas de mídia");
+  });
+
+  it("usa exclusivamente os campos canônicos do Google Ads no resumo comercial", async () => {
+    await renderGa4();
+    const commercial = container.querySelector(".googleCommercialSection");
+    expect(commercial?.textContent).toContain("R$ 450,00");
+    expect(commercial?.textContent).toContain("R$ 100,00");
+    expect(commercial?.textContent).toContain("4.50x");
+    expect(commercial?.textContent).toContain("R$ 90,00");
+    expect(commercial?.textContent).toContain("Compras5");
+  });
+
+  it("o bloco Hoje contém somente vendas, pedidos e ticket", async () => {
+    await renderGa4();
+    const today = container.querySelector(".channelToday");
+    expect(today?.textContent).toContain("Valor vendido hoje");
+    expect(today?.textContent).toContain("Pedidos hoje");
+    expect(today?.textContent).toContain("Ticket médio hoje");
+    expect(today?.textContent).not.toContain("ROAS");
+    expect(today?.textContent).not.toContain("Investimento");
   });
 });

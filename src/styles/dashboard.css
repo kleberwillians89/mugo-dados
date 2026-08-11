@@ -1392,6 +1392,15 @@
 .performanceSub span{ font-size: 10.5px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: rgba(255,255,255,.6); }
 .performanceHero.is-empty .performanceSub span{ color: var(--executive-gray); }
 .performanceSub b{ font-size: 17px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.channelToday{ display:grid; gap:16px; padding:22px; border:1px solid rgba(26,23,24,.1); background:#fff; border-radius:8px; }
+.channelTodayHead{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.channelTodayHead div{ display:grid; gap:4px; }
+.channelTodayHead>span,.channelToday>small{ color:var(--executive-gray); font-size:12px; }
+.channelTodayGrid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.channelTodayGrid>div{ display:grid; gap:6px; min-width:0; }
+.channelTodayGrid span{ color:var(--executive-gray); font-size:11px; font-weight:750; text-transform:uppercase; }
+.channelTodayGrid strong{ font-size:clamp(17px,2vw,23px); overflow-wrap:anywhere; }
+@media(max-width:640px){ .channelTodayHead{ display:grid; }.channelTodayGrid{ grid-template-columns:1fr; } }
 .performanceSource{ font-size: 11px; color: rgba(255,255,255,.55); margin-top: 4px; }
 .performanceHero.is-empty .performanceSource{ color: var(--executive-gray); }
 

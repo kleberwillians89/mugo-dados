@@ -8,11 +8,14 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
   syncShopifyConnection: vi.fn(async () => ({ ok: true })),
+  startShopifyOAuth: vi.fn(async () => ({ authorization_url: "https://shopify.test/oauth" })),
+  disconnectGenericConnection: vi.fn(async () => ({ ok: true })),
   selectedConnections: {} as Record<string, string>,
+  role: "agency_admin",
 }));
 
 vi.mock("../app/activeClient", () => ({
-  getActiveClient: () => ({ id: "amalie", name: "Amalie", role: "owner" }),
+  getActiveClient: () => ({ id: "amalie", name: "Amalie", role: mocks.role }),
   getActiveClientId: () => "amalie",
   getActiveClientName: () => "Amalie",
   getActiveClientConfigurationWarning: () => null,
@@ -33,7 +36,7 @@ vi.mock("../app/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../app/api")>();
   const shopifyConnection = {
     id: "shopify-conn-1", client_id: "amalie", provider: "shopify", status: "connected",
-    token_available: true, disconnected_at: null, metadata: { shop_domain: "amalie-6421.myshopify.com" },
+    token_available: true, disconnected_at: null, scopes: ["read_orders", "read_all_orders", "read_customers", "read_products"], metadata: { shop_domain: "amalie-6421.myshopify.com" },
   };
   return {
     ...actual,
@@ -60,6 +63,8 @@ vi.mock("../app/api", async (importOriginal) => {
     })),
     getApiVersion: vi.fn(async () => ({ commit_sha: "test-sha", build_time: "test", environment: "test" })),
     syncShopifyConnection: mocks.syncShopifyConnection,
+    startShopifyOAuth: mocks.startShopifyOAuth,
+    disconnectGenericConnection: mocks.disconnectGenericConnection,
   };
 });
 
@@ -71,6 +76,7 @@ let root: ReturnType<typeof createRoot> | null = null;
 beforeEach(() => {
   mocks.syncShopifyConnection.mockClear();
   mocks.selectedConnections = {};
+  mocks.role = "agency_admin";
   window.history.pushState({}, "", "/?shopify_oauth=success&connection_id=shopify-conn-1&client_id=amalie");
 });
 
@@ -117,5 +123,22 @@ describe("Onboarding — retorno do OAuth Shopify não dispara backfill duplicad
   it("nunca mostra erro vermelho para o retorno de sucesso do OAuth Shopify", async () => {
     await mount();
     expect(container?.textContent).not.toMatch(/Falha ao processar o retorno do OAuth/);
+  });
+
+  it("expõe atualizar permissões e desconectar para a conexão Shopify existente", async () => {
+    await mount();
+    const manage = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Gerenciar") as HTMLButtonElement;
+    await act(async () => manage.click());
+    expect(container?.textContent).toContain("Atualizar permissões");
+    expect(container?.textContent).toContain("Desconectar");
+  });
+
+  it("não habilita gerenciamento de integrações para client_admin", async () => {
+    mocks.role = "client_admin";
+    await mount();
+    const manage = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Gerenciar") as HTMLButtonElement;
+    await act(async () => manage.click());
+    const update = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Atualizar permissões") as HTMLButtonElement;
+    expect(update.disabled).toBe(true);
   });
 });

@@ -16,6 +16,7 @@ import ExecutiveOverview, {
   type ExecutiveMetric,
   type ExecutiveSource,
 } from "../components/dashboard/ExecutiveOverview";
+import ChannelTodaySummary from "../components/dashboard/ChannelTodaySummary";
 
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
 import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyContent";
@@ -2116,6 +2117,21 @@ export default function Dashboard({
         source: "Meta Ads",
       },
       {
+        key: "ticket",
+        label: "Ticket médio Meta",
+        value:
+          paidExecutiveAvailable && safe(paidTotals?.conversions) > 0
+            ? safe(paidTotals?.revenue) / safe(paidTotals?.conversions)
+            : null,
+        previous:
+          comparablePaid && safe(previousPaidData?.totals?.conversions) > 0
+            ? safe(previousPaidData?.totals?.revenue) / safe(previousPaidData?.totals?.conversions)
+            : null,
+        format: "currency",
+        context: "Receita atribuída à Meta dividida pelas compras atribuídas à Meta.",
+        source: "Meta Ads",
+      },
+      {
         key: "followers",
         label: "Seguidores no período",
         value: organicExecutiveAvailable ? safe(dash?.period_totals?.followers_growth) : null,
@@ -2397,6 +2413,19 @@ export default function Dashboard({
             loading={loadingDash || loadingPaid}
             error={dashboardError}
           />
+
+          {period.start <= new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) &&
+          period.end >= new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) ? <ChannelTodaySummary
+            channel="Meta"
+            date={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date())}
+            value={(() => {
+              const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+              const row = paidData?.daily?.find((item) => item.date === today);
+              return row?.revenue != null && row.conversions != null
+                ? { revenue: row.revenue, orders: row.conversions }
+                : null;
+            })()}
+          /> : null}
 
           {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily} /> : null}
 

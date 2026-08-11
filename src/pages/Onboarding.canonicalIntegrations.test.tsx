@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../app/activeClient", () => ({
-  getActiveClient: () => ({ id: mocks.activeClientId, name: "Amalie", role: "owner" }),
+  getActiveClient: () => ({ id: mocks.activeClientId, name: "Amalie", role: "agency_admin" }),
   getActiveClientId: () => mocks.activeClientId,
   getActiveClientName: () => "Amalie",
   getActiveClientConfigurationWarning: () => null,

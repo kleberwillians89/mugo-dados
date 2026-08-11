@@ -30,6 +30,9 @@ import {
   getActiveClientConfigurationWarning,
 } from "../app/activeClient";
 import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "../components/dashboard/chartTheme";
+import ChannelTodaySummary from "../components/dashboard/ChannelTodaySummary";
+import PerformanceChart from "../components/dashboard/PerformanceChart";
+import { useDashboardSnapshot } from "../app/DashboardDataContext";
 
 import "../styles/dashboard.css";
 import "../styles/google-analytics.css";
@@ -75,6 +78,10 @@ function toErrorMessage(error: unknown) {
 
 function formatPct(value: number) {
   return `${Number.isFinite(value) ? value.toFixed(value >= 10 ? 0 : 1) : "0.0"}%`;
+}
+
+function formatCurrency(value: number | null): string {
+  return value == null ? "Sem dados" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 }
 
 function formatUpdatedAtLabel(value: string | null | undefined): string | null {
@@ -467,6 +474,41 @@ export default function GoogleAnalytics({
     activeClientId: activeGa4ClientId,
     period: selectedRange,
   });
+  const adsModel = useDashboardSnapshot(selectedRange.start, selectedRange.end);
+  const googleAds = useMemo(() => {
+    const rows = adsModel.daily;
+    const available = rows.some((row) =>
+      row.google_ads_spend != null || row.google_ads_conversion_value != null || row.google_ads_conversions != null
+    );
+    if (!available) return null;
+    const spend = rows.reduce((total, row) => total + Number(row.google_ads_spend || 0), 0);
+    const revenue = rows.reduce((total, row) => total + Number(row.google_ads_conversion_value || 0), 0);
+    const conversions = rows.reduce((total, row) => total + Number(row.google_ads_conversions || 0), 0);
+    return {
+      spend,
+      revenue,
+      conversions,
+      roas: spend > 0 ? revenue / spend : null,
+      ticket: conversions > 0 ? revenue / conversions : null,
+      daily: rows.map((row) => ({
+        date: row.metric_date,
+        spend: row.google_ads_spend,
+        revenue: row.google_ads_conversion_value,
+        conversions: row.google_ads_conversions,
+        impressions: row.google_ads_impressions,
+        clicks: row.google_ads_clicks,
+        reach: null,
+        cpc: row.google_ads_spend != null && row.google_ads_clicks ? row.google_ads_spend / row.google_ads_clicks : null,
+        cpm: row.google_ads_spend != null && row.google_ads_impressions ? row.google_ads_spend * 1000 / row.google_ads_impressions : null,
+        ctr: row.google_ads_clicks != null && row.google_ads_impressions ? row.google_ads_clicks * 100 / row.google_ads_impressions : null,
+        roas: row.google_ads_spend != null && row.google_ads_spend > 0 && row.google_ads_conversion_value != null
+          ? row.google_ads_conversion_value / row.google_ads_spend : null,
+      })),
+    };
+  }, [adsModel.daily]);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const googleToday = googleAds?.daily.find((row) => row.date === today);
+  const googleAdsUpdatedAt = formatUpdatedAtLabel(adsModel.sources.find((source) => source.provider === "google_ads")?.last_success_at);
   useEffect(() => {
     if (selectedGa4ClientId === activeGa4ClientId) return;
     setSelectedGa4ClientId(activeGa4ClientId);
@@ -841,6 +883,26 @@ export default function GoogleAnalytics({
             </div>
 
           </div>
+        </section>
+
+        <section className="googleSection googleCommercialSection" aria-labelledby="google-commercial-title">
+          <div className="sectionHeader">
+            <div><div className="googlePageEyebrow">Resultado</div><div className="h1" id="google-commercial-title">Performance Google Ads</div></div>
+            <span className="dashboardTimestamp">{googleAdsUpdatedAt ? `Atualizado em ${googleAdsUpdatedAt}` : "Aguardando sincronização"}</span>
+          </div>
+          <div className="googleKpiGrid googleCommercialKpiGrid">
+            <GoogleMetricCard label="Vendas" value={formatCurrency(googleAds?.revenue ?? null)} hint="Receita atribuída ao Google Ads" accent />
+            <GoogleMetricCard label="Investimento" value={formatCurrency(googleAds?.spend ?? null)} hint="Investimento Google Ads" />
+            <GoogleMetricCard label="ROAS" value={googleAds?.roas != null ? `${googleAds.roas.toFixed(2)}x` : "Sem dados"} hint="Receita atribuída ÷ investimento" />
+            <GoogleMetricCard label="Compras" value={googleAds?.conversions != null ? googleAds.conversions.toLocaleString("pt-BR") : "Sem dados"} hint="Conversões atribuídas ao Google Ads" />
+            <GoogleMetricCard label="Ticket médio" value={formatCurrency(googleAds?.ticket ?? null)} hint="Receita atribuída ÷ compras" />
+          </div>
+          {selectedRange.start <= today && selectedRange.end >= today ? <ChannelTodaySummary
+            channel="Google"
+            date={today}
+            value={googleToday?.revenue != null && googleToday.conversions != null ? { revenue: googleToday.revenue, orders: googleToday.conversions } : null}
+          /> : null}
+          {googleAds ? <PerformanceChart daily={googleAds.daily} source="Google Ads" /> : null}
         </section>
 
         {loadingGa4 && !ga4Report ? <GoogleAnalyticsSkeleton /> : null}

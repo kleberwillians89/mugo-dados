@@ -11,7 +11,9 @@ export default function useDashboardPaid({ activeClientId, enabled = true, perio
   const model = useDashboardSnapshot(safePeriod.start, safePeriod.end);
   const paidData = useMemo<PaidDashboardResponse | null>(() => {
     if (!activeClientId || !enabled || (!model.snapshot && model.loading)) return null;
-    const daily = model.daily.map((row) => {
+    const daily = model.daily.filter((row) =>
+      row.meta_spend != null || row.meta_attributed_revenue != null || row.meta_purchases != null
+    ).map((row) => {
       const spend = row.meta_spend; const revenue = row.meta_attributed_revenue;
       return { date: row.metric_date, spend, revenue, conversions: row.meta_purchases, impressions: row.meta_impressions,
         reach: row.meta_reach, clicks: row.meta_clicks, cpc: spend != null && row.meta_clicks ? spend / row.meta_clicks : null,

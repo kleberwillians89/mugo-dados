@@ -37,8 +37,10 @@ function formatValue(metric: MetricKey, value: number | null): string {
 
 export default function PerformanceChart({
   daily,
+  source = "Meta Ads",
 }: {
   daily: Array<{ date: string; missing?: boolean } & PaidTotals> | undefined;
+  source?: "Meta Ads" | "Google Ads";
 }) {
   const [metric, setMetric] = useState<MetricKey>("revenue");
   const rows = useMemo(() => daily || [], [daily]);
@@ -93,7 +95,7 @@ export default function PerformanceChart({
           displayColors: false,
           callbacks: {
             title: (items) => `Data: ${labels[items[0]?.dataIndex ?? 0] || ""}`,
-            label: (item) => `${formatValue(metric, item.parsed.y == null ? null : Number(item.parsed.y))} · Fonte: Meta Ads`,
+            label: (item) => `${formatValue(metric, item.parsed.y == null ? null : Number(item.parsed.y))} · Fonte: ${source}`,
           },
         },
       },
@@ -115,7 +117,7 @@ export default function PerformanceChart({
         },
       },
     }),
-    [labels, metric]
+    [labels, metric, source]
   );
 
   return (

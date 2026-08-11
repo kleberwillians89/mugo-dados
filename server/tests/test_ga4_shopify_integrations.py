@@ -67,6 +67,41 @@ class ShopifyReauthorizationPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update.await_args.kwargs["filters"]["id"], "eq.shopify-connection-amalie")
         insert.assert_not_awaited()
 
+    async def test_missing_read_all_orders_never_replaces_existing_connection(self):
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
+        request = type("Request", (), {"query_params": {
+            "code": "new-code", "state": "signed-state",
+            "shop": "amalie-6421.myshopify.com", "hmac": "valid",
+        }})()
+        session = {
+            "user_id": "user-admin", "client_id": "amalie",
+            "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            "context": {"shop_domain": "amalie-6421.myshopify.com"},
+        }
+        missing_scope = IntegrationError(
+            "A Shopify não concedeu todas as permissões solicitadas.",
+            status_code=403, code="SHOPIFY_INSUFFICIENT_SCOPE", provider="shopify",
+        )
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(shopify_routes, "consume_oauth_state", AsyncMock(return_value=session)),
+            patch.object(shopify_routes, "safe_oauth_configuration", return_value={
+                "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+            }),
+            patch.object(shopify_routes, "require_user_client_access", AsyncMock()),
+            patch.object(shopify_routes, "exchange_code", AsyncMock(return_value={"access_token": "new-token"})),
+            patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Amalie"})),
+            patch.object(shopify_routes, "validate_shopify_oauth_scopes", AsyncMock(side_effect=missing_scope)),
+            patch.object(shopify_routes, "save_shopify_connection", AsyncMock()) as save,
+            patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+        ):
+            response = await shopify_routes.callback(request, background_tasks)
+
+        self.assertIn("shopify_oauth=error", response.headers["location"])
+        self.assertIn("SHOPIFY_INSUFFICIENT_SCOPE", response.headers["location"])
+        save.assert_not_awaited()
+        background_tasks.add_task.assert_not_called()
+
 
 def google_row(*, metadata=None, status="connected", client_id="roove"):
     return {

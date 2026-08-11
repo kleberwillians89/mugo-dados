@@ -71,6 +71,7 @@ export default function ExecutiveOverview({
   const roas = metrics.find((metric) => metric.key === "roas");
   const revenue = metrics.find((metric) => metric.key === "revenue");
   const conversions = metrics.find((metric) => metric.key === "conversions");
+  const ticket = metrics.find((metric) => metric.key === "ticket");
   const hasAnyData = metrics.some((metric) => metric.value != null);
   const hasMediaPerformance = revenue?.value != null;
   const revenueDelta =
@@ -170,6 +171,9 @@ export default function ExecutiveOverview({
             ) : null}
             {conversions ? (
               <div><span>Compras</span><b>{conversions.value != null ? formatMetric(conversions.value, "number") : "Sem dados"}</b></div>
+            ) : null}
+            {ticket ? (
+              <div><span>Ticket médio</span><b>{ticket.value != null ? formatMetric(ticket.value, "currency") : "Sem dados"}</b></div>
             ) : null}
           </div>
           <span className="performanceSource">Fonte: Meta Ads</span>

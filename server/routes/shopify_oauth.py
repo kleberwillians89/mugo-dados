@@ -79,7 +79,7 @@ async def start(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
     user_id = await require_user_id(authorization)
     domain = normalize_shop_domain(shop)
     diagnostic = safe_oauth_configuration()
@@ -183,7 +183,11 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
     except Exception as exc:
         _log_stage(stage, client_id=client_id, shop_domain=shop_domain, status="error", error=exc)
         return RedirectResponse(
-            _frontend_redirect({"shopify_oauth": "error", "error": str(exc)[:160]}),
+            _frontend_redirect({
+                "shopify_oauth": "error",
+                "error": str(exc)[:160],
+                "code": str(getattr(exc, "code", "") or "")[:80],
+            }),
             status_code=302,
         )
 
@@ -209,7 +213,7 @@ async def select_store(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
     user_id = await require_user_id(authorization)
     connection = await select_shopify_connection(
         client_id=cid,
@@ -252,7 +256,7 @@ async def reconcile_store_period(
     cid = await require_client_role(
         client_id or x_client_id,
         authorization,
-        allowed_roles=("agency_admin", "client_admin"),
+        allowed_roles=("agency_admin",),
     )
     return await reconcile_shopify_period(
         client_id=cid, connection_id=connection_id, start=start, end=end,
@@ -266,6 +270,6 @@ async def disconnect(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_role(client_id or x_client_id, authorization)
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
     user_id = await require_user_id(authorization)
     return {"ok": True, "connection": await disconnect_generic_connection(cid, connection_id, user_id)}
