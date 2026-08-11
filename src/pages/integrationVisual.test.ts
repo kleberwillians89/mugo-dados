@@ -14,8 +14,8 @@ describe("professional integration states and official identity", () => {
     const html = source("../../index.html");
     const combined = `${app}\n${login}\n${onboarding}\n${logo}\n${html}`;
     expect(combined).toContain("MugoLogo");
-    expect(combined).toContain("/mugo_logo1.png");
-    expect(combined).toContain("MUG%C3%94_LOGO5.png");
+    expect(combined).toContain("/brand/mugo.png");
+    expect(combined).toContain("/brand/mugo-symbol.png");
     expect(combined).not.toContain("assets/mugo-logo.svg");
   });
 

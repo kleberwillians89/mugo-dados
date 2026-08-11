@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { BarChart3, BrainCircuit, House, MoreHorizontal, ShoppingBag, SlidersHorizontal, Building2, LogOut } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import {
   disableLocalAuth,
@@ -139,6 +140,7 @@ function PrimaryNavigation({
   clients,
   activeClientId,
   onClientChange,
+  onLogout,
 }: {
   route: AppRoute;
   platformAdmin: boolean;
@@ -146,7 +148,9 @@ function PrimaryNavigation({
   clients?: ClientMembership[];
   activeClientId?: string;
   onClientChange?: (clientId: string) => void;
+  onLogout: () => void | Promise<void>;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const items: Array<{ route: AppRoute; label: string }> = [
     { route: "dashboard", label: "Visão Geral" },
     { route: "google", label: "Analytics" },
@@ -185,6 +189,38 @@ function PrimaryNavigation({
           />
         ) : null}
       </div>
+      <div className="mobileHeaderRow">
+        <MugoLogo variant="symbol" className="mobileHeaderBrand" />
+        {clients && activeClientId && onClientChange ? (
+          <ClientSwitcher clients={clients} activeClientId={activeClientId} onChange={onClientChange} />
+        ) : null}
+      </div>
+      <div className="mobileBottomNav" aria-label="Navegação mobile">
+        {[
+          { route: "dashboard" as const, label: "Visão Geral", Icon: House },
+          { route: "google" as const, label: "Analytics", Icon: BarChart3 },
+          { route: "ecommerce" as const, label: "E-commerce", Icon: ShoppingBag },
+          { route: "intelligence" as const, label: "Inteligência", Icon: BrainCircuit },
+        ].map(({ route: itemRoute, label, Icon }) => (
+          <button key={itemRoute} type="button" aria-current={route === itemRoute ? "page" : undefined} onClick={() => { setMoreOpen(false); onOpen(itemRoute); }}>
+            <Icon size={20} aria-hidden="true" /><span>{label}</span>
+          </button>
+        ))}
+        <button type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>
+          <MoreHorizontal size={20} aria-hidden="true" /><span>Mais</span>
+        </button>
+      </div>
+      {moreOpen ? (
+        <div className="mobileMoreMenu" role="menu">
+          {!isReadOnlyClientRole(getActiveClient()?.role) ? (
+            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("integrations"); }}><SlidersHorizontal size={19} />Integrações</button>
+          ) : null}
+          {platformAdmin ? (
+            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("companies"); }}><Building2 size={19} />Administração</button>
+          ) : null}
+          <button type="button" role="menuitem" onClick={() => void onLogout()}><LogOut size={19} />Sair</button>
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -651,6 +687,7 @@ export default function App() {
           clients={clients}
           activeClientId={activeClientId}
           onClientChange={handleClientChange}
+          onLogout={handleLogout}
         />
         <Suspense fallback={<AppLoading />}>
           <Onboarding
@@ -674,6 +711,7 @@ export default function App() {
         clients={clients}
         activeClientId={activeClientId}
         onClientChange={handleClientChange}
+        onLogout={handleLogout}
       />
       <Suspense fallback={<AppLoading />}>
       {route === "not_found" ? (

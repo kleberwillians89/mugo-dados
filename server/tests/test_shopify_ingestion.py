@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -131,7 +133,10 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["synced"]["orders_upserted"], 4)
         self.assertEqual(result["synced"]["refunds_upserted"], 1)
         read_model_refresh.assert_awaited_once_with(
-            client_id="amalie", start="2026-08-09", end="2026-08-10", provider="shopify",
+            client_id="amalie",
+            start="2026-08-09",
+            end=datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat(),
+            provider="shopify",
         )
 
     async def test_pending_order_is_updated_in_place_when_api_returns_paid(self):

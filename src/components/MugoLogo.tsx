@@ -1,9 +1,9 @@
 import whiteWordmark from "../assets/mugo-logo.png";
 
 export const MUGO_LOGO_ASSETS = {
-  wordmark: "/mugo_logo1.png",
+  wordmark: "/brand/mugo.png",
   wordmarkInverse: whiteWordmark,
-  symbol: "/MUG%C3%94_LOGO5.png",
+  symbol: "/brand/mugo-symbol.png",
 } as const;
 
 type MugoLogoVariant = keyof typeof MUGO_LOGO_ASSETS | "responsive";
@@ -18,8 +18,7 @@ export default function MugoLogo({ variant = "wordmark", className = "", alt = "
   if (variant === "responsive") {
     return (
       <span className={`mugoLogo mugoLogoResponsive ${className}`.trim()}>
-        <img className="mugoLogoDesktop" src={MUGO_LOGO_ASSETS.wordmark} alt={alt} />
-        <img className="mugoLogoMobile" src={MUGO_LOGO_ASSETS.symbol} alt={alt} />
+        <img src={MUGO_LOGO_ASSETS.symbol} alt={alt} />
       </span>
     );
   }

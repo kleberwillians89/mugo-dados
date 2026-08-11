@@ -75,6 +75,12 @@ export default function ExecutiveOverview({
   const hasMediaPerformance = revenue?.value != null;
   const revenueDelta =
     revenue?.value != null && revenue?.previous != null ? changeOf(revenue.value, revenue.previous) : null;
+  const periodImpact = metrics.flatMap((metric) => {
+    if (metric.value == null || metric.previous == null) return [];
+    const change = changeOf(metric.value, metric.previous);
+    if (change.absolute === 0) return [];
+    return [{ metric, change }];
+  }).slice(0, 4);
 
   return (
     <section className="executiveOverview" aria-labelledby="executive-title">
@@ -105,6 +111,27 @@ export default function ExecutiveOverview({
 
       {partialCoverage ? <div className="executiveNotice">{partialCoverage}</div> : null}
       {error ? <div className="executiveNotice isError">Parte das fontes não respondeu. A última leitura válida foi preservada.</div> : null}
+
+      {periodImpact.length ? (
+        <section className="executiveImpact" aria-labelledby="impact-title">
+          <div><span className="executiveEyebrow">Impacto do período</span><h2 id="impact-title">O que mudou</h2></div>
+          <div className="executiveImpactGrid">
+            {periodImpact.map(({ metric, change }) => (
+              <article key={metric.key}>
+                <strong>
+                  {metric.key === "followers"
+                    ? signedValue(metric.value || 0)
+                    : change.percent == null
+                    ? signedValue(change.absolute, metric.format === "ratio" ? 2 : 0)
+                    : `${signedValue(change.percent, 1)}%`}
+                </strong>
+                <span>{metric.label}</span>
+                <small>{metric.key === "followers" ? "no período acompanhado" : change.percent == null ? "Variação absoluta" : "vs. período anterior"}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* Composição única de performance: nunca vários cards concorrendo —
           um resultado central (receita atribuída Meta), com investimento,
@@ -188,6 +215,20 @@ export default function ExecutiveOverview({
           <p>Receita, pedidos, clientes e produtos não são inferidos neste painel quando a fonte comercial não está presente.</p>
         </div>
       </div>
+
+      {hasAnyData ? (
+        <section className="executiveReading" aria-labelledby="reading-title">
+          <div>
+            <span className="executiveEyebrow">Leitura Mugô</span>
+            <h2 id="reading-title">Da evidência ao próximo movimento</h2>
+          </div>
+          <div className="executiveReadingGrid">
+            <article><span>O que aconteceu</span><p>{advance ? `${advance.metric.label} avançou ${signedValue(advance.percent || 0, 1)}% no comparativo.` : "O período ainda não tem avanço comparável suficiente."}</p></article>
+            <article><span>Por que importa</span><p>{narrative.opportunity}</p></article>
+            <article><span>Próxima ação</span><p>{narrative.nextAction}</p><small>Prioridade baseada nos dados disponíveis</small></article>
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }

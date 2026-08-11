@@ -67,6 +67,8 @@ import AssetCombobox from "../components/AssetCombobox";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
 import StatusBadge, { type StatusTone } from "../components/StatusBadge";
+import { PlatformLogo } from "../components/BrandLogo";
+import { getIntegrationPlatformBrand } from "../app/brandRegistry";
 import {
   INTEGRATION_REGISTRY,
   unavailableIntegrationLabel,
@@ -187,11 +189,6 @@ function humanizeIntegrationError(rawError: string, providerName: string): strin
     return `A conexão com a ${providerName} expirou. Reconecte para retomar as atualizações.`;
   }
   return `Não conseguimos atualizar a ${providerName} agora. Os últimos dados salvos continuam disponíveis.`;
-}
-
-function integrationLogoSrc(id: string): string | null {
-  if (id === "meta") return "/logoinstagram.png";
-  return null;
 }
 
 function isOrganicConnection(connection: MetaConnection): boolean {
@@ -1436,11 +1433,11 @@ export default function Onboarding({
                   ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
               const displayTone = canonicalEntry ? canonicalStatusTone(canonicalEntry) : tone;
-              const logoSrc = integrationLogoSrc(definition.id);
+              const platformBrand = getIntegrationPlatformBrand(definition.id);
               return (
               <div className={`onboardingConnBlock is-${displayTone}`} key={definition.id}>
                 <div className="integrationCardHeading">
-                  {logoSrc ? <img className="integrationOfficialLogo" src={logoSrc} alt={`${definition.name} logo`} /> : null}
+                  {platformBrand ? <PlatformLogo platform={platformBrand} size={44} className="integrationOfficialLogo" /> : null}
                   <div>
                     <div className="h1">{definition.name}</div>
                     <div className="smallMuted">{definition.resources.join(" · ")}</div>

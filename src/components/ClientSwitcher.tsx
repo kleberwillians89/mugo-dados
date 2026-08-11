@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { ClientMembership } from "../app/api";
 import { ROLE_LABELS } from "../app/roles";
+import { ClientLogo } from "./BrandLogo";
 
 type Props = {
   clients: ClientMembership[];
@@ -22,7 +23,6 @@ export default function ClientSwitcher({ clients, activeClientId, onChange }: Pr
 
   if (!clients.length) return null;
   const activeClient = clients.find((client) => client.client_id === activeClientId);
-  const initial = String(activeClient?.name || "M").trim().slice(0, 1).toUpperCase();
   const roleLabel = activeClient?.role ? ROLE_LABELS[activeClient.role] || activeClient.role : null;
   const pendingClient = pendingId ? clients.find((client) => client.client_id === pendingId) : null;
 
@@ -65,7 +65,7 @@ export default function ClientSwitcher({ clients, activeClientId, onChange }: Pr
           if (event.key === "Escape") setOpen(false);
         }}
       >
-        <span className="clientSwitcherAvatar" aria-hidden="true">{initial}</span>
+        <ClientLogo clientId={activeClientId} displayName={activeClient?.name} size={32} className="clientSwitcherAvatar" />
         <span className="clientSwitcherIdentity">
           <span className="clientSwitcherName">
             {pendingClient ? `Trocando para ${pendingClient.name}…` : activeClient?.name || "Empresa"}
@@ -112,6 +112,7 @@ export default function ClientSwitcher({ clients, activeClientId, onChange }: Pr
                     select(client.client_id);
                   }}
                 >
+                  <ClientLogo clientId={client.client_id} displayName={client.name} size={32} />
                   <span className="clientSwitcherOptionName">{client.name}</span>
                   <span className="clientSwitcherOptionStatus">
                     {client.client_id === activeClientId

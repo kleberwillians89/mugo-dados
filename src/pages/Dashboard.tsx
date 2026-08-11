@@ -2118,6 +2118,15 @@ export default function Dashboard({
         source: "Meta Ads",
       },
       {
+        key: "followers",
+        label: "Seguidores no período",
+        value: organicExecutiveAvailable ? safe(dash?.period_totals?.followers_growth) : null,
+        previous: comparableOrganic ? safe(previousTotals?.followers_growth) : null,
+        format: "number",
+        context: "Variação líquida entre os snapshots de seguidores disponíveis no período.",
+        source: "Instagram Graph",
+      },
+      {
         key: "reach",
         label: "Alcance orgânico",
         value: organicExecutiveAvailable ? kpisFromDash.reach : null,
@@ -2157,6 +2166,7 @@ export default function Dashboard({
     [
       comparableOrganic,
       comparablePaid,
+      dash?.period_totals?.followers_growth,
       kpisFromDash,
       organicExecutiveAvailable,
       paidExecutiveAvailable,

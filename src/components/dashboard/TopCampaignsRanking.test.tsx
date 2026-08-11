@@ -61,4 +61,13 @@ describe("TopCampaignsRanking — ranking editorial, não tabela pesada", () => 
     expect(markup).toContain("Maior CPA");
     expect(markup).toContain("Sem compra");
   });
+
+  it("não declara uma campanha de uma compra como melhor ROAS", () => {
+    const markup = renderToStaticMarkup(<TopCampaignsRanking campaigns={[
+      row({ campaign_id: "small", campaign_name: "Amostra", spend: 100, roas: 12, conversions: 1 }),
+      row({ campaign_id: "scale", campaign_name: "Escala", spend: 3000, roas: 4, conversions: 20 }),
+    ]} />);
+    expect(markup).toContain("Amostra pequena");
+    expect(markup).toMatch(/Melhor ROAS[\s\S]*Escala/);
+  });
 });

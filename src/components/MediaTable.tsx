@@ -1,6 +1,8 @@
 // src/components/MediaTable.tsx
 import type { IgMediaItem } from "../app/types";
 import { memo, useMemo, useState } from "react";
+import { ExternalLink, Play } from "lucide-react";
+import { PlatformLogo } from "./BrandLogo";
 
 function badge(mediaType?: string, productType?: string) {
   const pt = (productType || "").toUpperCase();
@@ -52,7 +54,7 @@ function isLikelyBlockedIgCdn(url?: string | null): boolean {
   }
 }
 
-function MediaThumb(props: { src?: string | null; alt: string; permalink?: string | null }) {
+function MediaThumb(props: { src?: string | null; alt: string; permalink?: string | null; video?: boolean }) {
   const src = String(props.src || "").trim();
   const fallback = previewFromPermalink(props.permalink);
   const blockedByPolicy = isLikelyBlockedIgCdn(src);
@@ -62,25 +64,33 @@ function MediaThumb(props: { src?: string | null; alt: string; permalink?: strin
   const [failed, setFailed] = useState(false);
 
   if (failed || !currentSrc) {
-    return <div className="mediaThumb mediaThumbFallback">—</div>;
+    return (
+      <div className="mediaThumb mediaThumbFallback">
+        <PlatformLogo platform="instagram" size={32} />
+        <span>Prévia indisponível</span>
+      </div>
+    );
   }
 
   return (
-    <img
-      className="mediaThumb"
-      src={currentSrc}
-      alt={props.alt}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => {
-        if (!triedFallback && fallback && currentSrc !== fallback) {
-          setCurrentSrc(fallback);
-          setTriedFallback(true);
-          return;
-        }
-        setFailed(true);
-      }}
-    />
+    <span className="mediaThumbVisual">
+      <img
+        className="mediaThumb"
+        src={currentSrc}
+        alt={props.alt}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (!triedFallback && fallback && currentSrc !== fallback) {
+            setCurrentSrc(fallback);
+            setTriedFallback(true);
+            return;
+          }
+          setFailed(true);
+        }}
+      />
+      {props.video ? <span className="mediaPlay" aria-label="Vídeo"><Play size={19} fill="currentColor" /></span> : null}
+    </span>
   );
 }
 
@@ -137,6 +147,7 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
           const typeLabel = labelMediaType(m.media_type, m.media_product_type);
           const caption = String(m.caption || "").replace(/\s+/g, " ").trim();
           const date = m.timestamp ? new Date(m.timestamp).toLocaleDateString("pt-BR") : "Sem data";
+          const isVideo = typeLabel === "Reels" || typeLabel === "Vídeo";
           return (
             <article className="organicMediaCard" key={`card-${m.id}`}>
               <div className="organicMediaPreview">
@@ -144,6 +155,7 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
                   src={m.thumb_url || m.thumbnail_url || m.media_url}
                   permalink={m.permalink}
                   alt={typeLabel}
+                  video={isVideo}
                 />
               </div>
               <div className="organicMediaCardBody">
@@ -161,7 +173,7 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
                 </div>
                 {m.permalink ? (
                   <a className="organicMediaLink" href={m.permalink} target="_blank" rel="noreferrer">
-                    Ver no Instagram
+                    Ver no Instagram <ExternalLink size={14} aria-hidden="true" />
                   </a>
                 ) : null}
               </div>
@@ -201,6 +213,7 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
                         src={m.thumb_url || m.thumbnail_url || m.media_url}
                         permalink={m.permalink}
                         alt={typeLabel}
+                        video={typeLabel === "Reels" || typeLabel === "Vídeo"}
                       />
                     </div>
                   </td>

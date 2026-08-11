@@ -47,10 +47,13 @@ export default function TopCampaignsRanking({
   const maxSpend = Math.max(...ranked.map((row) => row.spend), 1);
 
   const bestRoas = ranked.reduce<CampaignRankingRow | null>((best, row) => {
-    if (row.roas == null) return best;
+    if (row.roas == null || row.conversions < 2) return best;
     if (!best || best.roas == null || row.roas > best.roas) return row;
     return best;
   }, null);
+  const smallSampleRoas = ranked
+    .filter((row) => row.roas != null && row.conversions === 1)
+    .sort((left, right) => (right.roas || 0) - (left.roas || 0))[0] || null;
   const highestSpend = ranked[0] || null;
   const highestCpa = ranked.reduce<CampaignRankingRow | null>((worst, row) => {
     const cpa = row.conversions > 0 ? row.spend / row.conversions : null;
@@ -78,6 +81,7 @@ export default function TopCampaignsRanking({
       format: (row: CampaignRankingRow) => (row.conversions > 0 ? fmtCurrency(row.spend / row.conversions) : "—"),
     },
     { label: "Sem compra", row: noConversion, format: () => "0 compras" },
+    { label: "Amostra pequena", row: smallSampleRoas, format: (row: CampaignRankingRow) => `${row.roas?.toFixed(2) || "—"}x · 1 compra` },
   ].filter((item) => item.row);
 
   return (
