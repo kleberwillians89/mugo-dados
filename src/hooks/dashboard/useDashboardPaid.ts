@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import type { PaidDashboardResponse, PaidTotals } from "../../app/types";
 import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
-import { aggregateMetaDays } from "../../app/dailyMetricAggregation";
+import { aggregateMetaDays, civilDates } from "../../app/dailyMetricAggregation";
 
 type Params = { isAuthenticated: boolean; activeClientId: string; activeConnectionId?: string | null; enabled?: boolean; period?: DashboardPeriod | null; filters?: { campaign?: string; adset?: string; ad?: string; platform?: string } };
 const sum = (rows: Array<Record<string, unknown>>, key: string) => rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
@@ -12,11 +12,15 @@ export default function useDashboardPaid({ activeClientId, enabled = true, perio
   const model = useDashboardSnapshot(safePeriod.start, safePeriod.end);
   const paidData = useMemo<PaidDashboardResponse | null>(() => {
     if (!activeClientId || !enabled || (!model.snapshot && model.loading)) return null;
-    const daily = model.daily.filter((row) =>
+    const metaRows = new Map(model.daily.filter((row) =>
       row.meta_spend != null || row.meta_attributed_revenue != null || row.meta_purchases != null
-    ).map((row) => {
+    ).map((row) => [row.metric_date, row]));
+    const daily = civilDates(safePeriod.start, safePeriod.end).map((date) => {
+      const row = metaRows.get(date);
+      if (!row) return { date, missing: true, spend: null, revenue: null, conversions: null, impressions: null,
+        reach: null, clicks: null, cpc: null, cpm: null, ctr: null, roas: null };
       const spend = row.meta_spend; const revenue = row.meta_attributed_revenue;
-      return { date: row.metric_date, spend, revenue, conversions: row.meta_purchases, impressions: row.meta_impressions,
+      return { date: row.metric_date, missing: false, spend, revenue, conversions: row.meta_purchases, impressions: row.meta_impressions,
         reach: row.meta_reach, clicks: row.meta_clicks, cpc: spend != null && row.meta_clicks ? spend / row.meta_clicks : null,
         cpm: spend != null && row.meta_impressions ? spend * 1000 / row.meta_impressions : null,
         ctr: row.meta_clicks != null && row.meta_impressions ? row.meta_clicks * 100 / row.meta_impressions : null,
@@ -33,7 +37,7 @@ export default function useDashboardPaid({ activeClientId, enabled = true, perio
     const campaigns = model.campaigns.filter((row) => row.provider === "meta" && (!filters?.campaign || String(row.campaign_id) === filters.campaign));
     const source = model.sources.find((item) => item.provider === "meta");
     return { ok:true, client_id:activeClientId, days:daily.length, date_range:{since:safePeriod.start,until:safePeriod.end},
-      has_data:daily.length>0,data_available:daily.length>0,last_sync_at:source?.last_success_at || null,
+      has_data:metaRows.size>0,data_available:metaRows.size>0,last_sync_at:source?.last_success_at || null,
       row_count:daily.length,first_stat_date:daily[0]?.date || null,last_stat_date:daily.at(-1)?.date || null,
       daily,totals,accounts:[],top_creatives:[], manager_metrics:{link_clicks:sum(model.daily as unknown as Array<Record<string,unknown>>,"meta_link_clicks"),video_views:sum(model.daily as unknown as Array<Record<string,unknown>>,"meta_video_views"),page_engagement:0,post_engagement:0,profile_visits:0},
       sources:{rows:{campaign_daily_stats:campaigns.length,aggregated_rows:daily.length},totals:{consolidated:totals}} };

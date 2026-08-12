@@ -7,7 +7,7 @@ import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "./chartTheme";
 type MetricKey = "revenue" | "spend" | "reach" | "impressions" | "clicks" | "roas" | "conversions";
 
 const METRIC_TABS: { key: MetricKey; label: string }[] = [
-  { key: "revenue", label: "Receita" },
+  { key: "revenue", label: "Receita atribuída" },
   { key: "spend", label: "Investimento" },
   { key: "reach", label: "Alcance" },
   { key: "impressions", label: "Impressões" },
@@ -17,7 +17,7 @@ const METRIC_TABS: { key: MetricKey; label: string }[] = [
 ];
 
 const METRIC_QUESTIONS: Record<MetricKey, string> = {
-  revenue: "Como a receita evoluiu?",
+  revenue: "Como a receita atribuída evoluiu?",
   spend: "Como o investimento evoluiu?",
   reach: "Como o alcance evoluiu?",
   impressions: "Como as impressões evoluíram?",
@@ -44,7 +44,11 @@ export default function PerformanceChart({
 }) {
   const [metric, setMetric] = useState<MetricKey>("revenue");
   const rows = useMemo(() => daily || [], [daily]);
+  const metricLabel = metric === "revenue" ? `Receita atribuída ${source === "Meta Ads" ? "Meta" : "Google"}` : METRIC_TABS.find((tab) => tab.key === metric)?.label || "";
+  const metricQuestion = metric === "revenue" ? "Como a receita atribuída evoluiu?" : METRIC_QUESTIONS[metric];
   const hasData = rows.some((row) => row[metric] != null);
+  const availableRows = rows.filter((row) => !row.missing && row[metric] != null);
+  const singleDay = availableRows.length === 1 ? availableRows[0] : null;
   const coveredDays = rows.filter((row) => !row.missing && row[metric] != null).length;
   const coverageLabel = rows.length > 0 && coveredDays < rows.length
     ? `Cobertura: ${coveredDays} de ${rows.length} dias`
@@ -58,13 +62,14 @@ export default function PerformanceChart({
       labels,
       datasets: [
         {
-          label: METRIC_TABS.find((tab) => tab.key === metric)?.label || "",
+          label: metricLabel,
           data: series,
           borderColor: CHART_COLORS.organic,
           backgroundColor: "rgba(45,108,223,0.08)",
           borderWidth: 2.4,
           tension: 0.35,
-          pointRadius: 0,
+          spanGaps: false,
+          pointRadius: rows.length === 1 ? 5 : 2,
           pointHitRadius: 16,
           pointHoverRadius: 5,
           pointHoverBackgroundColor: CHART_COLORS.organic,
@@ -74,7 +79,7 @@ export default function PerformanceChart({
         },
       ],
     }),
-    [labels, metric, series]
+    [labels, metricLabel, rows.length, series]
   );
 
   const options: ChartOptions<"line"> = useMemo(
@@ -124,8 +129,8 @@ export default function PerformanceChart({
     <div className="performanceChart">
       <div className="performanceChartHead">
         <div>
-          <span className="performanceChartTitle">{METRIC_QUESTIONS[metric]}</span>
-          <div className="smallMuted">Evolução diária no período selecionado · Fonte: Meta Ads</div>
+          <span className="performanceChartTitle">{metricQuestion}</span>
+          <div className="smallMuted">Evolução diária no período selecionado · Fonte: {source}</div>
           {coverageLabel ? <div className="smallMuted">{coverageLabel}</div> : null}
         </div>
         <div className="performanceChartTabs" role="tablist" aria-label="Métrica do gráfico de desempenho">
@@ -138,17 +143,23 @@ export default function PerformanceChart({
               className={`performanceChartTab${metric === tab.key ? " is-active" : ""}`}
               onClick={() => setMetric(tab.key)}
             >
-              {tab.label}
+              {tab.key === "revenue" ? metricLabel : tab.label}
             </button>
           ))}
         </div>
       </div>
       <div className="performanceChartViewport">
-        {hasData ? (
+        {singleDay ? (
+          <div className="performanceSingleDay" data-testid="performance-single-day">
+            <span>{formatDatePtBr(singleDay.date)}</span>
+            <strong>{formatValue(metric, singleDay[metric] == null ? null : Number(singleDay[metric]))}</strong>
+            <small>Fonte: {source}</small>
+          </div>
+        ) : hasData ? (
           <Line data={chartData} options={options} />
         ) : (
           <div className="chartEmptyState">
-            <div className="smallMuted">Sem {METRIC_TABS.find((t) => t.key === metric)?.label.toLowerCase()} neste período.</div>
+            <div className="smallMuted">{rows.length === 1 ? `Sem dados ${source === "Meta Ads" ? "Meta" : "Google Ads"} para esta data.` : `Sem ${metricLabel.toLowerCase()} neste período.`}</div>
             <div className="smallMuted">O gráfico aparece assim que a Meta sincronizar dados diários.</div>
           </div>
         )}

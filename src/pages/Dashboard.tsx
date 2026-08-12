@@ -58,6 +58,7 @@ import { hasInstagramSnapshotData } from "../app/dashboardDataState";
 
 import { getMonth, monthsList, pct } from "../app/aggregate";
 import { aggregateInstagramOrganic, topInstagramContent, type ContentMetric } from "../app/instagramOrganic";
+import { followerGrowthForPeriod } from "../app/followerGrowth";
 
 import type {
   DashboardDailyRow,
@@ -1078,7 +1079,7 @@ export default function Dashboard({
     isAuthenticated,
     activeClientId,
     activeConnectionId: organicConnectionId,
-    secondaryEnabled: enableExtrasStage,
+    secondaryEnabled: true,
     autoLoadStories: false,
     period,
   });
@@ -1694,12 +1695,11 @@ export default function Dashboard({
 
   const periodTotals = dash?.period_totals;
   const daily = dash?.daily || [];
-  const currentFollowers =
-    typeof periodTotals?.followers_current === "number"
-      ? safe(periodTotals.followers_current)
-      : daily.length && typeof daily[daily.length - 1]?.followers === "number"
-        ? safe(daily[daily.length - 1].followers)
-        : 0;
+  const followerGrowth = useMemo(
+    () => followerGrowthForPeriod(dashboardSnapshot.snapshot?.daily || [], period.start, period.end),
+    [dashboardSnapshot.snapshot?.daily, period.end, period.start]
+  );
+  const currentFollowers = followerGrowth.current ?? 0;
   const kpisFromDash = useMemo<Record<string, number>>(
     () => ({
       reach: safe(periodTotals?.reach),
@@ -1849,6 +1849,7 @@ export default function Dashboard({
     coveredDays,
     metricValues: Object.values(kpisFromDash),
   });
+  const accountHasCoverage = daily.length > 0;
   const organicAwaitingMetrics = hasDash && !hasPersistedOrganicData;
   const partialCoverageLabel = `Dados parciais: ${coveredDays}/${expectedDays} dias`;
 
@@ -1986,13 +1987,14 @@ export default function Dashboard({
   const deferredTopWords = useDeferredValue(topWords);
   const deferredNotes = useDeferredValue(notes);
   const accountMetricCards = useMemo(() => [
-    { label: "Seguidores", value: kpisFromDash.followers },
+    { label: "Seguidores", value: kpisFromDash.followers, followerGrowth },
     { label: "Alcance da conta", value: kpisFromDash.reach },
     { label: "Impressões", value: kpisFromDash.impressions },
     { label: "Visitas ao perfil", value: kpisFromDash.profile_views },
-    { label: "Cliques no link", value: kpisFromDash.website_clicks },
+    { label: "Cliques no site", value: kpisFromDash.website_clicks },
+    { label: "Interações", value: kpisFromDash.total_interactions },
     { label: "Contas engajadas", value: kpisFromDash.accounts_engaged },
-  ], [kpisFromDash]);
+  ], [followerGrowth, kpisFromDash]);
   const contentMetricCards = useMemo(() => [
     { label: "Publicações", value: organicContent.eligibleContentCount, coverage: null },
     { label: "Reels", value: organicContent.reelsCount, coverage: null },
@@ -2123,11 +2125,13 @@ export default function Dashboard({
       },
       {
         key: "followers",
-        label: "Seguidores no período",
-        value: organicExecutiveAvailable ? safe(dash?.period_totals?.followers_growth) : null,
-        previous: comparableOrganic ? safe(previousTotals?.followers_growth) : null,
+        label: "Seguidores ganhos",
+        value: organicExecutiveAvailable ? followerGrowth.delta : null,
+        previous: null,
         format: "number",
-        context: "Variação líquida entre os snapshots de seguidores disponíveis no período.",
+        context: followerGrowth.label
+          ? `Variação líquida ${followerGrowth.label}, calculada somente entre snapshots comparáveis.`
+          : "Aguardando um snapshot anterior comparável para calcular a variação.",
         source: "Instagram Graph",
       },
       {
@@ -2170,7 +2174,7 @@ export default function Dashboard({
     [
       comparableOrganic,
       comparablePaid,
-      dash?.period_totals?.followers_growth,
+      followerGrowth,
       kpisFromDash,
       organicExecutiveAvailable,
       paidExecutiveAvailable,
@@ -2497,12 +2501,15 @@ export default function Dashboard({
                 <div className="sectionHeader sectionHeaderSecondary">
                   <div><div className="h1">Conta</div><div className="p">Métricas de snapshots da conta no período.</div></div>
                 </div>
-                {hasPersistedOrganicData ? (
+                {accountHasCoverage ? (
                   <div className="organicMetricGrid">
                     {accountMetricCards.map((card) => (
-                      <div className="organicMetricCard" key={card.label}>
+                      <div className={`organicMetricCard${card.label === "Seguidores" ? " organicMetricCardPrimary" : ""}`} key={card.label}>
                         <span>{card.label}</span>
                         <strong>{fmt(card.value)}</strong>
+                        {card.followerGrowth?.delta != null ? (
+                          <small>{card.followerGrowth.delta >= 0 ? "+" : ""}{fmt(card.followerGrowth.delta)} {card.followerGrowth.label}{card.followerGrowth.percent != null ? ` · ${card.followerGrowth.percent >= 0 ? "+" : ""}${card.followerGrowth.percent.toFixed(1)}%` : ""}</small>
+                        ) : null}
                       </div>
                     ))}
                   </div>

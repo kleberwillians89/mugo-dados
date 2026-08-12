@@ -293,7 +293,10 @@ export default function useDashboardSummary({
 
     const loadDash = async () => {
       try {
-        const daily = model.daily.map((row) => ({ date: row.metric_date,
+        const daily = model.daily.filter((row) =>
+          row.instagram_impressions != null || row.instagram_reach != null || row.instagram_interactions != null ||
+          row.instagram_website_clicks != null || row.instagram_profile_views != null || row.instagram_followers != null
+        ).map((row) => ({ date: row.metric_date,
           impressions: Number(row.instagram_impressions || 0), reach: Number(row.instagram_reach || 0),
           total_interactions: Number(row.instagram_interactions || 0), website_clicks: Number(row.instagram_website_clicks || 0),
           profile_views: Number(row.instagram_profile_views || 0), accounts_engaged: 0, followers: Number(row.instagram_followers || 0) }));

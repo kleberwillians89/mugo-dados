@@ -1473,6 +1473,13 @@
 .performanceChartTab:hover{ color: #17313d; }
 .performanceChartTab.is-active{ background: #fff; color: #0b4f6c; box-shadow: 0 6px 16px rgba(21,48,59,.08); }
 .performanceChartViewport{ height: 300px; }
+.performanceSingleDay{
+  min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 8px;
+  border: 1px solid rgba(0,79,110,.12); background: rgba(45,108,223,.04);
+}
+.performanceSingleDay span,.performanceSingleDay small{ color: #647377; }
+.performanceSingleDay strong{ font-size: 30px; color: #17313d; }
+.organicMetricCardPrimary{ border-color: rgba(45,108,223,.28); background: rgba(45,108,223,.045); }
 @media (max-width: 760px){
   .performanceChart{ padding: 20px 16px 14px; border-radius: 18px; }
   .performanceChartViewport{ height: 240px; }

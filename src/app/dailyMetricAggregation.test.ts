@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DashboardDailyMetric } from "./DashboardDataContext";
-import { aggregateMetaDays } from "./dailyMetricAggregation";
+import { aggregateMetaDays, civilDates } from "./dailyMetricAggregation";
 
 const row = (date: string, spend: number, purchases: number, revenue: number) => ({
   metric_date: date, meta_spend: spend, meta_purchases: purchases, meta_attributed_revenue: revenue,
@@ -35,5 +35,11 @@ describe("aggregateMetaDays", () => {
 
   it("não converte ausência de coverage em zero", () => {
     expect(aggregateMetaDays([])).toEqual({ spend: null, purchases: null, attributedRevenue: null });
+  });
+
+  it("gera dias civis inclusivos sem deslocamento de fuso", () => {
+    expect(civilDates("2026-06-29", "2026-07-02")).toEqual([
+      "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02",
+    ]);
   });
 });
