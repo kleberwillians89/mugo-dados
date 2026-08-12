@@ -13,6 +13,7 @@ import httpx
 from .periods import resolve_period
 from .generic_connections import list_generic_connections
 from .ig_supabase import sb_insert, sb_select, sb_update
+from .instagram_organic_history import aggregate_instagram_months
 
 
 ANALYSIS_SCHEMA = {
@@ -141,6 +142,9 @@ devem permanecer explicitamente separados.
 Respeite analysis_policy. Cobertura indica até que data existem dados; freshness indica quando o
 job terminou. Não confunda esses conceitos. Não cruze fontes quando cross_source_comparison_allowed
 for falso e explique limitações quando covers_period_end for falso.
+Instagram account reach vem apenas de instagram_account_context. A soma de reach de publicações
+em instagram_content_context deve ser chamada "alcance dos conteúdos" e nunca alcance da conta.
+Stories sem métricas persistidas são indisponíveis, não zero, e não reduzem a cobertura de Feed/Reels.
 Se includes_partial_today for verdadeiro, registre que os dados de hoje ainda estão em formação
 e não compare o dia incompleto com um dia completo. Métricas em unavailable_metric_ids não podem
 sustentar conclusão. Sem comparação anterior, descreva nível observado sem inventar tendência.
@@ -218,6 +222,21 @@ async def _query_period(
             "and": _period_filter(date_column, start, end),
         },
         order=f"{date_column}.asc",
+        limit=limit,
+    )
+
+
+async def _query_timestamp_period(
+    table: str, *, client_id: str, select: str, start: date, end: date, limit: int = 10000,
+) -> List[Dict[str, Any]]:
+    return await sb_select(
+        table,
+        select=select,
+        filters={
+            "client_id": f"eq.{client_id}",
+            "and": f"(timestamp.gte.{start.isoformat()}T00:00:00,timestamp.lt.{(end + timedelta(days=1)).isoformat()}T00:00:00)",
+        },
+        order="timestamp.asc",
         limit=limit,
     )
 
@@ -316,7 +335,7 @@ def _status_for(source: Dict[str, Any]) -> str:
 
 def _historical_context(
     rows: List[Dict[str, Any]], snapshots: List[Dict[str, Any]], year: int,
-    selected_start: date, selected_end: date,
+    selected_start: date, selected_end: date, instagram_media: List[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     """Compact, aggregate-only historical context. It intentionally contains no order/customer data."""
     source_coverage = {
@@ -365,6 +384,27 @@ def _historical_context(
     if len(recent) >= 3:
         values = [item["shopify"]["revenue"] for item in recent]
         direction = "increasing" if values[0] < values[1] < values[2] else "decreasing" if values[0] > values[1] > values[2] else "mixed"
+    instagram_account_rows = [
+        row for row in rows
+        if any(row.get(field) is not None for field in (
+            "instagram_followers", "instagram_reach", "instagram_impressions",
+            "instagram_profile_views", "instagram_website_clicks", "instagram_accounts_engaged",
+        ))
+    ]
+    account_dates = sorted(_text(row.get("metric_date")) for row in instagram_account_rows)
+    content_months = aggregate_instagram_months(instagram_media or [])
+    permanent_dates = sorted(
+        str(row.get("timestamp") or "")[:10] for row in (instagram_media or [])
+        if str(row.get("media_product_type") or row.get("media_type") or "").upper() != "STORY" and row.get("timestamp")
+    )
+    story_months = [
+        {"month": item["month"], **item["stories"]}
+        for item in content_months if item["stories"]["published_count"]
+    ]
+    story_dates = sorted(
+        str(row.get("timestamp") or "")[:10] for row in (instagram_media or [])
+        if str(row.get("media_product_type") or row.get("media_type") or "").upper() == "STORY" and row.get("timestamp")
+    )
     return {
         "coverage_start": source_coverage.get("shopify", {}).get("start"),
         "coverage_end": source_coverage.get("shopify", {}).get("end"),
@@ -374,6 +414,25 @@ def _historical_context(
         "recent_trend": {"evidence_periods": len(recent), "revenue_direction": direction, "is_trend": direction in {"increasing", "decreasing"}},
         "selected_period_context": {"start": selected_start.isoformat(), "end": selected_end.isoformat(), "is_partial_month": selected_end < (selected_end.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)},
         "source_coverage": {provider: source_coverage.get(provider, {"start": None, "end": None}) for provider in providers},
+        "instagram_account_context": {
+            "coverage_start": account_dates[0] if account_dates else None,
+            "coverage_end": account_dates[-1] if account_dates else None,
+            "persisted_dates": account_dates,
+            "source": "ig_profile_snapshots_via_dashboard_daily_metrics",
+        },
+        "instagram_content_context": {
+            "coverage_start": permanent_dates[0] if permanent_dates else None,
+            "coverage_end": permanent_dates[-1] if permanent_dates else None,
+            "monthly_summary": content_months,
+            "reach_label": "Alcance dos conteúdos",
+            "source": "ig_media",
+        },
+        "instagram_story_context": {
+            "coverage_start": story_dates[0] if story_dates else None,
+            "coverage_end": story_dates[-1] if story_dates else None,
+            "monthly_summary": story_months,
+            "source": "ig_media",
+        },
     }
 
 
@@ -382,12 +441,17 @@ async def _read_model_executive_context(
 ) -> Dict[str, Any]:
     history_start = date(end_date.year, 1, 1)
     history_end = max(end_date, date.today())
-    rows, snapshots = await asyncio.gather(
+    rows, snapshots, instagram_media = await asyncio.gather(
         _query_period(
             "dashboard_daily_metrics", client_id=client_id, select="*", date_column="metric_date",
             start=min(previous_start, history_start), end=history_end, limit=800,
         ),
         sb_select("dashboard_source_snapshots", filters={"client_id": f"eq.{client_id}"}, limit=20),
+        _query_timestamp_period(
+            "ig_media", client_id=client_id,
+            select="timestamp,media_type,media_product_type,insights_json",
+            start=date(1970, 1, 1), end=history_end, limit=1000,
+        ),
     )
     by_provider = {_text(row.get("provider")): row for row in snapshots}
 
@@ -422,7 +486,9 @@ async def _read_model_executive_context(
         "meta_spend": delta(current["meta"]["spend"], previous["meta"]["spend"]),
         "blended_roas": delta(current["total_paid_media"]["blended_roas"], previous["total_paid_media"]["blended_roas"]),
     }
-    current["historical_context"] = _historical_context(rows, snapshots, end_date.year, start_date, end_date)
+    current["historical_context"] = _historical_context(
+        rows, snapshots, end_date.year, start_date, end_date, instagram_media
+    )
     return current
 
 

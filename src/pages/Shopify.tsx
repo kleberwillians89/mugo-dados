@@ -9,6 +9,7 @@ import ShopifyOrdersTable from "../components/shopify/ShopifyOrdersTable";
 import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
 import ShopifySalesHistory from "../components/shopify/ShopifySalesHistory";
+import DayPeriodControl from "../components/DayPeriodControl";
 import { usePeriod } from "../app/PeriodContext";
 import {
   getShopifyCustomers,
@@ -44,7 +45,7 @@ type Props = {
 // de pedidos a cada clique.
 const SHOPIFY_MANUAL_SYNC_DAYS = 60;
 
-type PeriodPreset = "7d" | "30d" | "month" | "previous_month" | "ytd" | "specific" | "custom";
+type PeriodPreset = "day" | "7d" | "30d" | "month" | "previous_month" | "ytd" | "specific" | "custom";
 type ShopifyMetricKey = "revenue" | "orders" | "customers" | "average_ticket";
 
 const SHOPIFY_METRIC_TABS: { key: ShopifyMetricKey; label: string; description: string }[] = [
@@ -85,6 +86,7 @@ function todayDateInput() {
 }
 
 function resolveInitialPreset(start: string, end: string, days: number): PeriodPreset {
+  if (start === end) return "day";
   const now = new Date();
   const currentMonthStart = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
   const today = toDateInput(now);
@@ -148,7 +150,7 @@ function ShopifyReportSkeleton() {
 }
 
 export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport }: Props) {
-  const { period, periodDays, setPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
+  const { period, periodDays, setPeriod, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
@@ -343,6 +345,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
+    if (nextPreset === "day") { setDayPeriod(period.end); return; }
     if (nextPreset === "7d") {
       setPresetPeriod(7);
       return;
@@ -441,6 +444,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 value={preset}
                 onChange={(event) => handlePresetChange(event.target.value as PeriodPreset)}
               >
+                <option value="day">Dia</option>
                 <option value="7d">Últimos 7 dias</option>
                 <option value="30d">Últimos 30 dias</option>
                 <option value="month">Mês atual</option>
@@ -450,6 +454,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 <option value="custom">Período personalizado</option>
               </select>
             </label>
+            {preset === "day" ? <DayPeriodControl /> : null}
 
             {preset === "custom" ? <>
               <label className="shopifyFilterField"><span>Início</span><input className="select" type="date" value={period.start} onChange={(event) => setPeriod({ start: event.target.value, end: period.end })} /></label>
@@ -536,7 +541,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                   <div className="shopifyPerformanceMetrics">
                     <div><span>Receita real</span><b>{todayCovered ? formatShopifyCurrency(todayRow?.shopify_net_revenue || 0, currency) : "Ainda não atualizado"}</b></div>
                     <div><span>Pedidos</span><b>{todayCovered ? formatShopifyCompactNumber(todayRow?.shopify_orders || 0) : "Ainda não atualizado"}</b></div>
-                    <div><span>Ticket médio</span><b>{todayCovered ? formatShopifyCurrency(todayRow?.shopify_orders ? Number(todayRow.shopify_net_revenue || 0) / Number(todayRow.shopify_orders) : 0, currency) : "Ainda não atualizado"}</b></div>
+                    <div><span>Ticket médio</span><b>{todayCovered ? (todayRow?.shopify_orders ? formatShopifyCurrency(Number(todayRow.shopify_net_revenue || 0) / Number(todayRow.shopify_orders), currency) : "—") : "Ainda não atualizado"}</b></div>
                   </div>
                 </div>
                 <div className="shopifyPerformanceWindow">
@@ -546,7 +551,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                   <div className="shopifyPerformanceMetrics">
                     <div><span>Receita real</span><b>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</b></div>
                     <div><span>Pedidos</span><b>{formatShopifyCompactNumber(summary?.orders || 0)}</b></div>
-                    <div><span>Ticket médio</span><b>{formatShopifyCurrency(summary?.average_ticket || 0, currency)}</b></div>
+                    <div><span>Ticket médio</span><b>{summary?.orders ? formatShopifyCurrency(summary.average_ticket || 0, currency) : "—"}</b></div>
                   </div>
                 </div>
                 {summary ? (

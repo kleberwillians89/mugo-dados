@@ -640,6 +640,7 @@ async def api_select_meta_ads_account(
 @router.post("/api/clients/{client_id}/meta-ads/sync")
 async def api_sync_meta_ads_account(
     client_id: str,
+    request: Request,
     payload: Dict[str, Any] | None = None,
     authorization: str | None = Header(default=None),
 ):
@@ -655,6 +656,7 @@ async def api_sync_meta_ads_account(
         job_name="meta_ads_manual_account_sync",
         trigger_source="manual",
         record_job_run=True,
+        request_id=str(getattr(request.state, "request_id", "") or "-"),
     )
 
 

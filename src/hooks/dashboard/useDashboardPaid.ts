@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import type { PaidDashboardResponse, PaidTotals } from "../../app/types";
 import { useDashboardSnapshot } from "../../app/DashboardDataContext";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
+import { aggregateMetaDays } from "../../app/dailyMetricAggregation";
 
 type Params = { isAuthenticated: boolean; activeClientId: string; activeConnectionId?: string | null; enabled?: boolean; period?: DashboardPeriod | null; filters?: { campaign?: string; adset?: string; ad?: string; platform?: string } };
 const sum = (rows: Array<Record<string, unknown>>, key: string) => rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
@@ -22,7 +23,8 @@ export default function useDashboardPaid({ activeClientId, enabled = true, perio
         roas: spend != null && spend > 0 && revenue != null ? revenue / spend : null };
     });
     const numericRows = daily as Array<Record<string, unknown>>;
-    const totals: PaidTotals = { spend: sum(numericRows,"spend"), revenue: sum(numericRows,"revenue"), conversions: sum(numericRows,"conversions"),
+    const canonical = aggregateMetaDays(model.daily);
+    const totals: PaidTotals = { spend: canonical.spend, revenue: canonical.attributedRevenue, conversions: canonical.purchases,
       impressions: sum(numericRows,"impressions"), reach: sum(numericRows,"reach"), clicks: sum(numericRows,"clicks"), cpc: null,cpm:null,ctr:null,roas:null };
     totals.cpc = totals.spend != null && totals.clicks ? totals.spend / totals.clicks : null;
     totals.cpm = totals.spend != null && totals.impressions ? totals.spend * 1000 / totals.impressions : null;

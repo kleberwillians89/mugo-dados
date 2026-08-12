@@ -776,6 +776,7 @@ async def api_dashboard_executive(
 
 @app.post("/api/ads/sync")
 async def api_ads_sync(
+    request: Request,
     payload: Dict[str, Any],
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
@@ -807,6 +808,7 @@ async def api_ads_sync(
             since=payload_since,
             until=payload_until,
             connection_id=validated_connection_id,
+            request_id=str(getattr(request.state, "request_id", "") or "-"),
         )
         rows_returned = result.get("rows_returned") or {}
         saved = result.get("saved") or {}

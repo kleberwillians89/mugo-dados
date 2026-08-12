@@ -98,12 +98,12 @@ describe("professional integration states and official identity", () => {
 
   it("uses Shopify for the Meta commercial result and Today independently from Meta coverage", () => {
     const dashboard = source("./Dashboard.tsx");
-    expect(dashboard).toContain("executiveData.shopify.net_revenue");
-    expect(dashboard).toContain("executiveData.shopify.orders");
-    expect(dashboard).toContain("executiveData.shopify.average_order_value");
-    expect(dashboard).toContain("executiveData?.shopify?.data_max_available");
+    expect(dashboard).toContain("canonicalStorePeriod?.revenue");
+    expect(dashboard).toContain("canonicalStorePeriod?.orders");
+    expect(dashboard).toContain("canonicalStorePeriod?.ticket");
+    expect(dashboard).toContain('item.provider === "shopify"');
     expect(dashboard).toContain("item.date === today)?.shopify");
     expect(dashboard).toContain("paidTotals?.spend");
-    expect(dashboard).toContain("safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)");
+    expect(dashboard).toContain("canonicalStorePeriod.revenue / safe(paidTotals?.spend)");
   });
 });

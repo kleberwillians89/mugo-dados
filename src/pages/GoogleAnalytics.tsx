@@ -35,6 +35,7 @@ import { coveredShopifyDay } from "../components/dashboard/shopifyCoverage";
 import PerformanceChart from "../components/dashboard/PerformanceChart";
 import StoreMediaSummary from "../components/dashboard/StoreMediaSummary";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
+import DayPeriodControl from "../components/DayPeriodControl";
 
 import "../styles/dashboard.css";
 import "../styles/google-analytics.css";
@@ -45,7 +46,7 @@ type Props = {
   isAuthenticated?: boolean;
 };
 
-type PeriodPreset = "7d" | "30d" | "month" | "specific";
+type PeriodPreset = "day" | "7d" | "30d" | "month" | "specific";
 
 function toDateInput(value: Date) {
   const year = value.getFullYear();
@@ -63,6 +64,7 @@ function todayDateInput() {
 }
 
 function resolveInitialPreset(start: string, end: string, days: number): PeriodPreset {
+  if (start === end) return "day";
   const now = new Date();
   const currentMonthStart = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
   const today = toDateInput(now);
@@ -437,7 +439,7 @@ export default function GoogleAnalytics({
   onOpenDashboard,
   isAuthenticated = false,
 }: Props) {
-  const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
+  const { period, periodDays, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
   );
@@ -509,11 +511,12 @@ export default function GoogleAnalytics({
   const shopifyStore = useMemo(() => {
     const rows = adsModel.daily.filter((row) => row.shopify_net_revenue != null || row.shopify_orders != null);
     const source = adsModel.sources.find((item) => item.provider === "shopify");
-    if (!source && !rows.length) return null;
+    const covered = Boolean(source?.data_min_available && source?.data_max_available && source.data_min_available <= selectedRange.end && source.data_max_available >= selectedRange.start);
+    if (!covered) return null;
     const revenue = rows.reduce((total, row) => total + Number(row.shopify_net_revenue || 0), 0);
     const orders = rows.reduce((total, row) => total + Number(row.shopify_orders || 0), 0);
-    return { revenue, orders, ticket: orders > 0 ? revenue / orders : 0, coverage: source?.data_max_available || null };
-  }, [adsModel.daily, adsModel.sources]);
+    return { revenue, orders, ticket: orders > 0 ? revenue / orders : null, coverage: source?.data_max_available || null };
+  }, [adsModel.daily, adsModel.sources, selectedRange.end, selectedRange.start]);
   const shopifyToday = adsModel.daily.find((row) => row.metric_date === today);
   useEffect(() => {
     if (selectedGa4ClientId === activeGa4ClientId) return;
@@ -744,6 +747,7 @@ export default function GoogleAnalytics({
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
+    if (nextPreset === "day") { setDayPeriod(period.end); return; }
     if (nextPreset === "7d") {
       setPresetPeriod(7);
       return;
@@ -840,12 +844,14 @@ export default function GoogleAnalytics({
                 value={preset}
                 onChange={(event) => handlePresetChange(event.target.value as PeriodPreset)}
               >
+                <option value="day">Dia</option>
                 <option value="7d">Últimos 7 dias</option>
                 <option value="30d">Últimos 30 dias</option>
                 <option value="month">Mês atual</option>
                 <option value="specific">Mês específico</option>
               </select>
             </label>
+            {preset === "day" ? <DayPeriodControl /> : null}
 
             <label className="googleFilterField">
               <span>Mês</span>

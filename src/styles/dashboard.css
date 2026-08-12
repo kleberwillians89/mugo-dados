@@ -1542,3 +1542,4 @@
   .operacaoRealGrid{ grid-template-columns: 1fr 1fr; }
   .operacaoRealTodayGrid{ grid-template-columns: 1fr 1fr; }
 }
+.dayPeriodControl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.dayPeriodControl button{border:0;background:transparent;cursor:pointer;font-weight:700}.dayPeriodControl label{display:grid;position:relative;text-align:center}.dayPeriodControl label small{font-size:10px;color:var(--muted)}.dayPeriodControl label strong{font-size:13px}.dayPeriodControl input{position:absolute;inset:0;opacity:0;cursor:pointer}.dayPeriodControl p{width:100%;margin:0;font-size:11px;color:var(--muted)}@media(max-width:520px){.dayPeriodControl button span{display:none}}

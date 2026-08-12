@@ -56,7 +56,8 @@ import {
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { hasInstagramSnapshotData } from "../app/dashboardDataState";
 
-import { buildMonthAgg, classifyInstagramMedia, getMonth, monthsList, pct } from "../app/aggregate";
+import { getMonth, monthsList, pct } from "../app/aggregate";
+import { aggregateInstagramOrganic, topInstagramContent, type ContentMetric } from "../app/instagramOrganic";
 
 import type {
   DashboardDailyRow,
@@ -64,6 +65,7 @@ import type {
   DashboardTotals,
   IgMediaItem,
   MetaConnection,
+  MonthAgg,
   NoteItem,
   PaidDashboardResponse,
   RefreshAllResponse,
@@ -265,27 +267,6 @@ function getIsoWeekNumber(date: Date): number {
 function mediaInsightValue(media: IgMediaItem, key: string): number {
   const insights = media?.insights || {};
   return safe((insights as Record<string, unknown>)[key]);
-}
-
-function mediaImpactScore(media: IgMediaItem): number {
-  const reach = mediaInsightValue(media, "reach");
-  const views = mediaInsightValue(media, "views");
-  const interactions = mediaInsightValue(media, "total_interactions");
-  const saved = mediaInsightValue(media, "saved");
-  const shares = mediaInsightValue(media, "shares");
-  const comments = mediaInsightValue(media, "comments");
-  const likes = mediaInsightValue(media, "likes");
-  const isReels = String(media.media_product_type || "").toUpperCase() === "REELS";
-
-  return Math.round(
-    reach * 1 +
-      (isReels ? views * 0.7 : 0) +
-      interactions * 3 +
-      saved * 4 +
-      shares * 4 +
-      comments * 2 +
-      likes * 0.5
-  );
 }
 
 const FLOW_METRIC_KEYS = [
@@ -916,7 +897,8 @@ function formatPeriodLabel(start: string, end: string): string {
   return `${format(startDate)} - ${format(endDate)}`;
 }
 
-function periodPresetFromRange(start: string, end: string): "7d" | "30d" | "month" | "custom" {
+function periodPresetFromRange(start: string, end: string): "day" | "7d" | "30d" | "month" | "custom" {
+  if (start === end) return "day";
   if (isCurrentMonthRange(start, end)) return "month";
   const startDate = new Date(`${String(start || "").trim()}T00:00:00`);
   const endDate = new Date(`${String(end || "").trim()}T00:00:00`);
@@ -949,7 +931,7 @@ function monthKeyFromIsoDate(value: string): string {
   return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}`;
 }
 
-type MonthAggRow = ReturnType<typeof buildMonthAgg>[number];
+type MonthAggRow = MonthAgg;
 
 function makeEmptyMonthAgg(month: string): MonthAggRow {
   return {
@@ -998,11 +980,13 @@ export default function Dashboard({
     setPresetPeriod,
     setCurrentMonthPeriod,
     setMonthPeriod,
+    setDayPeriod,
     periodDays,
   } = usePeriod();
   const period = getSelectedPeriodRange(ensureDashboardPeriod(periodState));
   const rangeDays = periodDays;
   const [activeMetric, setActiveMetric] = useState<MetaMetricKey>(metricFromKpi("reach"));
+  const [topContentMetric, setTopContentMetric] = useState<ContentMetric>("reach");
   const [chartGranularity, setChartGranularity] = useState<ChartGranularity>("monthly");
   const [paidCampaignFilter, setPaidCampaignFilter] = useState("");
   const [paidAdsetFilter, setPaidAdsetFilter] = useState("");
@@ -1209,7 +1193,11 @@ export default function Dashboard({
   }, [onLogout]);
 
   const onSelectPeriodPreset = useCallback(
-    (preset: "7d" | "30d" | "month") => {
+    (preset: "day" | "7d" | "30d" | "month") => {
+      if (preset === "day") {
+        setDayPeriod(period.end);
+        return;
+      }
       if (preset === "7d") {
         setPresetPeriod(7);
         return;
@@ -1220,7 +1208,7 @@ export default function Dashboard({
       }
       setCurrentMonthPeriod();
     },
-    [setCurrentMonthPeriod, setPresetPeriod]
+    [period.end, setCurrentMonthPeriod, setDayPeriod, setPresetPeriod]
   );
 
   useEffect(() => {
@@ -1726,6 +1714,15 @@ export default function Dashboard({
   );
 
   const paidTotals = paidData?.totals;
+  const canonicalStorePeriod = useMemo(() => {
+    const source = dashboardSnapshot.sources.find((item) => item.provider === "shopify");
+    const covered = Boolean(source?.data_min_available && source?.data_max_available && source.data_min_available <= period.end && source.data_max_available >= period.start);
+    if (!covered) return null;
+    const rows = dashboardSnapshot.daily.filter((row) => row.metric_date >= period.start && row.metric_date <= period.end);
+    const revenue = rows.reduce((sum, row) => sum + Number(row.shopify_net_revenue || 0), 0);
+    const orders = rows.reduce((sum, row) => sum + Number(row.shopify_orders || 0), 0);
+    return { revenue, orders, ticket: orders > 0 ? revenue / orders : null };
+  }, [dashboardSnapshot.daily, dashboardSnapshot.sources, period.end, period.start]);
   const hasPaidConnection = Boolean(paidData?.connection_id || paidConnectionId);
   const organicConnection = useMemo(
     () => selectUniqueConnection(
@@ -1873,8 +1870,8 @@ export default function Dashboard({
         skip_rate_avg: 0,
       }));
     }
-    return Array.isArray(mediaData) ? buildMonthAgg(mediaData) : [];
-  }, [mediaData, monthlyRows]);
+    return [];
+  }, [monthlyRows]);
   const monthAgg = useMemo(() => {
     const byMonth = new Map<string, MonthAggRow>();
     for (const row of monthAggRaw) byMonth.set(row.month, row);
@@ -1983,38 +1980,29 @@ export default function Dashboard({
       return !!k && k === selectedMonthKey;
     });
   }, [isFixedMonthPeriod, mediaData, selectedMonthKey]);
-  const deferredMediaFiltered = useDeferredValue(mediaFiltered);
+  const organicContent = useMemo(() => aggregateInstagramOrganic(mediaFiltered), [mediaFiltered]);
+  const deferredMediaFiltered = useDeferredValue(organicContent.content);
   const deferredComments = useDeferredValue(comments);
   const deferredTopWords = useDeferredValue(topWords);
   const deferredNotes = useDeferredValue(notes);
-  const organicContentCounts = useMemo(() => {
-    const rows = arrayOrEmpty<IgMediaItem>(mediaFiltered);
-    const reels = rows.filter((media) => classifyInstagramMedia(media) === "reel").length;
-    const posts = rows.filter((media) => classifyInstagramMedia(media) === "post").length;
-    const mediaCommentCount = rows.reduce(
-      (total, media) => total + mediaInsightValue(media, "comments"),
-      0
-    );
-    return {
-      posts,
-      reels,
-      comments: Math.max(commentsTotal, arrayOrEmpty(comments).length, mediaCommentCount),
-    };
-  }, [comments, commentsTotal, mediaFiltered]);
-  const organicMetricCards = useMemo(
-    () => [
-      { label: "Seguidores", value: kpisFromDash.followers },
-      { label: "Alcance", value: kpisFromDash.reach },
-      { label: "Impressões", value: kpisFromDash.impressions },
-      { label: "Interações", value: kpisFromDash.total_interactions },
-      { label: "Visitas ao perfil", value: kpisFromDash.profile_views },
-      { label: "Cliques no link", value: kpisFromDash.website_clicks },
-      { label: "Posts", value: organicContentCounts.posts },
-      { label: "Reels", value: organicContentCounts.reels },
-      { label: "Comentários", value: organicContentCounts.comments },
-    ],
-    [kpisFromDash, organicContentCounts]
-  );
+  const accountMetricCards = useMemo(() => [
+    { label: "Seguidores", value: kpisFromDash.followers },
+    { label: "Alcance da conta", value: kpisFromDash.reach },
+    { label: "Impressões", value: kpisFromDash.impressions },
+    { label: "Visitas ao perfil", value: kpisFromDash.profile_views },
+    { label: "Cliques no link", value: kpisFromDash.website_clicks },
+    { label: "Contas engajadas", value: kpisFromDash.accounts_engaged },
+  ], [kpisFromDash]);
+  const contentMetricCards = useMemo(() => [
+    { label: "Publicações", value: organicContent.eligibleContentCount, coverage: null },
+    { label: "Reels", value: organicContent.reelsCount, coverage: null },
+    { label: "Feed", value: organicContent.feedCount, coverage: null },
+    { label: "Alcance dos conteúdos", value: organicContent.metrics.reach.value, coverage: organicContent.metrics.reach },
+    { label: "Views", value: organicContent.metrics.views.value, coverage: organicContent.metrics.views },
+    { label: "Interações", value: organicContent.metrics.total_interactions.value, coverage: organicContent.metrics.total_interactions },
+    { label: "Salvamentos", value: organicContent.metrics.saved.value, coverage: organicContent.metrics.saved },
+    { label: "Compartilhamentos", value: organicContent.metrics.shares.value, coverage: organicContent.metrics.shares },
+  ], [organicContent]);
   const mediaPanelLoading = loadingMedia || secondaryOrganicLoading;
   const commentsPanelLoading = loadingComments || secondaryOrganicLoading;
   const monthlyPanelLoading = loadingMonthly || (!enableMonthlyStage && !monthlyRows.length);
@@ -2043,9 +2031,9 @@ export default function Dashboard({
 
   const topPostRanking = useMemo(() => {
     if (!deferredMediaFiltered.length) return [];
-    const ranked = [...deferredMediaFiltered]
+    const ranked = topInstagramContent(deferredMediaFiltered, topContentMetric)
       .map((media) => {
-        const score = mediaImpactScore(media);
+        const score = Number(media.insights?.[topContentMetric] || 0);
         const reach = mediaInsightValue(media, "reach");
         const interactions = mediaInsightValue(media, "total_interactions");
         const rawLabel = String(media.caption || "").replace(/\s+/g, " ").trim();
@@ -2067,7 +2055,7 @@ export default function Dashboard({
       ...item,
       widthPct: Math.max(10, Math.round((safe(item.score) / maxScore) * 100)),
     }));
-  }, [deferredMediaFiltered]);
+  }, [deferredMediaFiltered, topContentMetric]);
 
   const organicExecutiveAvailable = hasDash && hasPersistedOrganicData;
   const paidExecutiveAvailable = Boolean(paidData && (paidHasRows || hasPaidData));
@@ -2098,8 +2086,8 @@ export default function Dashboard({
         key: "roas",
         label: "ROAS Meta",
         value:
-          executiveData?.shopify?.connected && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
-            ? safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)
+          canonicalStorePeriod && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
+            ? canonicalStorePeriod.revenue / safe(paidTotals?.spend)
             : null,
         previous:
           comparablePaid && executiveData?.previous_period?.shopify?.connected && safe(previousPaidData?.totals?.spend) > 0
@@ -2187,6 +2175,7 @@ export default function Dashboard({
       organicExecutiveAvailable,
       paidExecutiveAvailable,
       paidTotals,
+      canonicalStorePeriod,
       executiveData,
       previousPaidData,
       previousTotals,
@@ -2394,15 +2383,15 @@ export default function Dashboard({
             channel="Meta"
             roasBasis="shopify"
             store={{
-              revenue: executiveData?.shopify?.connected ? executiveData.shopify.net_revenue : null,
-              orders: executiveData?.shopify?.connected ? executiveData.shopify.orders : null,
-              ticket: executiveData?.shopify?.connected ? executiveData.shopify.average_order_value : null,
+              revenue: canonicalStorePeriod?.revenue ?? null,
+              orders: canonicalStorePeriod?.orders ?? null,
+              ticket: canonicalStorePeriod?.ticket ?? null,
             }}
             media={{
               spend: paidExecutiveAvailable ? safe(paidTotals?.spend) : null,
               roas:
-                executiveData?.shopify?.connected && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
-                  ? safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)
+                canonicalStorePeriod && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
+                  ? canonicalStorePeriod.revenue / safe(paidTotals?.spend)
                   : null,
               attributedRoas: paidExecutiveAvailable && safe(paidTotals?.spend) > 0
                 ? safe(paidTotals?.revenue) / safe(paidTotals?.spend)
@@ -2498,21 +2487,49 @@ export default function Dashboard({
                 <div className="organicSourceHeader">
                   <div>
                     <div className="h1">Meta Orgânico / Instagram</div>
-                    <div className="p">Posts, reels, alcance, engajamento e comentários vindos da conexão orgânica.</div>
+                    <div className="p">Métricas da conta, conteúdos permanentes e Stories, cada um com sua própria cobertura.</div>
                   </div>
                   <span className="pill">Fonte: Instagram Graph · {formatSelectedPeriodLabel(period)}</span>
                 </div>
                 {organicAwaitingMetrics ? (
                   <div className="organicWaitingState">Instagram orgânico conectado, aguardando sincronização.</div>
                 ) : null}
-                <div className="organicMetricGrid">
-                  {organicMetricCards.map((card) => (
-                    <div className="organicMetricCard" key={card.label}>
-                      <span>{card.label}</span>
-                      <strong>{fmt(card.value)}</strong>
-                    </div>
-                  ))}
+                <div className="sectionHeader sectionHeaderSecondary">
+                  <div><div className="h1">Conta</div><div className="p">Métricas de snapshots da conta no período.</div></div>
                 </div>
+                {hasPersistedOrganicData ? (
+                  <div className="organicMetricGrid">
+                    {accountMetricCards.map((card) => (
+                      <div className="organicMetricCard" key={card.label}>
+                        <span>{card.label}</span>
+                        <strong>{fmt(card.value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="smallMuted">Sem cobertura histórica de métricas da conta neste período.</div>}
+                <div className="sectionHeader sectionHeaderSecondary">
+                  <div><div className="h1">Conteúdo</div><div className="p">Feed e Reels publicados dentro do período selecionado.</div></div>
+                </div>
+                {organicContent.eligibleContentCount ? (
+                  <div className="organicMetricGrid">
+                    {contentMetricCards.map((card) => (
+                      <div className="organicMetricCard" key={card.label}>
+                        <span>{card.label}</span>
+                        <strong>{card.value == null ? "Indisponível" : fmt(card.value)}</strong>
+                        {card.coverage ? <small>Cobertura: {card.coverage.availableCount} de {card.coverage.eligibleCount}</small> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="smallMuted">Sem publicações neste período.</div>}
+                <div className="sectionHeader sectionHeaderSecondary">
+                  <div><div className="h1">Stories</div><div className="p">Publicações temporárias mantidas separadas do conteúdo permanente.</div></div>
+                </div>
+                <div className="organicMetricGrid">
+                  <div className="organicMetricCard"><span>Stories publicados</span><strong>{fmt(organicContent.stories.length)}</strong></div>
+                </div>
+                {organicContent.stories.length > 0 && organicContent.storyWithInsightsCount === 0 ? (
+                  <div className="smallMuted">Insights históricos de Stories indisponíveis para este período.</div>
+                ) : null}
               </>
             ) : (
               <div className="card cardWide">
@@ -3048,6 +3065,14 @@ export default function Dashboard({
                 </div>
               </div>
               <div className="dashboardSectionMeta">
+                <select className="select" aria-label="Métrica do ranking de conteúdos" value={topContentMetric} onChange={(event) => setTopContentMetric(event.target.value as ContentMetric)}>
+                  <option value="reach">Alcance</option>
+                  <option value="views">Views</option>
+                  <option value="total_interactions">Interações</option>
+                  <option value="saved">Salvamentos</option>
+                  <option value="shares">Compartilhamentos</option>
+                  <option value="comments">Comentários</option>
+                </select>
                 {mediaLastUpdatedLabel ? <span className="dashboardTimestamp">{mediaLastUpdatedLabel}</span> : null}
                 {refreshingMedia ? <span className="pill">Atualizando...</span> : null}
               </div>
@@ -3059,7 +3084,7 @@ export default function Dashboard({
               ) : null}
               {topPostRanking.length ? (
                 <div className="topPostRanking">
-                  <div className="smallMuted topPostRankingTitle">Ranking visual dos conteúdos com maior impacto.</div>
+                  <div className="smallMuted topPostRankingTitle">Top conteúdos pela métrica selecionada.</div>
                   {topPostRanking.map((item, index) => (
                     <div key={item.id || `top-post-${index}`} className="topPostRankingRow">
                       <div className="topPostRankingHead">
@@ -3067,7 +3092,7 @@ export default function Dashboard({
                         <div className="topPostRankingInfo">
                           <div className="topPostRankingLabel">{item.label}</div>
                           <div className="cellMuted">
-                            Alcance {fmt(item.reach)} • Interações {fmt(item.interactions)} • Score {fmt(item.score)}
+                            {fmt(item.score)} na métrica selecionada • Alcance {fmt(item.reach)} • Interações {fmt(item.interactions)}
                           </div>
                         </div>
                       </div>

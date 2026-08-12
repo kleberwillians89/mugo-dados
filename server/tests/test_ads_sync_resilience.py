@@ -134,6 +134,49 @@ class TimeoutTests(_BaseAdsSyncTest):
         self.assertEqual(len(self.release_lock_calls), 1)
 
 
+class SuccessAndFailureFinalizationTests(_BaseAdsSyncTest):
+    async def test_success_finishes_with_persisted_row_count_and_releases_lock(self):
+        account = [{"date_start": "2026-05-01", "spend": "10"}]
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=[account, [], []]))
+        ads_sync._upsert_ad_account_daily_stats.return_value = {"upserted": 1, "skipped": False}
+        ads_sync._readback_persisted_rows.return_value = {
+            **_empty_readback(), "ad_account_daily_stats": {"count": 1, "mode": "connection_scope"},
+        }
+        result = await ads_sync.sync_ads_for_client_period(
+            client_id="amalie", since="2026-05-01", until="2026-05-01", connection_id="conn-1",
+        )
+        self.assertEqual(result["job_status"], "success")
+        self.assertEqual(self.finish_job_run_calls[-1]["status"], "success")
+        self.assertEqual(self.finish_job_run_calls[-1]["rows_upserted"], 1)
+        self.assertEqual(len(self.release_lock_calls), 1)
+
+    async def test_provider_exception_finishes_error_and_releases_lock(self):
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=RuntimeError("upstream")))
+        with self.assertRaisesRegex(RuntimeError, "upstream"):
+            await ads_sync.sync_ads_for_client_period(
+                client_id="amalie", since="2026-05-01", until="2026-05-07", connection_id="conn-1",
+            )
+        self.assertEqual(self.finish_job_run_calls[-1]["status"], "error")
+        self.assertEqual(len(self.release_lock_calls), 1)
+
+    async def test_lock_denied_finishes_skipped_without_release_of_foreign_lock(self):
+        self._install(ads_sync, "acquire_sync_lock", AsyncMock(return_value=False))
+        with self.assertRaises(ads_sync.IntegrationError):
+            await ads_sync.sync_ads_for_client_period(
+                client_id="amalie", since="2026-05-01", until="2026-05-07", connection_id="conn-1",
+            )
+        self.assertEqual(self.finish_job_run_calls[-1]["status"], "skipped")
+        self.assertEqual(self.release_lock_calls, [])
+
+    async def test_connection_validation_after_job_start_is_terminal(self):
+        self._install(ads_sync, "_pick_paid_connection", AsyncMock(return_value={"id": "conn-1"}))
+        with self.assertRaisesRegex(RuntimeError, "ad_account_id"):
+            await ads_sync.sync_ads_for_client_period(
+                client_id="amalie", since="2026-05-01", until="2026-05-07", connection_id="conn-1",
+            )
+        self.assertEqual(self.finish_job_run_calls[-1]["status"], "error")
+
+
 class NoDataPathTests(_BaseAdsSyncTest):
     async def test_no_account_rows_finishes_job_as_skipped_and_releases_lock(self):
         self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(return_value=[]))

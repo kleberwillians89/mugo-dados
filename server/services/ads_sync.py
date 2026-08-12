@@ -65,10 +65,48 @@ _ADS_SYNC_TOTAL_TIMEOUT_SECONDS = 480
 # conta com volume incomum não paginate indefinidamente mesmo dentro do
 # orçamento de tempo acima.
 _ADS_SYNC_MAX_PAGES_PER_CALL = 200
+_ADS_CLEANUP_TIMEOUT_SECONDS = 10
+_ADS_CLEANUP_ATTEMPTS = 2
 
 
 def _safe_str(value: Any) -> str:
     return str(value or "").strip()
+
+
+async def _finish_job_run_reliably(job_run_id: str, **kwargs: Any) -> Dict[str, Any]:
+    """Bound observability writes so a stuck PATCH cannot retain the provider lock."""
+    last_error: BaseException | None = None
+    for attempt in range(1, _ADS_CLEANUP_ATTEMPTS + 1):
+        try:
+            task = asyncio.create_task(finish_job_run(job_run_id, **kwargs))
+            return await asyncio.wait_for(asyncio.shield(task), timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            # Cancellation of the HTTP request must not cancel the terminal DB write.
+            try:
+                return await task
+            except Exception as exc:
+                last_error = exc
+        except Exception as exc:
+            last_error = exc
+        print(
+            "[ads_sync][job_finish_retry] "
+            f"job_run_id={job_run_id} attempt={attempt} error_type={last_error.__class__.__name__ if last_error else '-'}"
+        )
+    raise RuntimeError(f"Falha ao finalizar cron_job_runs: {last_error.__class__.__name__ if last_error else 'unknown'}")
+
+
+async def _release_lock_reliably(client_id: str, lock_name: str) -> None:
+    try:
+        task = asyncio.create_task(release_sync_lock(client_id, lock_name))
+        await asyncio.wait_for(asyncio.shield(task), timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        await task
+    except Exception as exc:
+        # TTL remains the fallback when Supabase itself is unavailable.
+        print(
+            "[ads_sync][lock_release_failed] "
+            f"client_id={client_id} lock_name={lock_name} error_type={exc.__class__.__name__}"
+        )
 
 
 def _safe_float(value: Any) -> float:
@@ -1288,7 +1326,9 @@ async def sync_ads_for_client_period(
     job_name: str = "meta_ads_manual_sync",
     trigger_source: str = "manual",
     record_job_run: bool = True,
+    request_id: str | None = None,
 ) -> Dict[str, Any]:
+    sync_started_at = time.monotonic()
     cid = _safe_str(client_id)
     if not cid:
         raise RuntimeError("client_id é obrigatório para sync de Ads.")
@@ -1305,6 +1345,7 @@ async def sync_ads_for_client_period(
         period_since, period_until = _date_window(30)
 
     requested_connection_id = _safe_str(connection_id) or None
+    sync_request_id = _safe_str(request_id) or "-"
     job_run = (
         await start_job_run(
             job_name=job_name,
@@ -1314,6 +1355,7 @@ async def sync_ads_for_client_period(
             payload_json={
                 "date_range": {"since": period_since, "until": period_until},
                 "requested_connection_id": requested_connection_id,
+                "request_id": sync_request_id,
             },
         )
         if record_job_run
@@ -1324,7 +1366,7 @@ async def sync_ads_for_client_period(
         conn = await _pick_paid_connection(cid, preferred_connection_id=requested_connection_id)
     except Exception as exc:
         if job_run:
-            await finish_job_run(
+            await _finish_job_run_reliably(
                 job_run["id"],
                 status="error",
                 error=str(exc),
@@ -1341,14 +1383,24 @@ async def sync_ads_for_client_period(
     resolved_connection_source = _safe_str(conn.get("_resolved_source")) or "none"
     ad_account_id = _normalize_ad_account_id(_safe_str(conn.get("ad_account_id")))
     ad_account_name = _safe_str(conn.get("ad_account_name"))
-    if not resolved_connection_id:
-        raise RuntimeError("Conexão Meta Ads inválida (id ausente).")
-    if not ad_account_id:
-        raise RuntimeError("Conexão Meta Ads inválida (ad_account_id ausente).")
+    validation_error = (
+        "Conexão Meta Ads inválida (id ausente)." if not resolved_connection_id
+        else "Conexão Meta Ads inválida (ad_account_id ausente)." if not ad_account_id
+        else ""
+    )
+    if validation_error:
+        if job_run:
+            await _finish_job_run_reliably(
+                job_run["id"], status="error", error=validation_error, client_id=cid,
+                connection_id=resolved_connection_id or requested_connection_id,
+                ad_account_id=ad_account_id or None,
+                payload_json={"date_range": {"since": period_since, "until": period_until}},
+            )
+        raise RuntimeError(validation_error)
 
     print(
         "[ads_sync][start] "
-        f"client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
+        f"request_id={sync_request_id} client_id={cid} connection_id={resolved_connection_id} ad_account_id={ad_account_id} "
         f"connection_source={resolved_connection_source} since={period_since} until={period_until}"
     )
 
@@ -1356,6 +1408,7 @@ async def sync_ads_for_client_period(
         "client_id": cid,
         "connection_id": resolved_connection_id,
         "ad_account_id": ad_account_id,
+        "request_id": sync_request_id,
     }
 
     sync_key = f"{cid}:{resolved_connection_id}:{ad_account_id}:{period_since}:{period_until}"
@@ -1363,7 +1416,7 @@ async def sync_ads_for_client_period(
     recent_at = _RECENT_SYNC_KEYS.get(sync_key)
     if recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS:
         if job_run:
-            await finish_job_run(
+            await _finish_job_run_reliably(
                 job_run["id"],
                 status="skipped",
                 rows_upserted=0,
@@ -1392,9 +1445,19 @@ async def sync_ads_for_client_period(
         f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name} "
         f"since={period_since} until={period_until}"
     )
-    if not await acquire_sync_lock(cid, lock_name, 3600):
+    try:
+        lock_acquired = await acquire_sync_lock(cid, lock_name, 3600)
+    except Exception as exc:
         if job_run:
-            await finish_job_run(
+            await _finish_job_run_reliably(
+                job_run["id"], status="error", rows_upserted=0, error=str(exc), client_id=cid,
+                connection_id=resolved_connection_id, ad_account_id=ad_account_id,
+                payload_json={"date_range": {"since": period_since, "until": period_until}, "stage": "lock_acquisition"},
+            )
+        raise
+    if not lock_acquired:
+        if job_run:
+            await _finish_job_run_reliably(
                 job_run["id"], status="skipped", rows_upserted=0,
                 error="Sincronização equivalente já está em andamento.", client_id=cid,
                 connection_id=resolved_connection_id, ad_account_id=ad_account_id,
@@ -1453,22 +1516,6 @@ async def sync_ads_for_client_period(
             if not account_rows_raw:
                 reason = "Meta retornou zero agregados no nível da conta para o período; consultas de campanha e anúncio não foram iniciadas."
                 await mark_connection_sync_no_data(resolved_connection_id, reason)
-                if job_run:
-                    await finish_job_run(
-                        job_run["id"],
-                        status="skipped",
-                        rows_upserted=0,
-                        error=reason,
-                        client_id=cid,
-                        connection_id=resolved_connection_id,
-                        ad_account_id=ad_account_id,
-                        payload_json={
-                            "date_range": {"since": period_since, "until": period_until},
-                            "account_query_mode": account_query_mode,
-                            "rows_returned": {"ad_account": 0},
-                            "sync_outcome": "no_data",
-                        },
-                    )
                 _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
                 return {
                     "ok": True,
@@ -1883,38 +1930,35 @@ async def sync_ads_for_client_period(
             )
             result["sync_outcome"] = sync_outcome
             _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
-            if job_run:
-                job_status = "skipped" if sync_outcome == "no_data" else sync_outcome
-                print(
-                    "[ads_sync][job_finish_start] "
-                    f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
-                )
-                await finish_job_run(
-                    job_run["id"],
-                    status=job_status,
-                    rows_upserted=_sum_rows_upserted(result),
-                    client_id=cid,
-                    connection_id=resolved_connection_id,
-                    ad_account_id=ad_account_id,
-                    payload_json={
-                        "date_range": {"since": period_since, "until": period_until},
-                        "connection_source": resolved_connection_source,
-                        "rows_returned": result.get("rows_returned"),
-                        "saved": result.get("saved"),
-                        "persisted_rows": result.get("persisted_rows"),
-                        "persisted_modes": result.get("persisted_modes"),
-                        "sources": result.get("sources"),
-                    },
-                )
-                print(
-                    "[ads_sync][job_finish_complete] "
-                    f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
-                )
-                result["job_run_id"] = job_run["id"]
-                result["job_status"] = job_status
             return result
 
-        return await asyncio.wait_for(_run_sync_body(), timeout=_ADS_SYNC_TOTAL_TIMEOUT_SECONDS)
+        result = await asyncio.wait_for(_run_sync_body(), timeout=_ADS_SYNC_TOTAL_TIMEOUT_SECONDS)
+        if job_run:
+            job_status = "skipped" if result.get("sync_outcome") == "no_data" else str(result.get("sync_outcome") or "success")
+            print(
+                "[ads_sync][job_finish_start] "
+                f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
+            )
+            await _finish_job_run_reliably(
+                job_run["id"], status=job_status, rows_upserted=_sum_rows_upserted(result),
+                error=("Meta retornou zero agregados no nível da conta para o período." if job_status == "skipped" else None),
+                client_id=cid, connection_id=resolved_connection_id, ad_account_id=ad_account_id,
+                payload_json={
+                    "date_range": {"since": period_since, "until": period_until},
+                    "connection_source": resolved_connection_source,
+                    "rows_returned": result.get("rows_returned"), "saved": result.get("saved"),
+                    "persisted_rows": result.get("persisted_rows"), "persisted_modes": result.get("persisted_modes"),
+                    "sources": result.get("sources"), "sync_outcome": result.get("sync_outcome"),
+                    "request_id": sync_request_id,
+                },
+            )
+            print(
+                "[ads_sync][job_finish_complete] "
+                f"client_id={cid} job_run_id={job_run['id']} outcome={job_status}"
+            )
+            result["job_run_id"] = job_run["id"]
+            result["job_status"] = job_status
+        return result
     except asyncio.CancelledError:
         cancel_message = (
             "Sincronizacao Meta Ads cancelada antes da conclusao "
@@ -1939,7 +1983,7 @@ async def sync_ads_for_client_period(
                 f"client_id={cid} job_run_id={job_run['id']} outcome=cancelled"
             )
             try:
-                await finish_job_run(
+                await _finish_job_run_reliably(
                     job_run["id"],
                     status="error",
                     rows_upserted=0,
@@ -1975,17 +2019,23 @@ async def sync_ads_for_client_period(
         if not requires_reauth:
             lowered = message.lower()
             requires_reauth = "reconecte" in lowered or "reconex" in lowered or "token meta" in lowered
-        await mark_connection_sync_error(
-            resolved_connection_id,
-            message,
-            requires_reauth=requires_reauth,
-        )
+        try:
+            await mark_connection_sync_error(
+                resolved_connection_id,
+                message,
+                requires_reauth=requires_reauth,
+            )
+        except Exception as cleanup_exc:
+            print(
+                "[ads_sync][connection_update_failed] "
+                f"client_id={cid} connection_id={resolved_connection_id} error_type={cleanup_exc.__class__.__name__}"
+            )
         if job_run:
             print(
                 "[ads_sync][job_finish_start] "
                 f"client_id={cid} job_run_id={job_run['id']} outcome=error"
             )
-            await finish_job_run(
+            await _finish_job_run_reliably(
                 job_run["id"],
                 status="error",
                 rows_upserted=0,
@@ -2015,10 +2065,11 @@ async def sync_ads_for_client_period(
             "[ads_sync][lock_release_start] "
             f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
         )
-        await release_sync_lock(cid, lock_name)
+        await _release_lock_reliably(cid, lock_name)
         print(
             "[ads_sync][lock_release_complete] "
-            f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
+            f"request_id={sync_request_id} client_id={cid} connection_id={resolved_connection_id} "
+            f"lock_name={lock_name} duration_ms={int((time.monotonic() - sync_started_at) * 1000)}"
         )
 
 

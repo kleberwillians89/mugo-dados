@@ -21,6 +21,8 @@ type PeriodContextValue = {
   setPresetPeriod: (days: number) => void;
   setCurrentMonthPeriod: () => void;
   setMonthPeriod: (year: number, month: number) => void;
+  setDayPeriod: (date: string) => void;
+  shiftDayPeriod: (days: number) => void;
 };
 
 const STORAGE_KEY = "mugo.period";
@@ -129,6 +131,18 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
     [setPeriod]
   );
 
+  const setDayPeriod = useCallback((date: string) => {
+    setPeriod({ start: date, end: date });
+  }, [setPeriod]);
+
+  const shiftDayPeriod = useCallback((days: number) => {
+    const selected = safeDate(period.end);
+    if (!selected) return;
+    selected.setDate(selected.getDate() + days);
+    const date = toDateInput(selected);
+    setPeriod({ start: date, end: date });
+  }, [period.end, setPeriod]);
+
   const periodDays = useMemo(
     () => countSelectedPeriodDays(getSelectedPeriodRange(period)),
     [period]
@@ -142,8 +156,10 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
       setPresetPeriod,
       setCurrentMonthPeriod,
       setMonthPeriod,
+      setDayPeriod,
+      shiftDayPeriod,
     }),
-    [period, periodDays, setPeriod, setPresetPeriod, setCurrentMonthPeriod, setMonthPeriod]
+    [period, periodDays, setPeriod, setPresetPeriod, setCurrentMonthPeriod, setMonthPeriod, setDayPeriod, shiftDayPeriod]
   );
 
   return <PeriodContext.Provider value={value}>{children}</PeriodContext.Provider>;

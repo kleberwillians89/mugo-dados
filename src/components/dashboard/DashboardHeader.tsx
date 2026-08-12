@@ -1,3 +1,5 @@
+import DayPeriodControl from "../DayPeriodControl";
+
 type Props = {
   activeView: "meta" | "google";
   statusChips: Array<{
@@ -5,8 +7,8 @@ type Props = {
     connected?: boolean;
     refreshing?: boolean;
   }>;
-  periodPreset: "7d" | "30d" | "month" | "custom";
-  onSelectPeriodPreset?: (preset: "7d" | "30d" | "month") => void;
+  periodPreset: "day" | "7d" | "30d" | "month" | "custom";
+  onSelectPeriodPreset?: (preset: "day" | "7d" | "30d" | "month") => void;
   refreshing?: boolean;
   backgroundRefreshing?: boolean;
   onOpenMeta?: () => void;
@@ -53,18 +55,20 @@ export default function DashboardHeader({
             className="select"
             value={periodPreset}
             onChange={(event) => {
-              const next = event.target.value as "7d" | "30d" | "month" | "custom";
+              const next = event.target.value as "day" | "7d" | "30d" | "month" | "custom";
               if (next === "custom") return;
               onSelectPeriodPreset?.(next);
             }}
             aria-label="Período"
           >
+            <option value="day">Dia</option>
             <option value="7d">Últimos 7 dias</option>
             <option value="30d">Últimos 30 dias</option>
             <option value="month">Mês atual</option>
             {periodPreset === "custom" ? <option value="custom">Personalizado</option> : null}
           </select>
           </label>
+          {periodPreset === "day" ? <DayPeriodControl /> : null}
         </div>
 
         <div className="dashHeaderActions">

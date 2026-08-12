@@ -9,6 +9,7 @@ import httpx
 from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_select
 from .periods import resolve_period
+from .instagram_organic_history import aggregate_instagram_months
 
 
 def _utc_now() -> datetime:
@@ -291,45 +292,22 @@ async def get_media_monthly(
         else:
             raise
 
-    month_map: Dict[str, Dict[str, Any]] = {}
-    for row in rows:
-        month = _month_key_from_timestamp(row.get("timestamp"))
-        if not month:
-            continue
-        agg = month_map.get(month)
-        if not agg:
-            agg = {
-                "month": month,
-                "posts": 0,
-                "reels": 0,
-                "reach": 0,
-                "views": 0,
-                "interactions": 0,
-                "profile_visits": 0,
-                "likes": 0,
-                "comments": 0,
-                "shares": 0,
-                "saved": 0,
-            }
-            month_map[month] = agg
-
-        media_type = str(row.get("media_product_type") or "").upper()
-        if media_type == "REELS":
-            agg["reels"] += 1
-        else:
-            agg["posts"] += 1
-
-        ins = _to_insights(row.get("insights_json"))
-        agg["reach"] += int(ins.get("reach") or 0)
-        agg["views"] += int(ins.get("views") or 0)
-        agg["interactions"] += int(ins.get("total_interactions") or 0)
-        agg["profile_visits"] += int(ins.get("profile_visits") or 0)
-        agg["likes"] += int(ins.get("likes") or 0)
-        agg["comments"] += int(ins.get("comments") or 0)
-        agg["shares"] += int(ins.get("shares") or 0)
-        agg["saved"] += int(ins.get("saved") or 0)
-
-    months = [month_map[key] for key in sorted(month_map.keys())]
+    months = []
+    for aggregate in aggregate_instagram_months(rows):
+        metrics = aggregate["metrics"]
+        months.append({
+            **aggregate,
+            "posts": aggregate["feed_count"],
+            "reels": aggregate["reels_count"],
+            "reach": metrics["reach"]["value"],
+            "views": metrics["views"]["value"],
+            "interactions": metrics["total_interactions"]["value"],
+            "profile_visits": metrics["profile_visits"]["value"],
+            "likes": metrics["likes"]["value"],
+            "comments": metrics["comments"]["value"],
+            "shares": metrics["shares"]["value"],
+            "saved": metrics["saved"]["value"],
+        })
     print(
         "[media_monthly] result "
         f"client_id={client_id} connection_id_requested={requested_connection or '-'} "

@@ -188,6 +188,22 @@ class IntelligenceInterpretationPolicyTests(unittest.TestCase):
         self.assertEqual(august["meta"]["attributed_roas"], 1.5)
         self.assertFalse(context["recent_trend"]["is_trend"])
 
+    def test_historical_context_separates_instagram_account_content_and_stories(self):
+        rows = [{"metric_date": "2026-08-05", "instagram_reach": 100}]
+        media = [
+            {"timestamp": "2026-05-10T12:00:00Z", "media_product_type": "FEED", "insights_json": {"reach": 50, "available_metrics": ["reach"]}},
+            {"timestamp": "2026-08-10T12:00:00Z", "media_product_type": "STORY", "insights_json": {}},
+        ]
+        context = intelligence._historical_context(
+            rows, [], 2026, intelligence.date(2026, 8, 1), intelligence.date(2026, 8, 10), media
+        )
+        self.assertEqual(context["instagram_account_context"]["persisted_dates"], ["2026-08-05"])
+        self.assertEqual(context["instagram_content_context"]["coverage_start"], "2026-05-10")
+        self.assertEqual(context["instagram_content_context"]["reach_label"], "Alcance dos conteúdos")
+        stories = context["instagram_story_context"]["monthly_summary"][0]
+        self.assertEqual(stories["published_count"], 1)
+        self.assertFalse(stories["historical_insights_available"])
+
     def snapshot(self, *, metrics=None, sources=None, start="2026-08-01", end="2026-08-10"):
         return {
             "period": {"start": start, "end": end},

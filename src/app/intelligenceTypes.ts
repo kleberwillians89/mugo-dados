@@ -66,6 +66,9 @@ export type IntelligenceSnapshot = {
     coverage_end: string | null;
     monthly_summary: Array<Record<string, unknown>>;
     source_coverage: Record<string, { start: string | null; end: string | null }>;
+    instagram_account_context?: Record<string, unknown>;
+    instagram_content_context?: Record<string, unknown>;
+    instagram_story_context?: Record<string, unknown>;
   };
 };
 

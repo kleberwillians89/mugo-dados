@@ -100,7 +100,7 @@ vi.mock("../app/DashboardDataContext", () => ({
     }],
     sources: [
       { provider: "google_ads", last_success_at: "2026-08-10T12:00:00Z" },
-      { provider: "shopify", last_success_at: "2026-08-11T12:00:00Z", data_max_available: "2026-08-11" },
+      { provider: "shopify", last_success_at: "2026-08-11T12:00:00Z", data_min_available: "2026-08-01", data_max_available: "2026-08-11" },
     ],
   }),
 }));

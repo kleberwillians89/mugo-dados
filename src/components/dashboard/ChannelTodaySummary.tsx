@@ -27,7 +27,7 @@ export default function ChannelTodaySummary({ date, value }: Props) {
   const revenue = value?.revenue ?? null;
   const orders = value?.orders ?? null;
   const available = revenue != null && orders != null;
-  const ticket = available && orders > 0 ? revenue / orders : available ? 0 : null;
+  const ticket = available && orders > 0 ? revenue / orders : null;
   return (
     <section className="channelToday" aria-label="Resultado Shopify de hoje">
       <header className="channelTodayHead">
@@ -37,7 +37,7 @@ export default function ChannelTodaySummary({ date, value }: Props) {
       <div className="channelTodayGrid">
         <div><span>Valor vendido hoje</span><strong>{available ? currency(revenue) : "Sem dados atualizados"}</strong></div>
         <div><span>Pedidos hoje</span><strong>{available ? orders.toLocaleString("pt-BR") : "Sem dados atualizados"}</strong></div>
-        <div><span>Ticket médio hoje</span><strong>{ticket != null ? currency(ticket) : "Sem dados atualizados"}</strong></div>
+        <div><span>Ticket médio hoje</span><strong>{ticket != null ? currency(ticket) : available ? "—" : "Sem dados atualizados"}</strong></div>
       </div>
       <small>Fonte: Shopify</small>
     </section>
