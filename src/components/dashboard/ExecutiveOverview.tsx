@@ -28,6 +28,7 @@ type Props = {
   sources: ExecutiveSource[];
   loading?: boolean;
   error?: string | null;
+  hideMediaSummary?: boolean;
 };
 
 function formatMetric(value: number, format: ExecutiveMetric["format"]): string {
@@ -60,6 +61,7 @@ export default function ExecutiveOverview({
   sources,
   loading = false,
   error = null,
+  hideMediaSummary = false,
 }: Props) {
   const narrative = computeExecutiveNarrative(metrics);
   const { advance } = narrative;
@@ -137,11 +139,11 @@ export default function ExecutiveOverview({
       {/* Composição única de performance: nunca vários cards concorrendo —
           um resultado central (receita atribuída Meta), com investimento,
           ROAS e compras como apoio do mesmo parágrafo visual. */}
-      {loading && !hasAnyData ? (
+      {!hideMediaSummary && loading && !hasAnyData ? (
         <div className="performanceHero">
           <div className="executiveSkeleton" aria-label="Carregando performance" />
         </div>
-      ) : hasMediaPerformance && revenue?.value != null ? (
+      ) : !hideMediaSummary && hasMediaPerformance && revenue?.value != null ? (
         <div className="performanceHero">
           <span className="executiveEyebrow">Performance de mídia paga</span>
           <p className="performanceNarrative">
@@ -178,12 +180,12 @@ export default function ExecutiveOverview({
           </div>
           <span className="performanceSource">Fonte: Meta Ads</span>
         </div>
-      ) : !hasAnyData ? (
+      ) : !hideMediaSummary && !hasAnyData ? (
         <div className="performanceHero is-empty">
           <span className="executiveEyebrow">Performance</span>
           <p className="performanceNarrative">Ainda não há dados suficientes para construir uma leitura executiva.</p>
         </div>
-      ) : (
+      ) : !hideMediaSummary ? (
         <div className="performanceHero is-empty">
           <span className="executiveEyebrow">Performance de mídia paga</span>
           <p className="performanceNarrative">
@@ -192,7 +194,7 @@ export default function ExecutiveOverview({
               : "Conecte o Meta Ads para acompanhar receita, investimento e ROAS aqui."}
           </p>
         </div>
-      )}
+      ) : null}
 
       <div className="executiveJourney">
         <div>

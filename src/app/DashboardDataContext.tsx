@@ -28,14 +28,13 @@ const DashboardDataContext = createContext<Value | null>(null);
 const bootstrapCompleted = new Set<string>();
 const inFlightSnapshots = new Map<string, Promise<DashboardSnapshot | null>>();
 
-function dateDaysAgo(days: number) {
+function currentYearStart() {
   const value = new Date();
-  value.setDate(value.getDate() - days);
-  return value.toISOString().slice(0, 10);
+  return `${value.getFullYear()}-01-01`;
 }
 
 export function DashboardDataProvider({ clientId, tenantReady, enabled, children }: { clientId: string; tenantReady: boolean; enabled: boolean; children: ReactNode }) {
-  const cacheKey = useMemo(() => buildDashboardCacheKey("read-model-v1", { clientId }), [clientId]);
+  const cacheKey = useMemo(() => buildDashboardCacheKey("read-model-ytd-v2", { clientId }), [clientId]);
   const cached = useMemo(() => clientId ? readDashboardCache<DashboardSnapshot>(cacheKey) : null, [cacheKey, clientId]);
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(cached);
   const [loading, setLoading] = useState(false);
@@ -67,7 +66,7 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
     setRefreshing(hadSnapshot);
     setError(null);
     performance.mark("dashboard-start");
-    const start = dateDaysAgo(89);
+    const start = currentYearStart();
     const [dailyResult, sourcesResult, campaignsResult, productsResult] = await Promise.all([
       supabase.from("dashboard_daily_metrics").select("*").eq("client_id", clientId).gte("metric_date", start).order("metric_date"),
       supabase.from("dashboard_source_snapshots").select("provider,last_success_at,data_max_available,data_min_available,updated_at").eq("client_id", clientId),

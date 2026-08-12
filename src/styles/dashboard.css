@@ -1401,6 +1401,18 @@
 .channelTodayGrid span{ color:var(--executive-gray); font-size:11px; font-weight:750; text-transform:uppercase; }
 .channelTodayGrid strong{ font-size:clamp(17px,2vw,23px); overflow-wrap:anywhere; }
 @media(max-width:640px){ .channelTodayHead{ display:grid; }.channelTodayGrid{ grid-template-columns:1fr; } }
+.storeMediaSummary{ display:grid; gap:16px; }
+.storeMediaNarrative{ display:grid; gap:6px; }
+.storeMediaNarrative p{ margin:0; color:var(--executive-ink); line-height:1.55; }
+.storeMediaGrid{ display:grid; gap:12px; }
+.storeMediaGrid.is-store{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+.storeMediaGrid.is-media{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+.storeMediaGrid article{ display:grid; gap:7px; min-width:0; padding:18px; border:1px solid rgba(26,23,24,.1); border-radius:8px; background:#fff; }
+.storeMediaGrid article>span{ color:var(--executive-gray); font-size:11px; font-weight:750; text-transform:uppercase; }
+.storeMediaGrid article>strong{ font-size:clamp(19px,2.2vw,28px); overflow-wrap:anywhere; }
+.storeMediaGrid article>small{ color:var(--executive-gray); }
+@media(max-width:900px){ .storeMediaGrid.is-media{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:640px){ .storeMediaGrid.is-store,.storeMediaGrid.is-media{ grid-template-columns:1fr; } }
 .performanceSource{ font-size: 11px; color: rgba(255,255,255,.55); margin-top: 4px; }
 .performanceHero.is-empty .performanceSource{ color: var(--executive-gray); }
 

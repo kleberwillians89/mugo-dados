@@ -95,4 +95,15 @@ describe("professional integration states and official identity", () => {
     expect(onboarding).toContain("selectedPaidConnection?.ad_account_id");
     expect(onboarding).not.toContain('Conta: {connection.account_name}');
   });
+
+  it("uses Shopify for the Meta commercial result and Today independently from Meta coverage", () => {
+    const dashboard = source("./Dashboard.tsx");
+    expect(dashboard).toContain("executiveData.shopify.net_revenue");
+    expect(dashboard).toContain("executiveData.shopify.orders");
+    expect(dashboard).toContain("executiveData.shopify.average_order_value");
+    expect(dashboard).toContain("executiveData?.shopify?.data_max_available");
+    expect(dashboard).toContain("item.date === today)?.shopify");
+    expect(dashboard).toContain("paidTotals?.spend");
+    expect(dashboard).toContain("safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)");
+  });
 });

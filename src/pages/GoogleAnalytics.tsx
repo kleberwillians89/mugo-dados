@@ -31,7 +31,9 @@ import {
 } from "../app/activeClient";
 import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "../components/dashboard/chartTheme";
 import ChannelTodaySummary from "../components/dashboard/ChannelTodaySummary";
+import { coveredShopifyDay } from "../components/dashboard/shopifyCoverage";
 import PerformanceChart from "../components/dashboard/PerformanceChart";
+import StoreMediaSummary from "../components/dashboard/StoreMediaSummary";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 
 import "../styles/dashboard.css";
@@ -78,10 +80,6 @@ function toErrorMessage(error: unknown) {
 
 function formatPct(value: number) {
   return `${Number.isFinite(value) ? value.toFixed(value >= 10 ? 0 : 1) : "0.0"}%`;
-}
-
-function formatCurrency(value: number | null): string {
-  return value == null ? "Sem dados" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 }
 
 function formatUpdatedAtLabel(value: string | null | undefined): string | null {
@@ -488,7 +486,7 @@ export default function GoogleAnalytics({
       spend,
       revenue,
       conversions,
-      roas: spend > 0 ? revenue / spend : null,
+      attributedRoas: spend > 0 ? revenue / spend : null,
       ticket: conversions > 0 ? revenue / conversions : null,
       daily: rows.map((row) => ({
         date: row.metric_date,
@@ -501,14 +499,22 @@ export default function GoogleAnalytics({
         cpc: row.google_ads_spend != null && row.google_ads_clicks ? row.google_ads_spend / row.google_ads_clicks : null,
         cpm: row.google_ads_spend != null && row.google_ads_impressions ? row.google_ads_spend * 1000 / row.google_ads_impressions : null,
         ctr: row.google_ads_clicks != null && row.google_ads_impressions ? row.google_ads_clicks * 100 / row.google_ads_impressions : null,
-        roas: row.google_ads_spend != null && row.google_ads_spend > 0 && row.google_ads_conversion_value != null
-          ? row.google_ads_conversion_value / row.google_ads_spend : null,
+        roas: row.google_ads_spend != null && row.google_ads_spend > 0 && row.shopify_net_revenue != null
+          ? row.shopify_net_revenue / row.google_ads_spend : null,
       })),
     };
   }, [adsModel.daily]);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-  const googleToday = googleAds?.daily.find((row) => row.date === today);
   const googleAdsUpdatedAt = formatUpdatedAtLabel(adsModel.sources.find((source) => source.provider === "google_ads")?.last_success_at);
+  const shopifyStore = useMemo(() => {
+    const rows = adsModel.daily.filter((row) => row.shopify_net_revenue != null || row.shopify_orders != null);
+    const source = adsModel.sources.find((item) => item.provider === "shopify");
+    if (!source && !rows.length) return null;
+    const revenue = rows.reduce((total, row) => total + Number(row.shopify_net_revenue || 0), 0);
+    const orders = rows.reduce((total, row) => total + Number(row.shopify_orders || 0), 0);
+    return { revenue, orders, ticket: orders > 0 ? revenue / orders : 0, coverage: source?.data_max_available || null };
+  }, [adsModel.daily, adsModel.sources]);
+  const shopifyToday = adsModel.daily.find((row) => row.metric_date === today);
   useEffect(() => {
     if (selectedGa4ClientId === activeGa4ClientId) return;
     setSelectedGa4ClientId(activeGa4ClientId);
@@ -890,17 +896,24 @@ export default function GoogleAnalytics({
             <div><div className="googlePageEyebrow">Resultado</div><div className="h1" id="google-commercial-title">Performance Google Ads</div></div>
             <span className="dashboardTimestamp">{googleAdsUpdatedAt ? `Atualizado em ${googleAdsUpdatedAt}` : "Aguardando sincronização"}</span>
           </div>
-          <div className="googleKpiGrid googleCommercialKpiGrid">
-            <GoogleMetricCard label="Vendas" value={formatCurrency(googleAds?.revenue ?? null)} hint="Receita atribuída ao Google Ads" accent />
-            <GoogleMetricCard label="Investimento" value={formatCurrency(googleAds?.spend ?? null)} hint="Investimento Google Ads" />
-            <GoogleMetricCard label="ROAS" value={googleAds?.roas != null ? `${googleAds.roas.toFixed(2)}x` : "Sem dados"} hint="Receita atribuída ÷ investimento" />
-            <GoogleMetricCard label="Compras" value={googleAds?.conversions != null ? googleAds.conversions.toLocaleString("pt-BR") : "Sem dados"} hint="Conversões atribuídas ao Google Ads" />
-            <GoogleMetricCard label="Ticket médio" value={formatCurrency(googleAds?.ticket ?? null)} hint="Receita atribuída ÷ compras" />
-          </div>
-          {selectedRange.start <= today && selectedRange.end >= today ? <ChannelTodaySummary
+          <StoreMediaSummary
             channel="Google"
+            store={{ revenue: shopifyStore?.revenue ?? null, orders: shopifyStore?.orders ?? null, ticket: shopifyStore?.ticket ?? null }}
+            media={{
+              spend: googleAds?.spend ?? null,
+              roas: googleAds?.spend && shopifyStore?.revenue != null ? shopifyStore.revenue / googleAds.spend : null,
+              attributedRoas: googleAds?.attributedRoas ?? null,
+              attributedRevenue: googleAds?.revenue ?? null,
+              attributedOrders: googleAds?.conversions ?? null,
+            }}
+            roasBasis="shopify"
+          />
+          {selectedRange.start <= today && selectedRange.end >= today ? <ChannelTodaySummary
             date={today}
-            value={googleToday?.revenue != null && googleToday.conversions != null ? { revenue: googleToday.revenue, orders: googleToday.conversions } : null}
+            value={coveredShopifyDay(shopifyStore?.coverage, today, {
+              revenue: shopifyToday?.shopify_net_revenue,
+              orders: shopifyToday?.shopify_orders,
+            })}
           /> : null}
           {googleAds ? <PerformanceChart daily={googleAds.daily} source="Google Ads" /> : null}
         </section>

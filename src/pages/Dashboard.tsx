@@ -17,6 +17,8 @@ import ExecutiveOverview, {
   type ExecutiveSource,
 } from "../components/dashboard/ExecutiveOverview";
 import ChannelTodaySummary from "../components/dashboard/ChannelTodaySummary";
+import { coveredShopifyDay } from "../components/dashboard/shopifyCoverage";
+import StoreMediaSummary from "../components/dashboard/StoreMediaSummary";
 
 import useDashboardSummary from "../hooks/dashboard/useDashboardSummary";
 import useDashboardMonthlyContent from "../hooks/dashboard/useDashboardMonthlyContent";
@@ -2094,18 +2096,18 @@ export default function Dashboard({
       },
       {
         key: "roas",
-        label: "ROAS reportado",
+        label: "ROAS Meta",
         value:
-          paidExecutiveAvailable && typeof paidTotals?.roas === "number" && Number.isFinite(paidTotals.roas)
-            ? paidTotals.roas
+          executiveData?.shopify?.connected && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
+            ? safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)
             : null,
         previous:
-          comparablePaid && typeof previousPaidData?.totals?.roas === "number" && Number.isFinite(previousPaidData.totals.roas)
-            ? previousPaidData.totals.roas
+          comparablePaid && executiveData?.previous_period?.shopify?.connected && safe(previousPaidData?.totals?.spend) > 0
+            ? safe(executiveData.previous_period.shopify.net_revenue) / safe(previousPaidData?.totals?.spend)
             : null,
         format: "ratio",
-        context: "Retorno reportado a partir da receita atribuída pela plataforma de mídia.",
-        source: "Meta Ads",
+        context: "Receita real Shopify dividida pelo investimento Meta no mesmo período.",
+        source: "Shopify + Meta Ads",
       },
       {
         key: "conversions",
@@ -2185,6 +2187,7 @@ export default function Dashboard({
       organicExecutiveAvailable,
       paidExecutiveAvailable,
       paidTotals,
+      executiveData,
       previousPaidData,
       previousTotals,
     ]
@@ -2387,6 +2390,28 @@ export default function Dashboard({
             </div>
           ) : null}
 
+          <StoreMediaSummary
+            channel="Meta"
+            roasBasis="shopify"
+            store={{
+              revenue: executiveData?.shopify?.connected ? executiveData.shopify.net_revenue : null,
+              orders: executiveData?.shopify?.connected ? executiveData.shopify.orders : null,
+              ticket: executiveData?.shopify?.connected ? executiveData.shopify.average_order_value : null,
+            }}
+            media={{
+              spend: paidExecutiveAvailable ? safe(paidTotals?.spend) : null,
+              roas:
+                executiveData?.shopify?.connected && paidExecutiveAvailable && safe(paidTotals?.spend) > 0
+                  ? safe(executiveData.shopify.net_revenue) / safe(paidTotals?.spend)
+                  : null,
+              attributedRoas: paidExecutiveAvailable && safe(paidTotals?.spend) > 0
+                ? safe(paidTotals?.revenue) / safe(paidTotals?.spend)
+                : null,
+              attributedRevenue: paidExecutiveAvailable ? safe(paidTotals?.revenue) : null,
+              attributedOrders: paidExecutiveAvailable ? safe(paidTotals?.conversions) : null,
+            }}
+          />
+
           <ExecutiveOverview
             companyName={commerceConnection?.account_name || getActiveClientName() || "E-commerce conectado"}
             commercePlatform={
@@ -2412,22 +2437,31 @@ export default function Dashboard({
             sources={executiveSources}
             loading={loadingDash || loadingPaid}
             error={dashboardError}
+            hideMediaSummary
           />
 
           {period.start <= new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) &&
           period.end >= new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) ? <ChannelTodaySummary
-            channel="Meta"
             date={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date())}
             value={(() => {
               const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-              const row = paidData?.daily?.find((item) => item.date === today);
-              return row?.revenue != null && row.conversions != null
-                ? { revenue: row.revenue, orders: row.conversions }
-                : null;
+              const row = executiveData?.daily?.find((item) => item.date === today)?.shopify;
+              return coveredShopifyDay(executiveData?.shopify?.data_max_available, today, {
+                revenue: row?.net_revenue,
+                orders: row?.orders,
+              });
             })()}
           /> : null}
 
-          {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily} /> : null}
+          {paidExecutiveAvailable ? <PerformanceChart daily={paidData?.daily?.map((row) => {
+            const shopify = executiveData?.daily?.find((item) => item.date === row.date)?.shopify;
+            return {
+              ...row,
+              roas: row.spend != null && row.spend > 0 && shopify?.net_revenue != null
+                ? shopify.net_revenue / row.spend
+                : null,
+            };
+          })} /> : null}
 
           {hasActiveConnection === false && !executiveData?.instagram?.connected ? (
             <div className="panelBlock">

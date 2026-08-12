@@ -735,6 +735,22 @@
   }
 }
 
+.shopifyHistory h2{ margin:4px 0; font-size:22px; }
+.shopifyHistoryMetricTabs{ display:flex; gap:8px; margin:8px 0 18px; flex-wrap:wrap; }
+.shopifyHistoryMetricTabs button{ border:1px solid rgba(26,23,24,.14); background:#fff; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer; }
+.shopifyHistoryMetricTabs button.is-active{ background:#1a1718; color:#fff; }
+.shopifyHistoryCoverage{ color:rgba(26,23,24,.62); font-size:12px; }
+.shopifyHistoryChart{ height:240px; display:flex; align-items:stretch; gap:8px; padding:18px 4px 42px; border-bottom:1px solid rgba(26,23,24,.12); overflow-x:auto; }
+.shopifyHistoryBar{ min-width:58px; flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:7px; position:relative; }
+.shopifyHistoryBar>span{ width:min(34px,70%); min-height:3px; background:#1a1718; border-radius:4px 4px 0 0; }
+.shopifyHistoryBar small{ position:absolute; top:calc(100% + 8px); white-space:nowrap; font-size:10px; color:rgba(26,23,24,.65); }
+.shopifyHistoryTableWrap{ overflow-x:auto; margin-top:22px; }
+.shopifyHistoryTable{ width:100%; border-collapse:collapse; font-size:13px; }
+.shopifyHistoryTable th,.shopifyHistoryTable td{ text-align:right; padding:12px 10px; border-bottom:1px solid rgba(26,23,24,.08); white-space:nowrap; }
+.shopifyHistoryTable th:first-child,.shopifyHistoryTable td:first-child{ text-align:left; }
+.shopifyHistoryTable td small{ display:block; color:rgba(26,23,24,.55); }
+@media(max-width:520px){ .shopifyHistoryTable th:nth-child(5),.shopifyHistoryTable td:nth-child(5),.shopifyHistoryTable th:nth-child(6),.shopifyHistoryTable td:nth-child(6){ display:none; } }
+
 @media (max-width: 560px){
   .shopifyHeroCopy,
   .shopifyFilterCard,

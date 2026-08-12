@@ -86,8 +86,22 @@ vi.mock("../app/DashboardDataContext", () => ({
       google_ads_conversions: 5,
       google_ads_impressions: 1000,
       google_ads_clicks: 50,
+      shopify_net_revenue: null,
+      shopify_orders: null,
+    }, {
+      metric_date: "2026-08-11",
+      google_ads_spend: null,
+      google_ads_conversion_value: null,
+      google_ads_conversions: null,
+      google_ads_impressions: null,
+      google_ads_clicks: null,
+      shopify_net_revenue: 646.52,
+      shopify_orders: 1,
     }],
-    sources: [{ provider: "google_ads", last_success_at: "2026-08-10T12:00:00Z" }],
+    sources: [
+      { provider: "google_ads", last_success_at: "2026-08-10T12:00:00Z" },
+      { provider: "shopify", last_success_at: "2026-08-11T12:00:00Z", data_max_available: "2026-08-11" },
+    ],
   }),
 }));
 
@@ -164,11 +178,13 @@ describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneam
   it("usa exclusivamente os campos canônicos do Google Ads no resumo comercial", async () => {
     await renderGa4();
     const commercial = container.querySelector(".googleCommercialSection");
+    expect(commercial?.textContent).toContain("R$ 646,52");
+    expect(commercial?.textContent).toContain("Fonte: Shopify");
     expect(commercial?.textContent).toContain("R$ 450,00");
     expect(commercial?.textContent).toContain("R$ 100,00");
     expect(commercial?.textContent).toContain("4.50x");
-    expect(commercial?.textContent).toContain("R$ 90,00");
-    expect(commercial?.textContent).toContain("Compras5");
+    expect(commercial?.textContent).toContain("Receita atribuída");
+    expect(commercial?.textContent).toContain("Compras atribuídas5");
   });
 
   it("o bloco Hoje contém somente vendas, pedidos e ticket", async () => {
@@ -179,5 +195,7 @@ describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneam
     expect(today?.textContent).toContain("Ticket médio hoje");
     expect(today?.textContent).not.toContain("ROAS");
     expect(today?.textContent).not.toContain("Investimento");
+    expect(today?.textContent).toContain("Fonte: Shopify");
+    expect(today?.textContent).toContain("R$ 646,52");
   });
 });

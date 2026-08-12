@@ -8,6 +8,7 @@ import ShopifyKpiCard from "../components/shopify/ShopifyKpiCard";
 import ShopifyOrdersTable from "../components/shopify/ShopifyOrdersTable";
 import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
+import ShopifySalesHistory from "../components/shopify/ShopifySalesHistory";
 import { usePeriod } from "../app/PeriodContext";
 import {
   getShopifyCustomers,
@@ -43,7 +44,7 @@ type Props = {
 // de pedidos a cada clique.
 const SHOPIFY_MANUAL_SYNC_DAYS = 60;
 
-type PeriodPreset = "7d" | "30d" | "month" | "specific";
+type PeriodPreset = "7d" | "30d" | "month" | "previous_month" | "ytd" | "specific" | "custom";
 type ShopifyMetricKey = "revenue" | "orders" | "customers" | "average_ticket";
 
 const SHOPIFY_METRIC_TABS: { key: ShopifyMetricKey; label: string; description: string }[] = [
@@ -87,10 +88,15 @@ function resolveInitialPreset(start: string, end: string, days: number): PeriodP
   const now = new Date();
   const currentMonthStart = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
   const today = toDateInput(now);
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousStart = toDateInput(previousMonth);
+  const previousEnd = toDateInput(new Date(now.getFullYear(), now.getMonth(), 0));
 
   if (days === 7) return "7d";
   if (days === 30) return "30d";
   if (start === currentMonthStart && end === today) return "month";
+  if (start === previousStart && end === previousEnd) return "previous_month";
+  if (start === `${now.getFullYear()}-01-01` && end === today) return "ytd";
   return "specific";
 }
 
@@ -142,7 +148,7 @@ function ShopifyReportSkeleton() {
 }
 
 export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport }: Props) {
-  const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
+  const { period, periodDays, setPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
@@ -151,6 +157,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const [selectedMonth, setSelectedMonth] = useState(initialDate.month);
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
   const model = useDashboardSnapshot(period.start, period.end);
+  const historicalModel = useDashboardSnapshot();
   const [error, setError] = useState<string | null>(null);
   const [syncingShopify, setSyncingShopify] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
@@ -169,8 +176,8 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     if (Number.isNaN(startDate.getTime())) return;
     setSelectedMonth(startDate.getMonth() + 1);
     setSelectedYear(startDate.getFullYear());
-    setPreset(resolveInitialPreset(period.start, period.end, periodDays));
-  }, [period.end, period.start, periodDays]);
+    if (preset !== "custom") setPreset(resolveInitialPreset(period.start, period.end, periodDays));
+  }, [period.end, period.start, periodDays, preset]);
 
   useEffect(() => {
     let active = true;
@@ -351,6 +358,20 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
       setCurrentMonthPeriod();
       return;
     }
+    if (nextPreset === "previous_month") {
+      const previous = new Date();
+      previous.setMonth(previous.getMonth() - 1);
+      setSelectedMonth(previous.getMonth() + 1);
+      setSelectedYear(previous.getFullYear());
+      setMonthPeriod(previous.getFullYear(), previous.getMonth() + 1);
+      return;
+    }
+    if (nextPreset === "ytd") {
+      const today = canonicalTodayIso();
+      setPeriod({ start: `${today.slice(0, 4)}-01-01`, end: today });
+      return;
+    }
+    if (nextPreset === "custom") return;
     setMonthPeriod(selectedYear, selectedMonth);
   }
 
@@ -423,9 +444,17 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 <option value="7d">Últimos 7 dias</option>
                 <option value="30d">Últimos 30 dias</option>
                 <option value="month">Mês atual</option>
+                <option value="previous_month">Mês anterior</option>
+                <option value="ytd">Ano até agora</option>
                 <option value="specific">Mês específico</option>
+                <option value="custom">Período personalizado</option>
               </select>
             </label>
+
+            {preset === "custom" ? <>
+              <label className="shopifyFilterField"><span>Início</span><input className="select" type="date" value={period.start} onChange={(event) => setPeriod({ start: event.target.value, end: period.end })} /></label>
+              <label className="shopifyFilterField"><span>Fim</span><input className="select" type="date" value={period.end} onChange={(event) => setPeriod({ start: period.start, end: event.target.value })} /></label>
+            </> : null}
 
             <label className="shopifyFilterField">
               <span>Mês</span>
@@ -572,6 +601,12 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                 />
               </div>
             </section>
+
+            <ShopifySalesHistory
+              rows={historicalModel.daily}
+              coverageStart={historicalModel.sources.find((source) => source.provider === "shopify")?.data_min_available || null}
+              coverageEnd={historicalModel.sources.find((source) => source.provider === "shopify")?.data_max_available || null}
+            />
 
             <section className="shopifySection" id="shopify-customers">
               <ShopifySectionHeader

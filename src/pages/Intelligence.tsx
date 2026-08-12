@@ -342,6 +342,15 @@ export default function Intelligence({ onLogout }: Props) {
           </span>
         ))}
       </section>
+      {snapshot?.historical_context?.coverage_start && snapshot.historical_context.coverage_end ? (
+        <section className="intelSourceBar" aria-label="Histórico analisado">
+          <strong>Histórico comercial analisado</strong>
+          <span>{formatDate(snapshot.historical_context.coverage_start)} — {formatDate(snapshot.historical_context.coverage_end)}</span>
+          {Object.entries(snapshot.historical_context.source_coverage).map(([provider, coverage]) => coverage.start && coverage.end ? (
+            <span key={provider}>{provider === "shopify" ? "Shopify" : provider === "meta" ? "Meta" : provider === "google_ads" ? "Google Ads" : provider.toUpperCase()}<small>{formatDate(coverage.start)} — {formatDate(coverage.end)}</small></span>
+          ) : null)}
+        </section>
+      ) : null}
 
       {error ? <div className="intelError" role="alert">{error}</div> : null}
       {providerConfigured === false || analysis?.status === "configuration_pending" ? (

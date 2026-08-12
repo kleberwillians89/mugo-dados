@@ -125,8 +125,18 @@ período") e nunca "porque", "causou", "provou" ou equivalentes sem evidência c
 
 Leia métricas relacionadas em conjunto quando disponíveis: receita com pedidos e ticket;
 investimento com receita atribuída, compras e ROAS; sessões com conversão, pedidos e receita.
+Ao dizer que a loja vendeu ou faturou, use exclusivamente receita/pedidos Shopify. Meta e Google
+medem receita atribuída segundo cada plataforma; descreva sempre como atribuição, nunca como
+faturamento real nem como prova de causalidade sobre a receita total da loja.
 Procure contradições úteis, como receita e pedidos em direções opostas. Não use benchmark ou
 meta que não esteja no payload. Não classifique automaticamente alta como boa ou queda como ruim.
+
+Use historical_context apenas para contextualizar o período principal. Dois meses representam
+movimento, não tendência; só descreva tendência quando recent_trend.is_trend for verdadeiro.
+Não alegue sazonalidade com um único ano. Meses parciais não são diretamente comparáveis a meses
+completos. Respeite source_coverage: uma fonte não explica meses anteriores à sua cobertura.
+roas_real usa receita real Shopify; attributed_roas usa a atribuição da plataforma e os conceitos
+devem permanecer explicitamente separados.
 
 Respeite analysis_policy. Cobertura indica até que data existem dados; freshness indica quando o
 job terminou. Não confunda esses conceitos. Não cruze fontes quando cross_source_comparison_allowed
@@ -304,13 +314,78 @@ def _status_for(source: Dict[str, Any]) -> str:
     }.get(_text(source.get("status")), "unavailable")
 
 
+def _historical_context(
+    rows: List[Dict[str, Any]], snapshots: List[Dict[str, Any]], year: int,
+    selected_start: date, selected_end: date,
+) -> Dict[str, Any]:
+    """Compact, aggregate-only historical context. It intentionally contains no order/customer data."""
+    source_coverage = {
+        _text(item.get("provider")): {
+            "start": item.get("data_min_available"), "end": item.get("data_max_available"),
+        } for item in snapshots
+    }
+    providers = {
+        "shopify": ("shopify_net_revenue", "shopify_orders"),
+        "meta": ("meta_spend", "meta_attributed_revenue", "meta_purchases"),
+        "google_ads": ("google_ads_spend", "google_ads_conversion_value", "google_ads_conversions"),
+        "ga4": ("ga4_sessions", "ga4_users"),
+    }
+    months: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        metric_date = _text(row.get("metric_date"))
+        if metric_date.startswith(f"{year}-"):
+            months.setdefault(metric_date[:7], []).append(row)
+    monthly: List[Dict[str, Any]] = []
+    for month, month_rows in sorted(months.items()):
+        shopify_available = any(row.get("shopify_net_revenue") is not None or row.get("shopify_orders") is not None for row in month_rows)
+        meta_available = any(row.get("meta_spend") is not None for row in month_rows)
+        google_available = any(row.get("google_ads_spend") is not None for row in month_rows)
+        if not (shopify_available or meta_available or google_available):
+            continue
+        revenue, orders = _sum(month_rows, "shopify_net_revenue"), _sum(month_rows, "shopify_orders")
+        meta_spend, meta_attr = _sum(month_rows, "meta_spend"), _sum(month_rows, "meta_attributed_revenue")
+        google_spend, google_attr = _sum(month_rows, "google_ads_spend"), _sum(month_rows, "google_ads_conversion_value")
+        calendar_start = f"{month}-01"
+        next_month = (date.fromisoformat(calendar_start).replace(day=28) + timedelta(days=4)).replace(day=1)
+        calendar_end = (next_month - timedelta(days=1)).isoformat()
+        available_dates = [_text(row.get("metric_date")) for row in month_rows]
+        monthly.append({
+            "month": month, "coverage_start": min(available_dates), "coverage_end": max(available_dates),
+            "is_partial": min(available_dates) > calendar_start or max(available_dates) < calendar_end,
+            "shopify": {"available": shopify_available, "revenue": revenue if shopify_available else None, "orders": orders if shopify_available else None, "average_order_value": revenue / orders if shopify_available and orders else (0 if shopify_available else None)},
+            "meta": {"available": meta_available, "spend": meta_spend if meta_available else None, "attributed_revenue": meta_attr if meta_available else None, "purchases": _sum(month_rows, "meta_purchases") if meta_available else None, "roas_real": revenue / meta_spend if shopify_available and meta_spend else None, "attributed_roas": meta_attr / meta_spend if meta_spend else None},
+            "google_ads": {"available": google_available, "spend": google_spend if google_available else None, "attributed_revenue": google_attr if google_available else None, "conversions": _sum(month_rows, "google_ads_conversions") if google_available else None, "roas_real": revenue / google_spend if shopify_available and google_spend else None, "attributed_roas": google_attr / google_spend if google_spend else None},
+        })
+    shopify_months = [item for item in monthly if item["shopify"]["available"]]
+    complete = [item for item in shopify_months if not item["is_partial"]]
+    total_revenue = sum(item["shopify"]["revenue"] for item in complete)
+    total_orders = sum(item["shopify"]["orders"] for item in complete)
+    recent = complete[-3:]
+    direction = None
+    if len(recent) >= 3:
+        values = [item["shopify"]["revenue"] for item in recent]
+        direction = "increasing" if values[0] < values[1] < values[2] else "decreasing" if values[0] > values[1] > values[2] else "mixed"
+    return {
+        "coverage_start": source_coverage.get("shopify", {}).get("start"),
+        "coverage_end": source_coverage.get("shopify", {}).get("end"),
+        "monthly_summary": monthly,
+        "rolling_baselines": {"complete_months": len(complete), "average_monthly_revenue": total_revenue / len(complete) if complete else None, "average_monthly_orders": total_orders / len(complete) if complete else None, "weighted_average_order_value": total_revenue / total_orders if total_orders else None},
+        "highs_lows": {"highest_revenue_month": max(complete, key=lambda item: item["shopify"]["revenue"])["month"] if complete else None, "lowest_revenue_month": min(complete, key=lambda item: item["shopify"]["revenue"])["month"] if complete else None},
+        "recent_trend": {"evidence_periods": len(recent), "revenue_direction": direction, "is_trend": direction in {"increasing", "decreasing"}},
+        "selected_period_context": {"start": selected_start.isoformat(), "end": selected_end.isoformat(), "is_partial_month": selected_end < (selected_end.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)},
+        "source_coverage": {provider: source_coverage.get(provider, {"start": None, "end": None}) for provider in providers},
+    }
+
+
 async def _read_model_executive_context(
     client_id: str, start_date: date, end_date: date, previous_start: date, previous_end: date
 ) -> Dict[str, Any]:
+    history_start = date(end_date.year, 1, 1)
+    history_end = max(end_date, date.today())
     rows, snapshots = await asyncio.gather(
         _query_period(
             "dashboard_daily_metrics", client_id=client_id, select="*", date_column="metric_date",
-            start=previous_start, end=end_date, limit=800,
+            start=min(previous_start, history_start), end=history_end, limit=800,
         ),
         sb_select("dashboard_source_snapshots", filters={"client_id": f"eq.{client_id}"}, limit=20),
     )
@@ -328,8 +403,8 @@ async def _read_model_executive_context(
         source = lambda provider: by_provider.get(provider, {})
         return {
             "shopify": {"connected": True, "data_available": any(row.get("shopify_net_revenue") is not None for row in selected), "net_revenue": net, "orders": orders, "average_order_value": net / orders if orders else None, "new_customers": _sum(selected, "shopify_customers"), "returning_customers": None, "last_success_at": source("shopify").get("last_success_at"), "data_max_available": source("shopify").get("data_max_available")},
-            "meta": {"connected": True, "data_available": any(row.get("meta_spend") is not None for row in selected), "spend": meta_spend, "attributed_revenue": meta_revenue, "roas": meta_revenue / meta_spend if meta_spend else None, "last_success_at": source("meta").get("last_success_at"), "data_max_available": source("meta").get("data_max_available")},
-            "google_ads": {"connected": True, "data_available": any(row.get("google_ads_spend") is not None for row in selected), "spend": google_spend, "attributed_revenue": google_value, "roas": google_value / google_spend if google_spend else None, "last_success_at": source("google_ads").get("last_success_at"), "data_max_available": source("google_ads").get("data_max_available")},
+            "meta": {"connected": True, "data_available": any(row.get("meta_spend") is not None for row in selected), "spend": meta_spend, "attributed_revenue": meta_revenue, "roas_real": net / meta_spend if meta_spend else None, "attributed_roas": meta_revenue / meta_spend if meta_spend else None, "last_success_at": source("meta").get("last_success_at"), "data_max_available": source("meta").get("data_max_available")},
+            "google_ads": {"connected": True, "data_available": any(row.get("google_ads_spend") is not None for row in selected), "spend": google_spend, "attributed_revenue": google_value, "roas_real": net / google_spend if google_spend else None, "attributed_roas": google_value / google_spend if google_spend else None, "last_success_at": source("google_ads").get("last_success_at"), "data_max_available": source("google_ads").get("data_max_available")},
             "ga4": {"connected": True, "data_available": any(row.get("ga4_sessions") is not None for row in selected), "sessions": _sum(selected, "ga4_sessions"), "users": _sum(selected, "ga4_users"), "last_success_at": source("ga4").get("last_success_at"), "data_max_available": source("ga4").get("data_max_available")},
             "instagram": {"connected": True, "data_available": any(row.get("instagram_reach") is not None for row in selected), "last_success_at": source("instagram").get("last_success_at"), "data_max_available": source("instagram").get("data_max_available")},
             "total_paid_media": {"paid_media_spend": paid, "included_paid_sources": [provider for provider, value in (("meta", meta_spend), ("google_ads", google_spend)) if value], "blended_roas": net / paid if paid else None},
@@ -347,6 +422,7 @@ async def _read_model_executive_context(
         "meta_spend": delta(current["meta"]["spend"], previous["meta"]["spend"]),
         "blended_roas": delta(current["total_paid_media"]["blended_roas"], previous["total_paid_media"]["blended_roas"]),
     }
+    current["historical_context"] = _historical_context(rows, snapshots, end_date.year, start_date, end_date)
     return current
 
 
@@ -425,6 +501,7 @@ async def calculate_intelligence_snapshot(
         "last_sync_at": max((str(source.get("last_sync_at") or "") for source in sources), default="") or None,
         "metrics": metrics, "crossings": [], "top_campaigns": [],
         "executive_context": executive_context,
+        "historical_context": (executive_context or {}).get("historical_context"),
     }
 
     shop_select = "shopify_order_id,customer_id,email,total_price,cancelled_at,created_at_shopify"
@@ -1051,6 +1128,8 @@ async def generate_analysis(
                 # fontes incluídas explícitas, GA4 separado) — a IA só
                 # interpreta, nunca soma/divide nada daqui.
                 "real_operation": snapshot.get("executive_context"),
+                # Monthly aggregates only: no order, customer, email or other PII.
+                "historical_context": snapshot.get("historical_context"),
             },
             schema=ANALYSIS_SCHEMA,
             instructions=ANALYSIS_INSTRUCTIONS,

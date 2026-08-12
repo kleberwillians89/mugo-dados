@@ -61,6 +61,12 @@ export type IntelligenceSnapshot = {
     revenue: number;
     conversions: number;
   }>;
+  historical_context?: {
+    coverage_start: string | null;
+    coverage_end: string | null;
+    monthly_summary: Array<Record<string, unknown>>;
+    source_coverage: Record<string, { start: string | null; end: string | null }>;
+  };
 };
 
 export type IntelligenceInsight = {

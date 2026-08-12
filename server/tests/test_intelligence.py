@@ -169,6 +169,25 @@ class IntelligenceAuthorizationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class IntelligenceInterpretationPolicyTests(unittest.TestCase):
+    def test_historical_context_keeps_coverage_partial_months_and_attribution_separate(self):
+        rows = [
+            {"metric_date": "2026-01-10", "shopify_net_revenue": 100, "shopify_orders": 1},
+            {"metric_date": "2026-07-01", "shopify_net_revenue": 200, "shopify_orders": 2, "meta_spend": 50, "meta_attributed_revenue": 80, "meta_purchases": 1},
+            {"metric_date": "2026-08-10", "shopify_net_revenue": 300, "shopify_orders": 1, "meta_spend": 100, "meta_attributed_revenue": 150, "meta_purchases": 2},
+        ]
+        snapshots = [
+            {"provider": "shopify", "data_min_available": "2026-01-10", "data_max_available": "2026-08-10"},
+            {"provider": "meta", "data_min_available": "2026-07-01", "data_max_available": "2026-08-10"},
+        ]
+        context = intelligence._historical_context(rows, snapshots, 2026, intelligence.date(2026, 8, 1), intelligence.date(2026, 8, 10))
+        self.assertEqual(context["source_coverage"]["meta"]["start"], "2026-07-01")
+        self.assertEqual([item["month"] for item in context["monthly_summary"]], ["2026-01", "2026-07", "2026-08"])
+        august = context["monthly_summary"][-1]
+        self.assertTrue(august["is_partial"])
+        self.assertEqual(august["meta"]["roas_real"], 3)
+        self.assertEqual(august["meta"]["attributed_roas"], 1.5)
+        self.assertFalse(context["recent_trend"]["is_trend"])
+
     def snapshot(self, *, metrics=None, sources=None, start="2026-08-01", end="2026-08-10"):
         return {
             "period": {"start": start, "end": end},
