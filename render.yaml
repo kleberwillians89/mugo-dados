@@ -124,6 +124,18 @@ services:
         value: 3.13.2
 
   - type: cron
+    name: mugo-dados-meta-ads-backfill-worker
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "*/5 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py ads-backfill-worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  - type: cron
     name: mugo-dados-ga4-wide-reconciliation
     env: python
     plan: starter

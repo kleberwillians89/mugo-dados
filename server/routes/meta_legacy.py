@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from api_support import (
     _log_endpoint_call,
@@ -28,6 +28,7 @@ from services.cron_jobs import (
 )
 from services.ig_refresh import refresh_all
 from services.ads_sync import sync_ads_for_client_period
+from services.meta_backfill import enqueue_backfill, get_backfill
 from services.periods import resolve_period
 from services.instagram_sync import discover_instagram_identity_for_connection, sync_instagram_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
@@ -60,6 +61,7 @@ from services.tenant import (
     require_user_id,
     resolve_client_id,
 )
+from services.platform_admin import require_platform_admin
 
 router = APIRouter(tags=["meta-legacy"])
 
@@ -658,6 +660,43 @@ async def api_sync_meta_ads_account(
         record_job_run=True,
         request_id=str(getattr(request.state, "request_id", "") or "-"),
     )
+
+
+@router.post("/api/ads/backfill", status_code=202)
+async def api_enqueue_meta_ads_backfill(
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    actor = await require_platform_admin(authorization)
+    client_id = str(payload.get("client_id") or "").strip()
+    connection_id = str(payload.get("connection_id") or "").strip()
+    since, until = str(payload.get("since") or "").strip(), str(payload.get("until") or "").strip()
+    if not client_id or not connection_id or not since or not until:
+        raise HTTPException(status_code=422, detail="client_id, connection_id, since e until são obrigatórios.")
+    cid = await require_client_role(client_id, authorization, allowed_roles=("agency_admin",))
+    resolved = await _validated_connection_id(client_id=cid, connection_id=connection_id, authorization=authorization)
+    try:
+        datetime.fromisoformat(since)
+        datetime.fromisoformat(until)
+        result = await enqueue_backfill(client_id=cid, connection_id=resolved or connection_id,
+                                        since=since, until=until, created_by=actor)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return JSONResponse(status_code=202, content=result)
+
+
+@router.get("/api/ads/backfill/{job_id}")
+async def api_get_meta_ads_backfill(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    await require_platform_admin(authorization)
+    try:
+        result = await get_backfill(job_id)
+        await require_client_role(str(result.get("client_id") or ""), authorization, allowed_roles=("agency_admin",))
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/api/clients/{client_id}/connections")

@@ -35,17 +35,18 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 32)
+        self.assertEqual(len(names), 33)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-2], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
-        self.assertEqual(names[-1], "20260817_000032_shopify_explicit_sync_coverage.sql")
+        self.assertEqual(names[-3], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
+        self.assertEqual(names[-2], "20260817_000032_shopify_explicit_sync_coverage.sql")
+        self.assertEqual(names[-1], "20260818_000033_meta_ads_backfill_queue.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 33)))
+        self.assertEqual(logical_numbers, list(range(1, 34)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
@@ -56,6 +57,16 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertIn("p_client_id, 'shopify', now(), p_start, p_end", sql)
         self.assertIn("data_max_available = greatest", sql)
         self.assertNotIn("max(metric_date)", sql)
+
+    def test_meta_backfill_queue_is_service_only_and_restartable(self):
+        sql = (MIGRATIONS / "20260818_000033_meta_ads_backfill_queue.sql").read_text().lower()
+        self.assertIn("meta_ads_backfill_jobs", sql)
+        self.assertIn("meta_ads_backfill_slices", sql)
+        self.assertIn("for update of s skip locked", sql)
+        self.assertIn("worker interrompido; slice retomado", sql)
+        self.assertIn("unique(backfill_job_id, slice_since, slice_until)", sql)
+        self.assertIn("revoke all on public.meta_ads_backfill_jobs from anon, authenticated", sql)
+        self.assertIn("grant execute on function public.claim_meta_ads_backfill_slice(integer) to service_role", sql)
 
     def test_cron_job_runs_supports_both_connection_catalogs(self):
         sql = (

@@ -21,6 +21,7 @@ from services.cron_jobs import (
 )
 from services.ga4_sync import sync_ga4_for_period
 from services.meta_tokens import refresh_meta_token_for_connection
+from services.meta_backfill import process_next_slice
 
 
 def _print_json(payload: Any) -> None:
@@ -46,6 +47,8 @@ async def _run(args: argparse.Namespace) -> Any:
             trigger_source="manual_cli",
             record_job_run=True,
         )
+    if args.command == "ads-backfill-worker":
+        return await process_next_slice()
     if args.command == "ga4-sync":
         return await sync_ga4_for_period(
             since=args.since,
@@ -92,6 +95,8 @@ def _build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--since", required=True, help="Data inicial no formato YYYY-MM-DD.")
     backfill.add_argument("--until", required=True, help="Data final no formato YYYY-MM-DD.")
     backfill.add_argument("--connection-id", default=None, help="Connection ID opcional para travar a execução.")
+
+    sub.add_parser("ads-backfill-worker", help="Consome atomicamente um slice da fila durável de backfill Meta Ads.")
 
     ga4_sync = sub.add_parser("ga4-sync", help="Roda ingestão manual do GA4.")
     ga4_sync.add_argument("--client-id", default=None, help="Client ID obrigatório em produção.")

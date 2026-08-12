@@ -1327,6 +1327,7 @@ async def sync_ads_for_client_period(
     trigger_source: str = "manual",
     record_job_run: bool = True,
     request_id: str | None = None,
+    refresh_read_model: bool = True,
 ) -> Dict[str, Any]:
     sync_started_at = time.monotonic()
     cid = _safe_str(client_id)
@@ -1824,7 +1825,7 @@ async def sync_ads_for_client_period(
             else:
                 await mark_connection_sync_success(resolved_connection_id)
 
-            if persisted_account_rows > 0:
+            if persisted_account_rows > 0 and refresh_read_model:
                 await refresh_dashboard_read_model_safely(
                     client_id=cid,
                     start=period_since,
