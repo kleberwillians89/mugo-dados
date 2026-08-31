@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   createClientInvitation,
   createPlatformCompany,
@@ -30,6 +30,7 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
   const [error, setError] = useState("");
   const [inviteWarning, setInviteWarning] = useState("");
   const [created, setCreated] = useState<PlatformCompany | null>(null);
+  const isCreating = useRef(false);
 
   function reset() {
     setStep(0);
@@ -50,6 +51,8 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
   const canAdvanceFromDados = company.name.trim().length >= 2 && company.responsible_email.trim().includes("@");
 
   async function handleCreate() {
+    if (isCreating.current) return;
+    isCreating.current = true;
     setSaving(true);
     setError("");
     setInviteWarning("");
@@ -82,6 +85,7 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
       // Em erro, os dados preenchidos permanecem para o usuário corrigir sem redigitar.
       setError(cause instanceof Error ? cause.message : "Não foi possível criar a empresa.");
     } finally {
+      isCreating.current = false;
       setSaving(false);
     }
   }

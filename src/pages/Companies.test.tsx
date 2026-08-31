@@ -148,6 +148,20 @@ describe("Companies — wizard de nova empresa", () => {
     });
     expect(createPlatformCompany).toHaveBeenCalledTimes(1);
   });
+
+  it("duplo clique no botão Criar empresa cria apenas uma empresa", async () => {
+    await renderCompanies();
+    await act(async () => {
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await advanceWizardToReview();
+    const createButton = findButton("Criar empresa");
+    await act(async () => {
+      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(createPlatformCompany).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("Companies — modal de convite de usuário", () => {
