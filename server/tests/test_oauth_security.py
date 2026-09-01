@@ -29,7 +29,17 @@ ROOT = Path(__file__).resolve().parents[2]
 META_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/meta/callback"
 EXPECTED_META_SCOPES = [
     "public_profile",
-    "email",
+    "pages_show_list",
+    "pages_read_engagement",
+    "instagram_basic",
+    "instagram_manage_insights",
+    "ads_read",
+    "business_management",
+]
+
+# Scopes que o Analytics V1 exige e que NÃO podem sumir do OAuth.
+REQUIRED_META_V1_SCOPES = [
+    "public_profile",
     "pages_show_list",
     "pages_read_engagement",
     "instagram_basic",
@@ -147,6 +157,18 @@ class MetaOAuthConfigurationTests(unittest.TestCase):
         self.assertFalse(
             any(scope.startswith("instagram_business_") for scope in scopes)
         )
+
+    def test_email_scope_is_not_requested(self):
+        """Analytics V1 não usa `email` da Meta (autenticação é via Supabase).
+
+        Pedir um scope sem uso — e ausente da Login Configuration
+        "Mugô Dados Production" — só amplia a superfície de App Review.
+        """
+        query = parse_qs(urlparse(self._build_url()["url"]).query)
+        scopes = query["scope"][0].split(",")
+        self.assertNotIn("email", scopes)
+        for required in REQUIRED_META_V1_SCOPES:
+            self.assertIn(required, scopes)
 
     def test_login_for_business_configuration_is_forwarded_without_access_type(self):
         with patch.dict(os.environ, {"META_LOGIN_CONFIG_ID": "business-login-config"}, clear=False):

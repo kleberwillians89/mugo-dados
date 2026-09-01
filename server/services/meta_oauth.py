@@ -120,9 +120,11 @@ def _sign(payload_bytes: bytes) -> str:
 
 
 def _default_scopes() -> List[str]:
+    # Conjunto mínimo do Meta Analytics V1, alinhado à Login Configuration
+    # "Mugô Dados Production". `email` foi removido: nenhum consumidor no
+    # código (a autenticação é via Supabase) e ausente da Login Configuration.
     return [
         "public_profile",
-        "email",
         "pages_show_list",
         "pages_read_engagement",
         "instagram_basic",
