@@ -5,6 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException
 
 from services.platform_admin import (
+    create_company_activation_link,
     create_platform_company,
     is_platform_admin,
     list_platform_companies,
@@ -34,7 +35,8 @@ async def platform_create_company(
     payload: Dict[str, Any],
     authorization: str | None = Header(default=None),
 ):
-    actor_user_id = await require_platform_admin(authorization)
+    # Criar empresa é exclusivo de platform_admin (mesma autoridade da RPC).
+    actor_user_id = await require_platform_admin(authorization, allow_agency_admin=False)
     try:
         return await create_platform_company(actor_user_id, payload)
     except RuntimeError as exc:
@@ -50,6 +52,18 @@ async def platform_update_company(
     actor_user_id = await require_platform_admin(authorization)
     try:
         return await update_platform_company(actor_user_id, client_id, payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{client_id}/activation-link")
+async def platform_company_activation_link(
+    client_id: str,
+    authorization: str | None = Header(default=None),
+):
+    actor_user_id = await require_platform_admin(authorization)
+    try:
+        return await create_company_activation_link(actor_user_id, client_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

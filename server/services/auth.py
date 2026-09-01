@@ -54,6 +54,40 @@ def _validate_claims_for_local(claims: Dict[str, Any], supabase_url: str) -> Opt
         return None
     return sub
 
+async def get_user_from_bearer(authorization: Optional[str]) -> Optional[Dict[str, str]]:
+    """
+    Valida o token chamando Supabase Auth e devolve {"id", "email"} do usuário.
+    Retorna None quando o token é ausente/ inválido (sem fallback de dev).
+    """
+    token = _bearer_token(authorization)
+    if not token:
+        return None
+
+    supabase_url = _env("SUPABASE_URL").rstrip("/")
+    anon_key = _env("SUPABASE_ANON_KEY")
+    service_role_key = _env("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url.startswith("http"):
+        raise RuntimeError("Missing or invalid environment variable: SUPABASE_URL.")
+    keys = [k for k in [anon_key, service_role_key] if len(k) >= 20]
+    if not keys:
+        raise RuntimeError(
+            "Missing environment variable: SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY."
+        )
+
+    url = f"{supabase_url}/auth/v1/user"
+    async with httpx.AsyncClient(timeout=20) as client:
+        for key in keys:
+            r = await client.get(url, headers={"Authorization": f"Bearer {token}", "apikey": key})
+            if r.status_code != 200:
+                continue
+            data: Dict[str, Any] = r.json()
+            uid = (data.get("id") or "").strip()
+            if uid:
+                return {"id": uid, "email": str(data.get("email") or "").strip()}
+    return None
+
+
 async def get_user_id_from_bearer(authorization: Optional[str]) -> Optional[str]:
     """
     Valida token chamando Supabase Auth. Retorna user_id (sub) se válido.

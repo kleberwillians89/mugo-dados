@@ -485,12 +485,46 @@ export async function createPlatformCompany(payload: {
   trade_name?: string;
   cnpj?: string;
   responsible_email: string;
-}): Promise<{ ok: boolean; company: PlatformCompany }> {
+  /** Chave de idempotência por tentativa: reenviada em retries para nunca duplicar a empresa. */
+  idempotency_key: string;
+}): Promise<{
+  ok: boolean;
+  company: PlatformCompany;
+  responsible_account_exists?: boolean;
+  idempotent_replay?: boolean;
+}> {
   return http("/api/platform/companies", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export async function openPlatformCompany(clientId: string): Promise<{ ok: boolean; company: PlatformCompany }> {
   return http(`/api/platform/companies/${encodeURIComponent(clientId)}/access`, { method: "POST" });
+}
+
+export async function createCompanyActivationLink(clientId: string): Promise<{
+  ok: true;
+  invitation: { id: string; email: string; client_id: string; role: string; expires_at: string | null };
+  activation_url: string;
+  account_exists: boolean;
+}> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/activation-link`, { method: "POST" });
+}
+
+export type PendingInvitation = {
+  id: string;
+  client_id: string;
+  role: string;
+  company_name: string;
+  expires_at: string | null;
+};
+
+export async function getMyPendingInvitations(): Promise<{ ok: true; invitations: PendingInvitation[] }> {
+  return http("/api/invitations/mine");
+}
+
+export async function acceptInvitation(
+  invitationId: string
+): Promise<{ ok: true; client_id: string | null; role: string | null }> {
+  return http(`/api/invitations/${encodeURIComponent(invitationId)}/accept`, { method: "POST" });
 }
 
 export async function updatePlatformCompany(
@@ -586,7 +620,7 @@ export async function createClientInvitation(payload: {
   client_id: string;
   email: string;
   role: "owner" | "agency_admin" | "client_admin" | "viewer";
-}): Promise<{ ok: true; invitation: { id: string; email: string; role: string } }> {
+}): Promise<{ ok: true; invitation: { id: string; email: string; role: string; account_exists?: boolean } }> {
   return http("/api/invitations", {
     method: "POST",
     body: JSON.stringify(payload),

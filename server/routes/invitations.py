@@ -4,10 +4,48 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Header, HTTPException
 
-from services.invitations import create_invitation
+from services.auth import get_user_from_bearer
+from services.invitations import (
+    InvitationError,
+    accept_user_invitation,
+    create_invitation,
+    list_pending_invitations_for_email,
+)
 from services.tenant import get_client_role, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
+
+
+@router.get("/mine")
+async def my_pending_invitations(authorization: str | None = Header(default=None)):
+    """Convites pendentes do usuário autenticado (por e-mail verificado).
+
+    Usado pelo frontend quando um usuário JÁ existente entra por um link de
+    ativação — para oferecer a aceitação EXPLÍCITA do convite.
+    """
+    user = await get_user_from_bearer(authorization)
+    if not user or not user.get("email"):
+        raise HTTPException(status_code=401, detail="Autenticação obrigatória")
+    return {
+        "ok": True,
+        "invitations": await list_pending_invitations_for_email(str(user.get("email"))),
+    }
+
+
+@router.post("/{invitation_id}/accept")
+async def accept_invitation(invitation_id: str, authorization: str | None = Header(default=None)):
+    """Aceita EXPLICITAMENTE uma invitation específica para o usuário logado.
+
+    O tenant/role vêm da própria invitation (RPC). Nenhum client_id/role do
+    corpo é aceito — a rota não tem corpo.
+    """
+    user_id = await require_user_id(authorization)
+    try:
+        return await accept_user_invitation(actor_user_id=user_id, invitation_id=invitation_id)
+    except InvitationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("")

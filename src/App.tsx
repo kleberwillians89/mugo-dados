@@ -7,13 +7,13 @@ import {
   isLocalAuthEnabled,
   supabase,
 } from "./app/supabase";
-import { listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PlatformCompany } from "./app/api";
+import { getMyPendingInvitations, listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PendingInvitation, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
-import { shouldOpenMetaAfterSignIn } from "./app/authNavigation";
+import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import ClientSwitcher from "./components/ClientSwitcher";
@@ -30,6 +30,7 @@ const loadEcommerce = () => import("./pages/Ecommerce");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
 const loadNotFound = () => import("./pages/NotFound");
+const loadAcceptInvitation = () => import("./pages/AcceptInvitation");
 
 const Onboarding = lazy(loadOnboarding);
 const Dashboard = lazy(loadDashboard);
@@ -38,8 +39,9 @@ const Ecommerce = lazy(loadEcommerce);
 const Companies = lazy(loadCompanies);
 const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
+const AcceptInvitation = lazy(loadAcceptInvitation);
 
-type AppView = "loading" | "login" | "setup" | "dashboard";
+type AppView = "loading" | "login" | "setup" | "dashboard" | "accept-invitation";
 
 const AUTH_BOOTSTRAP_RETRY_MS = 350;
 const AUTH_BOOTSTRAP_RETRY_ATTEMPTS = 3;
@@ -138,6 +140,7 @@ function PrimaryNavigation({
   route,
   platformAdmin,
   agencyAdmin,
+  canManageIntegrations,
   onOpen,
   clients,
   activeClientId,
@@ -147,6 +150,7 @@ function PrimaryNavigation({
   route: AppRoute;
   platformAdmin: boolean;
   agencyAdmin: boolean;
+  canManageIntegrations?: boolean;
   onOpen: (route: AppRoute) => void;
   clients?: ClientMembership[];
   activeClientId?: string;
@@ -154,6 +158,7 @@ function PrimaryNavigation({
   onLogout: () => void | Promise<void>;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const showIntegrations = canManageIntegrations ?? (platformAdmin || agencyAdmin);
   const items: Array<{ route: AppRoute; label: string }> = [
     { route: "meta", label: "Meta" },
     { route: "google", label: "Google" },
@@ -162,9 +167,12 @@ function PrimaryNavigation({
   ];
   // Perfil somente-leitura nunca vê a aba de configuração de integrações
   // (OAuth, reconexões, detalhe técnico) — nem no menu, nem acessível por
-  // navegação direta (ver guarda em resolveAuthenticatedView).
-  if (platformAdmin || agencyAdmin) {
+  // navegação direta (ver guarda em resolveAuthenticatedView). client_admin/
+  // owner gerenciam as integrações da própria empresa e enxergam a aba.
+  if (showIntegrations) {
     items.push({ route: "integrations", label: "Integrações" });
+  }
+  if (platformAdmin || agencyAdmin) {
     items.push({ route: "companies", label: "Administração" });
   }
   return (
@@ -219,7 +227,7 @@ function PrimaryNavigation({
       </div>
       {moreOpen ? (
         <div className="mobileMoreMenu" role="menu">
-          {platformAdmin || agencyAdmin ? (
+          {showIntegrations ? (
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("integrations"); }}><SlidersHorizontal size={19} />Integrações</button>
           ) : null}
           {platformAdmin || agencyAdmin ? (
@@ -237,7 +245,7 @@ function PrimaryNavigation({
 // (agency_admin/client_admin/owner/admin) chega em "Integrações".
 function isReadOnlyClientRole(role: string | null | undefined): boolean {
   const normalized = String(role || "").toLowerCase();
-  return !["platform_admin", "agency_admin"].includes(normalized);
+  return !["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(normalized);
 }
 
 async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: boolean; agencyAdmin: boolean; clients: ClientMembership[] }> {
@@ -293,9 +301,18 @@ export default function App() {
   const [agencyAdmin, setAgencyAdmin] = useState(false);
   const [activeClientId, setActiveClientId] = useState("");
   const [tenantReady, setTenantReady] = useState(false);
+  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const authBootstrapCompletedRef = useRef(false);
   const knownSessionUserRef = useRef<string | null>(null);
+  // Evita reabrir a tela de aceitação de convite depois que o usuário
+  // escolheu "Pular por agora" na mesma sessão.
+  const invitationPromptDismissedRef = useRef(false);
+  // Tenant de destino logo após entrar pelo onboarding (link de ativação ou
+  // aceitação explícita de invitation). Só é honrado quando a membership
+  // correspondente aparece na lista já validada pelo backend — nunca confia
+  // num client_id solto do frontend. Consumido uma única vez.
+  const preferredClientIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setApiAccessToken(localMode ? null : session?.access_token ?? null);
@@ -320,6 +337,10 @@ export default function App() {
       const sameAuthenticatedContext =
         Boolean(activeSession?.user.id) && resolvedUserId === activeSession?.user.id;
       if (sameAuthenticatedContext) {
+        if (pendingInvitations.length > 0 && !invitationPromptDismissedRef.current) {
+          setView("accept-invitation");
+          return;
+        }
         if (requestedRoute === "companies" && !platformAdmin && !agencyAdmin) {
           setBootError("Você não tem permissão para acessar a administração de empresas.");
           navigateToAppRoute("meta", { replace: true });
@@ -353,10 +374,59 @@ export default function App() {
         const availableClients = bootstrap.clients;
         setClients(availableClients);
         setResolvedUserId(activeSession?.user.id || null);
+
+        // Usuário JÁ existente que entrou por um link de ativação: aceita
+        // EXPLICITAMENTE o convite (a membership é derivada da invitation no
+        // backend — nunca de client_id do frontend). Só verifica num retorno
+        // de autenticação ou quando ainda não há nenhuma empresa vinculada,
+        // para não incomodar o retorno normal.
+        let pending: PendingInvitation[] = [];
+        const shouldCheckInvitations =
+          !invitationPromptDismissedRef.current &&
+          (hasSupabaseCallbackSignalInUrl() || availableClients.length === 0);
+        if (shouldCheckInvitations) {
+          try {
+            const response = await getMyPendingInvitations();
+            const memberIds = new Set(availableClients.map((client) => client.client_id));
+            pending = (response.invitations || []).filter(
+              (invitation) => !memberIds.has(canonicalizeClientId(invitation.client_id))
+            );
+          } catch {
+            pending = [];
+          }
+        }
+        setPendingInvitations(pending);
+
         const stored = getActiveClient();
+        // O tenant recém-entrado pelo onboarding vence o activeClient antigo,
+        // mas só se a membership realmente existe na lista validada pelo
+        // backend. Caso contrário, o comportamento anterior é preservado.
+        const preferredClientId = preferredClientIdRef.current
+          ? canonicalizeClientId(preferredClientIdRef.current)
+          : "";
+        const preferredClient = preferredClientId
+          ? availableClients.find((client) => client.client_id === preferredClientId)
+          : undefined;
+        if (preferredClient) preferredClientIdRef.current = null;
         const selected =
+          preferredClient ||
           availableClients.find((client) => client.client_id === stored?.id) ||
           availableClients[0];
+        if (selected) {
+          setActiveClient({
+            id: selected.client_id,
+            name: selected.name,
+            role: selected.role,
+          });
+          setActiveClientId(selected.client_id);
+          setTenantReady(true);
+        }
+
+        if (pending.length > 0) {
+          setView("accept-invitation");
+          return;
+        }
+
         if (!selected) {
           if (bootstrap.platformAdmin) {
             setActiveClientId("");
@@ -367,13 +437,27 @@ export default function App() {
           setView("dashboard");
           return;
         }
-        setActiveClient({
-          id: selected.client_id,
-          name: selected.name,
-          role: selected.role,
-        });
-        setActiveClientId(selected.client_id);
-        setTenantReady(true);
+      }
+
+      // Novo usuário que chegou por um link de onboarding: o backend gravou
+      // invitation_id nos metadados do Supabase ao emitir o link e o trigger
+      // já criou a membership. Cai direto nas Integrações da empresa, sem
+      // depender do activeClient anterior. Login normal (sem invitation_id nos
+      // metadados) nunca entra aqui — Cenário C segue para o dashboard. viewer
+      // é barrado pela guarda de rota logo abaixo.
+      const linkInvitationId = String(
+        (activeSession?.user?.user_metadata as Record<string, unknown> | undefined)?.invitation_id || ""
+      ).trim();
+      if (
+        !localMode &&
+        requestedRoute !== "integrations" &&
+        linkInvitationId &&
+        hasSupabaseCallbackSignalInUrl() &&
+        !isReadOnlyClientRole(getActiveClient()?.role)
+      ) {
+        navigateToAppRoute("integrations", { replace: true });
+        setRoute("integrations");
+        requestedRoute = "integrations";
       }
 
       if (requestedRoute === "not_found") {
@@ -414,7 +498,7 @@ export default function App() {
       // carrega seus dados progressivamente e mantém seu último estado válido.
       setView("dashboard");
     },
-    [agencyAdmin, localMode, platformAdmin, resolvedUserId, route, session]
+    [agencyAdmin, localMode, pendingInvitations, platformAdmin, resolvedUserId, route, session]
   );
 
   useEffect(() => {
@@ -534,6 +618,8 @@ export default function App() {
       setClients([]);
       setActiveClientId("");
       setTenantReady(false);
+        setPendingInvitations([]);
+        invitationPromptDismissedRef.current = false;
         setResolvedUserId(null);
         clearSetupUrlParams();
         setBootError(null);
@@ -610,6 +696,8 @@ export default function App() {
     clearTenantBrowserState();
     setActiveConnectionId(null);
     setResolvedUserId(null);
+    setPendingInvitations([]);
+    invitationPromptDismissedRef.current = false;
     if (localMode) {
       disableLocalAuth();
       setLocalMode(false);
@@ -647,6 +735,32 @@ export default function App() {
     setView("dashboard");
   }, [openRoute]);
 
+  const handleInvitationsAccepted = useCallback(
+    async (accepted?: { clientId: string | null; role: string | null }) => {
+      // Reprocessa o bootstrap para trazer a nova membership ao seletor de
+      // empresas. O tenant e o papel de destino vêm da invitation aceita e
+      // validada pelo backend (RPC accept_user_invitation) — nunca do
+      // activeClient antigo do localStorage. Quem gerencia integrações cai
+      // direto nas Integrações; viewer segue para o dashboard (guard de rota).
+      preferredClientIdRef.current = accepted?.clientId ?? null;
+      setPendingInvitations([]);
+      clearSetupUrlParams();
+      setResolvedUserId(null);
+      setView("loading");
+      openRoute(routeAfterInvitationAccepted(accepted?.role ?? null));
+    },
+    [openRoute]
+  );
+
+  const handleSkipInvitations = useCallback(() => {
+    invitationPromptDismissedRef.current = true;
+    setPendingInvitations([]);
+    clearSetupUrlParams();
+    setResolvedUserId(null);
+    setView("loading");
+    void resolveAuthenticatedView(session, route);
+  }, [resolveAuthenticatedView, route, session]);
+
   const handlePasswordLoginSuccess = useCallback(
     async (nextSession: Session | null) => {
       setSession(nextSession);
@@ -678,7 +792,10 @@ export default function App() {
     setTenantReady(true);
   }, [clients]);
 
-  const handleOpenCompany = useCallback(async (company: PlatformCompany) => {
+  const handleOpenCompany = useCallback(async (company: PlatformCompany, targetRoute: AppRoute = "meta") => {
+    // Mantém o mecanismo de acesso/suporte auditado (openPlatformCompany) antes
+    // de trocar de tenant — "Fazer onboarding" e "Abrir para suporte" só se
+    // diferenciam pela rota de destino.
     const canonicalId = canonicalizeClientId(company.id);
     await openPlatformCompany(canonicalId);
     setTenantReady(false);
@@ -687,8 +804,18 @@ export default function App() {
     setActiveConnectionId(null);
     setActiveClientId(canonicalId);
     setTenantReady(true);
-    openRoute("meta");
+    openRoute(targetRoute);
   }, [openRoute]);
+
+  const activeClientRole = String(
+    clients.find((client) => client.client_id === activeClientId)?.role
+      || getActiveClient()?.role
+      || ""
+  ).toLowerCase();
+  const canManageIntegrations =
+    platformAdmin
+    || agencyAdmin
+    || ["client_admin", "owner", "admin"].includes(activeClientRole);
 
   if (view === "loading") {
     return <AppLoading />;
@@ -705,6 +832,19 @@ export default function App() {
     );
   }
 
+  if (view === "accept-invitation") {
+    return (
+      <Suspense fallback={<AppLoading />}>
+        <AcceptInvitation
+          invitations={pendingInvitations}
+          onAccepted={handleInvitationsAccepted}
+          onSkip={handleSkipInvitations}
+          onLogout={handleLogout}
+        />
+      </Suspense>
+    );
+  }
+
   if (view === "setup") {
     return (
       <>
@@ -712,6 +852,7 @@ export default function App() {
           route="integrations"
           platformAdmin={platformAdmin}
           agencyAdmin={agencyAdmin}
+          canManageIntegrations={canManageIntegrations}
           onOpen={openRoute}
           clients={clients}
           activeClientId={activeClientId}
@@ -737,6 +878,7 @@ export default function App() {
         route={route}
         platformAdmin={platformAdmin}
         agencyAdmin={agencyAdmin}
+        canManageIntegrations={canManageIntegrations}
         onOpen={openRoute}
         clients={clients}
         activeClientId={activeClientId}
@@ -749,8 +891,9 @@ export default function App() {
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}
-          onOpenCompany={(company) => void handleOpenCompany(company)}
+          onOpenCompany={(company, targetRoute) => void handleOpenCompany(company, targetRoute)}
           onOpenDashboard={() => openRoute("meta")}
+          canCreateCompany={platformAdmin}
         />
       ) : (
       <>

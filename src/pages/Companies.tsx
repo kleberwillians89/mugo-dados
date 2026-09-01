@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   createClientInvitation,
+  createCompanyActivationLink,
   listPlatformCompanies,
   updatePlatformCompany,
   type PlatformCompany,
 } from "../app/api";
+import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
 import CompanyWizard from "../components/admin/CompanyWizard";
@@ -15,8 +17,10 @@ import "../styles/companies.css";
 
 type Props = {
   onLogout: () => void;
-  onOpenCompany: (company: PlatformCompany) => void;
+  onOpenCompany: (company: PlatformCompany, targetRoute?: AppRoute) => void;
   onOpenDashboard: () => void;
+  /** Só platform_admin cria empresa (mesma autoridade da RPC). Default true p/ compat. */
+  canCreateCompany?: boolean;
 };
 
 type Tab = "empresas" | "usuarios" | "permissoes";
@@ -34,7 +38,7 @@ const INVITE_ROLES: Array<{ value: "owner" | "agency_admin" | "client_admin" | "
   { value: "owner", label: "Responsável" },
 ];
 
-export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: Props) {
+export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, canCreateCompany = true }: Props) {
   const [companies, setCompanies] = useState<PlatformCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -52,6 +56,38 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
     role: "viewer" as "owner" | "agency_admin" | "client_admin" | "viewer",
   });
   const [inviteMessage, setInviteMessage] = useState("");
+
+  const [activationLink, setActivationLink] = useState<{ url: string; email: string; accountExists: boolean } | null>(null);
+  const [activationLoadingId, setActivationLoadingId] = useState<string | null>(null);
+  const [activationCopied, setActivationCopied] = useState(false);
+
+  async function generateActivationLink(company: PlatformCompany) {
+    setError("");
+    setActivationLoadingId(company.id);
+    setActivationCopied(false);
+    try {
+      const response = await createCompanyActivationLink(company.id);
+      setActivationLink({
+        url: response.activation_url,
+        email: response.invitation.email,
+        accountExists: response.account_exists,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível gerar o link de ativação.");
+    } finally {
+      setActivationLoadingId(null);
+    }
+  }
+
+  async function copyActivationLink() {
+    if (!activationLink) return;
+    try {
+      await navigator.clipboard.writeText(activationLink.url);
+      setActivationCopied(true);
+    } catch {
+      setActivationCopied(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,10 +137,14 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
     setError("");
     setInviteMessage("");
     try {
-      await createClientInvitation(invite);
+      const response = await createClientInvitation(invite);
       setInvite((current) => ({ ...current, email: "" }));
       setInviteModalOpen(false);
-      setInviteMessage("Convite enviado com segurança.");
+      setInviteMessage(
+        response.invitation?.account_exists
+          ? "Convite registrado. O e-mail já tem conta Mugô — gere o link de onboarding para ele confirmar o acesso."
+          : "Convite enviado com segurança."
+      );
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível enviar o convite.");
@@ -124,7 +164,9 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
         <div className="companiesActions">
           <button className="btn" onClick={onOpenDashboard}>Dashboard</button>
           <button className="btn" onClick={onLogout}>Sair</button>
-          <button className="btn btnPrimary" onClick={() => setWizardOpen(true)}>+ Nova empresa</button>
+          {canCreateCompany ? (
+            <button className="btn btnPrimary" onClick={() => setWizardOpen(true)}>+ Nova empresa</button>
+          ) : null}
         </div>
       </header>
 
@@ -199,7 +241,16 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
                       <details className="companiesRowMenu">
                         <summary aria-label={`Mais ações para ${company.trade_name || company.name}`}>⋯</summary>
                         <div className="companiesRowMenuList" role="menu">
+                          <button type="button" role="menuitem" onClick={() => onOpenCompany(company, "integrations")}>Fazer onboarding</button>
                           <button type="button" role="menuitem" onClick={() => onOpenCompany(company)}>Abrir para suporte</button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={activationLoadingId === company.id}
+                            onClick={() => void generateActivationLink(company)}
+                          >
+                            {activationLoadingId === company.id ? "Gerando link..." : "Gerar link de onboarding"}
+                          </button>
                           <button type="button" role="menuitem" onClick={() => setEditingCompany(company)}>Editar</button>
                           <button type="button" role="menuitem" onClick={() => void toggleCompanyStatus(company)}>
                             {company.status === "inactive" ? "Ativar" : "Inativar"}
@@ -264,18 +315,48 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard }: 
         </section>
       ) : null}
 
-      <CompanyWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-        onCreated={() => void load()}
-        onOpenCompany={onOpenCompany}
-      />
+      {canCreateCompany ? (
+        <CompanyWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onCreated={() => void load()}
+          onOpenCompany={onOpenCompany}
+        />
+      ) : null}
 
       <CompanyEditDrawer
         company={editingCompany}
         onClose={() => setEditingCompany(null)}
         onSaved={() => { void load(); setEditingCompany(null); }}
       />
+
+      <Modal
+        open={Boolean(activationLink)}
+        title="Link de ativação do cliente"
+        onClose={() => { setActivationLink(null); setActivationCopied(false); }}
+      >
+        {activationLink ? (
+          <div className="companiesForm">
+            <p>
+              Envie este link para <strong>{activationLink.email}</strong>.{" "}
+              {activationLink.accountExists
+                ? "O responsável já tem conta Mugô: o link faz login e pede a confirmação do convite desta empresa. As demais empresas dele continuam disponíveis."
+                : "Ao abrir, o responsável cria a conta e entra automaticamente na empresa."}
+            </p>
+            <label>Link
+              <input type="text" readOnly value={activationLink.url} onFocus={(event) => event.target.select()} />
+            </label>
+            <div className="companiesRowActions">
+              <button type="button" className="btn btnPrimary" onClick={() => void copyActivationLink()}>
+                {activationCopied ? "Link copiado" : "Copiar link"}
+              </button>
+              <button type="button" className="btn" onClick={() => { setActivationLink(null); setActivationCopied(false); }}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal open={inviteModalOpen} title="Convidar usuário" onClose={() => { if (!saving) setInviteModalOpen(false); }}>
         <p>O acesso será limitado à empresa e ao papel selecionados.</p>

@@ -21,6 +21,17 @@ const STEPS = ["Dados", "Usuários", "Integrações", "Revisão", "Concluído"] 
 const EMPTY_COMPANY = { name: "", trade_name: "", cnpj: "", responsible_email: "" };
 const EMPTY_INVITE = { email: "", role: "viewer" as Role };
 
+function newIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // ambientes sem crypto.randomUUID caem no fallback
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany }: Props) {
   const [step, setStep] = useState(0);
   const [company, setCompany] = useState(EMPTY_COMPANY);
@@ -29,8 +40,12 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [inviteWarning, setInviteWarning] = useState("");
+  const [responsibleHasAccount, setResponsibleHasAccount] = useState(false);
   const [created, setCreated] = useState<PlatformCompany | null>(null);
   const isCreating = useRef(false);
+  // Chave de idempotência da tentativa atual: reenviada em cada retry para o
+  // backend nunca criar uma 2ª empresa. Zerada ao começar uma empresa nova.
+  const idempotencyKey = useRef("");
 
   function reset() {
     setStep(0);
@@ -39,7 +54,9 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
     setInvite(EMPTY_INVITE);
     setError("");
     setInviteWarning("");
+    setResponsibleHasAccount(false);
     setCreated(null);
+    idempotencyKey.current = "";
   }
 
   function handleClose() {
@@ -53,6 +70,7 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
   async function handleCreate() {
     if (isCreating.current) return;
     isCreating.current = true;
+    if (!idempotencyKey.current) idempotencyKey.current = newIdempotencyKey();
     setSaving(true);
     setError("");
     setInviteWarning("");
@@ -62,7 +80,9 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
         trade_name: company.trade_name.trim() || undefined,
         cnpj: company.cnpj.trim() || undefined,
         responsible_email: company.responsible_email.trim(),
+        idempotency_key: idempotencyKey.current,
       });
+      setResponsibleHasAccount(Boolean(response.responsible_account_exists));
       if (inviteAnother && invite.email.trim()) {
         try {
           await createClientInvitation({
@@ -219,6 +239,13 @@ export default function CompanyWizard({ open, onClose, onCreated, onOpenCompany 
           <div className="wizardDoneCheck" aria-hidden="true">✓</div>
           <h3>Empresa criada</h3>
           <p>{created?.trade_name || created?.name} está pronta para receber integrações e usuários.</p>
+          {responsibleHasAccount ? (
+            <p className="wizardHint" role="status">
+              O responsável já tem conta na Mugô, então o e-mail automático de convite não foi
+              reenviado. Use “Gerar link de onboarding” na lista de empresas para ele confirmar
+              o acesso a esta empresa.
+            </p>
+          ) : null}
           {inviteWarning ? <p className="wizardError" role="alert">{inviteWarning}</p> : null}
           <div className="wizardDoneActions">
             <button

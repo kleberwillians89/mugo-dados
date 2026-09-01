@@ -9,29 +9,67 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   companies: [] as unknown[],
   shouldRejectCreate: false,
+  responsibleAccountExists: false,
+  inviteAccountExists: false,
 }));
 
 vi.mock("../app/api", () => ({
   listPlatformCompanies: vi.fn(async () => ({ ok: true, companies: mocks.companies })),
   createPlatformCompany: vi.fn(async () => {
     if (mocks.shouldRejectCreate) throw new Error("Empresa duplicada.");
-    return { ok: true, company: { id: "ruah", name: "Ruah Comércio Ltda", trade_name: "Ruah", status: "active" } };
+    return {
+      ok: true,
+      company: { id: "ruah", name: "Ruah Comércio Ltda", trade_name: "Ruah", status: "active" },
+      responsible_account_exists: mocks.responsibleAccountExists,
+    };
   }),
   updatePlatformCompany: vi.fn(async () => ({ ok: true, company: { id: "amalie", name: "Amalie Ltda", trade_name: "Amalie", status: "active" } })),
-  createClientInvitation: vi.fn(async () => ({ ok: true })),
+  createClientInvitation: vi.fn(async () => ({
+    ok: true,
+    invitation: { id: "inv-x", email: "novo@amalie.com", role: "viewer", account_exists: mocks.inviteAccountExists },
+  })),
+  createCompanyActivationLink: vi.fn(async () => ({
+    ok: true,
+    invitation: { id: "inv-1", email: "a@amalie.com", client_id: "amalie", role: "owner", expires_at: null },
+    activation_url: "https://dados.mugoagencia.com.br/verify?token=abc",
+    account_exists: false,
+  })),
 }));
 
 import Companies from "./Companies";
-import { createClientInvitation, createPlatformCompany, updatePlatformCompany } from "../app/api";
+import {
+  createClientInvitation,
+  createCompanyActivationLink,
+  createPlatformCompany,
+  updatePlatformCompany,
+} from "../app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
-async function renderCompanies() {
+async function renderCompanies(
+  overrides: Partial<React.ComponentProps<typeof Companies>> = {}
+) {
   await act(async () => {
-    root.render(<Companies onLogout={() => {}} onOpenCompany={() => {}} onOpenDashboard={() => {}} />);
+    root.render(
+      <Companies
+        onLogout={() => {}}
+        onOpenCompany={() => {}}
+        onOpenDashboard={() => {}}
+        {...overrides}
+      />
+    );
   });
   await act(async () => Promise.resolve());
+}
+
+async function openRowMenu() {
+  const menu = container.querySelector(".companiesRowMenu summary") as HTMLElement;
+  await act(async () => {
+    menu.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    // <details> não abre via clique sintético no jsdom — forçamos o estado.
+    (menu.parentElement as HTMLDetailsElement).open = true;
+  });
 }
 
 function findButton(text: string): HTMLButtonElement | undefined {
@@ -56,9 +94,12 @@ beforeEach(() => {
     { id: "amalie", name: "Amalie Ltda", trade_name: "Amalie", status: "active", responsible_email: "a@amalie.com", invitation_status: "accepted" },
   ];
   mocks.shouldRejectCreate = false;
+  mocks.responsibleAccountExists = false;
+  mocks.inviteAccountExists = false;
   vi.mocked(createPlatformCompany).mockClear();
   vi.mocked(createClientInvitation).mockClear();
   vi.mocked(updatePlatformCompany).mockClear();
+  vi.mocked(createCompanyActivationLink).mockClear();
 });
 
 afterEach(async () => {
@@ -106,6 +147,60 @@ describe("Companies — wizard de nova empresa", () => {
     );
     // Wizard avança para o passo "Concluído" em vez de fechar sozinho.
     expect(container.textContent).toContain("Empresa criada");
+  });
+
+  it("responsável com conta Supabase existente: empresa é criada e o wizard orienta o link de onboarding", async () => {
+    mocks.responsibleAccountExists = true;
+    await renderCompanies();
+    await act(async () => {
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await advanceWizardToReview();
+    await act(async () => {
+      findButton("Criar empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    // Não é erro: a empresa foi criada e o passo "Concluído" aparece.
+    expect(container.textContent).toContain("Empresa criada");
+    expect(container.querySelector(".wizardError")).toBeNull();
+    expect(container.querySelector('.wizardDone [role="status"]')?.textContent).toContain(
+      "já tem conta na Mugô"
+    );
+  });
+
+  it("envia idempotency_key estável entre tentativas (retry seguro, sem duplicar empresa)", async () => {
+    vi.mocked(createPlatformCompany)
+      .mockRejectedValueOnce(new Error("tempo esgotado"))
+      .mockResolvedValueOnce({
+        ok: true,
+        company: { id: "ruah", name: "Ruah Comércio Ltda", trade_name: "Ruah", status: "active" },
+      });
+    await renderCompanies();
+    await act(async () => {
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await advanceWizardToReview();
+    await act(async () => {
+      findButton("Criar empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      findButton("Criar empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const calls = vi.mocked(createPlatformCompany).mock.calls;
+    expect(calls.length).toBe(2);
+    expect(String((calls[0][0] as { idempotency_key?: string }).idempotency_key || "")).not.toBe("");
+    expect((calls[1][0] as { idempotency_key?: string }).idempotency_key).toBe(
+      (calls[0][0] as { idempotency_key?: string }).idempotency_key
+    );
+  });
+
+  it("'+ Nova empresa' não aparece quando o usuário não pode criar empresa (agency_admin sem platform_admin)", async () => {
+    await renderCompanies({ canCreateCompany: false });
+    expect(findButton("+ Nova empresa")).toBeUndefined();
   });
 
   it("mantém o wizard aberto e os dados preenchidos quando o backend retorna erro", async () => {
@@ -188,6 +283,27 @@ describe("Companies — modal de convite de usuário", () => {
     );
     expect(container.querySelector(".modalBackdrop")).toBeNull();
   });
+
+  it("convidado com conta existente: mensagem orienta o link de onboarding em vez de 'convite enviado'", async () => {
+    mocks.inviteAccountExists = true;
+    await renderCompanies();
+    await act(async () => {
+      findButton("Convidar usuário")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const select = container.querySelector("select");
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    setter?.call(select, "amalie");
+    select?.dispatchEvent(new Event("change", { bubbles: true }));
+    fillInput("E-mail", "novo@amalie.com");
+
+    await act(async () => {
+      container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("já tem conta Mugô");
+    expect(container.textContent).not.toContain("Convite enviado com segurança");
+  });
 });
 
 describe("Companies — busca, abas e resumo", () => {
@@ -249,5 +365,54 @@ describe("Companies — editar empresa em drawer", () => {
       await Promise.resolve();
     });
     expect(updatePlatformCompany).toHaveBeenCalledWith("amalie", expect.objectContaining({ name: "Amalie Ltda" }));
+  });
+});
+
+describe("Companies — onboarding converge para o mesmo Onboarding.tsx", () => {
+  it("'Fazer onboarding' seleciona a empresa e navega para integrations", async () => {
+    const onOpenCompany = vi.fn();
+    await renderCompanies({ onOpenCompany });
+    await openRowMenu();
+
+    await act(async () => {
+      findButton("Fazer onboarding")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onOpenCompany).toHaveBeenCalledTimes(1);
+    expect(onOpenCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "amalie" }),
+      "integrations"
+    );
+  });
+
+  it("'Abrir para suporte' continua abrindo o dashboard (sem rota de destino)", async () => {
+    const onOpenCompany = vi.fn();
+    await renderCompanies({ onOpenCompany });
+    await openRowMenu();
+
+    await act(async () => {
+      findButton("Abrir para suporte")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onOpenCompany).toHaveBeenCalledTimes(1);
+    const [company, targetRoute] = onOpenCompany.mock.calls[0];
+    expect(company).toEqual(expect.objectContaining({ id: "amalie" }));
+    expect(targetRoute).toBeUndefined();
+  });
+
+  it("'Gerar link de onboarding' continua gerando o activation link existente", async () => {
+    await renderCompanies();
+    await openRowMenu();
+
+    await act(async () => {
+      findButton("Gerar link de onboarding")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(createCompanyActivationLink).toHaveBeenCalledWith("amalie");
+    const linkInput = [...container.querySelectorAll("input")].find(
+      (input) => input.value.includes("dados.mugoagencia.com.br/verify?token=abc")
+    );
+    expect(linkInput).toBeTruthy();
   });
 });

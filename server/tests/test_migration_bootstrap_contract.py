@@ -35,18 +35,20 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 33)
+        self.assertEqual(len(names), 35)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-3], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
-        self.assertEqual(names[-2], "20260817_000032_shopify_explicit_sync_coverage.sql")
-        self.assertEqual(names[-1], "20260818_000033_meta_ads_backfill_queue.sql")
+        self.assertEqual(names[-5], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
+        self.assertEqual(names[-4], "20260817_000032_shopify_explicit_sync_coverage.sql")
+        self.assertEqual(names[-3], "20260818_000033_meta_ads_backfill_queue.sql")
+        self.assertEqual(names[-2], "20260819_000034_multi_tenant_invitation_acceptance.sql")
+        self.assertEqual(names[-1], "20260820_000035_company_creation_idempotency.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 34)))
+        self.assertEqual(logical_numbers, list(range(1, 36)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (

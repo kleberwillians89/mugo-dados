@@ -133,8 +133,17 @@ describe("Onboarding — retorno do OAuth Shopify não dispara backfill duplicad
     expect(container?.textContent).toContain("Desconectar");
   });
 
-  it("não habilita gerenciamento de integrações para client_admin", async () => {
+  it("habilita gerenciamento de integrações para client_admin (próprio tenant)", async () => {
     mocks.role = "client_admin";
+    await mount();
+    const manage = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Gerenciar") as HTMLButtonElement;
+    await act(async () => manage.click());
+    const update = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Atualizar permissões") as HTMLButtonElement;
+    expect(update.disabled).toBe(false);
+  });
+
+  it("não habilita gerenciamento de integrações para viewer", async () => {
+    mocks.role = "viewer";
     await mount();
     const manage = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Gerenciar") as HTMLButtonElement;
     await act(async () => manage.click());

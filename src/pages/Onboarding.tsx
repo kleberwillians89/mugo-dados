@@ -234,10 +234,15 @@ export default function Onboarding({
   const [saving, setSaving] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [shopifyDomain, setShopifyDomain] = useState("");
-  const activeRole = getActiveClient()?.role || "viewer";
+  const activeRole = String(getActiveClient()?.role || "viewer").toLowerCase();
+  // Gerencia integrações: equipe Mugô (qualquer tenant) e o administrador da
+  // própria empresa (client_admin/owner). viewer permanece somente-leitura.
   const canManageConnections =
     activeRole === "platform_admin" ||
-    activeRole === "agency_admin";
+    activeRole === "agency_admin" ||
+    activeRole === "client_admin" ||
+    activeRole === "owner" ||
+    activeRole === "admin";
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);

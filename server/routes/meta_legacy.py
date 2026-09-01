@@ -31,6 +31,7 @@ from services.ads_sync import sync_ads_for_client_period
 from services.meta_backfill import enqueue_backfill, get_backfill
 from services.periods import resolve_period
 from services.instagram_sync import discover_instagram_identity_for_connection, sync_instagram_connection
+from services.integration_errors import IntegrationError
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
     build_frontend_callback_redirect,
@@ -131,7 +132,7 @@ async def api_create_client(
     authorization: str | None = Header(default=None),
 ):
     from services.platform_admin import create_platform_company, require_platform_admin
-    actor_user_id = await require_platform_admin(authorization)
+    actor_user_id = await require_platform_admin(authorization, allow_agency_admin=False)
     try:
         created = await create_platform_company(actor_user_id, payload)
         await invalidate_namespace("clients")
@@ -165,7 +166,7 @@ async def api_oauth_meta_start(
         cid = await require_client_role(
             _pick_client_id(client_id, x_client_id),
             authorization,
-            allowed_roles=("agency_admin",),
+            allowed_roles=("agency_admin", "client_admin"),
         )
         settings = get_meta_oauth_settings(
             require_redirect_uri=True, require_login_config_id=True, debug=False,
@@ -794,7 +795,10 @@ async def api_meta_connection_refresh_token(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    # Mutação (renova e persiste o token Meta): exige papel de gestão do tenant,
+    # não apenas leitura. resolve_client_id continua garantindo o isolamento
+    # cross-tenant dentro de require_client_role.
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
     validated_connection_id = await _validated_connection_id(
         client_id=cid,
         connection_id=connection_id,
