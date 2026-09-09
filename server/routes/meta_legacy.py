@@ -586,7 +586,7 @@ async def api_link_assets(
     user_id = await require_user_id(authorization)
     cid = await require_client_role(client_id, authorization)
     try:
-        return await save_connections(
+        result = await save_connections(
             user_id=user_id,
             client_id=cid,
             handoff=str(payload.get("handoff") or ""),
@@ -594,6 +594,43 @@ async def api_link_assets(
             instagram_ig_user_ids=[str(v or "").strip() for v in (payload.get("instagram_ig_user_ids") or [])],
             ad_account_ids=[str(v or "").strip() for v in (payload.get("ad_account_ids") or [])],
         )
+        paid_connection = next(
+            (
+                row for row in (result.get("connections") or [])
+                if row.get("platform") == "meta_ads" and str(row.get("id") or "").strip()
+            ),
+            None,
+        )
+        if not paid_connection:
+            return result
+
+        period = resolve_period(days=30, max_days=365)
+        connection_id = str(paid_connection.get("id") or "").strip()
+        try:
+            sync_result = await sync_ads_for_client_period(
+                client_id=cid,
+                connection_id=connection_id,
+                since=period.start.isoformat(),
+                until=period.end.isoformat(),
+                job_name="meta_ads_initial_sync",
+                trigger_source="oauth_asset_selection",
+                record_job_run=True,
+            )
+            result["meta_ads_initial_sync"] = {
+                **sync_result,
+                "ok": bool(sync_result.get("ok")),
+                "client_id": cid,
+                "connection_id": connection_id,
+            }
+        except Exception as exc:
+            result["meta_ads_initial_sync"] = {
+                "ok": False,
+                "client_id": cid,
+                "connection_id": connection_id,
+                "code": str(getattr(exc, "code", "META_ADS_INITIAL_SYNC_FAILED")),
+                "retryable": bool(getattr(exc, "retryable", True)),
+            }
+        return result
     except IntegrationError:
         raise
     except RuntimeError as exc:

@@ -548,10 +548,11 @@ class MetaConnectionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inserted_row["encrypted_access_token"], "encrypted-provider-token")
         self.assertIsNone(inserted_row["access_token"])
         handoff_update = next(
-            call for call in update.await_args_list if call.args and call.args[0] == "meta_oauth_handoffs"
+            call for call in update.await_args_list
+            if call.args and call.args[0] == "meta_oauth_handoffs" and "finalized_at" in call.kwargs["patch"]
         )
         self.assertIn("finalized_at", handoff_update.kwargs["patch"])
-        self.assertIn("consumed_at", handoff_update.kwargs["patch"])
+        self.assertEqual(handoff_update.kwargs["filters"]["finalized_at"], "is.null")
         self.assertEqual(generic_upsert.await_args.kwargs["client_id"], "amalie")
         self.assertEqual(generic_upsert.await_args.kwargs["provider"], "meta")
         self.assertEqual(generic_upsert.await_args.kwargs["external_key"], "meta:amalie")

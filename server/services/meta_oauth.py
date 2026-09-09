@@ -227,7 +227,27 @@ async def _load_handoff_row(*, handoff: str) -> Dict[str, Any]:
     item = rows[0] if rows else None
     if not item:
         raise RuntimeError("Sessão OAuth expirada. Conecte novamente.")
+    if item.get("consumed_at") or item.get("finalized_at"):
+        raise RuntimeError("Sessão OAuth já utilizada. Conecte novamente.")
     return item
+
+
+async def _claim_handoff_for_finalization(*, handoff: str, consumed_at: str) -> None:
+    try:
+        updated = await sb_update(
+            _HANDOFF_TABLE,
+            filters={
+                "handoff": f"eq.{_safe_str(handoff)}",
+                "consumed_at": "is.null",
+                "finalized_at": "is.null",
+            },
+            patch={"consumed_at": consumed_at},
+            returning="representation",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _handoff_schema_error(exc) from exc
+    if not updated:
+        raise RuntimeError("Sessão OAuth já utilizada. Conecte novamente.")
 
 
 def _upsert_connection_match_filters(
@@ -523,22 +543,19 @@ async def _fetch_granted_scopes(access_token: str) -> List[str]:
 async def _fetch_business_managers(access_token: str) -> List[Dict[str, str]]:
     rows: List[Dict[str, Any]] = []
     next_url: Optional[str] = None
-    try:
-        while True:
-            response = (
-                await meta_get_json(next_url, timeout=45, retries=3, context={"resource": "oauth_businesses_paging"})
-                if next_url
-                else await _meta_get(
-                    "/me/businesses",
-                    {"fields": "id,name", "limit": 200, "access_token": access_token},
-                )
+    while True:
+        response = (
+            await meta_get_json(next_url, timeout=45, retries=3, context={"resource": "oauth_businesses_paging"})
+            if next_url
+            else await _meta_get(
+                "/me/businesses",
+                {"fields": "id,name", "limit": 200, "access_token": access_token},
             )
-            rows.extend(row for row in (response.get("data") or []) if isinstance(row, dict))
-            next_url = _safe_str((response.get("paging") or {}).get("next")) or None
-            if not next_url:
-                break
-    except Exception:
-        return []
+        )
+        rows.extend(row for row in (response.get("data") or []) if isinstance(row, dict))
+        next_url = _safe_str((response.get("paging") or {}).get("next")) or None
+        if not next_url:
+            break
     return [
         {"business_id": _safe_str(row.get("id")), "business_name": _safe_str(row.get("name"))}
         for row in rows
@@ -1328,8 +1345,18 @@ async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
         )
     if existing:
         conn_id = _safe_str(existing[0].get("id"))
-        await sb_update("meta_connections", filters={"id": f"eq.{conn_id}"}, patch=row, returning="minimal")
-        rows = await sb_select("meta_connections", filters={"id": f"eq.{conn_id}"}, limit=1)
+        client_id = _safe_str(row.get("client_id"))
+        await sb_update(
+            "meta_connections",
+            filters={"id": f"eq.{conn_id}", "client_id": f"eq.{client_id}"},
+            patch=row,
+            returning="minimal",
+        )
+        rows = await sb_select(
+            "meta_connections",
+            filters={"id": f"eq.{conn_id}", "client_id": f"eq.{client_id}"},
+            limit=1,
+        )
         return rows[0] if rows else {"id": conn_id, **row}
 
     inserted = await sb_insert("meta_connections", row, returning="representation")
@@ -1339,6 +1366,7 @@ async def _save_connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
 def validate_page_selection(
     *,
     discovered_instagram_accounts: List[Any],
+    discovered_pages: Optional[List[Any]] = None,
     requested_page_ids: set[str],
     selected_instagram_accounts: List[Any],
 ) -> None:
@@ -1347,6 +1375,11 @@ def validate_page_selection(
         for account in discovered_instagram_accounts
         if isinstance(account, dict) and _safe_str(account.get("business_id"))
     }
+    discovered_page_ids.update(
+        _safe_str((page or {}).get("page_id") or (page or {}).get("id"))
+        for page in (discovered_pages or [])
+        if isinstance(page, dict) and _safe_str(page.get("page_id") or page.get("id"))
+    )
     if not requested_page_ids.issubset(discovered_page_ids):
         raise RuntimeError("A Página selecionada não pertence aos ativos descobertos nesta autorização.")
     if any(
@@ -1356,6 +1389,13 @@ def validate_page_selection(
         raise RuntimeError(
             "Selecione a Página do Facebook associada a cada conta profissional do Instagram."
         )
+
+
+def _validate_requested_asset_ids(
+    *, requested_ids: set[str], discovered_ids: set[str], error_message: str,
+) -> None:
+    if not requested_ids.issubset(discovered_ids):
+        raise RuntimeError(error_message)
 
 
 async def save_connections(
@@ -1374,20 +1414,39 @@ async def save_connections(
     if _safe_str(item.get("client_id")) != _safe_str(client_id):
         raise RuntimeError("Sessão OAuth inválida para este cliente.")
 
-    encrypted_access = _safe_str(item.get("encrypted_access_token"))
-    access_token = decrypt_secret(encrypted_access)
-
     pages_requested = {_safe_str(i) for i in page_ids if _safe_str(i)}
     ig_requested = {_safe_str(i) for i in instagram_ig_user_ids if _safe_str(i)}
     ads_requested = {_normalize_ad_account_id(i) for i in ad_account_ids if _safe_str(i)}
+    discovered_igs = _json_array(item.get("instagram_accounts_json"))
+    discovered_ads = _json_array(item.get("ad_accounts_json"))
+    discovered_ig_ids = {
+        _safe_str((account or {}).get("ig_user_id"))
+        for account in discovered_igs
+        if isinstance(account, dict) and _safe_str(account.get("ig_user_id"))
+    }
+    discovered_ad_ids = {
+        _normalize_ad_account_id(_safe_str((account or {}).get("ad_account_id")))
+        for account in discovered_ads
+        if isinstance(account, dict) and _safe_str(account.get("ad_account_id"))
+    }
+    _validate_requested_asset_ids(
+        requested_ids=ig_requested,
+        discovered_ids=discovered_ig_ids,
+        error_message="A conta do Instagram selecionada não pertence aos ativos desta autorização.",
+    )
+    _validate_requested_asset_ids(
+        requested_ids=ads_requested,
+        discovered_ids=discovered_ad_ids,
+        error_message="A conta Meta Ads selecionada não pertence aos ativos desta autorização.",
+    )
     selected_igs = [
         a
-        for a in _json_array(item.get("instagram_accounts_json"))
+        for a in discovered_igs
         if _safe_str((a or {}).get("ig_user_id")) in ig_requested
     ]
     selected_ads = [
         a
-        for a in _json_array(item.get("ad_accounts_json"))
+        for a in discovered_ads
         if _normalize_ad_account_id(_safe_str((a or {}).get("ad_account_id"))) in ads_requested
     ]
     if len(selected_igs) > 1:
@@ -1402,7 +1461,8 @@ async def save_connections(
         )
 
     validate_page_selection(
-        discovered_instagram_accounts=_json_array(item.get("instagram_accounts_json")),
+        discovered_instagram_accounts=discovered_igs,
+        discovered_pages=_json_array(item.get("pages_json")),
         requested_page_ids=pages_requested,
         selected_instagram_accounts=selected_igs,
     )
@@ -1410,9 +1470,13 @@ async def save_connections(
     if not selected_igs and not selected_ads:
         raise RuntimeError("Selecione ao menos um ativo Instagram ou Meta Ads para vincular.")
 
+    now_iso = _iso(_now_utc())
+    await _claim_handoff_for_finalization(handoff=token, consumed_at=now_iso)
+
+    encrypted_access = _safe_str(item.get("encrypted_access_token"))
+    access_token = decrypt_secret(encrypted_access)
     meta_user = _json_object(item.get("meta_user_json"))
     scopes = _json_array(item.get("scopes_json"))
-    now_iso = _iso(_now_utc())
     expires_at = item.get("expires_at")
     current_meta_user_id = _safe_str(meta_user.get("id"))
 
@@ -1632,14 +1696,20 @@ async def save_connections(
     )
 
     try:
-        await sb_update(
+        finalized = await sb_update(
             _HANDOFF_TABLE,
-            filters={"handoff": f"eq.{token}"},
-            patch={"finalized_at": now_iso, "consumed_at": now_iso},
-            returning="minimal",
+            filters={
+                "handoff": f"eq.{token}",
+                "consumed_at": f"eq.{now_iso}",
+                "finalized_at": "is.null",
+            },
+            patch={"finalized_at": now_iso},
+            returning="representation",
         )
     except httpx.HTTPStatusError as exc:
         raise _handoff_schema_error(exc) from exc
+    if not finalized:
+        raise RuntimeError("Sessão OAuth não pôde ser finalizada com segurança.")
 
     await invalidate_namespace("integration_connections")
     await invalidate_namespace("client_integrations")
