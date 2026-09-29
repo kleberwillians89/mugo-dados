@@ -3,10 +3,12 @@ import type { FormEvent } from "react";
 import {
   createClientInvitation,
   createCompanyActivationLink,
+  deletePlatformCompany,
   listPlatformCompanies,
   updatePlatformCompany,
   type PlatformCompany,
 } from "../app/api";
+import { getActiveClient } from "../app/activeClient";
 import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
@@ -21,6 +23,8 @@ type Props = {
   onOpenDashboard: () => void;
   /** Só platform_admin cria empresa (mesma autoridade da RPC). Default true p/ compat. */
   canCreateCompany?: boolean;
+  /** Exclusão permanente é sempre exclusiva de platform_admin. */
+  canDeleteCompany?: boolean;
 };
 
 type Tab = "empresas" | "usuarios" | "permissoes";
@@ -38,7 +42,13 @@ const INVITE_ROLES: Array<{ value: "owner" | "agency_admin" | "client_admin" | "
   { value: "owner", label: "Responsável" },
 ];
 
-export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, canCreateCompany = true }: Props) {
+export default function Companies({
+  onLogout,
+  onOpenCompany,
+  onOpenDashboard,
+  canCreateCompany = true,
+  canDeleteCompany = false,
+}: Props) {
   const [companies, setCompanies] = useState<PlatformCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -47,6 +57,9 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, ca
 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<PlatformCompany | null>(null);
+  const [deletingCompany, setDeletingCompany] = useState<PlatformCompany | null>(null);
+  const [deletionConfirmation, setDeletionConfirmation] = useState("");
+  const [deletionLoading, setDeletionLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
@@ -128,6 +141,41 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, ca
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a empresa.");
+    }
+  }
+
+  function openDeletion(company: PlatformCompany) {
+    if (getActiveClient()?.id === company.id) {
+      setError("Troque para outra empresa antes de excluir a empresa atualmente aberta.");
+      return;
+    }
+    setError("");
+    setDeletionConfirmation("");
+    setDeletingCompany(company);
+  }
+
+  async function permanentlyDeleteCompany(event: FormEvent) {
+    event.preventDefault();
+    if (!deletingCompany) return;
+    const expectedName = deletingCompany.trade_name || deletingCompany.name;
+    if (deletionConfirmation !== expectedName) return;
+    if (getActiveClient()?.id === deletingCompany.id) {
+      setError("Troque para outra empresa antes de excluir a empresa atualmente aberta.");
+      setDeletingCompany(null);
+      return;
+    }
+    setDeletionLoading(true);
+    setError("");
+    try {
+      await deletePlatformCompany(deletingCompany.id, deletionConfirmation);
+      setCompanies((current) => current.filter((company) => company.id !== deletingCompany.id));
+      setInviteMessage(`A empresa ${expectedName} foi excluída permanentemente.`);
+      setDeletingCompany(null);
+      setDeletionConfirmation("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível excluir a empresa.");
+    } finally {
+      setDeletionLoading(false);
     }
   }
 
@@ -255,6 +303,19 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, ca
                           <button type="button" role="menuitem" onClick={() => void toggleCompanyStatus(company)}>
                             {company.status === "inactive" ? "Ativar" : "Inativar"}
                           </button>
+                          {canDeleteCompany ? (
+                            <>
+                              <div className="companiesRowMenuDivider" />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="companiesDangerAction"
+                                onClick={() => openDeletion(company)}
+                              >
+                                Excluir permanentemente
+                              </button>
+                            </>
+                          ) : null}
                         </div>
                       </details>
                     </td>
@@ -329,6 +390,48 @@ export default function Companies({ onLogout, onOpenCompany, onOpenDashboard, ca
         onClose={() => setEditingCompany(null)}
         onSaved={() => { void load(); setEditingCompany(null); }}
       />
+
+      <Modal
+        open={Boolean(deletingCompany)}
+        title="Excluir empresa permanentemente"
+        onClose={() => { if (!deletionLoading) setDeletingCompany(null); }}
+      >
+        {deletingCompany ? (
+          <form className="companiesForm companiesDangerForm" onSubmit={permanentlyDeleteCompany}>
+            <p className="companiesDangerWarning">
+              Esta ação é irreversível. Ela remove dados, integrações, histórico, memberships e convites
+              desta empresa. Os usuários continuam existindo caso tenham acesso a outras empresas.
+            </p>
+            <p>
+              Para confirmar, digite exatamente <strong>{deletingCompany.trade_name || deletingCompany.name}</strong>.
+            </p>
+            <label>
+              Nome da empresa
+              <input
+                autoComplete="off"
+                value={deletionConfirmation}
+                onChange={(event) => setDeletionConfirmation(event.target.value)}
+              />
+            </label>
+            {error ? <p className="companiesError" role="alert">{error}</p> : null}
+            <div className="companiesRowActions">
+              <button type="button" className="btn" disabled={deletionLoading} onClick={() => setDeletingCompany(null)}>
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="btn companiesDangerButton"
+                disabled={
+                  deletionLoading ||
+                  deletionConfirmation !== (deletingCompany.trade_name || deletingCompany.name)
+                }
+              >
+                {deletionLoading ? "Excluindo..." : "Excluir permanentemente"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </Modal>
 
       <Modal
         open={Boolean(activationLink)}

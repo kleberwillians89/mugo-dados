@@ -21,6 +21,14 @@ from .tenant import require_user_id
 from .runtime_cache import get_cached_or_load
 
 
+class PlatformCompanyNotFoundError(RuntimeError):
+    pass
+
+
+class PlatformCompanyConfirmationError(RuntimeError):
+    pass
+
+
 async def is_platform_admin(user_id: str) -> bool:
     async def load():
         return await sb_select(
@@ -322,3 +330,57 @@ async def update_platform_company(
         returning="minimal",
     )
     return {"ok": True, "company": updated[0]}
+
+
+async def delete_platform_company(
+    actor_user_id: str,
+    client_id: str,
+    confirmation_name: str,
+) -> Dict[str, Any]:
+    """Exclui um tenant pela RPC transacional; o escopo vem somente do path."""
+    cid = str(client_id or "").strip()
+    if not cid:
+        raise PlatformCompanyNotFoundError("Empresa não encontrada.")
+    if not str(confirmation_name or "").strip():
+        raise PlatformCompanyConfirmationError(
+            "Digite exatamente o nome da empresa para confirmar a exclusão."
+        )
+    try:
+        deleted = await sb_rpc(
+            "delete_platform_company",
+            {
+                "p_actor_user_id": actor_user_id,
+                "p_client_id": cid,
+                "p_confirmation_name": str(confirmation_name).strip(),
+            },
+        )
+    except httpx.HTTPStatusError as exc:
+        message = _platform_rpc_error_message(exc)
+        if "company_not_found" in message:
+            raise PlatformCompanyNotFoundError("Empresa não encontrada.") from exc
+        if "company_name_confirmation_mismatch" in message:
+            raise PlatformCompanyConfirmationError(
+                "O nome informado não corresponde à empresa."
+            ) from exc
+        if "platform_admin_required" in message:
+            raise HTTPException(
+                status_code=403,
+                detail="Acesso exclusivo do administrador da plataforma.",
+            ) from exc
+        raise RuntimeError("Não foi possível excluir a empresa agora.") from exc
+    return {"ok": True, **dict(deleted or {})}
+
+
+def _platform_rpc_error_message(exc: httpx.HTTPStatusError) -> str:
+    if exc.response is None:
+        return ""
+    try:
+        body = exc.response.json()
+    except ValueError:
+        return ""
+    return str(
+        (body or {}).get("message")
+        or (body or {}).get("hint")
+        or (body or {}).get("detail")
+        or ""
+    )

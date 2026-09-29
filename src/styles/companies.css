@@ -67,6 +67,13 @@
 .companiesRowMenuList{position:absolute;right:0;top:34px;z-index:20;min-width:180px;background:#fff;border:1px solid #dedbd3;border-radius:12px;box-shadow:0 14px 34px rgba(42,46,39,.14);padding:6px;display:grid;gap:2px}
 .companiesRowMenuList button{text-align:left;background:none;border:none;padding:9px 10px;border-radius:8px;font-size:13px;cursor:pointer;color:#17252b}
 .companiesRowMenuList button:hover{background:#f2f0ec}
+.companiesRowMenuDivider{height:1px;background:#e8e5de;margin:4px 2px}
+.companiesRowMenuList .companiesDangerAction{color:#a92c2c;font-weight:700}
+.companiesRowMenuList .companiesDangerAction:hover{background:#fff0f0}
+.companiesDangerForm{display:grid;grid-template-columns:1fr}
+.companiesDangerWarning{margin:0;padding:12px;border:1px solid #e8aaaa;border-radius:10px;background:#fff5f5;color:#7f1d1d;line-height:1.5}
+.companiesDangerButton{background:#a92c2c;color:#fff;border-color:#a92c2c}
+.companiesDangerButton:hover:not(:disabled){background:#861f1f}
 
 .companiesSkeletonTable{display:grid;gap:10px;margin-top:14px}
 .companiesSkeletonRow{height:44px;border-radius:10px}

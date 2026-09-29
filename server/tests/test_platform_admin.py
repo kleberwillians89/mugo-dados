@@ -376,6 +376,193 @@ class CompanyCreationAuthorityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guard.await_args.kwargs.get("allow_agency_admin"), False)
 
 
+class PermanentCompanyDeletionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_service_scopes_rpc_to_path_company_and_confirmation(self):
+        rpc = AsyncMock(return_value={
+            "deleted_client_id": "tenant-a",
+            "deleted_company_name": "Tenant A",
+        })
+        with patch.object(platform_admin, "sb_rpc", rpc):
+            result = await platform_admin.delete_platform_company(
+                "master", "tenant-a", "Tenant A"
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(rpc.await_args.args[0], "delete_platform_company")
+        self.assertEqual(
+            rpc.await_args.args[1],
+            {
+                "p_actor_user_id": "master",
+                "p_client_id": "tenant-a",
+                "p_confirmation_name": "Tenant A",
+            },
+        )
+        self.assertNotIn("tenant-b", str(rpc.await_args))
+
+    async def test_delete_route_uses_strict_platform_admin_guard(self):
+        with (
+            patch.object(routes, "require_platform_admin", AsyncMock(return_value="master")) as guard,
+            patch.object(
+                routes,
+                "delete_platform_company",
+                AsyncMock(return_value={"ok": True, "deleted_client_id": "tenant-a"}),
+            ),
+        ):
+            await routes.platform_delete_company(
+                "tenant-a", {"confirmation_name": "Tenant A"}, "Bearer token", "tenant-b"
+            )
+        self.assertEqual(guard.await_args.kwargs.get("allow_agency_admin"), False)
+
+    async def test_viewer_client_admin_and_agency_admin_are_denied(self):
+        for role in ("viewer", "client_admin", "agency_admin"):
+            with self.subTest(role=role):
+                with (
+                    patch.object(
+                        platform_admin, "require_user_id", AsyncMock(return_value=f"{role}-user")
+                    ),
+                    patch.object(platform_admin, "is_platform_admin", AsyncMock(return_value=False)),
+                    patch(
+                        "services.tenant._has_agency_admin_membership",
+                        AsyncMock(return_value=role == "agency_admin"),
+                    ),
+                ):
+                    with self.assertRaises(HTTPException) as raised:
+                        await platform_admin.require_platform_admin(
+                            "Bearer token", allow_agency_admin=False
+                        )
+                self.assertEqual(raised.exception.status_code, 403)
+
+    async def test_missing_company_is_returned_as_404(self):
+        with (
+            patch.object(routes, "require_platform_admin", AsyncMock(return_value="master")),
+            patch.object(
+                routes,
+                "delete_platform_company",
+                AsyncMock(side_effect=platform_admin.PlatformCompanyNotFoundError("Empresa não encontrada.")),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await routes.platform_delete_company(
+                    "missing", {"confirmation_name": "Missing"}, "Bearer token", "tenant-b"
+                )
+        self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_currently_open_company_is_rejected_before_rpc(self):
+        delete = AsyncMock()
+        with (
+            patch.object(routes, "require_platform_admin", AsyncMock(return_value="master")),
+            patch.object(routes, "delete_platform_company", delete),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await routes.platform_delete_company(
+                    "tenant-a", {"confirmation_name": "Tenant A"}, "Bearer token", "tenant-a"
+                )
+        self.assertEqual(raised.exception.status_code, 409)
+        delete.assert_not_awaited()
+
+
+class PermanentCompanyDeletionMigrationContract(unittest.TestCase):
+    def setUp(self):
+        self.path = (
+            Path(__file__).parents[2]
+            / "supabase/migrations/20260929_000036_platform_company_permanent_deletion.sql"
+        )
+        self.sql = self.path.read_text().lower()
+
+    def test_all_mapped_tenant_tables_are_deleted(self):
+        mapped_tables = {
+            "ad_account_daily_stats", "ad_daily_stats", "ai_analyses", "ai_conversations",
+            "ai_messages", "campaign_daily_stats", "client_memberships", "client_notes", "client_users", "clients",
+            "connection_audit_events", "cron_job_runs", "cron_locks", "dashboard_campaign_metrics",
+            "dashboard_daily_metrics", "dashboard_product_metrics", "dashboard_source_snapshots",
+            "fbits_order_daily_stats", "fbits_order_items", "fbits_orders", "ga4_campaign_stats",
+            "ga4_channel_stats", "ga4_daily_stats", "ga4_event_stats", "ga4_landing_page_stats",
+            "google_ads_daily_stats", "ig_comments", "ig_media", "ig_profile_snapshots",
+            "integration_connections", "meta_ads_backfill_jobs", "meta_ads_backfill_slices",
+            "meta_connections", "meta_oauth_handoffs", "meta_token_events", "oauth_sessions",
+            "platform_audit_events", "promoted_post_daily_stats", "shopify_customers",
+            "shopify_order_items", "shopify_orders", "shopify_refunds", "shopify_stores",
+            "shopify_webhook_events", "sync_checkpoints", "user_invitations",
+        }
+        deleted_tables = set(re.findall(r"delete from public\.(\w+)", self.sql))
+        self.assertEqual(mapped_tables, deleted_tables)
+
+    def test_tenant_a_deletes_are_scoped_so_tenant_b_is_not_targeted(self):
+        direct_deletes = re.findall(
+            r"delete from public\.(\w+)\s+where client_id\s*=\s*p_client_id",
+            self.sql,
+        )
+        self.assertGreaterEqual(len(direct_deletes), 40)
+        self.assertNotIn("tenant-a", self.sql)
+        self.assertNotIn("tenant-b", self.sql)
+        self.assertIn("delete from public.clients where id = p_client_id", self.sql)
+        self.assertIn(
+            "delete from public.client_users where client_id::text = $1",
+            self.sql,
+        )
+        self.assertIn("using p_client_id", self.sql)
+
+    def test_every_delete_has_an_explicit_tenant_scope(self):
+        statements = re.findall(
+            r"delete from public\.(\w+)(.*?);",
+            self.sql,
+            flags=re.DOTALL,
+        )
+        self.assertTrue(statements)
+        for table, clause in statements:
+            normalized = " ".join(clause.split())
+            if table == "meta_ads_backfill_slices":
+                self.assertIn(
+                    "select id from public.meta_ads_backfill_jobs where client_id = p_client_id",
+                    normalized,
+                )
+            elif table == "clients":
+                self.assertIn("where id = p_client_id", normalized)
+            elif table == "client_users":
+                self.assertIn("where client_id::text = $1", normalized)
+                self.assertIn("using p_client_id", normalized)
+            else:
+                self.assertIn(
+                    "where client_id = p_client_id",
+                    normalized,
+                    msg=f"delete sem escopo de tenant: {table}",
+                )
+
+    def test_auth_users_are_preserved_and_company_is_deleted_last(self):
+        self.assertNotRegex(self.sql, r"delete\s+from\s+auth\.users")
+        self.assertNotRegex(self.sql, r"delete\s+from\s+public\.users")
+        company_delete = self.sql.index(
+            "delete from public.clients where id = p_client_id"
+        )
+        delete_positions = [
+            match.start()
+            for match in re.finditer(r"delete from public\.", self.sql)
+            if not self.sql.startswith("delete from public.clients ", match.start())
+        ]
+        self.assertTrue(delete_positions)
+        self.assertLess(max(delete_positions), company_delete)
+        self.assertNotIn("delete from", self.sql[company_delete + 1:])
+
+    def test_rpc_is_transactional_platform_admin_only_and_service_role_only(self):
+        normalized = " ".join(self.sql.split())
+        self.assertIn("is_platform_admin(p_actor_user_id)", self.sql)
+        self.assertIn("for update", self.sql)
+        self.assertIn("company_name_confirmation_mismatch", self.sql)
+        self.assertIn(
+            "revoke all on function public.delete_platform_company(uuid,text,text) from public, anon, authenticated;",
+            normalized,
+        )
+        self.assertIn(
+            "grant execute on function public.delete_platform_company(uuid,text,text) to service_role;",
+            normalized,
+        )
+
+    def test_audit_event_contains_no_email_token_or_credential(self):
+        audit = self.sql.split("'company_permanently_deleted'", 1)[1]
+        self.assertNotIn("email", audit)
+        self.assertNotIn("token", audit)
+        self.assertNotIn("credential", audit)
+
+
 class CompanyCreationIdempotencyMigrationContract(unittest.TestCase):
     """BLOCOS 1.2/1.4 — idempotência e overload retrocompatível da RPC."""
 

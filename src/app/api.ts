@@ -537,6 +537,16 @@ export async function updatePlatformCompany(
   });
 }
 
+export async function deletePlatformCompany(
+  clientId: string,
+  confirmationName: string,
+): Promise<{ ok: true; deleted_client_id: string; deleted_company_name: string }> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmation_name: confirmationName }),
+  });
+}
+
 export async function getIntelligenceContext(
   period: Period,
   options?: RequestSignalOptions,

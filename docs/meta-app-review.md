@@ -9,6 +9,7 @@ Este documento descreve a configuração e o roteiro de revisão da integração
 - Backend: `https://api.dados.mugoagencia.com.br`
 - Callback Meta: `https://api.dados.mugoagencia.com.br/api/oauth/meta/callback`
 - Privacy Policy URL: `https://dados.mugoagencia.com.br/privacidade`
+- Data Protection URL: `https://dados.mugoagencia.com.br/protecao-de-dados`
 - Data Deletion Instructions URL: `https://dados.mugoagencia.com.br/exclusao-de-dados`
 
 O callback deve ser cadastrado exatamente como está acima, sem barra final e usando HTTPS.
@@ -166,7 +167,7 @@ Evite exibir senhas, tokens, secrets, painéis de infraestrutura ou dados de emp
 
 ## Verificação antes da submissão
 
-- Acesse as duas páginas legais em janela anônima e confirme que não há redirecionamento para login.
+- Acesse as três páginas legais em janela anônima e confirme que não há redirecionamento para login.
 - Execute os testes Meta/OAuth e os testes das rotas públicas.
 - Confirme que o callback e as URLs legais publicadas correspondem exatamente às URLs deste documento.
 - Faça um fluxo completo com os ativos de homologação antes de gravar o vídeo final.

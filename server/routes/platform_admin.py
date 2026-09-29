@@ -5,8 +5,11 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException
 
 from services.platform_admin import (
+    PlatformCompanyConfirmationError,
+    PlatformCompanyNotFoundError,
     create_company_activation_link,
     create_platform_company,
+    delete_platform_company,
     is_platform_admin,
     list_platform_companies,
     require_platform_admin,
@@ -52,6 +55,35 @@ async def platform_update_company(
     actor_user_id = await require_platform_admin(authorization)
     try:
         return await update_platform_company(actor_user_id, client_id, payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/companies/{client_id}")
+async def platform_delete_company(
+    client_id: str,
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+    active_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+):
+    actor_user_id = await require_platform_admin(
+        authorization, allow_agency_admin=False
+    )
+    if str(active_client_id or "").strip() == str(client_id or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Troque para outra empresa antes de excluir a empresa atualmente aberta.",
+        )
+    try:
+        return await delete_platform_company(
+            actor_user_id,
+            client_id,
+            str(payload.get("confirmation_name") or ""),
+        )
+    except PlatformCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PlatformCompanyConfirmationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -75,6 +75,10 @@ describe("public legal routes", () => {
     await renderPublicPath("/privacidade");
     expect(container.querySelector('[data-public-route="privacy"]')).toBeTruthy();
     expect(container.textContent).toContain("Política de Privacidade");
+    const publicLinks = [...container.querySelectorAll("a")].map((link) => link.getAttribute("href"));
+    expect(publicLinks).toContain("/privacidade");
+    expect(publicLinks).toContain("/protecao-de-dados");
+    expect(publicLinks).toContain("/exclusao-de-dados");
     expectNoPrivateBootstrap();
   });
 
@@ -82,6 +86,13 @@ describe("public legal routes", () => {
     await renderPublicPath("/exclusao-de-dados");
     expect(container.querySelector('[data-public-route="data-deletion"]')).toBeTruthy();
     expect(container.textContent).toContain("Exclusão de dados");
+    expectNoPrivateBootstrap();
+  });
+
+  it("renders /protecao-de-dados without Supabase auth or tenant bootstrap", async () => {
+    await renderPublicPath("/protecao-de-dados");
+    expect(container.querySelector('[data-public-route="data-protection"]')).toBeTruthy();
+    expect(container.textContent).toContain("Proteção de dados");
     expectNoPrivateBootstrap();
   });
 });

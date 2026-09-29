@@ -23,7 +23,7 @@ import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundar
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
 import { DashboardDataProvider } from "./app/DashboardDataContext";
-import { DataDeletionPage, PrivacyPage } from "./pages/LegalPages";
+import { DataDeletionPage, DataProtectionPage, PrivacyPage } from "./pages/LegalPages";
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -896,6 +896,7 @@ function PrivateApp() {
           onOpenCompany={(company, targetRoute) => void handleOpenCompany(company, targetRoute)}
           onOpenDashboard={() => openRoute("meta")}
           canCreateCompany={platformAdmin}
+          canDeleteCompany={platformAdmin}
         />
       ) : (
       <>
@@ -941,5 +942,6 @@ export default function App() {
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
   if (publicRoute === "privacy") return <PrivacyPage />;
   if (publicRoute === "data_deletion") return <DataDeletionPage />;
+  if (publicRoute === "data_protection") return <DataProtectionPage />;
   return <PrivateApp />;
 }

@@ -11,6 +11,13 @@ const mocks = vi.hoisted(() => ({
   shouldRejectCreate: false,
   responsibleAccountExists: false,
   inviteAccountExists: false,
+  activeClientId: "",
+}));
+
+vi.mock("../app/activeClient", () => ({
+  getActiveClient: () => mocks.activeClientId
+    ? { id: mocks.activeClientId, name: "Empresa ativa", role: "platform_admin" }
+    : null,
 }));
 
 vi.mock("../app/api", () => ({
@@ -34,6 +41,11 @@ vi.mock("../app/api", () => ({
     activation_url: "https://dados.mugoagencia.com.br/verify?token=abc",
     account_exists: false,
   })),
+  deletePlatformCompany: vi.fn(async (clientId: string, confirmationName: string) => ({
+    ok: true,
+    deleted_client_id: clientId,
+    deleted_company_name: confirmationName,
+  })),
 }));
 
 import Companies from "./Companies";
@@ -41,6 +53,7 @@ import {
   createClientInvitation,
   createCompanyActivationLink,
   createPlatformCompany,
+  deletePlatformCompany,
   updatePlatformCompany,
 } from "../app/api";
 
@@ -96,10 +109,12 @@ beforeEach(() => {
   mocks.shouldRejectCreate = false;
   mocks.responsibleAccountExists = false;
   mocks.inviteAccountExists = false;
+  mocks.activeClientId = "";
   vi.mocked(createPlatformCompany).mockClear();
   vi.mocked(createClientInvitation).mockClear();
   vi.mocked(updatePlatformCompany).mockClear();
   vi.mocked(createCompanyActivationLink).mockClear();
+  vi.mocked(deletePlatformCompany).mockClear();
 });
 
 afterEach(async () => {
@@ -365,6 +380,68 @@ describe("Companies — editar empresa em drawer", () => {
       await Promise.resolve();
     });
     expect(updatePlatformCompany).toHaveBeenCalledWith("amalie", expect.objectContaining({ name: "Amalie Ltda" }));
+  });
+
+  it("inativa a empresa sem confundir a ação com exclusão permanente", async () => {
+    await renderCompanies({ canDeleteCompany: true });
+    await openRowMenu();
+    await act(async () => {
+      findButton("Inativar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(updatePlatformCompany).toHaveBeenCalledWith("amalie", { status: "inactive" });
+    expect(deletePlatformCompany).not.toHaveBeenCalled();
+  });
+});
+
+describe("Companies — exclusão permanente", () => {
+  it("não exibe a ação para quem não é platform_admin", async () => {
+    await renderCompanies({ canDeleteCompany: false });
+    await openRowMenu();
+    expect(findButton("Excluir permanentemente")).toBeUndefined();
+  });
+
+  it("exige o nome exato antes de excluir somente a empresa selecionada", async () => {
+    mocks.companies = [
+      { id: "amalie", name: "Amalie Ltda", trade_name: "Amalie", status: "active" },
+      { id: "roove", name: "Roove Ltda", trade_name: "Roove", status: "active" },
+    ];
+    await renderCompanies({ canDeleteCompany: true });
+    await openRowMenu();
+    await act(async () => {
+      findButton("Excluir permanentemente")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Esta ação é irreversível");
+    const deleteSubmit = container.querySelector(
+      ".companiesDangerForm button[type=submit]"
+    ) as HTMLButtonElement;
+    expect(deleteSubmit.disabled).toBe(true);
+    fillInput("Nome da empresa", "Amalie");
+    expect(deleteSubmit.disabled).toBe(false);
+
+    await act(async () => {
+      deleteSubmit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(deletePlatformCompany).toHaveBeenCalledWith("amalie", "Amalie");
+    expect(container.textContent).not.toContain("Amalie Ltda");
+    expect(container.textContent).toContain("Roove Ltda");
+  });
+
+  it("impede excluir a empresa atualmente aberta", async () => {
+    mocks.activeClientId = "amalie";
+    await renderCompanies({ canDeleteCompany: true });
+    await openRowMenu();
+    await act(async () => {
+      findButton("Excluir permanentemente")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Troque para outra empresa");
+    expect(container.querySelector(".modalBackdrop")).toBeNull();
+    expect(deletePlatformCompany).not.toHaveBeenCalled();
   });
 });
 

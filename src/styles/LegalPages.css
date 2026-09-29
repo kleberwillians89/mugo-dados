@@ -75,12 +75,14 @@
   font-size: 13px;
 }
 .legalFooter strong { color: #153f35; }
-.legalFooter a { margin-left: auto; color: #0c5b75; font-weight: 800; }
+.legalFooter nav { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.legalFooter nav a { color: #0c5b75; font-weight: 800; }
+.legalFooter > a { margin-left: auto; color: #0c5b75; font-weight: 800; }
 
 @media (max-width: 640px) {
   .legalHeader { align-items: flex-start; flex-direction: column; }
   .legalHero { padding-top: 52px; padding-bottom: 58px; }
   .legalContent { margin-top: -16px; border-radius: 18px; }
   .legalFooter { align-items: flex-start; flex-direction: column; }
-  .legalFooter a { margin-left: 0; margin-top: 8px; }
+  .legalFooter > a { margin-left: 0; margin-top: 8px; }
 }
