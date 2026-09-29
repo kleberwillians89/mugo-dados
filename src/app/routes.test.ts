@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAppRouteFromPath, getPathForRoute } from "./routes";
+import { getAppRouteFromPath, getPathForRoute, getPublicAppRouteFromPath } from "./routes";
 
 describe("platform routes", () => {
   it("maps the protected companies URL", () => {
@@ -22,5 +22,12 @@ describe("platform routes", () => {
 
   it("distinguishes an unknown URL from the dashboard", () => {
     expect(getAppRouteFromPath("/rota-inexistente")).toBe("not_found");
+  });
+
+  it("recognizes the public legal routes before protected routing", () => {
+    expect(getPublicAppRouteFromPath("/privacidade")).toBe("privacy");
+    expect(getPublicAppRouteFromPath("/privacidade/")).toBe("privacy");
+    expect(getPublicAppRouteFromPath("/exclusao-de-dados")).toBe("data_deletion");
+    expect(getPublicAppRouteFromPath("/meta")).toBeNull();
   });
 });

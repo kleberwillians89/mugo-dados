@@ -10,6 +10,7 @@ import {
 import { getMyPendingInvitations, listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PendingInvitation, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
+  getPublicAppRouteFromPath,
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
@@ -22,6 +23,7 @@ import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundar
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
 import { DashboardDataProvider } from "./app/DashboardDataContext";
+import { DataDeletionPage, PrivacyPage } from "./pages/LegalPages";
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -288,7 +290,7 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
   return { platformAdmin, agencyAdmin, clients };
 }
 
-export default function App() {
+function PrivateApp() {
   const authBootstrapError = getSupabaseBootstrapError();
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<AppView>("loading");
@@ -933,4 +935,11 @@ export default function App() {
       </DashboardDataProvider>
     </DashboardErrorBoundary>
   );
+}
+
+export default function App() {
+  const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
+  if (publicRoute === "privacy") return <PrivacyPage />;
+  if (publicRoute === "data_deletion") return <DataDeletionPage />;
+  return <PrivateApp />;
 }

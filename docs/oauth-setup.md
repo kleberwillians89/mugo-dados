@@ -80,7 +80,10 @@ Variáveis:
 - `META_APP_SECRET`
 - `META_GRAPH_VERSION` (padrão `v25.0`)
 - `META_OAUTH_REDIRECT_URI`
-- `META_OAUTH_STATE_SECRET`
+- `META_LOGIN_CONFIG_ID` — ID da Login Configuration criada em Meta for Developers; não é o App ID.
+- `OAUTH_STATE_SECRET` — segredo canônico do state persistido usado pelo fluxo atual; mínimo de 32 caracteres.
+- `TOKEN_ENCRYPTION_KEY` — criptografa tokens e funciona como fallback compatível do state quando `OAUTH_STATE_SECRET` não está definido.
+- `META_OAUTH_STATE_SECRET` — variável legada usada apenas pelo helper de state interno de `meta_oauth.py`; o endpoint atual `/api/oauth/meta/start` usa `oauth_state.py` e `OAUTH_STATE_SECRET`.
 
 Callback oficial:
 
@@ -90,9 +93,10 @@ Checklist:
 
 1. Abra o app empresarial da Mugô.
 2. Em Facebook Login, cadastre os callbacks Meta oficial e local.
-3. Configure domínio, política de privacidade e exclusão de dados.
-4. Solicite revisão somente dos escopos realmente usados por Instagram e Ads.
-5. Confirme que o discovery lista e permite selecionar separadamente Página, Instagram profissional e conta de anúncios.
+3. Em Facebook Login for Business, crie a Login Configuration, adicione as permissões utilizadas e copie seu ID para `META_LOGIN_CONFIG_ID` no Render.
+4. Configure domínio, política de privacidade e exclusão de dados.
+5. Solicite revisão somente dos escopos realmente usados por Instagram e Ads.
+6. Confirme que o discovery lista e permite selecionar separadamente Página, Instagram profissional e conta de anúncios.
 
 ## Google Cloud e Google Ads
 

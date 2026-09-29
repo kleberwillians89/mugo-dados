@@ -7,6 +7,15 @@ export type AppRoute =
   | "companies"
   | "not_found";
 
+export type PublicAppRoute = "privacy" | "data_deletion";
+
+export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | null {
+  const normalized = String(pathname || "/").trim().toLowerCase().replace(/\/+$/, "") || "/";
+  if (normalized === "/privacidade") return "privacy";
+  if (normalized === "/exclusao-de-dados") return "data_deletion";
+  return null;
+}
+
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";

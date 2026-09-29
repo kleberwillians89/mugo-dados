@@ -111,7 +111,9 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 async function flush() {
-  for (let i = 0; i < 12; i += 1) {
+  // A suíte completa executa vários ambientes jsdom em paralelo. Aguarda o
+  // bootstrap assíncrono terminar sem depender da velocidade do worker.
+  for (let i = 0; i < 24; i += 1) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
