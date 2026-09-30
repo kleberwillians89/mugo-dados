@@ -12,11 +12,18 @@ type Props = {
 
 export default function Drawer({ open, title, description, onClose, children, footer, width = "md" }: Props) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  // O pai costuma recriar onClose a cada render (ex.: a cada tecla digitada).
+  // Guardá-lo numa ref impede que o efeito abaixo rode de novo e devolva o
+  // foco ao painel no meio da digitação — o foco inicial acontece só ao abrir.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
       if (event.key === "Tab") {
         const panel = panelRef.current;
         if (!panel) return;
@@ -36,9 +43,11 @@ export default function Drawer({ open, title, description, onClose, children, fo
       }
     }
     window.addEventListener("keydown", onKeyDown);
-    panelRef.current?.focus();
+    // Respeita um campo com autoFocus já focado dentro do painel.
+    const panel = panelRef.current;
+    if (panel && !panel.contains(document.activeElement)) panel.focus();
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

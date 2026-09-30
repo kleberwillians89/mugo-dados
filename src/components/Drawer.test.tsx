@@ -71,4 +71,41 @@ describe("Drawer", () => {
     expect(container.textContent).toContain("corpo");
     expect(container.textContent).toContain("Salvar");
   });
+
+  it("re-render com onClose novo (pai recria a função a cada tecla) não tira o foco do campo", async () => {
+    const renderWith = (onClose: () => void) =>
+      root.render(
+        <Drawer open title="Nova empresa" onClose={onClose}>
+          <input aria-label="Razão social" />
+        </Drawer>
+      );
+    const firstOnClose = vi.fn();
+    await act(async () => renderWith(firstOnClose));
+    const input = container.querySelector("input") as HTMLInputElement;
+    await act(async () => input.focus());
+    expect(document.activeElement).toBe(input);
+
+    const latestOnClose = vi.fn();
+    await act(async () => renderWith(() => {}));
+    await act(async () => renderWith(latestOnClose));
+    expect(document.activeElement).toBe(input);
+
+    // Esc continua chamando a versão mais recente do onClose.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(latestOnClose).toHaveBeenCalledTimes(1);
+    expect(firstOnClose).not.toHaveBeenCalled();
+  });
+
+  it("mantém o foco de um campo com autoFocus ao abrir", async () => {
+    await act(async () => {
+      root.render(
+        <Drawer open title="Nova empresa" onClose={() => {}}>
+          <input aria-label="Razão social" autoFocus />
+        </Drawer>
+      );
+    });
+    expect(document.activeElement).toBe(container.querySelector("input"));
+  });
 });

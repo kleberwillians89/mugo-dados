@@ -122,6 +122,32 @@ afterEach(async () => {
   container.remove();
 });
 
+function wizardInput(label: string): HTMLInputElement {
+  const input = [...container.querySelectorAll(".wizardPane label")]
+    .find((el) => el.textContent?.startsWith(label))
+    ?.querySelector("input");
+  if (!input) throw new Error(`input não encontrado: ${label}`);
+  return input;
+}
+
+// Digita tecla a tecla como o userEvent.type: cada caractere vai para o
+// elemento focado NAQUELE momento. Se um re-render roubar o foco do input,
+// os caracteres seguintes se perdem — exatamente o bug de produção.
+async function typeLikeUser(input: HTMLInputElement, text: string) {
+  await act(async () => {
+    input.focus();
+  });
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  for (const char of text) {
+    await act(async () => {
+      const target = document.activeElement;
+      if (!(target instanceof HTMLInputElement)) return;
+      setter?.call(target, `${target.value}${char}`);
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+}
+
 async function advanceWizardToReview() {
   fillInput("Razão social", "Ruah Comércio Ltda");
   fillInput("E-mail do responsável", "contato@ruah.com");
@@ -162,6 +188,32 @@ describe("Companies — wizard de nova empresa", () => {
     );
     // Wizard avança para o passo "Concluído" em vez de fechar sozinho.
     expect(container.textContent).toContain("Empresa criada");
+  });
+
+  it("digitação contínua: cada campo recebe o texto completo sem perder o foco", async () => {
+    await renderCompanies();
+    await act(async () => {
+      findButton("+ Nova empresa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const fields: Array<[string, string]> = [
+      ["Razão social", "Mugô Agência"],
+      ["Nome fantasia", "Mugô"],
+      ["CNPJ (opcional)", "12.345.678/0001-95"],
+      ["E-mail do responsável", "mugo.agencia@gmail.com"],
+    ];
+    for (const [label, text] of fields) {
+      const input = wizardInput(label);
+      await typeLikeUser(input, text);
+      expect(wizardInput(label)).toBe(input); // mesmo nó: nada foi remontado
+      expect(input.value).toBe(text);
+      expect(document.activeElement).toBe(input);
+    }
+
+    await act(async () => {
+      findButton("Continuar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Passo 2 de 5");
   });
 
   it("responsável com conta Supabase existente: empresa é criada e o wizard orienta o link de onboarding", async () => {
