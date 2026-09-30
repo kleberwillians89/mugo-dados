@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 import time
 import traceback
 import uuid
@@ -15,6 +16,16 @@ ensure_env_loaded()
 # quando o processo é iniciado com `uvicorn app:app`.
 logging.getLogger("uvicorn.access").disabled = True
 logging.getLogger("uvicorn.access").propagate = False
+
+# Os logs operacionais usam print(). Em produção o stdout é um pipe, e o Python
+# acumula a saída em blocos de ~8 KB: as linhas só apareciam no Render muito
+# depois (ou nunca). Line buffering publica cada linha imediatamente,
+# independentemente do comando de start ou de PYTHONUNBUFFERED.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware

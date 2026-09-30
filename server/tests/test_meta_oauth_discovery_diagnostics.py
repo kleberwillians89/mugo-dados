@@ -1,6 +1,9 @@
 import io
 import os
+import select
+import subprocess
 import sys
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -176,12 +179,62 @@ class DiscoveryDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("stage=permissions http_status=200", logs)
         self.assertIn("stage=assets", logs)
 
+    async def test_real_discover_assets_emits_graph_calls_and_assets_lines(self):
+        first_page = {
+            "/me": {"id": "user-1", "name": "User"},
+            "/me/accounts": {"data": []},
+            "/me/adaccounts": {"data": []},
+            "/me/permissions": PERMISSIONS,
+            "/me/businesses": {"data": []},
+        }
+        json_responses = {"/me/permissions": PERMISSIONS, "/debug_token": DEBUG_TOKEN}
+        _result, error, logs = await self.run_discovery(first_page, json_responses)
+        self.assertIsNone(error)
+        self.assertIn("[meta_oauth][diag] stage=graph_calls", logs)
+        self.assertIn("[meta_oauth][diag] stage=assets", logs)
+
+        # Também no caminho de erro (o finally roda antes da exceção subir).
+        first_page["/me/businesses"] = MetaApiError("Meta API error 400: denied", status_code=400)
+        _result, error, logs = await self.run_discovery(first_page, json_responses)
+        self.assertIsInstance(error, MetaApiError)
+        self.assertIn("[meta_oauth][diag] stage=graph_calls", logs)
+        self.assertIn("[meta_oauth][diag] stage=assets", logs)
+
     def test_debug_token_parameters_are_redacted_from_logged_urls(self):
         safe = meta_http._safe_url(
             f"https://graph.facebook.com/v25.0/debug_token?input_token={TOKEN}&access_token=app-1%7C{APP_SECRET}"
         )
         self.assertNotIn(TOKEN, safe)
         self.assertNotIn(APP_SECRET, safe)
+
+
+class StdoutVisibilityTests(unittest.TestCase):
+    def test_print_after_importing_app_is_visible_while_process_is_alive(self):
+        # Reproduz o Render: stdout é um pipe e PYTHONUNBUFFERED não está
+        # definido. Sem line buffering a linha só sairia no fim do processo.
+        env = {key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"}
+        code = (
+            "import time, app; "
+            "print('[meta_oauth][diag] stage=graph_calls probe'); "
+            "time.sleep(20)"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", code], cwd=SERVER_DIR, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 15
+            seen = ""
+            while time.monotonic() < deadline and "stage=graph_calls" not in seen:
+                ready, _, _ = select.select([process.stdout], [], [], 0.5)
+                if ready:
+                    seen += process.stdout.readline().decode("utf-8", "replace")
+            self.assertIsNone(process.poll(), "o processo deveria continuar vivo")
+            self.assertIn("[meta_oauth][diag] stage=graph_calls probe", seen)
+        finally:
+            process.kill()
+            process.wait()
+            process.stdout.close()
 
 
 if __name__ == "__main__":
