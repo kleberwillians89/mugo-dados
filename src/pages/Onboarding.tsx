@@ -83,6 +83,12 @@ type Props = {
   onLogout?: () => Promise<void> | void;
 };
 
+const EMPTY_INTEGRATION_DIAGNOSTIC = {
+  code: "", requestId: "", initialSyncOk: null as boolean | null,
+  organicConnectionId: "", adsBlockedReason: "", propertyCount: 0,
+  streamCount: 0, propertyId: "", streamId: "", ga4LastSync: "",
+};
+
 function fmtDate(value?: string | null): string {
   if (!value) return "-";
   const dt = new Date(value);
@@ -297,11 +303,7 @@ export default function Onboarding({
   const [manualMetaValidation, setManualMetaValidation] = useState<ManualMetaAssetsValidation | null>(null);
   const [googleReconnectProduct, setGoogleReconnectProduct] = useState<"ga4" | "google_ads" | null>(null);
   const [backendCommitSha, setBackendCommitSha] = useState("unknown");
-  const [lastIntegrationDiagnostic, setLastIntegrationDiagnostic] = useState({
-    code: "", requestId: "", initialSyncOk: null as boolean | null,
-    organicConnectionId: "", adsBlockedReason: "", propertyCount: 0,
-    streamCount: 0, propertyId: "", streamId: "", ga4LastSync: "",
-  });
+  const [lastIntegrationDiagnostic, setLastIntegrationDiagnostic] = useState(EMPTY_INTEGRATION_DIAGNOSTIC);
   const [syncRuntime, setSyncRuntime] = useState<Array<Record<string, unknown>>>([]);
   const manualMetaFormRef = useRef<HTMLElement | null>(null);
   const processedOauthReturnRef = useRef<string | null>(null);
@@ -318,6 +320,10 @@ export default function Onboarding({
   const configWarning = getActiveClientConfigurationWarning();
 
   const prepareMetaAssets = useCallback((data: MetaDiscoverAssetsResponse) => {
+    // Resposta atrasada de outra empresa (troca durante a descoberta) nunca
+    // é exibida no tenant atual.
+    const dataClientId = String(data?.client_id || "").trim();
+    if (dataClientId && dataClientId !== getActiveClientId()) return;
     setPendingAssets(data);
     setSelectedIg({});
     setSelectedPages({});
@@ -515,6 +521,44 @@ export default function Onboarding({
   }, [loadConnections, prepareMetaAssets]);
 
   const activeClientIdForSelection = getActiveClientId();
+  // Troca de empresa sem remontar a tela: descarta todo estado transitório
+  // (ativos descobertos, seleções, handoff, pickers, diagnósticos) que
+  // pertence à empresa anterior. Não toca em conexões persistidas. Declarado
+  // antes do efeito de carga para limpar antes de carregar a nova empresa.
+  const previousClientIdRef = useRef(activeClientIdForSelection);
+  useEffect(() => {
+    if (previousClientIdRef.current === activeClientIdForSelection) return;
+    previousClientIdRef.current = activeClientIdForSelection;
+    setPendingAssets(null);
+    setSelectedIg({});
+    setSelectedPages({});
+    setSelectedAds({});
+    setOauthRetry(null);
+    setActiveConnection(null);
+    setManualMetaConnectionId(null);
+    setManualPageId("");
+    setManualInstagramId("");
+    setManualAdAccountId("");
+    setManualMetaValidation(null);
+    setMetaAdsPickerOpen(false);
+    setMetaAdsAccounts([]);
+    setSelectedMetaAdsAccount("");
+    setGooglePickerId(null);
+    setGooglePickerProduct(null);
+    setGoogleProperties([]);
+    setGoogleStreams([]);
+    setGoogleAdsAccounts([]);
+    setSelectedGoogleProperty("");
+    setSelectedGoogleStream("");
+    setSelectedGoogleAds("");
+    setGoogleAdsNotice("");
+    setGoogleReconnectProduct(null);
+    setLastIntegrationDiagnostic(EMPTY_INTEGRATION_DIAGNOSTIC);
+    setSyncRuntime([]);
+    setErr(null);
+    setInfo(null);
+  }, [activeClientIdForSelection]);
+
   useEffect(() => {
     if (!isAuthenticated) return;
 

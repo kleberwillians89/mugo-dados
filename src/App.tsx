@@ -332,7 +332,14 @@ function PrivateApp() {
         return;
       }
 
-      if (requestedRoute === "meta" && window.location.pathname !== "/meta") {
+      // O retorno de OAuth chega em "/?onboarding=1&meta_oauth=…&handoff=…".
+      // Normalizar para /meta descartaria a query antes de o Onboarding
+      // consumir o handoff, então o sinal de setup tem precedência.
+      if (
+        requestedRoute === "meta" &&
+        window.location.pathname !== "/meta" &&
+        !hasSetupSignalInUrl()
+      ) {
         navigateToAppRoute("meta", { replace: true });
       }
 
@@ -799,10 +806,19 @@ function PrivateApp() {
     // de trocar de tenant — "Fazer onboarding" e "Abrir para suporte" só se
     // diferenciam pela rota de destino.
     const canonicalId = canonicalizeClientId(company.id);
+    const companyName = company.trade_name || company.name;
     await openPlatformCompany(canonicalId);
     setTenantReady(false);
     clearTenantBrowserState();
-    setActiveClient({ id: canonicalId, name: company.trade_name || company.name, role: "platform_admin" });
+    // Empresa recém-criada ainda não está na lista carregada no bootstrap:
+    // entra no seletor já, sem esperar F5. Nenhuma membership é criada — o
+    // acesso continua vindo do papel de plataforma validado no backend.
+    setClients((current) =>
+      current.some((client) => client.client_id === canonicalId)
+        ? current
+        : [...current, { client_id: canonicalId, name: companyName, role: "platform_admin" }]
+    );
+    setActiveClient({ id: canonicalId, name: companyName, role: "platform_admin" });
     setActiveConnectionId(null);
     setActiveClientId(canonicalId);
     setTenantReady(true);

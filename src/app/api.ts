@@ -1638,11 +1638,9 @@ export async function selectClientMetaAdsAccount(adAccountId: string): Promise<J
 export async function syncClientMetaAdsAccount(connectionId: string): Promise<JsonRecord> {
   return http(clientClientPath("/meta-ads/sync"), {
     method: "POST",
-    body: JSON.stringify({
-      connection_id: connectionId,
-      since: "2026-07-02",
-      until: "2026-07-31",
-    }),
+    // Sem since/until: o backend aplica o período canônico
+    // (resolve_period, 30 dias por padrão).
+    body: JSON.stringify({ connection_id: connectionId }),
   });
 }
 

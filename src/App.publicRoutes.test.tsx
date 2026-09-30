@@ -37,6 +37,7 @@ vi.mock("./app/api", () => ({
 }));
 
 import App from "./App";
+import { LEGAL_CONTACT } from "./app/legalContact";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -79,6 +80,7 @@ describe("public legal routes", () => {
     expect(publicLinks).toContain("/privacidade");
     expect(publicLinks).toContain("/protecao-de-dados");
     expect(publicLinks).toContain("/exclusao-de-dados");
+    expect(container.querySelector('[data-legal-contact="privacy"]')?.textContent).toContain(LEGAL_CONTACT);
     expectNoPrivateBootstrap();
   });
 
@@ -86,6 +88,7 @@ describe("public legal routes", () => {
     await renderPublicPath("/exclusao-de-dados");
     expect(container.querySelector('[data-public-route="data-deletion"]')).toBeTruthy();
     expect(container.textContent).toContain("Exclusão de dados");
+    expect(container.querySelector('[data-legal-contact="data-deletion"]')?.textContent).toContain(LEGAL_CONTACT);
     expectNoPrivateBootstrap();
   });
 

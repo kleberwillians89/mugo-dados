@@ -16,10 +16,11 @@ const backend = vi.hoisted(() => ({
   clients: [] as Array<{ id: string; name: string; trade_name: string }>,
   pendingInvitations: [] as Array<Record<string, unknown>>,
   acceptedRole: "client_admin",
+  platformAdmin: false,
 }));
 
 function supabaseResult(table: string) {
-  if (table === "platform_admins") return { data: null, error: null };
+  if (table === "platform_admins") return { data: backend.platformAdmin ? { user_id: "user-1" } : null, error: null };
   if (table === "client_memberships") return { data: backend.memberships, error: null };
   if (table === "clients") return { data: backend.clients, error: null };
   return { data: [], error: null };
@@ -96,11 +97,26 @@ vi.mock("./app/DashboardDataContext", () => ({
   DashboardDataProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("./pages/Login", () => ({ default: () => React.createElement("div", { "data-testid": "login-stub" }) }));
-vi.mock("./pages/Onboarding", () => ({ default: () => React.createElement("div", { "data-testid": "onboarding-stub" }) }));
+// Expõe a query vista pelo Onboarding no momento em que ele renderiza — é ali
+// que o handoff do OAuth precisa estar disponível.
+vi.mock("./pages/Onboarding", () => ({
+  default: () => React.createElement("div", { "data-testid": "onboarding-stub", "data-search": window.location.search }),
+}));
 vi.mock("./pages/Dashboard", () => ({ default: () => React.createElement("div", { "data-testid": "dashboard-stub" }) }));
 vi.mock("./pages/GoogleAnalytics", () => ({ default: () => React.createElement("div", { "data-testid": "ga-stub" }) }));
 vi.mock("./pages/Ecommerce", () => ({ default: () => React.createElement("div", { "data-testid": "ecommerce-stub" }) }));
-vi.mock("./pages/Companies", () => ({ default: () => React.createElement("div", { "data-testid": "companies-stub" }) }));
+vi.mock("./pages/Companies", () => ({
+  default: (props: { onOpenCompany: (company: Record<string, string>, route?: string) => void }) =>
+    React.createElement(
+      "button",
+      {
+        "data-testid": "companies-stub",
+        type: "button",
+        onClick: () => props.onOpenCompany({ id: "mugo-new", name: "Mugô", trade_name: "Mugô" }, "integrations"),
+      },
+      "Abrir Mugô"
+    ),
+}));
 vi.mock("./pages/Intelligence", () => ({ default: () => React.createElement("div", { "data-testid": "intelligence-stub" }) }));
 vi.mock("./pages/NotFound", () => ({ default: () => React.createElement("div", { "data-testid": "notfound-stub" }) }));
 
@@ -147,6 +163,7 @@ beforeEach(() => {
     { id: "inv-1", client_id: "roove", role: "client_admin", company_name: "Roove", expires_at: null },
   ];
   backend.acceptedRole = "client_admin";
+  backend.platformAdmin = false;
 });
 
 afterEach(async () => {
@@ -218,5 +235,76 @@ describe("App — convergência do onboarding (link/convite → Integrações)",
 
     expect(container.querySelector('[data-testid="onboarding-stub"]')).toBeNull();
     expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
+  });
+});
+
+describe("App — retorno do OAuth Meta", () => {
+  it("preserva a query do callback e abre o Onboarding em vez do Dashboard", async () => {
+    const callbackQuery = "?onboarding=1&client_id=test-client&meta_oauth=success&handoff=h-1&connection_id=c-1";
+    backend.memberships = [{ client_id: "test-client", role: "client_admin" }];
+    backend.clients = [{ id: "test-client", name: "Test Client", trade_name: "Test Client" }];
+    backend.pendingInvitations = [];
+    activeClientStore.current = { id: "test-client", name: "Test Client", role: "client_admin" };
+    window.history.replaceState({}, "", `/${callbackQuery}`);
+
+    await renderApp();
+
+    const onboarding = container.querySelector('[data-testid="onboarding-stub"]');
+    expect(onboarding).toBeTruthy();
+    expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeNull();
+    // O Onboarding renderizou com o handoff ainda na URL — é ele quem consome
+    // e limpa esses parâmetros.
+    expect(onboarding?.getAttribute("data-search")).toBe(callbackQuery);
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe(callbackQuery);
+    expect(getActiveClientId()).toBe("test-client");
+  });
+});
+
+describe("App — empresa recém-aberta pela administração", () => {
+  function switcherNames(): string[] {
+    const switcher = container.querySelector(".clientSwitcher");
+    const trigger = switcher?.querySelector<HTMLButtonElement>(".clientSwitcherTrigger");
+    act(() => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return [...(switcher?.querySelectorAll(".clientSwitcherOptionName") || [])].map((item) => item.textContent || "");
+  }
+
+  async function openMugoFromCompanies() {
+    await act(async () => {
+      container.querySelector('[data-testid="companies-stub"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+  }
+
+  beforeEach(() => {
+    backend.platformAdmin = true;
+    backend.memberships = [];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    backend.pendingInvitations = [];
+    window.history.replaceState({}, "", "/empresas");
+  });
+
+  it("entra no seletor sem F5 e vira a empresa ativa usada pelo OAuth", async () => {
+    await renderApp();
+    await openMugoFromCompanies();
+
+    expect(getActiveClientId()).toBe("mugo-new");
+    expect(container.querySelector('[data-testid="onboarding-stub"]')).toBeTruthy();
+    expect(container.querySelector(".clientSwitcher .clientSwitcherName")?.textContent).toBe("Mugô");
+    expect(switcherNames()).toEqual(["Amalie", "Mugô"]);
+  });
+
+  it("não duplica a empresa quando ela já está na lista do bootstrap", async () => {
+    backend.clients = [
+      { id: "amalie", name: "Amalie", trade_name: "Amalie" },
+      { id: "mugo-new", name: "Mugô", trade_name: "Mugô" },
+    ];
+    await renderApp();
+    await openMugoFromCompanies();
+
+    expect(getActiveClientId()).toBe("mugo-new");
+    expect(switcherNames().filter((name) => name === "Mugô")).toHaveLength(1);
   });
 });

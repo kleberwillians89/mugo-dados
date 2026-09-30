@@ -14,6 +14,8 @@ Este documento descreve a configuração e o roteiro de revisão da integração
 
 O callback deve ser cadastrado exatamente como está acima, sem barra final e usando HTTPS.
 
+Contato de privacidade e de solicitações de exclusão: `privacidade@mugoagencia.com.br`, exibido nas páginas de privacidade e de exclusão a partir de `src/app/legalContact.ts` (fonte única).
+
 ## Escopo da integração
 
 O Mugô Dados permite que uma empresa autorize a Meta e selecione separadamente uma Página do Facebook, o Instagram profissional vinculado e uma conta Meta Ads. O backend descobre somente os ativos acessíveis pela autorização, valida a seleção e persiste as conexões no tenant da empresa. Após a seleção, a plataforma importa dados para os dashboards de Instagram orgânico, Instagram Insights e Meta Ads.

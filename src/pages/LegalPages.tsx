@@ -1,4 +1,5 @@
 import MugoLogo from "../components/MugoLogo";
+import { LEGAL_CONTACT } from "../app/legalContact";
 import "../styles/LegalPages.css";
 
 const LAST_UPDATED = "29 de setembro de 2026";
@@ -136,6 +137,9 @@ export function PrivacyPage() {
             proposta ou onboarding da sua empresa. Informe o nome da empresa e indique que o assunto é
             “Privacidade — Mugô Dados”.
           </p>
+          <p data-legal-contact="privacy">
+            Contato de privacidade: <strong>{LEGAL_CONTACT}</strong>
+          </p>
         </section>
       </article>
       <LegalFooter />
@@ -158,6 +162,9 @@ export function DataDeletionPage() {
             onboarding da sua empresa. Use o assunto “Exclusão de dados — Mugô Dados”. A exclusão não é
             automática: a equipe verifica a identidade e o vínculo da pessoa solicitante antes de executar
             a remoção aplicável.
+          </p>
+          <p data-legal-contact="data-deletion">
+            Canal para solicitações de exclusão: <strong>{LEGAL_CONTACT}</strong>
           </p>
         </section>
 
