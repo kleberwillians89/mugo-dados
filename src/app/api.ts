@@ -1910,6 +1910,23 @@ export async function syncFbits(
   });
 }
 
+/** Valida o token na FBITS e salva a conexão cifrada da empresa ativa. O token
+ * vai só no corpo desta requisição e nunca volta na resposta. */
+export async function connectFbits(token: string): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath("/fbits/connect"), {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function syncFbitsConnection(): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath("/fbits/sync"), { method: "POST" });
+}
+
+export async function disconnectFbitsConnection(): Promise<JsonRecord> {
+  return http<JsonRecord>(clientClientPath("/fbits/connection"), { method: "DELETE" });
+}
+
 export async function getGa4Report(
   period: number | PeriodQueryInput = 30,
   options?: ClientRequestOptions

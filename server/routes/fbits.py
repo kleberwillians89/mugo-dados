@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from typing import Any, Dict
+
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
 
 from api_support import (
     _log_endpoint_call,
@@ -10,15 +12,19 @@ from api_support import (
     _started,
     _structured_error_response,
 )
+from services.fbits_connections import (
+    connect_fbits,
+    disconnect_fbits,
+    load_fbits_connection,
+    sync_fbits_connection,
+)
 from services.fbits_reporting import (
-    build_fbits_orders_debug,
     build_fbits_orders_report,
-    build_fbits_reconciliation_debug,
     build_fbits_summary,
     resolve_fbits_period,
-    sync_fbits_orders,
 )
-from services.tenant import resolve_client_id
+from services.integration_errors import IntegrationError
+from services.tenant import require_client_role, require_user_id, resolve_client_id
 
 router = APIRouter(tags=["fbits"])
 
@@ -63,14 +69,8 @@ async def _run_fbits_endpoint(
         period = resolve_fbits_period(start=start, end=end, days=days)
         if operation == "summary":
             payload = await build_fbits_summary(client_id=cid, period=period)
-        elif operation == "orders":
-            payload = await build_fbits_orders_report(client_id=cid, period=period)
-        elif operation == "sync":
-            payload = await sync_fbits_orders(client_id=cid, period=period)
-        elif operation == "debug":
-            payload = await build_fbits_orders_debug(client_id=cid, period=period)
         else:
-            payload = await build_fbits_reconciliation_debug(client_id=cid, period=period)
+            payload = await build_fbits_orders_report(client_id=cid, period=period)
         _log_endpoint_done(
             endpoint=endpoint,
             started=started,
@@ -172,64 +172,88 @@ async def fbits_orders(
     )
 
 
-@router.post("/api/fbits/sync")
+async def _run_fbits_sync_isolated(client_id: str) -> None:
+    """Sincronização em background: falhas nunca desfazem a conexão salva e
+    ficam registradas (sanitizadas) em last_error pela própria sincronização."""
+    try:
+        await sync_fbits_connection(client_id=client_id)
+    except IntegrationError as exc:
+        print(f"[fbits][sync] client_id={client_id} stage=background status=error code={exc.code}")
+    except Exception as exc:
+        print(f"[fbits][sync] client_id={client_id} stage=background status=error error_type={exc.__class__.__name__}")
+
+
+async def _schedule_tenant_sync(client_id: str, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    connection = await load_fbits_connection(client_id)
+    if not connection or str(connection.get("status") or "").lower() == "disconnected":
+        raise IntegrationError(
+            "Nenhuma conexão FBITS ativa para esta empresa.",
+            status_code=404, code="FBITS_CONNECTION_NOT_FOUND", provider="fbits",
+        )
+    background_tasks.add_task(_run_fbits_sync_isolated, client_id)
+    return {"ok": True, "client_id": client_id, "scheduled": True}
+
+
+@router.post("/api/clients/{client_id}/fbits/connect")
+async def fbits_connect(
+    client_id: str,
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
+    # Só perfis de gestão; viewer é recusado por require_client_role.
+    cid = await require_client_role(client_id, authorization)
+    user_id = await require_user_id(authorization)
+    result = await connect_fbits(client_id=cid, user_id=user_id, token=str(payload.get("token") or ""))
+    background_tasks.add_task(_run_fbits_sync_isolated, cid)
+    # O token nunca volta na resposta: `connection` já é sanitizada.
+    return {"ok": True, **result, "initial_sync": "scheduled"}
+
+
+@router.post("/api/clients/{client_id}/fbits/sync", status_code=202)
+async def fbits_tenant_sync(
+    client_id: str,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(client_id, authorization)
+    return await _schedule_tenant_sync(cid, background_tasks)
+
+
+@router.delete("/api/clients/{client_id}/fbits/connection")
+async def fbits_disconnect(
+    client_id: str,
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(client_id, authorization)
+    user_id = await require_user_id(authorization)
+    return {"ok": True, "connection": await disconnect_fbits(client_id=cid, user_id=user_id)}
+
+
+# Compatibilidade: a rota antiga agora exige perfil de gestão e apenas agenda a
+# sincronização da conexão da PRÓPRIA empresa. Não existe mais token global.
+@router.post("/api/fbits/sync", status_code=202)
 async def fbits_sync(
+    background_tasks: BackgroundTasks,
     client_id: str | None = Query(default=None),
-    start: str | None = Query(default=None),
-    end: str | None = Query(default=None),
-    days: int = Query(default=30, ge=1, le=366),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    return await _run_fbits_endpoint(
-        endpoint="/api/fbits/sync",
-        client_id=client_id,
-        x_client_id=x_client_id,
-        authorization=authorization,
-        start=start,
-        end=end,
-        days=days,
-        operation="sync",
-    )
+    cid = await require_client_role(client_id or x_client_id, authorization)
+    return await _schedule_tenant_sync(cid, background_tasks)
+
+
+_LEGACY_DEBUG_DISABLED = (
+    "Endpoint de debug FBITS desativado: ele consultava a API com um token global. "
+    "Use a conexão FBITS da empresa em Integrações."
+)
 
 
 @router.get("/api/fbits/debug/orders")
-async def fbits_debug_orders(
-    client_id: str | None = Query(default=None),
-    start: str | None = Query(default=None),
-    end: str | None = Query(default=None),
-    days: int = Query(default=30, ge=1, le=366),
-    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
-    authorization: str | None = Header(default=None),
-):
-    return await _run_fbits_endpoint(
-        endpoint="/api/fbits/debug/orders",
-        client_id=client_id,
-        x_client_id=x_client_id,
-        authorization=authorization,
-        start=start,
-        end=end,
-        days=days,
-        operation="debug",
-    )
+async def fbits_debug_orders():
+    raise HTTPException(status_code=410, detail=_LEGACY_DEBUG_DISABLED)
 
 
 @router.get("/api/fbits/debug/reconciliation")
-async def fbits_debug_reconciliation(
-    client_id: str | None = Query(default=None),
-    start: str | None = Query(default=None),
-    end: str | None = Query(default=None),
-    days: int = Query(default=30, ge=1, le=366),
-    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
-    authorization: str | None = Header(default=None),
-):
-    return await _run_fbits_endpoint(
-        endpoint="/api/fbits/debug/reconciliation",
-        client_id=client_id,
-        x_client_id=x_client_id,
-        authorization=authorization,
-        start=start,
-        end=end,
-        days=days,
-        operation="reconciliation",
-    )
+async def fbits_debug_reconciliation():
+    raise HTTPException(status_code=410, detail=_LEGACY_DEBUG_DISABLED)

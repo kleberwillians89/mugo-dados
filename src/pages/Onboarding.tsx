@@ -63,7 +63,9 @@ import {
   MUGO_APP_NAME,
 } from "../app/activeClient";
 import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
+import { navigateToExternalAuthorization } from "../app/externalNavigation";
 import AssetCombobox from "../components/AssetCombobox";
+import FbitsIntegrationPanel from "../components/FbitsIntegrationPanel";
 import MugoLogo from "../components/MugoLogo";
 import "../components/mugo-logo.css";
 import StatusBadge, { type StatusTone } from "../components/StatusBadge";
@@ -142,6 +144,11 @@ function canonicalStatusLabel(
   if (entry.status === "needs_configuration") return "Configuração necessária";
   if (entry.sync_status === "sync_error") return "Erro de sincronização";
   if (entry.sync_status === "sync_success") return "Sincronizado";
+  // Commerce: conexão válida ainda sem nenhuma importação concluída é
+  // "conectado", nunca "não conectado" — só a primeira carga está pendente.
+  if ((entry.provider === "shopify" || entry.provider === "fbits") && !entry.last_sync_at && !entry.last_error) {
+    return "Conectado · sincronização pendente";
+  }
   return "Conectado";
 }
 
@@ -932,7 +939,7 @@ export default function Onboarding({
     setErr(null);
     try {
       const response = await startShopifyOAuth(domainOverride || shopifyDomain);
-      window.location.assign(response.authorization_url);
+      navigateToExternalAuthorization(response.authorization_url);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Informe um domínio válido nomedaloja.myshopify.com."));
       setOauthLoading(false);
@@ -1484,7 +1491,8 @@ export default function Onboarding({
                 ? canonicalStatusLabel(canonicalEntry, canonicalIntegrations.isRefreshing)
                 : status;
               const actionable = definition.availability === "available";
-              const shouldAuthorize = actionable && (
+              // FBITS não usa OAuth: conexão por token no FbitsIntegrationPanel.
+              const shouldAuthorize = actionable && definition.id !== "fbits" && (
                 (!connection && matchingConnections.length === 0) ||
                 (definition.id !== "shopify" && ["disconnected", "expired", "token_expired", "reauth_required"].includes(connectionState))
               );
@@ -1630,6 +1638,13 @@ export default function Onboarding({
                       style={{ marginTop: 12, width: "100%" }}
                     />
                   </>
+                ) : null}
+                {definition.id === "fbits" ? (
+                  <FbitsIntegrationPanel
+                    entry={canonicalEntry}
+                    canManage={canManageConnections}
+                    onChanged={async () => { await loadConnections(); }}
+                  />
                 ) : null}
                 {definition.id === "meta" && connectionState === "selection_required" && connection ? (
                   <button

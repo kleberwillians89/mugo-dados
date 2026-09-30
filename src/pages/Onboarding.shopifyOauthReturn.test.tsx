@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
   disconnectGenericConnection: vi.fn(async () => ({ ok: true })),
   selectedConnections: {} as Record<string, string>,
   role: "agency_admin",
+  shopifyConnected: true,
+  canonicalSyncStatus: "sync_success" as string | null,
+  navigateToExternalAuthorization: vi.fn(),
+}));
+
+vi.mock("../app/externalNavigation", () => ({
+  navigateToExternalAuthorization: mocks.navigateToExternalAuthorization,
 }));
 
 vi.mock("../app/activeClient", () => ({
@@ -41,17 +48,21 @@ vi.mock("../app/api", async (importOriginal) => {
   return {
     ...actual,
     listClientConnections: vi.fn(async () => ({ connections: [] })),
-    listGenericConnections: vi.fn(async () => ({ ok: true, client_id: "amalie", connections: [shopifyConnection] })),
+    listGenericConnections: vi.fn(async () => ({
+      ok: true,
+      client_id: "amalie",
+      connections: mocks.shopifyConnected ? [shopifyConnection] : [],
+    })),
     getClientIntegrations: vi.fn(async () => ({
       ok: true,
       client_id: "amalie",
-      connections: [
+      connections: mocks.shopifyConnected ? [
         {
           provider: "shopify",
           connection_id: "shopify-conn-1",
           status: "connected",
           authorization_status: "valid",
-          sync_status: "sync_success",
+          sync_status: mocks.canonicalSyncStatus,
           account: { domain: "amalie-6421.myshopify.com", name: "Amalie" },
           assets: { shop_domain: "amalie-6421.myshopify.com" },
           last_sync_at: null,
@@ -59,7 +70,7 @@ vi.mock("../app/api", async (importOriginal) => {
           last_error: null,
           updated_at: "2026-08-08T00:00:00Z",
         },
-      ],
+      ] : [],
     })),
     getApiVersion: vi.fn(async () => ({ commit_sha: "test-sha", build_time: "test", environment: "test" })),
     syncShopifyConnection: mocks.syncShopifyConnection,
@@ -77,6 +88,10 @@ beforeEach(() => {
   mocks.syncShopifyConnection.mockClear();
   mocks.selectedConnections = {};
   mocks.role = "agency_admin";
+  mocks.shopifyConnected = true;
+  mocks.canonicalSyncStatus = "sync_success";
+  mocks.navigateToExternalAuthorization.mockClear();
+  mocks.startShopifyOAuth.mockClear();
   window.history.pushState({}, "", "/?shopify_oauth=success&connection_id=shopify-conn-1&client_id=amalie");
 });
 
@@ -149,5 +164,46 @@ describe("Onboarding — retorno do OAuth Shopify não dispara backfill duplicad
     await act(async () => manage.click());
     const update = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Atualizar permissões") as HTMLButtonElement;
     expect(update.disabled).toBe(true);
+  });
+});
+
+describe("Onboarding — início do OAuth Shopify", () => {
+  it("Conectar loja envia o domínio e navega para a authorization_url recebida", async () => {
+    mocks.shopifyConnected = false;
+    window.history.pushState({}, "", "/");
+    await mount();
+
+    const input = container!.querySelector('input[placeholder="minhaloja.myshopify.com"]') as HTMLInputElement;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      valueSetter?.call(input, "https://0vi1gx-ja.myshopify.com/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const connect = [...container!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Conectar loja"
+    ) as HTMLButtonElement;
+    await act(async () => {
+      connect.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.startShopifyOAuth).toHaveBeenCalledWith("https://0vi1gx-ja.myshopify.com/");
+    expect(mocks.navigateToExternalAuthorization).toHaveBeenCalledWith("https://shopify.test/oauth");
+  });
+});
+
+describe("Onboarding — Shopify conectada ainda sem pedidos importados", () => {
+  it("mostra conectado com sincronização pendente, nunca 'Não conectado'", async () => {
+    mocks.canonicalSyncStatus = null;
+    window.history.pushState({}, "", "/");
+    await mount();
+
+    const text = container!.textContent || "";
+    expect(text).toContain("Conectado · sincronização pendente");
+    const shopifyCard = [...container!.querySelectorAll(".onboardingConnBlock")].find(
+      (card) => card.textContent?.includes("Shopify")
+    );
+    expect(shopifyCard?.textContent).not.toContain("Não conectado");
+    expect(shopifyCard?.textContent).not.toContain("Desconectado");
   });
 });

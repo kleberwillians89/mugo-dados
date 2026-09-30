@@ -37,8 +37,8 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDefinition[] = [
   },
   {
     id: "fbits", name: "FBits", shortName: "FBits", category: "commerce",
-    availability: "configuration_unavailable", resources: ["Pedidos", "Clientes", "Produtos"],
-    providerIds: ["fbits"],
+    availability: "available", resources: ["Pedidos", "Clientes", "Produtos"],
+    providerIds: ["fbits"], actionLabel: "Conectar FBITS",
   },
   {
     id: "merchant_center", name: "Merchant Center", shortName: "Merchant", category: "commerce",

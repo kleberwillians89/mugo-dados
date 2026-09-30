@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -28,7 +28,11 @@ from .shopify_config import shopify_admin_url
 from .sync_locks import build_sync_lock_name, guarded_sync, is_sync_lock_stale, peek_sync_lock
 
 SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$")
+# Escopos pedidos ao Shopify. `read_all_orders` amplia a janela histórica,
+# mas não é requisito para que uma autorização válida seja persistida e possa
+# ler pedidos recentes, clientes e produtos.
 SHOPIFY_SCOPES = ["read_orders", "read_all_orders", "read_customers", "read_products"]
+SHOPIFY_REQUIRED_CONNECTION_SCOPES = ["read_orders", "read_customers", "read_products"]
 SHOPIFY_PRODUCTION_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback"
 SHOPIFY_WEBHOOK_TOPICS = [
     "orders/create",
@@ -535,15 +539,30 @@ async def _check_shopify_scopes(context: "ShopifyConnectionContext") -> Dict[str
 
 
 async def validate_shopify_oauth_scopes(
-    *, shop_domain: str, access_token: str, required_scopes: tuple[str, ...]
+    *,
+    shop_domain: str,
+    access_token: str,
+    required_scopes: tuple[str, ...],
+    granted_scopes: str | Iterable[str] | None = None,
 ) -> Dict[str, bool]:
-    """Validate the token against Shopify without persisting or logging it."""
+    """Validate the token against Shopify without persisting or logging it.
+
+    `granted_scopes` são os escopos que a própria Shopify devolveu no token
+    exchange (campo `scope`). Eles só são usados se a consulta GraphQL
+    `currentAppInstallation` falhar: antes, esse fallback era um conjunto
+    vazio no callback (nada persistido ainda), e uma instabilidade transitória
+    rejeitava uma autorização válida sem gravar a conexão.
+    """
+    if isinstance(granted_scopes, str):
+        granted_scopes = granted_scopes.split(",")
     context = ShopifyConnectionContext(
         client_id="oauth_callback",
         connection_id=None,
         shop_domain=normalize_shop_domain(shop_domain),
         access_token=str(access_token or "").strip(),
-        scopes=frozenset(),
+        scopes=frozenset(
+            str(scope or "").strip() for scope in (granted_scopes or []) if str(scope or "").strip()
+        ),
         auth_mode="oauth",
     )
     granted = await _check_shopify_scopes(context)

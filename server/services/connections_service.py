@@ -250,10 +250,36 @@ def _build_shopify_entry(auth_row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_fbits_entry(auth_row: Dict[str, Any]) -> Dict[str, Any]:
+    # Token por tenant; nenhuma informação da credencial sai daqui.
+    status = _safe_str(auth_row.get("status"))
+    requires_reauth = status == "reauth_required"
+    last_error = _safe_str(auth_row.get("last_error")) or None
+    return {
+        "provider": "fbits",
+        "connection_id": _safe_str(auth_row.get("id")),
+        "status": _canonical_status(
+            auth_status=status,
+            requires_reauth=requires_reauth,
+            disconnected_at=auth_row.get("disconnected_at"),
+            has_assets=True,
+        ),
+        "authorization_status": "invalid" if requires_reauth else "valid",
+        "sync_status": "sync_error" if status == "sync_error" else ("sync_success" if auth_row.get("last_sync_at") and not last_error else None),
+        "account": {"name": _safe_str(auth_row.get("account_name")) or None},
+        "assets": {},
+        "last_sync_at": _safe_str(auth_row.get("last_sync_at")) or None,
+        "last_successful_sync_at": (_safe_str(auth_row.get("last_sync_at")) or None) if not last_error else None,
+        "last_error": last_error,
+        "updated_at": _safe_str(auth_row.get("updated_at")) or None,
+    }
+
+
 _BUILDERS = {
     "ga4": _build_ga4_entry,
     "google_ads": _build_google_ads_entry,
     "shopify": _build_shopify_entry,
+    "fbits": _build_fbits_entry,
 }
 
 

@@ -18,6 +18,7 @@ import api_support
 from services import generic_connections
 from routes import google_oauth as google_routes
 from routes import meta_legacy as meta_routes
+from routes import shopify as shopify_data_routes
 from routes import shopify_oauth as shopify_routes
 from server.services import ga4_connections, shopify_oauth
 from server.services.generic_connections import google_capabilities
@@ -67,7 +68,7 @@ class ShopifyReauthorizationPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update.await_args.kwargs["filters"]["id"], "eq.shopify-connection-amalie")
         insert.assert_not_awaited()
 
-    async def test_missing_read_all_orders_never_replaces_existing_connection(self):
+    async def test_missing_read_all_orders_still_persists_usable_connection(self):
         background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
         request = type("Request", (), {"query_params": {
             "code": "new-code", "state": "signed-state",
@@ -78,10 +79,6 @@ class ShopifyReauthorizationPersistenceTests(unittest.IsolatedAsyncioTestCase):
             "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
             "context": {"shop_domain": "amalie-6421.myshopify.com"},
         }
-        missing_scope = IntegrationError(
-            "A Shopify não concedeu todas as permissões solicitadas.",
-            status_code=403, code="SHOPIFY_INSUFFICIENT_SCOPE", provider="shopify",
-        )
         with (
             patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
             patch.object(shopify_routes, "consume_oauth_state", AsyncMock(return_value=session)),
@@ -89,18 +86,36 @@ class ShopifyReauthorizationPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
             }),
             patch.object(shopify_routes, "require_user_client_access", AsyncMock()),
-            patch.object(shopify_routes, "exchange_code", AsyncMock(return_value={"access_token": "new-token"})),
+            patch.object(shopify_routes, "exchange_code", AsyncMock(return_value={
+                "access_token": "new-token",
+                "scope": "read_orders,read_customers,read_products",
+            })),
             patch.object(shopify_routes, "fetch_shop", AsyncMock(return_value={"id": 1, "name": "Amalie"})),
-            patch.object(shopify_routes, "validate_shopify_oauth_scopes", AsyncMock(side_effect=missing_scope)),
-            patch.object(shopify_routes, "save_shopify_connection", AsyncMock()) as save,
+            patch.object(shopify_routes, "validate_shopify_oauth_scopes", AsyncMock(return_value={
+                "read_orders": True, "read_all_orders": False,
+                "read_customers": True, "read_products": True,
+            })) as validate_scopes,
+            patch.object(
+                shopify_routes, "save_shopify_connection",
+                AsyncMock(return_value={"id": "shopify-connection-amalie"}),
+            ) as save,
+            patch.object(shopify_routes, "register_webhooks", AsyncMock(return_value={
+                "registered": [], "skipped": [], "failed": [],
+            })),
             patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
         ):
             response = await shopify_routes.callback(request, background_tasks)
 
-        self.assertIn("shopify_oauth=error", response.headers["location"])
-        self.assertIn("SHOPIFY_INSUFFICIENT_SCOPE", response.headers["location"])
-        save.assert_not_awaited()
-        background_tasks.add_task.assert_not_called()
+        self.assertIn("shopify_oauth=success", response.headers["location"])
+        self.assertIn("client_id=amalie", response.headers["location"])
+        validate_scopes.assert_awaited_once_with(
+            shop_domain="amalie-6421.myshopify.com",
+            access_token="new-token",
+            required_scopes=tuple(shopify_oauth.SHOPIFY_REQUIRED_CONNECTION_SCOPES),
+            granted_scopes="read_orders,read_customers,read_products",
+        )
+        save.assert_awaited_once()
+        background_tasks.add_task.assert_called_once()
 
 
 def google_row(*, metadata=None, status="connected", client_id="roove"):
@@ -449,6 +464,35 @@ class GoogleCallbackPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shopify_start_preserves_selected_tenant_and_shop(self):
+        authorization_url = AsyncMock(return_value="https://roove.myshopify.com/admin/oauth/authorize")
+        with (
+            patch.object(shopify_routes, "require_client_role", AsyncMock(return_value="roove")),
+            patch.object(shopify_routes, "require_user_id", AsyncMock(return_value="user-roove")),
+            patch.object(shopify_routes, "authorization_url", authorization_url),
+            patch.object(
+                shopify_routes,
+                "safe_oauth_configuration",
+                return_value={
+                    "redirect_uri": shopify_oauth.SHOPIFY_PRODUCTION_REDIRECT_URI,
+                    "client_id_hint": "...client",
+                },
+            ),
+        ):
+            result = await shopify_routes.start(
+                shop="0vi1gx-ja.myshopify.com",
+                client_id="roove",
+                authorization="Bearer safe",
+            )
+
+        self.assertEqual(result["client_id"], "roove")
+        self.assertEqual(result["shop_domain"], "0vi1gx-ja.myshopify.com")
+        authorization_url.assert_awaited_once_with(
+            user_id="user-roove",
+            client_id="roove",
+            shop_domain="0vi1gx-ja.myshopify.com",
+        )
+
     async def test_shopify_start_logs_only_safe_configuration_fields(self):
         output = io.StringIO()
         authorization = (
@@ -621,6 +665,7 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "SHOPIFY_CONNECTION_NOT_FOUND")
 
     async def test_valid_callback_persists_connection_and_starts_first_sync(self):
+        output = io.StringIO()
         background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
         request = type(
             "Request",
@@ -667,13 +712,17 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             ) as save,
             patch.object(shopify_routes, "sync_shopify_connection", AsyncMock(return_value={"ok": True})) as sync,
             patch.dict(os.environ, {"FRONTEND_URL": "https://dados.mugoagencia.com.br"}, clear=False),
+            redirect_stdout(output),
         ):
             response = await shopify_routes.callback(request, background_tasks)
         self.assertEqual(response.status_code, 302)
         self.assertIn("shopify_oauth=success", response.headers["location"])
         for secret in ("secret-code", "secret-state", "secret-token"):
             self.assertNotIn(secret, response.headers["location"])
+            self.assertNotIn(secret, output.getvalue())
         save.assert_awaited_once()
+        self.assertEqual(save.await_args.kwargs["client_id"], "roove")
+        self.assertEqual(save.await_args.kwargs["shop_domain"], "roove.myshopify.com")
         validate_scopes.assert_awaited_once()
         background_tasks.add_task.assert_called_once_with(
             shopify_routes._run_initial_sync_isolated,
@@ -682,6 +731,86 @@ class ShopifyConnectionResolutionTests(unittest.IsolatedAsyncioTestCase):
             shop_domain="roove.myshopify.com",
         )
         sync.assert_not_awaited()
+
+    async def test_callback_without_code_is_rejected_before_state_or_token_exchange(self):
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
+        request = type("Request", (), {"query_params": {
+            "state": "signed-state", "shop": "roove.myshopify.com", "hmac": "valid",
+        }})()
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(shopify_routes, "consume_oauth_state", AsyncMock()) as consume,
+            patch.object(shopify_routes, "exchange_code", AsyncMock()) as exchange,
+            patch.object(shopify_routes, "save_shopify_connection", AsyncMock()) as save,
+        ):
+            response = await shopify_routes.callback(request, background_tasks)
+
+        self.assertIn("shopify_oauth=error", response.headers["location"])
+        consume.assert_not_awaited()
+        exchange.assert_not_awaited()
+        save.assert_not_awaited()
+
+    async def test_invalid_state_never_exchanges_or_persists_token(self):
+        background_tasks = type("BackgroundTasks", (), {"add_task": Mock()})()
+        request = type("Request", (), {"query_params": {
+            "code": "secret-code", "state": "invalid-state",
+            "shop": "roove.myshopify.com", "hmac": "valid",
+        }})()
+        with (
+            patch.object(shopify_routes, "verify_callback_hmac", return_value=True),
+            patch.object(
+                shopify_routes, "consume_oauth_state",
+                AsyncMock(side_effect=RuntimeError("State OAuth inválido.")),
+            ),
+            patch.object(shopify_routes, "exchange_code", AsyncMock()) as exchange,
+            patch.object(shopify_routes, "save_shopify_connection", AsyncMock()) as save,
+        ):
+            response = await shopify_routes.callback(request, background_tasks)
+
+        self.assertIn("shopify_oauth=error", response.headers["location"])
+        exchange.assert_not_awaited()
+        save.assert_not_awaited()
+
+    async def test_customers_and_report_resolve_roove_shopify_connection(self):
+        context = shopify_oauth.ShopifyConnectionContext(
+            client_id="roove",
+            connection_id="shopify-roove",
+            shop_domain="0vi1gx-ja.myshopify.com",
+            access_token="private-token",
+            scopes=frozenset(shopify_oauth.SHOPIFY_SCOPES),
+            auth_mode="oauth",
+        )
+        resolve_context = AsyncMock(return_value=context)
+        with (
+            patch.object(shopify_data_routes, "resolve_client_id", AsyncMock(return_value="roove")),
+            patch.object(shopify_data_routes, "_log_endpoint_call", AsyncMock(return_value="user-roove")),
+            patch.object(shopify_data_routes, "_log_endpoint_done"),
+            patch.object(shopify_data_routes, "resolve_shopify_connection_context", resolve_context),
+            patch.object(shopify_data_routes, "build_shopify_report", AsyncMock(return_value={"ok": True})),
+            patch.object(shopify_data_routes, "build_shopify_customers_report", AsyncMock(return_value={"ok": True})),
+            patch.object(shopify_data_routes, "get_connection", AsyncMock(return_value={"last_sync_at": None})),
+        ):
+            report = await shopify_data_routes.shopify_report(
+                start=None, end=None, days=30, client_id="roove",
+                connection_id="shopify-roove", x_client_id=None, authorization="Bearer safe",
+            )
+            customers = await shopify_data_routes.shopify_customers(
+                start=None, end=None, days=30, client_id="roove",
+                connection_id="shopify-roove", x_client_id=None, authorization="Bearer safe",
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertTrue(customers["ok"])
+        self.assertEqual(
+            resolve_context.await_args_list[0].kwargs,
+            {"connection_id": "shopify-roove", "required_scopes": ("read_orders", "read_products")},
+        )
+        self.assertEqual(resolve_context.await_args_list[0].args, ("roove",))
+        self.assertEqual(
+            resolve_context.await_args_list[1].kwargs,
+            {"connection_id": "shopify-roove", "required_scopes": ("read_orders", "read_customers")},
+        )
+        self.assertEqual(resolve_context.await_args_list[1].args, ("roove",))
 
     async def test_webhook_registration_failure_never_erases_a_valid_oauth_connection(self):
         # Guerra room — PRIORIDADE 1: se o token exchange e o shop fetch

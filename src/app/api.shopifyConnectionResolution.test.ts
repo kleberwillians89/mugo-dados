@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const tenant = vi.hoisted(() => ({ id: "amalie", name: "Amalie" }));
+
 vi.mock("./supabase", () => ({
   isLocalAuthEnabled: () => true,
   getSupabaseBootstrapError: () => null,
@@ -9,12 +11,12 @@ vi.mock("./supabase", () => ({
 }));
 
 vi.mock("./activeClient", () => ({
-  getActiveClientId: () => "amalie",
-  getActiveClientName: () => "Amalie",
+  getActiveClientId: () => tenant.id,
+  getActiveClientName: () => tenant.name,
   getActiveClientConfigurationWarning: () => null,
 }));
 
-import { getShopifyCustomers, getShopifyReport } from "./api";
+import { getShopifyCustomers, getShopifyReport, startShopifyOAuth } from "./api";
 import { getSelectedConnectionId, setSelectedConnectionId } from "./connectionState";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -44,6 +46,8 @@ function urlOf(call: unknown): string {
 
 describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem depender só do localStorage", () => {
   beforeEach(() => {
+    tenant.id = "amalie";
+    tenant.name = "Amalie";
     window.localStorage.clear();
   });
 
@@ -73,6 +77,27 @@ describe("getShopifyReport/getShopifyCustomers — resolve connection_id sem dep
     expect(urlOf(reportCall)).not.toContain("connection_id=");
     expect(fetchMock.mock.calls.some((call) => urlOf(call).includes("/api/connections"))).toBe(false);
     expect(getSelectedConnectionId("amalie", "shopify")).toBeNull();
+  });
+
+  it("OAuth start envia domínio informado e X-Client-Id da Roove ativa", async () => {
+    tenant.id = "roove";
+    tenant.name = "Roove";
+    const fetchMock = vi.fn(async () => jsonResponse({
+      ok: true,
+      client_id: "roove",
+      shop_domain: "0vi1gx-ja.myshopify.com",
+      authorization_url: "https://0vi1gx-ja.myshopify.com/admin/oauth/authorize",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await startShopifyOAuth("https://0vi1gx-ja.myshopify.com/");
+
+    expect(response.authorization_url).toContain("/admin/oauth/authorize");
+    const [input, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(input).toContain(
+      "/api/oauth/shopify/start?shop=https%3A%2F%2F0vi1gx-ja.myshopify.com%2F"
+    );
+    expect(new Headers(init.headers).get("X-Client-Id")).toBe("roove");
   });
 
   it("mesma resolução para /api/shopify/customers", async () => {

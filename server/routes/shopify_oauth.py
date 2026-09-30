@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from services.generic_connections import disconnect_generic_connection, get_connection
 from services.oauth_state import consume_oauth_state
 from services.shopify_oauth import (
+    SHOPIFY_REQUIRED_CONNECTION_SCOPES,
     SHOPIFY_SCOPES,
     authorization_url,
     exchange_code,
@@ -30,9 +31,20 @@ from services.tenant import require_client_role, require_user_client_access, req
 router = APIRouter(prefix="/api/oauth/shopify", tags=["shopify-oauth"])
 
 
+def _frontend_base_url() -> str:
+    # FRONTEND_URL explícita vence. Sem ela, usa o mesmo destino do callback
+    # Meta (primeiro item de ALLOW_ORIGIN, já validado em produção) em vez de
+    # devolver o usuário para localhost depois de uma autorização válida.
+    explicit = (os.getenv("FRONTEND_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    origins = [item.strip() for item in (os.getenv("ALLOW_ORIGIN") or "").split(",") if item.strip()]
+    first_origin = next((origin for origin in origins if origin != "*"), "")
+    return (first_origin or "http://localhost:5173").rstrip("/")
+
+
 def _frontend_redirect(params: Dict[str, str]) -> str:
-    base = (os.getenv("FRONTEND_URL") or "http://localhost:5173").strip().rstrip("/")
-    return f"{base}/?onboarding=1&{urlencode(params)}"
+    return f"{_frontend_base_url()}/?onboarding=1&{urlencode(params)}"
 
 
 def _log_stage(
@@ -144,7 +156,8 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
         await validate_shopify_oauth_scopes(
             shop_domain=shop_domain,
             access_token=str(token.get("access_token") or ""),
-            required_scopes=tuple(SHOPIFY_SCOPES),
+            required_scopes=tuple(SHOPIFY_REQUIRED_CONNECTION_SCOPES),
+            granted_scopes=str(token.get("scope") or ""),
         )
         _log_stage(stage, client_id=client_id, shop_domain=shop_domain, status="ok")
 
@@ -177,7 +190,11 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
         stage = "complete"
         _log_stage(stage, client_id=client_id, shop_domain=shop_domain, connection_id=connection_id, status="ok")
         return RedirectResponse(
-            _frontend_redirect({"shopify_oauth": "success", "connection_id": connection_id}),
+            _frontend_redirect({
+                "shopify_oauth": "success",
+                "connection_id": connection_id,
+                "client_id": client_id,
+            }),
             status_code=302,
         )
     except Exception as exc:

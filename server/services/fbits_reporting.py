@@ -9,11 +9,8 @@ import httpx
 from .fbits_client import (
     FBITS_APPROVED_ORDER_STATUSES,
     FBITS_APPROVED_ORDER_STATUS_IDS,
-    fbits_is_configured,
-    fetch_fbits_orders,
-    fetch_fbits_orders_with_diagnostics,
-    fetch_fbits_revenue_dashboard,
 )
+from .fbits_connections import fbits_connection_state
 from .ig_supabase import sb_select, sb_upsert
 
 
@@ -491,7 +488,9 @@ async def _read_persisted_daily(*, client_id: str, period: FbitsPeriod) -> List[
     )
 
 
-def _summary_from_orders(*, client_id: str, period: FbitsPeriod, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _summary_from_orders(
+    *, client_id: str, period: FbitsPeriod, orders: List[Dict[str, Any]], connected: bool = False,
+) -> Dict[str, Any]:
     revenue = sum(_safe_float(order.get("receita_oficial")) for order in orders)
     customer_keys = {
         _safe_str(order.get("cliente_key"))
@@ -502,7 +501,7 @@ def _summary_from_orders(*, client_id: str, period: FbitsPeriod, orders: List[Di
     print(f"[fbits][summary] client_id={client_id} receita={round(revenue, 2)} pedidos={order_count}")
     return {
         "ok": True,
-        "connected": fbits_is_configured(),
+        "connected": connected,
         "client_id": client_id,
         "period": {"start": period.start, "end": period.end},
         "summary": {
@@ -517,7 +516,7 @@ def _summary_from_orders(*, client_id: str, period: FbitsPeriod, orders: List[Di
             if order_count
             else (
                 "FBits conectada, aguardando dados do período."
-                if fbits_is_configured()
+                if connected
                 else "FBits ainda não conectada."
             )
         ),
@@ -757,89 +756,8 @@ def _dashboard_daily_row(*, client_id: str, stat_date: str, payload: Dict[str, A
     }
 
 
-async def _fetch_dashboard_daily_rows(*, client_id: str, period: FbitsPeriod) -> List[Dict[str, Any]]:
-    daily_rows: List[Dict[str, Any]] = []
-    for stat_date in _days_in_period(period):
-        try:
-            payload = await fetch_fbits_revenue_dashboard(start=stat_date, end=stat_date)
-        except httpx.HTTPError as exc:
-            print(f"[fbits][dashboard][day_error] client_id={client_id} stat_date={stat_date} error={exc}")
-            continue
-        daily_rows.append(_dashboard_daily_row(client_id=client_id, stat_date=stat_date, payload=payload))
-    return daily_rows
 
 
-async def sync_fbits_orders(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    print(f"[fbits][sync] client_id={client_id} start={period.start} end={period.end}")
-    if not fbits_is_configured():
-        return {
-            "ok": True,
-            "connected": False,
-            "client_id": client_id,
-            "period": {"start": period.start, "end": period.end},
-            "orders_upserted": 0,
-            "daily_upserted": 0,
-            "message": "FBits ainda não conectada.",
-        }
-    raw_orders = await fetch_fbits_orders(start=period.start, end=period.end)
-    _log_orders_by_status(client_id=client_id, orders=raw_orders, prefix="sync][orders")
-    rows = [
-        sync_row
-        for row in raw_orders
-        if _is_approved_order(row)
-        for sync_row in [_normalized_sync_row(client_id=client_id, order=row)]
-        if sync_row
-    ]
-    daily_rows = _daily_upsert_rows(client_id=client_id, rows=rows)
-    dashboard_fallback = False
-    if not daily_rows:
-        daily_rows = await _fetch_dashboard_daily_rows(client_id=client_id, period=period)
-        dashboard_fallback = bool(daily_rows)
-    if rows:
-        try:
-            await sb_upsert("fbits_orders", rows, on_conflict="client_id,order_id")
-        except httpx.HTTPStatusError as exc:
-            body = str((exc.response.text if exc.response is not None else "") or "").lower()
-            if exc.response is None or exc.response.status_code not in {400, 404} or not any(
-                column in body for column in ("payment_method", "payment_status")
-            ):
-                raise
-            legacy_rows = []
-            for row in rows:
-                legacy_row = dict(row)
-                legacy_row.pop("payment_method", None)
-                legacy_row.pop("payment_status", None)
-                legacy_rows.append(legacy_row)
-            await sb_upsert("fbits_orders", legacy_rows, on_conflict="client_id,order_id")
-            print(f"[fbits][orders][legacy_schema] client_id={client_id} missing=payment_method")
-        item_rows = _sync_item_rows(client_id=client_id, order_rows=rows)
-        item_rows_upserted = 0
-        if item_rows:
-            try:
-                await sb_upsert("fbits_order_items", item_rows, on_conflict="client_id,order_id,item_id")
-                item_rows_upserted = len(item_rows)
-            except httpx.HTTPStatusError as exc:
-                if exc.response is None or exc.response.status_code not in {400, 404, 409}:
-                    raise
-                print(f"[fbits][items][persist_warning] client_id={client_id} items={len(item_rows)}")
-    else:
-        item_rows = []
-        item_rows_upserted = 0
-    if daily_rows:
-        await sb_upsert("fbits_order_daily_stats", daily_rows, on_conflict="client_id,stat_date")
-    return {
-        "ok": True,
-        "connected": True,
-        "client_id": client_id,
-        "period": {"start": period.start, "end": period.end},
-        "orders_upserted": len(rows),
-        "items_upserted": item_rows_upserted,
-        "daily_upserted": len(daily_rows),
-        "daily_source": "dashboard_faturamento" if dashboard_fallback else "orders",
-        "message": None
-        if rows
-        else "FBits conectada, aguardando dados do período.",
-    }
 
 
 def _value_fields(order: Dict[str, Any]) -> List[str]:
@@ -850,158 +768,32 @@ def _value_fields(order: Dict[str, Any]) -> List[str]:
     ]
 
 
-async def build_fbits_orders_debug(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    if not fbits_is_configured():
-        return {
-            "ok": True,
-            "connected": False,
-            "client_id": client_id,
-            "period": {"start": period.start, "end": period.end},
-            "statuses": list(FBITS_APPROVED_ORDER_STATUS_IDS),
-            "counts_by_status": {},
-            "message": "FBits ainda não conectada.",
-        }
-    rows, counts_by_status = await fetch_fbits_orders_with_diagnostics(
-        start=period.start,
-        end=period.end,
-    )
-    first = rows[0] if rows else {}
-    first_item = next(iter(_items(first)), {}) if isinstance(first, dict) else {}
-    return {
-        "ok": True,
-        "connected": True,
-        "client_id": client_id,
-        "period": {"start": period.start, "end": period.end},
-        "statuses": list(FBITS_APPROVED_ORDER_STATUS_IDS),
-        "counts_by_status": counts_by_status,
-        "orders_after_dedupe": len(rows),
-        "first_order_keys": sorted(str(key) for key in first.keys())[:80],
-        "first_item_keys": sorted(str(key) for key in first_item.keys())[:80] if isinstance(first_item, dict) else [],
-        "first_item_value_fields": [
-            str(key)
-            for key, value in (first_item.items() if isinstance(first_item, dict) else [])
-            if "valor" in str(key).lower() or "preco" in str(key).lower() or "price" in str(key).lower()
-            if value not in (None, "")
-        ][:30],
-        "value_fields_found": _value_fields(first),
-        "message": None if rows else "FBits conectada, aguardando dados do período.",
-    }
 
 
-async def build_fbits_reconciliation_debug(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    target_revenue = 17950.65
-    target_orders = 44
-    target_aov = 407.97
-    if not fbits_is_configured():
-        return {
-            "ok": True,
-            "connected": False,
-            "client_id": client_id,
-            "period": {"start": period.start, "end": period.end},
-            "message": "FBits ainda não conectada.",
-            "target": {
-                "target_revenue": target_revenue,
-                "target_orders": target_orders,
-                "target_aov": target_aov,
-            },
-        }
 
-    raw_orders = await fetch_fbits_orders(start=period.start, end=period.end)
-    try:
-        dashboard_payload = await fetch_fbits_revenue_dashboard(start=period.start, end=period.end)
-    except httpx.HTTPError as exc:
-        print(f"[fbits][reconciliation][dashboard_error] client_id={client_id} error={exc}")
-        dashboard_payload = {}
 
-    status_counts: Dict[str, int] = {}
-    status_revenue: Dict[str, float] = {}
-    included_rows: List[Dict[str, Any]] = []
-    excluded_rows: List[Dict[str, Any]] = []
-    debug_rows: List[Dict[str, Any]] = []
-    for raw in raw_orders:
-        normalized = normalize_fbits_order(raw)
-        included, reason = _reconciliation_decision(raw)
-        status_key = _status_id(raw) or "-"
-        value = _safe_float(normalized.get("receita_oficial"))
-        status_counts[status_key] = status_counts.get(status_key, 0) + 1
-        status_revenue[status_key] = status_revenue.get(status_key, 0.0) + value
-        row = {
-            "pedido_id": normalized.get("pedido_id"),
-            "data": normalized.get("data"),
-            "status": {
-                "id": normalized.get("situacao_pedido_id"),
-                "name": normalized.get("situacao_pedido") or None,
-            },
-            "valor": round(value, 2),
-            "cliente": normalized.get("cliente_nome")
-            or normalized.get("cliente_email")
-            or normalized.get("cliente_id"),
-            "pagamento": normalized.get("forma_pagamento"),
-            "incluido_no_dashboard": included,
-            "motivo": reason,
-        }
-        debug_rows.append(row)
-        if included:
-            included_rows.append(row)
-        else:
-            excluded_rows.append(row)
-        print(
-            "[fbits][reconciliation][order] "
-            f"client_id={client_id} pedido_id={row['pedido_id'] or '-'} status={status_key} "
-            f"valor={row['valor']} included={str(included).lower()} reason={reason}"
-        )
+async def _tenant_revenue_context(client_id: str) -> tuple[bool, set[str]]:
+    """Conexão da PRÓPRIA empresa (nunca token global) e situações de receita.
 
-    raw_sum = round(sum(_safe_float(row.get("valor")) for row in debug_rows), 2)
-    included_sum = round(sum(_safe_float(row.get("valor")) for row in included_rows), 2)
-    dashboard_summary = {
-        "receita": round(_safe_float(dashboard_payload.get("indicadorReceita")), 2),
-        "pedidos": _safe_int(dashboard_payload.get("indicadorPedido")),
-        "ticket_medio": round(_safe_float(dashboard_payload.get("indicadorTicketMedio")), 2),
-    }
-    rounded_status_revenue = {
-        key: round(value, 2)
-        for key, value in sorted(status_revenue.items(), key=lambda item: item[0])
-    }
-    print(
-        "[fbits][reconciliation] "
-        f"client_id={client_id} start={period.start} end={period.end} raw={len(debug_rows)} "
-        f"included={len(included_rows)} excluded={len(excluded_rows)} raw_sum={raw_sum} "
-        f"included_sum={included_sum} counts_by_status={status_counts} "
-        f"revenue_by_status={rounded_status_revenue} dashboard={dashboard_summary}"
-    )
-    return {
-        "ok": True,
-        "connected": True,
-        "client_id": client_id,
-        "period": {"start": period.start, "end": period.end},
-        "total_bruto_pedidos": len(debug_rows),
-        "total_incluido": len(included_rows),
-        "total_excluido": len(excluded_rows),
-        "soma_bruta": raw_sum,
-        "soma_incluida": included_sum,
-        "contagem_por_status": dict(sorted(status_counts.items(), key=lambda item: item[0])),
-        "soma_por_status": rounded_status_revenue,
-        "fbits_dashboard": dashboard_summary,
-        "target": {
-            "target_revenue": target_revenue,
-            "target_orders": target_orders,
-            "target_aov": target_aov,
-        },
-        "orders": debug_rows,
-    }
+    Sem conexão (dados legados), usa as situações padrão históricas; com
+    conexão, usa as situações configuradas nela — que podem estar vazias até a
+    regra de receita ser validada com os dados reais do tenant.
+    """
+    state = await fbits_connection_state(client_id)
+    connection = state.get("connection") or {}
+    if not connection:
+        return False, set(FBITS_APPROVED_ORDER_STATUS_IDS)
+    metadata = connection.get("metadata") if isinstance(connection.get("metadata"), dict) else {}
+    return bool(state.get("connected")), {_safe_str(v) for v in metadata.get("revenue_status_ids") or []}
+
+
+def _counts_as_revenue(row: Dict[str, Any], revenue_status_ids: set[str]) -> bool:
+    raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+    return _safe_str(row.get("status_id")) in revenue_status_ids and raw.get("valido") is not False
 
 
 async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    if not fbits_is_configured():
-        return {
-            "ok": True,
-            "connected": False,
-            "client_id": client_id,
-            "period": {"start": period.start, "end": period.end},
-            "count": 0,
-            "items": [],
-            "message": "FBits ainda não conectada.",
-        }
+    connected, revenue_status_ids = await _tenant_revenue_context(client_id)
     try:
         persisted = await _read_persisted_orders(client_id=client_id, period=period)
     except httpx.HTTPStatusError as exc:
@@ -1029,18 +821,22 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
             else:
                 print(f"[fbits][items][persisted_read_error] client_id={client_id} status={exc.response.status_code}")
             persisted_items = []
+        revenue_rows = [row for row in persisted if _counts_as_revenue(row, revenue_status_ids)]
+        revenue_order_ids = {_safe_str(row.get("order_id")) for row in revenue_rows}
         return {
             "ok": True,
-            "connected": True,
+            "connected": connected,
             "client_id": client_id,
             "period": {"start": period.start, "end": period.end},
             "count": len(items),
             "items": items,
             "top_products": (
-                _products_ranking_from_items(persisted_items)
-                or _products_ranking([row.get("raw") for row in persisted if isinstance(row.get("raw"), dict)])
+                _products_ranking_from_items(
+                    item for item in persisted_items if _safe_str(item.get("order_id")) in revenue_order_ids
+                )
+                or _products_ranking([row.get("raw") for row in revenue_rows if isinstance(row.get("raw"), dict)])
             )[:20],
-            "top_customers": _top_customers(items)[:20],
+            "top_customers": _top_customers(_persisted_order_item(row) for row in revenue_rows)[:20],
             "detail_available": bool(items),
             "source": "supabase",
         }
@@ -1050,7 +846,7 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
     )
     return {
         "ok": True,
-        "connected": True,
+        "connected": connected,
         "client_id": client_id,
         "period": {"start": period.start, "end": period.end},
         "count": 0,
@@ -1058,14 +854,13 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
         "top_products": [],
         "top_customers": [],
         "detail_available": False,
-        "message": "FBits conectada, aguardando dados do período.",
+        "message": "FBits conectada, aguardando dados do período." if connected else "FBits ainda não conectada.",
         "source": "supabase",
     }
 
 
 async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    if not fbits_is_configured():
-        return _summary_from_orders(client_id=client_id, period=period, orders=[])
+    connected, revenue_status_ids = await _tenant_revenue_context(client_id)
     try:
         daily_rows = await _read_persisted_daily(client_id=client_id, period=period)
     except httpx.HTTPStatusError as exc:
@@ -1079,6 +874,7 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
         daily_rows = []
     if daily_rows:
         summary = _summary_from_daily(client_id=client_id, period=period, rows=daily_rows)
+        summary["connected"] = connected
         try:
             detailed_rows = await _read_persisted_orders(client_id=client_id, period=period)
         except httpx.HTTPStatusError as exc:
@@ -1091,14 +887,15 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
                 print(f"[fbits][summary][detail_read_error] client_id={client_id} status={exc.response.status_code}")
             detailed_rows = []
         if detailed_rows:
-            details = _detail_metrics_from_items(_persisted_order_item(row) for row in detailed_rows)
+            details = _detail_metrics_from_items(
+                _persisted_order_item(row) for row in detailed_rows if _counts_as_revenue(row, revenue_status_ids)
+            )
             if details["clientes"]:
                 summary["summary"]["clientes"] = details["clientes"]
             if details["produtos_vendidos"]:
                 summary["summary"]["produtos_vendidos"] = details["produtos_vendidos"]
         return summary
     return {
-        **_summary_from_orders(client_id=client_id, period=period, orders=[]),
-        "connected": True,
+        **_summary_from_orders(client_id=client_id, period=period, orders=[], connected=connected),
         "source": "supabase",
     }
