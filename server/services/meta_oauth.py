@@ -344,6 +344,15 @@ def verify_state(state: str, *, expected_user_id: Optional[str] = None, max_age_
     return payload
 
 
+def _graph_error_fields(exc: MetaApiError) -> str:
+    # Mensagem da Graph API (sem URL nem corpo bruto: nada de token/code).
+    message = _safe_str(exc).replace("\n", " ")[:220]
+    return (
+        f"http_status={exc.status_code or '-'} graph_code={exc.error_code or '-'} "
+        f"graph_subcode={exc.error_subcode or '-'} message={message or '-'}"
+    )
+
+
 async def _meta_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     return await meta_get_json(
         path,
@@ -447,6 +456,10 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
             except MetaApiError as exc:
                 if exc.invalid_oauth:
                     raise
+                print(
+                    "[meta_oauth][diag] stage=page_detail_failed "
+                    f"page_id={page_id} {_graph_error_fields(exc)}"
+                )
                 page = listed_page
         p = page if isinstance(page, dict) else listed_page
         page_id = _safe_str((p or {}).get("id"))
@@ -563,11 +576,151 @@ async def _fetch_business_managers(access_token: str) -> List[Dict[str, str]]:
     ]
 
 
+class _DiagSkipped(Exception):
+    pass
+
+
+def _ids(rows: List[Any], key: str, limit: int = 50) -> str:
+    values = [_safe_str((row or {}).get(key)) for row in rows if isinstance(row, dict)]
+    values = [value for value in values if value]
+    suffix = f",+{len(values) - limit}" if len(values) > limit else ""
+    return ",".join(values[:limit]) + suffix or "-"
+
+
+async def _diag_call(label: str, calls: List[str], awaitable: Any) -> Any:
+    """Executa uma etapa do discovery registrando o resultado sem alterar o fluxo."""
+    try:
+        result = await awaitable
+    except MetaApiError as exc:
+        calls.append(f"{label}={exc.status_code or 'error'}")
+        print(f"[meta_oauth][diag] stage=graph_call_failed call={label} {_graph_error_fields(exc)}")
+        raise
+    except Exception as exc:
+        calls.append(f"{label}=error:{exc.__class__.__name__}")
+        raise
+    calls.append(f"{label}=ok")
+    return result
+
+
+async def _log_discovery_diagnostics(
+    access_token: str,
+    *,
+    calls: List[str],
+    identity: Dict[str, Any],
+    ad_accounts: List[Dict[str, Any]],
+    business_managers: List[Dict[str, Any]],
+) -> None:
+    """Diagnóstico do discovery. Nunca lança exceção e nunca registra tokens,
+    code, App Secret ou state — somente nomes de permissões, IDs de ativos,
+    contagens, status HTTP e mensagens de erro da Graph API."""
+    try:
+        print(f"[meta_oauth][diag] stage=graph_calls {' '.join(calls) or '-'}")
+
+        granted: List[str] = []
+        declined: List[str] = []
+        other: List[str] = []
+        try:
+            permissions = await meta_get_json(
+                "/me/permissions", params={"access_token": access_token},
+                timeout=30, retries=1, context={"resource": "oauth_diag_permissions"},
+            )
+            for row in permissions.get("data") or []:
+                name = _safe_str((row or {}).get("permission"))
+                status = _safe_str((row or {}).get("status")).lower()
+                if not name:
+                    continue
+                if status == "granted":
+                    granted.append(name)
+                elif status == "declined":
+                    declined.append(name)
+                else:
+                    other.append(f"{name}:{status or '-'}")
+            requested_missing = [scope for scope in _default_scopes() if scope not in granted]
+            print(
+                "[meta_oauth][diag] stage=permissions http_status=200 "
+                f"granted={','.join(sorted(granted)) or '-'} "
+                f"declined={','.join(sorted(declined)) or '-'} "
+                f"other={','.join(sorted(other)) or '-'} "
+                f"requested_not_granted={','.join(requested_missing) or '-'}"
+            )
+        except MetaApiError as exc:
+            print(f"[meta_oauth][diag] stage=permissions_failed {_graph_error_fields(exc)}")
+
+        # granular_scopes mostra, por permissão, quais ativos (target_ids) o
+        # usuário escolheu no diálogo do Login for Business. Sem target_ids a
+        # permissão vale para todos os ativos acessíveis.
+        try:
+            settings = get_meta_oauth_settings(debug=False)
+        except RuntimeError:
+            settings = None
+            print("[meta_oauth][diag] stage=debug_token_skipped reason=app_credentials_unavailable")
+        try:
+            if settings is None:
+                raise _DiagSkipped()
+            debug = await meta_get_json(
+                "/debug_token",
+                params={
+                    "input_token": access_token,
+                    "access_token": f"{settings['app_id']}|{settings['app_secret']}",
+                },
+                timeout=30, retries=1, context={"resource": "oauth_diag_debug_token"},
+            )
+            data = _json_object(debug.get("data"))
+            granular = []
+            for item in _json_array(data.get("granular_scopes")):
+                scope = _safe_str((item or {}).get("scope"))
+                if not scope:
+                    continue
+                targets = (item or {}).get("target_ids")
+                if isinstance(targets, list):
+                    granular.append(f"{scope}:[{','.join(_safe_str(t) for t in targets) or 'none'}]")
+                else:
+                    granular.append(f"{scope}:all")
+            print(
+                "[meta_oauth][diag] stage=debug_token http_status=200 "
+                f"type={_safe_str(data.get('type')) or '-'} "
+                f"is_valid={1 if data.get('is_valid') else 0} "
+                f"app_id_matches={1 if _safe_str(data.get('app_id')) == _safe_str(settings['app_id']) else 0} "
+                f"user_id={_safe_str(data.get('user_id')) or '-'} "
+                f"granular_scopes={' '.join(granular) or '-'}"
+            )
+        except _DiagSkipped:
+            pass
+        except MetaApiError as exc:
+            print(f"[meta_oauth][diag] stage=debug_token_failed {_graph_error_fields(exc)}")
+        except Exception as exc:
+            print(f"[meta_oauth][diag] stage=debug_token_failed error_type={exc.__class__.__name__}")
+
+        pages = _json_array(identity.get("pages"))
+        instagram_accounts = _json_array(identity.get("instagram_accounts"))
+        meta_user = _json_object(identity.get("meta_user"))
+        print(
+            "[meta_oauth][diag] stage=assets "
+            f"meta_user_id={_safe_str(meta_user.get('id')) or '-'} "
+            f"business_count={len(business_managers)} business_ids={_ids(business_managers, 'business_id')} "
+            f"page_count={len(pages)} page_ids={_ids(pages, 'page_id')} "
+            f"instagram_count={len(instagram_accounts)} instagram_ids={_ids(instagram_accounts, 'ig_user_id')} "
+            f"ad_account_count={len(ad_accounts)} ad_account_ids={_ids(ad_accounts, 'ad_account_id')}"
+        )
+    except Exception as exc:  # diagnóstico nunca interrompe o OAuth
+        print(f"[meta_oauth][diag] stage=diag_failed error_type={exc.__class__.__name__}")
+
+
 async def discover_assets(access_token: str) -> Dict[str, Any]:
-    identity = await fetch_instagram_identity(access_token)
-    ad_accounts = await fetch_ad_accounts(access_token)
-    scopes = await _fetch_granted_scopes(access_token)
-    business_managers = await _fetch_business_managers(access_token)
+    calls: List[str] = []
+    identity: Dict[str, Any] = {}
+    ad_accounts: List[Dict[str, Any]] = []
+    business_managers: List[Dict[str, Any]] = []
+    try:
+        identity = await _diag_call("me_accounts", calls, fetch_instagram_identity(access_token))
+        ad_accounts = await _diag_call("me_adaccounts", calls, fetch_ad_accounts(access_token))
+        scopes = await _fetch_granted_scopes(access_token)
+        business_managers = await _diag_call("me_businesses", calls, _fetch_business_managers(access_token))
+    finally:
+        await _log_discovery_diagnostics(
+            access_token, calls=calls, identity=identity,
+            ad_accounts=ad_accounts, business_managers=business_managers,
+        )
     return {
         "meta_user": identity.get("meta_user") or {},
         "pages": identity.get("pages") or [],

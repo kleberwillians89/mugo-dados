@@ -14,6 +14,7 @@ META_BASE = META_GRAPH_BASE_URL
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _SENSITIVE_QUERY_KEYS = {
     "access_token", "client_secret", "code", "fb_exchange_token", "state",
+    "input_token", "appsecret_proof",
 }
 
 
