@@ -563,12 +563,39 @@ async def list_ga4_streams(
     normalized = str(property_id or "").strip().removeprefix("properties/")
     if not normalized:
         raise RuntimeError("property_id é obrigatório.")
+    endpoint = f"https://analyticsadmin.googleapis.com/v1beta/properties/{normalized}/dataStreams"
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
-            f"https://analyticsadmin.googleapis.com/v1beta/properties/{normalized}/dataStreams",
+            endpoint,
             headers={"Authorization": f"Bearer {token}"},
             params={"pageSize": "200"},
         )
+    # DIAGNÓSTICO TEMPORÁRIO GA4 streams — nunca registra token; remover após validar.
+    try:
+        if response.is_success:
+            _diag_rows = response.json().get("dataStreams") or []
+            _diag_streams = ";".join(
+                f"{row.get('type') or '-'}:{row.get('displayName') or '-'}:{str(row.get('name') or '-').split('/')[-1]}"
+                for row in _diag_rows if isinstance(row, dict)
+            )
+            print(
+                "[google_oauth][ga4_streams_diag] "
+                f"client_id={client_id} connection_id={connection_id} property_id_received={property_id!r} "
+                f"endpoint={endpoint} http_status={response.status_code} "
+                f"streams_count={len(_diag_rows)} next_page={'yes' if response.json().get('nextPageToken') else 'no'} "
+                f"streams={_diag_streams or '-'}"
+            )
+        else:
+            _diag = _sanitized_google_error(response)
+            print(
+                "[google_oauth][ga4_streams_diag] "
+                f"client_id={client_id} connection_id={connection_id} property_id_received={property_id!r} "
+                f"endpoint={endpoint} http_status={_diag['http_status']} "
+                f"google_status={_diag['google_status'] or '-'} reasons={','.join(_diag['reasons']) or '-'} "
+                f"message={_diag['message'] or '-'}"
+            )
+    except Exception as _diag_exc:  # diagnóstico nunca pode quebrar o fluxo
+        print(f"[google_oauth][ga4_streams_diag] stage=diag_failed error_type={_diag_exc.__class__.__name__}")
     try:
         response.raise_for_status()
     except Exception as exc:
