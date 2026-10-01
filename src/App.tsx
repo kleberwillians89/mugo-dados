@@ -935,6 +935,7 @@ function PrivateApp() {
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("meta")}
           onOpenGoogleReport={() => openRoute("google")}
+          onOpenIntegrations={() => openRoute("integrations")}
         />
       ) : (
         <Dashboard

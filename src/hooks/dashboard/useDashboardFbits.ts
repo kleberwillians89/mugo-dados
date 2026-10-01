@@ -15,6 +15,8 @@ type Params = {
   isAuthenticated: boolean;
   activeClientId: string;
   period?: DashboardPeriod | null;
+  /** Provider já resolvido pela aba Ecommerce: "fbits" usa só endpoints FBITS. */
+  provider?: "fbits" | null;
 };
 
 function friendlyError(error: unknown) {
@@ -27,16 +29,19 @@ type FbitsCachePayload = {
   orders: FbitsOrdersResponse | null;
 };
 
-export default function useDashboardFbits({ isAuthenticated, activeClientId, period }: Params) {
+export default function useDashboardFbits({ isAuthenticated, activeClientId, period, provider = null }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
+  const fbitsOnly = provider === "fbits";
   const rangeKey = useMemo(
     () =>
-      buildDashboardCacheKey("fbits", {
+      // Namespace próprio no modo FBITS: o cache "fbits" legado pode conter
+      // um resumo mapeado da Shopify para o mesmo tenant.
+      buildDashboardCacheKey(fbitsOnly ? "fbits-tenant" : "fbits", {
         clientId: activeClientId,
         start: safePeriod.start,
         end: safePeriod.end,
       }),
-    [activeClientId, safePeriod.end, safePeriod.start]
+    [activeClientId, fbitsOnly, safePeriod.end, safePeriod.start]
   );
   const cachedInitial = useMemo(
     () => (activeClientId ? readDashboardCache<FbitsCachePayload>(rangeKey) : null),
@@ -59,6 +64,34 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setFbitsError(null);
   }, [cachedInitial, rangeKey]);
 
+  const loadFbitsEndpoints = useCallback(async (cached: FbitsCachePayload | null) => {
+    const [summary, orders] = await Promise.allSettled([
+      getFbitsOrdersSummary({
+        start: safePeriod.start,
+        end: safePeriod.end,
+      }),
+      getFbitsOrders({
+        start: safePeriod.start,
+        end: safePeriod.end,
+      }),
+    ]);
+    if (summary.status === "rejected") throw summary.reason;
+    setFbitsData(summary.value);
+    let nextOrders = cached?.orders || cachedInitial?.orders || null;
+    if (orders.status === "fulfilled") {
+      setFbitsOrders(orders.value);
+      nextOrders = orders.value;
+    } else {
+      console.warn("[fbits-orders]", orders.reason);
+    }
+    writeDashboardCache<FbitsCachePayload>(
+      rangeKey,
+      { summary: summary.value, orders: nextOrders || null },
+      180_000
+    );
+    return summary.value;
+  }, [cachedInitial, rangeKey, safePeriod.end, safePeriod.start]);
+
   const reloadFbits = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated || !activeClientId) return null;
     const cached = options?.force ? null : readDashboardCache<FbitsCachePayload>(rangeKey);
@@ -69,6 +102,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setLoadingFbits(!cached && !cachedInitial);
     setFbitsError(null);
     try {
+      if (fbitsOnly) return await loadFbitsEndpoints(cached);
       const connectionResponse = await listGenericConnections();
       const selectedId = getSelectedConnectionId(activeClientId, "shopify") ||
         getSelectedConnectionId(activeClientId, "fbits");
@@ -107,38 +141,14 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
         writeDashboardCache<FbitsCachePayload>(rangeKey, { summary, orders: null }, 180_000);
         return summary;
       }
-      const [summary, orders] = await Promise.allSettled([
-        getFbitsOrdersSummary({
-          start: safePeriod.start,
-          end: safePeriod.end,
-        }),
-        getFbitsOrders({
-          start: safePeriod.start,
-          end: safePeriod.end,
-        }),
-      ]);
-      if (summary.status === "rejected") throw summary.reason;
-      setFbitsData(summary.value);
-      let nextOrders = cached?.orders || cachedInitial?.orders || null;
-      if (orders.status === "fulfilled") {
-        setFbitsOrders(orders.value);
-        nextOrders = orders.value;
-      } else {
-        console.warn("[fbits-orders]", orders.reason);
-      }
-      writeDashboardCache<FbitsCachePayload>(
-        rangeKey,
-        { summary: summary.value, orders: nextOrders || null },
-        180_000
-      );
-      return summary.value;
+      return await loadFbitsEndpoints(cached);
     } catch (error: unknown) {
       setFbitsError(friendlyError(error));
       return null;
     } finally {
       setLoadingFbits(false);
     }
-  }, [activeClientId, cachedInitial, isAuthenticated, rangeKey, safePeriod.end, safePeriod.start]);
+  }, [activeClientId, cachedInitial, fbitsOnly, isAuthenticated, loadFbitsEndpoints, rangeKey, safePeriod.end, safePeriod.start]);
 
   useEffect(() => {
     void reloadFbits();
