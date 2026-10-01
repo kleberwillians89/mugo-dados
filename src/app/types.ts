@@ -342,6 +342,30 @@ export type FbitsOrdersSummary = {
   ticket_medio: number;
   clientes: number;
   produtos_vendidos: number;
+  descontos?: number;
+  frete?: number;
+};
+
+export type FbitsMetricComparison = {
+  current: number;
+  previous: number;
+  change_percent: number | null;
+};
+
+export type FbitsStatusDistribution = {
+  status_id?: string | null;
+  status: string;
+  pedidos: number;
+  valor: number;
+  counts_as_revenue: boolean;
+  invalid_orders?: number;
+};
+
+export type FbitsTrendPoint = {
+  date: string;
+  revenue: number;
+  orders: number;
+  average_ticket: number;
 };
 
 export type FbitsOrdersSummaryResponse = {
@@ -353,6 +377,18 @@ export type FbitsOrdersSummaryResponse = {
     end: string;
   };
   summary: FbitsOrdersSummary;
+  previous_period?: { start: string; end: string };
+  comparison?: {
+    receita_oficial: FbitsMetricComparison;
+    pedidos: FbitsMetricComparison;
+    ticket_medio: FbitsMetricComparison;
+  };
+  status_distribution?: FbitsStatusDistribution[];
+  trend?: {
+    granularity: "day" | "week" | "month";
+    items: FbitsTrendPoint[];
+  };
+  last_sync_at?: string | null;
   message?: string | null;
 };
 
@@ -372,6 +408,9 @@ export type FbitsOrderRow = {
   cliente_documento?: string | null;
   forma_pagamento?: string | null;
   status_pagamento?: string | null;
+  is_valid?: boolean | null;
+  desconto?: number;
+  frete?: number;
   produtos?: FbitsProductRow[];
 };
 

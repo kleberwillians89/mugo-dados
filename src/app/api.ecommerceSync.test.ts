@@ -2,6 +2,20 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+if (!window.localStorage) {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    },
+  });
+}
+
 const tenant = vi.hoisted(() => ({ id: "vinhos", name: "Curavino" }));
 
 vi.mock("./supabase", () => ({
@@ -75,6 +89,8 @@ describe("sync de e-commerce sempre no tenant ativo e no provider certo", () => 
     await getFbitsOrdersSummary({ start: "2026-09-01", end: "2026-09-30" });
     await getClientIntegrations();
     expect(calls[0].url).toContain("/api/fbits/dashboard");
+    expect(calls[0].url).toContain("start=2026-09-01");
+    expect(calls[0].url).toContain("end=2026-09-30");
     expect(calls[0].clientHeader).toBe("vinhos");
     expect(calls[1].url).toMatch(/\/api\/clients\/vinhos\/integrations$/);
     expect(calls[1].clientHeader).toBe("vinhos");

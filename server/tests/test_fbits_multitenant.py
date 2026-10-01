@@ -628,6 +628,73 @@ class ReportingTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(fbits_reporting._counts_as_revenue({"status_id": "3", "raw": {}}, ids))
         self.assertFalse(fbits_reporting._counts_as_revenue({"status_id": "1", "raw": {"valido": False}}, ids))
 
+    def test_period_validation_and_sao_paulo_boundaries(self):
+        period = fbits_reporting.resolve_fbits_period(start="2026-09-01", end="2026-09-30")
+        self.assertEqual(
+            fbits_reporting._period_filter(period, "order_date"),
+            "(order_date.gte.2026-09-01T03:00:00Z,order_date.lt.2026-10-01T03:00:00Z)",
+        )
+        with self.assertRaisesRegex(RuntimeError, "start deve ser anterior"):
+            fbits_reporting.resolve_fbits_period(start="2026-09-30", end="2026-09-01")
+        with self.assertRaisesRegex(RuntimeError, "start e end juntos"):
+            fbits_reporting.resolve_fbits_period(start="2026-09-01", end=None)
+
+    async def test_summary_uses_order_date_rows_and_previous_equivalent_period(self):
+        current = [
+            {
+                "order_id": "paid", "status_id": "1", "status_name": "Pago",
+                "order_date": "2026-09-01T03:30:00Z", "total_value": 200,
+                "discount_value": 20, "freight_value": 12, "products_count": 2,
+                "customer_id": "customer-a", "is_valid": True, "raw": {},
+            },
+            {
+                "order_id": "cancelled", "status_id": "3", "status_name": "Cancelado",
+                "order_date": "2026-09-02T15:00:00Z", "total_value": 900,
+                "discount_value": 0, "freight_value": 0, "products_count": 1,
+                "customer_id": "customer-b", "is_valid": False, "raw": {},
+            },
+        ]
+        previous = [
+            {
+                "order_id": "previous", "status_id": "1", "status_name": "Pago",
+                "order_date": "2026-08-30T15:00:00Z", "total_value": 100,
+                "discount_value": 5, "freight_value": 8, "products_count": 1,
+                "customer_id": "customer-a", "is_valid": True, "raw": {},
+            },
+        ]
+        state = {
+            "connected": True,
+            "connection": {"metadata": {"revenue_status_ids": ["1"]}, "last_sync_at": "2026-09-30T12:00:00Z"},
+        }
+        select = AsyncMock(side_effect=[current, previous])
+        with (
+            patch.object(fbits_reporting, "fbits_connection_state", AsyncMock(return_value=state)),
+            patch.object(fbits_reporting, "sb_select", select),
+        ):
+            summary = await fbits_reporting.build_fbits_summary(
+                client_id="curavino", period=fbits_reporting.FbitsPeriod("2026-09-01", "2026-09-02"),
+            )
+        self.assertEqual(summary["summary"]["receita_oficial"], 200)
+        self.assertEqual(summary["summary"]["pedidos"], 1)
+        self.assertEqual(summary["summary"]["ticket_medio"], 200)
+        self.assertEqual(summary["comparison"]["receita_oficial"]["change_percent"], 100)
+        self.assertEqual(summary["previous_period"], {"start": "2026-08-30", "end": "2026-08-31"})
+        cancelled = next(item for item in summary["status_distribution"] if item["status"] == "Cancelado")
+        self.assertEqual(cancelled["invalid_orders"], 1)
+        self.assertEqual(summary["trend"]["items"][0]["date"], "2026-09-01")
+        filters = [call.kwargs["filters"]["and"] for call in select.await_args_list]
+        self.assertIn("order_date.gte.2026-09-01T03:00:00Z", filters[0])
+        self.assertIn("order_date.gte.2026-08-30T03:00:00Z", filters[1])
+
+    def test_comparison_without_previous_base_is_not_false_zero_percent(self):
+        self.assertIsNone(fbits_reporting._comparison_value(250, 0)["change_percent"])
+
+    def test_sales_trend_selects_daily_weekly_and_monthly_granularity(self):
+        row = {"status_id": "1", "is_valid": True, "order_date": "2026-01-01T15:00:00Z", "total_value": 10}
+        self.assertEqual(fbits_reporting._sales_trend(fbits_reporting.FbitsPeriod("2026-01-01", "2026-01-31"), [row], {"1"})["granularity"], "day")
+        self.assertEqual(fbits_reporting._sales_trend(fbits_reporting.FbitsPeriod("2026-01-01", "2026-02-01"), [row], {"1"})["granularity"], "week")
+        self.assertEqual(fbits_reporting._sales_trend(fbits_reporting.FbitsPeriod("2026-01-01", "2026-05-01"), [row], {"1"})["granularity"], "month")
+
 
 if __name__ == "__main__":
     unittest.main()

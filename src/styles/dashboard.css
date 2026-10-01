@@ -949,6 +949,61 @@
   border: 1px solid rgba(91,31,42,.12);
 }
 
+.fbitsExecutiveHeader{
+  display:flex;justify-content:space-between;align-items:flex-end;gap:24px;
+  padding:22px 24px;border-radius:22px;
+  background:linear-gradient(135deg,#4d1722,#722c39 58%,#8b4c4f);color:#fff;
+  box-shadow:0 20px 50px rgba(55,20,27,.16);
+}
+.fbitsExecutiveHeader .h1{font-size:clamp(1.4rem,2vw,2rem);margin-top:4px}
+.fbitsExecutiveHeader .smallMuted{color:rgba(255,255,255,.72);margin-top:7px}
+.fbitsEyebrow{font-size:11px;font-weight:900;letter-spacing:.13em;text-transform:uppercase;color:#e7c79e}
+.fbitsPeriodPicker{display:grid;gap:10px;justify-items:end}
+.fbitsPeriodPresets{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}
+.fbitsExecutiveHeader .btnGhost{min-height:36px;padding:7px 11px;border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff}
+.fbitsExecutiveHeader .btnGhost:hover{background:rgba(255,255,255,.16)}
+.fbitsCustomPeriod{display:flex;align-items:end;flex-wrap:wrap;justify-content:flex-end;gap:9px;padding:10px;border-radius:14px;background:rgba(255,255,255,.1)}
+.fbitsCustomPeriod label{display:grid;gap:4px;font-size:10px;font-weight:800;text-transform:uppercase;color:rgba(255,255,255,.7)}
+.fbitsCustomPeriod input{min-height:38px;border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:6px 9px;background:#fff;color:#231a1c;font:inherit}
+
+.fbitsExecutiveDashboard{display:grid;gap:18px;margin-top:18px}
+.fbitsExecutiveDashboard.isRefreshing{opacity:.78;transition:opacity .18s ease}
+.fbitsDashboardTitle{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:0 2px}
+.fbitsDashboardTitle .h1{font-size:1.4rem}.fbitsDashboardTitle .p{margin-top:4px}
+.fbitsExecutiveLoading{min-height:180px;display:grid;place-items:center;border-radius:20px;background:rgba(255,255,255,.8);color:rgba(26,23,24,.62)}
+.fbitsKpiGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.fbitsKpi{min-width:0;display:grid;gap:11px;padding:19px;border-radius:18px;background:#fff;box-shadow:0 14px 35px rgba(48,31,33,.06)}
+.fbitsKpi.isPrimary{background:linear-gradient(145deg,#5b1f2a,#743542);color:#fff}
+.fbitsKpi>span:first-child,.fbitsKpi small{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:rgba(26,23,24,.5)}
+.fbitsKpi.isPrimary>span:first-child,.fbitsKpi.isPrimary small{color:rgba(255,255,255,.7)}
+.fbitsKpi strong{font-size:clamp(1.45rem,2.5vw,2.25rem);line-height:1;color:#3f1920;overflow-wrap:anywhere}
+.fbitsKpi.isPrimary strong{color:#fff}
+.fbitsDelta{font-size:11px;font-weight:800}.fbitsDelta.isPositive{color:#19744b}.fbitsDelta.isNegative{color:#ad3c45}.fbitsDelta.isNeutral{color:rgba(26,23,24,.46)}
+.fbitsKpi.isPrimary .fbitsDelta{color:#f1d9ba}
+.fbitsSecondaryMetrics{display:flex;flex-wrap:wrap;gap:1px;padding:1px;border-radius:16px;overflow:hidden;background:rgba(91,31,42,.08)}
+.fbitsSecondaryMetrics>span{flex:1 1 145px;display:grid;gap:5px;padding:13px 15px;background:rgba(255,255,255,.96)}
+.fbitsSecondaryMetrics small{font-size:10px;font-weight:900;text-transform:uppercase;color:rgba(26,23,24,.48)}
+.fbitsSecondaryMetrics strong{font-size:1.05rem;color:#4b2028}
+.fbitsNoSales,.fbitsCardEmpty{padding:18px;border-radius:14px;background:#faf7f3;color:rgba(26,23,24,.6)}
+.fbitsDashboardCard{min-width:0;padding:20px;border-radius:20px;background:#fff;box-shadow:0 15px 40px rgba(48,31,33,.06)}
+.fbitsDashboardCard header{display:flex;justify-content:space-between;gap:16px;margin-bottom:16px}
+.fbitsDashboardCard h2{margin:0;font-size:1.05rem;color:#351a1f}.fbitsDashboardCard header p{margin:5px 0 0;color:rgba(26,23,24,.55);font-size:13px}
+.fbitsChartViewport{height:330px;width:100%}
+.fbitsChartTooltip{display:grid;gap:7px;padding:12px 14px;border:1px solid rgba(91,31,42,.12);border-radius:14px;background:#fff;box-shadow:0 16px 38px rgba(48,31,33,.14);font-size:12px}
+.fbitsChartTooltip>span{display:flex;justify-content:space-between;gap:18px;color:rgba(26,23,24,.62)}.fbitsChartTooltip b{color:#431d24}
+.fbitsInsightsGrid{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:16px}
+.fbitsStatusList,.fbitsProductRanking{display:grid;gap:2px}
+.fbitsStatusList>div,.fbitsProductRanking>div{display:flex;align-items:center;gap:11px;padding:11px 4px;border-bottom:1px solid rgba(91,31,42,.07)}
+.fbitsStatusList>div:last-child,.fbitsProductRanking>div:last-child{border-bottom:0}
+.fbitsStatusList>div>span{width:8px;height:8px;flex:0 0 8px;border-radius:99px;background:#b7aaac}.fbitsStatusList>div>span.isValid{background:#2e8c62}
+.fbitsStatusList p,.fbitsProductRanking p{min-width:0;display:grid;gap:3px;flex:1;margin:0}.fbitsStatusList small,.fbitsProductRanking small{color:rgba(26,23,24,.5)}
+.fbitsStatusList b{font-size:13px;color:#4b2028}.fbitsProductRanking>div>span{display:grid;gap:3px;text-align:right;color:#4b2028}
+.fbitsRecentOrders{max-height:430px}.fbitsRecentOrders table{min-width:720px}.fbitsRecentOrders td{vertical-align:middle}
+.fbitsOrderStatus{display:inline-flex;padding:5px 8px;border-radius:999px;background:#f3ece8;color:#5b1f2a;font-size:11px;font-weight:800}
+
+@media (max-width:1000px){.fbitsExecutiveHeader{align-items:flex-start;flex-direction:column}.fbitsPeriodPicker{justify-items:start}.fbitsPeriodPresets,.fbitsCustomPeriod{justify-content:flex-start}.fbitsKpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.fbitsInsightsGrid{grid-template-columns:1fr}}
+@media (max-width:620px){.fbitsExecutiveHeader{padding:18px}.fbitsKpiGrid{grid-template-columns:1fr}.fbitsKpi{padding:16px}.fbitsDashboardCard{padding:16px}.fbitsChartViewport{height:280px}.fbitsCustomPeriod{width:100%}.fbitsCustomPeriod label{flex:1 1 130px}.fbitsCustomPeriod input{width:100%}}
+
 .paidFilters{
   margin: 14px 0;
 }

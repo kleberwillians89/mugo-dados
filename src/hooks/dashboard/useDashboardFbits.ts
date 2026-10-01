@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getFbitsOrders, getFbitsOrdersSummary, getShopifyReport, listGenericConnections } from "../../app/api";
 import type { FbitsOrdersResponse, FbitsOrdersSummaryResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
   buildDashboardCacheKey,
+  clearDashboardCacheByPrefix,
   readDashboardCache,
   writeDashboardCache,
 } from "./cache";
@@ -40,6 +41,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
         clientId: activeClientId,
         start: safePeriod.start,
         end: safePeriod.end,
+        extra: fbitsOnly ? "provider=fbits" : "provider=auto",
       }),
     [activeClientId, fbitsOnly, safePeriod.end, safePeriod.start]
   );
@@ -55,12 +57,13 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
   );
   const [loadingFbits, setLoadingFbits] = useState(false);
   const [fbitsError, setFbitsError] = useState<string | null>(null);
+  const activeRangeRef = useRef(rangeKey);
+  activeRangeRef.current = rangeKey;
 
   useEffect(() => {
-    if (cachedInitial) {
-      setFbitsData(cachedInitial.summary);
-      setFbitsOrders(cachedInitial.orders);
-    }
+    setFbitsData(cachedInitial?.summary || null);
+    setFbitsOrders(cachedInitial?.orders || null);
+    setLoadingFbits(!cachedInitial);
     setFbitsError(null);
   }, [cachedInitial, rangeKey]);
 
@@ -76,6 +79,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       }),
     ]);
     if (summary.status === "rejected") throw summary.reason;
+    if (activeRangeRef.current !== rangeKey) return null;
     setFbitsData(summary.value);
     let nextOrders = cached?.orders || cachedInitial?.orders || null;
     if (orders.status === "fulfilled") {
@@ -99,7 +103,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       setFbitsData(cached.summary);
       setFbitsOrders(cached.orders);
     }
-    setLoadingFbits(!cached && !cachedInitial);
+    setLoadingFbits(true);
     setFbitsError(null);
     try {
       if (fbitsOnly) return await loadFbitsEndpoints(cached);
@@ -143,16 +147,21 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       }
       return await loadFbitsEndpoints(cached);
     } catch (error: unknown) {
-      setFbitsError(friendlyError(error));
+      if (activeRangeRef.current === rangeKey) setFbitsError(friendlyError(error));
       return null;
     } finally {
-      setLoadingFbits(false);
+      if (activeRangeRef.current === rangeKey) setLoadingFbits(false);
     }
-  }, [activeClientId, cachedInitial, fbitsOnly, isAuthenticated, loadFbitsEndpoints, rangeKey, safePeriod.end, safePeriod.start]);
+  }, [activeClientId, fbitsOnly, isAuthenticated, loadFbitsEndpoints, rangeKey, safePeriod.end, safePeriod.start]);
 
   useEffect(() => {
     void reloadFbits();
   }, [reloadFbits]);
+
+  const invalidateFbitsCache = useCallback(() => {
+    clearDashboardCacheByPrefix(`fbits-tenant|c=${activeClientId}|`);
+    clearDashboardCacheByPrefix(`fbits|c=${activeClientId}|`);
+  }, [activeClientId]);
 
   return {
     fbitsData,
@@ -160,5 +169,6 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     fbitsError,
     loadingFbits,
     reloadFbits,
+    invalidateFbitsCache,
   };
 }

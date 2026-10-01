@@ -6,6 +6,20 @@ import type { ClientIntegrationConnection } from "../app/types";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+if (!window.localStorage) {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    },
+  });
+}
+
 const tenant = vi.hoisted(() => ({ id: "roove", name: "Roove" }));
 const api = vi.hoisted(() => ({
   getClientIntegrations: vi.fn(),
@@ -24,15 +38,18 @@ vi.mock("../app/activeClient", () => ({
   getActiveClientId: () => tenant.id,
   getActiveClientName: () => tenant.name,
 }));
+const periodActions = vi.hoisted(() => ({
+  setPeriod: vi.fn(), setPresetPeriod: vi.fn(), setCurrentMonthPeriod: vi.fn(), setMonthPeriod: vi.fn(), setDayPeriod: vi.fn(),
+}));
 vi.mock("../app/PeriodContext", () => ({
-  usePeriod: () => ({ period: { start: "2026-09-01", end: "2026-09-30", days: 30 } }),
+  usePeriod: () => ({ period: { start: "2026-09-01", end: "2026-09-30", days: 30 }, ...periodActions }),
 }));
 vi.mock("../components/Shell", () => ({
   default: ({ title, subtitle, right, children }: { title: string; subtitle?: string; right?: React.ReactNode; children: React.ReactNode }) => (
     <div><h1>{title}</h1><p data-testid="subtitle">{subtitle}</p><div>{right}</div>{children}</div>
   ),
 }));
-vi.mock("../components/dashboard/FbitsSalesPanel", () => ({
+vi.mock("../components/dashboard/FbitsExecutiveDashboard", () => ({
   default: ({ data }: { data: { connected?: boolean; summary?: { pedidos: number } } | null }) => (
     <div data-testid="fbits-panel">FBITS painel · pedidos={data?.summary?.pedidos ?? "-"}</div>
   ),
@@ -116,6 +133,7 @@ beforeEach(() => {
   window.localStorage.clear();
   Object.values(api).forEach((fn) => fn.mockReset());
   onOpenIntegrations.mockReset();
+  Object.values(periodActions).forEach((fn) => fn.mockReset());
   api.getFbitsOrdersSummary.mockImplementation(async () => fbitsSummary(tenant.id));
   api.getFbitsOrders.mockImplementation(async () => ({ ok: true, client_id: tenant.id, items: [] }));
   container = document.createElement("div");
@@ -177,8 +195,24 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(container.textContent).toContain("Sincronização FBITS iniciada");
     // Recarrega as conexões sem desmontar a tela.
     expect(api.getClientIntegrations).toHaveBeenCalledTimes(2);
+    expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(2);
     expect(container.querySelector('[data-testid="fbits-panel"]')).not.toBeNull();
     expectNoShopifyCalls();
+  });
+
+  it("períodos rápidos atualizam o contexto sem reload da página", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits", { last_sync_at: "2026-09-30T12:00:00Z" })]));
+    await render();
+    await click(button("7 dias"));
+    expect(periodActions.setPeriod).toHaveBeenLastCalledWith(expect.objectContaining({ end: expect.any(String) }));
+    await click(button("30 dias"));
+    expect(periodActions.setPeriod).toHaveBeenCalledTimes(2);
+    await click(button("Este mês"));
+    expect(periodActions.setPeriod).toHaveBeenCalledTimes(3);
+    await click(button("Mês passado"));
+    expect(periodActions.setPeriod).toHaveBeenCalledTimes(4);
+    expect(container.textContent).toContain("Sincronizado em");
   });
 
   it("15. Shopify + FBITS conectados → pede escolha explícita, sem escolher pela ordem", async () => {

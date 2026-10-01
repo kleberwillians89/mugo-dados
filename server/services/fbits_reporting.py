@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -19,6 +20,8 @@ APPROVED_ORDER_STATUS_IDS = {
     for value in FBITS_APPROVED_ORDER_STATUSES.split(",")
     if value.strip().isdigit()
 }
+FBITS_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+MAX_REPORT_DAYS = 366
 
 
 def _safe_str(value: Any) -> str:
@@ -54,10 +57,22 @@ class FbitsPeriod:
 
 
 def resolve_fbits_period(*, start: str | None, end: str | None, days: int = 30) -> FbitsPeriod:
+    if bool(start) != bool(end):
+        raise RuntimeError("Informe start e end juntos.")
     if start and end:
-        return FbitsPeriod(start=start, end=end)
-    until = date.today()
-    since = until - timedelta(days=max(1, int(days)) - 1)
+        try:
+            since = date.fromisoformat(start)
+            until = date.fromisoformat(end)
+        except ValueError as exc:
+            raise RuntimeError("Período FBITS inválido. Use datas no formato YYYY-MM-DD.") from exc
+        if since > until:
+            raise RuntimeError("Período FBITS inválido: start deve ser anterior ou igual a end.")
+        if (until - since).days + 1 > MAX_REPORT_DAYS:
+            raise RuntimeError(f"Período FBITS não pode exceder {MAX_REPORT_DAYS} dias.")
+        return FbitsPeriod(start=since.isoformat(), end=until.isoformat())
+    safe_days = max(1, min(MAX_REPORT_DAYS, int(days)))
+    until = datetime.now(FBITS_TIMEZONE).date()
+    since = until - timedelta(days=safe_days - 1)
     return FbitsPeriod(start=since.isoformat(), end=until.isoformat())
 
 
@@ -442,12 +457,21 @@ def _persisted_order_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "cliente_documento": raw_customer["document"] or None,
         "forma_pagamento": _safe_str(row.get("payment_method")) or _payment_method(raw_order) or None,
         "status_pagamento": _safe_str(row.get("payment_status")) or _payment_status(raw_order) or None,
+        "is_valid": row.get("is_valid"),
+        "desconto": _safe_float(row.get("discount_value")),
+        "frete": _safe_float(row.get("freight_value")),
         "produtos": _order_products(raw_order),
     }
 
 
 def _period_filter(period: FbitsPeriod, column: str) -> str:
-    return f"({column}.gte.{period.start},{column}.lte.{period.end})"
+    start_local = datetime.combine(date.fromisoformat(period.start), time.min, tzinfo=FBITS_TIMEZONE)
+    end_exclusive_local = datetime.combine(
+        date.fromisoformat(period.end) + timedelta(days=1), time.min, tzinfo=FBITS_TIMEZONE
+    )
+    start_utc = start_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    end_utc = end_exclusive_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return f"({column}.gte.{start_utc},{column}.lt.{end_utc})"
 
 
 def _is_schema_pending_error(exc: httpx.HTTPStatusError, *names: str) -> bool:
@@ -464,7 +488,8 @@ async def _read_persisted_orders(*, client_id: str, period: FbitsPeriod) -> List
         "fbits_orders",
         select=(
             "client_id,order_id,order_code,customer_id,customer_name,customer_email,status_id,status_name,"
-            "order_date,approved_at,total_value,products_count,payment_method,payment_status,raw,created_at,updated_at"
+            "order_date,approved_at,total_value,subtotal_value,discount_value,freight_value,products_count,"
+            "payment_method,payment_status,is_valid,raw,created_at,updated_at"
         ),
         filters={
             "client_id": f"eq.{client_id}",
@@ -772,7 +797,7 @@ def _value_fields(order: Dict[str, Any]) -> List[str]:
 
 
 
-async def _tenant_revenue_context(client_id: str) -> tuple[bool, set[str]]:
+async def _tenant_revenue_context(client_id: str) -> tuple[bool, set[str], Dict[str, Any]]:
     """Conexão da PRÓPRIA empresa (nunca token global) e situações de receita.
 
     Sem conexão (dados legados), usa as situações padrão históricas; com
@@ -782,18 +807,127 @@ async def _tenant_revenue_context(client_id: str) -> tuple[bool, set[str]]:
     state = await fbits_connection_state(client_id)
     connection = state.get("connection") or {}
     if not connection:
-        return False, set(FBITS_APPROVED_ORDER_STATUS_IDS)
+        return False, set(FBITS_APPROVED_ORDER_STATUS_IDS), {}
     metadata = connection.get("metadata") if isinstance(connection.get("metadata"), dict) else {}
-    return bool(state.get("connected")), {_safe_str(v) for v in metadata.get("revenue_status_ids") or []}
+    return bool(state.get("connected")), {_safe_str(v) for v in metadata.get("revenue_status_ids") or []}, connection
 
 
 def _counts_as_revenue(row: Dict[str, Any], revenue_status_ids: set[str]) -> bool:
     raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
-    return _safe_str(row.get("status_id")) in revenue_status_ids and raw.get("valido") is not False
+    is_valid = row.get("is_valid")
+    if is_valid is None:
+        is_valid = raw.get("valido")
+    return _safe_str(row.get("status_id")) in revenue_status_ids and is_valid is not False
+
+
+def _is_explicitly_invalid(row: Dict[str, Any]) -> bool:
+    raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+    value = row.get("is_valid")
+    if value is None:
+        value = raw.get("valido")
+    return value is False
+
+
+def _previous_period(period: FbitsPeriod) -> FbitsPeriod:
+    start = date.fromisoformat(period.start)
+    end = date.fromisoformat(period.end)
+    duration = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=duration - 1)
+    return FbitsPeriod(previous_start.isoformat(), previous_end.isoformat())
+
+
+def _local_order_day(row: Dict[str, Any]) -> date | None:
+    raw = _safe_str(row.get("order_date"))
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=FBITS_TIMEZONE)
+    return parsed.astimezone(FBITS_TIMEZONE).date()
+
+
+def _comparison_value(current: float, previous: float) -> Dict[str, Any]:
+    return {
+        "current": round(current, 2),
+        "previous": round(previous, 2),
+        "change_percent": round(((current - previous) / previous) * 100, 1) if previous else None,
+    }
+
+
+def _valid_metrics(rows: Iterable[Dict[str, Any]], revenue_status_ids: set[str]) -> Dict[str, Any]:
+    valid = [row for row in rows if _counts_as_revenue(row, revenue_status_ids)]
+    revenue = sum(_safe_float(row.get("total_value")) for row in valid)
+    customers = {_sync_customer_key(row).lower() for row in valid if _sync_customer_key(row)}
+    count = len(valid)
+    return {
+        "receita_oficial": round(revenue, 2),
+        "pedidos": count,
+        "ticket_medio": round(revenue / count, 2) if count else 0.0,
+        "clientes": len(customers),
+        "produtos_vendidos": sum(_safe_int(row.get("products_count")) for row in valid),
+        "descontos": round(sum(_safe_float(row.get("discount_value")) for row in valid), 2),
+        "frete": round(sum(_safe_float(row.get("freight_value")) for row in valid), 2),
+    }
+
+
+def _status_distribution(rows: Iterable[Dict[str, Any]], revenue_status_ids: set[str]) -> List[Dict[str, Any]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        status_id = _safe_str(row.get("status_id"))
+        label = _safe_str(row.get("status_name")) or (f"Status {status_id}" if status_id else "Sem status")
+        key = f"{status_id}:{label}"
+        bucket = grouped.setdefault(key, {"status_id": status_id or None, "status": label, "pedidos": 0, "valor": 0.0, "counts_as_revenue": False, "invalid_orders": 0})
+        bucket["pedidos"] += 1
+        bucket["valor"] += _safe_float(row.get("total_value"))
+        bucket["counts_as_revenue"] = bucket["counts_as_revenue"] or _counts_as_revenue(row, revenue_status_ids)
+        bucket["invalid_orders"] += 1 if _is_explicitly_invalid(row) else 0
+    for bucket in grouped.values():
+        bucket["valor"] = round(bucket["valor"], 2)
+    return sorted(grouped.values(), key=lambda item: (-_safe_int(item.get("pedidos")), _safe_str(item.get("status"))))
+
+
+def _sales_trend(period: FbitsPeriod, rows: Iterable[Dict[str, Any]], revenue_status_ids: set[str]) -> Dict[str, Any]:
+    start = date.fromisoformat(period.start)
+    end = date.fromisoformat(period.end)
+    duration = (end - start).days + 1
+    granularity = "day" if duration <= 31 else "week" if duration <= 120 else "month"
+    buckets: Dict[str, Dict[str, Any]] = {}
+    valid_rows = [row for row in rows if _counts_as_revenue(row, revenue_status_ids)]
+    if not valid_rows:
+        return {"granularity": granularity, "items": []}
+
+    def bucket_key(day: date) -> str:
+        if granularity == "day":
+            return day.isoformat()
+        if granularity == "week":
+            return (day - timedelta(days=day.weekday())).isoformat()
+        return day.replace(day=1).isoformat()
+
+    cursor = start
+    while cursor <= end:
+        key = bucket_key(cursor)
+        buckets.setdefault(key, {"date": key, "revenue": 0.0, "orders": 0, "average_ticket": 0.0})
+        cursor += timedelta(days=1)
+    for row in valid_rows:
+        day = _local_order_day(row)
+        if not day:
+            continue
+        key = bucket_key(day)
+        bucket = buckets.setdefault(key, {"date": key, "revenue": 0.0, "orders": 0, "average_ticket": 0.0})
+        bucket["revenue"] += _safe_float(row.get("total_value"))
+        bucket["orders"] += 1
+    for bucket in buckets.values():
+        bucket["revenue"] = round(bucket["revenue"], 2)
+        bucket["average_ticket"] = round(bucket["revenue"] / bucket["orders"], 2) if bucket["orders"] else 0.0
+    return {"granularity": granularity, "items": [buckets[key] for key in sorted(buckets)]}
 
 
 async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    connected, revenue_status_ids = await _tenant_revenue_context(client_id)
+    connected, revenue_status_ids, _connection = await _tenant_revenue_context(client_id)
     try:
         persisted = await _read_persisted_orders(client_id=client_id, period=period)
     except httpx.HTTPStatusError as exc:
@@ -804,7 +938,7 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
             )
         else:
             print(f"[fbits][orders][persisted_read_error] client_id={client_id} status={exc.response.status_code}")
-        persisted = []
+        raise
     if persisted:
         items = [_persisted_order_item(row) for row in persisted]
         try:
@@ -860,42 +994,37 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
 
 
 async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
-    connected, revenue_status_ids = await _tenant_revenue_context(client_id)
+    connected, revenue_status_ids, connection = await _tenant_revenue_context(client_id)
+    previous_period = _previous_period(period)
     try:
-        daily_rows = await _read_persisted_daily(client_id=client_id, period=period)
+        current_rows = await _read_persisted_orders(client_id=client_id, period=period)
+        previous_rows = await _read_persisted_orders(client_id=client_id, period=previous_period)
     except httpx.HTTPStatusError as exc:
-        if _is_schema_pending_error(exc, "fbits_order_daily_stats"):
+        if _is_schema_pending_error(exc, "fbits_orders", "is_valid", "discount_value", "freight_value"):
             print(
                 "[fbits][summary][schema_pending] "
-                f"client_id={client_id} missing=fbits_order_daily_stats"
+                f"client_id={client_id} missing=fbits_orders.financial_columns"
             )
         else:
             print(f"[fbits][summary][persisted_read_error] client_id={client_id} status={exc.response.status_code}")
-        daily_rows = []
-    if daily_rows:
-        summary = _summary_from_daily(client_id=client_id, period=period, rows=daily_rows)
-        summary["connected"] = connected
-        try:
-            detailed_rows = await _read_persisted_orders(client_id=client_id, period=period)
-        except httpx.HTTPStatusError as exc:
-            if _is_schema_pending_error(exc, "payment_method", "payment_status", "fbits_orders"):
-                print(
-                    "[fbits][summary][schema_pending] "
-                    f"client_id={client_id} missing=fbits_orders.payment_columns"
-                )
-            else:
-                print(f"[fbits][summary][detail_read_error] client_id={client_id} status={exc.response.status_code}")
-            detailed_rows = []
-        if detailed_rows:
-            details = _detail_metrics_from_items(
-                _persisted_order_item(row) for row in detailed_rows if _counts_as_revenue(row, revenue_status_ids)
-            )
-            if details["clientes"]:
-                summary["summary"]["clientes"] = details["clientes"]
-            if details["produtos_vendidos"]:
-                summary["summary"]["produtos_vendidos"] = details["produtos_vendidos"]
-        return summary
+        raise
+    summary = _valid_metrics(current_rows, revenue_status_ids)
+    previous = _valid_metrics(previous_rows, revenue_status_ids)
     return {
-        **_summary_from_orders(client_id=client_id, period=period, orders=[], connected=connected),
+        "ok": True,
+        "connected": connected,
+        "client_id": client_id,
+        "period": {"start": period.start, "end": period.end},
+        "previous_period": {"start": previous_period.start, "end": previous_period.end},
+        "summary": summary,
+        "comparison": {
+            "receita_oficial": _comparison_value(summary["receita_oficial"], previous["receita_oficial"]),
+            "pedidos": _comparison_value(summary["pedidos"], previous["pedidos"]),
+            "ticket_medio": _comparison_value(summary["ticket_medio"], previous["ticket_medio"]),
+        },
+        "status_distribution": _status_distribution(current_rows, revenue_status_ids),
+        "trend": _sales_trend(period, current_rows, revenue_status_ids),
+        "last_sync_at": connection.get("last_sync_at"),
+        "message": None if current_rows else ("Não houve vendas neste período." if connected else "FBits ainda não conectada."),
         "source": "supabase",
     }

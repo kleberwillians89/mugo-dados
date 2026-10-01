@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { syncFbitsConnection } from "../app/api";
 import {
@@ -8,7 +8,7 @@ import {
 } from "../app/ecommerceProvider";
 import { usePeriod } from "../app/PeriodContext";
 import type { ClientIntegrationConnection } from "../app/types";
-import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
+import FbitsExecutiveDashboard from "../components/dashboard/FbitsExecutiveDashboard";
 import Shell from "../components/Shell";
 import useActiveEcommerceProvider from "../hooks/dashboard/useActiveEcommerceProvider";
 import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
@@ -23,6 +23,24 @@ type Props = {
 };
 
 const PROVIDER_LABEL: Record<EcommerceProvider, string> = { shopify: "Shopify", fbits: "FBITS" };
+
+function todayInSaoPaulo(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function endingTodayPeriod(days: number) {
+  const end = todayInSaoPaulo();
+  const endDate = new Date(`${end}T00:00:00Z`);
+  endDate.setUTCDate(endDate.getUTCDate() - Math.max(1, days) + 1);
+  return { start: endDate.toISOString().slice(0, 10), end };
+}
 
 function EcommerceShell({ onLogout, children }: { onLogout: Props["onLogout"]; children: ReactNode }) {
   return (
@@ -43,7 +61,7 @@ type FbitsCommerceProps = Omit<Props, "onOpenGoogleReport"> & {
 };
 
 function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections, onConnectionsChanged }: FbitsCommerceProps) {
-  const { period } = usePeriod();
+  const { period, setPeriod } = usePeriod();
   const report = useDashboardFbits({
     isAuthenticated,
     activeClientId: getActiveClientId(),
@@ -53,8 +71,28 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
   const [syncing, setSyncing] = useState(false);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [customStart, setCustomStart] = useState(period.start);
+  const [customEnd, setCustomEnd] = useState(period.end);
+  const [showCustom, setShowCustom] = useState(false);
   const pending = isEcommerceSyncPending(connections);
   const lastError = connections.map((entry) => entry.last_error).find(Boolean) || null;
+  const lastSyncAt = useMemo(
+    () => connections.map((entry) => entry.last_successful_sync_at || entry.last_sync_at).find(Boolean) || report.fbitsData?.last_sync_at || null,
+    [connections, report.fbitsData?.last_sync_at]
+  );
+
+  function previousMonth() {
+    const today = new Date(`${todayInSaoPaulo()}T12:00:00`);
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), 0);
+    const asInput = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    setPeriod({ start: asInput(start), end: asInput(end) });
+  }
+
+  function applyCustomPeriod() {
+    if (!customStart || !customEnd || customStart > customEnd) return;
+    setPeriod({ start: customStart, end: customEnd });
+  }
 
   async function syncNow() {
     setSyncing(true);
@@ -64,6 +102,8 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
       await syncFbitsConnection();
       setSyncInfo("Sincronização FBITS iniciada. Atualize os dados em alguns instantes.");
       await onConnectionsChanged();
+      report.invalidateFbitsCache();
+      await report.reloadFbits({ force: true });
     } catch (cause) {
       setSyncError(cause instanceof Error && cause.message ? cause.message : "Não foi possível iniciar a sincronização FBITS.");
     } finally {
@@ -89,6 +129,32 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
         </div>
       }
     >
+      <section className="fbitsExecutiveHeader" aria-label="Período do dashboard FBITS">
+        <div>
+          <div className="fbitsEyebrow">FBITS / Wake Commerce</div>
+          <div className="h1">Visão executiva de vendas</div>
+          <div className="smallMuted">
+            {lastSyncAt ? `Sincronizado em ${new Date(lastSyncAt).toLocaleString("pt-BR")}` : "Conectado sem sincronização concluída"}
+          </div>
+        </div>
+        <div className="fbitsPeriodPicker">
+          <div className="fbitsPeriodPresets">
+            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(1))}>Hoje</button>
+            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(7))}>7 dias</button>
+            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(30))}>30 dias</button>
+            <button className="btn btnGhost" type="button" onClick={() => setPeriod({ start: `${todayInSaoPaulo().slice(0, 7)}-01`, end: todayInSaoPaulo() })}>Este mês</button>
+            <button className="btn btnGhost" type="button" onClick={previousMonth}>Mês passado</button>
+            <button className="btn btnGhost" type="button" aria-expanded={showCustom} onClick={() => setShowCustom((value) => !value)}>Personalizado</button>
+          </div>
+          {showCustom ? (
+            <div className="fbitsCustomPeriod">
+              <label><span>Data inicial</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label>
+              <label><span>Data final</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
+              <button className="btn btnPrimary" type="button" disabled={!customStart || !customEnd || customStart > customEnd} onClick={applyCustomPeriod}>Aplicar</button>
+            </div>
+          ) : null}
+        </div>
+      </section>
       {pending ? (
         <section className="card cardWide" role="status" data-testid="ecommerce-fbits-pending">
           <div className="h1">FBITS conectado</div>
@@ -98,7 +164,7 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
       {lastError ? <div className="pill pillDanger" role="alert">{lastError}</div> : null}
       {syncInfo ? <div className="smallMuted" role="status">{syncInfo}</div> : null}
       {syncError ? <div className="pill pillDanger" role="alert">{syncError}</div> : null}
-      <FbitsSalesPanel
+      <FbitsExecutiveDashboard
         data={report.fbitsData}
         orders={report.fbitsOrders}
         loading={report.loadingFbits}
