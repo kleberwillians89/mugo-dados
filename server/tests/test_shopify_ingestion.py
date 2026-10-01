@@ -318,7 +318,10 @@ class BackfillPersistsOrdersTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(shopify_oauth, "resolve_shopify_connection_context", AsyncMock(return_value=_context())),
             patch.object(shopify_oauth, "peek_sync_lock", AsyncMock(return_value=None)),
-            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_customers": True, "read_products": True})),
+            # O período fixo deste teste envelhece com o calendário. O cenário
+            # valida avanço de cobertura sem pedidos, não a barreira de 60 dias
+            # (coberta pelos testes específicos acima).
+            patch.object(shopify_oauth, "_check_shopify_scopes", AsyncMock(return_value={"read_orders": True, "read_all_orders": True, "read_customers": True, "read_products": True})),
             patch.object(shopify_oauth, "_fetch_shopify_collection", fake_collection),
             patch.object(shopify_oauth, "sb_update", AsyncMock(return_value=[])),
             patch.object(shopify_oauth, "start_job_run", _fake_job_run()),

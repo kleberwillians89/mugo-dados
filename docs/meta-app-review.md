@@ -61,13 +61,14 @@ O Mugô Dados permite que uma empresa autorize a Meta e selecione separadamente 
 
 - Motivo: descobrir contas de anúncios e importar métricas de campanhas, anúncios e criativos sem criar ou alterar anúncios.
 - Endpoints Graph: `/me/adaccounts`, `/{act_id}/insights`, `/{act_id}/ads` e `/{act_id}/adcreatives`.
+- Descoberta via Business (somente leitura): `/{business_id}/owned_ad_accounts`, `/{business_id}/client_ad_accounts` e `/{act_id}` (confere se a autorização atual lê a conta antes de oferecê-la para seleção).
 - Feature visível: seletor de conta Meta Ads e dashboard pago com investimento e desempenho.
 - Como comprovar: selecione a conta de anúncios de homologação, aguarde a sincronização e abra o dashboard Meta Ads.
 
 ### `business_management`
 
 - Motivo: descobrir os Business Managers disponíveis durante o onboarding e ajudar a pessoa autorizadora a reconhecer o ambiente empresarial correto antes da seleção de Página, Instagram e Ads.
-- Endpoint Graph: `/me/businesses`.
+- Endpoints Graph: `/me/businesses`; para listar os ativos de cada Business (somente leitura): `/{business_id}/owned_ad_accounts`, `/{business_id}/client_ad_accounts`, `/{business_id}/owned_pages` e `/{business_id}/client_pages`.
 - Feature visível: seção **Business Managers** na tela de revisão dos ativos descobertos. Ela mostra os nomes e identificadores disponíveis ou informa claramente quando nenhum Business Manager foi retornado.
 - Como comprovar: depois do retorno do OAuth, mantenha a tela de onboarding aberta e mostre a seção Business Managers antes de selecionar os demais ativos.
 

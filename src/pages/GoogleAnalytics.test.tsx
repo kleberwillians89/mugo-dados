@@ -188,14 +188,21 @@ describe("GoogleAnalytics — navegação por abas (não mostra tudo simultaneam
   });
 
   it("o bloco Hoje contém somente vendas, pedidos e ticket", async () => {
-    await renderGa4();
-    const today = container.querySelector(".channelToday");
-    expect(today?.textContent).toContain("Valor vendido hoje");
-    expect(today?.textContent).toContain("Pedidos hoje");
-    expect(today?.textContent).toContain("Ticket médio hoje");
-    expect(today?.textContent).not.toContain("ROAS");
-    expect(today?.textContent).not.toContain("Investimento");
-    expect(today?.textContent).toContain("Fonte: Shopify");
-    expect(today?.textContent).toContain("R$ 646,52");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T12:00:00-03:00"));
+
+    try {
+      await renderGa4();
+      const today = container.querySelector('[aria-label="Resultado Shopify de hoje"]');
+      expect(today?.textContent).toContain("Valor vendido hoje");
+      expect(today?.textContent).toContain("Pedidos hoje");
+      expect(today?.textContent).toContain("Ticket médio hoje");
+      expect(today?.textContent).not.toContain("ROAS");
+      expect(today?.textContent).not.toContain("Investimento");
+      expect(today?.textContent).toContain("Fonte: Shopify");
+      expect(today?.textContent).toContain("R$ 646,52");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -802,11 +802,30 @@ export type MetaOauthStartResponse = {
   authorization_url: string;
 };
 
+/** Origem da descoberta de um ativo Meta. */
+export type MetaDiscoverySource = "me_accounts" | "me_adaccounts" | "business_owned" | "business_client";
+
+/** Business em que o ativo foi encontrado (dono ou cliente). */
+export type MetaAssetBusinessRef = {
+  business_id: string;
+  business_name?: string;
+  relation: "owned" | "client";
+};
+
+/**
+ * accessible: acesso confirmado com a autorização atual.
+ * restricted: identificado pelo Business, mas o detalhe foi bloqueado por permissão.
+ * unverified: identificado pelo Business; a verificação falhou por erro transitório.
+ */
+export type MetaAssetAccessStatus = "accessible" | "restricted" | "unverified";
+
 export type MetaDiscoveredInstagramAsset = {
   ig_user_id: string;
   username?: string;
+  /** ID da Página do Facebook vinculada (nome legado do campo). */
   business_id?: string;
   business_name?: string;
+  discovery_sources?: MetaDiscoverySource[];
 };
 
 export type MetaDiscoveredPageAsset = {
@@ -815,6 +834,9 @@ export type MetaDiscoveredPageAsset = {
   id?: string;
   name?: string;
   instagram?: { id?: string; username?: string } | null;
+  discovery_sources?: MetaDiscoverySource[];
+  businesses?: MetaAssetBusinessRef[];
+  access_status?: MetaAssetAccessStatus;
 };
 
 export type MetaDiscoveredAdAccount = {
@@ -822,11 +844,28 @@ export type MetaDiscoveredAdAccount = {
   ad_account_name?: string;
   account_status?: number;
   currency?: string;
+  discovery_sources?: MetaDiscoverySource[];
+  businesses?: MetaAssetBusinessRef[];
+  access_status?: MetaAssetAccessStatus;
+};
+
+/** Resultado de cada consulta ao Business (owned/client de contas e Páginas). */
+export type MetaBusinessEdgeStatus = {
+  status: "ok" | "permission_denied" | "rate_limited" | "error";
+  count?: number;
 };
 
 export type MetaDiscoveredBusinessManager = {
   business_id: string;
   business_name?: string;
+  discovery?: Partial<Record<"owned_ad_accounts" | "client_ad_accounts" | "owned_pages" | "client_pages", MetaBusinessEdgeStatus>>;
+};
+
+/** Aviso seguro da descoberta (texto fixo do backend, nunca a mensagem bruta da Meta). */
+export type MetaDiscoveryWarning = {
+  code: "META_BUSINESSES_UNAVAILABLE" | string;
+  status?: MetaBusinessEdgeStatus["status"];
+  message: string;
 };
 
 export type MetaDiscoverAssetsResponse = {
@@ -841,6 +880,8 @@ export type MetaDiscoverAssetsResponse = {
   instagram_accounts: MetaDiscoveredInstagramAsset[];
   ad_accounts: MetaDiscoveredAdAccount[];
   business_managers?: MetaDiscoveredBusinessManager[];
+  /** /me/businesses indisponível: só ativos diretos foram listados. */
+  discovery_warnings?: MetaDiscoveryWarning[];
   scopes: string[];
   expires_at?: string | null;
   authorized_user_name?: string;

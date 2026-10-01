@@ -4,7 +4,18 @@ import "../styles/LegalPages.css";
 
 const LAST_UPDATED = "29 de setembro de 2026";
 
-function LegalHeader({ title, summary }: { title: string; summary: string }) {
+/*
+ * REVISÃO JURÍDICA PENDENTE — marcada em data-legal-status em cada página:
+ * - "review-pending": documento já publicado e preservado como está. O texto
+ *   foi escrito para a integração Meta e não cobre todo o Mugô Dados
+ *   (Google/GA4/Google Ads, Shopify, FBITS, IA, contas de usuário). Validar
+ *   juridicamente antes da abertura definitiva para clientes.
+ * - "pending": documento que ainda não existe (Termos de Uso). Nenhum texto
+ *   jurídico é inventado aqui.
+ * Nenhuma página afirma conformidade com a LGPD.
+ */
+
+function LegalHeader({ title, summary, updated = LAST_UPDATED }: { title: string; summary: string; updated?: string | null }) {
   return (
     <>
       <header className="legalHeader">
@@ -13,6 +24,7 @@ function LegalHeader({ title, summary }: { title: string; summary: string }) {
         </a>
         <nav aria-label="Documentos legais">
           <a href="/privacidade">Privacidade</a>
+          <a href="/termos-de-uso">Termos de uso</a>
           <a href="/protecao-de-dados">Proteção de dados</a>
           <a href="/exclusao-de-dados">Exclusão de dados</a>
         </nav>
@@ -21,7 +33,7 @@ function LegalHeader({ title, summary }: { title: string; summary: string }) {
         <p className="legalEyebrow">Mugô Dados</p>
         <h1>{title}</h1>
         <p>{summary}</p>
-        <small>Última atualização: {LAST_UPDATED}</small>
+        {updated ? <small>Última atualização: {updated}</small> : null}
       </section>
     </>
   );
@@ -34,6 +46,7 @@ function LegalFooter() {
       <span>Plataforma de dados e inteligência da Mugô.</span>
       <nav aria-label="Links legais do rodapé">
         <a href="/privacidade">Privacidade</a>
+        <a href="/termos-de-uso">Termos de uso</a>
         <a href="/protecao-de-dados">Proteção de dados</a>
         <a href="/exclusao-de-dados">Exclusão de dados</a>
       </nav>
@@ -44,7 +57,7 @@ function LegalFooter() {
 
 export function PrivacyPage() {
   return (
-    <main className="legalPage" data-public-route="privacy">
+    <main className="legalPage" data-public-route="privacy" data-legal-status="review-pending">
       <LegalHeader
         title="Política de Privacidade"
         summary="Esta política explica como o Mugô Dados trata informações autorizadas pelas empresas que conectam seus ativos da Meta à plataforma."
@@ -149,7 +162,7 @@ export function PrivacyPage() {
 
 export function DataDeletionPage() {
   return (
-    <main className="legalPage" data-public-route="data-deletion">
+    <main className="legalPage" data-public-route="data-deletion" data-legal-status="review-pending">
       <LegalHeader
         title="Exclusão de dados"
         summary="Veja como solicitar a remoção dos dados associados à integração da sua empresa com a Meta."
@@ -218,7 +231,7 @@ export function DataDeletionPage() {
 
 export function DataProtectionPage() {
   return (
-    <main className="legalPage" data-public-route="data-protection">
+    <main className="legalPage" data-public-route="data-protection" data-legal-status="review-pending">
       <LegalHeader
         title="Proteção de dados"
         summary="Conheça as práticas aplicadas pelo Mugô Dados para limitar acessos e proteger informações das empresas usuárias."
@@ -270,6 +283,37 @@ export function DataProtectionPage() {
           <p>
             Consulte também a <a href="/privacidade">Política de Privacidade</a> e as instruções de
             <a href="/exclusao-de-dados"> exclusão de dados</a>.
+          </p>
+        </section>
+      </article>
+      <LegalFooter />
+    </main>
+  );
+}
+
+/**
+ * PENDENTE — o texto dos Termos de Uso não existe no projeto. Esta página só
+ * reserva a rota e diz isso com clareza; nenhum conteúdo jurídico é
+ * inventado aqui. Substituir pelo documento oficial, revisado juridicamente,
+ * antes de liberar o acesso de clientes.
+ */
+export function TermsPage() {
+  return (
+    <main className="legalPage" data-public-route="terms" data-legal-status="pending">
+      <LegalHeader
+        title="Termos de Uso"
+        summary="Documento em elaboração. O texto dos Termos de Uso do Mugô Dados ainda não foi publicado."
+        updated={null}
+      />
+      <article className="legalContent">
+        <section>
+          <h2>Documento pendente</h2>
+          <p>Esta página receberá os Termos de Uso oficiais do Mugô Dados.</p>
+          <p data-legal-contact="terms">
+            Dúvidas sobre o uso da plataforma ou sobre privacidade: <strong>{LEGAL_CONTACT}</strong>
+          </p>
+          <p>
+            Consulte também a <a href="/privacidade">Política de Privacidade</a>.
           </p>
         </section>
       </article>

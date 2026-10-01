@@ -1,17 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
-import { INTEGRATION_REGISTRY } from "../app/integrationRegistry";
-import { getIntegrationPlatformBrand } from "../app/brandRegistry";
-import { PlatformLogo } from "../components/BrandLogo";
-import MugoLogo from "../components/MugoLogo";
-import "../components/mugo-logo.css";
-import "../styles/Login.css";
+import AuthFrame from "../components/auth/AuthFrame";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
-
-const PRODUCT_NAME = "Mugô Dados";
-const PANEL_NAME = "Inteligência para decisões mais claras";
 
 function maskEmail(value: string | null | undefined): string {
   const email = String(value || "").trim();
@@ -37,18 +29,160 @@ function toErrorMessage(error: unknown): string {
   return "Erro inesperado no login.";
 }
 
+/**
+ * Mensagem para quem está entrando: em português e sem nomes internos de
+ * infraestrutura. Mesmas condições de antes; só o texto exibido mudou.
+ */
 function withEmailHint(message: string): string {
   const msg = message.toLowerCase();
-  if (msg.includes("email not confirmed") || msg.includes("invalid login credentials")) {
-    return `${message} Confira se esse e-mail ja foi cadastrado no Supabase Auth.`;
-  }
+  if (msg.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
+  if (msg.includes("email not confirmed")) return "Confirme seu e-mail antes de entrar.";
   if (msg.includes("smtp") || msg.includes("email provider")) {
-    return [
-      message,
-      "No Supabase, confirme se o provider de e-mail esta habilitado e se o SMTP esta configurado.",
-    ].join(" ");
+    return "Não foi possível enviar o e-mail agora. Tente novamente em alguns minutos.";
   }
   return message;
+}
+
+export type LoginMode = "login" | "recover" | "set-password";
+
+export type LoginViewProps = {
+  mode: LoginMode;
+  email: string;
+  password: string;
+  passwordConfirmation: string;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onPasswordConfirmationChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onModeChange: (mode: LoginMode) => void;
+  error: string | null;
+  info: string | null;
+  busy: boolean;
+  inputDisabled: boolean;
+  authUnavailable: boolean;
+  localAuthAvailable: boolean;
+  onLocalLogin: () => void;
+};
+
+const MODE_TITLE: Record<LoginMode, string> = {
+  login: "Acesse sua conta",
+  recover: "Redefinir senha",
+  "set-password": "Defina sua senha",
+};
+
+const MODE_SUBMIT: Record<LoginMode, { idle: string; busy: string }> = {
+  login: { idle: "Entrar", busy: "Entrando..." },
+  recover: { idle: "Enviar link de redefinição", busy: "Enviando..." },
+  "set-password": { idle: "Definir senha", busy: "Salvando..." },
+};
+
+/** Tela de acesso: o produto, uma frase e o formulário. Nada de clientes, logos de terceiros ou ilustrações. */
+export function LoginView({
+  mode,
+  email,
+  password,
+  passwordConfirmation,
+  onEmailChange,
+  onPasswordChange,
+  onPasswordConfirmationChange,
+  onSubmit,
+  onModeChange,
+  error,
+  info,
+  busy,
+  inputDisabled,
+  authUnavailable,
+  localAuthAvailable,
+  onLocalLogin,
+}: LoginViewProps) {
+  const submitLabel = authUnavailable ? "Configuração pendente" : busy ? MODE_SUBMIT[mode].busy : MODE_SUBMIT[mode].idle;
+
+  return (
+    <AuthFrame labelledBy="login-title">
+      <h1 id="login-title" className="loginTitle">{MODE_TITLE[mode]}</h1>
+      {mode === "recover" ? (
+        <p className="loginLead">Informe o e-mail da sua conta para receber o link de redefinição.</p>
+      ) : null}
+
+      {error ? <p className="loginMessage is-error" role="alert">{error}</p> : null}
+      {info ? <p className="loginMessage" role="status">{info}</p> : null}
+
+      <form className="loginForm" onSubmit={onSubmit}>
+        {mode !== "set-password" ? (
+          <div className="loginField">
+            <label htmlFor="email">E-mail</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="nome@empresa.com.br"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              disabled={inputDisabled}
+              required
+            />
+          </div>
+        ) : null}
+
+        {mode !== "recover" ? (
+          <div className="loginField">
+            <label htmlFor="password">{mode === "set-password" ? "Nova senha" : "Senha"}</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete={mode === "set-password" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              disabled={inputDisabled}
+              required
+            />
+          </div>
+        ) : null}
+
+        {mode === "set-password" ? (
+          <div className="loginField">
+            <label htmlFor="password-confirmation">Confirmar nova senha</label>
+            <input
+              id="password-confirmation"
+              type="password"
+              autoComplete="new-password"
+              value={passwordConfirmation}
+              onChange={(event) => onPasswordConfirmationChange(event.target.value)}
+              disabled={inputDisabled}
+              required
+            />
+          </div>
+        ) : null}
+
+        <button className="loginSubmit" type="submit" disabled={inputDisabled}>
+          {submitLabel}
+        </button>
+      </form>
+
+      <div className="loginSecondary">
+        {mode === "login" ? (
+          <button className="loginTextButton" type="button" onClick={() => onModeChange("recover")}>
+            Esqueci minha senha
+          </button>
+        ) : mode === "recover" ? (
+          <button className="loginTextButton" type="button" onClick={() => onModeChange("login")}>
+            Voltar para o acesso
+          </button>
+        ) : null}
+        {localAuthAvailable ? (
+          <button className="loginTextButton" type="button" onClick={onLocalLogin} disabled={busy}>
+            Entrar em modo local
+          </button>
+        ) : null}
+      </div>
+
+      {/* Redação pendente de validação jurídica: os Termos de Uso ainda não foram publicados. */}
+      <p className="loginConsent" data-legal-status="review-pending">
+        Ao continuar, você concorda com os <a href="/termos-de-uso">Termos de Uso</a> e a{" "}
+        <a href="/privacidade">Política de Privacidade</a>.
+      </p>
+    </AuthFrame>
+  );
 }
 
 type Props = {
@@ -69,7 +203,7 @@ export default function Login({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [mode, setMode] = useState<"login" | "recover" | "set-password">(() => {
+  const [mode, setMode] = useState<LoginMode>(() => {
     const values = `${window.location.search}&${window.location.hash}`;
     return values.includes("type=recovery") || values.includes("type=invite")
       ? "set-password"
@@ -153,7 +287,7 @@ export default function Login({
         userId: data.session?.user?.id || null,
       });
 
-      setInfo("Login realizado com sucesso. Carregando o painel do cliente ativo...");
+      setInfo("Acesso confirmado. Carregando...");
       await onPasswordLoginSuccess?.(data.session ?? null);
     } catch (error: unknown) {
       const message = withEmailHint(toErrorMessage(error));
@@ -222,157 +356,32 @@ export default function Login({
   const authUnavailable = Boolean(authConfigError);
   const inputDisabled = passwordLoading || authChecking || authUnavailable;
   const visibleError = err || authConfigError;
-  const localAuthAvailable = isLocalAuthAvailable();
 
   function handleLocalLogin() {
     enableLocalAuth();
     setErr(null);
-    setInfo("Modo local ativo. Abrindo o painel do cliente ativo...");
+    setInfo("Modo local ativo. Carregando...");
     onLocalLogin?.();
   }
 
   return (
-    <div className="loginPage">
-      <div className="loginShell">
-        <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô Dados">
-          <MugoLogo variant="wordmark" className="loginBrandTopLogo loginTopLogo" alt="Mugô Dados" />
-
-          <div className="loginBrandCopy">
-            <div className="loginBrandEyebrow">{PANEL_NAME}</div>
-            <h1>{PRODUCT_NAME}</h1>
-            <p className="loginBrandLead">
-              Performance, mídia e comércio em uma visão confiável para cada empresa.
-            </p>
-          </div>
-
-          <div className="loginEcosystem" aria-label="Ecossistema de integrações">
-            {INTEGRATION_REGISTRY.map((provider) => {
-              const platformBrand = getIntegrationPlatformBrand(provider.id);
-              return (
-                <div className="loginEcosystemItem" key={provider.id}>
-                  {platformBrand ? <PlatformLogo platform={platformBrand} size={36} className="loginPlatformLogo" /> : null}
-                  <div>
-                    <strong>{provider.name}</strong>
-                    <small>{provider.resources[0]}</small>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="loginCard">
-          <div className="loginCardInner">
-            
-            <h2 className="loginTitle">Entrar no workspace</h2>
-            <p className="loginSubtitle">
-              Use seu acesso enviado pela Mugô Dados para abrir o painel privado.
-            </p>
-
-            {visibleError ? <div className="loginError">{visibleError}</div> : null}
-            {info ? <div className="loginInfo">{info}</div> : null}
-
-            <form
-              onSubmit={
-                mode === "recover"
-                  ? onRecoverPassword
-                  : mode === "set-password"
-                    ? onSetPassword
-                    : onPasswordLogin
-              }
-            >
-              {mode !== "set-password" ? (
-              <div>
-                <label className="loginFieldLabel" htmlFor="email">
-                  E-mail
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="mugo.agencia@gmail.com"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  disabled={inputDisabled}
-                  required
-                />
-              </div>
-              ) : null}
-
-              {mode !== "recover" ? <div>
-                <label className="loginFieldLabel" htmlFor="password">
-                  {mode === "set-password" ? "Nova senha" : "Senha"}
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  placeholder="Sua senha"
-                  autoComplete={mode === "set-password" ? "new-password" : "current-password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  disabled={inputDisabled}
-                  required
-                />
-              </div> : null}
-
-              {mode === "set-password" ? (
-                <div>
-                  <label className="loginFieldLabel" htmlFor="password-confirmation">
-                    Confirmar nova senha
-                  </label>
-                  <input
-                    id="password-confirmation"
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordConfirmation}
-                    onChange={(event) => setPasswordConfirmation(event.target.value)}
-                    disabled={inputDisabled}
-                    required
-                  />
-                </div>
-              ) : null}
-
-              <button type="submit" disabled={inputDisabled}>
-                {authUnavailable
-                  ? "Configuracao pendente"
-                  : passwordLoading || authChecking
-                    ? "Processando..."
-                    : mode === "recover"
-                      ? "Enviar link seguro"
-                      : mode === "set-password"
-                        ? "Definir senha"
-                        : "Entrar no painel"}
-              </button>
-            </form>
-
-            {mode === "login" ? (
-              <button className="loginLocalButton" type="button" onClick={() => setMode("recover")}>
-                Esqueci minha senha
-              </button>
-            ) : mode === "recover" ? (
-              <button className="loginLocalButton" type="button" onClick={() => setMode("login")}>
-                Voltar ao login
-              </button>
-            ) : null}
-
-            {localAuthAvailable ? (
-              <button
-                className="loginLocalButton"
-                type="button"
-                onClick={handleLocalLogin}
-                disabled={passwordLoading || authChecking}
-              >
-                Entrar em modo local
-              </button>
-            ) : null}
-
-            <div className="loginHint">
-              Usuarios e senhas precisam ser provisionados no Supabase Auth antes do
-              primeiro acesso.
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
+    <LoginView
+      mode={mode}
+      email={email}
+      password={password}
+      passwordConfirmation={passwordConfirmation}
+      onEmailChange={setEmail}
+      onPasswordChange={setPassword}
+      onPasswordConfirmationChange={setPasswordConfirmation}
+      onSubmit={mode === "recover" ? onRecoverPassword : mode === "set-password" ? onSetPassword : onPasswordLogin}
+      onModeChange={setMode}
+      error={visibleError}
+      info={info}
+      busy={passwordLoading || authChecking}
+      inputDisabled={inputDisabled}
+      authUnavailable={authUnavailable}
+      localAuthAvailable={isLocalAuthAvailable()}
+      onLocalLogin={handleLocalLogin}
+    />
   );
 }

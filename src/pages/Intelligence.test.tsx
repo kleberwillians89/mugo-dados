@@ -92,9 +92,9 @@ afterEach(async () => {
   container.remove();
 });
 
-async function renderIntelligence() {
+async function renderIntelligence(canRefresh = true) {
   await act(async () => {
-    root.render(<Intelligence onLogout={() => {}} />);
+    root.render(<Intelligence onLogout={() => {}} canRefresh={canRefresh} />);
   });
   await act(async () => Promise.resolve());
   await act(async () => Promise.resolve());
@@ -139,5 +139,10 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
     await act(async () => Promise.resolve());
     expect(container.textContent).toContain("Receita cresceu no período.");
     expect(container.querySelector(".intelError")).toBeNull();
+  });
+
+  it("não mostra a ação de atualizar análise para viewer", async () => {
+    await renderIntelligence(false);
+    expect(container.textContent).not.toContain("Atualizar análise");
   });
 });

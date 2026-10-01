@@ -243,3 +243,199 @@
 .integrationErrorNotice details{ margin-top: 4px; }
 .integrationErrorNotice summary{ font-size: 11px; color: #8a949a; cursor: pointer; }
 .integrationErrorNotice details span{ display: block; margin-top: 4px; font-size: 11px; color: #a3a8ab; font-family: ui-monospace, monospace; }
+
+/* ====== LINGUAGEM EDITORIAL (shell global) ======
+   Empresa › Integrações. Cada plataforma em uma linha: integração → estado
+   → conta conectada. Mesmos elementos, estados e ações — só a apresentação. */
+.onboardingPage{
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+.onboardingWrap{
+  max-width: 1280px;
+  padding: var(--space-5) clamp(16px, 3vw, 40px) var(--space-8);
+  gap: var(--space-5);
+}
+.integrationsHeaderActions{ flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.integrationsLead{ margin: calc(-1 * var(--space-2)) 0 var(--space-2); max-width: 72ch; font-size: 14px; line-height: 1.5; color: var(--text-secondary); }
+.integrationsSectionTitle{
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+  color: var(--text-primary);
+}
+
+/* Botões: sem gradiente nem sombra; a ação principal em tinta. */
+.onboardingPage .btn{
+  height: auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 500 13px/1 var(--font-body);
+  box-shadow: none;
+  transform: none;
+}
+.onboardingPage .btn:hover{ border-color: rgba(21, 24, 27, .22); box-shadow: none; transform: none; }
+.onboardingPage .btnPrimary,
+.onboardingPage .btnGold{ border-color: var(--text-primary); background: var(--text-primary); color: #fff; }
+.onboardingPage .btnPrimary:hover,
+.onboardingPage .btnGold:hover{ background: #000; }
+.onboardingPage .btn:disabled{ opacity: .45; }
+.onboardingPage :is(a, button, input, select):focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Avisos: régua lateral, sem pílula colorida. */
+.onboardingPage .pill{
+  display: block;
+  padding: 10px 0 10px 14px;
+  border: 0;
+  border-left: 2px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.onboardingPage .pill.pillDanger{ border-left-color: var(--negative); color: var(--text-primary); }
+.onboardingPage .pill.pillSoft{ border-left-color: var(--accent); }
+
+/* Cartões legados viram blocos tipográficos; tarefas em andamento ganham painel. */
+.onboardingPage .card{ padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.onboardingPage .card + .card{ margin-top: var(--space-5); }
+.onboardingPage .card.onboardingFinalizeCard{
+  padding: var(--space-5);
+  border: 1px solid rgba(21, 24, 27, .16);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: none;
+}
+.onboardingPage .sectionHeader{ display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }
+.onboardingPage .h1{ font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--text-primary); }
+.onboardingPage .p{ margin-top: 4px; font-size: 14px; line-height: 1.5; color: var(--text-secondary); }
+.onboardingPage .smallMuted{ font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+/* Plataformas: uma linha por integração. */
+.integrationList{ display: flex; flex-direction: column; gap: 0; margin-top: 0; border-bottom: 1px solid var(--border-subtle); }
+.integrationList > .onboardingConnBlock{
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-6);
+  row-gap: 2px;
+  min-height: 0;
+  padding: var(--space-5) 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.integrationList > .onboardingConnBlock > *{ grid-column: 1 / -1; }
+.integrationList > .onboardingConnBlock > .integrationCardHeading{ grid-column: 1; grid-row: 1 / span 3; align-self: start; }
+.integrationList > .onboardingConnBlock > .integrationStateRow{ grid-column: 2; grid-row: 1; margin-top: 0; }
+.integrationList > .onboardingConnBlock > .integrationDetail{ grid-column: 2; margin-top: 2px !important; }
+.integrationList > .onboardingConnBlock > .integrationAccount{ color: var(--text-secondary); }
+.integrationList > .onboardingConnBlock > .integrationManageToggle{ grid-column: 3; grid-row: 1; justify-self: end; margin-top: 0; }
+.integrationList > .onboardingConnBlock > .integrationErrorNotice{ margin-top: var(--space-3) !important; }
+.integrationList .integrationCardHeading .h1{ font-size: 16px; }
+.integrationList .integrationCardHeading .smallMuted{ font-size: 13px; }
+.onboardingPage .integrationOfficialLogo{
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.integrationList .integrationStateRow{ font-size: 14px; color: var(--text-primary); }
+.integrationList .integrationStateRow strong{ font-weight: 500; }
+.onboardingPage .integrationLight{ width: 8px; height: 8px; flex-basis: 8px; box-shadow: none; animation: none; }
+.onboardingPage .integrationLight.is-red{ background: var(--negative); }
+.onboardingPage .integrationLight.is-yellow{ background: #c98a12; }
+.onboardingPage .integrationLight.is-green{ background: var(--positive); }
+.integrationList .onboardingConnActions{ display: flex; flex-wrap: wrap; justify-content: flex-start; gap: var(--space-2); }
+
+.onboardingPage .onboardingComingSoon{ margin-top: var(--space-4); padding-top: 0; border-top: 0; }
+.onboardingPage .onboardingComingSoonPill{ padding: 0; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 500; }
+.onboardingPage .onboardingComingSoonPill + .onboardingComingSoonPill::before{ content: "· "; }
+
+/* Fluxo de ativos (Meta): lista limpa — página, Instagram, conta de anúncios. */
+.onboardingPage .onboardingAssets{ gap: var(--space-5); }
+.onboardingPage .onboardingAssetBlock{ padding: var(--space-3) 0 0; border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; background: transparent; }
+.onboardingPage .onboardingCheck{ font-size: 14px; color: var(--text-primary); }
+
+/* Ativos Meta agrupados por Business: cabeçalho discreto, mesmos checkboxes. */
+.metaAssetGroups{ display: grid; gap: var(--space-5, 20px); margin-top: 12px; }
+.metaAssetGroup{ display: grid; gap: 8px; min-width: 0; }
+.metaAssetGroup .onboardingAssets{ margin-top: 4px; }
+.metaAssetGroupHeader{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.metaAssetGroupHeader strong{ font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+/* Avisos do seletor quebram linha (o .smallMuted global corta com reticências). */
+.metaAssetGroups > div.smallMuted,
+.metaAssetGroup > div.smallMuted{ white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.metaAssetNote{ display: block; margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--text-muted, #68757c); }
+.onboardingCheck input:disabled + span{ color: var(--text-muted, #68757c); }
+
+/* Conexões Meta cadastradas */
+.onboardingPage .onboardingConnItem{ min-width: 0; padding: var(--space-4) 0; border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; }
+@media (max-width: 719px){
+  /* Celular: texto em cima, ações embaixo — nada passa da largura do card. */
+  .onboardingPage .onboardingConnItem{ flex-direction: column; }
+  .onboardingPage .onboardingConnActions{ justify-items: start; }
+}
+
+/* Diagnóstico (só agência): técnico, recolhido visualmente. */
+.onboardingPage section[aria-label="Diagnóstico temporário de integrações"]{ padding: var(--space-4); border: 1px dashed var(--border-subtle); border-radius: var(--radius-md); }
+.onboardingPage section[aria-label="Diagnóstico temporário de integrações"] .smallMuted{ font-size: 12px; }
+
+@media (max-width: 1023px){
+  .integrationList > .onboardingConnBlock{ grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-4); }
+  .integrationList > .onboardingConnBlock > .integrationCardHeading{ grid-column: 1; grid-row: 1; }
+  .integrationList > .onboardingConnBlock > .integrationManageToggle{ grid-column: 2; grid-row: 1; }
+  .integrationList > .onboardingConnBlock > .integrationStateRow{ grid-column: 1 / -1; grid-row: auto; margin-top: var(--space-3); }
+  .integrationList > .onboardingConnBlock > .integrationDetail{ grid-column: 1 / -1; }
+  .integrationsHeaderActions{ justify-content: flex-start; }
+}
+
+/* Ajustes finos do cabeçalho e das linhas de plataforma. */
+.ds-pageHeaderAside.integrationsHeaderActions{ flex-direction: row; align-items: center; }
+.integrationList > .onboardingConnBlock > :is(button, .btn){ justify-self: start; margin-top: var(--space-3) !important; }
+.integrationList > .onboardingConnBlock > .integrationManageToggle{ margin-top: 0 !important; }
+.onboardingPage :is(input[type="text"], input[type="search"], input:not([type]), select){
+  width: 100%;
+  max-width: 440px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(21, 24, 27, .16);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 400 14px var(--font-body);
+}
+/* Estado: ponto + texto (o sentido nunca depende só da cor), sem pílula. */
+.onboardingPage .statusBadge{ padding: 0; background: transparent; font-size: 14px; font-weight: 500; }
+.onboardingPage .statusBadge.is-success{ color: var(--positive); }
+.onboardingPage .statusBadge.is-warning{ color: var(--warning); }
+.onboardingPage .statusBadge.is-error{ color: var(--negative); }
+.onboardingPage .statusBadge.is-info,
+.onboardingPage .statusBadge.is-neutral{ color: var(--text-secondary); }
+.onboardingPage .integrationOfficialLogo{ padding: 2px; }
+.onboardingPage .onboardingComingSoon{ gap: 6px; }
+.integrationsBuild{ max-width: 1280px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px) var(--space-5); font-size: 12px; }
+/* Cabeçalhos de seção sempre em linha (o legado empilhava e alinhava à direita). */
+.onboardingPage .sectionHeader{ flex-direction: row; flex-wrap: wrap; align-items: center; }
+/* Nome e recursos da plataforma quebram em vez de serem cortados pelo botão. */
+.integrationList .integrationCardHeading,
+.integrationList .integrationCardHeading > div{ min-width: 0; }
+.integrationList .integrationCardHeading .smallMuted{ white-space: normal; overflow-wrap: anywhere; }

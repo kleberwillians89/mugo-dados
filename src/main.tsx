@@ -5,8 +5,11 @@ import { PeriodProvider } from "./app/PeriodContext";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 
 import "./index.css"; // reset + base
+import "./styles/fonts.css";
 import "./styles/mugo.tokens.css";
+import "./styles/design-system.css";
 import "./styles/App.css";
+import "./styles/shell.css";
 
 function renderBootstrapFallback(message: string) {
   const container = document.createElement("div");

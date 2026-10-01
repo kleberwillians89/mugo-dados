@@ -1,44 +1,38 @@
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import type {
-  FbitsMetricComparison,
   FbitsOrderRow,
   FbitsOrdersResponse,
   FbitsOrdersSummaryResponse,
+  FbitsTrendPoint,
 } from "../../app/types";
 import { formatSelectedPeriodLabel } from "../../app/periodRange";
-import MetaStateNotice from "./MetaStateNotice";
+import {
+  formatCalendarDate,
+  formatCalendarDateWords,
+  formatCurrency,
+  formatCurrencyAxis,
+  formatCurrencyShort,
+  formatInteger,
+  uniquePeak,
+} from "../../app/dataFormat";
+import DataNotice from "../data/DataNotice";
+import Delta from "../data/Delta";
+import HeroFigure from "../data/HeroFigure";
+import KpiFigure from "../data/KpiFigure";
+import TrendChart from "../data/TrendChart";
 
 type Props = {
   data: FbitsOrdersSummaryResponse | null;
   orders?: FbitsOrdersResponse | null;
   loading: boolean;
   error: string | null;
+  /** Conectado, mas a primeira importação ainda não terminou. */
+  syncPending?: boolean;
 };
 
-const numberFormatter = new Intl.NumberFormat("pt-BR");
-const currencyFormatter = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-  maximumFractionDigits: 2,
-});
+const fmt = formatInteger;
+const money = formatCurrency;
 
-function fmt(value: number) {
-  return numberFormatter.format(Number(value || 0));
-}
-
-function money(value: number) {
-  return currencyFormatter.format(Number(value || 0));
-}
-
+/** Pedidos têm data e hora: exibidos no fuso comercial. */
 function shortDate(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return "—";
@@ -48,32 +42,49 @@ function shortDate(value: string | null | undefined) {
     : parsed.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
-function delta(metric: FbitsMetricComparison | undefined) {
-  const change = metric?.change_percent;
-  if (change === null || typeof change === "undefined") return <span className="fbitsDelta isNeutral">— vs. período anterior</span>;
-  const tone = change > 0 ? "isPositive" : change < 0 ? "isNegative" : "isNeutral";
-  return <span className={`fbitsDelta ${tone}`}>{change > 0 ? "↑" : change < 0 ? "↓" : "→"} {Math.abs(change).toLocaleString("pt-BR")}% vs. período anterior</span>;
-}
-
 function orderClient(order: FbitsOrderRow) {
-  return order.cliente_nome || order.cliente_email || order.cliente_id || "Cliente não identificado";
+  // Só o identificador: "#" evita confundi-lo com o número do pedido.
+  return order.cliente_nome || order.cliente_email || (order.cliente_id ? `#${order.cliente_id}` : "Cliente não identificado");
 }
 
 function orderStatus(order: FbitsOrderRow) {
   return order.situacao_pedido || (order.situacao_pedido_id ? `Status ${order.situacao_pedido_id}` : "Sem status");
 }
 
-function chartGranularity(value: string | undefined) {
-  if (value === "week") return "semanal";
-  if (value === "month") return "mensal";
-  return "diária";
+type Granularity = "day" | "week" | "month";
+
+const GRANULARITY_NOUN: Record<Granularity, string> = { day: "dia", week: "semana", month: "mês" };
+
+function axisDate(value: string, granularity: Granularity) {
+  return formatCalendarDate(value, granularity === "month" ? "month" : "day");
 }
 
-export default function FbitsExecutiveDashboard({ data, orders, loading, error }: Props) {
+function bucketLabel(value: string, granularity: Granularity) {
+  if (granularity === "week") return `semana de ${formatCalendarDate(value)}`;
+  if (granularity === "month") return formatCalendarDate(value, "month");
+  return formatCalendarDate(value, "long");
+}
+
+/**
+ * Título do gráfico: acrescenta ao resumo (não repete a receita). Só aponta
+ * o pico quando ele é objetivo — um único maior valor; senão, é descritivo.
+ */
+function trendTitle(peak: FbitsTrendPoint | null, granularity: Granularity) {
+  if (!peak) return "Vendas ao longo do período";
+  if (granularity === "week") return `A semana de ${formatCalendarDateWords(peak.date)} concentrou o maior volume de vendas`;
+  if (granularity === "month") {
+    const month = formatCalendarDateWords(peak.date, "month");
+    return `${month.charAt(0).toUpperCase()}${month.slice(1)} concentrou o maior volume de vendas`;
+  }
+  return `${formatCalendarDateWords(peak.date)} concentrou o maior volume de vendas`;
+}
+
+export default function FbitsExecutiveDashboard({ data, orders, loading, error, syncPending = false }: Props) {
   const summary = data?.summary;
   const connected = Boolean(data?.connected);
   const statuses = data?.status_distribution || [];
   const trend = data?.trend?.items || [];
+  const granularity: Granularity = data?.trend?.granularity || "day";
   const products = orders?.top_products || [];
   const recentOrders = orders?.items?.slice(0, 10) || [];
   const cancelled = statuses
@@ -81,96 +92,218 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error }
   const pending = statuses
     .reduce((total, item) => total + (!item.counts_as_revenue ? Math.max(0, item.pedidos - (item.invalid_orders || (/cancel|inválid|invalid/i.test(item.status) ? item.pedidos : 0))) : 0), 0);
   const periodLabel = data?.period ? formatSelectedPeriodLabel(data.period) : "Período selecionado";
+  const previousLabel = data?.previous_period ? formatSelectedPeriodLabel(data.previous_period) : null;
 
   if (loading && !data) {
-    return <section className="fbitsExecutiveDashboard"><div className="fbitsExecutiveLoading" role="status">Atualizando vendas do período...</div></section>;
+    return <p className="ds-status" role="status">Atualizando vendas do período...</p>;
   }
   if (error && !data) {
-    return <MetaStateNotice title="Vendas FBITS indisponíveis" description="Não foi possível consultar o período selecionado." message={error} tone="unavailable" />;
+    return (
+      <DataNotice tone="negative" role="alert" title="Vendas FBITS indisponíveis">
+        Não foi possível consultar o período selecionado. {error}
+      </DataNotice>
+    );
   }
   if (!connected && !error) {
-    return <MetaStateNotice title="FBITS ainda não conectado" description="Conecte a plataforma para acompanhar as vendas." message="FBITS ainda não conectado." tone="empty" />;
+    return <DataNotice title="FBITS ainda não conectado">Conecte a plataforma para acompanhar as vendas.</DataNotice>;
   }
+  if (!summary) return null;
+  // Sem nada importado ainda, zeros e "não houve vendas" seriam falsos: a
+  // página mostra o aviso de sincronização pendente.
+  if (syncPending && summary.pedidos === 0) return null;
+
+  const peak = uniquePeak(trend, (point) => point.revenue);
+  const noun = GRANULARITY_NOUN[granularity];
+  const hasComparison = [data?.comparison?.receita_oficial, data?.comparison?.pedidos, data?.comparison?.ticket_medio]
+    .some((metric) => typeof metric?.change_percent === "number" && Number.isFinite(metric.change_percent));
+  const shownOrders = recentOrders.length;
+  const totalOrders = Number(orders?.count || 0);
 
   return (
-    <section className={`fbitsExecutiveDashboard${loading ? " isRefreshing" : ""}`} aria-busy={loading}>
-      <div className="fbitsDashboardTitle">
-        <div><div className="h1">Desempenho comercial</div><div className="p">Pedidos pela data comercial em {periodLabel}.</div></div>
-        {loading ? <span className="pill">Atualizando...</span> : null}
+    <div className={`ds-stack${loading ? " ds-refreshing" : ""}`} aria-busy={loading}>
+      {loading ? <p className="ds-status" role="status">Atualizando vendas do período...</p> : null}
+      {error ? <DataNotice tone="negative" role="alert" title="Não foi possível atualizar">{error}</DataNotice> : null}
+
+      {/* Uma história principal: quanto vendeu e se melhorou. Depois, o que
+          a explica (pedidos, ticket, clientes) e o operacional, mais baixo. */}
+      <section className="ds-summary" aria-label="Resumo do período">
+        <HeroFigure
+          value={formatCurrencyShort(summary.receita_oficial)}
+          exactValue={money(summary.receita_oficial)}
+          rawValue={summary.receita_oficial}
+          label="vendidos no período"
+          delta={<Delta change={data?.comparison?.receita_oficial?.change_percent} showReference />}
+          testId="kpi-receita"
+        />
+        <div className="ds-kpis">
+          <KpiFigure
+            label="Pedidos"
+            value={fmt(summary.pedidos)}
+            rawValue={summary.pedidos}
+            delta={<Delta change={data?.comparison?.pedidos?.change_percent} />}
+            testId="kpi-pedidos"
+          />
+          <KpiFigure
+            label="Ticket médio"
+            value={formatCurrencyShort(summary.ticket_medio)}
+            exactValue={money(summary.ticket_medio)}
+            rawValue={summary.ticket_medio}
+            delta={<Delta change={data?.comparison?.ticket_medio?.change_percent} />}
+            testId="kpi-ticket"
+          />
+          <KpiFigure label="Clientes" value={fmt(summary.clientes)} rawValue={summary.clientes} testId="kpi-clientes" />
+        </div>
+        <div className="ds-secondary">
+          <dl className="ds-inlineStats">
+            <div><dt>Aguardando</dt><dd>{fmt(pending)}</dd></div>
+            <div><dt>Cancelados / inválidos</dt><dd>{fmt(cancelled)}</dd></div>
+            <div><dt>Descontos</dt><dd>{money(summary.descontos || 0)}</dd></div>
+            <div><dt>Frete</dt><dd>{money(summary.frete || 0)}</dd></div>
+          </dl>
+          <p className="ds-footnote">
+            {previousLabel
+              ? hasComparison ? `Variações em relação a ${previousLabel}. ` : `Sem base de comparação em ${previousLabel}. `
+              : null}
+            Cancelados e inválidos não entram na receita.
+          </p>
+        </div>
+      </section>
+
+      <section className="ds-section ds-chartSection" aria-labelledby="fbits-trend-title">
+        <div className="ds-sectionHead">
+          <div className="ds-sectionHeadText">
+            <h2 id="fbits-trend-title" className="ds-sectionTitle">{trendTitle(peak, granularity)}</h2>
+            {peak ? (
+              <p className="ds-caption">
+                {money(peak.revenue)} em {fmt(peak.orders)} {peak.orders === 1 ? "pedido" : "pedidos"}
+              </p>
+            ) : null}
+          </div>
+          {trend.length && summary.pedidos > 0 ? (
+            <p className="ds-chartKey" aria-hidden="true">
+              <span className="is-line">Receita</span>
+              <span className="is-bar">Pedidos</span>
+              <span>por {noun}</span>
+            </p>
+          ) : null}
+        </div>
+        {summary.pedidos === 0 ? <p className="ds-emptyLine">Não houve vendas neste período.</p> : trend.length ? (
+          <TrendChart
+            data={trend}
+            xKey="date"
+            primaryKey="revenue"
+            secondaryKey="orders"
+            formatX={(value) => axisDate(value, granularity)}
+            formatY={formatCurrencyAxis}
+            ariaLabel={`Receita e pedidos por ${noun}, ${periodLabel}.`}
+            testId="fbits-sales-chart"
+            renderTooltip={(point) => (
+              <>
+                <strong>{bucketLabel(point.date, granularity)}</strong>
+                <dl>
+                  <dt>Receita</dt><dd>{money(point.revenue)}</dd>
+                  <dt>Pedidos</dt><dd>{fmt(point.orders)}</dd>
+                  <dt>Ticket médio</dt><dd>{money(point.average_ticket)}</dd>
+                </dl>
+              </>
+            )}
+          />
+        ) : summary.pedidos > 0 ? (
+          <p className="ds-emptyLine">Sem vendas válidas para exibir no gráfico.</p>
+        ) : null}
+      </section>
+
+      <div className="ds-split">
+        <section className="ds-section" aria-labelledby="fbits-status-title">
+          <h2 id="fbits-status-title" className="ds-sectionTitle">Status dos pedidos</h2>
+          {statuses.length ? (
+            <div className="ds-group">
+              <ul className="ds-statusList">
+                {statuses.map((item) => (
+                  <li key={`${item.status_id || "-"}-${item.status}`} className="ds-statusRow">
+                    <span className={`ds-statusDot${item.counts_as_revenue ? " is-revenue" : ""}`} aria-hidden="true" />
+                    <span>
+                      <span className="ds-statusName">{item.status}</span>
+                      <span className="ds-statusCount">
+                        {fmt(item.pedidos)} pedidos
+                        <span className="ds-srOnly">{item.counts_as_revenue ? ", entra na receita" : ", fora da receita"}</span>
+                      </span>
+                    </span>
+                    <span className="ds-statusValue">{money(item.valor)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="ds-legend" aria-hidden="true">
+                <span><span className="ds-statusDot is-revenue" />entra na receita</span>
+                <span><span className="ds-statusDot" />fora da receita</span>
+              </p>
+            </div>
+          ) : (
+            <p className="ds-emptyLine">Sem status no período.</p>
+          )}
+        </section>
+
+        <section className="ds-section" aria-labelledby="fbits-products-title">
+          <h2 id="fbits-products-title" className="ds-sectionTitle">Produtos mais vendidos</h2>
+          {products.length ? (
+            <ol className="ds-rankList">
+              {products.slice(0, 8).map((product) => {
+                const share = summary.receita_oficial > 0 ? (product.receita / summary.receita_oficial) * 100 : 0;
+                return (
+                  <li key={product.product_id || product.sku || product.produto} className="ds-rankRow">
+                    <span className="ds-rankName">{product.produto}</span>
+                    <span className="ds-rankValue">{money(product.receita)}</span>
+                    <span className="ds-rankMeta">{product.sku ? `SKU ${product.sku} · ` : ""}{fmt(product.quantidade)} un.</span>
+                    <span className="ds-rankShare">{share.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</span>
+                    <span className="ds-rankBar" aria-hidden="true">
+                      <span style={{ width: `${Math.min(100, Math.max(0, share))}%` }} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <p className="ds-emptyLine">Sem produtos vendidos no período.</p>
+          )}
+        </section>
       </div>
 
-      {error ? <div className="pill pillDanger" role="alert">{error}</div> : null}
-
-      {summary ? (
-        <>
-          <div className="fbitsKpiGrid">
-            <article className="fbitsKpi isPrimary"><span>Faturamento</span><strong>{money(summary.receita_oficial)}</strong>{delta(data?.comparison?.receita_oficial)}</article>
-            <article className="fbitsKpi"><span>Pedidos</span><strong>{fmt(summary.pedidos)}</strong>{delta(data?.comparison?.pedidos)}</article>
-            <article className="fbitsKpi"><span>Ticket médio</span><strong>{money(summary.ticket_medio)}</strong>{delta(data?.comparison?.ticket_medio)}</article>
-            <article className="fbitsKpi"><span>Clientes</span><strong>{fmt(summary.clientes)}</strong><small>Clientes identificados</small></article>
+      <section className="ds-section" aria-labelledby="fbits-orders-title">
+        <div className="ds-sectionHead">
+          <h2 id="fbits-orders-title" className="ds-sectionTitle">Pedidos recentes</h2>
+          {shownOrders && totalOrders > shownOrders ? (
+            <p className="ds-caption">{fmt(shownOrders)} de {fmt(totalOrders)}</p>
+          ) : null}
+        </div>
+        {shownOrders ? (
+          <div className="ds-tableWrap">
+            <table className="ds-table">
+              <thead>
+                <tr>
+                  <th scope="col">Pedido</th>
+                  <th scope="col">Data</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col" className="is-number">Valor</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentOrders.map((order) => (
+                  <tr key={order.pedido_id}>
+                    <td className="is-primary">{order.pedido_codigo || order.pedido_id}</td>
+                    <td>{shortDate(order.data)}</td>
+                    <td>{orderClient(order)}</td>
+                    <td className="is-number">{money(order.receita_oficial)}</td>
+                    <td>{orderStatus(order)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div className="fbitsSecondaryMetrics">
-            <span><small>Pedidos válidos</small><strong>{fmt(summary.pedidos)}</strong></span>
-            <span><small>Aguardando</small><strong>{fmt(pending)}</strong></span>
-            <span><small>Cancelados / inválidos</small><strong>{fmt(cancelled)}</strong></span>
-            <span><small>Descontos</small><strong>{money(summary.descontos || 0)}</strong></span>
-            <span><small>Frete</small><strong>{money(summary.frete || 0)}</strong></span>
-          </div>
-
-          {summary.pedidos === 0 ? <div className="fbitsNoSales">Não houve vendas neste período.</div> : null}
-
-          <article className="fbitsDashboardCard fbitsSalesChartCard">
-            <header><div><h2>Vendas ao longo do período</h2><p>Granularidade {chartGranularity(data?.trend?.granularity)} · cancelados não entram no faturamento.</p></div></header>
-            {trend.length ? (
-              <div className="fbitsChartViewport" data-testid="fbits-sales-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={trend} margin={{ top: 12, right: 12, left: 6, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="rgba(91,31,42,.08)" strokeDasharray="4 4" />
-                    <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 11, fill: "rgba(26,23,24,.55)" }} axisLine={false} tickLine={false} minTickGap={30} />
-                    <YAxis yAxisId="revenue" tickFormatter={(value) => `R$ ${numberFormatter.format(Number(value))}`} tick={{ fontSize: 11, fill: "rgba(26,23,24,.5)" }} axisLine={false} tickLine={false} width={78} />
-                    <YAxis yAxisId="orders" orientation="right" allowDecimals={false} tick={{ fontSize: 11, fill: "rgba(26,23,24,.5)" }} axisLine={false} tickLine={false} width={36} />
-                    <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
-                      <div className="fbitsChartTooltip">
-                        <strong>{shortDate(String(label))}</strong>
-                        <span>Faturamento <b>{money(Number(payload[0]?.payload?.revenue || 0))}</b></span>
-                        <span>Pedidos <b>{fmt(Number(payload[0]?.payload?.orders || 0))}</b></span>
-                        <span>Ticket médio <b>{money(Number(payload[0]?.payload?.average_ticket || 0))}</b></span>
-                      </div>
-                    ) : null} />
-                    <Bar yAxisId="orders" dataKey="orders" name="Pedidos" fill="rgba(197,151,91,.38)" radius={[5, 5, 0, 0]} />
-                    <Line yAxisId="revenue" dataKey="revenue" name="Faturamento" stroke="#5b1f2a" strokeWidth={3} dot={false} activeDot={{ r: 4 }} type="monotone" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            ) : <div className="fbitsCardEmpty">Sem vendas válidas para exibir no gráfico.</div>}
-          </article>
-
-          <div className="fbitsInsightsGrid">
-            <article className="fbitsDashboardCard">
-              <header><div><h2>Status dos pedidos</h2><p>Quantidade e valor bruto por estado real da FBITS.</p></div></header>
-              {statuses.length ? <div className="fbitsStatusList">{statuses.map((item) => (
-                <div key={`${item.status_id || "-"}-${item.status}`}><span className={item.counts_as_revenue ? "isValid" : ""} /><p><strong>{item.status}</strong><small>{fmt(item.pedidos)} pedidos</small></p><b>{money(item.valor)}</b></div>
-              ))}</div> : <div className="fbitsCardEmpty">Sem status no período.</div>}
-            </article>
-
-            <article className="fbitsDashboardCard">
-              <header><div><h2>Produtos mais vendidos</h2><p>Ranking dos pedidos válidos.</p></div></header>
-              {products.length ? <div className="fbitsProductRanking">{products.slice(0, 8).map((product) => {
-                const share = summary.receita_oficial > 0 ? (product.receita / summary.receita_oficial) * 100 : 0;
-                return <div key={product.product_id || product.sku || product.produto}><p><strong>{product.produto}</strong><small>{product.sku ? `SKU ${product.sku} · ` : ""}{fmt(product.quantidade)} un.</small></p><span><b>{money(product.receita)}</b><small>{share.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</small></span></div>;
-              })}</div> : <div className="fbitsCardEmpty">Sem produtos vendidos no período.</div>}
-            </article>
-          </div>
-
-          <article className="fbitsDashboardCard">
-            <header><div><h2>Pedidos recentes</h2><p>Últimos pedidos do período selecionado.</p></div></header>
-            {recentOrders.length ? <div className="tableWrap fbitsRecentOrders"><table className="table"><thead><tr><th>Pedido</th><th>Data</th><th>Cliente</th><th>Valor</th><th>Status</th></tr></thead><tbody>{recentOrders.map((order) => (
-              <tr key={order.pedido_id}><td>{order.pedido_codigo || order.pedido_id}</td><td>{shortDate(order.data)}</td><td>{orderClient(order)}</td><td>{money(order.receita_oficial)}</td><td><span className="fbitsOrderStatus">{orderStatus(order)}</span></td></tr>
-            ))}</tbody></table></div> : <div className="fbitsCardEmpty">Não há pedidos neste período.</div>}
-          </article>
-        </>
-      ) : null}
-    </section>
+        ) : (
+          <p className="ds-emptyLine">Não há pedidos neste período.</p>
+        )}
+      </section>
+    </div>
   );
 }

@@ -7,7 +7,7 @@ import PerformanceChart from "./PerformanceChart";
 vi.mock("react-chartjs-2", () => ({ Line: () => <div data-testid="line-chart" /> }));
 
 describe("PerformanceChart", () => {
-  it("mostra um dia isolado como valor visível e atribuído à Meta", async () => {
+  it("mostra um dia isolado como valor visível da métrica inicial", async () => {
     const node = document.createElement("div");
     const root = createRoot(node);
     await act(async () => root.render(<PerformanceChart daily={[{
@@ -15,11 +15,11 @@ describe("PerformanceChart", () => {
       reach: 0, impressions: 0, clicks: 0, roas: 7.09, conversions: 4,
       cpc: null, cpm: null, ctr: null,
     }]} />));
-    expect(node.textContent).toContain("Como a receita atribuída evoluiu?");
-    expect(node.textContent).toContain("R$ 2.172");
+    expect(node.textContent).toContain("Investimento por dia");
+    expect(node.textContent).toContain("R$ 306,15");
     expect(node.textContent).toContain("Fonte: Meta Ads");
     expect(node.querySelector('[data-testid="performance-single-day"]')).not.toBeNull();
-    root.unmount();
+    await act(async () => root.unmount());
   });
 
   it("distingue dia ausente de zero explícito", async () => {
@@ -37,6 +37,6 @@ describe("PerformanceChart", () => {
       cpc: null, cpm: null, ctr: null,
     }]} />));
     expect(node.textContent).toContain("R$ 0");
-    root.unmount();
+    await act(async () => root.unmount());
   });
 });

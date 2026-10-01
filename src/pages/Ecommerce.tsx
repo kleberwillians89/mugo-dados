@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { syncFbitsConnection } from "../app/api";
+import { formatCalendarRange, formatDateTimeSaoPaulo } from "../app/dataFormat";
 import {
   isEcommerceSyncPending,
   resolveActiveEcommerceProvider,
@@ -9,6 +10,9 @@ import {
 import { usePeriod } from "../app/PeriodContext";
 import type { ClientIntegrationConnection } from "../app/types";
 import FbitsExecutiveDashboard from "../components/dashboard/FbitsExecutiveDashboard";
+import DataNotice from "../components/data/DataNotice";
+import PageHeader from "../components/data/PageHeader";
+import SegmentedControl from "../components/data/SegmentedControl";
 import Shell from "../components/Shell";
 import useActiveEcommerceProvider from "../hooks/dashboard/useActiveEcommerceProvider";
 import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
@@ -16,6 +20,12 @@ import Shopify from "./Shopify";
 
 type Props = {
   isAuthenticated: boolean;
+  /**
+   * Mesmos papéis que o backend aceita no sync (require_client_role):
+   * platform/agency admin e client_admin (owner/admin legados). Viewer não
+   * recebe a ação — o backend responderia 403.
+   */
+  canSync: boolean;
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
   onOpenGoogleReport: () => void;
@@ -23,6 +33,8 @@ type Props = {
 };
 
 const PROVIDER_LABEL: Record<EcommerceProvider, string> = { shopify: "Shopify", fbits: "FBITS" };
+
+type PeriodRange = { start: string; end: string };
 
 function todayInSaoPaulo(): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -35,22 +47,50 @@ function todayInSaoPaulo(): string {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
-function endingTodayPeriod(days: number) {
+function endingTodayPeriod(days: number): PeriodRange {
   const end = todayInSaoPaulo();
   const endDate = new Date(`${end}T00:00:00Z`);
   endDate.setUTCDate(endDate.getUTCDate() - Math.max(1, days) + 1);
   return { start: endDate.toISOString().slice(0, 10), end };
 }
 
-function EcommerceShell({ onLogout, children }: { onLogout: Props["onLogout"]; children: ReactNode }) {
+function currentMonthPeriod(): PeriodRange {
+  return { start: `${todayInSaoPaulo().slice(0, 7)}-01`, end: todayInSaoPaulo() };
+}
+
+function previousMonthPeriod(): PeriodRange {
+  const today = new Date(`${todayInSaoPaulo()}T12:00:00`);
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const end = new Date(today.getFullYear(), today.getMonth(), 0);
+  const asInput = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  return { start: asInput(start), end: asInput(end) };
+}
+
+const PERIOD_PRESETS: Array<{ id: string; label: string; range: () => PeriodRange }> = [
+  { id: "today", label: "Hoje", range: () => endingTodayPeriod(1) },
+  { id: "7d", label: "7 dias", range: () => endingTodayPeriod(7) },
+  { id: "30d", label: "30 dias", range: () => endingTodayPeriod(30) },
+  { id: "month", label: "Este mês", range: currentMonthPeriod },
+  { id: "previous-month", label: "Mês passado", range: previousMonthPeriod },
+];
+
+/** Qual atalho corresponde ao período em vigor — só para destacar o ativo. */
+function activePresetId(period: PeriodRange): string | null {
+  const match = PERIOD_PRESETS.find((preset) => {
+    const range = preset.range();
+    return range.start === period.start && range.end === period.end;
+  });
+  return match ? match.id : null;
+}
+
+// Marca da empresa, navegação e "Sair" vivem na sidebar global (mesmo onLogout do App).
+function EcommerceShell({ children }: { children: ReactNode }) {
   return (
-    <Shell
-      themeClass="theme-client"
-      title="E-commerce"
-      subtitle={getActiveClientName()}
-      right={<button className="btnLogout" onClick={() => void onLogout()} type="button">Sair</button>}
-    >
-      <section className="card cardWide">{children}</section>
+    <Shell variant="editorial" themeClass="theme-editorial" title="Ecommerce">
+      <div className="ds-page">
+        <PageHeader company={getActiveClientName()} title="Ecommerce" />
+        <div className="ds-group">{children}</div>
+      </div>
     </Shell>
   );
 }
@@ -60,7 +100,7 @@ type FbitsCommerceProps = Omit<Props, "onOpenGoogleReport"> & {
   onConnectionsChanged: () => void | Promise<void>;
 };
 
-function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections, onConnectionsChanged }: FbitsCommerceProps) {
+function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsChanged }: FbitsCommerceProps) {
   const { period, setPeriod } = usePeriod();
   const report = useDashboardFbits({
     isAuthenticated,
@@ -80,13 +120,17 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
     () => connections.map((entry) => entry.last_successful_sync_at || entry.last_sync_at).find(Boolean) || report.fbitsData?.last_sync_at || null,
     [connections, report.fbitsData?.last_sync_at]
   );
+  const activePreset = activePresetId(period);
 
-  function previousMonth() {
-    const today = new Date(`${todayInSaoPaulo()}T12:00:00`);
-    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const end = new Date(today.getFullYear(), today.getMonth(), 0);
-    const asInput = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-    setPeriod({ start: asInput(start), end: asInput(end) });
+  function selectPeriod(id: string) {
+    if (id === "custom") {
+      setShowCustom((value) => !value);
+      return;
+    }
+    // Atalho escolhido: as datas do personalizado saem de cena (mesmo período de antes).
+    setShowCustom(false);
+    const preset = PERIOD_PRESETS.find((item) => item.id === id);
+    if (preset) setPeriod(preset.range());
   }
 
   function applyCustomPeriod() {
@@ -112,64 +156,69 @@ function FbitsCommerce({ isAuthenticated, onLogout, onOpenDashboard, connections
   }
 
   return (
-    <Shell
-      themeClass="theme-client"
-      title="E-commerce"
-      subtitle={`Fonte: FBITS · ${getActiveClientName()}`}
-      right={
-        <div className="shopifyShellActions">
-          <button className="btn btnGhost" onClick={onOpenDashboard} type="button">Meta</button>
-          <button className="btn btnGhost" disabled={syncing} onClick={() => void syncNow()} type="button">
-            {syncing ? "Sincronizando..." : "Sincronizar agora"}
-          </button>
-          <button className="btn btnPrimary" onClick={() => void report.reloadFbits({ force: true })} type="button">
-            Atualizar dados
-          </button>
-          <button className="btnLogout" onClick={() => void onLogout()} type="button">Sair</button>
-        </div>
-      }
-    >
-      <section className="fbitsExecutiveHeader" aria-label="Período do dashboard FBITS">
-        <div>
-          <div className="fbitsEyebrow">FBITS / Wake Commerce</div>
-          <div className="h1">Visão executiva de vendas</div>
-          <div className="smallMuted">
-            {lastSyncAt ? `Sincronizado em ${new Date(lastSyncAt).toLocaleString("pt-BR")}` : "Conectado sem sincronização concluída"}
-          </div>
-        </div>
-        <div className="fbitsPeriodPicker">
-          <div className="fbitsPeriodPresets">
-            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(1))}>Hoje</button>
-            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(7))}>7 dias</button>
-            <button className="btn btnGhost" type="button" onClick={() => setPeriod(endingTodayPeriod(30))}>30 dias</button>
-            <button className="btn btnGhost" type="button" onClick={() => setPeriod({ start: `${todayInSaoPaulo().slice(0, 7)}-01`, end: todayInSaoPaulo() })}>Este mês</button>
-            <button className="btn btnGhost" type="button" onClick={previousMonth}>Mês passado</button>
-            <button className="btn btnGhost" type="button" aria-expanded={showCustom} onClick={() => setShowCustom((value) => !value)}>Personalizado</button>
-          </div>
-          {showCustom ? (
-            <div className="fbitsCustomPeriod">
-              <label><span>Data inicial</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label>
-              <label><span>Data final</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
-              <button className="btn btnPrimary" type="button" disabled={!customStart || !customEnd || customStart > customEnd} onClick={applyCustomPeriod}>Aplicar</button>
-            </div>
+    <Shell variant="editorial" themeClass="theme-editorial" title="Ecommerce">
+      <div className="ds-page">
+        <div className="ds-group">
+          <PageHeader
+            company={getActiveClientName()}
+            title="Ecommerce"
+            dateline={
+              <>
+                <span className="ds-datelineSource" data-testid="ecommerce-source">FBITS</span>
+                <span>{lastSyncAt ? `Sincronizado em ${formatDateTimeSaoPaulo(lastSyncAt)}` : "Sem sincronização concluída"}</span>
+                {canSync ? (
+                  <span>
+                    <button className="ds-link is-quiet" disabled={syncing} onClick={() => void syncNow()} type="button">
+                      {syncing ? "Sincronizando..." : "Sincronizar agora"}
+                    </button>
+                  </span>
+                ) : null}
+                {canSync ? (
+                  <span>
+                    <button className="ds-link is-quiet" onClick={() => void report.reloadFbits({ force: true })} type="button">
+                      Atualizar dados
+                    </button>
+                  </span>
+                ) : null}
+              </>
+            }
+            controls={
+              <SegmentedControl
+                ariaLabel="Período"
+                value={showCustom ? "custom" : activePreset ?? "custom"}
+                onSelect={selectPeriod}
+                options={[
+                  ...PERIOD_PRESETS.map(({ id, label }) => ({ id, label })),
+                  { id: "custom", label: "Personalizado", expanded: showCustom },
+                ]}
+              />
+            }
+            panel={showCustom ? (
+              <div className="ds-customPeriod">
+                <label className="ds-field"><span>Data inicial</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label>
+                <label className="ds-field"><span>Data final</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
+                <button className="ds-button is-primary" type="button" disabled={!customStart || !customEnd || customStart > customEnd} onClick={applyCustomPeriod}>Aplicar</button>
+              </div>
+            ) : null}
+            controlsNote={formatCalendarRange(period.start, period.end)}
+          />
+          {pending ? (
+            <DataNotice role="status" testId="ecommerce-fbits-pending" title="FBITS conectado">
+              Aguardando primeira sincronização. Os números aparecem assim que a importação terminar.
+            </DataNotice>
           ) : null}
+          {lastError ? <DataNotice tone="negative" role="alert" title="A última sincronização falhou">{lastError}</DataNotice> : null}
+          {syncInfo ? <p className="ds-status" role="status">{syncInfo}</p> : null}
+          {syncError ? <DataNotice tone="negative" role="alert" title="Sincronização não iniciada">{syncError}</DataNotice> : null}
         </div>
-      </section>
-      {pending ? (
-        <section className="card cardWide" role="status" data-testid="ecommerce-fbits-pending">
-          <div className="h1">FBITS conectado</div>
-          <div className="p">Aguardando primeira sincronização. Os números aparecem assim que a importação terminar.</div>
-        </section>
-      ) : null}
-      {lastError ? <div className="pill pillDanger" role="alert">{lastError}</div> : null}
-      {syncInfo ? <div className="smallMuted" role="status">{syncInfo}</div> : null}
-      {syncError ? <div className="pill pillDanger" role="alert">{syncError}</div> : null}
-      <FbitsExecutiveDashboard
-        data={report.fbitsData}
-        orders={report.fbitsOrders}
-        loading={report.loadingFbits}
-        error={report.fbitsError}
-      />
+        <FbitsExecutiveDashboard
+          data={report.fbitsData}
+          orders={report.fbitsOrders}
+          loading={report.loadingFbits}
+          error={report.fbitsError}
+          syncPending={pending}
+        />
+      </div>
     </Shell>
   );
 }
@@ -183,13 +232,23 @@ export default function Ecommerce(props: Props) {
   const [chosen, setChosen] = useState<EcommerceProvider | null>(null);
 
   if (integrations.loading) {
-    return <EcommerceShell onLogout={props.onLogout}><div className="p" role="status">Identificando a integração de e-commerce...</div></EcommerceShell>;
+    return (
+      <EcommerceShell>
+        <p className="ds-status" role="status">Identificando a integração de e-commerce...</p>
+      </EcommerceShell>
+    );
   }
   if (integrations.error) {
     return (
-      <EcommerceShell onLogout={props.onLogout}>
-        <div className="pill pillDanger" role="alert">{integrations.error}</div>
-        <button className="btn btnGhost" type="button" onClick={() => void integrations.reload()}>Tentar novamente</button>
+      <EcommerceShell>
+        <DataNotice
+          tone="negative"
+          role="alert"
+          title="Não foi possível verificar as integrações"
+          actions={<button className="ds-button" type="button" onClick={() => void integrations.reload()}>Tentar novamente</button>}
+        >
+          {integrations.error}
+        </DataNotice>
       </EcommerceShell>
     );
   }
@@ -197,27 +256,34 @@ export default function Ecommerce(props: Props) {
   const resolution = resolveActiveEcommerceProvider(integrations.connections, chosen);
   if (resolution.state === "none") {
     return (
-      <EcommerceShell onLogout={props.onLogout}>
-        <div className="h1">Nenhuma integração de Ecommerce conectada</div>
-        <div className="p">Conecte Shopify ou FBITS para ver os dados de vendas desta empresa.</div>
-        {props.onOpenIntegrations ? (
-          <button className="btn btnPrimary" type="button" onClick={props.onOpenIntegrations}>Ir para Integrações</button>
-        ) : null}
+      <EcommerceShell>
+        <DataNotice
+          title="Nenhuma integração de Ecommerce conectada"
+          actions={props.onOpenIntegrations ? (
+            <button className="ds-button is-primary" type="button" onClick={props.onOpenIntegrations}>Ir para Integrações</button>
+          ) : null}
+        >
+          {props.onOpenIntegrations
+            ? "Conecte Shopify ou FBITS para ver os dados de vendas desta empresa."
+            : "Os dados de vendas aparecem aqui quando a empresa conectar Shopify ou FBITS."}
+        </DataNotice>
       </EcommerceShell>
     );
   }
   if (resolution.state === "ambiguous") {
     return (
-      <EcommerceShell onLogout={props.onLogout}>
-        <div className="h1">Mais de uma integração de Ecommerce está conectada</div>
-        <div className="p">Escolha qual fonte deve alimentar os números desta página.</div>
-        <div className="shopifyShellActions">
-          {resolution.candidates.map((provider) => (
-            <button key={provider} className="btn btnGhost" type="button" onClick={() => setChosen(provider)}>
+      <EcommerceShell>
+        <DataNotice
+          tone="warning"
+          title="Mais de uma integração de Ecommerce está conectada"
+          actions={resolution.candidates.map((provider) => (
+            <button key={provider} className="ds-button" type="button" onClick={() => setChosen(provider)}>
               Usar {PROVIDER_LABEL[provider]}
             </button>
           ))}
-        </div>
+        >
+          Escolha qual fonte deve alimentar os números desta página.
+        </DataNotice>
       </EcommerceShell>
     );
   }
@@ -225,6 +291,7 @@ export default function Ecommerce(props: Props) {
     return (
       <FbitsCommerce
         isAuthenticated={props.isAuthenticated}
+        canSync={props.canSync}
         onLogout={props.onLogout}
         onOpenDashboard={props.onOpenDashboard}
         connections={resolution.connections}
@@ -234,6 +301,7 @@ export default function Ecommerce(props: Props) {
   }
   return (
     <Shopify
+      canSync={props.canSync}
       onLogout={props.onLogout}
       onOpenDashboard={props.onOpenDashboard}
       onOpenGoogleReport={props.onOpenGoogleReport}

@@ -2,6 +2,22 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Node 26 pode sombrear o localStorage do jsdom quando o storage experimental
+// não recebe arquivo. O teste precisa validar a resolução, não o runtime Node.
+if (!window.localStorage) {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    },
+  });
+}
+
 const tenant = vi.hoisted(() => ({ id: "amalie", name: "Amalie" }));
 
 vi.mock("./supabase", () => ({

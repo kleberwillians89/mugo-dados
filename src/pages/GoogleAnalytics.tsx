@@ -44,6 +44,8 @@ type Props = {
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
   isAuthenticated?: boolean;
+  /** O sync do GA4 exige papel de gestão; viewer permanece somente leitura. */
+  canSync?: boolean;
 };
 
 type PeriodPreset = "day" | "7d" | "30d" | "month" | "specific";
@@ -438,6 +440,7 @@ export default function GoogleAnalytics({
   onLogout,
   onOpenDashboard,
   isAuthenticated = false,
+  canSync = false,
 }: Props) {
   const { period, periodDays, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -790,7 +793,7 @@ export default function GoogleAnalytics({
           onLogout={onLogout}
           onOpenGoogleAnalytics={() => {}}
           onOpenMeta={onOpenDashboard}
-          onRefresh={handleRefresh}
+          onRefresh={canSync ? handleRefresh : undefined}
           onSelectPeriodPreset={(nextPreset) => handlePresetChange(nextPreset)}
           periodPreset={preset === "specific" ? "custom" : preset}
           refreshing={syncing}

@@ -42,10 +42,10 @@ const INVITE_ROLES: Array<{ value: "owner" | "agency_admin" | "client_admin" | "
   { value: "owner", label: "Responsável" },
 ];
 
+// onLogout/onOpenDashboard seguem no tipo por compatibilidade: navegação e
+// saída vivem na sidebar global.
 export default function Companies({
-  onLogout,
   onOpenCompany,
-  onOpenDashboard,
   canCreateCompany = true,
   canDeleteCompany = false,
 }: Props) {
@@ -205,13 +205,10 @@ export default function Companies({
     <main className="companiesPage">
       <header className="companiesHeader">
         <div>
-          <span className="companiesEyebrow">Administração da plataforma</span>
-          <h1>Central de empresas</h1>
-          <p>Cadastre tenants, acompanhe convites e gerencie permissões em um só lugar.</p>
+          <span className="companiesEyebrow">Administração</span>
+          <h1>Empresas</h1>
         </div>
         <div className="companiesActions">
-          <button className="btn" onClick={onOpenDashboard}>Dashboard</button>
-          <button className="btn" onClick={onLogout}>Sair</button>
           {canCreateCompany ? (
             <button className="btn btnPrimary" onClick={() => setWizardOpen(true)}>+ Nova empresa</button>
           ) : null}

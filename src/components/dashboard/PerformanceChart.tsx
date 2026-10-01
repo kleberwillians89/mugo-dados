@@ -1,169 +1,159 @@
 import { useMemo, useState } from "react";
-import { Line } from "react-chartjs-2";
-import type { ChartData, ChartOptions } from "chart.js";
 import type { PaidTotals } from "../../app/types";
-import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "./chartTheme";
+import {
+  formatCalendarDate,
+  formatCalendarDateWords,
+  formatCompactInteger,
+  formatCurrency,
+  formatCurrencyAxis,
+  formatInteger,
+  formatRatio,
+  uniquePeak,
+} from "../../app/dataFormat";
+import SegmentedControl from "../data/SegmentedControl";
+import TrendChart from "../data/TrendChart";
 
-type MetricKey = "revenue" | "spend" | "reach" | "impressions" | "clicks" | "roas" | "conversions";
+type MetricKey = "spend" | "revenue" | "conversions" | "clicks" | "impressions" | "reach" | "roas";
+type Kind = "currency" | "count" | "ratio";
+type Source = "Meta Ads" | "Google Ads";
+type DailyRow = { date: string; missing?: boolean } & PaidTotals;
 
-const METRIC_TABS: { key: MetricKey; label: string }[] = [
-  { key: "revenue", label: "Receita atribuída" },
-  { key: "spend", label: "Investimento" },
-  { key: "reach", label: "Alcance" },
-  { key: "impressions", label: "Impressões" },
-  { key: "clicks", label: "Cliques" },
-  { key: "roas", label: "ROAS" },
-  { key: "conversions", label: "Compras" },
-];
+type MetricDef = { label: string; kind: Kind; peak: string | null };
 
-const METRIC_QUESTIONS: Record<MetricKey, string> = {
-  revenue: "Como a receita atribuída evoluiu?",
-  spend: "Como o investimento evoluiu?",
-  reach: "Como o alcance evoluiu?",
-  impressions: "Como as impressões evoluíram?",
-  clicks: "Como os cliques evoluíram?",
-  roas: "Como o ROAS evoluiu?",
-  conversions: "Como as compras evoluíram?",
-};
-
-function formatValue(metric: MetricKey, value: number | null): string {
-  if (value == null) return "Sem dados";
-  if (metric === "revenue" || metric === "spend") {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-  }
-  if (metric === "roas") return `${value.toFixed(2)}x`;
-  return formatFullNumber(value);
+/**
+ * Vocabulário de cada plataforma: a Meta atribui "compras" e "receita";
+ * o Google Ads informa "conversões" e "valor de conversão". O ROAS do
+ * gráfico é o da loja (receita Shopify ÷ investimento), como antes.
+ */
+function metricDefs(source: Source): Record<MetricKey, MetricDef> {
+  const meta = source === "Meta Ads";
+  return {
+    spend: { label: "Investimento", kind: "currency", peak: "o maior investimento" },
+    revenue: meta
+      ? { label: "Receita atribuída", kind: "currency", peak: "a maior receita atribuída" }
+      : { label: "Valor de conversão", kind: "currency", peak: "o maior valor de conversão" },
+    conversions: meta
+      ? { label: "Compras", kind: "count", peak: "o maior número de compras" }
+      : { label: "Conversões", kind: "count", peak: "o maior número de conversões" },
+    clicks: { label: "Cliques", kind: "count", peak: "o maior número de cliques" },
+    impressions: { label: "Impressões", kind: "count", peak: "o maior número de impressões" },
+    reach: { label: "Alcance", kind: "count", peak: "o maior alcance" },
+    roas: { label: "ROAS da loja", kind: "ratio", peak: null },
+  };
 }
 
+const ORDER: MetricKey[] = ["spend", "revenue", "conversions", "clicks", "impressions", "reach", "roas"];
+
+function formatValue(kind: Kind, value: number | null): string {
+  if (value == null) return "Sem dados";
+  if (kind === "currency") return formatCurrency(value);
+  if (kind === "ratio") return formatRatio(value);
+  return formatInteger(value);
+}
+
+function formatAxis(kind: Kind, value: number): string {
+  if (kind === "currency") return formatCurrencyAxis(value);
+  if (kind === "ratio") return formatRatio(value);
+  return formatCompactInteger(value);
+}
+
+/**
+ * Evolução diária da mídia paga (Meta Ads e Google Ads). Dia sem dado é
+ * lacuna no gráfico — nunca zero; um único dia vira um valor, não uma linha.
+ * O título aponta o pico só quando ele é objetivo (um único maior valor).
+ */
 export default function PerformanceChart({
   daily,
   source = "Meta Ads",
+  defaultMetric = "spend",
 }: {
-  daily: Array<{ date: string; missing?: boolean } & PaidTotals> | undefined;
-  source?: "Meta Ads" | "Google Ads";
+  daily: DailyRow[] | undefined;
+  source?: Source;
+  defaultMetric?: MetricKey;
 }) {
-  const [metric, setMetric] = useState<MetricKey>("revenue");
   const rows = useMemo(() => daily || [], [daily]);
-  const metricLabel = metric === "revenue" ? `Receita atribuída ${source === "Meta Ads" ? "Meta" : "Google"}` : METRIC_TABS.find((tab) => tab.key === metric)?.label || "";
-  const metricQuestion = metric === "revenue" ? "Como a receita atribuída evoluiu?" : METRIC_QUESTIONS[metric];
-  const hasData = rows.some((row) => row[metric] != null);
-  const availableRows = rows.filter((row) => !row.missing && row[metric] != null);
-  const singleDay = availableRows.length === 1 ? availableRows[0] : null;
-  const coveredDays = rows.filter((row) => !row.missing && row[metric] != null).length;
-  const coverageLabel = rows.length > 0 && coveredDays < rows.length
-    ? `Cobertura: ${coveredDays} de ${rows.length} dias`
+  const defs = useMemo(() => metricDefs(source), [source]);
+  // Só entram no seletor as métricas que a fonte realmente trouxe no período.
+  const available = useMemo(
+    () => ORDER.filter((key) => rows.some((row) => !row.missing && row[key] != null)),
+    [rows]
+  );
+  const [chosen, setChosen] = useState<MetricKey>(defaultMetric);
+  const metric = available.includes(chosen) ? chosen : available[0] || chosen;
+  const def = defs[metric];
+  const series = useMemo(
+    () => rows.map((row) => ({ date: row.date, value: row.missing || row[metric] == null ? null : Number(row[metric]) })),
+    [metric, rows]
+  );
+  const withValue = series.filter((point): point is { date: string; value: number } => point.value != null);
+  const peak = def.peak ? uniquePeak(withValue, (point) => point.value) : null;
+  const title = peak && def.peak
+    ? `${formatCalendarDateWords(peak.date)} concentrou ${def.peak}`
+    : `${def.label} por dia`;
+  const coverage = rows.length > 1 && withValue.length < rows.length
+    ? `Dados em ${formatInteger(withValue.length)} de ${formatInteger(rows.length)} dias`
     : null;
-
-  const labels = useMemo(() => rows.map((row) => formatDatePtBr(row.date).replace(/ de \d{4}$/, "")), [rows]);
-  const series = useMemo(() => rows.map((row) => row[metric] == null ? null : Number(row[metric])), [rows, metric]);
-
-  const chartData: ChartData<"line", Array<number | null>, string> = useMemo(
-    () => ({
-      labels,
-      datasets: [
-        {
-          label: metricLabel,
-          data: series,
-          borderColor: CHART_COLORS.organic,
-          backgroundColor: "rgba(45,108,223,0.08)",
-          borderWidth: 2.4,
-          tension: 0.35,
-          spanGaps: false,
-          pointRadius: rows.length === 1 ? 5 : 2,
-          pointHitRadius: 16,
-          pointHoverRadius: 5,
-          pointHoverBackgroundColor: CHART_COLORS.organic,
-          pointHoverBorderColor: "#fff",
-          pointHoverBorderWidth: 2,
-          fill: true,
-        },
-      ],
-    }),
-    [labels, metricLabel, rows.length, series]
-  );
-
-  const options: ChartOptions<"line"> = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          enabled: true,
-          backgroundColor: CHART_COLORS.tooltipBg,
-          borderColor: CHART_COLORS.tooltipBorder,
-          borderWidth: 1,
-          titleColor: CHART_COLORS.tooltipText,
-          bodyColor: CHART_COLORS.tooltipText,
-          padding: 12,
-          displayColors: false,
-          callbacks: {
-            title: (items) => `Data: ${labels[items[0]?.dataIndex ?? 0] || ""}`,
-            label: (item) => `${formatValue(metric, item.parsed.y == null ? null : Number(item.parsed.y))} · Fonte: ${source}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { color: CHART_COLORS.axis, maxRotation: 0, minRotation: 0, maxTicksLimit: 8, font: { weight: 600 } },
-        },
-        y: {
-          beginAtZero: true,
-          grace: "10%",
-          grid: { color: CHART_COLORS.grid },
-          ticks: {
-            color: CHART_COLORS.axis,
-            maxTicksLimit: 5,
-            callback: (value) => formatValue(metric, Number(value)),
-            font: { weight: 600 },
-          },
-        },
-      },
-    }),
-    [labels, metric, source]
-  );
+  const shortSource = source === "Meta Ads" ? "Meta" : "Google Ads";
 
   return (
-    <div className="performanceChart">
-      <div className="performanceChartHead">
-        <div>
-          <span className="performanceChartTitle">{metricQuestion}</span>
-          <div className="smallMuted">Evolução diária no período selecionado · Fonte: {source}</div>
-          {coverageLabel ? <div className="smallMuted">{coverageLabel}</div> : null}
+    <section className="ds-section ds-chartSection performanceChart" aria-label={`Evolução diária · ${source}`}>
+      <div className="ds-sectionHead">
+        <div className="ds-sectionHeadText">
+          <h2 className="ds-sectionTitle">{title}</h2>
+          {peak || coverage ? (
+            <p className="ds-caption">
+              {peak ? `${formatValue(def.kind, peak.value)} nesse dia` : null}
+              {peak && coverage ? " · " : null}
+              {coverage}
+            </p>
+          ) : null}
         </div>
-        <div className="performanceChartTabs" role="tablist" aria-label="Métrica do gráfico de desempenho">
-          {METRIC_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={metric === tab.key}
-              className={`performanceChartTab${metric === tab.key ? " is-active" : ""}`}
-              onClick={() => setMetric(tab.key)}
-            >
-              {tab.key === "revenue" ? metricLabel : tab.label}
-            </button>
-          ))}
+        {available.length > 1 ? (
+          <SegmentedControl
+            ariaLabel="Métrica do gráfico"
+            value={metric}
+            onSelect={(id) => setChosen(id as MetricKey)}
+            options={available.map((key) => ({ id: key, label: defs[key].label }))}
+          />
+        ) : null}
+      </div>
+      {withValue.length === 1 ? (
+        <div className="ds-singleValue" data-testid="performance-single-day">
+          <span>{formatCalendarDateWords(withValue[0].date)}</span>
+          <strong>{formatValue(def.kind, withValue[0].value)}</strong>
+          <small>{def.label} · Fonte: {source}</small>
         </div>
-      </div>
-      <div className="performanceChartViewport">
-        {singleDay ? (
-          <div className="performanceSingleDay" data-testid="performance-single-day">
-            <span>{formatDatePtBr(singleDay.date)}</span>
-            <strong>{formatValue(metric, singleDay[metric] == null ? null : Number(singleDay[metric]))}</strong>
-            <small>Fonte: {source}</small>
-          </div>
-        ) : hasData ? (
-          <Line data={chartData} options={options} />
-        ) : (
-          <div className="chartEmptyState">
-            <div className="smallMuted">{rows.length === 1 ? `Sem dados ${source === "Meta Ads" ? "Meta" : "Google Ads"} para esta data.` : `Sem ${metricLabel.toLowerCase()} neste período.`}</div>
-            <div className="smallMuted">O gráfico aparece assim que a Meta sincronizar dados diários.</div>
-          </div>
-        )}
-      </div>
-    </div>
+      ) : withValue.length > 1 ? (
+        <TrendChart
+          data={series}
+          xKey="date"
+          primaryKey="value"
+          formatX={(value) => formatCalendarDate(value)}
+          formatY={(value) => formatAxis(def.kind, value)}
+          ariaLabel={`${def.label} por dia no período, fonte ${source}.`}
+          testId="performance-chart"
+          renderTooltip={(point) => {
+            const row = rows.find((item) => item.date === point.date);
+            return (
+              <>
+                <strong>{formatCalendarDate(point.date, "long")}</strong>
+                <dl>
+                  {ORDER.filter((key) => available.includes(key) && row && !row.missing && row[key] != null).map((key) => (
+                    <div key={key} style={{ display: "contents" }}>
+                      <dt>{defs[key].label}</dt>
+                      <dd>{formatValue(defs[key].kind, Number(row![key]))}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            );
+          }}
+        />
+      ) : (
+        <p className="ds-emptyLine">
+          {rows.length === 1 ? `Sem dados ${shortSource} para esta data.` : `Sem ${def.label.toLowerCase()} neste período.`}
+        </p>
+      )}
+    </section>
   );
 }

@@ -1,4 +1,6 @@
+import { Fragment } from "react";
 import DayPeriodControl from "../DayPeriodControl";
+import SegmentedControl from "../data/SegmentedControl";
 
 type Props = {
   activeView: "meta" | "google";
@@ -11,95 +13,81 @@ type Props = {
   onSelectPeriodPreset?: (preset: "day" | "7d" | "30d" | "month") => void;
   refreshing?: boolean;
   backgroundRefreshing?: boolean;
+  /** Navegação e saída vivem na sidebar global; mantidos só por compatibilidade. */
   onOpenMeta?: () => void;
   onOpenGoogleAnalytics?: () => void;
   onRefresh?: () => void;
-  onLogout: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
 };
 
+const PERIOD_OPTIONS: Array<{ id: "day" | "7d" | "30d" | "month"; label: string }> = [
+  { id: "day", label: "Dia" },
+  { id: "7d", label: "7 dias" },
+  { id: "30d", label: "30 dias" },
+  { id: "month", label: "Este mês" },
+];
+
+/** Controles da página (período, estado das fontes, atualização) — sem navegação. */
 export default function DashboardHeader({
-  activeView,
   statusChips,
   periodPreset,
   onSelectPeriodPreset,
   refreshing = false,
   backgroundRefreshing = false,
-  onOpenMeta,
-  onOpenGoogleAnalytics,
   onRefresh,
-  onLogout,
 }: Props) {
-  return (
-    <div className="dashHeader">
-      <div className="dashHeaderSummary">
-        <div className="dashHeaderStatusRow">
-          {statusChips.map((chip) => (
-            <span
-              className={`dashHeaderStatusChip ${chip.connected ? "isConnected" : ""} ${chip.refreshing ? "isRefreshing" : ""}`.trim()}
-              key={chip.label}
-            >
-              {chip.label}
-            </span>
-          ))}
-          {backgroundRefreshing || refreshing ? (
-            <span className="dashHeaderStatusChip isRefreshing">Atualizando em background</span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="dashHeaderMenu">
-        <div className="dashHeaderFilters">
-          <label className="dashHeaderField dashHeaderPeriod">
-          <span className="dashHeaderPeriodLabel">Período</span>
-          <select
-            className="select"
-            value={periodPreset}
-            onChange={(event) => {
-              const next = event.target.value as "day" | "7d" | "30d" | "month" | "custom";
-              if (next === "custom") return;
-              onSelectPeriodPreset?.(next);
-            }}
-            aria-label="Período"
-          >
-            <option value="day">Dia</option>
-            <option value="7d">Últimos 7 dias</option>
-            <option value="30d">Últimos 30 dias</option>
-            <option value="month">Mês atual</option>
-            {periodPreset === "custom" ? <option value="custom">Personalizado</option> : null}
-          </select>
-          </label>
-          {periodPreset === "day" ? <DayPeriodControl /> : null}
-        </div>
-
-        <div className="dashHeaderActions">
-          <button
-            aria-current={activeView === "meta" ? "page" : undefined}
-            className="btn btnGhost"
-            onClick={onOpenMeta}
-            type="button"
-          >
-            Dados Meta
-          </button>
-          {onOpenGoogleAnalytics ? (
-            <button
-              aria-current={activeView === "google" ? "page" : undefined}
-              className="btn btnGhost"
-              onClick={onOpenGoogleAnalytics}
-              type="button"
-            >
-              Analytics
-            </button>
-          ) : null}
-          {onRefresh ? (
-            <button className="btn btnPrimary" onClick={onRefresh} disabled={refreshing} type="button">
+  // Estado das fontes e atualização: uma linha operacional, discreta.
+  const statusParts = [
+    ...statusChips.map((chip) => ({
+      key: chip.label,
+      node: (
+        <span className={`pageControlsStatusItem ${chip.connected ? "isConnected" : ""} ${chip.refreshing ? "isRefreshing" : ""}`.trim()}>
+          {chip.label}
+        </span>
+      ),
+    })),
+    ...(backgroundRefreshing || refreshing
+      ? [{ key: "background", node: <span className="pageControlsStatusItem isRefreshing">Atualizando em segundo plano</span> }]
+      : []),
+    ...(onRefresh
+      ? [{
+          key: "refresh",
+          node: (
+            <button className="ds-link is-quiet" onClick={onRefresh} disabled={refreshing} type="button">
               {refreshing ? "Atualizando..." : "Atualizar dados"}
             </button>
-          ) : null}
-          <button className="btnLogout" onClick={() => onLogout()} type="button">
-            Sair
-          </button>
-        </div>
+          ),
+        }]
+      : []),
+  ];
+
+  return (
+    <div className="pageControls">
+      <div className="pageControlsPeriod">
+        <SegmentedControl
+          ariaLabel="Período"
+          value={periodPreset}
+          onSelect={(id) => {
+            // "Personalizado" só sinaliza o período em vigor; não é um atalho.
+            if (id === "custom") return;
+            onSelectPeriodPreset?.(id as "day" | "7d" | "30d" | "month");
+          }}
+          options={[
+            ...PERIOD_OPTIONS,
+            ...(periodPreset === "custom" ? [{ id: "custom", label: "Personalizado" }] : []),
+          ]}
+        />
+        {periodPreset === "day" ? <DayPeriodControl /> : null}
       </div>
+
+      <p className="pageControlsStatus">
+        {statusParts.map((part, index) => (
+          <Fragment key={part.key}>
+            {index > 0 ? <span className="ds-metaSeparator" aria-hidden="true"> · </span> : null}
+            {part.node}
+          </Fragment>
+        ))}
+      </p>
     </div>
   );
 }

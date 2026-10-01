@@ -1,0 +1,418 @@
+/* src/styles/shell.css
+   ============================================================
+   ESTRUTURA GLOBAL — Mugô Dados (produto) × empresa analisada (tenant).
+
+   Sidebar = onde posso ir (produto, empresa, navegação, conta).
+   Página  = onde estou e o que preciso entender.
+   No mobile/tablet (< 1024px) a mesma sidebar vira gaveta, aberta por
+   uma barra mínima com a empresa ativa.
+   ============================================================ */
+
+:root{
+  --sidebar-width: 256px;
+}
+
+.appFrame{
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+.appFrameMain{ min-width: 0; }
+
+/* Páginas ainda não migradas: fundo único dentro do frame (sem gradiente). */
+.appFrameMain .appShell,
+.appFrameMain .onboardingPage,
+.appFrameMain .intelligencePage,
+.appFrameMain .companiesPage{
+  background: var(--surface-subtle);
+}
+
+/* ====== SIDEBAR ====== */
+.appSidebar{
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 100;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: 20px var(--space-4) var(--space-4);
+  background: var(--surface-subtle);
+  border-right: 1px solid var(--border-subtle);
+  font-family: var(--font-body);
+}
+.appSidebarHead{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0 var(--space-3);
+}
+/* Produto: discreto. A empresa, logo abaixo, é quem ganha presença. */
+.appProduct{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.appProductMark{ display: block; flex: 0 0 auto; width: 18px; height: 22px; overflow: hidden; }
+/* Símbolo com margem no arquivo (1080 × 1350): recorte por escala uniforme. */
+.appProductMark img{ display: block; width: 24px; height: 30px; max-width: none; margin: -3px 0 0 -2px; }
+.appProductName{
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.01em;
+}
+.appSidebarClose{ display: none; }
+
+.appSidebarNav{ display: flex; flex-direction: column; gap: 28px; flex: 1 1 auto; }
+.appNavList{ display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.appNavGroup{ display: flex; flex-direction: column; gap: 6px; }
+.appNavGroupLabel{ margin: 0; padding: 0 var(--space-3); font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.appNavLink{
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font: 500 14px/1.2 var(--font-body);
+  text-decoration: none;
+  transition: background-color .15s ease, color .15s ease;
+}
+.appNavLink:hover{ color: var(--text-primary); background: rgba(21, 24, 27, .04); }
+/* Ativo: claro mas discreto — peso, cor e fundo leve (nunca só a cor). */
+.appNavLink[aria-current="page"]{ color: var(--text-primary); font-weight: 600; background: rgba(21, 24, 27, .07); }
+
+.appSidebarFooter{ padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
+
+.appSidebar :is(a, button, input):focus-visible,
+.appTopbar :is(a, button):focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ====== EMPRESA (seletor) ======
+   Lista vinda só das memberships do usuário; com uma empresa, só a marca. */
+.clientSwitcher{
+  position: relative;
+  z-index: auto;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.clientSwitcherStatic{ display: flex; align-items: center; min-height: 48px; padding: var(--space-2) var(--space-3); }
+.clientSwitcherTrigger{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 56px;
+  padding: 10px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease;
+}
+.clientSwitcherTrigger:hover,
+.clientSwitcher.is-open .clientSwitcherTrigger{ border-color: rgba(21, 24, 27, .22); }
+.clientSwitcherTrigger:disabled{ cursor: wait; opacity: .7; }
+.clientSwitcherChevron{ flex: 0 0 auto; color: var(--text-muted); }
+.clientSwitcherPending{ font-size: 13px; color: var(--text-secondary); }
+
+/* Marca compacta (sidebar, seletor e barra móvel). */
+.ds-clientBrand.is-compact{ flex-direction: row; align-items: center; gap: 10px; min-width: 0; }
+.ds-clientBrand.is-compact .ds-clientBrandName{
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ds-clientBrand.is-compact .ds-clientBrandMark.is-image{ border-radius: 5px; }
+
+.clientSwitcherPanel{
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  min-width: 232px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(21, 24, 27, .12);
+}
+.clientSwitcherPanelTitle{ margin: 4px var(--space-2) var(--space-2); font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.clientSwitcherSearch{
+  width: 100%;
+  min-height: 34px;
+  margin: 0 0 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font: 400 13px var(--font-body);
+}
+.clientSwitcherList{
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.clientSwitcherOption{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 14px/1.2 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.clientSwitcherOption:hover,
+.clientSwitcherOption:focus-visible{ background: rgba(21, 24, 27, .05); color: var(--text-primary); }
+.clientSwitcherOption:focus-visible{ outline: 2px solid var(--accent); outline-offset: -2px; }
+.clientSwitcherOption.is-selected{ color: var(--text-primary); font-weight: 600; }
+.clientSwitcherOptionName{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clientSwitcherCheck{ flex: 0 0 auto; color: var(--accent); }
+.clientSwitcherEmpty{ margin: 0; padding: 10px; font-size: 13px; color: var(--text-muted); }
+
+/* ====== CONTA (usuário) ====== */
+.userMenu{ position: relative; }
+.userMenuTrigger{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: 500 14px/1.2 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.userMenuTrigger:hover,
+.userMenu.is-open .userMenuTrigger{ background: rgba(21, 24, 27, .05); }
+.userMenuAvatar{
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: #fff;
+  font: 600 12px/1 var(--font-body);
+}
+.userMenuName{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.userMenuChevron{ flex: 0 0 auto; color: var(--text-muted); }
+.userMenuPanel{
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 120;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(21, 24, 27, .12);
+}
+.userMenuIdentity{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: var(--space-2) 10px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.userMenuIdentityName{ font-size: 14px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.userMenuIdentityDetail{ font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.userMenuItem{
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: 500 14px/1 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.userMenuItem:hover,
+.userMenuItem:focus-visible{ background: rgba(21, 24, 27, .05); }
+.userMenuItem:focus-visible{ outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ====== BARRA MÓVEL ====== */
+.appTopbar{ display: none; }
+
+@media (min-width: 1024px){
+  .appFrameMain{ margin-left: var(--sidebar-width); }
+}
+/* Sidebar alta demais para a janela: rola, sem esconder a conta. */
+@media (min-width: 1024px) and (max-height: 600px){
+  .appSidebar{ overflow-y: auto; }
+}
+
+@media (max-width: 1023px){
+  .appTopbar{
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 56px;
+    padding: max(8px, env(safe-area-inset-top)) var(--space-4) 8px;
+    background: var(--surface-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .appTopbarMenu{
+    display: grid;
+    place-items: center;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    margin-left: -8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .appTopbarCompany{ display: flex; align-items: center; min-width: 0; }
+  .appTopbarProductName{ font: 600 15px/1 var(--font-display); }
+
+  .appSidebar{
+    width: min(320px, 86vw);
+    overflow-y: auto;
+    border-right: 0;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform .22s ease, visibility 0s linear .22s;
+  }
+  .appSidebar.is-open{
+    transform: none;
+    visibility: visible;
+    box-shadow: 0 0 40px rgba(21, 24, 27, .16);
+    transition: transform .22s ease;
+  }
+  .appSidebarClose{
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    margin-right: -6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .appSidebarBackdrop{ position: fixed; inset: 0; z-index: 99; background: rgba(21, 24, 27, .32); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .appSidebar, .appSidebar.is-open{ transition: none; }
+  .appNavLink, .clientSwitcherTrigger{ transition: none; }
+}
+
+/* ====== PÁGINAS AINDA NÃO MIGRADAS: barra da página ======
+   Sem marca nem cartão de vidro (a marca do produto está na sidebar):
+   só os controles da página, alinhados à coluna de conteúdo. */
+.appFrameMain .appShell .topbar.pageTopbar{
+  position: static;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.appFrameMain .appShell .topbar.pageTopbar .topbarInner{
+  max-width: 1280px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: var(--space-5) clamp(16px, 3vw, 40px) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  justify-content: flex-end;
+}
+
+/* Controles de página: período + estado das fontes (linha operacional). */
+.pageControls{ display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); min-width: 0; max-width: 100%; }
+.pageControlsPeriod{ display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); max-width: 100%; }
+.pageControlsStatus{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+@media (max-width: 1023px){
+  .appFrameMain .appShell .topbar.pageTopbar .topbarInner{ justify-content: flex-start; }
+  .pageControls{ align-items: flex-start; }
+  .pageControlsPeriod, .pageControlsStatus{ justify-content: flex-start; }
+}
+
+/* ====== CARREGAMENTO ====== */
+.appBootShell{ background: var(--surface-subtle); color: var(--text-primary); font-family: var(--font-body); }
+.appBootHeader{ border-bottom: 1px solid var(--border-subtle); background: transparent; }
+.appBootHeader strong{ font: 600 15px/1 var(--font-display); }
+.appBootMark{ background: transparent; }
+.appBootIntro p{ margin: 0; font-size: 14px; color: var(--text-muted); }
+.appBootSpinner{ width: 18px; height: 18px; border-width: 2px; border-color: var(--border-subtle); border-top-color: var(--text-secondary); }
+.appPageLoading{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-6) clamp(16px, 3vw, 40px);
+  font-size: 14px;
+  color: var(--text-muted);
+}

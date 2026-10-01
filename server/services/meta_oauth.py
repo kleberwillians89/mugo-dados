@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -576,6 +577,395 @@ async def _fetch_business_managers(access_token: str) -> List[Dict[str, str]]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Descoberta via Business (owned/client)
+#
+# Além dos ativos diretos do usuário (/me/accounts, /me/adaccounts), consulta
+# os edges de cada Business acessível (/me/businesses). A falha de um Business
+# ou de um edge vira status no diagnóstico e nunca derruba a descoberta; só
+# token inválido (invalid_oauth) interrompe, como nas chamadas diretas.
+# Descobrir um ativo não o vincula a nenhum tenant: a gravação continua
+# exigindo seleção explícita (save_connections) no tenant do handoff.
+# ---------------------------------------------------------------------------
+_BUSINESS_AD_ACCOUNT_EDGES: Tuple[Tuple[str, str, str], ...] = (
+    ("owned_ad_accounts", "business_owned", "owned"),
+    ("client_ad_accounts", "business_client", "client"),
+)
+_BUSINESS_PAGE_EDGES: Tuple[Tuple[str, str, str], ...] = (
+    ("owned_pages", "business_owned", "owned"),
+    ("client_pages", "business_client", "client"),
+)
+_SOURCE_RELATION = {source: relation for _edge, source, relation in _BUSINESS_AD_ACCOUNT_EDGES + _BUSINESS_PAGE_EDGES}
+_AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name"
+_PAGE_IDENTITY_FIELDS = "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}"
+_BUSINESS_DISCOVERY_CONCURRENCY = 4
+_BUSINESS_EDGE_MAX_PAGES = 25
+_SOURCE_LOG_LIMIT = 200
+
+# Estado de acesso de cada ativo descoberto (o "não encontrado" é a ausência).
+ACCESS_ACCESSIBLE = "accessible"  # acesso direto do usuário ou detalhe lido com o token atual
+ACCESS_RESTRICTED = "restricted"  # identificado pelo Business, detalhe bloqueado por permissão
+ACCESS_UNVERIFIED = "unverified"  # identificado pelo Business, verificação falhou por erro transitório
+
+
+def _graph_failure_status(exc: BaseException) -> str:
+    """Classifica a falha de uma consulta de descoberta."""
+    if not isinstance(exc, MetaApiError):
+        return "error"
+    code = int(exc.error_code or 0)
+    subcode = int(exc.error_subcode or 0)
+    if exc.status_code == 403 or code == 10 or 200 <= code <= 299 or (code == 100 and subcode == 33):
+        return "permission_denied"
+    if exc.rate_limited:
+        return "rate_limited"
+    return "error"
+
+
+def _graph_failure_fields(exc: BaseException) -> str:
+    """Campos seguros para log: status HTTP, código/subcódigo Meta e fbtrace_id.
+    Nunca URL, token, App Secret ou corpo bruto."""
+    if not isinstance(exc, MetaApiError):
+        return f"error_type={exc.__class__.__name__}"
+    message = _safe_str(exc).replace("\n", " ")[:160]
+    return (
+        f"http_status={exc.status_code or '-'} graph_code={exc.error_code or '-'} "
+        f"graph_subcode={exc.error_subcode or '-'} "
+        f"trace_id={_safe_str(getattr(exc, 'trace_id', '')) or '-'} message={message or '-'}"
+    )
+
+
+def _is_invalid_oauth(exc: BaseException) -> bool:
+    return isinstance(exc, MetaApiError) and bool(exc.invalid_oauth)
+
+
+async def _graph_paged(path: str, params: Dict[str, Any], *, resource: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    response = await _meta_get(path, params)
+    for page_number in range(1, _BUSINESS_EDGE_MAX_PAGES + 1):
+        rows.extend(row for row in (response.get("data") or []) if isinstance(row, dict))
+        next_url = _safe_str((response.get("paging") or {}).get("next"))
+        if not next_url:
+            return rows
+        if page_number == _BUSINESS_EDGE_MAX_PAGES:
+            break
+        response = await meta_get_json(next_url, timeout=45, retries=3, context={"resource": resource})
+    print(f"[meta_oauth][diag] stage=business_edge_truncated resource={resource} pages={_BUSINESS_EDGE_MAX_PAGES}")
+    return rows
+
+
+async def _business_edge_rows(
+    access_token: str,
+    business: Dict[str, Any],
+    edge: str,
+    source: str,
+    asset_type: str,
+    semaphore: asyncio.Semaphore,
+) -> Dict[str, Any]:
+    business_id = _safe_str(business.get("business_id"))
+    fields = _AD_ACCOUNT_FIELDS if asset_type == "ad_account" else "id,name"
+    result: Dict[str, Any] = {
+        "business": business, "edge": edge, "source": source, "asset_type": asset_type,
+        "status": "ok", "rows": [], "error": None,
+    }
+    async with semaphore:
+        try:
+            result["rows"] = await _graph_paged(
+                f"/{business_id}/{edge}",
+                {"fields": fields, "limit": 200, "access_token": access_token},
+                resource=f"oauth_business_{edge}_paging",
+            )
+        except Exception as exc:  # noqa: BLE001 - falha isolada por Business/edge
+            result["status"] = "invalid_oauth" if _is_invalid_oauth(exc) else _graph_failure_status(exc)
+            result["error"] = exc
+            print(
+                "[meta_oauth][diag] stage=business_edge_failed "
+                f"business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
+                f"status={result['status']} {_graph_failure_fields(exc)}"
+            )
+            return result
+    print(
+        "[meta_oauth][diag] stage=business_edge "
+        f"business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
+        f"http_status=200 count={len(result['rows'])} ids={_ids(result['rows'], 'id')}"
+    )
+    return result
+
+
+def _add_discovery_ref(entry: Dict[str, Any], source: str, business: Optional[Dict[str, Any]] = None) -> None:
+    if source not in entry["discovery_sources"]:
+        entry["discovery_sources"].append(source)
+    if not business:
+        return
+    business_id = _safe_str(business.get("business_id"))
+    relation = _SOURCE_RELATION.get(source, "")
+    if business_id and not any(
+        ref.get("business_id") == business_id and ref.get("relation") == relation
+        for ref in entry["businesses"]
+    ):
+        entry["businesses"].append({
+            "business_id": business_id,
+            "business_name": _safe_str(business.get("business_name")),
+            "relation": relation,
+        })
+
+
+def _merge_ad_accounts(
+    direct_accounts: List[Dict[str, Any]], edge_results: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Merge determinístico: diretos primeiro, depois Business (owned, client),
+    deduplicado pelo ID real (act_<id>). Uma conta vista por várias origens
+    aparece uma única vez, com todas as origens em discovery_sources."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for account in direct_accounts:
+        act_id = _normalize_ad_account_id(_safe_str((account or {}).get("ad_account_id")))
+        if not act_id or act_id in merged:
+            continue
+        merged[act_id] = {
+            **account, "ad_account_id": act_id,
+            "discovery_sources": ["me_adaccounts"], "businesses": [], "access_status": ACCESS_ACCESSIBLE,
+        }
+    for result in edge_results:
+        if result["status"] != "ok":
+            continue
+        for row in result["rows"]:
+            act_id = _normalize_ad_account_id(_safe_str(row.get("id")) or _safe_str(row.get("account_id")))
+            if not act_id:
+                continue
+            entry = merged.get(act_id)
+            if entry is None:
+                entry = {
+                    "ad_account_id": act_id,
+                    "ad_account_name": _safe_str(row.get("name")),
+                    "account_status": row.get("account_status"),
+                    "currency": _safe_str(row.get("currency")),
+                    "timezone_name": _safe_str(row.get("timezone_name")),
+                    "discovery_sources": [], "businesses": [], "access_status": None,
+                }
+                merged[act_id] = entry
+            elif not entry.get("ad_account_name") and _safe_str(row.get("name")):
+                entry["ad_account_name"] = _safe_str(row.get("name"))
+            _add_discovery_ref(entry, result["source"], result["business"])
+    return list(merged.values())
+
+
+async def _verify_access(
+    access_token: str, path: str, fields: str, semaphore: asyncio.Semaphore
+) -> Tuple[Optional[Dict[str, Any]], Optional[BaseException]]:
+    async with semaphore:
+        try:
+            return await _meta_get(path, {"fields": fields, "access_token": access_token}), None
+        except Exception as exc:  # noqa: BLE001 - resultado por ativo
+            return None, exc
+
+
+def _access_after_failure(exc: BaseException) -> str:
+    return ACCESS_RESTRICTED if _graph_failure_status(exc) == "permission_denied" else ACCESS_UNVERIFIED
+
+
+_BUSINESS_LISTING_UNAVAILABLE = (
+    "Não foi possível listar os Businesses desta autorização. "
+    "Os ativos acessíveis diretamente foram listados normalmente."
+)
+
+
+async def _business_managers_or_warning(
+    access_token: str, calls: Optional[List[str]] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    """/me/businesses complementa os ativos diretos: se a listagem falhar
+    (permissão, limite de uso, erro da Meta), a descoberta segue só com os
+    ativos diretos e devolve um aviso seguro (código, status e texto fixo —
+    nunca a mensagem bruta da Meta). Token inválido continua interrompendo."""
+    listing = _fetch_business_managers(access_token)
+    try:
+        managers = await (_diag_call("me_businesses", calls, listing) if calls is not None else listing)
+    except Exception as exc:  # noqa: BLE001 - só invalid_oauth interrompe
+        if _is_invalid_oauth(exc):
+            raise
+        status = _graph_failure_status(exc)
+        print(
+            "[meta_oauth][diag] stage=me_businesses_unavailable "
+            f"status={status} {_graph_failure_fields(exc)} fallback=direct_assets"
+        )
+        return [], [{"code": "META_BUSINESSES_UNAVAILABLE", "status": status, "message": _BUSINESS_LISTING_UNAVAILABLE}]
+    return managers, []
+
+
+async def _expand_with_business_assets(
+    access_token: str,
+    *,
+    identity: Dict[str, Any],
+    ad_accounts: List[Dict[str, Any]],
+    business_managers: List[Dict[str, Any]],
+    include_ad_accounts: bool,
+) -> Dict[str, Any]:
+    """Une ativos diretos e ativos dos Businesses (owned/client), com origem e
+    estado de acesso. Páginas e contas vistas só pelo Business têm o detalhe
+    lido com o token atual: sucesso = acessível; permissão negada = restrito.
+    O vínculo Page → Instagram vem sempre dos campos da própria Página."""
+    semaphore = asyncio.Semaphore(_BUSINESS_DISCOVERY_CONCURRENCY)
+    businesses = [b for b in business_managers if isinstance(b, dict) and _safe_str(b.get("business_id"))]
+    jobs = []
+    for business in businesses:
+        if include_ad_accounts:
+            for edge, source, _relation in _BUSINESS_AD_ACCOUNT_EDGES:
+                jobs.append(_business_edge_rows(access_token, business, edge, source, "ad_account", semaphore))
+        for edge, source, _relation in _BUSINESS_PAGE_EDGES:
+            jobs.append(_business_edge_rows(access_token, business, edge, source, "page", semaphore))
+    results: List[Dict[str, Any]] = list(await asyncio.gather(*jobs)) if jobs else []
+    for result in results:
+        if result["status"] == "invalid_oauth":
+            raise result["error"]
+
+    edge_status: Dict[str, Dict[str, Any]] = {}
+    for result in results:
+        entry: Dict[str, Any] = {"status": result["status"]}
+        if result["status"] == "ok":
+            entry["count"] = len(result["rows"])
+        edge_status.setdefault(_safe_str(result["business"].get("business_id")), {})[result["edge"]] = entry
+    managers = [
+        {**business, "discovery": edge_status.get(_safe_str(business.get("business_id")), {})}
+        for business in businesses
+    ] if jobs else list(business_managers)
+
+    # ---- Contas de anúncio ----
+    merged_ads = _merge_ad_accounts(ad_accounts, [r for r in results if r["asset_type"] == "ad_account"])
+    pending_ads = [account for account in merged_ads if account.get("access_status") is None]
+    ad_checks = await asyncio.gather(*(
+        _verify_access(access_token, f"/{account['ad_account_id']}", _AD_ACCOUNT_FIELDS, semaphore)
+        for account in pending_ads
+    )) if pending_ads else []
+    for account, (detail, exc) in zip(pending_ads, ad_checks):
+        if exc is not None:
+            if _is_invalid_oauth(exc):
+                raise exc
+            account["access_status"] = _access_after_failure(exc)
+            print(
+                "[meta_oauth][diag] stage=ad_account_access "
+                f"ad_account_id={account['ad_account_id']} access={account['access_status']} "
+                f"sources={','.join(account['discovery_sources'])} "
+                f"status={_graph_failure_status(exc)} {_graph_failure_fields(exc)}"
+            )
+            continue
+        account["access_status"] = ACCESS_ACCESSIBLE
+        for key in ("ad_account_name", "currency", "timezone_name"):
+            if not account.get(key) and _safe_str((detail or {}).get(key.replace("ad_account_", ""))):
+                account[key] = _safe_str((detail or {}).get(key.replace("ad_account_", "")))
+
+    # ---- Páginas + Instagram (vínculo real da Página) ----
+    pages_by_id: Dict[str, Dict[str, Any]] = {}
+    for page in _json_array(identity.get("pages")):
+        page_id = _safe_str((page or {}).get("page_id"))
+        if page_id and page_id not in pages_by_id:
+            pages_by_id[page_id] = {
+                **page, "discovery_sources": ["me_accounts"], "businesses": [], "access_status": ACCESS_ACCESSIBLE,
+            }
+    for result in results:
+        if result["asset_type"] != "page" or result["status"] != "ok":
+            continue
+        for row in result["rows"]:
+            page_id = _safe_str(row.get("id"))
+            if not page_id:
+                continue
+            entry = pages_by_id.get(page_id)
+            if entry is None:
+                entry = {
+                    "page_id": page_id, "page_name": _safe_str(row.get("name")),
+                    "discovery_sources": [], "businesses": [], "access_status": None,
+                }
+                pages_by_id[page_id] = entry
+            _add_discovery_ref(entry, result["source"], result["business"])
+
+    instagram_accounts: List[Dict[str, Any]] = []
+    seen_ig: set[str] = set()
+    for account in _json_array(identity.get("instagram_accounts")):
+        ig_id = _safe_str((account or {}).get("ig_user_id"))
+        if ig_id and ig_id not in seen_ig:
+            seen_ig.add(ig_id)
+            instagram_accounts.append({**account, "discovery_sources": ["me_accounts"]})
+
+    pending_pages = [page for page in pages_by_id.values() if page.get("access_status") is None]
+    page_checks = await asyncio.gather(*(
+        _verify_access(access_token, f"/{page['page_id']}", _PAGE_IDENTITY_FIELDS, semaphore)
+        for page in pending_pages
+    )) if pending_pages else []
+    for page, (detail, exc) in zip(pending_pages, page_checks):
+        if exc is not None:
+            if _is_invalid_oauth(exc):
+                raise exc
+            page["access_status"] = _access_after_failure(exc)
+            print(
+                "[meta_oauth][diag] stage=page_access "
+                f"page_id={page['page_id']} access={page['access_status']} "
+                f"sources={','.join(page['discovery_sources'])} "
+                f"status={_graph_failure_status(exc)} {_graph_failure_fields(exc)}"
+            )
+            continue
+        page["access_status"] = ACCESS_ACCESSIBLE
+        page["page_name"] = page.get("page_name") or _safe_str((detail or {}).get("name"))
+        ig = (
+            _json_object((detail or {}).get("instagram_business_account"))
+            or _json_object((detail or {}).get("connected_instagram_account"))
+        )
+        ig_id = _safe_str(ig.get("id"))
+        print(
+            "[meta_oauth][diag] stage=page_access "
+            f"page_id={page['page_id']} access={ACCESS_ACCESSIBLE} "
+            f"sources={','.join(page['discovery_sources'])} instagram_id={ig_id or '-'}"
+        )
+        if ig_id and ig_id not in seen_ig:
+            seen_ig.add(ig_id)
+            instagram_accounts.append({
+                "ig_user_id": ig_id,
+                "username": _safe_str(ig.get("username")),
+                "business_id": page["page_id"],
+                "business_name": page.get("page_name") or "",
+                "discovery_sources": list(page["discovery_sources"]),
+            })
+
+    merged_pages = list(pages_by_id.values())
+    if jobs:
+        def count(rows: List[Dict[str, Any]], source: str) -> int:
+            return sum(1 for row in rows if source in row.get("discovery_sources", []))
+        print(
+            "[meta_oauth][diag] stage=business_discovery "
+            f"business_count={len(businesses)} "
+            f"edges_ok={sum(1 for r in results if r['status'] == 'ok')} "
+            f"edges_permission_denied={sum(1 for r in results if r['status'] == 'permission_denied')} "
+            f"edges_failed={sum(1 for r in results if r['status'] not in {'ok', 'permission_denied'})}"
+        )
+        if include_ad_accounts:
+            print(
+                "[meta_oauth][diag] stage=ad_account_merge "
+                f"me_adaccounts={count(merged_ads, 'me_adaccounts')} "
+                f"business_owned={count(merged_ads, 'business_owned')} "
+                f"business_client={count(merged_ads, 'business_client')} "
+                f"merged={len(merged_ads)} business_only={len(pending_ads)} "
+                f"restricted={sum(1 for a in merged_ads if a.get('access_status') == ACCESS_RESTRICTED)} "
+                f"unverified={sum(1 for a in merged_ads if a.get('access_status') == ACCESS_UNVERIFIED)}"
+            )
+            for account in [a for a in merged_ads if a.get("businesses")][:_SOURCE_LOG_LIMIT]:
+                refs = ",".join(f"{ref['business_id']}:{ref['relation']}" for ref in account["businesses"])
+                print(
+                    "[meta_oauth][diag] stage=ad_account_sources "
+                    f"ad_account_id={account['ad_account_id']} sources={','.join(account['discovery_sources'])} "
+                    f"businesses={refs} access={account.get('access_status')}"
+                )
+        print(
+            "[meta_oauth][diag] stage=page_merge "
+            f"me_accounts={count(merged_pages, 'me_accounts')} "
+            f"business_owned={count(merged_pages, 'business_owned')} "
+            f"business_client={count(merged_pages, 'business_client')} "
+            f"merged={len(merged_pages)} business_only={len(pending_pages)} "
+            f"restricted={sum(1 for p in merged_pages if p.get('access_status') == ACCESS_RESTRICTED)}"
+        )
+
+    return {
+        "identity": {**identity, "pages": merged_pages, "instagram_accounts": instagram_accounts},
+        "ad_accounts": merged_ads,
+        "business_managers": managers,
+    }
+
+
 class _DiagSkipped(Exception):
     pass
 
@@ -715,7 +1105,18 @@ async def discover_assets(access_token: str) -> Dict[str, Any]:
         identity = await _diag_call("me_accounts", calls, fetch_instagram_identity(access_token))
         ad_accounts = await _diag_call("me_adaccounts", calls, fetch_ad_accounts(access_token))
         scopes = await _fetch_granted_scopes(access_token)
-        business_managers = await _diag_call("me_businesses", calls, _fetch_business_managers(access_token))
+        # Falha em /me/businesses não derruba a descoberta: seguem os ativos
+        # diretos (/me/accounts, /me/adaccounts) com um aviso seguro.
+        business_managers, discovery_warnings = await _business_managers_or_warning(access_token, calls)
+        # Ativos dos Businesses (owned/client) somados aos diretos. Falhas por
+        # Business/edge ficam isoladas; nada é atribuído a tenant aqui.
+        expanded = await _expand_with_business_assets(
+            access_token, identity=identity, ad_accounts=ad_accounts,
+            business_managers=business_managers, include_ad_accounts=True,
+        )
+        identity = expanded["identity"]
+        ad_accounts = expanded["ad_accounts"]
+        business_managers = expanded["business_managers"]
     finally:
         await _log_discovery_diagnostics(
             access_token, calls=calls, identity=identity,
@@ -728,6 +1129,7 @@ async def discover_assets(access_token: str) -> Dict[str, Any]:
         "ad_accounts": ad_accounts,
         "business_managers": business_managers,
         "scopes": scopes,
+        "discovery_warnings": discovery_warnings,
     }
 
 
@@ -768,14 +1170,23 @@ async def discover_existing_meta_organic_assets(
         )
     try:
         identity = await fetch_instagram_identity(access_token)
+        # Páginas dos Businesses também entram (vínculo Instagram lido da própria
+        # Página); sem /me/businesses, seguem as Páginas diretas com aviso.
+        business_managers, discovery_warnings = await _business_managers_or_warning(access_token)
+        expanded = await _expand_with_business_assets(
+            access_token, identity=identity, ad_accounts=[],
+            business_managers=business_managers, include_ad_accounts=False,
+        )
+        identity = expanded["identity"]
         discovered = {
             "meta_user": identity.get("meta_user") or {},
             "pages": identity.get("pages") or [],
             "instagram_accounts": identity.get("instagram_accounts") or [],
             # Configuração orgânica não relista nem modifica Meta Ads.
             "ad_accounts": [],
-            "business_managers": await _fetch_business_managers(access_token),
+            "business_managers": expanded["business_managers"],
             "scopes": sorted(scopes),
+            "discovery_warnings": discovery_warnings,
         }
     except MetaApiError as exc:
         code = "META_REAUTH_REQUIRED" if exc.invalid_oauth else (
@@ -1381,6 +1792,9 @@ async def create_discovery_handoff(
         "meta_user_json": {
             **_json_object(discovered.get("meta_user")),
             "business_managers": _json_array(discovered.get("business_managers")),
+            # Aviso seguro da descoberta (ex.: /me/businesses indisponível); só quando existe.
+            **({"discovery_warnings": _json_array(discovered.get("discovery_warnings"))}
+               if _json_array(discovered.get("discovery_warnings")) else {}),
         },
         "instagram_accounts_json": _json_array(discovered.get("instagram_accounts")),
         "pages_json": _json_array(discovered.get("pages")),
@@ -1448,6 +1862,8 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
             pages_by_id[page_id] = {
                 "page_id": page_id,
                 "page_name": _safe_str((page or {}).get("page_name")),
+                # Origem e estado de acesso (descoberta via Business), quando existirem.
+                **{key: page[key] for key in ("discovery_sources", "businesses", "access_status") if key in page},
             }
     for page_id, page in pages_by_id.items():
         linked = next((
@@ -1478,6 +1894,7 @@ async def read_discovery_handoff(*, handoff: str, user_id: str, client_id: Optio
         "ad_account_count": len(ad_accounts),
         "scopes": _json_array(item.get("scopes_json")),
         "expires_at": item.get("expires_at"),
+        "discovery_warnings": _json_array(meta_user.get("discovery_warnings")),
     }
 
 
@@ -1582,6 +1999,21 @@ async def save_connections(
         for account in discovered_ads
         if isinstance(account, dict) and _safe_str(account.get("ad_account_id"))
     }
+    restricted_ids = {
+        _normalize_ad_account_id(_safe_str((account or {}).get("ad_account_id")))
+        for account in discovered_ads
+        if isinstance(account, dict) and account.get("access_status") == ACCESS_RESTRICTED
+    } | {
+        _safe_str((page or {}).get("page_id"))
+        for page in _json_array(item.get("pages_json"))
+        if isinstance(page, dict) and page.get("access_status") == ACCESS_RESTRICTED
+    }
+    if (ads_requested | pages_requested) & restricted_ids:
+        raise IntegrationError(
+            "A autorização atual não permite acessar os dados deste ativo. "
+            "Peça acesso ao ativo no Business ou autorize novamente com a conta que tem esse acesso.",
+            status_code=403, code="META_ASSET_ACCESS_RESTRICTED", provider="meta",
+        )
     _validate_requested_asset_ids(
         requested_ids=ig_requested,
         discovered_ids=discovered_ig_ids,
@@ -1844,6 +2276,7 @@ async def save_connections(
                     "timezone_name": _safe_str(ad.get("timezone_name")),
                 }
                 for ad in _json_array(item.get("ad_accounts_json"))
+                if _json_object(ad).get("access_status") != ACCESS_RESTRICTED
             ],
         },
     )

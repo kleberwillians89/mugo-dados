@@ -31,7 +31,7 @@ const api = vi.hoisted(() => ({
   getShopifyCustomers: vi.fn(),
   syncShopifyConnection: vi.fn(),
 }));
-const shopifyRenders = vi.hoisted(() => ({ tenants: [] as string[] }));
+const shopifyRenders = vi.hoisted(() => ({ tenants: [] as string[], canSync: [] as Array<boolean | undefined> }));
 
 vi.mock("../app/api", () => api);
 vi.mock("../app/activeClient", () => ({
@@ -57,8 +57,9 @@ vi.mock("../components/dashboard/FbitsExecutiveDashboard", () => ({
 vi.mock("./Shopify", async () => {
   const { getActiveClientId } = await import("../app/activeClient");
   return {
-    default: () => {
+    default: (props: { canSync?: boolean }) => {
       shopifyRenders.tenants.push(getActiveClientId());
+      shopifyRenders.canSync.push(props.canSync);
       return <div data-testid="shopify-page">Shopify dashboard</div>;
     },
   };
@@ -87,16 +88,19 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 const onOpenIntegrations = vi.fn();
 
-async function render() {
+// Padrão: perfil que pode sincronizar e gerenciar integrações (como o App
+// entrega para agency_admin/client_admin). Viewer: canSync=false e sem atalho.
+async function render({ canSync = true, integrationsShortcut = true }: { canSync?: boolean; integrationsShortcut?: boolean } = {}) {
   await act(async () => {
     root.render(
       <Ecommerce
         key={`ecommerce:${tenant.id}`}
         isAuthenticated
+        canSync={canSync}
         onLogout={vi.fn()}
         onOpenDashboard={vi.fn()}
         onOpenGoogleReport={vi.fn()}
-        onOpenIntegrations={onOpenIntegrations}
+        onOpenIntegrations={integrationsShortcut ? onOpenIntegrations : undefined}
       />,
     );
   });
@@ -130,6 +134,7 @@ beforeEach(() => {
   tenant.id = "roove";
   tenant.name = "Roove";
   shopifyRenders.tenants = [];
+  shopifyRenders.canSync = [];
   window.localStorage.clear();
   Object.values(api).forEach((fn) => fn.mockReset());
   onOpenIntegrations.mockReset();
@@ -164,7 +169,11 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     );
     await render();
     expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=0");
-    expect(container.querySelector('[data-testid="subtitle"]')?.textContent).toContain("Fonte: FBITS");
+    // A fonte dos números aparece uma vez, no cabeçalho da empresa.
+    expect(container.querySelector('[data-testid="ecommerce-source"]')?.textContent).toContain("FBITS");
+    // Onde estou: empresa › página (a marca da empresa vive na sidebar global).
+    expect(container.querySelector(".ds-pageEyebrow")?.textContent).toBe("Curavino");
+    expect(container.querySelector("h1.ds-pageTitle")?.textContent).toBe("Ecommerce");
     expect(container.textContent).toContain("FBITS conectado");
     expect(container.textContent).toContain("Aguardando primeira sincronização");
     expect(button("Sincronizar agora")).toBeTruthy();
@@ -292,5 +301,52 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(container.querySelector('[data-testid="shopify-page"]')).toBeNull();
     expect(container.textContent).toContain("A empresa ativa mudou");
     expectNoShopifyCalls();
+  });
+});
+
+describe("Ecommerce — sincronização só para quem o backend autoriza", () => {
+  it("viewer: FBITS não oferece ações de sincronização ou atualização manual", async () => {
+    tenant.id = "vinhos";
+    tenant.name = "Curavino";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    await render({ canSync: false, integrationsShortcut: false });
+    expect(container.querySelector('[data-testid="fbits-panel"]')).not.toBeNull();
+    expect(button("Sincronizar agora")).toBeUndefined();
+    expect(container.textContent).not.toContain("Sincronizar agora");
+    expect(button("Atualizar dados")).toBeUndefined();
+    expect(container.textContent).not.toContain("Atualizar dados");
+    expect(api.syncFbitsConnection).not.toHaveBeenCalled();
+  });
+
+  it("administrador autorizado (client_admin/agency_admin): FBITS mostra \"Sincronizar agora\"", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    await render({ canSync: true });
+    expect(button("Sincronizar agora")).toBeTruthy();
+  });
+
+  it("Shopify recebe a mesma permissão: viewer sem sync", async () => {
+    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify")]));
+    await render({ canSync: false, integrationsShortcut: false });
+    expect(container.querySelector('[data-testid="shopify-page"]')).not.toBeNull();
+    expect(shopifyRenders.canSync.length).toBeGreaterThan(0);
+    expect(shopifyRenders.canSync.every((value) => value === false)).toBe(true);
+  });
+
+  it("Shopify recebe a mesma permissão: administrador com sync", async () => {
+    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify")]));
+    await render({ canSync: true });
+    expect(shopifyRenders.canSync.length).toBeGreaterThan(0);
+    expect(shopifyRenders.canSync.every((value) => value === true)).toBe(true);
+  });
+
+  it("viewer sem conexão de Ecommerce: nenhum atalho nem instrução de administração", async () => {
+    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("meta")]));
+    await render({ canSync: false, integrationsShortcut: false });
+    expect(container.textContent).toContain("Nenhuma integração de Ecommerce conectada");
+    expect(button("Ir para Integrações")).toBeUndefined();
+    expect(container.textContent).not.toContain("Conecte Shopify ou FBITS");
+    expectNoShopifyCalls();
+    expectNoFbitsCalls();
   });
 });

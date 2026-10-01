@@ -1,5 +1,4 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { BarChart3, BrainCircuit, MoreHorizontal, ShoppingBag, SlidersHorizontal, Building2, LogOut } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import {
   disableLocalAuth,
@@ -17,13 +16,13 @@ import {
 import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
-import ClientSwitcher from "./components/ClientSwitcher";
+import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
 import Login from "./pages/Login";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
 import { DashboardDataProvider } from "./app/DashboardDataContext";
-import { DataDeletionPage, DataProtectionPage, PrivacyPage } from "./pages/LegalPages";
+import { DataDeletionPage, DataProtectionPage, PrivacyPage, TermsPage } from "./pages/LegalPages";
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -118,133 +117,49 @@ function toErrorMessage(error: unknown): string {
   return "Erro ao carregar a configuração do Mugô Dados.";
 }
 
+// Antes da sessão/empresa existirem: só o produto e o estado.
 function AppLoading() {
   return (
     <main className="appBootShell" aria-busy="true" aria-live="polite">
       <header className="appBootHeader">
         <MugoLogo variant="symbol" className="appBootMark" alt="" />
-        <div><strong>{MUGO_APP_NAME}</strong><small>Preparando seu workspace</small></div>
+        <div><strong>{MUGO_APP_NAME}</strong></div>
       </header>
       <section className="appBootContent">
         <div className="appBootIntro">
           <span className="appBootSpinner" aria-hidden="true" />
-          <div><h1>Meta</h1><p>Validando sessão e empresa ativa…</p></div>
-        </div>
-        <div className="appBootGrid" aria-hidden="true">
-          <span /><span /><span /><span />
+          <p>Carregando…</p>
         </div>
       </section>
     </main>
   );
 }
 
-function PrimaryNavigation({
-  route,
-  platformAdmin,
-  agencyAdmin,
-  canManageIntegrations,
-  onOpen,
-  clients,
-  activeClientId,
-  onClientChange,
-  onLogout,
-}: {
-  route: AppRoute;
-  platformAdmin: boolean;
-  agencyAdmin: boolean;
-  canManageIntegrations?: boolean;
-  onOpen: (route: AppRoute) => void;
-  clients?: ClientMembership[];
-  activeClientId?: string;
-  onClientChange?: (clientId: string) => void;
-  onLogout: () => void | Promise<void>;
-}) {
-  const [moreOpen, setMoreOpen] = useState(false);
-  const showIntegrations = canManageIntegrations ?? (platformAdmin || agencyAdmin);
-  const items: Array<{ route: AppRoute; label: string }> = [
-    { route: "meta", label: "Meta" },
-    { route: "google", label: "Google" },
-    { route: "ecommerce", label: "Ecommerce" },
-    { route: "intelligence", label: "Inteligência" },
-  ];
-  // Perfil somente-leitura nunca vê a aba de configuração de integrações
-  // (OAuth, reconexões, detalhe técnico) — nem no menu, nem acessível por
-  // navegação direta (ver guarda em resolveAuthenticatedView). client_admin/
-  // owner gerenciam as integrações da própria empresa e enxergam a aba.
-  if (showIntegrations) {
-    items.push({ route: "integrations", label: "Integrações" });
-  }
-  if (platformAdmin || agencyAdmin) {
-    items.push({ route: "companies", label: "Administração" });
-  }
+// Dentro do frame (sidebar já visível): carregamento da página, sem repetir a marca.
+function PageLoading() {
   return (
-    <nav className="primaryNavigation" aria-label="Navegação principal">
-      <div className="primaryNavigationInner">
-        <button className="primaryNavigationBrandButton" type="button" aria-label="Abrir Meta" onClick={() => onOpen("meta")}>
-          <MugoLogo variant="responsive" className="primaryNavigationBrand" />
-        </button>
-        <div className="primaryNavigationLinks">
-          {items.map((item) => (
-            <button
-              aria-current={route === item.route ? "page" : undefined}
-              className={route === item.route ? "isActive" : ""}
-              key={item.route}
-              onClick={() => onOpen(item.route)}
-              type="button"
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        {clients && activeClientId && onClientChange ? (
-          <ClientSwitcher
-            clients={clients}
-            activeClientId={activeClientId}
-            onChange={onClientChange}
-          />
-        ) : null}
-      </div>
-      <div className="mobileHeaderRow">
-        <button className="mobileHeaderBrandButton" type="button" aria-label="Abrir Meta" onClick={() => onOpen("meta")}>
-          <MugoLogo variant="symbol" className="mobileHeaderBrand" />
-        </button>
-        {clients && activeClientId && onClientChange ? (
-          <ClientSwitcher clients={clients} activeClientId={activeClientId} onChange={onClientChange} />
-        ) : null}
-      </div>
-      <div className="mobileBottomNav" aria-label="Navegação mobile">
-        {[
-          { route: "meta" as const, label: "Meta", Icon: BarChart3 },
-          { route: "google" as const, label: "Google", Icon: BarChart3 },
-          { route: "ecommerce" as const, label: "Ecommerce", Icon: ShoppingBag },
-          { route: "intelligence" as const, label: "Inteligência", Icon: BrainCircuit },
-        ].map(({ route: itemRoute, label, Icon }) => (
-          <button key={itemRoute} type="button" aria-current={route === itemRoute ? "page" : undefined} onClick={() => { setMoreOpen(false); onOpen(itemRoute); }}>
-            <Icon size={20} aria-hidden="true" /><span>{label}</span>
-          </button>
-        ))}
-        <button type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>
-          <MoreHorizontal size={20} aria-hidden="true" /><span>Mais</span>
-        </button>
-      </div>
-      {moreOpen ? (
-        <div className="mobileMoreMenu" role="menu">
-          {showIntegrations ? (
-            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("integrations"); }}><SlidersHorizontal size={19} />Integrações</button>
-          ) : null}
-          {platformAdmin || agencyAdmin ? (
-            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onOpen("companies"); }}><Building2 size={19} />Administração</button>
-          ) : null}
-          <button type="button" role="menuitem" onClick={() => void onLogout()}><LogOut size={19} />Sair</button>
-        </div>
-      ) : null}
-    </nav>
+    <div className="appPageLoading" role="status" aria-live="polite">
+      <span className="appBootSpinner" aria-hidden="true" />
+      Carregando…
+    </div>
   );
 }
 
 // Perfil somente-leitura (cliente final) nunca acessa configuração de OAuth,
 // reconexões nem detalhe técnico de integração — só quem gerencia a conta
 // (agency_admin/client_admin/owner/admin) chega em "Integrações".
+// Identidade exibida na área da conta: nome do perfil quando existir; senão a
+// parte local do e-mail. Só leitura da sessão já carregada pelo Supabase.
+function resolveNavigationUser(session: Session | null, localMode: boolean): NavigationUser | null {
+  if (localMode) return { name: "Modo local", email: null };
+  const user = session?.user;
+  if (!user) return null;
+  const metadata = (user.user_metadata || {}) as Record<string, unknown>;
+  const fullName = String(metadata.full_name || metadata.name || "").trim();
+  const email = String(user.email || "").trim();
+  return { name: fullName || email.split("@")[0] || "Conta", email: email || null };
+}
+
 function isReadOnlyClientRole(role: string | null | undefined): boolean {
   const normalized = String(role || "").toLowerCase();
   return !["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(normalized);
@@ -500,6 +415,12 @@ function PrivateApp() {
       }
 
       if (hasSetupSignalInUrl()) {
+        if (isReadOnlyClientRole(getActiveClient()?.role)) {
+          navigateToAppRoute("meta", { replace: true });
+          setRoute("meta");
+          setView("dashboard");
+          return;
+        }
         setView("setup");
         return;
       }
@@ -834,6 +755,7 @@ function PrivateApp() {
     platformAdmin
     || agencyAdmin
     || ["client_admin", "owner", "admin"].includes(activeClientRole);
+  const navigationUser = resolveNavigationUser(session, localMode);
 
   if (view === "loading") {
     return <AppLoading />;
@@ -865,8 +787,8 @@ function PrivateApp() {
 
   if (view === "setup") {
     return (
-      <>
-        <PrimaryNavigation
+      <div className="appFrame">
+        <AppNavigation
           route="integrations"
           platformAdmin={platformAdmin}
           agencyAdmin={agencyAdmin}
@@ -876,23 +798,27 @@ function PrivateApp() {
           activeClientId={activeClientId}
           onClientChange={handleClientChange}
           onLogout={handleLogout}
+          user={navigationUser}
         />
-        <Suspense fallback={<AppLoading />}>
-          <Onboarding
-            isAuthenticated={!!session}
-            initialError={bootError}
-            onLogout={handleLogout}
-            onCompleted={handleSetupCompleted}
-          />
-        </Suspense>
-      </>
+        <div className="appFrameMain">
+          <Suspense fallback={<PageLoading />}>
+            <Onboarding
+              isAuthenticated={!!session}
+              initialError={bootError}
+              onLogout={handleLogout}
+              onCompleted={handleSetupCompleted}
+            />
+          </Suspense>
+        </div>
+      </div>
     );
   }
 
   return (
     <DashboardErrorBoundary>
       <DashboardDataProvider clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
-      <PrimaryNavigation
+      <div className="appFrame">
+      <AppNavigation
         route={route}
         platformAdmin={platformAdmin}
         agencyAdmin={agencyAdmin}
@@ -902,8 +828,10 @@ function PrivateApp() {
         activeClientId={activeClientId}
         onClientChange={handleClientChange}
         onLogout={handleLogout}
+        user={navigationUser}
       />
-      <Suspense fallback={<AppLoading />}>
+      <div className="appFrameMain">
+      <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
@@ -920,11 +848,13 @@ function PrivateApp() {
         <Intelligence
           key={`intelligence:${activeClientId}`}
           onLogout={handleLogout}
+          canRefresh={canManageIntegrations}
         />
       ) : route === "google" ? (
         <GoogleAnalytics
           key={`google:${activeClientId}`}
           isAuthenticated={!!session || localMode}
+          canSync={canManageIntegrations}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("meta")}
         />
@@ -932,24 +862,28 @@ function PrivateApp() {
         <Ecommerce
           key={`ecommerce:${activeClientId}`}
           isAuthenticated={!!session || localMode}
+          canSync={canManageIntegrations}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("meta")}
           onOpenGoogleReport={() => openRoute("google")}
-          onOpenIntegrations={() => openRoute("integrations")}
+          onOpenIntegrations={canManageIntegrations ? () => openRoute("integrations") : undefined}
         />
       ) : (
         <Dashboard
           key={`dashboard:${activeClientId}`}
           onLogout={handleLogout}
           isAuthenticated={!!session || localMode}
+          canSync={canManageIntegrations}
           bootstrapError={bootError}
-          onOpenSetup={() => setView("setup")}
+          onOpenSetup={canManageIntegrations ? () => setView("setup") : undefined}
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
       )}
       </>
       )}
       </Suspense>
+      </div>
+      </div>
       </DashboardDataProvider>
     </DashboardErrorBoundary>
   );
@@ -960,5 +894,6 @@ export default function App() {
   if (publicRoute === "privacy") return <PrivacyPage />;
   if (publicRoute === "data_deletion") return <DataDeletionPage />;
   if (publicRoute === "data_protection") return <DataProtectionPage />;
+  if (publicRoute === "terms") return <TermsPage />;
   return <PrivateApp />;
 }

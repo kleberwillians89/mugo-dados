@@ -1,0 +1,617 @@
+/* src/styles/design-system.css
+   ============================================================
+   LINGUAGEM VISUAL MUGÔ DADOS — tokens e primitivas editoriais.
+
+   Princípios: o dado é protagonista; tipografia, espaço e alinhamento
+   antes de caixas; cor só quando significa algo (série atual, estado
+   ativo, variação positiva/negativa).
+
+   Primitivas usam o prefixo "ds-" para conviver com o CSS legado
+   enquanto as páginas migram (piloto: Ecommerce → FBITS).
+   ============================================================ */
+
+:root{
+  /* Tipografia — ver src/styles/fonts.css.
+     "Mugo Sans"/"Mugo Display" entram quando a fonte oficial chegar;
+     até lá vale o FALLBACK TEMPORÁRIO: fonte de sistema. */
+  --font-body: "Mugo Sans", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Mugo Display", "Mugo Sans", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Texto (contraste AA sobre --surface e --surface-subtle) */
+  --text-primary: #15181b;
+  --text-secondary: #4d565d;
+  --text-muted: #687178;
+
+  /* Superfícies */
+  --surface: #ffffff;
+  --surface-subtle: #f6f5f2;
+  --border-subtle: rgba(21, 24, 27, .09);
+
+  /* Significado */
+  --accent: #004f6e;   /* azul Mugô: série principal, estado ativo, foco */
+  --positive: #1d7a4b;
+  --negative: #b22234; /* vermelho Mugô */
+  --warning: #9a5b07;
+
+  /* Espaço (base 4) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 72px;
+
+  /* Raio (--radius-lg: 12px já existe em mugo.tokens.css) */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+}
+
+/* ====== PAPÉIS TIPOGRÁFICOS ====== */
+.t-display{
+  font-family: var(--font-display);
+  font-size: clamp(44px, 5vw, 68px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+}
+.t-title{
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+  color: var(--text-primary);
+}
+.t-body{ font-size: 15px; line-height: 1.55; color: var(--text-secondary); }
+.t-label{ font-size: 13px; font-weight: 500; line-height: 1.3; color: var(--text-secondary); }
+.t-data{
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+}
+.ds-srOnly{
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+}
+
+/* ====== PÁGINA EDITORIAL ====== */
+.appShell.theme-editorial{
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+.ds-utilityBar{
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-4) clamp(16px, 3vw, 40px) 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+.content.ds-content{
+  max-width: 1280px;
+  padding: var(--space-5) clamp(16px, 3vw, 40px) var(--space-8);
+}
+.ds-page{
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  min-width: 0;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+}
+/* Ritmo: blocos de leitura separados por espaço generoso (stack);
+   elementos do mesmo bloco ficam próximos (group). */
+.ds-stack{ display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+.ds-group{ display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+
+/* Cabeçalho: onde estou (empresa + procedência) à esquerda; período à direita. */
+.ds-pageHeader{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-5) var(--space-6);
+  min-width: 0;
+}
+.ds-pageHeaderIdentity{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ds-pageHeaderAside{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+}
+/* Procedência: informação operacional, abaixo da identidade, sem disputar atenção. */
+.ds-dateline, .ds-meta{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ds-metaSeparator{ color: var(--text-muted); }
+/* Separador preso ao fim do item: ao quebrar, o "·" fica no fim da linha. */
+.ds-dateline > *:not(:last-child)::after{ content: "·"; margin-left: var(--space-2); color: var(--text-muted); }
+.ds-controlsNote{
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ====== IDENTIDADE DO CLIENTE ======
+   Empresa analisada (não a marca do produto). A marca aparece como é:
+   escala uniforme, sem filtro; o tamanho vem do ClientBrand (área constante). */
+.ds-clientBrand{ display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0; }
+/* Emblema ou imagem de marca: o nome vai ao lado, em tamanho de título. */
+.ds-clientBrand.is-markWithName{ flex-direction: row; align-items: center; gap: var(--space-4); }
+.ds-clientBrandText{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ds-clientBrandMark{ display: block; flex: 0 0 auto; overflow: hidden; }
+.ds-clientBrandMark img{ display: block; max-width: none; }
+/* Asset quadrado com margem: o recorte medido (brandRegistry) vem inline. */
+.ds-clientBrandMark.is-wordmark{ height: 40px; }
+.ds-clientBrandMark.is-wordmark img{ width: auto; height: 100%; max-width: 200px; object-fit: contain; object-position: left center; }
+.ds-clientBrandMark.is-square{ width: 52px; height: 52px; }
+.ds-clientBrandMark.is-square img,
+.ds-clientBrandMark.is-image img{ width: 100%; height: 100%; object-fit: contain; }
+.ds-clientBrandMark.is-image{ border-radius: var(--radius-sm); }
+.ds-clientBrandName{
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+/* Sem asset: o nome é a identidade, um pouco maior — ainda abaixo dos dados. */
+.ds-clientBrand.is-textOnly .ds-clientBrandName{ font-size: clamp(26px, 2.4vw, 32px); }
+.ds-clientBrandContext{ margin: 0; font-size: 14px; color: var(--text-secondary); }
+
+/* ====== CONTROLES ====== */
+/* Período: texto, sem caixa nem borda; o ativo ganha fundo leve e peso. */
+.ds-segmented{
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+.ds-segmented::-webkit-scrollbar{ display: none; }
+.ds-segmented button{
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 13px/1 var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.ds-segmented button:hover{ color: var(--text-primary); }
+.ds-segmented button[aria-pressed="true"]{ background: rgba(21, 24, 27, .07); color: var(--text-primary); font-weight: 600; }
+
+.ds-button{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 500 13px/1 var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.ds-button:hover{ border-color: rgba(21, 24, 27, .22); }
+.ds-button.is-primary{ border-color: var(--text-primary); background: var(--text-primary); color: #fff; }
+.ds-button:disabled{ opacity: .5; cursor: default; }
+.ds-link{
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color .15s ease;
+}
+.ds-link:hover{ text-decoration-color: currentColor; }
+.ds-link:disabled{ color: var(--text-muted); cursor: default; }
+.ds-link.is-muted{ color: var(--text-secondary); }
+/* Ação operacional: legível como link, sem chamar atenção. */
+.ds-link.is-quiet{ color: var(--text-secondary); text-decoration-color: rgba(21, 24, 27, .22); }
+.ds-link.is-quiet:hover{ color: var(--text-primary); text-decoration-color: currentColor; }
+
+.ds-customPeriod{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.ds-field{ display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.ds-field input{
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 400 14px var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.ds-page, .ds-utilityBar) :is(button, a, input, [tabindex]):focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ====== RESUMO: DADO PRINCIPAL + KPIs ======
+   Sem cartões. Uma história principal (o maior número da página, com a
+   comparação por extenso); depois o que a explica, menor; por último o
+   operacional. Variação só ganha cor quando é relevante. */
+.ds-summary{ display: flex; flex-direction: column; gap: 44px; min-width: 0; }
+.ds-hero{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ds-heroValue{
+  font-family: var(--font-display);
+  font-size: clamp(52px, 6vw, 84px);
+  font-weight: 600;
+  line-height: .95;
+  letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.ds-heroLabel{ margin: 0; font-size: 20px; line-height: 1.3; color: var(--text-secondary); }
+.ds-heroDelta{ margin: 0; }
+.ds-heroDelta .ds-delta{ gap: 6px; font-size: 15px; }
+.ds-deltaReference{ color: var(--text-secondary); font-weight: 400; }
+
+.ds-kpis{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 220px));
+  justify-content: start;
+  align-items: end;
+  gap: var(--space-5) var(--space-7);
+  margin: 0;
+}
+.ds-kpi{ display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ds-kpiValue{
+  font-family: var(--font-display);
+  font-size: clamp(28px, 2.4vw, 34px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.ds-kpi.is-hero .ds-kpiValue{ font-size: clamp(44px, 5vw, 68px); letter-spacing: -.035em; }
+.ds-kpiLabel{ font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+.ds-kpiDelta{ min-height: 18px; }
+
+.ds-delta{
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.ds-delta.is-positive{ color: var(--positive); }
+.ds-delta.is-negative{ color: var(--negative); }
+
+/* Faixa operacional: lida depois dos KPIs — rótulo discreto acima do valor. */
+.ds-secondary{ display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.ds-inlineStats{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) 56px;
+  margin: 0;
+}
+.ds-inlineStats > div{ display: flex; flex-direction: column; gap: 4px; }
+.ds-inlineStats dt{ font-size: 12px; color: var(--text-muted); }
+.ds-inlineStats dd{
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+/* Nota técnica (base da comparação, regras de receita): rodapé, não manchete. */
+.ds-footnote{ margin: 0; max-width: 80ch; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+
+/* ====== SEÇÕES E NARRATIVA ====== */
+.ds-section{ display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.ds-sectionHead{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+}
+.ds-sectionHeadText{ display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ds-sectionTitle{
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+  text-wrap: balance;
+  color: var(--text-primary);
+}
+.ds-headline{
+  margin: 0;
+  max-width: 46ch;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.3vw, 30px);
+  text-wrap: balance;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -.02em;
+  color: var(--text-primary);
+}
+.ds-headline .is-secondary{ color: var(--text-secondary); font-weight: 500; }
+.ds-caption{ margin: 0; font-size: 13px; color: var(--text-muted); }
+.ds-emptyLine{ margin: 0; font-size: 15px; color: var(--text-secondary); }
+.ds-status{ margin: 0; font-size: 13px; color: var(--text-muted); }
+.ds-refreshing{ opacity: .55; transition: opacity .2s ease; }
+
+/* ====== GRÁFICO ====== */
+.ds-chart{ width: 100%; height: 360px; }
+/* O gráfico principal é o segundo grande momento da página. */
+.ds-chartSection .ds-chart{ height: 420px; }
+.ds-chartKey{ display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; font-size: 12px; color: var(--text-muted); }
+.ds-chartKey span{ display: inline-flex; align-items: center; gap: 6px; }
+.ds-chartKey .is-line::before{ content: ""; width: 14px; height: 2px; border-radius: 2px; background: var(--accent); }
+.ds-chartKey .is-bar::before{ content: ""; width: 8px; height: 10px; border-radius: 2px; background: rgba(21, 24, 27, .14); }
+.ds-tooltip{
+  min-width: 190px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(21, 24, 27, .10);
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ds-tooltip strong{ display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-primary); }
+.ds-tooltip dl{ display: grid; grid-template-columns: auto auto; gap: 6px 18px; margin: 0; }
+.ds-tooltip dt{ color: var(--text-muted); }
+.ds-tooltip dd{ margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+
+/* ====== LISTAS DE DETALHE ====== */
+.ds-split{ display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-7); }
+
+.ds-statusList, .ds-rankList{ list-style: none; margin: 0; padding: 0; }
+.ds-statusRow{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ds-statusDot{
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+}
+.ds-statusDot.is-revenue{ border-color: var(--accent); background: var(--accent); }
+.ds-statusName{ display: block; font-size: 14px; color: var(--text-primary); overflow-wrap: anywhere; }
+.ds-statusCount{ display: block; font-size: 12px; color: var(--text-muted); }
+.ds-statusValue{ font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.ds-legend{ display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; font-size: 12px; color: var(--text-muted); }
+.ds-legend span{ display: inline-flex; align-items: center; gap: 6px; }
+
+.ds-rankRow{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px var(--space-4);
+  padding: var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ds-rankName{ font-size: 14px; font-weight: 500; color: var(--text-primary); overflow-wrap: anywhere; }
+.ds-rankMeta{ font-size: 12px; color: var(--text-muted); }
+.ds-rankValue{ grid-column: 2; grid-row: 1; text-align: right; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.ds-rankShare{ grid-column: 2; grid-row: 2; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.ds-rankBar{ grid-column: 1 / -1; height: 3px; margin-top: 6px; overflow: hidden; border-radius: 2px; background: var(--border-subtle); }
+.ds-rankBar span{ display: block; height: 100%; background: var(--accent); opacity: .5; }
+
+/* ====== TABELA ====== */
+.ds-tableWrap{ width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ds-table{ width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ds-table th{
+  padding: 0 var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ds-table td{
+  padding: var(--space-4);
+  border-bottom: 1px solid rgba(21, 24, 27, .06);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ds-table th:first-child, .ds-table td:first-child{ padding-left: 0; }
+.ds-table th:last-child, .ds-table td:last-child{ padding-right: 0; }
+.ds-table .is-primary{ color: var(--text-primary); font-weight: 600; }
+.ds-table .is-number{ text-align: right; }
+.ds-table td.is-number{ color: var(--text-primary); font-weight: 500; }
+.ds-table tbody tr:hover td{ background: rgba(21, 24, 27, .02); }
+.ds-statusInline{ display: inline-flex; align-items: center; gap: 8px; }
+
+/* ====== AVISOS ====== */
+.ds-notice{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3) 0 var(--space-3) var(--space-4);
+  border-left: 2px solid var(--border-subtle);
+}
+.ds-notice.is-warning{ border-left-color: var(--warning); }
+.ds-notice.is-negative{ border-left-color: var(--negative); }
+.ds-noticeTitle{ margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.ds-noticeText{ margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-secondary); }
+.ds-noticeActions{ display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-2); }
+
+/* ====== RESPONSIVO ======
+   Desktop (1440/1280) é a prioridade; 1024 reorganiza; mobile empilha.
+   Com a sidebar (≥ 1024 px de janela) o conteúdo tem 256 px a menos: até
+   1279 px o cabeçalho empilha (identidade em cima, período embaixo). */
+@media (max-width: 1279px){
+  .ds-pageHeader{ grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .ds-pageHeaderAside{ align-items: flex-start; }
+  .ds-customPeriod{ justify-content: flex-start; }
+}
+@media (max-width: 1023px){
+  /* minmax(0, 1fr): a coluna não cresce além da tela por causa do conteúdo mínimo. */
+  .ds-pageHeader{ grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .ds-pageHeaderAside{ align-items: flex-start; }
+  .ds-customPeriod{ justify-content: flex-start; }
+  .ds-kpis{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ds-kpi.is-hero{ grid-column: 1 / -1; }
+  .ds-split{ grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
+  .ds-chart, .ds-chartSection .ds-chart{ height: 320px; }
+}
+@media (max-width: 719px){
+  .ds-utilityBar{ display: none; }
+  .ds-page, .ds-stack{ gap: var(--space-7); }
+  .ds-pageHeaderAside{ width: 100%; }
+  .ds-kpis{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); }
+  .ds-summary{ gap: var(--space-6); }
+  .ds-heroLabel{ font-size: 17px; }
+  .ds-chart, .ds-chartSection .ds-chart{ height: 260px; }
+  .ds-inlineStats{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4) var(--space-5); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .ds-segmented button, .ds-button, .ds-link, .ds-refreshing{ transition: none; }
+}
+
+/* ====== CABEÇALHO DE PÁGINA: onde estou ======
+   Empresa (a marca está na sidebar) › página. Procedência abaixo, discreta. */
+.ds-pageEyebrow{ margin: 0; font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+.ds-pageTitle{
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -.025em;
+  color: var(--text-primary);
+}
+.ds-pageHeaderIdentity > .ds-dateline{ margin-top: 6px; }
+.ds-datelineSource{ color: var(--text-secondary); font-weight: 500; }
+
+/* Navegação por dia (atalho "Dia"): mesmo tom discreto do período. */
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-family: var(--font-body); }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl button{
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 13px var(--font-body);
+  cursor: pointer;
+}
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl button:hover{ color: var(--text-primary); background: rgba(21, 24, 27, .05); }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl label{ position: relative; display: grid; text-align: center; }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl label small{ font-size: 11px; color: var(--text-muted); }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl label strong{ font-size: 13px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl input{ position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+:is(.ds-pageHeaderAside, .pageControlsPeriod) .dayPeriodControl p{ width: 100%; margin: 0; font-size: 12px; color: var(--text-muted); }
+.ds-field select{
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 400 14px var(--font-body);
+}
+
+/* ====== APOIO A LISTAS E TABELAS (Ecommerce: FBITS e Shopify) ====== */
+.ds-kpis.is-four{ grid-template-columns: repeat(4, minmax(0, 200px)); }
+.ds-kpiHint{ font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.ds-subTitle{ margin: 0 0 var(--space-3); font-family: var(--font-display); font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--text-primary); }
+.ds-tableSub{ display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+.ds-statusDot.is-positive{ border-color: var(--positive); background: var(--positive); }
+.ds-statusDot.is-warning{ border-color: var(--warning); }
+.ds-statusDot.is-negative{ border-color: var(--negative); background: var(--negative); }
+
+/* Fatos curtos sobre uma lista (ex.: base de clientes filtrada). */
+.ds-observations ul{ display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.55; color: var(--text-secondary); }
+
+/* Mesma métrica em fontes diferentes: uma linha por fonte, sem cartões. */
+.ds-sourceList{ display: flex; flex-direction: column; margin: 0; border-top: 1px solid var(--border-subtle); }
+.ds-sourceList > div{
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ds-sourceList dt{ font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.ds-sourceList dd{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-4); margin: 0; font-size: 14px; color: var(--text-secondary); }
+.ds-sourceList dd strong{ font-size: 16px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* Histórico em barras: série única, cor de destaque, rótulos espaçados. */
+.ds-historyBars{
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 180px;
+  padding: 8px 0 26px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ds-historyBar{ position: relative; display: flex; flex: 1 0 18px; flex-direction: column; justify-content: flex-end; min-width: 18px; }
+.ds-historyBar > span{ display: block; width: 100%; min-height: 2px; border-radius: 3px 3px 0 0; background: var(--accent); opacity: .78; }
+.ds-historyBar.is-partial > span{ opacity: .35; }
+.ds-historyBar small{ position: absolute; top: calc(100% + 6px); left: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+@media (max-width: 1023px){
+  .ds-kpis.is-four{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 719px){
+  .ds-sourceList > div{ grid-template-columns: minmax(0, 1fr); }
+}

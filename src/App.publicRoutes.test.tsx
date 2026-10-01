@@ -98,4 +98,29 @@ describe("public legal routes", () => {
     expect(container.textContent).toContain("Proteção de dados");
     expectNoPrivateBootstrap();
   });
+
+  it.each([
+    ["/privacidade", "privacy"],
+    ["/exclusao-de-dados", "data-deletion"],
+    ["/protecao-de-dados", "data-protection"],
+  ])("%s fica marcado para revisão jurídica e não promete conformidade", async (path, route) => {
+    await renderPublicPath(path);
+    const page = container.querySelector(`[data-public-route="${route}"]`);
+    expect(page?.getAttribute("data-legal-status")).toBe("review-pending");
+    expect(container.textContent).not.toMatch(/LGPD compliant|100%|em conformidade com a LGPD|totalmente seguro|garantimos/i);
+    expectNoPrivateBootstrap();
+  });
+
+  it("renders /termos-de-uso as an explicitly pending document, without invented terms", async () => {
+    await renderPublicPath("/termos-de-uso");
+    const page = container.querySelector('[data-public-route="terms"]');
+    expect(page).toBeTruthy();
+    expect(page?.getAttribute("data-legal-status")).toBe("pending");
+    expect(container.textContent).toContain("Termos de Uso");
+    expect(container.textContent).toContain("ainda não foi publicado");
+    // Sem data de atualização: não há documento para datar.
+    expect(container.textContent).not.toContain("Última atualização");
+    expect(container.querySelector('[data-legal-contact="terms"]')?.textContent).toContain(LEGAL_CONTACT);
+    expectNoPrivateBootstrap();
+  });
 });

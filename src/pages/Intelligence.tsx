@@ -20,6 +20,8 @@ import "../styles/intelligence.css";
 
 type Props = {
   onLogout: () => void | Promise<void>;
+  /** Gerar uma nova análise altera o estado versionado; viewer permanece somente leitura. */
+  canRefresh?: boolean;
 };
 
 type CachedWorkspace = {
@@ -140,7 +142,8 @@ function Evidence({
   );
 }
 
-export default function Intelligence({ onLogout }: Props) {
+// onLogout segue no tipo por compatibilidade: a saída vive na sidebar global.
+export default function Intelligence({ canRefresh = false }: Props) {
   const { period } = usePeriod();
   const clientId = getActiveClientId();
   const cacheKey = `${clientId}:${period.start}:${period.end}`;
@@ -316,7 +319,7 @@ export default function Intelligence({ onLogout }: Props) {
           <div>
             <span className="intelEyebrow">Central de decisão</span>
             <h1>Mugô Inteligência</h1>
-            <small className="intelPoweredBy">Powered by OpenAI</small>
+            <small className="intelPoweredBy">Análise gerada com IA</small>
             <p>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</p>
           </div>
         </div>
@@ -326,12 +329,13 @@ export default function Intelligence({ onLogout }: Props) {
           <span><small>Última sincronização</small>{formatDate(snapshot?.last_sync_at, true)}</span>
           <span><small>Última análise</small>{formatDate(analysis?.completed_at || analysis?.created_at, true)}</span>
         </div>
-        <div className="intelHeaderActions">
-          <button className="btn btnPrimary" onClick={() => void refreshAnalysis()} disabled={refreshing}>
-            {refreshing ? "Gerando análise..." : "Atualizar análise"}
-          </button>
-          <button className="btn btnGhost" onClick={() => void onLogout()}>Sair</button>
-        </div>
+        {canRefresh ? (
+          <div className="intelHeaderActions">
+            <button className="btn btnPrimary" onClick={() => void refreshAnalysis()} disabled={refreshing}>
+              {refreshing ? "Gerando análise..." : "Atualizar análise"}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <section className="intelSourceBar" aria-label="Fontes utilizadas">
@@ -369,7 +373,9 @@ export default function Intelligence({ onLogout }: Props) {
           <p>
             {content
               ? content.executive.priority_action
-              : "Revise as evidências calculadas e use “Atualizar análise” quando quiser criar uma nova versão."}
+              : canRefresh
+                ? "Revise as evidências calculadas e use “Atualizar análise” quando quiser criar uma nova versão."
+                : "Ainda não existe uma análise disponível para este período."}
           </p>
         </div>
         <div className="intelExecutiveGrid">
@@ -484,7 +490,7 @@ export default function Intelligence({ onLogout }: Props) {
         <div className="intelAssistantIntro">
           <span className="intelEyebrow">Assistente analítico</span>
           <h2>Pergunte sobre os resultados da sua empresa</h2>
-          <p>As respostas usam somente o tenant, período e fontes exibidos nesta página.</p>
+          <p>As respostas usam somente a empresa, o período e as fontes exibidos nesta página.</p>
         </div>
         <div className="intelQuestionSuggestions">
           {QUESTIONS.map((suggestion) => (

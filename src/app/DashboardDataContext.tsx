@@ -89,7 +89,7 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
       performance.mark("snapshot-ready");
       performance.measure("time_to_snapshot_ms", "dashboard-start", "snapshot-ready");
       const duration = performance.getEntriesByName("time_to_snapshot_ms").at(-1)?.duration;
-      console.info("[dashboard_snapshot]", { client_id: clientId, time_to_snapshot_ms: Math.round(duration || 0), supabase_queries: 4 });
+      if (import.meta.env.DEV) console.info("[dashboard_snapshot]", { client_id: clientId, time_to_snapshot_ms: Math.round(duration || 0), supabase_queries: 4 });
       bootstrapCompleted.add(requestedClientId);
       return next;
     } catch (cause) {

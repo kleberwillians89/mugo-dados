@@ -8,6 +8,22 @@ import {
   setActiveClient,
 } from "./activeClient";
 
+// Node 26 expõe Web Storage experimental sem arquivo configurado e pode
+// sombrear o storage do jsdom. Mantém este teste independente do runtime.
+if (!window.localStorage) {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    },
+  });
+}
+
 describe("estado multiempresa no navegador", () => {
   beforeEach(() => {
     window.localStorage.clear();

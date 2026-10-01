@@ -121,22 +121,26 @@ class DiscoveryDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("page_count=1 page_ids=page-9", logs)
         self.assertIn("instagram_count=1 instagram_ids=ig-9", logs)
 
-    async def test_graph_error_still_propagates_and_is_logged_without_secrets(self):
+    async def test_me_businesses_denied_keeps_direct_assets_and_is_logged_without_secrets(self):
         denied = MetaApiError(
             "Meta API error 403: (#200) Requires business_management permission",
             status_code=403, error_code=200,
         )
-        _result, error, logs = await self.run_discovery(
+        result, error, logs = await self.run_discovery(
             {
                 "/me": {"id": "user-1", "name": "User"},
                 "/me/accounts": {"data": []},
-                "/me/adaccounts": {"data": []},
+                "/me/adaccounts": {"data": [{"id": "act_111", "name": "A"}]},
                 "/me/permissions": PERMISSIONS,
                 "/me/businesses": denied,
             },
             {"/me/permissions": PERMISSIONS, "/debug_token": DEBUG_TOKEN},
         )
-        self.assertIs(error, denied)  # comportamento do callback preservado
+        # /me/businesses deixou de ser fatal: seguem os ativos diretos + aviso seguro.
+        self.assertIsNone(error)
+        self.assertEqual([row["ad_account_id"] for row in result["ad_accounts"]], ["act_111"])
+        self.assertEqual(result["business_managers"], [])
+        self.assertEqual(result["discovery_warnings"][0]["status"], "permission_denied")
         self.assertIn("stage=graph_call_failed call=me_businesses http_status=403 graph_code=200", logs)
         self.assertIn("Requires business_management permission", logs)
         self.assertIn("me_businesses=403", logs)
@@ -194,7 +198,10 @@ class DiscoveryDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[meta_oauth][diag] stage=assets", logs)
 
         # Também no caminho de erro (o finally roda antes da exceção subir).
-        first_page["/me/businesses"] = MetaApiError("Meta API error 400: denied", status_code=400)
+        # Só token inválido continua interrompendo a descoberta.
+        first_page["/me/businesses"] = MetaApiError(
+            "Meta API error 401: Error validating access token", status_code=401, error_code=190, invalid_oauth=True,
+        )
         _result, error, logs = await self.run_discovery(first_page, json_responses)
         self.assertIsInstance(error, MetaApiError)
         self.assertIn("[meta_oauth][diag] stage=graph_calls", logs)

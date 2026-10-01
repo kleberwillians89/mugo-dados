@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Shell from "../components/Shell";
-import ShopifyChartCard from "../components/shopify/ShopifyChartCard";
+import DataNotice from "../components/data/DataNotice";
+import HeroFigure from "../components/data/HeroFigure";
+import KpiFigure from "../components/data/KpiFigure";
+import PageHeader from "../components/data/PageHeader";
+import SegmentedControl from "../components/data/SegmentedControl";
+import TrendChart from "../components/data/TrendChart";
 import ShopifyCustomerFilters from "../components/shopify/ShopifyCustomerFilters";
 import ShopifyCustomersTable from "../components/shopify/ShopifyCustomersTable";
 import ShopifyExecutiveSummaryCard from "../components/shopify/ShopifyExecutiveSummaryCard";
-import ShopifyKpiCard from "../components/shopify/ShopifyKpiCard";
 import ShopifyOrdersTable from "../components/shopify/ShopifyOrdersTable";
-import ShopifySectionHeader from "../components/shopify/ShopifySectionHeader";
 import ShopifyTopProductsCard from "../components/shopify/ShopifyTopProductsCard";
 import ShopifySalesHistory from "../components/shopify/ShopifySalesHistory";
 import DayPeriodControl from "../components/DayPeriodControl";
 import { usePeriod } from "../app/PeriodContext";
+import {
+  formatCalendarDate,
+  formatCalendarDateWords,
+  formatCalendarRange,
+  formatCurrencyAxis,
+  formatCurrencyShort,
+  formatInteger,
+  uniquePeak,
+} from "../app/dataFormat";
 import {
   getShopifyCustomers,
   getShopifyReport,
@@ -19,7 +31,7 @@ import {
 } from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { countUniqueShopifyCustomers } from "../app/shopifyReadModel";
-import { getActiveClientId, getActiveClientName, MUGO_APP_NAME } from "../app/activeClient";
+import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   formatShopifyCompactNumber,
@@ -35,6 +47,8 @@ import type {
 import "../styles/shopify-report.css";
 
 type Props = {
+  /** "Atualizar dados" aqui sincroniza a loja (POST sync, require_client_role): sem permissão, a ação não aparece. */
+  canSync: boolean;
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
   onOpenGoogleReport?: () => void;
@@ -54,6 +68,26 @@ const SHOPIFY_METRIC_TABS: { key: ShopifyMetricKey; label: string; description: 
   { key: "customers", label: "Clientes", description: "Clientes por período" },
   { key: "average_ticket", label: "Ticket médio", description: "Ticket médio por período" },
 ];
+const SHOPIFY_PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
+  { id: "day", label: "Dia" },
+  { id: "7d", label: "7 dias" },
+  { id: "30d", label: "30 dias" },
+  { id: "month", label: "Este mês" },
+  { id: "previous_month", label: "Mês passado" },
+  { id: "ytd", label: "Este ano" },
+];
+const SHOPIFY_PEAK_TITLE: Record<ShopifyMetricKey, (when: string) => string> = {
+  revenue: (when) => `${when} concentrou o maior volume de vendas`,
+  orders: (when) => `${when} teve o maior número de pedidos`,
+  customers: (when) => `${when} teve o maior número de clientes`,
+  average_ticket: (when) => `${when} teve o maior ticket médio`,
+};
+
+function shopifyTrendTitle(peak: { date: string } | null, metric: ShopifyMetricKey): string {
+  if (!peak) return metric === "revenue" ? "Vendas ao longo do período" : `${SHOPIFY_METRIC_TABS.find((tab) => tab.key === metric)?.label || ""} ao longo do período`;
+  return SHOPIFY_PEAK_TITLE[metric](formatCalendarDateWords(peak.date));
+}
+
 type CustomerLifecycleFilter = "all" | "new" | "recurring";
 type CustomerSortBy = "total_spent" | "total_orders" | "last_purchase_at";
 
@@ -130,26 +164,8 @@ function buildCustomerSummary(customers: ShopifyCustomerRow[]) {
   };
 }
 
-function ShopifyReportSkeleton() {
-  return (
-    <div className="shopifySkeletonLayout" aria-hidden="true">
-      <div className="shopifySkeletonHero skeletonBlock" />
-      <div className="shopifySkeletonGrid">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="shopifySkeletonCard skeletonBlock" />
-        ))}
-      </div>
-      <div className="shopifySkeletonCharts">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="shopifySkeletonChart skeletonBlock" />
-        ))}
-      </div>
-      <div className="shopifySkeletonTable skeletonBlock" />
-    </div>
-  );
-}
-
-export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport }: Props) {
+// Navegação e saída vivem na sidebar global (onLogout segue no tipo por compatibilidade).
+export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }: Props) {
   const { period, periodDays, setPeriod, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -172,6 +188,7 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const [customerData, setCustomerData] = useState<ShopifyCustomersResponse | null>(null);
   const [detailReport, setDetailReport] = useState<ShopifyReportResponse | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(true);
+  const [showCustom, setShowCustom] = useState(false);
 
   useEffect(() => {
     const startDate = new Date(`${period.start}T00:00:00`);
@@ -264,6 +281,10 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   const shopifyCoverage = model.sources.find((source) => source.provider === "shopify")?.data_max_available || null;
   const todayCovered = Boolean(shopifyCoverage && shopifyCoverage >= today);
   const hasBusinessData = Boolean((summary?.orders || 0) > 0 || (report?.top_products.length || 0) > 0);
+  const chartRows = report?.trends.daily || [];
+  const chartLabel = SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.label || "Receita";
+  const chartHasData = chartRows.some((row) => Number(row[shopifyChartMetric] || 0) !== 0);
+  const chartPeak = uniquePeak(chartRows, (row) => Number(row[shopifyChartMetric] || 0));
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 5 }).map((_, index) => currentYear - index);
@@ -321,17 +342,17 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
       {
         label: "Total de clientes",
         value: formatShopifyCompactNumber(customerSummary.totalCustomers),
-        hint: "Clientes ativos no período filtrado",
+        hint: undefined,
       },
       {
         label: "Clientes recorrentes",
         value: formatShopifyCompactNumber(customerSummary.recurringCustomers),
-        hint: "Base com recompra registrada",
+        hint: undefined,
       },
       {
         label: "Com mais de 1 pedido",
         value: formatShopifyCompactNumber(customerSummary.multiOrderCustomers),
-        hint: "Clientes com maior profundidade de compra",
+        hint: undefined,
       },
       {
         label: "Maior comprador",
@@ -378,6 +399,19 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
     setMonthPeriod(selectedYear, selectedMonth);
   }
 
+  // Personalizado abre/fecha o painel (mês específico ou datas). Abrir equivale
+  // a escolher "Período personalizado" no seletor anterior; os demais atalhos
+  // chamam exatamente o mesmo handlePresetChange.
+  function selectPeriod(id: string) {
+    if (id === "custom") {
+      setShowCustom((open) => !open);
+      if (preset !== "custom" && preset !== "specific") handlePresetChange("custom");
+      return;
+    }
+    setShowCustom(false);
+    handlePresetChange(id as PeriodPreset);
+  }
+
   function handleMonthChange(nextMonth: number) {
     setSelectedMonth(nextMonth);
     setPreset("specific");
@@ -391,266 +425,221 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
   }
 
   return (
-    <Shell
-      themeClass="theme-client"
-      title={MUGO_APP_NAME}
-      subtitle="Relatório executivo da operação Shopify"
-      right={
-        <div className="shopifyShellActions">
-          <button className="btn btnGhost" onClick={onOpenDashboard} type="button">
-            Dados Meta
-          </button>
-          {onOpenGoogleReport ? (
-            <button className="btn btnGhost" onClick={onOpenGoogleReport} type="button">
-              Analytics
-            </button>
-          ) : null}
-          <button className="btnLogout" onClick={() => onLogout()} type="button">
-            Sair
-          </button>
-        </div>
-      }
-    >
-      <div className="shopifyReportPage">
-        <section className="shopifyHero">
-          <div className="shopifyHeroCopy">
-            <div className="shopifyPageEyebrow">Relatório Shopify</div>
-            <h1 className="shopifyPageTitle">Dados da Shopify</h1>
-            <p className="shopifyPageSubtitle">Visão da operação da loja da {getActiveClientName()}.</p>
-            <div className="shopifyHeroMeta">
-              <span className="pill">Shopify</span>
-              <span className="shopifyHeroTimestamp">
-                Última leitura: {formatShopifyDateTime(report?.technical.last_received_at)}
-              </span>
-            </div>
-            <div className="shopifyQuickNav">
-              <a className="shopifyQuickNavLink" href="#shopify-overview">
-                Visão geral
-              </a>
-              <a className="shopifyQuickNavLink" href="#shopify-customers">
-                Clientes
-              </a>
-              <a className="shopifyQuickNavLink" href="#shopify-operations">
-                Operação
-              </a>
-            </div>
-          </div>
+    <Shell variant="editorial" themeClass="theme-editorial" title="Ecommerce">
+      <div className="ds-page shopifyReportPage">
+        {/* Onde estou: empresa › Ecommerce; procedência e atualização discretas;
+            período com os mesmos atalhos e a mesma lógica de antes. */}
+        <PageHeader
+          company={getActiveClientName()}
+          title="Ecommerce"
+          dateline={
+            <>
+              <span className="ds-datelineSource">Shopify</span>
+              <span>Última leitura: {formatShopifyDateTime(report?.technical.last_received_at)}</span>
+              {canSync ? (
+                <span>
+                  <button
+                    className="ds-link is-quiet"
+                    disabled={syncingShopify || model.refreshing}
+                    onClick={() => {
+                      void onRefreshData();
+                    }}
+                    type="button"
+                  >
+                    {syncingShopify || model.refreshing ? "Atualizando..." : "Atualizar dados"}
+                  </button>
+                </span>
+              ) : null}
+            </>
+          }
+          controls={
+            <SegmentedControl
+              ariaLabel="Período"
+              value={showCustom || preset === "custom" || preset === "specific" ? "custom" : preset}
+              onSelect={selectPeriod}
+              options={[
+                ...SHOPIFY_PERIOD_OPTIONS,
+                { id: "custom", label: "Personalizado", expanded: showCustom },
+              ]}
+            />
+          }
+          panel={
+            showCustom ? (
+              <div className="ds-customPeriod">
+                <label className="ds-field">
+                  <span>Mês</span>
+                  <select value={selectedMonth} onChange={(event) => handleMonthChange(Number(event.target.value))}>
+                    {Array.from({ length: 12 }).map((_, index) => {
+                      const month = index + 1;
+                      return (
+                        <option key={month} value={month}>
+                          {formatShopifyMonthLabel(month)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="ds-field">
+                  <span>Ano</span>
+                  <select value={selectedYear} onChange={(event) => handleYearChange(Number(event.target.value))}>
+                    {years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ds-field">
+                  <span>Data inicial</span>
+                  <input type="date" value={period.start} onChange={(event) => { setPreset("custom"); setPeriod({ start: event.target.value, end: period.end }); }} />
+                </label>
+                <label className="ds-field">
+                  <span>Data final</span>
+                  <input type="date" value={period.end} onChange={(event) => { setPreset("custom"); setPeriod({ start: period.start, end: event.target.value }); }} />
+                </label>
+              </div>
+            ) : preset === "day" ? (
+              <DayPeriodControl />
+            ) : null
+          }
+          controlsNote={formatCalendarRange(period.start, period.end)}
+        />
 
-          <div className="shopifyFilterCard">
-            <label className="shopifyFilterField">
-              <span>Período</span>
-              <select
-                className="select"
-                value={preset}
-                onChange={(event) => handlePresetChange(event.target.value as PeriodPreset)}
-              >
-                <option value="day">Dia</option>
-                <option value="7d">Últimos 7 dias</option>
-                <option value="30d">Últimos 30 dias</option>
-                <option value="month">Mês atual</option>
-                <option value="previous_month">Mês anterior</option>
-                <option value="ytd">Ano até agora</option>
-                <option value="specific">Mês específico</option>
-                <option value="custom">Período personalizado</option>
-              </select>
-            </label>
-            {preset === "day" ? <DayPeriodControl /> : null}
+        {syncNotice ? <p className="ds-status" role="status">{syncNotice}</p> : null}
 
-            {preset === "custom" ? <>
-              <label className="shopifyFilterField"><span>Início</span><input className="select" type="date" value={period.start} onChange={(event) => setPeriod({ start: event.target.value, end: period.end })} /></label>
-              <label className="shopifyFilterField"><span>Fim</span><input className="select" type="date" value={period.end} onChange={(event) => setPeriod({ start: period.start, end: event.target.value })} /></label>
-            </> : null}
-
-            <label className="shopifyFilterField">
-              <span>Mês</span>
-              <select
-                className="select"
-                value={selectedMonth}
-                onChange={(event) => handleMonthChange(Number(event.target.value))}
-              >
-                {Array.from({ length: 12 }).map((_, index) => {
-                  const month = index + 1;
-                  return (
-                    <option key={month} value={month}>
-                      {formatShopifyMonthLabel(month)}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-
-            <label className="shopifyFilterField">
-              <span>Ano</span>
-              <select
-                className="select"
-                value={selectedYear}
-                onChange={(event) => handleYearChange(Number(event.target.value))}
-              >
-                {years.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              className="btn btnPrimary shopifyRefreshButton"
-              disabled={syncingShopify || model.refreshing}
-              onClick={() => {
-                void onRefreshData();
-              }}
-              type="button"
-            >
-              {syncingShopify || model.refreshing ? "Atualizando..." : "Atualizar dados"}
-            </button>
-          </div>
-        </section>
-
-        {syncNotice ? <div className="shopifyFeedbackCard">{syncNotice}</div> : null}
-
-        {model.loading && !report ? <ShopifyReportSkeleton /> : null}
+        {model.loading && !report ? <p className="ds-status" role="status">Carregando vendas da Shopify...</p> : null}
 
         {!model.loading && error && !report ? (
-          <div className="shopifyFeedbackCard isError">Não foi possível carregar os dados da Shopify. {error}</div>
+          <DataNotice tone="negative" role="alert" title="Vendas Shopify indisponíveis">
+            Não foi possível carregar os dados da Shopify. {error}
+          </DataNotice>
         ) : null}
 
         {!model.loading && report ? (
-          <>
+          <div className="ds-stack">
             {error ? (
-              <div className="shopifyFeedbackCard">
-                Não foi possível atualizar agora. Exibindo a última leitura disponível.
-              </div>
+              <DataNotice tone="warning" title="Não foi possível atualizar agora">
+                Exibindo a última leitura disponível.
+              </DataNotice>
             ) : null}
 
-            {!hasBusinessData ? (
-              <div className="shopifyFeedbackCard">
-                Ainda não há dados da Shopify neste período.
-              </div>
-            ) : null}
+            {!hasBusinessData ? <DataNotice title="Ainda não há dados da Shopify neste período." /> : null}
 
-            <section className="shopifySection" id="shopify-overview">
-              <div className="shopifyPerformanceHero">
-                <span className="shopifyPerformanceEyebrow">Operação Shopify</span>
-                <p className="shopifyPerformanceNarrative">Receita real da loja</p>
-                <div className="shopifyPerformanceWindow isToday">
-                  <div className="shopifyPerformanceWindowHead">
-                    <div><b>Hoje</b><span>{formatCivilDate(today)}</span></div>
-                    <small>{todayCovered ? "Os dados de hoje ainda podem sofrer alterações." : "Ainda não atualizado hoje"}</small>
+            {/* Mesma leitura do FBITS: quanto vendeu; depois o que explica; por fim o operacional. */}
+            <section className="ds-summary" id="shopify-overview" aria-label="Resumo do período">
+              <HeroFigure
+                value={formatCurrencyShort(summary?.net_revenue || 0)}
+                exactValue={formatShopifyCurrency(summary?.net_revenue || 0, currency)}
+                rawValue={summary?.net_revenue || 0}
+                label="vendidos no período"
+                testId="shopify-receita"
+              />
+              <div className="ds-kpis">
+                <KpiFigure label="Pedidos" value={formatShopifyCompactNumber(summary?.orders || 0)} rawValue={summary?.orders || 0} />
+                <KpiFigure
+                  label="Ticket médio"
+                  value={summary?.orders ? formatShopifyCurrency(summary.average_ticket || 0, currency) : "—"}
+                  rawValue={summary?.average_ticket || 0}
+                />
+                <KpiFigure label="Clientes" value={formatShopifyCompactNumber(summary?.customers || 0)} rawValue={summary?.customers || 0} />
+              </div>
+              <div className="ds-secondary">
+                <dl className="ds-inlineStats">
+                  <div>
+                    <dt>Hoje, {formatCivilDate(today)}</dt>
+                    <dd>
+                      {todayCovered
+                        ? `${formatShopifyCurrency(todayRow?.shopify_net_revenue || 0, currency)} em ${formatShopifyCompactNumber(todayRow?.shopify_orders || 0)} pedidos${
+                            todayRow?.shopify_orders
+                              ? ` · ticket ${formatShopifyCurrency(Number(todayRow.shopify_net_revenue || 0) / Number(todayRow.shopify_orders), currency)}`
+                              : ""
+                          }`
+                        : "Ainda não atualizado"}
+                    </dd>
                   </div>
-                  <div className="shopifyPerformanceMetrics">
-                    <div><span>Receita real</span><b>{todayCovered ? formatShopifyCurrency(todayRow?.shopify_net_revenue || 0, currency) : "Ainda não atualizado"}</b></div>
-                    <div><span>Pedidos</span><b>{todayCovered ? formatShopifyCompactNumber(todayRow?.shopify_orders || 0) : "Ainda não atualizado"}</b></div>
-                    <div><span>Ticket médio</span><b>{todayCovered ? (todayRow?.shopify_orders ? formatShopifyCurrency(Number(todayRow.shopify_net_revenue || 0) / Number(todayRow.shopify_orders), currency) : "—") : "Ainda não atualizado"}</b></div>
-                  </div>
-                </div>
-                <div className="shopifyPerformanceWindow">
-                  <div className="shopifyPerformanceWindowHead">
-                    <div><b>Período selecionado</b><span>{formatCivilDate(period.start)} — {formatCivilDate(period.end)}</span></div>
-                  </div>
-                  <div className="shopifyPerformanceMetrics">
-                    <div><span>Receita real</span><b>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</b></div>
-                    <div><span>Pedidos</span><b>{formatShopifyCompactNumber(summary?.orders || 0)}</b></div>
-                    <div><span>Ticket médio</span><b>{summary?.orders ? formatShopifyCurrency(summary.average_ticket || 0, currency) : "—"}</b></div>
-                  </div>
-                </div>
-                {summary ? (
-                  <span className="shopifyPerformanceFooter">
-                    {formatShopifyCompactNumber(summary.paid_orders)} pedidos pagos
-                    {summary.cancelled_orders || summary.refunds_count
-                      ? ` · ${formatShopifyCompactNumber(summary.cancelled_orders)} cancelados · ${formatShopifyCompactNumber(summary.refunds_count)} reembolsos (${formatShopifyCurrency(summary.refunded_amount, currency)})`
-                      : ""}
-                  </span>
-                ) : null}
-                <span className="shopifyPerformanceSource">Fonte: Shopify</span>
+                  {summary ? <div><dt>Pedidos pagos</dt><dd>{formatShopifyCompactNumber(summary.paid_orders)}</dd></div> : null}
+                  {summary && (summary.cancelled_orders || summary.refunds_count) ? (
+                    <>
+                      <div><dt>Cancelados</dt><dd>{formatShopifyCompactNumber(summary.cancelled_orders)}</dd></div>
+                      <div><dt>Reembolsos</dt><dd>{formatShopifyCompactNumber(summary.refunds_count)} · {formatShopifyCurrency(summary.refunded_amount, currency)}</dd></div>
+                    </>
+                  ) : null}
+                </dl>
+                <p className="ds-footnote">
+                  Receita real da loja, líquida.{todayCovered ? " Os dados de hoje ainda podem sofrer alterações." : ""}
+                </p>
               </div>
             </section>
 
-            <section className="shopifySection">
-              <div className="shopifyChartHead">
-                <span className="shopifyChartHeadTitle">Ritmo da operação</span>
-                <div className="shopifyChartTabs" role="tablist" aria-label="Métrica do gráfico">
-                  {SHOPIFY_METRIC_TABS.map((tab) => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={shopifyChartMetric === tab.key}
-                      className={`shopifyChartTab${shopifyChartMetric === tab.key ? " is-active" : ""}`}
-                      onClick={() => setShopifyChartMetric(tab.key)}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+            <section className="ds-section ds-chartSection" aria-labelledby="shopify-trend-title">
+              <div className="ds-sectionHead">
+                <div className="ds-sectionHeadText">
+                  <h2 id="shopify-trend-title" className="ds-sectionTitle">{shopifyTrendTitle(chartPeak, shopifyChartMetric)}</h2>
+                  {chartPeak && shopifyChartMetric === "revenue" ? (
+                    <p className="ds-caption">
+                      {formatShopifyCurrency(chartPeak.revenue, currency)} em {formatShopifyCompactNumber(chartPeak.orders)} {chartPeak.orders === 1 ? "pedido" : "pedidos"}
+                    </p>
+                  ) : null}
                 </div>
-              </div>
-              <div className="shopifyChartGrid shopifyChartGrid-single">
-                <ShopifyChartCard
-                  color="#1a1718"
-                  data={report.trends.daily}
-                  dataKey={shopifyChartMetric}
-                  description={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.description || ""}
-                  title={SHOPIFY_METRIC_TABS.find((tab) => tab.key === shopifyChartMetric)?.label || ""}
-                  periodValue={
-                    shopifyChartMetric === "average_ticket"
-                      ? summary?.average_ticket
-                      : shopifyChartMetric === "customers"
-                        ? summary?.customers
-                        : undefined
-                  }
-                  valueFormatter={
-                    shopifyChartMetric === "revenue" || shopifyChartMetric === "average_ticket"
-                      ? (value) => formatShopifyCurrency(value, currency)
-                      : undefined
-                  }
+                <SegmentedControl
+                  ariaLabel="Métrica do gráfico"
+                  value={shopifyChartMetric}
+                  onSelect={(id) => setShopifyChartMetric(id as ShopifyMetricKey)}
+                  options={SHOPIFY_METRIC_TABS.map((tab) => ({ id: tab.key, label: tab.label }))}
                 />
               </div>
+              {chartHasData ? (
+                <TrendChart
+                  data={chartRows}
+                  xKey="date"
+                  primaryKey={shopifyChartMetric}
+                  secondaryKey={shopifyChartMetric === "revenue" ? "orders" : undefined}
+                  formatX={(value) => formatCalendarDate(value)}
+                  formatY={shopifyChartMetric === "revenue" || shopifyChartMetric === "average_ticket" ? formatCurrencyAxis : formatInteger}
+                  ariaLabel={`${chartLabel} por dia, ${formatCalendarRange(period.start, period.end)}.`}
+                  testId="shopify-sales-chart"
+                  renderTooltip={(row) => (
+                    <>
+                      <strong>{formatCalendarDate(row.date, "long")}</strong>
+                      <dl>
+                        <dt>Receita</dt><dd>{formatShopifyCurrency(row.revenue, currency)}</dd>
+                        <dt>Pedidos</dt><dd>{formatShopifyCompactNumber(row.orders)}</dd>
+                        <dt>Clientes</dt><dd>{formatShopifyCompactNumber(row.customers)}</dd>
+                        <dt>Ticket médio</dt><dd>{formatShopifyCurrency(row.average_ticket, currency)}</dd>
+                      </dl>
+                    </>
+                  )}
+                />
+              ) : (
+                <p className="ds-emptyLine">Sem dados de {chartLabel.toLowerCase()} neste período.</p>
+              )}
             </section>
 
-            <ShopifySalesHistory
-              rows={historicalModel.daily}
-              coverageStart={historicalModel.sources.find((source) => source.provider === "shopify")?.data_min_available || null}
-              coverageEnd={historicalModel.sources.find((source) => source.provider === "shopify")?.data_max_available || null}
-            />
+            <section className="ds-section" aria-labelledby="shopify-products-title">
+              <h2 id="shopify-products-title" className="ds-sectionTitle">Produtos mais vendidos</h2>
+              <ShopifyTopProductsCard products={report.top_products} />
+            </section>
 
-            <section className="shopifySection" id="shopify-customers">
-              <ShopifySectionHeader
-                eyebrow="Clientes"
-                title="Quem mais compra na Mugô Dados"
-                description="Visão comercial da base Shopify para identificar os melhores compradores, recorrência e profundidade de compra."
-                action={
-                  <div className="shopifySectionStatus">
-                    {model.refreshing ? <span className="pill">Atualizando...</span> : null}
-                    <span className="pill">{formatShopifyCompactNumber(filteredCustomers.length)} clientes</span>
-                  </div>
-                }
-              />
+            <section className="ds-section" id="shopify-customers" aria-labelledby="shopify-customers-title">
+              <div className="ds-sectionHead">
+                <h2 id="shopify-customers-title" className="ds-sectionTitle">Clientes</h2>
+                <p className="ds-caption">
+                  {model.refreshing ? "Atualizando… · " : ""}
+                  {formatShopifyCompactNumber(filteredCustomers.length)} {filteredCustomers.length === 1 ? "cliente" : "clientes"} no filtro
+                </p>
+              </div>
 
-              {detailsLoading && !customerData ? (
-                <div className="shopifyCustomerSkeleton">
-                  <div className="shopifyCustomerSummaryGrid">
-                    {Array.from({ length: 4 }).map((_, index) => (
-                      <div key={index} className="shopifySkeletonCard skeletonBlock" />
-                    ))}
-                  </div>
-                  <div className="shopifyCustomerFeatureGrid">
-                    <div className="shopifySkeletonChart skeletonBlock" />
-                    <div className="shopifySkeletonChart skeletonBlock" />
-                  </div>
-                  <div className="shopifySkeletonTable skeletonBlock" />
-                </div>
-              ) : null}
+              {detailsLoading && !customerData ? <p className="ds-status" role="status">Carregando clientes...</p> : null}
 
               {!model.loading && customerData ? (
-                <>
-                  <div className="shopifyCustomerSummaryGrid">
+                <div className="ds-group">
+                  <div className="ds-kpis is-four">
                     {customerSummaryCards.map((card) => (
-                      <ShopifyKpiCard
-                        key={card.label}
-                        hint={card.hint}
-                        label={card.label}
-                        value={card.value}
-                      />
+                      <div className="ds-kpi" key={card.label}>
+                        <span className="ds-kpiValue">{card.value}</span>
+                        <span className="ds-kpiLabel">{card.label}</span>
+                        {card.hint ? <span className="ds-kpiHint">{card.hint}</span> : null}
+                      </div>
                     ))}
                   </div>
 
@@ -673,17 +662,10 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                     </div>
                   ) : null}
 
-                  <div className="shopifyCustomerFeatureGrid">
+                  <div className="ds-split shopifyCustomerTools">
                     <ShopifyExecutiveSummaryCard customers={filteredCustomers} />
-                    <article className="shopifyFilterPanel">
-                      <div className="shopifyListHead">
-                        <div>
-                          <div className="shopifyMiniLabel">Filtros comerciais</div>
-                          <p className="shopifyChartDescription">
-                            Refine a carteira por valor, frequência, momento de compra e recorrência.
-                          </p>
-                        </div>
-                      </div>
+                    <div className="shopifyFilterPanel">
+                      <h3 className="ds-subTitle">Filtrar clientes</h3>
                       <ShopifyCustomerFilters
                         lifecycle={customerLifecycle}
                         maxTotalSpent={maxTotalSpent}
@@ -698,72 +680,62 @@ export default function Shopify({ onLogout, onOpenDashboard, onOpenGoogleReport 
                         search={customerSearch}
                         sortBy={customerSortBy}
                       />
-                    </article>
+                    </div>
                   </div>
 
                   <ShopifyCustomersTable customers={filteredCustomers} />
-                </>
+                </div>
               ) : null}
             </section>
 
-            <section className="shopifySection" id="shopify-operations">
-              <ShopifySectionHeader
-                eyebrow="Pedidos recentes"
-                title="Leitura operacional"
-                description="Pedidos mais novos para conferência rápida de cliente, status financeiro e volume."
-              />
+            <section className="ds-section" id="shopify-operations" aria-labelledby="shopify-orders-title">
+              <h2 id="shopify-orders-title" className="ds-sectionTitle">Pedidos recentes</h2>
               <ShopifyOrdersTable orders={report.recent_orders} />
             </section>
 
-            <section className="shopifySection shopifySecondaryGrid">
-              <div>
-                <ShopifySectionHeader
-                  eyebrow="Produtos"
-                  title="Itens com mais tração"
-                  description="Os principais produtos do período por volume vendido e receita gerada."
-                />
-                <ShopifyTopProductsCard products={report.top_products} />
-              </div>
+            <ShopifySalesHistory
+              rows={historicalModel.daily}
+              coverageStart={historicalModel.sources.find((source) => source.provider === "shopify")?.data_min_available || null}
+              coverageEnd={historicalModel.sources.find((source) => source.provider === "shopify")?.data_max_available || null}
+            />
 
-            </section>
-
-            <section className="shopifySection" id="shopify-attribution">
-              <ShopifySectionHeader
-                eyebrow="Atribuição"
-                title="Shopify, Meta, GA4 e Google Ads"
-                description="Cada plataforma mede a receita à sua própria maneira."
-              />
-              <div className="shopifyAttributionGrid">
-                <article className="shopifyAttributionCard is-known">
-                  <span>Shopify</span>
-                  <strong>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</strong>
-                  <small>Receita real da loja no período — fonte de verdade para faturamento.</small>
-                </article>
-                <article className="shopifyAttributionCard">
-                  <span>Meta Ads</span>
-                  <strong>Ver no Dashboard</strong>
-                  <small>Receita atribuída pela Meta, calculada com o modelo de atribuição da própria plataforma.</small>
-                  <button type="button" className="btn btnGhost" onClick={onOpenDashboard}>Abrir Dashboard</button>
-                </article>
-                <article className="shopifyAttributionCard">
-                  <span>Google Analytics 4</span>
-                  <strong>Ver em Analytics</strong>
-                  <small>Receita observada pelo GA4 a partir do comportamento de navegação, não da loja.</small>
-                  {onOpenGoogleReport ? (
-                    <button type="button" className="btn btnGhost" onClick={onOpenGoogleReport}>Abrir Analytics</button>
-                  ) : null}
-                </article>
-                <article className="shopifyAttributionCard">
-                  <span>Google Ads</span>
-                  <strong>Ver no Dashboard</strong>
-                  <small>Retorno atribuído pelo Google Ads no período selecionado.</small>
-                </article>
+            <section className="ds-section" id="shopify-attribution" aria-labelledby="shopify-attribution-title">
+              <div className="ds-sectionHeadText">
+                <h2 id="shopify-attribution-title" className="ds-sectionTitle">Receita em cada plataforma</h2>
+                <p className="ds-caption">Cada plataforma mede a receita à sua maneira. Os valores não devem ser somados.</p>
               </div>
-              <p className="shopifyAttributionNotice">
-                Essas plataformas utilizam modelos de atribuição diferentes. Os valores não devem ser somados.
-              </p>
+              <dl className="ds-sourceList">
+                <div>
+                  <dt>Shopify</dt>
+                  <dd>
+                    <strong>{formatShopifyCurrency(summary?.net_revenue || 0, currency)}</strong>
+                    <span>Receita real da loja no período — a referência para faturamento.</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Meta Ads</dt>
+                  <dd>
+                    <button type="button" className="ds-link" onClick={onOpenDashboard}>Ver em Meta</button>
+                    <span>Receita atribuída pelo modelo de atribuição da própria Meta.</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Google Analytics 4</dt>
+                  <dd>
+                    {onOpenGoogleReport ? <button type="button" className="ds-link" onClick={onOpenGoogleReport}>Ver em Google</button> : null}
+                    <span>Receita observada pela navegação no site, não pela loja.</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Google Ads</dt>
+                  <dd>
+                    {onOpenGoogleReport ? <button type="button" className="ds-link" onClick={onOpenGoogleReport}>Ver em Google</button> : null}
+                    <span>Retorno atribuído pelo Google Ads no período selecionado.</span>
+                  </dd>
+                </div>
+              </dl>
             </section>
-          </>
+          </div>
         ) : null}
       </div>
     </Shell>

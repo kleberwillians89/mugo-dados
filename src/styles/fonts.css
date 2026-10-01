@@ -1,0 +1,35 @@
+/* src/styles/fonts.css
+   ============================================================
+   SLOT DA TIPOGRAFIA OFICIAL MUGÔ
+
+   Situação atual: os arquivos da fonte oficial NÃO estão no repositório.
+   Referência pública: o site institucional (mugoagencia.com.br) carrega
+   "Urbanist" pelo Google Fonts. Até a fonte oficial chegar como arquivo,
+   o produto usa o FALLBACK TEMPORÁRIO definido em design-system.css:
+   a fonte de sistema (SF Pro no macOS/iOS, Segoe UI no Windows, Roboto no
+   Android) — sem dependência externa.
+
+   Como instalar a fonte oficial (nenhum componente precisa mudar):
+   1. Copie os .woff2 para src/assets/fonts/
+   2. Descomente e ajuste os @font-face abaixo. Os nomes "Mugo Sans" e
+      "Mugo Display" já estão na frente das pilhas --font-body e
+      --font-display.
+   ============================================================ */
+
+/*
+@font-face {
+  font-family: "Mugo Sans";
+  src: url("../assets/fonts/mugo-sans-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mugo Display";
+  src: url("../assets/fonts/mugo-display-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+*/

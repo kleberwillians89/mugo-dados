@@ -5,11 +5,10 @@ type Props = {
   customers: ShopifyCustomerRow[];
 };
 
+/** Fatos sobre a base filtrada — derivados só dos clientes listados, sem interpretação. */
 function buildStructuredInsights(customers: ShopifyCustomerRow[]): string[] {
   if (!customers.length) {
-    return [
-      "Assim que houver clientes no período, este bloco pode resumir concentração de receita, recorrência e ritmo de recompra.",
-    ];
+    return ["Sem clientes no filtro atual."];
   }
 
   const totalRevenue = customers.reduce((sum, customer) => sum + customer.total_spent, 0);
@@ -22,7 +21,7 @@ function buildStructuredInsights(customers: ShopifyCustomerRow[]): string[] {
   return [
     `${topCustomer.name} lidera o período com ${formatShopifyCurrency(topCustomer.total_spent)} e ${topShare}% da receita observada.`,
     `${formatShopifyCompactNumber(recurring.length)} clientes recorrentes representam ${recurringShare}% da base ativa deste recorte.`,
-    `${formatShopifyCompactNumber(highFrequency)} clientes fizeram 2 ou mais pedidos no período, sinalizando espaço real para retenção e recompra.`,
+    `${formatShopifyCompactNumber(highFrequency)} clientes fizeram 2 ou mais pedidos no período.`,
   ];
 }
 
@@ -30,25 +29,13 @@ export default function ShopifyExecutiveSummaryCard({ customers }: Props) {
   const insights = buildStructuredInsights(customers);
 
   return (
-    <article className="shopifyExecutiveCard">
-      <div className="shopifyListHead">
-        <div>
-          <div className="shopifyMiniLabel">Resumo executivo opcional</div>
-          <p className="shopifyChartDescription">
-            Camada estruturada pronta para evoluir depois para comentários com OpenAI, sem depender disso no core da tela.
-          </p>
-        </div>
-        <span className="pill pillSoft">Pronto para IA</span>
-      </div>
-
-      <div className="shopifyExecutiveList">
+    <div className="ds-observations">
+      <h3 className="ds-subTitle">Na base filtrada</h3>
+      <ul>
         {insights.map((insight) => (
-          <div key={insight} className="shopifyExecutiveItem">
-            <span className="shopifyExecutiveDot" />
-            <p>{insight}</p>
-          </div>
+          <li key={insight}>{insight}</li>
         ))}
-      </div>
-    </article>
+      </ul>
+    </div>
   );
 }

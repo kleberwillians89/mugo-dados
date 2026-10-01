@@ -961,6 +961,8 @@ const pickSelectedPaidConnectionId = (connections: MetaConnection[], selectedCon
 type DashboardProps = {
   onLogout?: () => Promise<void> | void;
   isAuthenticated?: boolean;
+  /** Sincronizações manuais exigem papel de gestão; viewer permanece somente leitura. */
+  canSync?: boolean;
   bootstrapError?: string | null;
   onOpenSetup?: () => void;
   onOpenGoogleAnalytics?: () => void;
@@ -969,6 +971,7 @@ type DashboardProps = {
 export default function Dashboard({
   onLogout,
   isAuthenticated = false,
+  canSync = false,
   bootstrapError,
   onOpenSetup,
   onOpenGoogleAnalytics,
@@ -2323,7 +2326,7 @@ export default function Dashboard({
           onOpenMeta={() => {}}
           onOpenGoogleAnalytics={onOpenGoogleAnalytics}
           refreshing={syncing}
-          onRefresh={onRefresh}
+          onRefresh={canSync ? onRefresh : undefined}
           onLogout={onLogoutClick}
         />
       }
@@ -2499,7 +2502,7 @@ export default function Dashboard({
                   <div className="organicWaitingState">Instagram orgânico conectado, aguardando sincronização.</div>
                 ) : null}
                 <div className="sectionHeader sectionHeaderSecondary">
-                  <div><div className="h1">Conta</div><div className="p">Métricas de snapshots da conta no período.</div></div>
+                  <div><div className="h1">Conta</div><div className="p">Métricas da conta no período.</div></div>
                 </div>
                 {accountHasCoverage ? (
                   <div className="organicMetricGrid">
@@ -2659,7 +2662,9 @@ export default function Dashboard({
                       message={
                         dashError
                           ? "Não foi possível montar o gráfico principal agora."
-                          : "Clique em “Atualizar dados” para sincronizar esse período."
+                          : canSync
+                            ? "Clique em “Atualizar dados” para sincronizar esse período."
+                            : "Ainda não há dados disponíveis para este período."
                       }
                     />
                   </div>

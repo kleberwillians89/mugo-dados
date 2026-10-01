@@ -80,6 +80,7 @@ class MetaApiError(RuntimeError):
         rate_limited: bool = False,
         response_text: str = "",
         url: str = "",
+        trace_id: str = "",
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -90,6 +91,8 @@ class MetaApiError(RuntimeError):
         self.rate_limited = rate_limited
         self.response_text = response_text
         self.url = url
+        # fbtrace_id da Meta (identificador público para suporte; não é segredo).
+        self.trace_id = trace_id
 
 
 def _http_error_from_response(response: httpx.Response) -> MetaApiError:
@@ -114,6 +117,7 @@ def _http_error_from_response(response: httpx.Response) -> MetaApiError:
         rate_limited=rate_limited,
         response_text=_clip(response.text),
         url=_safe_url(response.request.url),
+        trace_id=_safe_str(error_payload.get("fbtrace_id")) or _safe_str(response.headers.get("x-fb-trace-id")),
     )
 
 

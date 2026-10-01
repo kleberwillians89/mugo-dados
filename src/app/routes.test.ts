@@ -28,6 +28,8 @@ describe("platform routes", () => {
     expect(getPublicAppRouteFromPath("/privacidade")).toBe("privacy");
     expect(getPublicAppRouteFromPath("/privacidade/")).toBe("privacy");
     expect(getPublicAppRouteFromPath("/exclusao-de-dados")).toBe("data_deletion");
+    expect(getPublicAppRouteFromPath("/termos-de-uso")).toBe("terms");
+    expect(getPublicAppRouteFromPath("/termos")).toBe("terms");
     expect(getPublicAppRouteFromPath("/meta")).toBeNull();
   });
 });

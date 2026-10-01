@@ -32,10 +32,9 @@ export default function ShopifyCustomerFilters({
 }: Props) {
   return (
     <div className="shopifyCustomerFilters">
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Buscar</span>
         <input
-          className="shopifyTextInput"
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Nome ou e-mail"
           type="search"
@@ -43,10 +42,9 @@ export default function ShopifyCustomerFilters({
         />
       </label>
 
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Valor mínimo</span>
         <input
-          className="shopifyTextInput"
           inputMode="decimal"
           onChange={(event) => onMinTotalSpentChange(event.target.value)}
           placeholder="0"
@@ -55,10 +53,9 @@ export default function ShopifyCustomerFilters({
         />
       </label>
 
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Valor máximo</span>
         <input
-          className="shopifyTextInput"
           inputMode="decimal"
           onChange={(event) => onMaxTotalSpentChange(event.target.value)}
           placeholder="Sem limite"
@@ -67,10 +64,9 @@ export default function ShopifyCustomerFilters({
         />
       </label>
 
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Pedidos mínimos</span>
         <input
-          className="shopifyTextInput"
           inputMode="numeric"
           min="1"
           onChange={(event) => onMinOrdersChange(event.target.value)}
@@ -80,10 +76,9 @@ export default function ShopifyCustomerFilters({
         />
       </label>
 
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Status</span>
         <select
-          className="select"
           onChange={(event) => onLifecycleChange(event.target.value as LifecycleFilter)}
           value={lifecycle}
         >
@@ -93,10 +88,9 @@ export default function ShopifyCustomerFilters({
         </select>
       </label>
 
-      <label className="shopifyFilterField">
+      <label className="ds-field">
         <span>Ordenar por</span>
         <select
-          className="select"
           onChange={(event) => onSortByChange(event.target.value as SortBy)}
           value={sortBy}
         >

@@ -10,6 +10,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // como a RPC real: cria a membership derivada da invitation e marca o convite
 // como aceito. O client_id de destino vem SEMPRE daqui (autoridade do backend),
 // nunca de um valor arbitrário do frontend.
+const authCalls = vi.hoisted(() => ({
+  signOut: vi.fn(async () => ({ error: null })),
+}));
+
 const backend = vi.hoisted(() => ({
   session: null as unknown,
   memberships: [] as Array<{ client_id: string; role: string }>,
@@ -50,7 +54,7 @@ vi.mock("./app/supabase", () => ({
     auth: {
       getSession: async () => ({ data: { session: backend.session }, error: null }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-      signOut: async () => ({ error: null }),
+      signOut: authCalls.signOut,
     },
     from: (table: string) => supabaseChain(table),
   },
@@ -104,7 +108,15 @@ vi.mock("./pages/Onboarding", () => ({
 }));
 vi.mock("./pages/Dashboard", () => ({ default: () => React.createElement("div", { "data-testid": "dashboard-stub" }) }));
 vi.mock("./pages/GoogleAnalytics", () => ({ default: () => React.createElement("div", { "data-testid": "ga-stub" }) }));
-vi.mock("./pages/Ecommerce", () => ({ default: () => React.createElement("div", { "data-testid": "ecommerce-stub" }) }));
+// Expõe o que o App entrega à página: permissão de sync e atalho de Integrações.
+vi.mock("./pages/Ecommerce", () => ({
+  default: (props: { canSync?: boolean; onOpenIntegrations?: () => void }) =>
+    React.createElement("div", {
+      "data-testid": "ecommerce-stub",
+      "data-can-sync": String(props.canSync),
+      "data-integrations-shortcut": String(Boolean(props.onOpenIntegrations)),
+    }),
+}));
 vi.mock("./pages/Companies", () => ({
   default: (props: { onOpenCompany: (company: Record<string, string>, route?: string) => void }) =>
     React.createElement(
@@ -122,6 +134,7 @@ vi.mock("./pages/NotFound", () => ({ default: () => React.createElement("div", {
 
 import App from "./App";
 import { getActiveClientId } from "./app/activeClient";
+import { listClients } from "./app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -143,8 +156,23 @@ async function renderApp() {
   await flush();
 }
 
+/** Espera um elemento de página carregada sob demanda (lazy) sem depender da velocidade do worker. */
+async function waitFor(predicate: () => boolean, attempts = 200) {
+  for (let i = 0; i < attempts && !predicate(); i += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+}
+
 function findButton(text: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find((item) => item.textContent?.trim() === text);
+}
+
+/** Item da navegação global (link real) — nunca um botão solto. */
+function findNavItem(text: string): HTMLElement | undefined {
+  const nav = container.querySelector('nav[aria-label="Navegação principal"]');
+  return [...(nav?.querySelectorAll<HTMLElement>("a, button") || [])].find((item) => item.textContent?.trim() === text);
 }
 
 beforeEach(() => {
@@ -175,9 +203,12 @@ afterEach(async () => {
 describe("App — convergência do onboarding (link/convite → Integrações)", () => {
   it("cliente existente: aceita a invitation e cai no Onboarding do tenant da invitation", async () => {
     await renderApp();
+    await waitFor(() => Boolean(findButton("Aceitar convite")));
 
     // Bootstrap parou na tela de aceitação de convite, com o tenant antigo ativo.
-    expect(container.textContent).toContain("Você foi convidado para uma empresa");
+    const inviteTitle = container.querySelector("#invite-title")?.textContent || "";
+    expect(inviteTitle).toContain("Você foi convidado para");
+    expect(inviteTitle).toContain("Roove");
     expect(getActiveClientId()).toBe("amalie");
 
     await act(async () => {
@@ -195,6 +226,7 @@ describe("App — convergência do onboarding (link/convite → Integrações)",
   it("viewer: aceita a invitation, tenant correto fica ativo, mas segue read-only para o dashboard", async () => {
     backend.acceptedRole = "viewer";
     await renderApp();
+    await waitFor(() => Boolean(findButton("Aceitar convite")));
 
     await act(async () => {
       findButton("Aceitar convite")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -204,8 +236,10 @@ describe("App — convergência do onboarding (link/convite → Integrações)",
     expect(getActiveClientId()).toBe("roove");
     expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="onboarding-stub"]')).toBeNull();
-    // viewer não ganha a aba de Integrações.
-    expect(findButton("Integrações")).toBeUndefined();
+    // viewer não ganha a aba de Integrações (a navegação existe, o item não).
+    expect(container.querySelector('nav[aria-label="Navegação principal"]')).toBeTruthy();
+    expect(findNavItem("Ecommerce")).toBeTruthy();
+    expect(findNavItem("Integrações")).toBeUndefined();
   });
 
   it("novo usuário por link de onboarding (invitation_id nos metadados) entra direto nas Integrações", async () => {
@@ -259,6 +293,20 @@ describe("App — retorno do OAuth Meta", () => {
     expect(window.location.search).toBe(callbackQuery);
     expect(getActiveClientId()).toBe("test-client");
   });
+
+  it("viewer não alcança o Onboarding por query de retorno", async () => {
+    backend.memberships = [{ client_id: "test-client", role: "viewer" }];
+    backend.clients = [{ id: "test-client", name: "Test Client", trade_name: "Test Client" }];
+    backend.pendingInvitations = [];
+    activeClientStore.current = { id: "test-client", name: "Test Client", role: "viewer" };
+    window.history.replaceState({}, "", "/?onboarding=1&meta_oauth=success&handoff=h-1");
+
+    await renderApp();
+
+    expect(container.querySelector('[data-testid="onboarding-stub"]')).toBeNull();
+    expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
+    expect(window.location.pathname).toBe("/meta");
+  });
 });
 
 describe("App — empresa recém-aberta pela administração", () => {
@@ -306,5 +354,224 @@ describe("App — empresa recém-aberta pela administração", () => {
 
     expect(getActiveClientId()).toBe("mugo-new");
     expect(switcherNames().filter((name) => name === "Mugô")).toHaveLength(1);
+  });
+});
+
+describe("App — shell global: empresa, administração e conta", () => {
+  beforeEach(() => {
+    backend.pendingInvitations = [];
+    window.history.replaceState({}, "", "/meta");
+  });
+
+  function switcherOptionNames(): string[] {
+    const trigger = container.querySelector<HTMLButtonElement>(".appSidebar .clientSwitcherTrigger");
+    act(() => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return [...container.querySelectorAll(".appSidebar .clientSwitcherOptionName")].map((item) => item.textContent || "");
+  }
+
+  it("cliente com uma empresa: identidade estática, sem interface de troca", async () => {
+    backend.memberships = [{ client_id: "amalie", role: "client_admin" }];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    await renderApp();
+
+    const company = container.querySelector(".appSidebar .clientSwitcher");
+    expect(company?.classList.contains("clientSwitcherStatic")).toBe(true);
+    expect(company?.getAttribute("aria-label")).toBe("Empresa ativa: Amalie");
+    expect(company?.querySelector("button")).toBeNull();
+  });
+
+  it("várias memberships: o seletor lista somente as empresas do usuário", async () => {
+    backend.memberships = [
+      { client_id: "amalie", role: "client_admin" },
+      { client_id: "roove", role: "viewer" },
+    ];
+    backend.clients = [
+      { id: "amalie", name: "Amalie", trade_name: "Amalie" },
+      { id: "roove", name: "Roove", trade_name: "Roove" },
+    ];
+    await renderApp();
+
+    // O registro de marcas conhece outras empresas (Curavino, Origami...),
+    // mas a lista vem só das memberships resolvidas no bootstrap.
+    expect(switcherOptionNames()).toEqual(["Amalie", "Roove"]);
+    expect(container.textContent).not.toMatch(/Curavino|Origami|Latina/);
+  });
+
+  it("client_admin gerencia integrações da própria empresa, mas não vê Empresas", async () => {
+    backend.memberships = [{ client_id: "amalie", role: "client_admin" }];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    await renderApp();
+
+    expect(findNavItem("Integrações")?.getAttribute("href")).toBe("/integracoes");
+    expect(findNavItem("Empresas")).toBeUndefined();
+  });
+
+  it("viewer não recebe nenhuma função administrativa", async () => {
+    backend.memberships = [{ client_id: "roove", role: "viewer" }];
+    backend.clients = [{ id: "roove", name: "Roove", trade_name: "Roove" }];
+    await renderApp();
+
+    expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
+    expect(findNavItem("Integrações")).toBeUndefined();
+    expect(findNavItem("Empresas")).toBeUndefined();
+    expect(container.textContent).not.toContain("Administração");
+  });
+
+  it("administração da plataforma vê Integrações e Empresas no grupo Administração", async () => {
+    backend.platformAdmin = true;
+    backend.memberships = [];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    await renderApp();
+
+    expect(container.textContent).toContain("Administração");
+    expect(findNavItem("Integrações")).toBeTruthy();
+    expect(findNavItem("Empresas")?.getAttribute("href")).toBe("/empresas");
+  });
+
+  it("menu da conta: identidade uma vez só e Sair usa o mesmo logout de antes", async () => {
+    backend.memberships = [{ client_id: "amalie", role: "client_admin" }];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    await renderApp();
+
+    const trigger = container.querySelector<HTMLButtonElement>(".appSidebar .userMenuTrigger");
+    expect(trigger?.textContent).toContain("cliente");
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const menu = container.querySelector('[role="menu"]');
+    expect(menu?.textContent).toContain("cliente@empresa.com");
+    expect(menu?.textContent).toContain("Administrador da empresa");
+    // Nenhum "Sair" solto na página: só no menu da conta.
+    expect([...container.querySelectorAll("button")].filter((item) => item.textContent?.trim() === "Sair")).toHaveLength(1);
+
+    const logout = menu?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+    expect(logout?.textContent).toBe("Sair");
+    await act(async () => {
+      logout?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(authCalls.signOut).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="login-stub"]')).toBeTruthy();
+  });
+});
+
+describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
+  beforeEach(() => {
+    backend.pendingInvitations = [];
+    window.history.replaceState({}, "", "/ecommerce");
+  });
+
+  afterEach(() => {
+    vi.mocked(listClients).mockImplementation(async () => ({ clients: [] }));
+  });
+
+  function ecommerce() {
+    return container.querySelector('[data-testid="ecommerce-stub"]');
+  }
+
+  function openSwitcherOptionNames(): string[] {
+    const trigger = container.querySelector<HTMLButtonElement>(".appSidebar .clientSwitcherTrigger");
+    act(() => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return [...container.querySelectorAll(".appSidebar .clientSwitcherOptionName")].map((item) => item.textContent || "");
+  }
+
+  /** Marcas de empresa renderizadas (public/clients/) — nunca a do produto. */
+  function clientLogos(): string[] {
+    return [...container.querySelectorAll("img")]
+      .map((img) => img.getAttribute("src") || "")
+      .filter((src) => src.startsWith("/clients/"));
+  }
+
+  it("viewer: Ecommerce sem sync, sem atalho de Integrações e sem administração", async () => {
+    backend.memberships = [{ client_id: "origami", role: "viewer" }];
+    backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
+    await renderApp();
+
+    expect(ecommerce()?.getAttribute("data-can-sync")).toBe("false");
+    expect(ecommerce()?.getAttribute("data-integrations-shortcut")).toBe("false");
+    expect(findNavItem("Integrações")).toBeUndefined();
+    expect(findNavItem("Empresas")).toBeUndefined();
+    expect(container.textContent).not.toContain("Administração");
+  });
+
+  it("client_admin autorizado: Ecommerce com sync e atalho de Integrações", async () => {
+    backend.memberships = [{ client_id: "origami", role: "client_admin" }];
+    backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
+    await renderApp();
+
+    expect(ecommerce()?.getAttribute("data-can-sync")).toBe("true");
+    expect(ecommerce()?.getAttribute("data-integrations-shortcut")).toBe("true");
+  });
+
+  it("owner legado (tratado como client_admin pelo backend): Ecommerce com sync", async () => {
+    backend.memberships = [{ client_id: "origami", role: "owner" }];
+    backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
+    await renderApp();
+
+    expect(ecommerce()?.getAttribute("data-can-sync")).toBe("true");
+  });
+
+  it("agency_admin autorizado: Ecommerce com sync", async () => {
+    backend.memberships = [{ client_id: "origami", role: "agency_admin" }];
+    vi.mocked(listClients).mockImplementation(async () => ({
+      clients: [
+        { client_id: "origami", name: "Origami", role: "agency_admin" },
+        { client_id: "roove", name: "Roove", role: "agency_admin" },
+      ],
+    }));
+    await renderApp();
+
+    expect(ecommerce()?.getAttribute("data-can-sync")).toBe("true");
+    expect(ecommerce()?.getAttribute("data-integrations-shortcut")).toBe("true");
+  });
+
+  it("administração da plataforma: Ecommerce com sync", async () => {
+    backend.platformAdmin = true;
+    backend.memberships = [];
+    backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
+    await renderApp();
+
+    expect(ecommerce()?.getAttribute("data-can-sync")).toBe("true");
+  });
+
+  it("membership só na Origami: vê Origami e nenhuma outra empresa (nem a Mugô como empresa)", async () => {
+    backend.memberships = [{ client_id: "origami", role: "client_admin" }];
+    backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
+    await renderApp();
+
+    const company = container.querySelector(".appSidebar .clientSwitcher");
+    expect(company?.getAttribute("aria-label")).toBe("Empresa ativa: Origami");
+    expect(company?.classList.contains("clientSwitcherStatic")).toBe(true);
+    expect(company?.querySelector('img[src="/clients/origami.png"]')).toBeTruthy();
+
+    expect(container.textContent).not.toMatch(/Curavino|Roove|Ruah|Rüah|Latina/);
+    expect(clientLogos().length).toBeGreaterThan(0);
+    expect(clientLogos().every((src) => src === "/clients/origami.png")).toBe(true);
+    // "Mugô Dados" é o produto; a Mugô como empresa analisada não aparece.
+    expect(container.querySelector(".appSidebar")?.textContent).toContain("Mugô Dados");
+    expect(company?.textContent).not.toContain("Mugô");
+    expect(container.querySelector('img[src="/clients/mugo.png"]')).toBeNull();
+  });
+
+  it("duas memberships: o seletor mostra exatamente as duas", async () => {
+    backend.memberships = [
+      { client_id: "origami", role: "client_admin" },
+      { client_id: "roove", role: "viewer" },
+    ];
+    backend.clients = [
+      { id: "origami", name: "Origami", trade_name: "Origami" },
+      { id: "roove", name: "Roove", trade_name: "Roove" },
+    ];
+    await renderApp();
+
+    expect(openSwitcherOptionNames()).toEqual(["Origami", "Roove"]);
+    expect(container.textContent).not.toMatch(/Curavino|Ruah|Rüah|Latina/);
+    expect(clientLogos().every((src) => src === "/clients/origami.png" || src === "/clients/roove.png")).toBe(true);
+    expect(container.querySelector('img[src="/clients/mugo.png"]')).toBeNull();
   });
 });

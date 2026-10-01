@@ -5,37 +5,29 @@ type Props = {
   products: ShopifyTopProduct[];
 };
 
+/** Ranking de produtos: nome, receita e unidades; a barra só compara com o primeiro da lista. */
 export default function ShopifyTopProductsCard({ products }: Props) {
-  return (
-    <article className="shopifyListCard">
-      <div className="shopifyListHead">
-        <div>
-          <div className="shopifyMiniLabel">Produtos mais vendidos</div>
-          <p className="shopifyChartDescription">Os itens que mais puxaram volume e receita no período.</p>
-        </div>
-      </div>
+  if (!products.length) {
+    return <p className="ds-emptyLine">Ainda não há produtos vendidos neste período.</p>;
+  }
+  const maxRevenue = Math.max(0, ...products.map((product) => Number(product.revenue || 0)));
 
-      {products.length ? (
-        <div className="shopifyListRows">
-          {products.map((product, index) => (
-            <div key={`${product.product_id || product.title}-${index}`} className="shopifyListRow">
-              <div className="shopifyListRank">{String(index + 1).padStart(2, "0")}</div>
-              <div className="shopifyListBody">
-                <div className="shopifyTableTitle">{product.title}</div>
-                <div className="shopifyTableSubtle">
-                  {[product.variant_title, product.vendor].filter(Boolean).join(" • ") || "Produto Shopify"}
-                </div>
-              </div>
-              <div className="shopifyListMetric">
-                <span>{product.quantity_sold} un.</span>
-                <strong>{formatShopifyCurrency(product.revenue)}</strong>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="shopifyEmptyCard">Ainda não há produtos vendidos neste período.</div>
-      )}
-    </article>
+  return (
+    <ol className="ds-rankList shopifyRankList">
+      {products.map((product, index) => {
+        const detail = [product.variant_title, product.vendor].filter(Boolean).join(" · ");
+        const width = maxRevenue > 0 ? (Number(product.revenue || 0) / maxRevenue) * 100 : 0;
+        return (
+          <li key={`${product.product_id || product.title}-${index}`} className="ds-rankRow">
+            <span className="ds-rankName">{product.title}</span>
+            <span className="ds-rankValue">{formatShopifyCurrency(product.revenue)}</span>
+            <span className="ds-rankMeta">{detail ? `${detail} · ` : ""}{product.quantity_sold} un.</span>
+            <span className="ds-rankBar" aria-hidden="true">
+              <span style={{ width: `${Math.min(100, Math.max(0, width))}%` }} />
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

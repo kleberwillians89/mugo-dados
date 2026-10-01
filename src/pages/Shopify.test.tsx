@@ -27,4 +27,17 @@ vi.mock("../app/PeriodContext",()=>({usePeriod:()=>({period:{start:"2026-08-10",
 vi.mock("../app/activeClient",()=>({getActiveClientId:()=>"amalie",getActiveClientName:()=>"Amalie",MUGO_APP_NAME:"Mugô Dados"}));
 vi.mock("../app/syncOrchestrator",()=>({describeSyncError:()=>"erro",isSyncAlreadyRunningError:()=>false,runExclusiveSync:(_key:unknown,run:()=>Promise<unknown>)=>run()}));
 
-test("renderiza KPIs Shopify do read model e atualização manual preserva/refaz snapshot",async()=>{const node=document.createElement("div"),root=createRoot(node);document.body.appendChild(node);await act(async()=>root.render(<Shopify onLogout={vi.fn()} onOpenDashboard={vi.fn()}/>));expect(node.textContent).toContain("100");expect(node.textContent).toContain("Cliente A");expect(node.textContent).not.toContain("Ainda não há pedidos da Shopify neste período.");const button=[...node.querySelectorAll("button")].find(item=>item.textContent==="Atualizar dados");await act(async()=>button?.dispatchEvent(new MouseEvent("click",{bubbles:true})));expect(sync).toHaveBeenCalledWith("conn-1",60);expect(refetch).toHaveBeenCalledTimes(1);act(()=>root.unmount());node.remove();});
+test("renderiza KPIs Shopify do read model e atualização manual preserva/refaz snapshot",async()=>{const node=document.createElement("div"),root=createRoot(node);document.body.appendChild(node);await act(async()=>root.render(<Shopify canSync onLogout={vi.fn()} onOpenDashboard={vi.fn()}/>));expect(node.textContent).toContain("100");expect(node.textContent).toContain("Cliente A");expect(node.textContent).not.toContain("Ainda não há pedidos da Shopify neste período.");const button=[...node.querySelectorAll("button")].find(item=>item.textContent==="Atualizar dados");await act(async()=>button?.dispatchEvent(new MouseEvent("click",{bubbles:true})));expect(sync).toHaveBeenCalledWith("conn-1",60);expect(refetch).toHaveBeenCalledTimes(1);act(()=>root.unmount());node.remove();});
+
+test("sem permissão de sincronização (viewer): os números aparecem, mas a loja não oferece Atualizar dados", async () => {
+  sync.mockClear();
+  const node = document.createElement("div");
+  const root = createRoot(node);
+  document.body.appendChild(node);
+  await act(async () => root.render(<Shopify canSync={false} onLogout={vi.fn()} onOpenDashboard={vi.fn()} />));
+  expect(node.textContent).toContain("Cliente A");
+  expect([...node.querySelectorAll("button")].some((item) => item.textContent === "Atualizar dados")).toBe(false);
+  expect(sync).not.toHaveBeenCalled();
+  act(() => root.unmount());
+  node.remove();
+});
