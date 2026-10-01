@@ -74,7 +74,28 @@ const MCC = {
 };
 const DIRECT = {
   customer_id: "9990001111", resource_name: "customers/9990001111", descriptive_name: "Outra conta",
-  is_manager: false, status: "CANCELED", access: "direct", login_customer_id: null,
+  is_manager: false, status: "ENABLED", access: "direct", login_customer_id: null,
+};
+const INACTIVE = {
+  customer_id: "4440001111", resource_name: "customers/4440001111", descriptive_name: null,
+  access: "manager", login_customer_id: "5550001111", manager_customer_id: "5550001111",
+  details_error: "CUSTOMER_NOT_ENABLED",
+};
+
+// Evidência real de produção (tenant vinhos): MCC Mugô Agência e suas contas.
+const REAL_MCC = {
+  customer_id: "5903562384", resource_name: "customers/5903562384", descriptive_name: "Mugô Agência",
+  is_manager: true, status: "ENABLED", access: "direct", login_customer_id: null, details_error: "CUSTOMER_NOT_ENABLED",
+};
+const REAL_CURAVINO = {
+  customer_id: "5927993611", resource_name: "customers/5927993611", descriptive_name: "CURAVINO",
+  is_manager: false, status: "ENABLED", access: "manager", login_customer_id: "5903562384",
+  manager_customer_id: "5903562384", manager_name: "Mugô Agência", level: 1,
+};
+const REAL_MUGO = {
+  customer_id: "8277801207", resource_name: "customers/8277801207", descriptive_name: "Mugô",
+  is_manager: false, status: "ENABLED", access: "manager", login_customer_id: "5903562384",
+  manager_customer_id: "5903562384", manager_name: "Mugô Agência", level: 1,
 };
 
 async function renderOnboarding() {
@@ -152,7 +173,7 @@ beforeEach(() => {
   mocks.tenant = "vinhos";
   mocks.selectedConnections = {};
   mocks.adsMetadata = {};
-  mocks.listAds.mockReset().mockResolvedValue({ ok: true, accounts: [MCC, CURAVINO, DIRECT] });
+  mocks.listAds.mockReset().mockResolvedValue({ ok: true, accounts: [MCC, CURAVINO, DIRECT, INACTIVE] });
   mocks.selectAds.mockReset().mockResolvedValue({ ok: true });
   mocks.syncGoogle.mockReset().mockResolvedValue({ ok: true });
   mocks.listProperties.mockReset();
@@ -176,11 +197,16 @@ describe("Google Ads — seletor de conta", () => {
     expect(clientId).toBe("vinhos");
     await openAdsDropdown();
     const box = adsCombobox();
-    expect(box.textContent).toContain("Mugô MCC — 555-000-1111");
-    expect(box.textContent).toContain("Conta administradora");
     expect(box.textContent).toContain("Curavino — 123-456-7890");
     expect(box.textContent).toContain("Via conta administradora Mugô MCC · 555-000-1111");
-    expect(box.textContent).toContain("Cancelada");
+    expect(box.textContent).toContain("Outra conta — 999-000-1111");
+    // MCC e conta não ativa ficam fora das opções selecionáveis.
+    expect(box.querySelector('li[id$="-option-5550001111"]')).toBeNull();
+    expect(box.querySelector('li[id$="-option-4440001111"]')).toBeNull();
+    expect(container.querySelector('[data-testid="google-ads-managers"]')?.textContent)
+      .toContain("Mugô MCC — 555-000-1111 · Conta administradora");
+    expect(container.querySelector('[data-testid="google-ads-unavailable"]')?.textContent)
+      .toContain("Conta 444-000-1111 · CUSTOMER_NOT_ENABLED");
   });
 
   it("selecionar conta atualiza o campo, fecha o dropdown, mostra o resumo e habilita o CTA", async () => {
@@ -205,25 +231,28 @@ describe("Google Ads — seletor de conta", () => {
     await openAdsPicker();
     await pickAdsAccount(CURAVINO.customer_id);
     await click(connectButton());
-    expect(mocks.selectAds).toHaveBeenCalledWith("ads-vinhos", "1234567890", "5550001111");
+    // O navegador só envia o customer_id; o login-customer-id é resolvido no backend.
+    expect(mocks.selectAds).toHaveBeenCalledWith("ads-vinhos", "1234567890");
     expect(mocks.syncGoogle).toHaveBeenCalledWith("ads-vinhos");
     expect(container.textContent).toContain("Conta Google Ads conectada e sincronizada.");
     expect(container.textContent).not.toContain("Selecionar conta Google Ads");
   });
 
-  it("conta direta é persistida sem login-customer-id", async () => {
+  it("conta direta ativa é selecionável e persistida só pelo customer_id", async () => {
     await openAdsPicker();
     await pickAdsAccount(DIRECT.customer_id);
     await click(connectButton());
-    expect(mocks.selectAds).toHaveBeenCalledWith("ads-vinhos", "9990001111", null);
+    expect(mocks.selectAds).toHaveBeenCalledWith("ads-vinhos", "9990001111");
   });
 
-  it("conta administradora (MCC) é identificada e não pode ser conectada como conta de mídia", async () => {
+  it("MCC salva anteriormente aparece como inválida e o CTA fica bloqueado", async () => {
+    mocks.adsMetadata = { google_ads_customer_id: MCC.customer_id };
     await openAdsPicker();
-    await pickAdsAccount(MCC.customer_id);
     const summary = container.querySelector('[data-testid="google-ads-selected"]');
     expect(summary?.textContent).toContain("Conta administradora: não possui campanhas próprias");
+    expect(adsCombobox().querySelector('li[id$="-option-5550001111"]')).toBeNull();
     expect(connectButton()?.disabled).toBe(true);
+    await click(connectButton());
     expect(mocks.selectAds).not.toHaveBeenCalled();
   });
 
@@ -248,17 +277,44 @@ describe("Google Ads — seletor de conta", () => {
     expect(box.querySelector('[role="alert"]')?.textContent).toContain("GOOGLE_RATE_LIMITED");
     await openAdsDropdown();
     expect(box.textContent).toContain("Não foi possível carregar as contas.");
-    expect(box.textContent).not.toContain("Nenhuma conta encontrada.");
+    expect(box.textContent).not.toContain("Nenhuma conta de anúncios encontrada.");
     expect(connectButton()?.disabled).toBe(true);
   });
 
-  it("lista vazia (sucesso) mostra 'Nenhuma conta encontrada' sem erro", async () => {
+  it("lista vazia (sucesso) mostra 'Nenhuma conta de anúncios encontrada' sem erro", async () => {
     mocks.listAds.mockResolvedValueOnce({ ok: true, accounts: [] });
     await openAdsPicker();
     const box = adsCombobox();
     expect(box.querySelector('[role="alert"]')).toBeNull();
     await openAdsDropdown();
-    expect(box.textContent).toContain("Nenhuma conta encontrada.");
+    expect(box.textContent).toContain("Nenhuma conta de anúncios encontrada.");
+  });
+
+  it("[evidência real] vinhos: MCC 590-356-2384 à parte, CURAVINO selecionável e conectada", async () => {
+    const reason = "Detalhes da conta 590-356-2384 não puderam ser lidos (HTTP 403, código CUSTOMER_NOT_ENABLED, request ID req-detail).";
+    mocks.listAds.mockResolvedValueOnce({ ok: true, accounts: [REAL_MCC, REAL_CURAVINO, REAL_MUGO], reason });
+    await openAdsPicker();
+    expect(container.textContent).toContain(reason);
+    expect(container.querySelector('[data-testid="google-ads-managers"]')?.textContent)
+      .toContain("Mugô Agência — 590-356-2384 · Conta administradora");
+    await openAdsDropdown();
+    const box = adsCombobox();
+    expect(box.querySelector('li[id$="-option-5903562384"]')).toBeNull();
+    expect(box.textContent).toContain("CURAVINO — 592-799-3611");
+    expect(box.textContent).toContain("Mugô — 827-780-1207");
+    expect(box.textContent).toContain("Via conta administradora Mugô Agência · 590-356-2384");
+
+    const input = await pickAdsAccount(REAL_CURAVINO.customer_id);
+    expect(input.value).toBe("CURAVINO — 592-799-3611");
+    const summary = container.querySelector('[data-testid="google-ads-selected"]');
+    expect(summary?.textContent).toContain("✓ CURAVINO");
+    expect(summary?.textContent).toContain("ID: 592-799-3611");
+    expect(summary?.textContent).toContain("Acesso via conta administradora 590-356-2384");
+    expect(connectButton()?.disabled).toBe(false);
+
+    await click(connectButton());
+    expect(mocks.selectAds).toHaveBeenCalledWith("ads-vinhos", "5927993611");
+    expect(mocks.syncGoogle).toHaveBeenCalledWith("ads-vinhos");
   });
 
   it("trocar de empresa limpa a seleção Google Ads transitória", async () => {

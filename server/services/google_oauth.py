@@ -15,7 +15,7 @@ from .generic_connections import get_connection, upsert_connection
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_select, sb_update
 from .oauth_state import create_oauth_state
-from .google_ads_ids import normalize_google_ads_customer_id
+from .google_ads_ids import format_google_ads_customer_id, normalize_google_ads_customer_id
 from .integration_errors import IntegrationError, from_httpx_error, google_api_error, provider_http_error
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -729,7 +729,7 @@ async def list_google_ads_accounts(
         login_customer_id=None,
         request_id=request_id,
     )
-    child_accounts = await _expand_google_ads_manager_accounts(
+    child_accounts, diagnostics = await _discover_google_ads_hierarchy(
         direct_accounts,
         token=token,
         developer_token=developer_token,
@@ -746,29 +746,19 @@ async def list_google_ads_accounts(
             f"customer_id={account['customer_id']} manager={'true' if account.get('is_manager') else 'false'} "
             f"status={account.get('status') or '-'} access={account.get('access') or 'direct'} "
             f"login_customer_id={account.get('login_customer_id') or 'none'} "
-            f"details_error={account.get('lookup_error') or account.get('children_error') or '-'}"
+            f"details_error={account.get('details_error') or '-'} "
+            f"hierarchy_error={account.get('hierarchy_error') or '-'}"
         )
     await _persist_google_ads_accounts_cache(
         client_id=client_id, connection_id=connection_id, accounts=all_accounts,
     )
-
-    lookup_errors = sorted({
-        str(account.get("lookup_error")) for account in direct_accounts if account.get("lookup_error")
-    })
-    children_errors = sorted({
-        str(account.get("children_error")) for account in direct_accounts if account.get("children_error")
-    })
-    reason = None
-    if lookup_errors or children_errors:
-        reason = (
-            "Parte dos detalhes das contas não pôde ser lida no Google Ads "
-            f"(código: {', '.join([*lookup_errors, *children_errors])}). "
-            "A seleção continua possível; a primeira sincronização confirma o acesso."
-        )
     return {
         "available": True, "accounts": all_accounts, "api_version": api_version,
         "request_id": request_id, "google_request_id": google_request_id or None,
-        "reason": reason,
+        "reason": _google_ads_listing_reason(diagnostics),
+        # Estruturado e sem credenciais: endpoint, IDs, HTTP, código e request ID
+        # de cada etapa que falhou — visível no navegador sem acesso aos logs.
+        "diagnostics": diagnostics,
     }
 
 
@@ -790,13 +780,14 @@ def _google_ads_error_code(details: Dict[str, Any]) -> str:
 
 def _log_google_ads_error(
     stage: str, details: Dict[str, Any], *, client_id: str, connection_id: str, request_id: str,
-    customer_id: str | None = None,
+    customer_id: str | None = None, login_customer_id: str | None = None, endpoint: str | None = None,
 ) -> None:
     # Nunca recebe token, header Authorization nem developer token: só o
     # resumo sanitizado de _google_ads_error_details.
     print(
         f"[google_ads] stage={stage} request_id={request_id} client_id={client_id} "
         f"connection_id={connection_id} customer_id={customer_id or '-'} "
+        f"login_customer_id={login_customer_id or 'none'} endpoint={endpoint or '-'} "
         f"http_status={details.get('http_status')} google_request_id={details.get('google_request_id') or '-'} "
         f"error_code={_google_ads_error_code(details)} message={details.get('message') or '-'}"
     )
@@ -856,11 +847,11 @@ async def _fetch_google_ads_customer_info(
     request_id: str = "-",
 ) -> Dict[str, Any] | None:
     """
-    Segunda etapa exigida pela Google Ads API: customers:listAccessibleCustomers
-    só retorna IDs. Para exibir nome, tipo (manager) e status, é preciso uma
-    consulta GAQL por conta. Falha de transporte/inesperada retorna None; falha
-    HTTP retorna só {"lookup_error": <código sanitizado>} — quem chama mantém o
-    fallback visual "Conta {customer_id}".
+    Detalhes de UMA conta (nome, tipo manager, status) via GAQL FROM customer.
+    Falha de transporte/inesperada retorna None; falha HTTP retorna só o erro
+    sanitizado ({"details_error", "details_http_status", "details_request_id"}).
+    Erro aqui significa "não consegui ler os detalhes desta conta" — nunca
+    "não consigo consultar a hierarquia" (isso é _discover_google_ads_hierarchy).
     """
     url = f"https://googleads.googleapis.com/{api_version}/customers/{customer_id}/googleAds:search"
     headers = {
@@ -880,12 +871,19 @@ async def _fetch_google_ads_customer_info(
             response = await client.post(url, headers=headers, json={"query": query})
         if response.status_code >= 400:
             details = _google_ads_error_details(response)
+            code = _google_ads_error_code(details)
             print(
                 f"[google_ads] stage=customer_info request_id={request_id} customer_id={customer_id} "
+                f"login_customer_id={login_customer_id or 'none'} "
+                f"endpoint={_google_ads_endpoint(api_version, customer_id)} "
                 f"http_status={details.get('http_status')} google_request_id={details.get('google_request_id') or '-'} "
-                f"error_code={_google_ads_error_code(details)} message={details.get('message') or '-'}"
+                f"error_code={code} message={details.get('message') or '-'}"
             )
-            return {"lookup_error": _google_ads_error_code(details)}
+            return {
+                "details_error": code,
+                "details_http_status": details.get("http_status"),
+                "details_request_id": details.get("google_request_id"),
+            }
         results = response.json().get("results") or []
         if not results:
             return None
@@ -933,12 +931,9 @@ async def _enrich_google_ads_account_names(
     for account, info in zip(accounts, infos):
         if isinstance(info, BaseException):
             info = None
-        if info and not info.get("lookup_error"):
-            enriched.append({**account, **info, "updated_at": datetime.now(timezone.utc).isoformat()})
-        else:
+        if not info or info.get("details_error"):
             missing += 1
-            extra = {"lookup_error": info["lookup_error"]} if info else {}
-            enriched.append({**account, **extra, "updated_at": datetime.now(timezone.utc).isoformat()})
+        enriched.append({**account, **(info or {}), "updated_at": datetime.now(timezone.utc).isoformat()})
     if missing:
         print(
             "[google_oauth][ads_accounts][name_enrichment] "
@@ -947,97 +942,142 @@ async def _enrich_google_ads_account_names(
     return enriched
 
 
-_GOOGLE_ADS_MAX_MANAGERS_EXPANDED = 20
-_GOOGLE_ADS_MAX_CHILD_PAGES = 5
+_GOOGLE_ADS_MAX_ROOTS = 20
+_GOOGLE_ADS_MAX_MANAGERS_PER_ROOT = 10
+_GOOGLE_ADS_MAX_DEPTH = 2
+_GOOGLE_ADS_MAX_LINKED_ACCOUNTS = 50
+_GOOGLE_ADS_MAX_PAGES = 5
+
+# Padrão documentado da Google Ads API (GetAccountHierarchy): filhas diretas
+# (level <= 1) consultadas NA conta administradora, com login-customer-id da
+# raiz acessível; sub-administradoras são expandidas uma a uma.
+_GOOGLE_ADS_CUSTOMER_CLIENT_QUERY = (
+    "SELECT customer_client.client_customer, customer_client.id, customer_client.descriptive_name, "
+    "customer_client.manager, customer_client.level, customer_client.status, "
+    "customer_client.currency_code, customer_client.time_zone, customer_client.test_account "
+    "FROM customer_client WHERE customer_client.level <= 1"
+)
+# Caminho alternativo documentado para a mesma relação administradora→cliente,
+# usado só quando customer_client é recusado.
+_GOOGLE_ADS_CLIENT_LINK_QUERY = (
+    "SELECT customer_client_link.client_customer, customer_client_link.status "
+    "FROM customer_client_link WHERE customer_client_link.status = 'ACTIVE'"
+)
 
 
-async def _list_google_ads_manager_children(
+def _google_ads_endpoint(api_version: str, customer_id: str) -> str:
+    return f"POST /{api_version}/customers/{customer_id}/googleAds:search"
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _google_ads_search_rows(
     *,
-    manager: Dict[str, Any],
+    customer_id: str,
+    login_customer_id: str | None,
+    query: str,
     token: str,
     developer_token: str,
     api_version: str,
-    request_id: str,
-    client_id: str,
-    connection_id: str,
-) -> tuple[List[Dict[str, Any]], str | None]:
-    """
-    Contas acessadas via MCC não aparecem em listAccessibleCustomers: só a
-    própria MCC aparece. As contas abaixo dela vêm de customer_client,
-    consultado NA MCC com login-customer-id = MCC.
-    """
-    manager_id = manager["customer_id"]
-    url = f"https://googleads.googleapis.com/{api_version}/customers/{manager_id}/googleAds:search"
+) -> tuple[List[Dict[str, Any]], Dict[str, Any] | None]:
+    """GAQL search paginado. Retorna (linhas, erro sanitizado ou None)."""
+    url = f"https://googleads.googleapis.com/{api_version}/customers/{customer_id}/googleAds:search"
     headers = {
         "Authorization": f"Bearer {token}",
         "developer-token": developer_token,
-        "login-customer-id": manager_id,
         "Content-Type": "application/json",
     }
-    query = (
-        "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, "
-        "customer_client.time_zone, customer_client.manager, customer_client.status, "
-        "customer_client.test_account, customer_client.level FROM customer_client "
-        "WHERE customer_client.level <= 2"
-    )
-    children: List[Dict[str, Any]] = []
+    if login_customer_id:
+        headers["login-customer-id"] = login_customer_id
+    rows: List[Dict[str, Any]] = []
     page_token = ""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            for _ in range(_GOOGLE_ADS_MAX_CHILD_PAGES):
+            for _ in range(_GOOGLE_ADS_MAX_PAGES):
                 body: Dict[str, Any] = {"query": query}
                 if page_token:
                     body["pageToken"] = page_token
                 response = await client.post(url, headers=headers, json=body)
                 if response.status_code >= 400:
-                    details = _google_ads_error_details(response)
-                    _log_google_ads_error(
-                        "list_manager_clients", details, client_id=client_id,
-                        connection_id=connection_id, request_id=request_id, customer_id=manager_id,
-                    )
-                    return children, _google_ads_error_code(details)
+                    return rows, _google_ads_error_details(response)
                 payload = response.json()
-                for row in payload.get("results") or []:
-                    item = row.get("customerClient") if isinstance(row, dict) else None
-                    if not isinstance(item, dict):
-                        continue
-                    child_id = normalize_google_ads_customer_id(item.get("id"))
-                    if not child_id or child_id == manager_id:
-                        continue
-                    children.append({
-                        "resource_name": f"customers/{child_id}",
-                        "customer_id": child_id,
-                        "descriptive_name": str(item.get("descriptiveName") or "").strip() or None,
-                        "currency_code": str(item.get("currencyCode") or "").strip() or None,
-                        "time_zone": str(item.get("timeZone") or "").strip() or None,
-                        "is_manager": bool(item.get("manager")),
-                        "is_test_account": bool(item.get("testAccount")),
-                        "status": str(item.get("status") or "").strip() or None,
-                        "access": "manager",
-                        "login_customer_id": manager_id,
-                        "manager_customer_id": manager_id,
-                        "manager_name": manager.get("descriptive_name"),
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    })
+                rows.extend(row for row in payload.get("results") or [] if isinstance(row, dict))
                 page_token = str(payload.get("nextPageToken") or "")
                 if not page_token:
                     break
     except Exception as exc:
-        print(
-            f"[google_ads] stage=list_manager_clients request_id={request_id} client_id={client_id} "
-            f"connection_id={connection_id} customer_id={manager_id} status=transport_error "
-            f"error_type={exc.__class__.__name__}"
-        )
-        return children, "TRANSPORT_ERROR"
+        return rows, {
+            "http_status": None, "google_status": "TRANSPORT_ERROR", "reasons": [],
+            "message": exc.__class__.__name__, "google_request_id": None,
+        }
+    return rows, None
+
+
+def _google_ads_failure(
+    stage: str, details: Dict[str, Any], *, customer_id: str, login_customer_id: str | None, api_version: str,
+) -> Dict[str, Any]:
+    return {
+        "stage": stage,
+        "customer_id": customer_id,
+        "login_customer_id": login_customer_id,
+        "endpoint": _google_ads_endpoint(api_version, customer_id),
+        "http_status": details.get("http_status"),
+        "error_code": _google_ads_error_code(details),
+        "google_request_id": details.get("google_request_id"),
+        "message": details.get("message") or None,
+    }
+
+
+def _google_ads_detail_failure(account: Dict[str, Any], api_version: str) -> Dict[str, Any]:
+    return {
+        "stage": "customer_info",
+        "customer_id": account["customer_id"],
+        "login_customer_id": account.get("login_customer_id") or None,
+        "endpoint": _google_ads_endpoint(api_version, account["customer_id"]),
+        "http_status": account.get("details_http_status"),
+        "error_code": account.get("details_error"),
+        "google_request_id": account.get("details_request_id"),
+        "message": None,
+    }
+
+
+def _log_google_ads_hierarchy(
+    stage: str, *, request_id: str, client_id: str, connection_id: str, manager_customer_id: str,
+    login_customer_id: str | None, api_version: str, http_status: Any, google_request_id: str | None,
+    error_code: str | None, message: str | None, children_count: int,
+) -> None:
     print(
-        f"[google_ads] stage=list_manager_clients request_id={request_id} client_id={client_id} "
-        f"connection_id={connection_id} customer_id={manager_id} http_status=200 customers_count={len(children)}"
+        f"[google_ads] stage={stage} request_id={request_id} client_id={client_id} "
+        f"connection_id={connection_id} manager_customer_id={manager_customer_id} "
+        f"login_customer_id={login_customer_id or 'none'} "
+        f"endpoint={_google_ads_endpoint(api_version, manager_customer_id)} "
+        f"http_status={http_status if http_status is not None else '-'} "
+        f"google_request_id={google_request_id or '-'} error_code={error_code or '-'} "
+        f"message={message or '-'} children_count={children_count}"
     )
-    return children, None
 
 
-async def _expand_google_ads_manager_accounts(
-    accounts: List[Dict[str, Any]],
+def _fill_root_from_hierarchy(root: Dict[str, Any], item: Dict[str, Any]) -> None:
+    """A linha level 0 de customer_client descreve a própria raiz: completa o
+    que o detalhe (FROM customer) não conseguiu ler, sem sobrescrever."""
+    if item.get("manager"):
+        root["is_manager"] = True
+    for target, source in (
+        ("descriptive_name", "descriptiveName"), ("status", "status"),
+        ("currency_code", "currencyCode"), ("time_zone", "timeZone"),
+    ):
+        value = str(item.get(source) or "").strip()
+        if value and not root.get(target):
+            root[target] = value
+
+
+async def _discover_google_ads_hierarchy(
+    direct_accounts: List[Dict[str, Any]],
     *,
     token: str,
     developer_token: str,
@@ -1045,34 +1085,238 @@ async def _expand_google_ads_manager_accounts(
     request_id: str,
     client_id: str,
     connection_id: str,
-) -> List[Dict[str, Any]]:
-    """Lista as contas abaixo de cada MCC acessível. Falha numa MCC não derruba a listagem."""
-    managers = [account for account in accounts if account.get("is_manager")][:_GOOGLE_ADS_MAX_MANAGERS_EXPANDED]
-    if not managers:
-        return []
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Descobre contas acessadas via conta administradora (MCC). Raízes: MCCs
+    confirmadas E contas cujo detalhe falhou — erro de detalhe não impede a
+    tentativa de hierarquia. Retorna (filhas, diagnósticos de falha).
+    """
+    diagnostics = [_google_ads_detail_failure(account, api_version) for account in direct_accounts if account.get("details_error")]
+    roots = [
+        account for account in direct_accounts
+        if account.get("is_manager") or account.get("details_error")
+    ][:_GOOGLE_ADS_MAX_ROOTS]
+    if not roots:
+        return [], diagnostics
     results = await asyncio.gather(*[
-        _list_google_ads_manager_children(
-            manager=manager, token=token, developer_token=developer_token, api_version=api_version,
+        _discover_google_ads_manager_tree(
+            root, token=token, developer_token=developer_token, api_version=api_version,
             request_id=request_id, client_id=client_id, connection_id=connection_id,
         )
-        for manager in managers
+        for root in roots
     ], return_exceptions=True)
     # Conta com acesso direto prevalece: não precisa de login-customer-id.
-    seen = {account["customer_id"] for account in accounts}
+    seen = {account["customer_id"] for account in direct_accounts}
     children: List[Dict[str, Any]] = []
-    for manager, result in zip(managers, results):
+    for root, result in zip(roots, results):
         if isinstance(result, BaseException):
-            manager["children_error"] = "UNEXPECTED_ERROR"
+            root["hierarchy_error"] = "UNEXPECTED_ERROR"
+            diagnostics.append({
+                "stage": "manager_children", "customer_id": root["customer_id"],
+                "login_customer_id": root["customer_id"],
+                "endpoint": _google_ads_endpoint(api_version, root["customer_id"]),
+                "http_status": None, "error_code": "UNEXPECTED_ERROR", "google_request_id": None, "message": None,
+            })
             continue
-        items, error_code = result
-        if error_code:
-            manager["children_error"] = error_code
+        items, root_diagnostics = result
+        diagnostics.extend(root_diagnostics)
         for child in items:
             if child["customer_id"] in seen:
                 continue
             seen.add(child["customer_id"])
             children.append(child)
-    return children
+    return children, diagnostics
+
+
+async def _discover_google_ads_manager_tree(
+    root: Dict[str, Any],
+    *,
+    token: str,
+    developer_token: str,
+    api_version: str,
+    request_id: str,
+    client_id: str,
+    connection_id: str,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    root_id = root["customer_id"]
+    confirmed_manager = bool(root.get("is_manager"))
+    items: List[Dict[str, Any]] = []
+    diagnostics: List[Dict[str, Any]] = []
+    queue: List[tuple[str, str | None, int]] = [(root_id, root.get("descriptive_name"), 0)]
+    visited: set[str] = set()
+    while queue and len(visited) < _GOOGLE_ADS_MAX_MANAGERS_PER_ROOT:
+        manager_id, manager_name, depth = queue.pop(0)
+        if manager_id in visited:
+            continue
+        visited.add(manager_id)
+        rows, error = await _google_ads_search_rows(
+            customer_id=manager_id, login_customer_id=root_id, query=_GOOGLE_ADS_CUSTOMER_CLIENT_QUERY,
+            token=token, developer_token=developer_token, api_version=api_version,
+        )
+        if error:
+            failure = _google_ads_failure(
+                "manager_children", error, customer_id=manager_id, login_customer_id=root_id, api_version=api_version,
+            )
+            _log_google_ads_hierarchy(
+                "manager_children", request_id=request_id, client_id=client_id, connection_id=connection_id,
+                manager_customer_id=manager_id, login_customer_id=root_id, api_version=api_version,
+                http_status=failure["http_status"], google_request_id=failure["google_request_id"],
+                error_code=failure["error_code"], message=failure["message"], children_count=0,
+            )
+            diagnostics.append(failure)
+            if manager_id == root_id:
+                root["hierarchy_error"] = failure["error_code"]
+                if confirmed_manager:
+                    linked, link_diagnostics = await _discover_google_ads_client_links(
+                        root, token=token, developer_token=developer_token, api_version=api_version,
+                        request_id=request_id, client_id=client_id, connection_id=connection_id,
+                    )
+                    items.extend(linked)
+                    diagnostics.extend(link_diagnostics)
+            else:
+                for item in items:
+                    if item["customer_id"] == manager_id:
+                        item["hierarchy_error"] = failure["error_code"]
+            continue
+        found = 0
+        for row in rows:
+            item = row.get("customerClient")
+            if not isinstance(item, dict):
+                continue
+            child_id = (
+                normalize_google_ads_customer_id(item.get("id"))
+                or normalize_google_ads_customer_id(item.get("clientCustomer"))
+            )
+            if not child_id:
+                continue
+            if _int_value(item.get("level")) == 0 or child_id == manager_id:
+                if manager_id == root_id:
+                    _fill_root_from_hierarchy(root, item)
+                continue
+            if child_id == root_id or any(existing["customer_id"] == child_id for existing in items):
+                continue
+            entry = {
+                "resource_name": f"customers/{child_id}",
+                "customer_id": child_id,
+                "descriptive_name": str(item.get("descriptiveName") or "").strip() or None,
+                "currency_code": str(item.get("currencyCode") or "").strip() or None,
+                "time_zone": str(item.get("timeZone") or "").strip() or None,
+                "is_manager": bool(item.get("manager")),
+                "is_test_account": bool(item.get("testAccount")),
+                "status": str(item.get("status") or "").strip() or None,
+                "access": "manager",
+                "login_customer_id": root_id,
+                "manager_customer_id": manager_id,
+                "manager_name": manager_name or root.get("descriptive_name"),
+                "level": depth + 1,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            items.append(entry)
+            found += 1
+            if entry["is_manager"] and depth + 1 < _GOOGLE_ADS_MAX_DEPTH:
+                queue.append((child_id, entry["descriptive_name"], depth + 1))
+        _log_google_ads_hierarchy(
+            "manager_children", request_id=request_id, client_id=client_id, connection_id=connection_id,
+            manager_customer_id=manager_id, login_customer_id=root_id, api_version=api_version,
+            http_status=200, google_request_id=None, error_code=None, message=None, children_count=found,
+        )
+    return items, diagnostics
+
+
+async def _discover_google_ads_client_links(
+    root: Dict[str, Any],
+    *,
+    token: str,
+    developer_token: str,
+    api_version: str,
+    request_id: str,
+    client_id: str,
+    connection_id: str,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Fallback documentado: vínculos ativos da MCC + detalhe de cada cliente."""
+    root_id = root["customer_id"]
+    rows, error = await _google_ads_search_rows(
+        customer_id=root_id, login_customer_id=root_id, query=_GOOGLE_ADS_CLIENT_LINK_QUERY,
+        token=token, developer_token=developer_token, api_version=api_version,
+    )
+    if error:
+        failure = _google_ads_failure(
+            "manager_links", error, customer_id=root_id, login_customer_id=root_id, api_version=api_version,
+        )
+        root["links_error"] = failure["error_code"]
+        _log_google_ads_hierarchy(
+            "manager_links", request_id=request_id, client_id=client_id, connection_id=connection_id,
+            manager_customer_id=root_id, login_customer_id=root_id, api_version=api_version,
+            http_status=failure["http_status"], google_request_id=failure["google_request_id"],
+            error_code=failure["error_code"], message=failure["message"], children_count=0,
+        )
+        return [], [failure]
+    linked_ids: List[str] = []
+    for row in rows:
+        link = row.get("customerClientLink")
+        if not isinstance(link, dict):
+            continue
+        linked_id = normalize_google_ads_customer_id(link.get("clientCustomer"))
+        if linked_id and linked_id != root_id and linked_id not in linked_ids:
+            linked_ids.append(linked_id)
+    linked_ids = linked_ids[:_GOOGLE_ADS_MAX_LINKED_ACCOUNTS]
+    infos = await asyncio.gather(*[
+        _fetch_google_ads_customer_info(
+            customer_id=linked_id, token=token, developer_token=developer_token,
+            api_version=api_version, login_customer_id=root_id, request_id=request_id,
+        )
+        for linked_id in linked_ids
+    ], return_exceptions=True)
+    children: List[Dict[str, Any]] = []
+    diagnostics: List[Dict[str, Any]] = [{
+        "stage": "manager_links", "customer_id": root_id, "login_customer_id": root_id,
+        "endpoint": _google_ads_endpoint(api_version, root_id), "http_status": 200,
+        "error_code": None, "google_request_id": None, "message": None, "children_count": len(linked_ids),
+    }]
+    for linked_id, info in zip(linked_ids, infos):
+        if isinstance(info, BaseException):
+            info = None
+        entry = {
+            "resource_name": f"customers/{linked_id}",
+            "customer_id": linked_id,
+            "access": "manager",
+            "login_customer_id": root_id,
+            "manager_customer_id": root_id,
+            "manager_name": root.get("descriptive_name"),
+            "level": 1,
+            "source": "customer_client_link",
+            **(info or {}),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if entry.get("details_error"):
+            diagnostics.append(_google_ads_detail_failure(entry, api_version))
+        children.append(entry)
+    _log_google_ads_hierarchy(
+        "manager_links", request_id=request_id, client_id=client_id, connection_id=connection_id,
+        manager_customer_id=root_id, login_customer_id=root_id, api_version=api_version,
+        http_status=200, google_request_id=None, error_code=None, message=None, children_count=len(children),
+    )
+    return children, diagnostics
+
+
+def _google_ads_listing_reason(diagnostics: List[Dict[str, Any]]) -> str | None:
+    """Texto para a UI separando detalhe de conta, hierarquia e vínculos."""
+    parts: List[str] = []
+    for item in diagnostics:
+        account = format_google_ads_customer_id(str(item.get("customer_id") or ""))
+        meta = f"HTTP {item.get('http_status') if item.get('http_status') is not None else '-'}, código {item.get('error_code') or '-'}"
+        if item.get("google_request_id"):
+            meta += f", request ID {item['google_request_id']}"
+        stage = item.get("stage")
+        if stage == "customer_info":
+            parts.append(f"Detalhes da conta {account} não puderam ser lidos ({meta}).")
+        elif stage == "manager_children":
+            parts.append(f"As contas vinculadas à conta administradora {account} não puderam ser listadas via customer_client ({meta}).")
+        elif stage == "manager_links" and item.get("error_code"):
+            parts.append(f"Os vínculos ativos da conta administradora {account} também foram recusados ({meta}).")
+        elif stage == "manager_links":
+            parts.append(f"Contas da administradora {account} obtidas pelos vínculos ativos (customer_client_link): {item.get('children_count', 0)}.")
+    return " ".join(parts) or None
 
 
 async def _persist_google_ads_accounts_cache(

@@ -331,7 +331,7 @@ async def select_ads(
     customer_id = normalize_google_ads_customer_id(payload.get("customer_id"))
     if not customer_id:
         raise HTTPException(status_code=400, detail="customer_id do Google Ads inválido.")
-    selection = _resolve_google_ads_selection(row, customer_id, payload)
+    selection = _resolve_google_ads_selection(row, customer_id)
     print(
         "[google_ads] stage=select_customer "
         f"client_id={cid} connection_id={connection_id} customer_id={customer_id} "
@@ -350,44 +350,50 @@ async def select_ads(
     return {"ok": True, "connection": connection}
 
 
-def _resolve_google_ads_selection(row: Dict[str, Any], customer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+_GOOGLE_ADS_NOT_ENABLED_STATUSES = {"CANCELED", "SUSPENDED", "CLOSED"}
+
+
+def _resolve_google_ads_selection(row: Dict[str, Any], customer_id: str) -> Dict[str, Any]:
     """
-    A conta precisa ter vindo da listagem desta conexão (cache em metadata):
-    é de lá que saem o login-customer-id (acesso via MCC) e o tipo da conta.
-    Sem cache (listagem anterior a esta versão), aceita o login-customer-id
-    enviado, validado no mesmo formato canônico.
+    Resolve a seleção SÓ pela listagem desta conexão (cache em metadata): é de
+    lá que saem o login-customer-id (acesso via MCC), o nome e o tipo da conta.
+    O login_customer_id enviado pelo navegador nunca é usado.
     """
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     cache = metadata.get("google_ads_accounts_cache")
-    if isinstance(cache, list) and cache:
-        listed = next(
-            (
-                item for item in cache
-                if isinstance(item, dict) and normalize_google_ads_customer_id(item.get("customer_id")) == customer_id
-            ),
-            None,
+    if not isinstance(cache, list) or not cache:
+        raise IntegrationError(
+            "Atualize a lista de contas Google Ads antes de selecionar a conta.",
+            status_code=409, code="GOOGLE_ADS_ACCOUNTS_NOT_LISTED", provider="google_ads",
         )
-        if listed is None:
-            raise IntegrationError(
-                "Esta conta não está na lista de contas Google Ads desta autorização. Atualize a lista e selecione novamente.",
-                status_code=409, code="GOOGLE_ADS_ACCOUNT_NOT_LISTED", provider="google_ads",
-            )
-        if listed.get("is_manager"):
-            raise IntegrationError(
-                "Conta administradora (MCC) não possui campanhas próprias. Selecione uma conta de anúncios.",
-                status_code=400, code="GOOGLE_ADS_MANAGER_ACCOUNT_NOT_SUPPORTED", provider="google_ads",
-            )
-        return {
-            "login_customer_id": normalize_google_ads_customer_id(listed.get("login_customer_id")),
-            "customer_name": str(listed.get("descriptive_name") or "").strip() or None,
-            "source": "accounts_cache",
-        }
-    raw_login = payload.get("login_customer_id")
-    login_customer_id = normalize_google_ads_customer_id(raw_login) if raw_login else None
-    if raw_login and not login_customer_id:
-        raise HTTPException(status_code=400, detail="login_customer_id do Google Ads inválido.")
-    return {"login_customer_id": login_customer_id, "customer_name": None, "source": "payload"}
-
+    listed = next(
+        (
+            item for item in cache
+            if isinstance(item, dict) and normalize_google_ads_customer_id(item.get("customer_id")) == customer_id
+        ),
+        None,
+    )
+    if listed is None:
+        raise IntegrationError(
+            "Esta conta não está na lista de contas Google Ads desta autorização. Atualize a lista e selecione novamente.",
+            status_code=409, code="GOOGLE_ADS_ACCOUNT_NOT_LISTED", provider="google_ads",
+        )
+    if listed.get("is_manager"):
+        raise IntegrationError(
+            "Conta administradora (MCC) não possui campanhas próprias. Selecione uma conta de anúncios.",
+            status_code=400, code="GOOGLE_ADS_MANAGER_ACCOUNT_NOT_SUPPORTED", provider="google_ads",
+        )
+    status = str(listed.get("status") or "").strip().upper()
+    if (listed.get("details_error") or listed.get("lookup_error")) == "CUSTOMER_NOT_ENABLED" or status in _GOOGLE_ADS_NOT_ENABLED_STATUSES:
+        raise IntegrationError(
+            "A conta Google Ads selecionada não está ativa (cancelada, suspensa ou não configurada).",
+            status_code=409, code="GOOGLE_ADS_CUSTOMER_NOT_ENABLED", provider="google_ads",
+        )
+    return {
+        "login_customer_id": normalize_google_ads_customer_id(listed.get("login_customer_id")),
+        "customer_name": str(listed.get("descriptive_name") or "").strip() or None,
+        "source": "accounts_cache",
+    }
 
 @router.get("/{connection_id}/status")
 async def status(

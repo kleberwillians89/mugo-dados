@@ -1434,8 +1434,13 @@ export type GoogleAdsAccount = {
   login_customer_id?: string | null;
   manager_customer_id?: string | null;
   manager_name?: string | null;
-  lookup_error?: string | null;
-  children_error?: string | null;
+  level?: number;
+  /** Código Google ao ler os detalhes DESTA conta (ex.: CUSTOMER_NOT_ENABLED). */
+  details_error?: string | null;
+  /** Código Google ao listar as contas vinculadas (customer_client) desta MCC. */
+  hierarchy_error?: string | null;
+  /** Código Google do fallback customer_client_link desta MCC. */
+  links_error?: string | null;
 };
 
 /** Somente exibição: 1234567890 -> 123-456-7890. */
@@ -1496,14 +1501,13 @@ export async function listGoogleAdsAccounts(
 
 export async function selectGoogleAdsAccount(
   connectionId: string,
-  customerId: string,
-  loginCustomerId?: string | null
+  customerId: string
 ): Promise<JsonRecord> {
-  // O backend valida a conta contra a listagem desta conexão e resolve o
-  // login-customer-id por conta própria; o valor enviado é só fallback.
+  // Só o customer_id: o backend resolve login-customer-id, nome e tipo pela
+  // hierarquia descoberta na listagem desta conexão.
   return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ads/select`, {
     method: "POST",
-    body: JSON.stringify({ customer_id: customerId, login_customer_id: loginCustomerId || null }),
+    body: JSON.stringify({ customer_id: customerId }),
   });
 }
 

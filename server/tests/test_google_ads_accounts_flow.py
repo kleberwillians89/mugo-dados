@@ -38,7 +38,9 @@ def _json(status: int, body: Any, headers: Dict[str, str] | None = None) -> http
     )
 
 
-def _ads_error(status: int, error_code: Dict[str, str], message: str = "Google Ads error") -> httpx.Response:
+def _ads_error(
+    status: int, error_code: Dict[str, str], message: str = "Google Ads error", request_id: str = "google-req-err",
+) -> httpx.Response:
     return _json(status, {
         "error": {
             "code": status,
@@ -47,10 +49,10 @@ def _ads_error(status: int, error_code: Dict[str, str], message: str = "Google A
             "details": [{
                 "@type": "type.googleapis.com/google.ads.googleads.v25.errors.GoogleAdsFailure",
                 "errors": [{"errorCode": error_code, "message": message}],
-                "requestId": "google-req-err",
+                "requestId": request_id,
             }],
         }
-    }, headers={"request-id": "google-req-err"})
+    }, headers={"request-id": request_id})
 
 
 class FakeAdsHttp:
@@ -169,6 +171,11 @@ class GoogleAdsListingTests(unittest.IsolatedAsyncioTestCase):
                      "currencyCode": "BRL", "timeZone": "America/Sao_Paulo", "level": "1"},
                     {"id": SUB_MCC, "descriptiveName": "Sub MCC", "manager": True, "status": "ENABLED", "level": "1"},
                 ])
+            if url.endswith(f"customers/{SUB_MCC}/googleAds:search") and "FROM customer_client" in body["query"]:
+                return _customer_clients([
+                    {"id": SUB_MCC, "descriptiveName": "Sub MCC", "manager": True, "level": "0"},
+                    {"id": OTHER, "descriptiveName": "Filha da Sub", "manager": False, "status": "ENABLED", "level": "1"},
+                ])
             if url.endswith(f"customers/{MCC}/googleAds:search"):
                 return _customer_info(MCC, "Mugô MCC", manager=True)
             raise AssertionError(url)
@@ -176,7 +183,7 @@ class GoogleAdsListingTests(unittest.IsolatedAsyncioTestCase):
         result, error, fake, _persist, log = await self._list(handler)
         self.assertIsNone(error)
         by_id = {account["customer_id"]: account for account in result["accounts"]}
-        self.assertEqual(set(by_id), {MCC, CURAVINO, SUB_MCC})
+        self.assertEqual(set(by_id), {MCC, CURAVINO, SUB_MCC, OTHER})
         self.assertTrue(by_id[MCC]["is_manager"])
         self.assertEqual(by_id[MCC]["access"], "direct")
         self.assertIsNone(by_id[MCC]["login_customer_id"])
@@ -185,8 +192,16 @@ class GoogleAdsListingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_id[CURAVINO]["login_customer_id"], MCC)
         self.assertEqual(by_id[CURAVINO]["manager_customer_id"], MCC)
         self.assertTrue(by_id[SUB_MCC]["is_manager"])
-        client_query = next(call for call in fake.calls if call["json"] and "customer_client" in call["json"]["query"])
-        self.assertEqual(client_query["headers"]["login-customer-id"], MCC)
+        # Sub-MCC expandida com o login-customer-id da raiz acessível.
+        self.assertEqual(by_id[OTHER]["manager_customer_id"], SUB_MCC)
+        self.assertEqual(by_id[OTHER]["login_customer_id"], MCC)
+        self.assertEqual(by_id[OTHER]["level"], 2)
+        hierarchy_calls = [call for call in fake.calls if call["json"] and "FROM customer_client" in call["json"]["query"]]
+        self.assertEqual([call["url"].split("/")[-2] for call in hierarchy_calls], [MCC, SUB_MCC])
+        for call in hierarchy_calls:
+            self.assertEqual(call["headers"]["login-customer-id"], MCC)
+            self.assertIn("customer_client.client_customer", call["json"]["query"])
+            self.assertIn("customer_client.level <= 1", call["json"]["query"])
         self.assertIn(f"customer_id={CURAVINO} manager=false status=ENABLED access=manager login_customer_id={MCC}", log)
 
     async def test_direct_access_wins_over_mcc_path(self):
@@ -218,9 +233,11 @@ class GoogleAdsListingTests(unittest.IsolatedAsyncioTestCase):
         result, error, _fake, _persist, log = await self._list(handler)
         self.assertIsNone(error)
         self.assertEqual(len(result["accounts"]), 1)
-        self.assertEqual(result["accounts"][0]["children_error"], "USER_PERMISSION_DENIED")
+        self.assertEqual(result["accounts"][0]["hierarchy_error"], "USER_PERMISSION_DENIED")
+        self.assertEqual(result["accounts"][0]["links_error"], "USER_PERMISSION_DENIED")
         self.assertIn("USER_PERMISSION_DENIED", result["reason"])
-        self.assertIn("stage=list_manager_clients", log)
+        self.assertIn("stage=manager_children", log)
+        self.assertIn("stage=manager_links", log)
         self.assertIn("error_code=USER_PERMISSION_DENIED", log)
 
     async def test_detail_lookup_error_keeps_account_and_reports_code(self):
@@ -232,8 +249,10 @@ class GoogleAdsListingTests(unittest.IsolatedAsyncioTestCase):
         result, error, _fake, _persist, log = await self._list(handler)
         self.assertIsNone(error)
         self.assertEqual(result["accounts"][0]["customer_id"], CURAVINO)
-        self.assertEqual(result["accounts"][0]["lookup_error"], "DEVELOPER_TOKEN_NOT_APPROVED")
-        self.assertIn("DEVELOPER_TOKEN_NOT_APPROVED", result["reason"])
+        self.assertEqual(result["accounts"][0]["details_error"], "DEVELOPER_TOKEN_NOT_APPROVED")
+        self.assertIn("Detalhes da conta 123-456-7890 não puderam ser lidos (HTTP 403, código DEVELOPER_TOKEN_NOT_APPROVED", result["reason"])
+        # Erro de detalhe não impede a tentativa de hierarquia (tipo da conta desconhecido).
+        self.assertEqual(result["accounts"][0]["hierarchy_error"], "DEVELOPER_TOKEN_NOT_APPROVED")
         self.assertIn("google_request_id=google-req-err", log)
 
     async def test_empty_listing_is_success_not_error(self):
@@ -399,14 +418,12 @@ class GoogleAdsRouteTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(error.status_code, 400)
                 update.assert_not_awaited()
 
-    async def test_select_without_cache_normalizes_payload_login(self):
+    async def test_select_without_listing_cache_is_rejected_and_browser_login_ignored(self):
         _result, error, update, *_ = await self._select(
             {"customer_id": CURAVINO, "login_customer_id": "555-000-1111"}, row=_ads_row(),
         )
-        self.assertIsNone(error)
-        patch_ = update.await_args.kwargs["metadata_patch"]
-        self.assertEqual(patch_["google_ads_login_customer_id"], MCC)
-        self.assertIsNone(patch_["google_ads_customer_name"])
+        self.assertEqual(error.code, "GOOGLE_ADS_ACCOUNTS_NOT_LISTED")
+        update.assert_not_awaited()
 
     async def test_select_requires_ads_scope(self):
         _result, error, update, *_ = await self._select(
@@ -507,6 +524,283 @@ class GoogleAdsDashboardContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(filters["client_id"], "eq.vinhos")
         self.assertEqual(filters["connection_id"], "eq.ads-vinhos")
         self.assertEqual(filters["customer_id"], f"eq.{CURAVINO}")
+
+
+# ---------------------------------------------------------------------------
+# Regressão com a evidência real de produção (tenant vinhos, deploy 610074a):
+# MCC Mugô Agência 590-356-2384 com as contas CURAVINO 592-799-3611 e
+# Mugô 827-780-1207. A conta de mídia da vinhos é a CURAVINO.
+# ---------------------------------------------------------------------------
+MCC_REAL = "5903562384"
+CURAVINO_REAL = "5927993611"
+MUGO_REAL = "8277801207"
+NOT_ENABLED = {"authorizationError": "CUSTOMER_NOT_ENABLED"}
+NOT_ENABLED_MESSAGE = "The customer account can't be accessed because it is not yet enabled or has been deactivated."
+
+
+def _real_hierarchy() -> httpx.Response:
+    return _customer_clients([
+        {"clientCustomer": f"customers/{MCC_REAL}", "id": MCC_REAL, "descriptiveName": "Mugô Agência",
+         "manager": True, "status": "ENABLED", "level": "0"},
+        {"clientCustomer": f"customers/{CURAVINO_REAL}", "id": CURAVINO_REAL, "descriptiveName": "CURAVINO",
+         "manager": False, "status": "ENABLED", "currencyCode": "BRL", "timeZone": "America/Sao_Paulo", "level": "1"},
+        {"clientCustomer": f"customers/{MUGO_REAL}", "id": MUGO_REAL, "descriptiveName": "Mugô",
+         "manager": False, "status": "ENABLED", "level": "1"},
+    ])
+
+
+def _real_links() -> httpx.Response:
+    return _json(200, {"results": [
+        {"customerClientLink": {"clientCustomer": f"customers/{CURAVINO_REAL}", "status": "ACTIVE"}},
+        {"customerClientLink": {"clientCustomer": f"customers/{MUGO_REAL}", "status": "ACTIVE"}},
+    ]})
+
+
+def _query(body) -> str:
+    return str((body or {}).get("query") or "")
+
+
+async def _run_listing(test: unittest.TestCase, handler):
+    fake = FakeAdsHttp(handler)
+    persist = AsyncMock()
+    output = io.StringIO()
+    with (
+        patch.dict(os.environ, {"GOOGLE_ADS_DEVELOPER_TOKEN": DEVELOPER_TOKEN, "GOOGLE_ADS_API_VERSION": "v25"}),
+        patch.object(google_oauth, "_access_token", AsyncMock(return_value=ACCESS_TOKEN)),
+        patch.object(google_oauth, "_persist_google_ads_accounts_cache", persist),
+        patch.object(google_oauth.httpx, "AsyncClient", fake.factory),
+        redirect_stdout(output),
+    ):
+        result = await google_oauth.list_google_ads_accounts("vinhos", "ads-vinhos", request_id="req-vinhos")
+    log = output.getvalue()
+    for secret in SECRETS:
+        test.assertNotIn(secret, log)
+    return result, fake, persist, log
+
+
+class CuravinoMccRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcc_details_not_enabled_still_discovers_curavino_and_mugo(self):
+        def handler(method, url, headers, body):
+            if url.endswith("customers:listAccessibleCustomers"):
+                return _json(200, {"resourceNames": [f"customers/{MCC_REAL}"]})
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search") and "FROM customer_client" in _query(body):
+                return _real_hierarchy()
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search"):
+                return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE, request_id="req-detail")
+            raise AssertionError(url)
+
+        result, fake, _persist, log = await _run_listing(self, handler)
+        by_id = {account["customer_id"]: account for account in result["accounts"]}
+        self.assertEqual(set(by_id), {MCC_REAL, CURAVINO_REAL, MUGO_REAL})
+        # Detalhe falhou, mas a hierarquia foi tentada e preencheu a MCC (linha level 0).
+        self.assertEqual(by_id[MCC_REAL]["details_error"], "CUSTOMER_NOT_ENABLED")
+        self.assertTrue(by_id[MCC_REAL]["is_manager"])
+        self.assertEqual(by_id[MCC_REAL]["descriptive_name"], "Mugô Agência")
+        self.assertNotIn("hierarchy_error", by_id[MCC_REAL])
+        curavino = by_id[CURAVINO_REAL]
+        self.assertEqual(curavino["descriptive_name"], "CURAVINO")
+        self.assertFalse(curavino["is_manager"])
+        self.assertEqual(curavino["status"], "ENABLED")
+        self.assertEqual(curavino["access"], "manager")
+        self.assertEqual(curavino["login_customer_id"], MCC_REAL)
+        self.assertEqual(curavino["manager_customer_id"], MCC_REAL)
+        self.assertEqual(curavino["manager_name"], "Mugô Agência")
+        self.assertEqual(by_id[MUGO_REAL]["login_customer_id"], MCC_REAL)
+        hierarchy = next(call for call in fake.calls if "FROM customer_client" in _query(call["json"]))
+        self.assertEqual(hierarchy["url"], f"https://googleads.googleapis.com/v25/customers/{MCC_REAL}/googleAds:search")
+        self.assertEqual(hierarchy["headers"]["login-customer-id"], MCC_REAL)
+        self.assertIn("Detalhes da conta 590-356-2384 não puderam ser lidos (HTTP 403, código CUSTOMER_NOT_ENABLED, request ID req-detail).", result["reason"])
+        self.assertNotIn("não puderam ser listadas", result["reason"])
+        self.assertIn(
+            f"stage=manager_children request_id=req-vinhos client_id=vinhos connection_id=ads-vinhos "
+            f"manager_customer_id={MCC_REAL} login_customer_id={MCC_REAL}", log,
+        )
+        self.assertIn("http_status=200 google_request_id=- error_code=- message=- children_count=2", log)
+        self.assertIn(f"customer_id={CURAVINO_REAL} manager=false status=ENABLED access=manager login_customer_id={MCC_REAL}", log)
+
+    async def test_customer_client_refused_falls_back_to_active_links(self):
+        def handler(method, url, headers, body):
+            query = _query(body)
+            if url.endswith("customers:listAccessibleCustomers"):
+                return _json(200, {"resourceNames": [f"customers/{MCC_REAL}"]})
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search") and "FROM customer_client_link" in query:
+                return _real_links()
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search") and "FROM customer_client" in query:
+                return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE, request_id="req-cc")
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search"):
+                return _customer_info(MCC_REAL, "Mugô Agência", manager=True)
+            if url.endswith(f"customers/{CURAVINO_REAL}/googleAds:search"):
+                return _customer_info(CURAVINO_REAL, "CURAVINO")
+            if url.endswith(f"customers/{MUGO_REAL}/googleAds:search"):
+                return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE, request_id="req-mugo")
+            raise AssertionError(url)
+
+        result, fake, _persist, log = await _run_listing(self, handler)
+        by_id = {account["customer_id"]: account for account in result["accounts"]}
+        self.assertEqual(set(by_id), {MCC_REAL, CURAVINO_REAL, MUGO_REAL})
+        self.assertEqual(by_id[MCC_REAL]["hierarchy_error"], "CUSTOMER_NOT_ENABLED")
+        self.assertNotIn("links_error", by_id[MCC_REAL])
+        self.assertEqual(by_id[CURAVINO_REAL]["descriptive_name"], "CURAVINO")
+        self.assertEqual(by_id[CURAVINO_REAL]["login_customer_id"], MCC_REAL)
+        self.assertEqual(by_id[CURAVINO_REAL]["source"], "customer_client_link")
+        self.assertNotIn("details_error", by_id[CURAVINO_REAL])
+        self.assertEqual(by_id[MUGO_REAL]["details_error"], "CUSTOMER_NOT_ENABLED")
+        for child in (CURAVINO_REAL, MUGO_REAL):
+            call = next(item for item in fake.calls if item["url"].endswith(f"customers/{child}/googleAds:search"))
+            self.assertEqual(call["headers"]["login-customer-id"], MCC_REAL)
+        endpoint = f"POST /v25/customers/{MCC_REAL}/googleAds:search"
+        self.assertEqual(result["diagnostics"][0], {
+            "stage": "manager_children", "customer_id": MCC_REAL, "login_customer_id": MCC_REAL,
+            "endpoint": endpoint, "http_status": 403, "error_code": "CUSTOMER_NOT_ENABLED",
+            "google_request_id": "req-cc", "message": NOT_ENABLED_MESSAGE,
+        })
+        self.assertEqual(result["diagnostics"][1]["stage"], "manager_links")
+        self.assertEqual(result["diagnostics"][1]["http_status"], 200)
+        self.assertEqual(result["diagnostics"][1]["children_count"], 2)
+        self.assertEqual(result["diagnostics"][2]["customer_id"], MUGO_REAL)
+        self.assertEqual(result["diagnostics"][2]["login_customer_id"], MCC_REAL)
+        self.assertEqual(result["diagnostics"][2]["google_request_id"], "req-mugo")
+        self.assertIn(
+            "As contas vinculadas à conta administradora 590-356-2384 não puderam ser listadas via customer_client "
+            "(HTTP 403, código CUSTOMER_NOT_ENABLED, request ID req-cc).", result["reason"],
+        )
+        self.assertIn("obtidas pelos vínculos ativos (customer_client_link): 2.", result["reason"])
+        self.assertIn("Detalhes da conta 827-780-1207 não puderam ser lidos (HTTP 403, código CUSTOMER_NOT_ENABLED, request ID req-mugo).", result["reason"])
+        self.assertIn(
+            f"stage=manager_children request_id=req-vinhos client_id=vinhos connection_id=ads-vinhos "
+            f"manager_customer_id={MCC_REAL} login_customer_id={MCC_REAL} endpoint={endpoint} "
+            f"http_status=403 google_request_id=req-cc error_code=CUSTOMER_NOT_ENABLED", log,
+        )
+        self.assertIn("stage=manager_links", log)
+        self.assertIn("children_count=2", log)
+
+    async def test_hierarchy_and_links_refused_reports_exact_external_failure(self):
+        def handler(method, url, headers, body):
+            query = _query(body)
+            if url.endswith("customers:listAccessibleCustomers"):
+                return _json(200, {"resourceNames": [f"customers/{MCC_REAL}"]})
+            if "FROM customer_client_link" in query:
+                return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE, request_id="req-link")
+            if "FROM customer_client" in query:
+                return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE, request_id="req-cc")
+            return _customer_info(MCC_REAL, "Mugô Agência", manager=True)
+
+        result, _fake, _persist, _log = await _run_listing(self, handler)
+        self.assertEqual([account["customer_id"] for account in result["accounts"]], [MCC_REAL])
+        self.assertEqual(result["accounts"][0]["hierarchy_error"], "CUSTOMER_NOT_ENABLED")
+        self.assertEqual(result["accounts"][0]["links_error"], "CUSTOMER_NOT_ENABLED")
+        endpoint = f"POST /v25/customers/{MCC_REAL}/googleAds:search"
+        self.assertEqual(
+            [(d["stage"], d["endpoint"], d["customer_id"], d["login_customer_id"], d["http_status"], d["error_code"], d["google_request_id"])
+             for d in result["diagnostics"]],
+            [
+                ("manager_children", endpoint, MCC_REAL, MCC_REAL, 403, "CUSTOMER_NOT_ENABLED", "req-cc"),
+                ("manager_links", endpoint, MCC_REAL, MCC_REAL, 403, "CUSTOMER_NOT_ENABLED", "req-link"),
+            ],
+        )
+        self.assertIn("request ID req-cc", result["reason"])
+        self.assertIn("também foram recusados (HTTP 403, código CUSTOMER_NOT_ENABLED, request ID req-link)", result["reason"])
+
+    async def test_vinhos_selects_curavino_with_mcc_login_resolved_server_side(self):
+        def handler(method, url, headers, body):
+            if url.endswith("customers:listAccessibleCustomers"):
+                return _json(200, {"resourceNames": [f"customers/{MCC_REAL}"]})
+            if "FROM customer_client" in _query(body):
+                return _real_hierarchy()
+            return _ads_error(403, NOT_ENABLED, NOT_ENABLED_MESSAGE)
+
+        _result, _fake, persist, _log = await _run_listing(self, handler)
+        cache = persist.await_args.kwargs["accounts"]
+        self.assertEqual(persist.await_args.kwargs["client_id"], "vinhos")
+        row = _ads_row(metadata={"google_ads_accounts_cache": cache})
+
+        async def select(payload):
+            update = AsyncMock(return_value={"id": "ads-vinhos", "status": "connected"})
+            with (
+                patch.object(google_routes, "require_client_role", AsyncMock(return_value="vinhos")),
+                patch.object(google_routes, "require_user_id", AsyncMock(return_value="user-1")),
+                patch.object(google_routes, "get_connection", AsyncMock(return_value=row)) as get_conn,
+                patch.object(google_routes, "update_connection_selection", update),
+                redirect_stdout(io.StringIO()),
+            ):
+                try:
+                    await google_routes.select_ads("ads-vinhos", payload, client_id=None, x_client_id="vinhos", authorization="Bearer jwt")
+                    return update, None, get_conn
+                except IntegrationError as exc:
+                    return update, exc, get_conn
+
+        # Login enviado pelo navegador é ignorado: vem da hierarquia descoberta.
+        update, error, get_conn = await select({"customer_id": "592-799-3611", "login_customer_id": "1112223333"})
+        self.assertIsNone(error)
+        get_conn.assert_awaited_once_with("vinhos", "ads-vinhos")
+        self.assertEqual(update.await_args.kwargs["client_id"], "vinhos")
+        self.assertEqual(update.await_args.kwargs["metadata_patch"], {
+            "google_ads_customer_id": CURAVINO_REAL,
+            "google_ads_login_customer_id": MCC_REAL,
+            "google_ads_customer_name": "CURAVINO",
+        })
+        update, error, _ = await select({"customer_id": MCC_REAL})
+        self.assertEqual(error.code, "GOOGLE_ADS_MANAGER_ACCOUNT_NOT_SUPPORTED")
+        update.assert_not_awaited()
+
+    async def test_inactive_linked_account_is_not_selectable(self):
+        def handler(method, url, headers, body):
+            query = _query(body)
+            if url.endswith("customers:listAccessibleCustomers"):
+                return _json(200, {"resourceNames": [f"customers/{MCC_REAL}"]})
+            if "FROM customer_client_link" in query:
+                return _real_links()
+            if "FROM customer_client" in query:
+                return _ads_error(403, NOT_ENABLED)
+            if url.endswith(f"customers/{MCC_REAL}/googleAds:search"):
+                return _customer_info(MCC_REAL, "Mugô Agência", manager=True)
+            if url.endswith(f"customers/{CURAVINO_REAL}/googleAds:search"):
+                return _customer_info(CURAVINO_REAL, "CURAVINO")
+            return _ads_error(403, NOT_ENABLED)
+
+        _result, _fake, persist, _log = await _run_listing(self, handler)
+        row = _ads_row(metadata={"google_ads_accounts_cache": persist.await_args.kwargs["accounts"]})
+        update = AsyncMock()
+        with (
+            patch.object(google_routes, "require_client_role", AsyncMock(return_value="vinhos")),
+            patch.object(google_routes, "require_user_id", AsyncMock(return_value="user-1")),
+            patch.object(google_routes, "get_connection", AsyncMock(return_value=row)),
+            patch.object(google_routes, "update_connection_selection", update),
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await google_routes.select_ads("ads-vinhos", {"customer_id": MUGO_REAL}, client_id=None, x_client_id="vinhos", authorization="Bearer jwt")
+        self.assertEqual(raised.exception.code, "GOOGLE_ADS_CUSTOMER_NOT_ENABLED")
+        update.assert_not_awaited()
+
+    async def test_curavino_sync_uses_child_customer_and_mcc_login_header(self):
+        fake = FakeAdsHttp(lambda method, url, headers, body: _json(200, []))
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"GOOGLE_ADS_DEVELOPER_TOKEN": DEVELOPER_TOKEN, "GOOGLE_ADS_API_VERSION": "v25"}),
+            patch.object(google_ads, "resolve_generic_connection", AsyncMock(return_value={"id": "ads-vinhos", "metadata": {
+                "google_ads_customer_id": CURAVINO_REAL, "google_ads_login_customer_id": MCC_REAL,
+                "google_ads_customer_name": "CURAVINO",
+            }})) as resolver,
+            patch.object(google_ads, "get_google_access_token", AsyncMock(return_value=ACCESS_TOKEN)),
+            patch.object(google_ads, "sb_upsert", AsyncMock()),
+            patch.object(google_ads, "refresh_dashboard_read_model_safely", AsyncMock()),
+            patch.object(google_ads.httpx, "AsyncClient", fake.factory),
+            redirect_stdout(output),
+        ):
+            result = await google_ads._sync_google_ads(
+                client_id="vinhos", connection_id="ads-vinhos", start=None, end=None, days=7,
+            )
+        self.assertEqual(resolver.await_args.kwargs["client_id"], "vinhos")
+        self.assertEqual(len(fake.calls), 1)
+        call = fake.calls[0]
+        self.assertEqual(call["url"], f"https://googleads.googleapis.com/v25/customers/{CURAVINO_REAL}/googleAds:searchStream")
+        self.assertNotIn(MCC_REAL, call["url"])
+        self.assertEqual(call["headers"]["login-customer-id"], MCC_REAL)
+        self.assertEqual(result["customer_id"], CURAVINO_REAL)
+        self.assertIn(f"stage=sync client_id=vinhos connection_id=ads-vinhos customer_id={CURAVINO_REAL} login_customer_id={MCC_REAL}", output.getvalue())
+        for secret in SECRETS:
+            self.assertNotIn(secret, output.getvalue())
 
 
 if __name__ == "__main__":

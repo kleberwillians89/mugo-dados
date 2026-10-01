@@ -135,6 +135,8 @@ async def _sync_google_ads(
         _log_google_ads_error(
             "sync", details, client_id=client_id, connection_id=context.connection_id,
             request_id="-", customer_id=context.customer_id,
+            login_customer_id=context.login_customer_id,
+            endpoint=f"POST /{version}/customers/{context.customer_id}/googleAds:searchStream",
         )
         mapped = google_ads_api_error(
             response, details, operation="consultar campanhas Google Ads", provider="google_ads",

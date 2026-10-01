@@ -193,6 +193,14 @@ function googleAdsAccountSubtitle(account: GoogleAdsAccount): string {
   return "Conta de anúncios";
 }
 
+const GOOGLE_ADS_NOT_ENABLED_STATUSES = new Set(["CANCELED", "SUSPENDED", "CLOSED"]);
+
+/** Conta que a Google Ads API recusa (cancelada/suspensa/não ativada): não serve como conta de mídia. */
+function isGoogleAdsAccountNotEnabled(account: GoogleAdsAccount): boolean {
+  return account.details_error === "CUSTOMER_NOT_ENABLED"
+    || GOOGLE_ADS_NOT_ENABLED_STATUSES.has(String(account.status || "").toUpperCase());
+}
+
 function googleAdsAccountStatus(account: GoogleAdsAccount): { label: string; tone: StatusTone } | undefined {
   const status = String(account.status || "").toUpperCase();
   if (!status || status === "ENABLED") return undefined;
@@ -701,7 +709,18 @@ export default function Onboarding({
   const selectedGoogleAdsAccount = googlePickerProduct === "ads"
     ? googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds) || null
     : null;
-  const googleAdsReady = Boolean(selectedGoogleAdsAccount && !selectedGoogleAdsAccount.is_manager);
+  // Só contas de anúncios ativas são selecionáveis; MCCs e contas não ativas
+  // aparecem à parte, apenas informativas.
+  const googleAdsSelectableAccounts = googleAdsAccounts.filter(
+    (account) => !account.is_manager && !isGoogleAdsAccountNotEnabled(account)
+  );
+  const googleAdsManagerAccounts = googleAdsAccounts.filter((account) => account.is_manager);
+  const googleAdsUnavailableAccounts = googleAdsAccounts.filter(
+    (account) => !account.is_manager && isGoogleAdsAccountNotEnabled(account)
+  );
+  const googleAdsReady = Boolean(
+    selectedGoogleAdsAccount && googleAdsSelectableAccounts.some((account) => account.customer_id === selectedGoogleAdsAccount.customer_id)
+  );
 
   const organicConnections = useMemo(
     () => connections.filter(isOrganicConnection),
@@ -1208,8 +1227,8 @@ export default function Onboarding({
       setErr("Selecione uma conta Google Ads.");
       return;
     }
-    if (googlePickerProduct === "ads" && googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds)?.is_manager) {
-      setErr("Conta administradora (MCC) não possui campanhas próprias. Selecione uma conta de anúncios.");
+    if (googlePickerProduct === "ads" && !googleAdsSelectableAccounts.some((item) => item.customer_id === selectedGoogleAds)) {
+      setErr("Selecione uma conta de anúncios ativa. Contas administradoras (MCC) e contas não ativas não podem ser conectadas.");
       return;
     }
     setSaving(true);
@@ -1230,8 +1249,7 @@ export default function Onboarding({
           code: "OK", requestId: "",
         }));
       } else if (selectedGoogleAds) {
-        const account = googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds);
-        await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds, account?.login_customer_id || null);
+        await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds);
         // Primeira sincronização imediata (como no GA4): sem ela o dashboard
         // só recebe dados no próximo cron. Falha aqui não desfaz a seleção.
         try {
@@ -1890,8 +1908,8 @@ export default function Onboarding({
                 value={selectedGoogleAds}
                 onChange={setSelectedGoogleAds}
                 error={googleAdsListError}
-                emptyMessage={googleAdsListError ? "Não foi possível carregar as contas." : "Nenhuma conta encontrada."}
-                options={googleAdsAccounts.map((account) => ({
+                emptyMessage={googleAdsListError ? "Não foi possível carregar as contas." : "Nenhuma conta de anúncios encontrada."}
+                options={googleAdsSelectableAccounts.map((account) => ({
                   value: account.customer_id,
                   label: formatGoogleAdsAccountLabel(account),
                   subtitle: googleAdsAccountSubtitle(account),
@@ -1908,6 +1926,27 @@ export default function Onboarding({
                   {selectedGoogleAdsAccount.is_manager
                     ? <><br />Conta administradora: não possui campanhas próprias. Selecione uma conta de anúncios.</>
                     : null}
+                  {!selectedGoogleAdsAccount.is_manager && isGoogleAdsAccountNotEnabled(selectedGoogleAdsAccount)
+                    ? <><br />Conta não ativa no Google Ads. Selecione uma conta de anúncios ativa.</>
+                    : null}
+                </div>
+              ) : null}
+              {googleAdsManagerAccounts.length ? (
+                <div className="smallMuted" style={{ marginTop: 8 }} data-testid="google-ads-managers">
+                  Contas administradoras (não selecionáveis como conta de mídia):
+                  {googleAdsManagerAccounts.map((account) => (
+                    <div key={account.customer_id}>{formatGoogleAdsAccountLabel(account)} · Conta administradora</div>
+                  ))}
+                </div>
+              ) : null}
+              {googleAdsUnavailableAccounts.length ? (
+                <div className="smallMuted" style={{ marginTop: 8 }} data-testid="google-ads-unavailable">
+                  Contas sem acesso ativo no Google Ads:
+                  {googleAdsUnavailableAccounts.map((account) => (
+                    <div key={account.customer_id}>
+                      {formatGoogleAdsAccountLabel(account)} · {account.details_error || GOOGLE_ADS_STATUS_LABEL[String(account.status || "").toUpperCase()] || account.status}
+                    </div>
+                  ))}
                 </div>
               ) : null}
             </div> : null}
