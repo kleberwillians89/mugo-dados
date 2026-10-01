@@ -28,6 +28,7 @@ from services.google_oauth import (
     save_google_authorization,
 )
 from services.ga4_sync import sync_ga4_for_period
+from services.google_ads_ids import normalize_google_ads_customer_id
 from services.integration_errors import IntegrationError
 from services.oauth_state import consume_oauth_state
 from services.tenant import require_client_read, require_client_role, require_user_client_access, require_user_id
@@ -327,19 +328,65 @@ async def select_ads(
             code="GOOGLE_SCOPE_INSUFFICIENT",
             provider="google",
         )
-    customer_id = str(payload.get("customer_id") or "").replace("-", "").strip()
-    if not customer_id.isdigit():
+    customer_id = normalize_google_ads_customer_id(payload.get("customer_id"))
+    if not customer_id:
         raise HTTPException(status_code=400, detail="customer_id do Google Ads inválido.")
+    selection = _resolve_google_ads_selection(row, customer_id, payload)
+    print(
+        "[google_ads] stage=select_customer "
+        f"client_id={cid} connection_id={connection_id} customer_id={customer_id} "
+        f"login_customer_id={selection['login_customer_id'] or 'none'} source={selection['source']}"
+    )
     connection = await update_connection_selection(
         client_id=cid,
         connection_id=connection_id,
         user_id=user_id,
         metadata_patch={
             "google_ads_customer_id": customer_id,
-            "google_ads_login_customer_id": str(payload.get("login_customer_id") or "").replace("-", "").strip() or None,
+            "google_ads_login_customer_id": selection["login_customer_id"],
+            "google_ads_customer_name": selection["customer_name"],
         },
     )
     return {"ok": True, "connection": connection}
+
+
+def _resolve_google_ads_selection(row: Dict[str, Any], customer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A conta precisa ter vindo da listagem desta conexão (cache em metadata):
+    é de lá que saem o login-customer-id (acesso via MCC) e o tipo da conta.
+    Sem cache (listagem anterior a esta versão), aceita o login-customer-id
+    enviado, validado no mesmo formato canônico.
+    """
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    cache = metadata.get("google_ads_accounts_cache")
+    if isinstance(cache, list) and cache:
+        listed = next(
+            (
+                item for item in cache
+                if isinstance(item, dict) and normalize_google_ads_customer_id(item.get("customer_id")) == customer_id
+            ),
+            None,
+        )
+        if listed is None:
+            raise IntegrationError(
+                "Esta conta não está na lista de contas Google Ads desta autorização. Atualize a lista e selecione novamente.",
+                status_code=409, code="GOOGLE_ADS_ACCOUNT_NOT_LISTED", provider="google_ads",
+            )
+        if listed.get("is_manager"):
+            raise IntegrationError(
+                "Conta administradora (MCC) não possui campanhas próprias. Selecione uma conta de anúncios.",
+                status_code=400, code="GOOGLE_ADS_MANAGER_ACCOUNT_NOT_SUPPORTED", provider="google_ads",
+            )
+        return {
+            "login_customer_id": normalize_google_ads_customer_id(listed.get("login_customer_id")),
+            "customer_name": str(listed.get("descriptive_name") or "").strip() or None,
+            "source": "accounts_cache",
+        }
+    raw_login = payload.get("login_customer_id")
+    login_customer_id = normalize_google_ads_customer_id(raw_login) if raw_login else None
+    if raw_login and not login_customer_id:
+        raise HTTPException(status_code=400, detail="login_customer_id do Google Ads inválido.")
+    return {"login_customer_id": login_customer_id, "customer_name": None, "source": "payload"}
 
 
 @router.get("/{connection_id}/status")

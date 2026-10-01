@@ -16,6 +16,7 @@ import {
   selectUsableGoogleConnection,
   selectUsableMetaConnection,
   formatGoogleAdsAccountLabel,
+  formatGoogleAdsCustomerId,
   listGoogleAdsAccounts,
   listGoogleGa4Properties,
   listGoogleGa4Streams,
@@ -179,8 +180,33 @@ function canonicalStatusBadgeTone(
   return "success";
 }
 
+const GOOGLE_ADS_STATUS_LABEL: Record<string, string> = {
+  CANCELED: "Cancelada", SUSPENDED: "Suspensa", CLOSED: "Encerrada",
+};
+
+function googleAdsAccountSubtitle(account: GoogleAdsAccount): string {
+  if (account.is_manager) return "Conta administradora";
+  if (account.access === "manager" && account.manager_customer_id) {
+    const manager = `${account.manager_name ? `${account.manager_name} · ` : ""}${formatGoogleAdsCustomerId(account.manager_customer_id)}`;
+    return `Via conta administradora ${manager}`;
+  }
+  return "Conta de anúncios";
+}
+
+function googleAdsAccountStatus(account: GoogleAdsAccount): { label: string; tone: StatusTone } | undefined {
+  const status = String(account.status || "").toUpperCase();
+  if (!status || status === "ENABLED") return undefined;
+  return { label: GOOGLE_ADS_STATUS_LABEL[status] || status, tone: "warning" };
+}
+
 function canonicalAccountLabel(entry: ClientIntegrationConnection | undefined): string | null {
   if (!entry) return null;
+  if (entry.provider === "google_ads") {
+    // Conta de mídia selecionada (nome + ID), nunca o e-mail da autorização.
+    const customerId = entry.assets?.customer_id ? formatGoogleAdsCustomerId(entry.assets.customer_id) : null;
+    const name = entry.account?.name || null;
+    return name && customerId ? `${name} · ${customerId}` : name || customerId;
+  }
   const account = entry.account || {};
   const name = account.name || account.domain || null;
   if (name) return name;
@@ -299,6 +325,9 @@ export default function Onboarding({
   const [selectedGoogleStream, setSelectedGoogleStream] = useState("");
   const [selectedGoogleAds, setSelectedGoogleAds] = useState("");
   const [googleAdsNotice, setGoogleAdsNotice] = useState("");
+  // Erro da listagem fica no próprio seletor: erro da API nunca vira
+  // "Nenhuma conta encontrada".
+  const [googleAdsListError, setGoogleAdsListError] = useState<string | null>(null);
   const [metaAdsPickerOpen, setMetaAdsPickerOpen] = useState(false);
   const [metaAdsAccounts, setMetaAdsAccounts] = useState<MetaAdsSelectableAccount[]>([]);
   const [selectedMetaAdsAccount, setSelectedMetaAdsAccount] = useState("");
@@ -559,6 +588,7 @@ export default function Onboarding({
     setSelectedGoogleStream("");
     setSelectedGoogleAds("");
     setGoogleAdsNotice("");
+    setGoogleAdsListError(null);
     setGoogleReconnectProduct(null);
     setLastIntegrationDiagnostic(EMPTY_INTEGRATION_DIAGNOSTIC);
     setSyncRuntime([]);
@@ -633,6 +663,7 @@ export default function Onboarding({
     setGooglePickerProduct(null);
     setSelectedGoogleAds("");
     setGoogleAdsAccounts([]);
+    setGoogleAdsListError(null);
   }, [genericConnections, googlePickerId, googlePickerProduct]);
 
   useEffect(() => {
@@ -666,6 +697,11 @@ export default function Onboarding({
     if (!initialError) return;
     setErr(initialError);
   }, [initialError]);
+
+  const selectedGoogleAdsAccount = googlePickerProduct === "ads"
+    ? googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds) || null
+    : null;
+  const googleAdsReady = Boolean(selectedGoogleAdsAccount && !selectedGoogleAdsAccount.is_manager);
 
   const organicConnections = useMemo(
     () => connections.filter(isOrganicConnection),
@@ -1118,6 +1154,7 @@ export default function Onboarding({
         }));
         if (!properties.length) setInfo(ga4.message || "O usuário Google autorizado não possui acesso a nenhuma propriedade GA4.");
       } else {
+        setGoogleAdsListError(null);
         const ads = await listGoogleAdsAccounts(connection, getActiveClientId());
         setGooglePickerId(connection.id);
         setGooglePickerProduct(product);
@@ -1137,6 +1174,18 @@ export default function Onboarding({
       const fallback = product === "ga4"
         ? "Não foi possível listar as propriedades do Google Analytics."
         : "Não foi possível consultar as contas Google Ads.";
+      if (product === "ads" && connection?.id) {
+        // Mostra o erro dentro do seletor Ads (com código), em vez de uma
+        // lista vazia que pareceria "nenhuma conta".
+        setGooglePickerId(connection.id);
+        setGooglePickerProduct("ads");
+        setGoogleAdsAccounts([]);
+        setSelectedGoogleAds("");
+        setGoogleAdsNotice("");
+        setGoogleAdsListError(
+          `${errorMessage(error, fallback)}${error instanceof ApiError && error.code ? ` Código: ${error.code}.` : ""}`
+        );
+      }
       setErr(error instanceof ApiError && error.code === "GOOGLE_ADMIN_API_DISABLED"
         ? `${error.message} Ative a Google Analytics Admin API no projeto Google Cloud da credencial OAuth. Código: ${error.code}.${error.requestId ? ` Request ID: ${error.requestId}.` : ""}`
         : errorMessage(error, fallback));
@@ -1159,8 +1208,13 @@ export default function Onboarding({
       setErr("Selecione uma conta Google Ads.");
       return;
     }
+    if (googlePickerProduct === "ads" && googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds)?.is_manager) {
+      setErr("Conta administradora (MCC) não possui campanhas próprias. Selecione uma conta de anúncios.");
+      return;
+    }
     setSaving(true);
     setErr(null);
+    let adsSyncError = "";
     try {
       if (googlePickerProduct === "ga4") {
         const property = googleProperties.find((item) => item.property === selectedGoogleProperty);
@@ -1176,12 +1230,25 @@ export default function Onboarding({
           code: "OK", requestId: "",
         }));
       } else if (selectedGoogleAds) {
-        await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds);
+        const account = googleAdsAccounts.find((item) => item.customer_id === selectedGoogleAds);
+        await selectGoogleAdsAccount(googlePickerId, selectedGoogleAds, account?.login_customer_id || null);
+        // Primeira sincronização imediata (como no GA4): sem ela o dashboard
+        // só recebe dados no próximo cron. Falha aqui não desfaz a seleção.
+        try {
+          await syncGoogleConnection(googlePickerId);
+        } catch (syncError: unknown) {
+          adsSyncError = errorMessage(syncError, "A primeira sincronização Google Ads falhou.");
+          if (syncError instanceof ApiError && syncError.code) adsSyncError += ` Código: ${syncError.code}.`;
+        }
       }
       await loadConnections();
       setGooglePickerId(null);
       setGooglePickerProduct(null);
-      setInfo(googlePickerProduct === "ga4" ? "Propriedade GA4 salva e sincronizada." : "Conta Google Ads salva.");
+      if (adsSyncError) {
+        setErr(`Conta Google Ads salva, mas a primeira sincronização falhou: ${adsSyncError}`);
+      } else {
+        setInfo(googlePickerProduct === "ga4" ? "Propriedade GA4 salva e sincronizada." : "Conta Google Ads conectada e sincronizada.");
+      }
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível salvar a seleção Google."));
     } finally {
@@ -1819,22 +1886,42 @@ export default function Onboarding({
             {googlePickerProduct === "ads" ? <div style={{ marginTop: 14 }}>
               <AssetCombobox
                 label="Conta Google Ads"
-                placeholder="Nenhuma conta selecionada"
+                placeholder="Selecione a conta de anúncios"
                 value={selectedGoogleAds}
                 onChange={setSelectedGoogleAds}
-                emptyMessage="Nenhuma conta encontrada."
+                error={googleAdsListError}
+                emptyMessage={googleAdsListError ? "Não foi possível carregar as contas." : "Nenhuma conta encontrada."}
                 options={googleAdsAccounts.map((account) => ({
                   value: account.customer_id,
-                  label: account.descriptive_name || formatGoogleAdsAccountLabel(account),
-                  subtitle: "Conta Google Ads",
-                  meta: account.customer_id.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"),
+                  label: formatGoogleAdsAccountLabel(account),
+                  subtitle: googleAdsAccountSubtitle(account),
+                  status: googleAdsAccountStatus(account),
                 }))}
               />
+              {selectedGoogleAdsAccount ? (
+                <div className="smallMuted" style={{ marginTop: 8 }} data-testid="google-ads-selected" role="status">
+                  ✓ <strong>{selectedGoogleAdsAccount.descriptive_name || "Conta Google Ads"}</strong><br />
+                  ID: {formatGoogleAdsCustomerId(selectedGoogleAdsAccount.customer_id)}
+                  {selectedGoogleAdsAccount.access === "manager" && selectedGoogleAdsAccount.manager_customer_id
+                    ? <><br />Acesso via conta administradora {formatGoogleAdsCustomerId(selectedGoogleAdsAccount.manager_customer_id)}</>
+                    : null}
+                  {selectedGoogleAdsAccount.is_manager
+                    ? <><br />Conta administradora: não possui campanhas próprias. Selecione uma conta de anúncios.</>
+                    : null}
+                </div>
+              ) : null}
             </div> : null}
             {googlePickerProduct === "ads" && googleAdsNotice ? <div className="smallMuted" style={{ marginTop: 8 }}>{googleAdsNotice}</div> : null}
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
-              <button className="btn btnPrimary" type="button" disabled={saving} onClick={() => void onSaveGoogleSelection()}>
-                {saving ? "Salvando..." : "Salvar seleção"}
+              <button
+                className="btn btnPrimary"
+                type="button"
+                disabled={saving || (googlePickerProduct === "ads" && !googleAdsReady)}
+                onClick={() => void onSaveGoogleSelection()}
+              >
+                {googlePickerProduct === "ads"
+                  ? (saving ? "Conectando..." : "Conectar Google Ads")
+                  : (saving ? "Salvando..." : "Salvar seleção")}
               </button>
               <button className="btn btnGhost" type="button" onClick={() => { setGooglePickerId(null); setGooglePickerProduct(null); }}>Cancelar</button>
             </div>

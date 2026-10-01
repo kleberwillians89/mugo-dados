@@ -15,7 +15,8 @@ from .generic_connections import get_connection, upsert_connection
 from .crypto import decrypt_secret, encrypt_secret
 from .ig_supabase import sb_select, sb_update
 from .oauth_state import create_oauth_state
-from .integration_errors import IntegrationError, from_httpx_error, google_api_error
+from .google_ads_ids import normalize_google_ads_customer_id
+from .integration_errors import IntegrationError, from_httpx_error, google_api_error, provider_http_error
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -620,6 +621,11 @@ async def list_google_ads_accounts(
 ) -> Dict[str, Any]:
     developer_token = _env("GOOGLE_ADS_DEVELOPER_TOKEN")
     if not developer_token:
+        print(
+            "[google_ads] stage=list_accessible_customers "
+            f"request_id={request_id} client_id={client_id} connection_id={connection_id} "
+            "status=blocked error_code=GOOGLE_ADS_SETUP_REQUIRED developer_token=missing"
+        )
         raise IntegrationError(
             "Configure o Developer Token do Google Ads antes de listar contas.",
             status_code=409,
@@ -638,11 +644,9 @@ async def list_google_ads_accounts(
         client_id, connection_id, expected_provider="google_ads", request_id=request_id,
     )
     print(
-        "[google_oauth][ads_accounts] "
-        f"request_id={request_id} connection_id={connection_id} client_id={client_id} "
-        f"stage=request api_version={api_version} resource={resource} "
-        f"developer_token_available=yes login_customer_id=not_required customer_id=not_required "
-        f"url={url} headers=Authorization:present,developer-token:present"
+        "[google_ads] stage=list_accessible_customers "
+        f"request_id={request_id} client_id={client_id} connection_id={connection_id} "
+        f"api_version={api_version} developer_token=present login_customer_id=none"
     )
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -655,10 +659,9 @@ async def list_google_ads_accounts(
             )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             print(
-                "[google_oauth][ads_accounts] "
-                f"request_id={request_id} connection_id={connection_id} client_id={client_id} "
-                f"stage=transport_error api_version={api_version} resource={resource} "
-                f"error_type={exc.__class__.__name__}"
+                "[google_ads] stage=list_accessible_customers "
+                f"request_id={request_id} client_id={client_id} connection_id={connection_id} "
+                f"status=transport_error error_type={exc.__class__.__name__}"
             )
             raise IntegrationError(
                 "A Google Ads API está temporariamente indisponível.", status_code=503,
@@ -667,79 +670,180 @@ async def list_google_ads_accounts(
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        diagnostic = _sanitized_google_error(response)
-        google_request_id = str(
-            response.headers.get("request-id") or response.headers.get("google-ads-request-id")
-            or diagnostic.get("google_request_id") or ""
-        )[:100]
-        print(
-            "[google_oauth][ads_accounts] "
-            f"request_id={request_id} google_request_id={google_request_id or '-'} "
-            f"connection_id={connection_id} client_id={client_id} stage=response_error "
-            f"api_version={api_version} resource={resource} http_status={response.status_code} "
-            f"google_status={diagnostic['google_status'] or '-'} "
-            f"reasons={','.join(diagnostic['reasons']) or '-'} message={diagnostic['message'] or '-'} "
-            f"response_body={response.text}"
+        details = _google_ads_error_details(response)
+        _log_google_ads_error(
+            "list_accessible_customers", details,
+            client_id=client_id, connection_id=connection_id, request_id=request_id,
         )
+        diagnostics = {
+            "api_version": api_version, "resource": resource,
+            "upstream_status": response.status_code,
+            "upstream_reason": ",".join(details["reasons"]) or details["google_status"] or None,
+            "google_request_id": details["google_request_id"],
+        }
         if response.status_code == 404:
             raise IntegrationError(
                 "A versão configurada da Google Ads API não está disponível.", status_code=409,
                 code="GOOGLE_ADS_API_VERSION_UNAVAILABLE", provider="google",
-                diagnostics={
-                    "api_version": api_version, "resource": resource,
-                    "upstream_status": response.status_code,
-                    "upstream_reason": diagnostic["google_status"] or None,
-                    "google_request_id": google_request_id or None,
-                },
+                diagnostics=diagnostics,
             ) from exc
-        mapped = from_httpx_error("google", exc, operation="listar contas Google Ads")
-        mapped.diagnostics = {
-            "api_version": api_version, "resource": resource,
-            "upstream_status": response.status_code,
-            "upstream_reason": ",".join(diagnostic["reasons"]) or diagnostic["google_status"] or None,
-            "google_request_id": google_request_id or None,
-        }
+        mapped = google_ads_api_error(
+            response, details, operation="listar contas Google Ads", provider="google",
+        )
+        mapped.diagnostics = diagnostics
         raise mapped from exc
-    accounts = [
-        {"resource_name": item, "customer_id": str(item).split("/")[-1]}
-        for item in response.json().get("resourceNames") or []
-    ]
+
+    accounts: List[Dict[str, Any]] = []
+    invalid_resource_names = 0
+    for item in response.json().get("resourceNames") or []:
+        customer_id = normalize_google_ads_customer_id(item)
+        if not customer_id:
+            invalid_resource_names += 1
+            continue
+        if any(account["customer_id"] == customer_id for account in accounts):
+            continue
+        # listAccessibleCustomers só devolve contas com acesso DIRETO do usuário:
+        # nenhuma delas precisa de login-customer-id.
+        accounts.append({
+            "resource_name": f"customers/{customer_id}",
+            "customer_id": customer_id,
+            "access": "direct",
+            "login_customer_id": None,
+            "manager_customer_id": None,
+        })
     google_request_id = str(
         response.headers.get("request-id") or response.headers.get("google-ads-request-id") or ""
     )[:100]
     print(
-        "[google_oauth][ads_accounts] "
-        f"request_id={request_id} google_request_id={google_request_id or '-'} "
-        f"connection_id={connection_id} client_id={client_id} stage=complete "
-        f"api_version={api_version} resource={resource} http_status={response.status_code} "
-        f"accounts={len(accounts)} response_body={response.text}"
+        "[google_ads] stage=list_accessible_customers "
+        f"request_id={request_id} client_id={client_id} connection_id={connection_id} "
+        f"http_status={response.status_code} customers_count={len(accounts)} "
+        f"invalid_resource_names={invalid_resource_names} google_request_id={google_request_id or '-'}"
     )
 
-    login_customer_id: str | None = None
-    try:
-        row = await get_connection(client_id, connection_id)
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        login_customer_id = str(metadata.get("google_ads_login_customer_id") or "").strip() or None
-    except Exception as exc:
-        # Não bloqueia a listagem de contas por não conseguir ler o
-        # login_customer_id salvo — só perde essa otimização pontual.
-        print(f"[google_oauth][ads_accounts][login_customer_lookup_failed] connection_id={connection_id} error={exc.__class__.__name__}")
-    accounts_with_names = await _enrich_google_ads_account_names(
+    direct_accounts = await _enrich_google_ads_account_names(
         accounts,
         token=token,
         developer_token=developer_token,
         api_version=api_version,
-        login_customer_id=login_customer_id,
+        login_customer_id=None,
         request_id=request_id,
     )
+    child_accounts = await _expand_google_ads_manager_accounts(
+        direct_accounts,
+        token=token,
+        developer_token=developer_token,
+        api_version=api_version,
+        request_id=request_id,
+        client_id=client_id,
+        connection_id=connection_id,
+    )
+    all_accounts = [*direct_accounts, *child_accounts]
+    for account in all_accounts:
+        print(
+            "[google_ads] stage=account "
+            f"request_id={request_id} client_id={client_id} connection_id={connection_id} "
+            f"customer_id={account['customer_id']} manager={'true' if account.get('is_manager') else 'false'} "
+            f"status={account.get('status') or '-'} access={account.get('access') or 'direct'} "
+            f"login_customer_id={account.get('login_customer_id') or 'none'} "
+            f"details_error={account.get('lookup_error') or account.get('children_error') or '-'}"
+        )
     await _persist_google_ads_accounts_cache(
-        client_id=client_id, connection_id=connection_id, accounts=accounts_with_names,
+        client_id=client_id, connection_id=connection_id, accounts=all_accounts,
     )
 
+    lookup_errors = sorted({
+        str(account.get("lookup_error")) for account in direct_accounts if account.get("lookup_error")
+    })
+    children_errors = sorted({
+        str(account.get("children_error")) for account in direct_accounts if account.get("children_error")
+    })
+    reason = None
+    if lookup_errors or children_errors:
+        reason = (
+            "Parte dos detalhes das contas não pôde ser lida no Google Ads "
+            f"(código: {', '.join([*lookup_errors, *children_errors])}). "
+            "A seleção continua possível; a primeira sincronização confirma o acesso."
+        )
     return {
-        "available": True, "accounts": accounts_with_names, "api_version": api_version,
+        "available": True, "accounts": all_accounts, "api_version": api_version,
         "request_id": request_id, "google_request_id": google_request_id or None,
+        "reason": reason,
     }
+
+
+def _google_ads_error_details(response: httpx.Response) -> Dict[str, Any]:
+    """Somente campos seguros do erro Google: status, códigos, mensagem e request id."""
+    details = _sanitized_google_error(response)
+    google_request_id = str(
+        response.headers.get("request-id") or response.headers.get("google-ads-request-id")
+        or details.get("google_request_id") or ""
+    )[:100]
+    message = " ".join(str(details.get("message") or "").split())[:240]
+    return {**details, "message": message, "google_request_id": google_request_id or None}
+
+
+def _google_ads_error_code(details: Dict[str, Any]) -> str:
+    reasons = [str(reason).split(":")[-1].upper() for reason in details.get("reasons") or []]
+    return ",".join(reasons) or str(details.get("google_status") or "") or f"HTTP_{details.get('http_status')}"
+
+
+def _log_google_ads_error(
+    stage: str, details: Dict[str, Any], *, client_id: str, connection_id: str, request_id: str,
+    customer_id: str | None = None,
+) -> None:
+    # Nunca recebe token, header Authorization nem developer token: só o
+    # resumo sanitizado de _google_ads_error_details.
+    print(
+        f"[google_ads] stage={stage} request_id={request_id} client_id={client_id} "
+        f"connection_id={connection_id} customer_id={customer_id or '-'} "
+        f"http_status={details.get('http_status')} google_request_id={details.get('google_request_id') or '-'} "
+        f"error_code={_google_ads_error_code(details)} message={details.get('message') or '-'}"
+    )
+
+
+def google_ads_api_error(
+    response: httpx.Response, details: Dict[str, Any], *, operation: str, provider: str = "google",
+) -> IntegrationError:
+    """Mapeia erros conhecidos da Google Ads API para mensagens acionáveis."""
+    codes = {str(reason).split(":")[-1].upper() for reason in details.get("reasons") or []}
+    message = str(details.get("message") or "").lower()
+    if "SERVICE_DISABLED" in codes or "has not been used in project" in message:
+        return IntegrationError(
+            "A Google Ads API não está habilitada no projeto Google Cloud da credencial OAuth.",
+            status_code=409, code="GOOGLE_ADS_API_DISABLED", provider=provider,
+        )
+    if any("DEVELOPER_TOKEN" in code for code in codes):
+        return IntegrationError(
+            "O Developer Token do Google Ads foi recusado para esta conta "
+            f"({', '.join(sorted(code for code in codes if 'DEVELOPER_TOKEN' in code))}). "
+            "Verifique o nível de acesso do token no Centro de API da conta administradora.",
+            status_code=403, code="GOOGLE_ADS_DEVELOPER_TOKEN_NOT_APPROVED", provider=provider,
+        )
+    if "USER_PERMISSION_DENIED" in codes:
+        return IntegrationError(
+            "O usuário Google autorizado não tem acesso a esta conta Google Ads. "
+            "Se o acesso é feito por uma conta administradora (MCC), selecione a conta pela lista "
+            "do Mugô para que o login-customer-id correto seja usado.",
+            status_code=403, code="GOOGLE_ADS_USER_PERMISSION_DENIED", provider=provider,
+        )
+    if "NOT_ADS_USER" in codes:
+        return IntegrationError(
+            "A conta Google autorizada não está associada a nenhuma conta Google Ads.",
+            status_code=403, code="GOOGLE_ADS_NOT_ADS_USER", provider=provider,
+        )
+    if "CUSTOMER_NOT_ENABLED" in codes:
+        return IntegrationError(
+            "A conta Google Ads selecionada não está ativa (cancelada, suspensa ou não configurada).",
+            status_code=409, code="GOOGLE_ADS_CUSTOMER_NOT_ENABLED", provider=provider,
+        )
+    if "REQUESTED_METRICS_FOR_MANAGER" in codes:
+        return IntegrationError(
+            "A conta selecionada é uma conta administradora (MCC), que não possui campanhas próprias. "
+            "Selecione uma conta de anúncios.",
+            status_code=409, code="GOOGLE_ADS_MANAGER_ACCOUNT_NOT_SUPPORTED", provider=provider,
+        )
+    return provider_http_error("google", response.status_code, operation=operation)
 
 
 async def _fetch_google_ads_customer_info(
@@ -749,13 +853,14 @@ async def _fetch_google_ads_customer_info(
     developer_token: str,
     api_version: str,
     login_customer_id: str | None,
+    request_id: str = "-",
 ) -> Dict[str, Any] | None:
     """
     Segunda etapa exigida pela Google Ads API: customers:listAccessibleCustomers
-    só retorna IDs. Para exibir um nome real, é preciso uma consulta GAQL
-    por conta. Retorna None em qualquer falha (conta sem permissão de
-    leitura, por exemplo) — quem chama já sabe cair para o fallback visual
-    "Conta {customer_id}".
+    só retorna IDs. Para exibir nome, tipo (manager) e status, é preciso uma
+    consulta GAQL por conta. Falha de transporte/inesperada retorna None; falha
+    HTTP retorna só {"lookup_error": <código sanitizado>} — quem chama mantém o
+    fallback visual "Conta {customer_id}".
     """
     url = f"https://googleads.googleapis.com/{api_version}/customers/{customer_id}/googleAds:search"
     headers = {
@@ -767,13 +872,20 @@ async def _fetch_google_ads_customer_info(
         headers["login-customer-id"] = login_customer_id
     query = (
         "SELECT customer.id, customer.descriptive_name, customer.currency_code, "
-        "customer.time_zone, customer.manager, customer.test_account FROM customer LIMIT 1"
+        "customer.time_zone, customer.manager, customer.test_account, customer.status "
+        "FROM customer LIMIT 1"
     )
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(url, headers=headers, json={"query": query})
         if response.status_code >= 400:
-            return None
+            details = _google_ads_error_details(response)
+            print(
+                f"[google_ads] stage=customer_info request_id={request_id} customer_id={customer_id} "
+                f"http_status={details.get('http_status')} google_request_id={details.get('google_request_id') or '-'} "
+                f"error_code={_google_ads_error_code(details)} message={details.get('message') or '-'}"
+            )
+            return {"lookup_error": _google_ads_error_code(details)}
         results = response.json().get("results") or []
         if not results:
             return None
@@ -784,12 +896,12 @@ async def _fetch_google_ads_customer_info(
             "time_zone": str(customer.get("timeZone") or "").strip() or None,
             "is_manager": bool(customer.get("manager")),
             "is_test_account": bool(customer.get("testAccount")),
+            "status": str(customer.get("status") or "").strip() or None,
         }
     except Exception as exc:
-        # Deliberadamente amplo: uma conta sem permissão de leitura (comum
-        # em contas filhas listadas por uma manager account), um transporte
-        # indisponível ou qualquer outra falha nesta chamada extra NUNCA
-        # pode derrubar a listagem inteira — só essa conta cai para o
+        # Deliberadamente amplo: uma conta sem permissão de leitura, um
+        # transporte indisponível ou qualquer outra falha nesta chamada extra
+        # NUNCA pode derrubar a listagem inteira — só essa conta cai para o
         # fallback visual "Conta {customer_id}".
         print(f"[google_oauth][ads_accounts][name_lookup_failed] customer_id={customer_id} error={exc.__class__.__name__}")
         return None
@@ -812,7 +924,7 @@ async def _enrich_google_ads_account_names(
     infos = await asyncio.gather(*[
         _fetch_google_ads_customer_info(
             customer_id=account["customer_id"], token=token, developer_token=developer_token,
-            api_version=api_version, login_customer_id=login_customer_id,
+            api_version=api_version, login_customer_id=login_customer_id, request_id=request_id,
         )
         for account in accounts
     ], return_exceptions=True)
@@ -821,11 +933,12 @@ async def _enrich_google_ads_account_names(
     for account, info in zip(accounts, infos):
         if isinstance(info, BaseException):
             info = None
-        if info:
+        if info and not info.get("lookup_error"):
             enriched.append({**account, **info, "updated_at": datetime.now(timezone.utc).isoformat()})
         else:
             missing += 1
-            enriched.append({**account, "updated_at": datetime.now(timezone.utc).isoformat()})
+            extra = {"lookup_error": info["lookup_error"]} if info else {}
+            enriched.append({**account, **extra, "updated_at": datetime.now(timezone.utc).isoformat()})
     if missing:
         print(
             "[google_oauth][ads_accounts][name_enrichment] "
@@ -834,14 +947,141 @@ async def _enrich_google_ads_account_names(
     return enriched
 
 
+_GOOGLE_ADS_MAX_MANAGERS_EXPANDED = 20
+_GOOGLE_ADS_MAX_CHILD_PAGES = 5
+
+
+async def _list_google_ads_manager_children(
+    *,
+    manager: Dict[str, Any],
+    token: str,
+    developer_token: str,
+    api_version: str,
+    request_id: str,
+    client_id: str,
+    connection_id: str,
+) -> tuple[List[Dict[str, Any]], str | None]:
+    """
+    Contas acessadas via MCC não aparecem em listAccessibleCustomers: só a
+    própria MCC aparece. As contas abaixo dela vêm de customer_client,
+    consultado NA MCC com login-customer-id = MCC.
+    """
+    manager_id = manager["customer_id"]
+    url = f"https://googleads.googleapis.com/{api_version}/customers/{manager_id}/googleAds:search"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "developer-token": developer_token,
+        "login-customer-id": manager_id,
+        "Content-Type": "application/json",
+    }
+    query = (
+        "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, "
+        "customer_client.time_zone, customer_client.manager, customer_client.status, "
+        "customer_client.test_account, customer_client.level FROM customer_client "
+        "WHERE customer_client.level <= 2"
+    )
+    children: List[Dict[str, Any]] = []
+    page_token = ""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            for _ in range(_GOOGLE_ADS_MAX_CHILD_PAGES):
+                body: Dict[str, Any] = {"query": query}
+                if page_token:
+                    body["pageToken"] = page_token
+                response = await client.post(url, headers=headers, json=body)
+                if response.status_code >= 400:
+                    details = _google_ads_error_details(response)
+                    _log_google_ads_error(
+                        "list_manager_clients", details, client_id=client_id,
+                        connection_id=connection_id, request_id=request_id, customer_id=manager_id,
+                    )
+                    return children, _google_ads_error_code(details)
+                payload = response.json()
+                for row in payload.get("results") or []:
+                    item = row.get("customerClient") if isinstance(row, dict) else None
+                    if not isinstance(item, dict):
+                        continue
+                    child_id = normalize_google_ads_customer_id(item.get("id"))
+                    if not child_id or child_id == manager_id:
+                        continue
+                    children.append({
+                        "resource_name": f"customers/{child_id}",
+                        "customer_id": child_id,
+                        "descriptive_name": str(item.get("descriptiveName") or "").strip() or None,
+                        "currency_code": str(item.get("currencyCode") or "").strip() or None,
+                        "time_zone": str(item.get("timeZone") or "").strip() or None,
+                        "is_manager": bool(item.get("manager")),
+                        "is_test_account": bool(item.get("testAccount")),
+                        "status": str(item.get("status") or "").strip() or None,
+                        "access": "manager",
+                        "login_customer_id": manager_id,
+                        "manager_customer_id": manager_id,
+                        "manager_name": manager.get("descriptive_name"),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                page_token = str(payload.get("nextPageToken") or "")
+                if not page_token:
+                    break
+    except Exception as exc:
+        print(
+            f"[google_ads] stage=list_manager_clients request_id={request_id} client_id={client_id} "
+            f"connection_id={connection_id} customer_id={manager_id} status=transport_error "
+            f"error_type={exc.__class__.__name__}"
+        )
+        return children, "TRANSPORT_ERROR"
+    print(
+        f"[google_ads] stage=list_manager_clients request_id={request_id} client_id={client_id} "
+        f"connection_id={connection_id} customer_id={manager_id} http_status=200 customers_count={len(children)}"
+    )
+    return children, None
+
+
+async def _expand_google_ads_manager_accounts(
+    accounts: List[Dict[str, Any]],
+    *,
+    token: str,
+    developer_token: str,
+    api_version: str,
+    request_id: str,
+    client_id: str,
+    connection_id: str,
+) -> List[Dict[str, Any]]:
+    """Lista as contas abaixo de cada MCC acessível. Falha numa MCC não derruba a listagem."""
+    managers = [account for account in accounts if account.get("is_manager")][:_GOOGLE_ADS_MAX_MANAGERS_EXPANDED]
+    if not managers:
+        return []
+    results = await asyncio.gather(*[
+        _list_google_ads_manager_children(
+            manager=manager, token=token, developer_token=developer_token, api_version=api_version,
+            request_id=request_id, client_id=client_id, connection_id=connection_id,
+        )
+        for manager in managers
+    ], return_exceptions=True)
+    # Conta com acesso direto prevalece: não precisa de login-customer-id.
+    seen = {account["customer_id"] for account in accounts}
+    children: List[Dict[str, Any]] = []
+    for manager, result in zip(managers, results):
+        if isinstance(result, BaseException):
+            manager["children_error"] = "UNEXPECTED_ERROR"
+            continue
+        items, error_code = result
+        if error_code:
+            manager["children_error"] = error_code
+        for child in items:
+            if child["customer_id"] in seen:
+                continue
+            seen.add(child["customer_id"])
+            children.append(child)
+    return children
+
+
 async def _persist_google_ads_accounts_cache(
     *, client_id: str, connection_id: str, accounts: List[Dict[str, Any]],
 ) -> None:
     """
     Persistido em integration_connections.metadata (jsonb já existente) —
-    sem tabela nova. Reaproveitado nos selects em vez de repetir a consulta
-    GAQL a cada render; só é refeito ao conectar, atualizar contas,
-    selecionar nova autorização ou pedido explícito de atualização.
+    sem tabela nova. É a fonte que a seleção usa para validar a conta e
+    resolver o login-customer-id; refeito a cada listagem.
     """
     try:
         row = await get_connection(client_id, connection_id)

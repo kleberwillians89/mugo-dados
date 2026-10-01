@@ -1428,7 +1428,20 @@ export type GoogleAdsAccount = {
   time_zone?: string | null;
   is_manager?: boolean;
   is_test_account?: boolean;
+  status?: string | null;
+  /** "direct" = acesso direto; "manager" = acessada via conta administradora (MCC). */
+  access?: "direct" | "manager";
+  login_customer_id?: string | null;
+  manager_customer_id?: string | null;
+  manager_name?: string | null;
+  lookup_error?: string | null;
+  children_error?: string | null;
 };
+
+/** Somente exibição: 1234567890 -> 123-456-7890. */
+export function formatGoogleAdsCustomerId(customerId: string | null | undefined): string {
+  return String(customerId || "").replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3");
+}
 
 /** "Amalie — 123-456-7890" quando há nome; nunca só o ID cru. */
 export function formatGoogleAdsAccountLabel(account: GoogleAdsAccount): string {
@@ -1483,11 +1496,14 @@ export async function listGoogleAdsAccounts(
 
 export async function selectGoogleAdsAccount(
   connectionId: string,
-  customerId: string
+  customerId: string,
+  loginCustomerId?: string | null
 ): Promise<JsonRecord> {
+  // O backend valida a conta contra a listagem desta conexão e resolve o
+  // login-customer-id por conta própria; o valor enviado é só fallback.
   return http(`/api/oauth/google/${encodeURIComponent(connectionId)}/ads/select`, {
     method: "POST",
-    body: JSON.stringify({ customer_id: customerId }),
+    body: JSON.stringify({ customer_id: customerId, login_customer_id: loginCustomerId || null }),
   });
 }
 

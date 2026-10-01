@@ -9,7 +9,13 @@ from typing import Any, Dict, List
 import httpx
 
 from .connection_resolver import resolve_generic_connection
-from .google_oauth import get_google_access_token
+from .google_ads_ids import normalize_google_ads_customer_id
+from .google_oauth import (
+    _google_ads_error_details,
+    _log_google_ads_error,
+    get_google_access_token,
+    google_ads_api_error,
+)
 from .ig_supabase import sb_select, sb_upsert
 from .integration_errors import IntegrationError
 from .periods import resolve_period
@@ -31,7 +37,8 @@ async def resolve_google_ads_context(client_id: str, connection_id: str | None =
         requested_connection_id=connection_id, require_token=False,
     )
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    customer_id = re.sub(r"\D", "", str(metadata.get("google_ads_customer_id") or ""))
+    # Sempre a conta persistida na seleção da empresa — nunca a primeira da lista.
+    customer_id = normalize_google_ads_customer_id(metadata.get("google_ads_customer_id"))
     if not customer_id:
         raise IntegrationError(
             "Selecione uma conta Google Ads.", status_code=409,
@@ -41,7 +48,7 @@ async def resolve_google_ads_context(client_id: str, connection_id: str | None =
         client_id=client_id,
         connection_id=str(row.get("id") or ""),
         customer_id=customer_id,
-        login_customer_id=re.sub(r"\D", "", str(metadata.get("google_ads_login_customer_id") or "")) or None,
+        login_customer_id=normalize_google_ads_customer_id(metadata.get("google_ads_login_customer_id")),
     )
 
 
@@ -115,15 +122,34 @@ async def _sync_google_ads(
     headers = {"Authorization": f"Bearer {token}", "developer-token": developer_token}
     if context.login_customer_id:
         headers["login-customer-id"] = context.login_customer_id
+    print(
+        f"[google_ads] stage=sync client_id={client_id} connection_id={context.connection_id} "
+        f"customer_id={context.customer_id} login_customer_id={context.login_customer_id or 'none'} "
+        f"start={period.start.isoformat()} end={period.end.isoformat()}"
+    )
     url = f"https://googleads.googleapis.com/{version}/customers/{context.customer_id}/googleAds:searchStream"
     async with httpx.AsyncClient(timeout=60) as http:
         response = await http.post(url, headers=headers, json={"query": query})
     if response.status_code >= 400:
-        raise IntegrationError(
+        details = _google_ads_error_details(response)
+        _log_google_ads_error(
+            "sync", details, client_id=client_id, connection_id=context.connection_id,
+            request_id="-", customer_id=context.customer_id,
+        )
+        mapped = google_ads_api_error(
+            response, details, operation="consultar campanhas Google Ads", provider="google_ads",
+        )
+        known = mapped.code.startswith("GOOGLE_ADS_")
+        error = mapped if known else IntegrationError(
             "Google Ads recusou a consulta diária.", status_code=502,
             code="GOOGLE_ADS_QUERY_FAILED", provider="google_ads",
-            diagnostics={"upstream_status": response.status_code, "request_id": response.headers.get("request-id")},
         )
+        error.diagnostics = {
+            "upstream_status": response.status_code,
+            "request_id": details["google_request_id"],
+            "upstream_reason": ",".join(details["reasons"]) or details["google_status"] or None,
+        }
+        raise error
     payload = response.json()
     batches = payload if isinstance(payload, list) else [payload]
     rows: List[Dict[str, Any]] = []

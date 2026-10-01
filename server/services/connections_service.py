@@ -204,12 +204,14 @@ def _build_google_ads_entry(auth_row: Dict[str, Any]) -> Dict[str, Any]:
         "sync_status": None,
         "account": {
             "id": customer_id or None,
-            # A API de listagem usada hoje (customers:listAccessibleCustomers) não
-            # retorna nome descritivo — só o customer_id. Nenhum nome é inventado.
-            "name": _safe_str(auth_row.get("account_name")) or None,
+            # Nome da conta Google Ads selecionada (lido via GAQL na listagem).
+            # account_name da linha é o e-mail Google da autorização, não a
+            # conta de mídia — por isso não é usado aqui. Nenhum nome é inventado.
+            "name": _safe_str(metadata.get("google_ads_customer_name")) or None,
         },
         "assets": {
             "customer_id": customer_id or None,
+            "customer_name": _safe_str(metadata.get("google_ads_customer_name")) or None,
             "login_customer_id": _safe_str(metadata.get("google_ads_login_customer_id")) or None,
         },
         "last_sync_at": _safe_str(auth_row.get("last_sync_at")) or None,
