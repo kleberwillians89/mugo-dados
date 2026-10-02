@@ -225,6 +225,26 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=12");
   });
 
+  it("com vendas na tela, não anuncia \"Sem sincronização concluída\"", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.getFbitsOrdersSummary.mockResolvedValue({
+      ...fbitsSummary("vinhos", 73),
+      kpi_source: "fbits_dashboard",
+      summary: { receita_oficial: 34255.22, pedidos: 73, ticket_medio: 469.25, clientes: 0, produtos_vendidos: 0 },
+    });
+    await render();
+    expect(container.textContent).not.toContain("Sem sincronização concluída");
+  });
+
+  it("sem nenhuma venda e sem sync, o aviso de sincronização continua", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 0));
+    await render();
+    expect(container.textContent).toContain("Sem sincronização concluída");
+  });
+
   it("períodos rápidos atualizam o contexto sem reload da página", async () => {
     tenant.id = "vinhos";
     api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits", { last_sync_at: "2026-09-30T12:00:00Z" })]));

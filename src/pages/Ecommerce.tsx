@@ -116,6 +116,9 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
   const [showCustom, setShowCustom] = useState(false);
   const pending = isEcommerceSyncPending(connections);
   const lastError = connections.map((entry) => entry.last_error).find(Boolean) || null;
+  // Dado já visível (último válido): não há "primeira importação pendente".
+  const hasCommerceData = Number(report.fbitsData?.summary?.pedidos || 0) > 0
+    || Number(report.fbitsData?.summary?.receita_oficial || 0) > 0;
   const lastSyncAt = useMemo(
     () => connections.map((entry) => entry.last_successful_sync_at || entry.last_sync_at).find(Boolean) || report.fbitsData?.last_sync_at || null,
     [connections, report.fbitsData?.last_sync_at]
@@ -165,7 +168,14 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
             dateline={
               <>
                 <span className="ds-datelineSource" data-testid="ecommerce-source">FBITS</span>
-                <span>{lastSyncAt ? `Sincronizado em ${formatDateTimeSaoPaulo(lastSyncAt)}` : "Sem sincronização concluída"}</span>
+                {/* Com números na tela, anunciar "sem sincronização" seria
+                    contraditório: os KPIs oficiais da FBITS não dependem de
+                    sync. Sem data e sem dado, o aviso continua. */}
+                <span>
+                  {lastSyncAt
+                    ? `Sincronizado em ${formatDateTimeSaoPaulo(lastSyncAt)}`
+                    : hasCommerceData ? "" : "Sem sincronização concluída"}
+                </span>
                 {canSync ? (
                   <span>
                     <button className="ds-link is-quiet" disabled={syncing} onClick={() => void syncNow()} type="button">

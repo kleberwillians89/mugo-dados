@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
 import httpx
@@ -16,11 +16,78 @@ from .google_oauth import (
     get_google_access_token,
     google_ads_api_error,
 )
-from .ig_supabase import sb_select, sb_upsert
+from .ig_supabase import sb_select, sb_update, sb_upsert
 from .integration_errors import IntegrationError
+from .job_runs import finish_job_run, start_job_run
 from .periods import resolve_period
 from .sync_locks import guarded_sync
 from .dashboard_read_model import refresh_dashboard_read_model_safely
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitized_error(exc: BaseException) -> Dict[str, Any]:
+    """Erro observável sem credencial: só código, mensagem pública e diagnóstico
+    já sanitizado pelo google_oauth (status upstream, request id, motivo)."""
+    diagnostics = getattr(exc, "diagnostics", None)
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    message = str(getattr(exc, "message", "") or exc) if isinstance(exc, IntegrationError) else exc.__class__.__name__
+    return {
+        "code": str(getattr(exc, "code", "") or "GOOGLE_ADS_SYNC_FAILED"),
+        "message": message[:240],
+        "retryable": bool(getattr(exc, "retryable", False)),
+        "upstream_status": diagnostics.get("upstream_status"),
+        "request_id": diagnostics.get("request_id"),
+        "upstream_reason": diagnostics.get("upstream_reason"),
+    }
+
+
+async def _record_sync_outcome(
+    *, client_id: str, connection_id: str, attempt_at: str,
+    success: bool, rows: int = 0, error: Dict[str, Any] | None = None,
+) -> None:
+    """Observabilidade na conexão (tela de Integrações). NÃO altera `status`:
+    o cron seleciona `status=connected` e uma falha não pode desligar o
+    provider para sempre."""
+    if not client_id or not connection_id:
+        return
+    metadata_patch: Dict[str, Any] = {"last_attempt_at": attempt_at}
+    if success:
+        metadata_patch.update({
+            "last_success_at": attempt_at, "last_sync_rows": rows,
+            "last_error_code": None, "last_error_retryable": None, "last_request_id": None,
+        })
+    else:
+        metadata_patch.update({
+            "last_error_code": (error or {}).get("code"),
+            "last_error_retryable": (error or {}).get("retryable"),
+            "last_request_id": (error or {}).get("request_id"),
+        })
+    try:
+        rows_found = await sb_select(
+            "integration_connections", select="id,metadata",
+            filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "provider": "eq.google_ads"},
+            limit=1,
+        )
+        current = rows_found[0].get("metadata") if rows_found and isinstance(rows_found[0].get("metadata"), dict) else {}
+        patch: Dict[str, Any] = {
+            "metadata": {**current, **metadata_patch},
+            "updated_at": attempt_at,
+        }
+        if success:
+            patch["last_sync_at"] = attempt_at
+            patch["last_error"] = None
+        else:
+            patch["last_error"] = f"{(error or {}).get('code')}: {(error or {}).get('message')}"[:300]
+        await sb_update(
+            "integration_connections",
+            filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "provider": "eq.google_ads"},
+            patch=patch, returning="minimal",
+        )
+    except Exception as exc:  # observabilidade nunca derruba a sincronização
+        print(f"[google_ads] stage=observability client_id={client_id} status=write_failed error_type={exc.__class__.__name__}")
 
 
 @dataclass(frozen=True)
@@ -181,14 +248,69 @@ async def _sync_google_ads(
 
 async def sync_google_ads(
     *, client_id: str, connection_id: str | None, start: str | None, end: str | None, days: int,
+    job_name: str = "google_ads_sync_manual", trigger_source: str = "manual_api",
+    record_job_run: bool = True,
 ) -> Dict[str, Any]:
+    """Sincroniza as campanhas e registra a tentativa.
+
+    Toda execução deixa rastro (cron_job_runs + metadata da conexão), para que
+    `last_attempt_at`/`last_success_at` e o código do erro sejam visíveis sem
+    depender de log — e para provar se métricas novas entraram.
+    """
     async with guarded_sync(
         client_id=client_id, provider="google_ads", connection_id=str(connection_id or "resolved"),
         ttl_seconds=1800,
     ):
-        return await _sync_google_ads(
-            client_id=client_id, connection_id=connection_id, start=start, end=end, days=days,
+        attempt_at = _now_iso()
+        job_run = None
+        if record_job_run:
+            job_run = await start_job_run(
+                job_name=job_name, client_id=client_id, connection_id=connection_id,
+                trigger_source=trigger_source,
+                payload_json={"requested": {"start": start, "end": end, "days": days}},
+            )
+        job_run_id = str((job_run or {}).get("id") or "")
+        try:
+            payload = await _sync_google_ads(
+                client_id=client_id, connection_id=connection_id, start=start, end=end, days=days,
+            )
+        except Exception as exc:
+            error = _sanitized_error(exc)
+            resolved_connection_id = str(connection_id or "")
+            print(
+                f"[google_ads] stage=sync_result client_id={client_id} "
+                f"connection_id={resolved_connection_id or '-'} status=error code={error['code']} "
+                f"upstream_status={error['upstream_status'] or '-'} request_id={error['request_id'] or '-'}"
+            )
+            await _record_sync_outcome(
+                client_id=client_id, connection_id=resolved_connection_id,
+                attempt_at=attempt_at, success=False, error=error,
+            )
+            if job_run_id:
+                await finish_job_run(
+                    job_run_id, status="error", error=f"{error['code']}: {error['message']}",
+                    payload_json={"error": error, "requested": {"start": start, "end": end, "days": days}},
+                    client_id=client_id, connection_id=resolved_connection_id or None,
+                )
+            raise
+        rows = int(payload.get("rows_upserted") or 0)
+        print(
+            f"[google_ads] stage=sync_result client_id={client_id} "
+            f"connection_id={payload.get('connection_id') or '-'} status=ok rows_upserted={rows}"
         )
+        await _record_sync_outcome(
+            client_id=client_id, connection_id=str(payload.get("connection_id") or ""),
+            attempt_at=attempt_at, success=True, rows=rows,
+        )
+        if job_run_id:
+            await finish_job_run(
+                job_run_id, status="success", rows_upserted=rows, payload_json=payload,
+                client_id=client_id, connection_id=str(payload.get("connection_id") or "") or None,
+            )
+        payload["job_run_id"] = job_run_id or None
+        payload["last_attempt_at"] = attempt_at
+        payload["last_success_at"] = attempt_at
+        return payload
 
 
 async def build_google_ads_report(

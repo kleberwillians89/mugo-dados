@@ -436,6 +436,7 @@ async def sync(
 
         return await sync_google_ads(
             client_id=cid, connection_id=connection_id, start=None, end=None, days=days,
+            job_name="google_ads_sync_manual", trigger_source="manual_oauth_connection",
         )
     if not google_capabilities(row)["ga4_authorized"]:
         raise IntegrationError(

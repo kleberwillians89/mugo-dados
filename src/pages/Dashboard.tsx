@@ -82,6 +82,7 @@ import {
   getActiveConnectionId,
   getSelectedConnectionId,
 } from "../app/connectionState";
+import { paidMediaNotice, providerEverHadData } from "../app/providerFreshness";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
@@ -1768,6 +1769,19 @@ export default function Dashboard({
   const organicFreshness = formatUpdatedAtLabel(executiveData?.instagram?.last_success_at)
     || formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
   const organicLead = !paidHasData && organicHasData;
+  // "Já existiu dado" vem do read model (data_max_available), não da telemetria
+  // de sync: um sync que não registrou last_success_at não pode fazer a tela
+  // dizer "aguardando a primeira importação" para quem já tem números.
+  const paidEverHadData = providerEverHadData(dashboardSnapshot.sources, "meta", {
+    lastSuccessAt: executiveData?.meta?.last_success_at,
+    hasDataNow: paidHasData,
+  });
+  const paidNotice = paidMediaNotice({
+    provider: "Meta Ads",
+    syncStatus: paidSyncStatus,
+    everHadData: paidEverHadData,
+    lastError: paidConnection?.last_error,
+  });
   const followersLine = followerGrowth.current != null
     ? `${formatInteger(followerGrowth.current)}${followerGrowth.delta != null ? ` (${followerGrowth.delta >= 0 ? "+" : "−"}${formatInteger(Math.abs(followerGrowth.delta))} ${followerGrowth.label})` : ""}`
     : "—";
@@ -1783,7 +1797,7 @@ export default function Dashboard({
               <>
                 <span>
                   <span className="ds-datelineSource">Meta Ads</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? freshness(paidFreshness) : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? freshness(paidFreshness) : paidEverHadData ? "" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
                 <span>
                   <span className="ds-datelineSource">Instagram</span>{" "}
@@ -1997,19 +2011,9 @@ export default function Dashboard({
             // Job "skipped"/parcial ou sem leitura válida nunca aparece como sucesso.
             <DataNotice
               role="status"
-              title={paidSyncStatus === "skipped"
-                ? "Meta Ads sem dados no período"
-                : paidSyncStatus === "partial"
-                  ? "Importação de Meta Ads parcial"
-                  : executiveData?.meta?.last_success_at
-                    ? "Sem dados de Meta Ads neste período"
-                    : "Aguardando sincronização válida"}
+              title={paidNotice.title}
             >
-              {paidSyncStatus === "skipped" || paidSyncStatus === "partial"
-                ? paidConnection?.last_error || "A Meta não retornou dados agregados para o período."
-                : executiveData?.meta?.last_success_at
-                  ? "A conta está conectada, mas não há investimento registrado no período selecionado."
-                  : "Meta Ads conectado. Os números aparecem assim que a primeira importação terminar."}
+              {paidNotice.body}
             </DataNotice>
           ) : organicHasData ? (
             <p className="ds-footnote">Meta Ads não conectado: a página mostra só o Instagram desta empresa.</p>

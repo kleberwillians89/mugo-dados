@@ -81,8 +81,14 @@ describe("professional integration states and official identity", () => {
     const dashboard = source("./Dashboard.tsx");
     const manager = source("../app/connectionManager.ts");
     const executive = source("../components/dashboard/ExecutiveOverview.tsx");
-    expect(dashboard).toContain('paidSyncStatus === "skipped"');
-    expect(dashboard).toContain('"Aguardando sincronização válida"');
+    // A regra virou módulo puro (providerFreshness): job skipped/parcial segue
+    // sem passar por sucesso, e "aguardando" só sem nenhum dado anterior.
+    const freshness = source("../app/providerFreshness.ts");
+    expect(freshness).toContain('status === "skipped"');
+    expect(freshness).toContain('"Aguardando sincronização válida"');
+    expect(freshness).toContain("input.everHadData");
+    expect(dashboard).toContain("paidMediaNotice({");
+    expect(dashboard).toContain("providerEverHadData(");
     expect(dashboard).toContain("resolveCommerceConnection");
     expect(manager).toContain('["connected", "active", "updated"].includes');
     expect(executive).toContain("E-commerce não conectado");

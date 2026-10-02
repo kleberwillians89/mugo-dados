@@ -334,6 +334,7 @@ async def run_google_ads_sync_all(window_days: int = 7) -> Dict[str, Any]:
             response = await sync_google_ads(
                 client_id=client_id, connection_id=connection_id,
                 start=None, end=None, days=window_days,
+                job_name="google_ads_sync_cron", trigger_source="cron", record_job_run=True,
             )
             results.append({"client_id": client_id, "connection_id": connection_id, "ok": True, "rows_upserted": response.get("rows_upserted")})
         except Exception as exc:

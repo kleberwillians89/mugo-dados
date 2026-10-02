@@ -4,7 +4,7 @@ import Shell from "../components/Shell";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import useClientIntegrations from "../hooks/useClientIntegrations";
-import { syncGa4 } from "../app/api";
+import { syncGa4, syncGoogleConnection } from "../app/api";
 import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   getCampaignDisplayName,
@@ -403,31 +403,69 @@ export default function GoogleAnalytics({
   const googleCampaigns = useCampaignsRanking({
     isAuthenticated, activeClientId: activeGa4ClientId, period: selectedRange, provider: "google_ads",
   });
+  const { reloadCampaigns } = googleCampaigns;
   // Conta/propriedade em uso: contrato canônico de Integrações (só leitura).
   const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeGa4ClientId) });
+
+  // Esta página mostra GA4 e campanhas do Google Ads: atualizar precisa
+  // sincronizar os dois. Eles são independentes — um indisponível não impede
+  // o outro de receber dados novos, e o erro cita o provider que falhou.
+  const adsConnectionId = pickIntegration(
+    integrations.lastValidConnections, "google_ads", activeGa4ClientId
+  )?.connection_id || null;
 
   const handleRefresh = useCallback(async () => {
     setRefreshError(null);
     setSyncing(true);
+    const tasks: Array<{ label: string; run: () => Promise<unknown> }> = [
+      {
+        label: "Google Analytics",
+        run: () =>
+          runExclusiveSync(
+            { clientId: activeGa4ClientId, provider: "ga4" },
+            () =>
+              syncGa4({
+                start: selectedRange.start,
+                end: selectedRange.end,
+                days: periodDays,
+              }, {
+                clientId: activeGa4ClientId,
+              })
+          ),
+      },
+    ];
+    if (adsConnectionId) {
+      tasks.push({
+        label: "Google Ads",
+        run: () =>
+          runExclusiveSync(
+            { clientId: activeGa4ClientId, provider: "google_ads", connectionId: adsConnectionId },
+            () => syncGoogleConnection(adsConnectionId)
+          ),
+      });
+    }
     try {
-      await runExclusiveSync(
-        { clientId: activeGa4ClientId, provider: "ga4" },
-        () =>
-          syncGa4({
-            start: selectedRange.start,
-            end: selectedRange.end,
-            days: periodDays,
-          }, {
-            clientId: activeGa4ClientId,
-          })
-      );
-      await reloadGa4({ force: true });
-    } catch (error: unknown) {
-      setRefreshError(isSyncAlreadyRunningError(error) ? describeSyncError(error, "") : toErrorMessage(error));
+      const results = await Promise.allSettled(tasks.map((task) => task.run()));
+      // Recarrega o que já existe persistido, mesmo que um sync tenha falhado.
+      await Promise.allSettled([reloadGa4({ force: true }), reloadCampaigns()]);
+      const failures = results
+        .map((result, index) => ({ result, label: tasks[index].label }))
+        .filter((item): item is { result: PromiseRejectedResult; label: string } => item.result.status === "rejected");
+      if (failures.length) {
+        setRefreshError(
+          failures
+            .map(({ result, label }) => {
+              const cause = result.reason;
+              const detail = isSyncAlreadyRunningError(cause) ? describeSyncError(cause, "") : toErrorMessage(cause);
+              return `${label}: ${detail}`;
+            })
+            .join(" · ")
+        );
+      }
     } finally {
       setSyncing(false);
     }
-  }, [activeGa4ClientId, periodDays, reloadGa4, selectedRange.end, selectedRange.start]);
+  }, [activeGa4ClientId, adsConnectionId, periodDays, reloadCampaigns, reloadGa4, selectedRange.end, selectedRange.start]);
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
