@@ -39,6 +39,7 @@ from services.meta_oauth import (
     create_discovery_handoff,
     disconnect_connection,
     discover_assets,
+    discover_existing_meta_ad_accounts,
     discover_existing_meta_organic_assets,
     activate_meta_organic_assets,
     exchange_code_for_token,
@@ -51,6 +52,7 @@ from services.meta_oauth import (
     finalize_meta_organic_activation,
     save_connections,
     select_paid_connection,
+    set_discovery_log_context,
     validate_manual_meta_assets,
 )
 from services.oauth_state import consume_oauth_state, create_oauth_state
@@ -303,6 +305,10 @@ async def api_oauth_meta_callback(
             request, stage="code_exchanged", client_id=client_id_from_state,
             user_id=user_id_from_state,
         )
+        set_discovery_log_context(
+            client_id=client_id_from_state,
+            request_id=str(getattr(getattr(request, "state", None), "request_id", "") or "-"),
+        )
         discovered = await discover_assets(str(token_data.get("access_token") or ""))
         _meta_oauth_log(
             request, stage="assets_discovered", client_id=client_id_from_state,
@@ -403,6 +409,28 @@ async def api_configure_existing_meta_organic(
     return {
         "ok": True,
         **(await discover_existing_meta_organic_assets(
+            user_id=user_id, client_id=cid, connection_id=connection_id
+        )),
+    }
+
+
+@router.post("/api/oauth/meta/{connection_id}/discover-ad-accounts")
+async def api_discover_existing_meta_ad_accounts(
+    connection_id: str,
+    request: Request,
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_user_id(authorization)
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
+    set_discovery_log_context(
+        client_id=cid,
+        request_id=str(getattr(getattr(request, "state", None), "request_id", "") or "-"),
+    )
+    return {
+        "ok": True,
+        **(await discover_existing_meta_ad_accounts(
             user_id=user_id, client_id=cid, connection_id=connection_id
         )),
     }

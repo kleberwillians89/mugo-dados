@@ -651,5 +651,55 @@ class OAuthHandoffAndStateOwnership(_Base):
                 await tenant.require_user_client_access("admin-amalie", ROOVE)
 
 
+# ---------------------------------------------------------------------------
+# Relistar contas Meta Ads de uma conexão existente (sem nova OAuth)
+# ---------------------------------------------------------------------------
+class DiscoverExistingMetaAdAccountsRoute(_Base):
+    async def test_client_admin_rediscovers_in_own_tenant_with_log_context(self):
+        captured = {}
+
+        async def discover(**kwargs):
+            captured.update(kwargs)
+            captured["log_context"] = meta_oauth._discovery_log_context()
+            return {"handoff": "h-novo", "client_id": kwargs["client_id"], "ad_accounts": []}
+
+        with ExitStack() as stack:
+            stack.enter_context(acting_as("admin-amalie", role="client_admin"))
+            stack.enter_context(patch.object(meta_legacy, "discover_existing_meta_ad_accounts", AsyncMock(side_effect=discover)))
+            result = await meta_legacy.api_discover_existing_meta_ad_accounts(
+                connection_id="meta-1", request=_request(), client_id=AMALIE, authorization="Bearer valid",
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["handoff"], "h-novo")
+        self.assertEqual(captured["client_id"], AMALIE)
+        self.assertEqual(captured["user_id"], "admin-amalie")
+        self.assertEqual(captured["connection_id"], "meta-1")
+        self.assertEqual(captured["log_context"], f"client_id={AMALIE} request_id=test-req ")
+
+    async def test_viewer_cannot_rediscover_ad_accounts(self):
+        discover = AsyncMock()
+        with ExitStack() as stack:
+            stack.enter_context(acting_as("viewer-amalie", role="viewer"))
+            stack.enter_context(patch.object(meta_legacy, "discover_existing_meta_ad_accounts", discover))
+            with self.assertRaises(HTTPException) as raised:
+                await meta_legacy.api_discover_existing_meta_ad_accounts(
+                    connection_id="meta-1", request=_request(), client_id=AMALIE, authorization="Bearer valid",
+                )
+        self.assertEqual(raised.exception.status_code, 403)
+        discover.assert_not_awaited()
+
+    async def test_cannot_rediscover_ad_accounts_for_other_tenant(self):
+        discover = AsyncMock()
+        with ExitStack() as stack:
+            stack.enter_context(acting_as("admin-amalie", role="client_admin"))
+            stack.enter_context(patch.object(meta_legacy, "discover_existing_meta_ad_accounts", discover))
+            with self.assertRaises(HTTPException) as raised:
+                await meta_legacy.api_discover_existing_meta_ad_accounts(
+                    connection_id="meta-1", request=_request(), client_id=ROOVE, authorization="Bearer valid",
+                )
+        self.assertEqual(raised.exception.status_code, 403)
+        discover.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

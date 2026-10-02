@@ -3,6 +3,7 @@ import {
   disconnectClientConnection,
   activateMetaOrganic,
   configureExistingMetaOrganic,
+  discoverExistingMetaAdAccounts,
   ApiError,
   disconnectGenericConnection,
   discoverClientMetaAssets,
@@ -801,6 +802,15 @@ export default function Onboarding({
     try {
       const response = await listClientMetaAdsAccounts();
       const accounts = response.accounts || [];
+      if (!accounts.length && metaGenericConnection) {
+        // Nenhuma conta Meta Ads salva ainda: relista na Meta com a autorização
+        // atual (direto + Businesses) e abre o seletor de ativos já existente.
+        const data = await discoverExistingMetaAdAccounts(metaGenericConnection.id);
+        prepareMetaAssets(data);
+        if ((data.ad_accounts || []).length) setInfo("Contas Meta Ads carregadas. Selecione a conta e salve para concluir.");
+        else setErr("A Meta não retornou nenhuma conta de anúncios para esta autorização.");
+        return;
+      }
       setMetaAdsAccounts(accounts);
       setSelectedMetaAdsAccount(String(selectedPaidConnection?.ad_account_id || ""));
       setMetaAdsPickerOpen(true);

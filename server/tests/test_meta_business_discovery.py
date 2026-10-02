@@ -713,5 +713,257 @@ class DiscoveryWarningHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["discovery_warnings"], [])
 
 
+def ruah_routes(**overrides):
+    """Estrutura real da RÜAH (fixture): Business com a conta em client e a
+    conta Mugô vindo direto; owned do Business negado por permissão."""
+    return base_routes(**{
+        "/me/adaccounts": {"data": [{"id": f"act_{MUGO_AD_ACCOUNT}", "name": "Mugô Ads"}]},
+        "/me/businesses": {"data": [{"id": RUAH_BUSINESS, "name": "RŪAH"}]},
+        f"/{RUAH_BUSINESS}/owned_ad_accounts": permission_denied(),
+        f"/{RUAH_BUSINESS}/client_ad_accounts": {"data": [{"id": f"act_{RUAH_AD_ACCOUNT}", "name": "RŪAH Ads"}]},
+        f"/{RUAH_BUSINESS}/owned_pages": {"data": []},
+        f"/{RUAH_BUSINESS}/client_pages": {"data": []},
+        f"/act_{RUAH_AD_ACCOUNT}": {"id": f"act_{RUAH_AD_ACCOUNT}", "name": "RŪAH Ads"},
+        **overrides,
+    })
+
+
+class AdAccountDecisionLogTests(_DiscoveryCase):
+    """Cada conta recebe uma linha final: origem, Business, restrita, selecionável e motivo."""
+
+    async def test_direct_and_business_client_accounts_each_get_a_selectable_result(self):
+        result, logs, _graph = await self.discover(ruah_routes())
+        accounts = self.ads_by_id(result)
+        # code=200 no owned não remove nem a conta direta nem a do client.
+        self.assertEqual(sorted(accounts), sorted([f"act_{MUGO_AD_ACCOUNT}", f"act_{RUAH_AD_ACCOUNT}"]))
+        self.assertIn(f"endpoint=me_adaccounts http_status=200 count=1 ids=act_{MUGO_AD_ACCOUNT}", logs)
+        self.assertIn(
+            f"stage=ad_account_result ad_account_id=act_{MUGO_AD_ACCOUNT} sources=me_adaccounts businesses=- "
+            "account_status=None access=accessible restricted=false selectable=true reason=direct_access",
+            logs,
+        )
+        self.assertIn(
+            f"stage=ad_account_result ad_account_id=act_{RUAH_AD_ACCOUNT} sources=business_client "
+            f"businesses={RUAH_BUSINESS}:client account_status=None access=accessible restricted=false "
+            "selectable=true reason=business_detail_ok",
+            logs,
+        )
+        self.assertIn(f"stage=business_edge_failed business_id={RUAH_BUSINESS} edge=owned_ad_accounts", logs)
+
+    async def test_restricted_account_is_logged_as_not_selectable_with_reason(self):
+        _result, logs, _graph = await self.discover(ruah_routes(**{
+            f"/act_{RUAH_AD_ACCOUNT}": permission_denied(code=100, subcode=33, status=400),
+        }))
+        self.assertIn(
+            f"ad_account_id=act_{RUAH_AD_ACCOUNT} sources=business_client businesses={RUAH_BUSINESS}:client "
+            "account_status=None access=restricted restricted=true selectable=false "
+            "reason=business_detail_permission_denied",
+            logs,
+        )
+
+    async def test_dedupe_keeps_the_usable_direct_version_of_the_same_account(self):
+        # A mesma conta vem direto (utilizável) e pelo Business; o detalhe
+        # negado do Business não pode rebaixá-la para restrita.
+        result, logs, graph = await self.discover(ruah_routes(**{
+            "/me/adaccounts": {"data": [{"id": f"act_{RUAH_AD_ACCOUNT}", "name": "RŪAH Ads"}]},
+            f"/act_{RUAH_AD_ACCOUNT}": permission_denied(code=100, subcode=33, status=400),
+        }))
+        account = self.ads_by_id(result)[f"act_{RUAH_AD_ACCOUNT}"]
+        self.assertEqual(account["access_status"], meta_oauth.ACCESS_ACCESSIBLE)
+        self.assertEqual(account["discovery_sources"], ["me_adaccounts", "business_client"])
+        self.assertNotIn(f"/act_{RUAH_AD_ACCOUNT}", graph.paths)
+        self.assertIn("reason=direct_access", logs)
+
+    async def test_logs_carry_tenant_and_request_id_when_the_route_sets_them(self):
+        meta_oauth.set_discovery_log_context(client_id="ruah", request_id="req-123")
+        _result, logs, _graph = await self.discover(ruah_routes())
+        self.assertIn(
+            f"stage=ad_account_result client_id=ruah request_id=req-123 ad_account_id=act_{RUAH_AD_ACCOUNT}",
+            logs,
+        )
+        self.assertIn("[meta_oauth][ad_accounts] client_id=ruah request_id=req-123 endpoint=me_adaccounts", logs)
+
+
+class ExistingConnectionAdDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    """Conexão já salva (Instagram conectado, Meta Ads pendente): relistar as
+    contas pela autorização atual, sem nova OAuth e sem gravar nada."""
+
+    CONNECTION = {
+        "provider": "meta", "status": "connected", "token_expires_at": None,
+        "scopes": ["ads_read", "business_management", "pages_show_list"],
+        "_token": '{"access_token": "%s"}' % TOKEN,
+        "metadata": {"selected_instagram_id": "ig-ruah"},
+    }
+
+    async def rediscover(self, routes):
+        graph = FakeGraph(routes)
+        create = AsyncMock(return_value="handoff-novo")
+        output = io.StringIO()
+        with (
+            patch.object(meta_oauth, "get_meta_oauth_settings", side_effect=RuntimeError("sem credenciais no teste")),
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value=self.CONNECTION)),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=graph.meta_get)),
+            patch.object(meta_oauth, "meta_get_json", AsyncMock(side_effect=graph.meta_get_json)),
+            patch.object(meta_oauth, "create_discovery_handoff", create),
+            patch.object(meta_oauth, "read_discovery_handoff", AsyncMock(side_effect=lambda **kw: {
+                "handoff": kw["handoff"], "client_id": kw["client_id"],
+                "ad_accounts": create.await_args.kwargs["discovered"]["ad_accounts"],
+            })),
+            patch.object(meta_oauth, "sb_insert", AsyncMock()) as insert,
+            patch.object(meta_oauth, "sb_update", AsyncMock()) as update,
+            redirect_stdout(output),
+        ):
+            result = await meta_oauth.discover_existing_meta_ad_accounts(
+                user_id="user-ruah", client_id="ruah", connection_id="meta-ruah",
+            )
+        insert.assert_not_awaited()
+        update.assert_not_awaited()
+        self.assertNotIn(TOKEN, output.getvalue())
+        return result, create, output.getvalue(), graph
+
+    async def test_lists_direct_owned_and_client_accounts_with_the_saved_authorization(self):
+        result, create, logs, graph = await self.rediscover(ruah_routes(**{
+            f"/{RUAH_BUSINESS}/owned_ad_accounts": {"data": [{"id": "act_owned", "name": "Owned"}]},
+            "/act_owned": {"id": "act_owned"},
+        }))
+        ids = sorted(row["ad_account_id"] for row in result["ad_accounts"])
+        self.assertEqual(ids, sorted([f"act_{MUGO_AD_ACCOUNT}", f"act_{RUAH_AD_ACCOUNT}", "act_owned"]))
+        self.assertIn("/me/adaccounts", graph.paths)
+        self.assertIn(f"/{RUAH_BUSINESS}/owned_ad_accounts", graph.paths)
+        self.assertIn(f"/{RUAH_BUSINESS}/client_ad_accounts", graph.paths)
+        # Handoff no tenant atual; nada gravado antes da seleção explícita.
+        self.assertEqual(create.await_args.kwargs["client_id"], "ruah")
+        self.assertEqual(result["client_id"], "ruah")
+        self.assertIn("stage=existing_ad_discovery", logs)
+        self.assertIn(f"act_{RUAH_AD_ACCOUNT}", logs)
+
+    async def test_business_code_200_keeps_direct_account(self):
+        result, _create, _logs, _graph = await self.rediscover(ruah_routes(**{
+            f"/{RUAH_BUSINESS}/client_ad_accounts": permission_denied(),
+        }))
+        self.assertEqual([row["ad_account_id"] for row in result["ad_accounts"]], [f"act_{MUGO_AD_ACCOUNT}"])
+
+    async def test_invalid_token_requires_reauthorization(self):
+        invalid = MetaApiError("Meta API error 401: Error validating access token", status_code=401, error_code=190, invalid_oauth=True)
+        with self.assertRaises(IntegrationError) as raised:
+            await self.rediscover(ruah_routes(**{"/me/adaccounts": invalid}))
+        self.assertEqual(raised.exception.code, "META_REAUTH_REQUIRED")
+        self.assertEqual(raised.exception.status_code, 401)
+
+    async def test_missing_ads_permission_is_reported_not_treated_as_invalid_token(self):
+        with self.assertRaises(IntegrationError) as raised:
+            await self.rediscover(ruah_routes(**{"/me/adaccounts": permission_denied("(#200) Requires ads_read")}))
+        self.assertEqual(raised.exception.code, "META_PERMISSION_MISSING")
+        self.assertEqual(raised.exception.status_code, 403)
+
+    async def test_disconnected_connection_is_refused_before_calling_meta(self):
+        graph = FakeGraph(ruah_routes())
+        with (
+            patch.object(meta_oauth, "get_connection", AsyncMock(return_value={**self.CONNECTION, "status": "disconnected"})),
+            patch.object(meta_oauth, "_meta_get", AsyncMock(side_effect=graph.meta_get)),
+        ):
+            with self.assertRaises(IntegrationError) as raised:
+                await meta_oauth.discover_existing_meta_ad_accounts(
+                    user_id="user-ruah", client_id="ruah", connection_id="meta-ruah",
+                )
+        self.assertEqual(raised.exception.code, "META_CONNECTION_DISCONNECTED")
+        self.assertEqual(graph.paths, [])
+
+
+class AdsOnlySelectionTests(unittest.IsolatedAsyncioTestCase):
+    """Selecionar só a conta de anúncios grava o ad_account_id e preserva o orgânico."""
+
+    PREVIOUS_GENERIC = {
+        "id": "generic-meta", "client_id": "ruah", "provider": "meta", "status": "connected",
+        "metadata": {
+            "page_ids": ["page-ruah"], "instagram_ig_user_ids": ["ig-ruah"],
+            "selected_page_id": "page-ruah", "selected_page_name": "ruah.joias",
+            "selected_instagram_id": "ig-ruah", "selected_instagram_username": "ruah_parfums",
+            "organic_status": "connected", "organic_connection_id": "organic-1",
+            "ads_status": "asset_required", "selected_ad_account_id": None,
+        },
+    }
+
+    async def save(self, *, ad_account_ids, instagram_ids=(), page_ids=(), previous=None):
+        writes = []
+
+        async def select(table, filters=None, **_kwargs):
+            if table == "integration_connections":
+                return [previous or self.PREVIOUS_GENERIC]
+            return []
+
+        async def insert(table, data, **_kwargs):
+            writes.append(("insert", table, dict(data)))
+            return {"id": f"{table}-new", **data}
+
+        async def update(table, filters=None, patch=None, **_kwargs):
+            writes.append(("update", table, dict(filters or {}), dict(patch or {})))
+            return [{"id": "updated"}]
+
+        upsert = AsyncMock(return_value={"id": "generic-meta"})
+        output = io.StringIO()
+        instagram = [{"ig_user_id": "ig-ruah", "username": "ruah_parfums", "business_id": "page-ruah", "business_name": "ruah.joias"}]
+        with (
+            patch.object(meta_oauth, "_load_handoff_row", AsyncMock(return_value=handoff_row(
+                instagram=instagram, pages=[{"page_id": "page-ruah", "page_name": "ruah.joias"}],
+            ))),
+            patch.object(meta_oauth, "decrypt_secret", return_value="decrypted-token"),
+            patch.object(meta_oauth, "encrypt_secret", return_value="encrypted"),
+            patch.object(meta_oauth, "sb_select", AsyncMock(side_effect=select)),
+            patch.object(meta_oauth, "sb_insert", AsyncMock(side_effect=insert)),
+            patch.object(meta_oauth, "sb_update", AsyncMock(side_effect=update)),
+            patch.object(meta_oauth, "upsert_connection", upsert),
+            patch.object(meta_oauth, "invalidate_namespace", AsyncMock()),
+            redirect_stdout(output),
+        ):
+            await meta_oauth.save_connections(
+                user_id="user-ruah", client_id="ruah", handoff="handoff-ruah",
+                page_ids=list(page_ids), instagram_ig_user_ids=list(instagram_ids), ad_account_ids=list(ad_account_ids),
+            )
+        return writes, upsert.await_args.kwargs, output.getvalue()
+
+    async def test_ads_only_selection_persists_the_account_and_keeps_instagram(self):
+        writes, upsert_kwargs, logs = await self.save(ad_account_ids=[RUAH_AD_ACCOUNT])
+        paid = [w for w in writes if w[0] == "insert" and w[1] == "meta_connections"]
+        self.assertEqual(len(paid), 1)
+        self.assertEqual(paid[0][2]["platform"], "meta_ads")
+        self.assertEqual(paid[0][2]["ad_account_id"], f"act_{RUAH_AD_ACCOUNT}")
+        self.assertEqual(paid[0][2]["client_id"], "ruah")
+        metadata = upsert_kwargs["metadata"]
+        self.assertEqual(metadata["selected_ad_account_id"], f"act_{RUAH_AD_ACCOUNT}")
+        self.assertEqual(metadata["ads_status"], "connected")
+        # O orgânico já configurado continua lá.
+        self.assertEqual(metadata["selected_instagram_id"], "ig-ruah")
+        self.assertEqual(metadata["selected_page_id"], "page-ruah")
+        self.assertEqual(metadata["instagram_ig_user_ids"], ["ig-ruah"])
+        self.assertEqual(metadata["organic_status"], "connected")
+        self.assertEqual(metadata["coverage"], "full")
+        self.assertEqual(upsert_kwargs["status"], "connected")
+        # A projeção orgânica não é tocada.
+        self.assertFalse(any(w[1] == "meta_connections" and w[0] == "update" for w in writes))
+        self.assertIn(f"stage=selection_saved client_id=ruah ad_account_id=act_{RUAH_AD_ACCOUNT}", logs)
+        self.assertIn("instagram_id=ig-ruah instagram_requested=- paid_rows=1", logs)
+
+    async def test_selecting_instagram_still_replaces_the_organic_selection(self):
+        _writes, upsert_kwargs, _logs = await self.save(
+            ad_account_ids=[RUAH_AD_ACCOUNT], instagram_ids=["ig-ruah"], page_ids=["page-ruah"],
+            previous={**self.PREVIOUS_GENERIC, "metadata": {"selected_instagram_id": "ig-antigo", "organic_status": "error"}},
+        )
+        metadata = upsert_kwargs["metadata"]
+        self.assertEqual(metadata["selected_instagram_id"], "ig-ruah")
+        self.assertEqual(metadata["selected_instagram_username"], "ruah_parfums")
+        self.assertEqual(metadata["organic_status"], "connected")
+
+    async def test_ads_only_selection_without_previous_organic_stays_partial(self):
+        _writes, upsert_kwargs, _logs = await self.save(
+            ad_account_ids=[RUAH_AD_ACCOUNT],
+            previous={"id": "generic-meta", "metadata": {}},
+        )
+        metadata = upsert_kwargs["metadata"]
+        self.assertEqual(metadata["organic_status"], "asset_required")
+        self.assertEqual(metadata["coverage"], "partial")
+        self.assertNotIn("selected_instagram_id", metadata)
+
+
 if __name__ == "__main__":
     unittest.main()

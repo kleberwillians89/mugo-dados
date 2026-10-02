@@ -8,6 +8,7 @@ import json
 import os
 import time
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -534,7 +535,8 @@ async def fetch_ad_accounts(access_token: str) -> List[Dict[str, Any]]:
 
     print(
         "[meta_oauth][ad_accounts] "
-        f"http_status=200 count={len(accounts)}"
+        f"{_discovery_log_context()}endpoint=me_adaccounts "
+        f"http_status=200 count={len(accounts)} ids={_ids(accounts, 'ad_account_id')}"
     )
     return accounts
 
@@ -606,6 +608,34 @@ _SOURCE_LOG_LIMIT = 200
 ACCESS_ACCESSIBLE = "accessible"  # acesso direto do usuário ou detalhe lido com o token atual
 ACCESS_RESTRICTED = "restricted"  # identificado pelo Business, detalhe bloqueado por permissão
 ACCESS_UNVERIFIED = "unverified"  # identificado pelo Business, verificação falhou por erro transitório
+
+# Tenant e request_id da descoberta em curso, só para os logs de diagnóstico
+# (nunca token, state ou segredo). ContextVar isola requisições concorrentes.
+_DISCOVERY_LOG_CONTEXT: ContextVar[str] = ContextVar("meta_discovery_log_context", default="")
+
+
+def set_discovery_log_context(*, client_id: str = "", request_id: str = "") -> None:
+    _DISCOVERY_LOG_CONTEXT.set(
+        f"client_id={_safe_str(client_id) or '-'} request_id={_safe_str(request_id) or '-'} "
+    )
+
+
+def _discovery_log_context() -> str:
+    return _DISCOVERY_LOG_CONTEXT.get()
+
+
+def _ad_account_decision(account: Dict[str, Any]) -> Tuple[bool, bool, str]:
+    """(restricted, selectable, reason) de uma conta descoberta — a mesma regra
+    do seletor e de save_connections: só a restrita não pode ser selecionada."""
+    access = account.get("access_status")
+    sources = account.get("discovery_sources") or []
+    if access == ACCESS_RESTRICTED:
+        return True, False, "business_detail_permission_denied"
+    if access == ACCESS_UNVERIFIED:
+        return False, True, "business_detail_unverified"
+    if "me_adaccounts" in sources:
+        return False, True, "direct_access"
+    return False, True, "business_detail_ok"
 
 
 def _graph_failure_status(exc: BaseException) -> str:
@@ -679,13 +709,13 @@ async def _business_edge_rows(
             result["error"] = exc
             print(
                 "[meta_oauth][diag] stage=business_edge_failed "
-                f"business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
+                f"{_discovery_log_context()}business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
                 f"status={result['status']} {_graph_failure_fields(exc)}"
             )
             return result
     print(
         "[meta_oauth][diag] stage=business_edge "
-        f"business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
+        f"{_discovery_log_context()}business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
         f"http_status=200 count={len(result['rows'])} ids={_ids(result['rows'], 'id')}"
     )
     return result
@@ -841,6 +871,7 @@ async def _expand_with_business_assets(
             account["access_status"] = _access_after_failure(exc)
             print(
                 "[meta_oauth][diag] stage=ad_account_access "
+                f"{_discovery_log_context()}"
                 f"ad_account_id={account['ad_account_id']} access={account['access_status']} "
                 f"sources={','.join(account['discovery_sources'])} "
                 f"status={_graph_failure_status(exc)} {_graph_failure_fields(exc)}"
@@ -850,6 +881,23 @@ async def _expand_with_business_assets(
         for key in ("ad_account_name", "currency", "timezone_name"):
             if not account.get(key) and _safe_str((detail or {}).get(key.replace("ad_account_", ""))):
                 account[key] = _safe_str((detail or {}).get(key.replace("ad_account_", "")))
+
+    # Decisão final por conta: o que o seletor recebe (ID, origens, Business,
+    # restrita/selecionável e por quê). Uma conta ausente aqui não veio de
+    # nenhuma origem consultada.
+    if include_ad_accounts:
+        for account in merged_ads[:_SOURCE_LOG_LIMIT]:
+            restricted, selectable, reason = _ad_account_decision(account)
+            refs = ",".join(f"{ref['business_id']}:{ref['relation']}" for ref in account.get("businesses") or [])
+            print(
+                "[meta_oauth][diag] stage=ad_account_result "
+                f"{_discovery_log_context()}"
+                f"ad_account_id={account['ad_account_id']} "
+                f"sources={','.join(account.get('discovery_sources') or []) or '-'} "
+                f"businesses={refs or '-'} account_status={account.get('account_status', '-')} "
+                f"access={account.get('access_status')} restricted={str(restricted).lower()} "
+                f"selectable={str(selectable).lower()} reason={reason}"
+            )
 
     # ---- Páginas + Instagram (vínculo real da Página) ----
     pages_by_id: Dict[str, Dict[str, Any]] = {}
@@ -1004,7 +1052,7 @@ async def _log_discovery_diagnostics(
     code, App Secret ou state — somente nomes de permissões, IDs de ativos,
     contagens, status HTTP e mensagens de erro da Graph API."""
     try:
-        print(f"[meta_oauth][diag] stage=graph_calls {' '.join(calls) or '-'}")
+        print(f"[meta_oauth][diag] stage=graph_calls {_discovery_log_context()}{' '.join(calls) or '-'}")
 
         granted: List[str] = []
         declined: List[str] = []
@@ -1028,6 +1076,7 @@ async def _log_discovery_diagnostics(
             requested_missing = [scope for scope in _default_scopes() if scope not in granted]
             print(
                 "[meta_oauth][diag] stage=permissions http_status=200 "
+                f"{_discovery_log_context()}"
                 f"granted={','.join(sorted(granted)) or '-'} "
                 f"declined={','.join(sorted(declined)) or '-'} "
                 f"other={','.join(sorted(other)) or '-'} "
@@ -1068,6 +1117,7 @@ async def _log_discovery_diagnostics(
                     granular.append(f"{scope}:all")
             print(
                 "[meta_oauth][diag] stage=debug_token http_status=200 "
+                f"{_discovery_log_context()}"
                 f"type={_safe_str(data.get('type')) or '-'} "
                 f"is_valid={1 if data.get('is_valid') else 0} "
                 f"app_id_matches={1 if _safe_str(data.get('app_id')) == _safe_str(settings['app_id']) else 0} "
@@ -1086,7 +1136,7 @@ async def _log_discovery_diagnostics(
         meta_user = _json_object(identity.get("meta_user"))
         print(
             "[meta_oauth][diag] stage=assets "
-            f"meta_user_id={_safe_str(meta_user.get('id')) or '-'} "
+            f"{_discovery_log_context()}meta_user_id={_safe_str(meta_user.get('id')) or '-'} "
             f"business_count={len(business_managers)} business_ids={_ids(business_managers, 'business_id')} "
             f"page_count={len(pages)} page_ids={_ids(pages, 'page_id')} "
             f"instagram_count={len(instagram_accounts)} instagram_ids={_ids(instagram_accounts, 'ig_user_id')} "
@@ -1218,6 +1268,50 @@ async def discover_existing_meta_organic_assets(
         "Nenhuma Página acessível foi encontrada para esta autorização."
         if not pages else
         "As Páginas acessíveis não possuem uma conta profissional do Instagram vinculada."
+    )
+    return result
+
+
+async def discover_existing_meta_ad_accounts(
+    *, user_id: str, client_id: str, connection_id: str
+) -> Dict[str, Any]:
+    """Relista as contas Meta Ads com a autorização já salva, pelo mesmo
+    pipeline do callback (/me/adaccounts + owned/client de cada Business +
+    verificação de acesso). Devolve um handoff do tenant atual: nada é gravado
+    até a seleção explícita em save_connections."""
+    connection, access_token, _metadata = await _manual_meta_connection(
+        client_id=client_id, connection_id=connection_id
+    )
+    try:
+        discovered = await discover_assets(access_token)
+    except MetaApiError as exc:
+        denied = _graph_failure_status(exc) == "permission_denied"
+        code = "META_REAUTH_REQUIRED" if exc.invalid_oauth else (
+            "META_PERMISSION_MISSING" if denied else "META_GRAPH_UNAVAILABLE"
+        )
+        status_code = 401 if exc.invalid_oauth else (403 if denied else 503)
+        print(
+            "[meta_oauth][diag] stage=existing_ad_discovery_failed "
+            f"{_discovery_log_context()}connection_id={_safe_str(connection_id)} "
+            f"code={code} {_graph_failure_fields(exc)}"
+        )
+        raise IntegrationError(
+            "Não foi possível listar as contas Meta Ads desta autorização.",
+            status_code=status_code, code=code, provider="meta", retryable=status_code == 503,
+        ) from exc
+    handoff = await create_discovery_handoff(
+        user_id=user_id,
+        client_id=client_id,
+        access_token=access_token,
+        expires_at=_safe_str(connection.get("token_expires_at")) or None,
+        discovered=discovered,
+    )
+    result = await read_discovery_handoff(handoff=handoff, user_id=user_id, client_id=client_id)
+    print(
+        "[meta_oauth][diag] stage=existing_ad_discovery "
+        f"{_discovery_log_context()}connection_id={_safe_str(connection_id)} "
+        f"ad_account_count={len(_json_array(result.get('ad_accounts')))} "
+        f"ad_account_ids={_ids(_json_array(result.get('ad_accounts')), 'ad_account_id')}"
     )
     return result
 
@@ -2237,13 +2331,27 @@ async def save_connections(
     selected_page_name = _safe_str(selected_ig.get("business_name"))
     selected_ig_id = _safe_str(selected_ig.get("ig_user_id"))
     selected_ig_username = _safe_str(selected_ig.get("username"))
+    # Selecionar só a conta de anúncios não desfaz o orgânico já configurado
+    # (mesma regra que a conta de anúncios já segue acima).
+    organic_metadata = {
+        "page_ids": sorted(pages_requested),
+        "instagram_ig_user_ids": sorted(ig_requested),
+        "selected_page_id": selected_page_id or None,
+        "selected_page_name": selected_page_name or None,
+        "selected_instagram_id": selected_ig_id or None,
+        "selected_instagram_username": selected_ig_username or None,
+        "organic_status": "connected",
+    } if selected_ig_id else {
+        "organic_status": _safe_str(previous_metadata.get("organic_status")) or "asset_required",
+    }
+    effective_ig_id = selected_ig_id or _safe_str(previous_metadata.get("selected_instagram_id"))
     generic_connection = await upsert_connection(
         client_id=client_id,
         provider="meta",
         external_key=f"meta:{client_id}",
         token_payload=json.dumps({"access_token": access_token}),
         user_id=user_id,
-        status="connected" if selected_ad_id or selected_ig_id else "selection_required",
+        status="connected" if selected_ad_id or effective_ig_id else "selection_required",
         account_id=selected_ad_id or None,
         account_name=selected_ad_name or None,
         token_expires_at=_safe_str(expires_at) or None,
@@ -2251,19 +2359,13 @@ async def save_connections(
         metadata={
             **previous_metadata,
             "integration_product": "meta",
-            "selection_required": not bool(selected_ad_id or selected_ig_id),
+            "selection_required": not bool(selected_ad_id or effective_ig_id),
             "oauth_handoff": None,
             "meta_user_id": current_meta_user_id or None,
             "meta_user_name": _safe_str(meta_user.get("name")) or None,
-            "page_ids": sorted(pages_requested),
-            "instagram_ig_user_ids": sorted(ig_requested),
-            "selected_page_id": selected_page_id or None,
-            "selected_page_name": selected_page_name or None,
-            "selected_instagram_id": selected_ig_id or None,
-            "selected_instagram_username": selected_ig_username or None,
-            "organic_status": "connected" if selected_ig_id else "asset_required",
+            **organic_metadata,
             "ads_status": "connected" if selected_ad_id else "asset_required",
-            "coverage": "full" if selected_ig_id and selected_ad_id else "partial",
+            "coverage": "full" if effective_ig_id and selected_ad_id else "partial",
             "ad_account_ids": merged_ad_ids,
             "selected_ad_account_id": selected_ad_id or None,
             "selected_ad_account_name": selected_ad_name or None,
@@ -2279,6 +2381,14 @@ async def save_connections(
                 if _json_object(ad).get("access_status") != ACCESS_RESTRICTED
             ],
         },
+    )
+
+    print(
+        "[meta_oauth][diag] stage=selection_saved "
+        f"client_id={_safe_str(client_id)} "
+        f"ad_account_id={selected_ad_id or '-'} ad_account_requested={','.join(sorted(ads_requested)) or '-'} "
+        f"instagram_id={effective_ig_id or '-'} instagram_requested={','.join(sorted(ig_requested)) or '-'} "
+        f"paid_rows={sum(1 for row in saved if row.get('platform') == 'meta_ads')}"
     )
 
     try:

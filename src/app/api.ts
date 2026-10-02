@@ -1549,6 +1549,16 @@ export async function configureExistingMetaOrganic(
   );
 }
 
+/** Relista as contas Meta Ads com a autorização salva (direto + Businesses). */
+export async function discoverExistingMetaAdAccounts(
+  connectionId: string
+): Promise<MetaDiscoverAssetsResponse> {
+  return http<MetaDiscoverAssetsResponse>(
+    `/api/oauth/meta/${encodeURIComponent(connectionId)}/discover-ad-accounts`,
+    { method: "POST" }
+  );
+}
+
 export type ManualMetaAssetsPayload = {
   page_id?: string;
   instagram_id?: string;
