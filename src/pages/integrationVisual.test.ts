@@ -85,8 +85,11 @@ describe("professional integration states and official identity", () => {
     // sem passar por sucesso, e "aguardando" só sem nenhum dado anterior.
     const freshness = source("../app/providerFreshness.ts");
     expect(freshness).toContain('status === "skipped"');
-    expect(freshness).toContain('"Aguardando sincronização válida"');
+    expect(freshness).toContain('status === "partial"');
+    expect(freshness).toContain("incompletos neste período");
     expect(freshness).toContain("input.everHadData");
+    // Linguagem de cliente: nada de "job"/"importação"/"sincronização".
+    expect(freshness).not.toMatch(/title: `[^`]*(?:[Ss]incroniza|[Ii]mporta)/);
     expect(dashboard).toContain("paidMediaNotice({");
     expect(dashboard).toContain("providerEverHadData(");
     expect(dashboard).toContain("resolveCommerceConnection");

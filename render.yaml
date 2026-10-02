@@ -1,6 +1,10 @@
+# O nome aqui precisa casar com o serviço real no Render: um nome diferente
+# faz o Blueprint criar OUTRO serviço em vez de atualizar o existente, e foi
+# por isso que estes Cron Jobs nunca passaram a existir em produção.
+# Serviço web real: mugo-dados.
 services:
   - type: web
-    name: mugo-dados-api
+    name: mugo-dados
     env: python
     plan: starter
     rootDir: server
@@ -71,6 +75,22 @@ services:
     schedule: "35 */3 * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python run_jobs.py google-ads-sync --days 7
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+
+  # FBITS/Wake: 120 req/min por token e bloqueio de 1h ao insistir no 429.
+  # O incremental lê só a janela do marcador persistido menos 2h, então de
+  # 30 em 30 minutos fica longe do limite. Os KPIs executivos continuam
+  # vindo de GET /dashboard/faturamento; este job atualiza o analítico.
+  - type: cron
+    name: mugo-dados-fbits-incremental
+    env: python
+    plan: starter
+    rootDir: server
+    schedule: "*/30 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_jobs.py fbits-sync-all
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2

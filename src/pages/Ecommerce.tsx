@@ -212,12 +212,27 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
             ) : null}
             controlsNote={formatCalendarRange(period.start, period.end)}
           />
-          {pending ? (
+          {/* Com dado na tela não existe "primeira sincronização pendente":
+              os KPIs oficiais vêm da FBITS e o analítico mantém a última
+              leitura válida. */}
+          {pending && !hasCommerceData ? (
             <DataNotice role="status" testId="ecommerce-fbits-pending" title="FBITS conectado">
-              Aguardando primeira sincronização. Os números aparecem assim que a importação terminar.
+              Ainda não há dados para este período.
             </DataNotice>
           ) : null}
-          {lastError ? <DataNotice tone="negative" role="alert" title="A última sincronização falhou">{lastError}</DataNotice> : null}
+          {/* Detalhe de atualização é operacional: só para quem pode agir. */}
+          {lastError && canSync ? (
+            <DataNotice
+              tone={hasCommerceData ? "warning" : "negative"}
+              role="status"
+              testId="ecommerce-fbits-sync-warning"
+              title={hasCommerceData ? "Atualização automática pendente" : "Não foi possível atualizar"}
+            >
+              {hasCommerceData
+                ? "Os números seguem válidos. Verifique a conexão em Integrações para retomar as atualizações automáticas."
+                : lastError}
+            </DataNotice>
+          ) : null}
           {syncInfo ? <p className="ds-status" role="status">{syncInfo}</p> : null}
           {syncError ? <DataNotice tone="negative" role="alert" title="Sincronização não iniciada">{syncError}</DataNotice> : null}
         </div>
@@ -226,7 +241,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
           orders={report.fbitsOrders}
           loading={report.loadingFbits}
           error={report.fbitsError}
-          syncPending={pending}
+          syncPending={pending && !hasCommerceData}
         />
       </div>
     </Shell>

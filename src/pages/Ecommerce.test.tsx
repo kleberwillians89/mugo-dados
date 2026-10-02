@@ -175,7 +175,9 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(container.querySelector(".ds-pageEyebrow")?.textContent).toBe("Curavino");
     expect(container.querySelector("h1.ds-pageTitle")?.textContent).toBe("Ecommerce");
     expect(container.textContent).toContain("FBITS conectado");
-    expect(container.textContent).toContain("Aguardando primeira sincronização");
+    // Estado vazio simples: sem linguagem de pipeline/importação.
+    expect(container.textContent).toContain("Ainda não há dados para este período.");
+    expect(container.textContent).not.toMatch(/primeira sincronização|importação terminar/i);
     expect(button("Sincronizar agora")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Shopify não conectado|Conecte sua loja|Nenhuma integração/);
     expect(api.getFbitsOrdersSummary).toHaveBeenCalled();
@@ -243,6 +245,35 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 0));
     await render();
     expect(container.textContent).toContain("Sem sincronização concluída");
+  });
+
+  it("falha de atualização com dado na tela não vira alarme nem apaga os números", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(
+      integrations("vinhos", [entry("fbits", { last_error: "FBITS_RATE_LIMITED: limite atingido" })]),
+    );
+    api.getFbitsOrdersSummary.mockResolvedValue({
+      ...fbitsSummary("vinhos", 73),
+      kpi_source: "fbits_dashboard",
+      summary: { receita_oficial: 34255.22, pedidos: 73, ticket_medio: 469.25, clientes: 0, produtos_vendidos: 0 },
+    });
+    await render();
+    expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=73");
+    const warning = container.querySelector('[data-testid="ecommerce-fbits-sync-warning"]');
+    expect(warning?.textContent).toContain("Os números seguem válidos");
+    // Nem erro cru nem alarme quando a leitura continua válida.
+    expect(container.textContent).not.toContain("FBITS_RATE_LIMITED");
+    expect(warning?.getAttribute("role")).toBe("status");
+  });
+
+  it("viewer não vê detalhe operacional de atualização", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(
+      integrations("vinhos", [entry("fbits", { last_error: "FBITS_RATE_LIMITED: limite atingido" })]),
+    );
+    await render({ canSync: false });
+    expect(container.querySelector('[data-testid="ecommerce-fbits-sync-warning"]')).toBeNull();
+    expect(container.textContent).not.toContain("FBITS_RATE_LIMITED");
   });
 
   it("períodos rápidos atualizam o contexto sem reload da página", async () => {

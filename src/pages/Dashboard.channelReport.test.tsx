@@ -175,7 +175,9 @@ describe("Meta — leitura editorial", () => {
     state.paid = false;
     await render(true);
     expect(container.querySelector('[data-testid="meta-ads-spend"]')).toBeNull();
-    expect(container.textContent).toContain("Aguardando sincronização válida");
+    // Linguagem de cliente: estado vazio simples, sem jargão de sincronização.
+    expect(container.textContent).toContain("Ainda não há dados de Meta Ads");
+    expect(container.textContent).not.toMatch(/Aguardando sincronização|importação terminar/i);
     expect(container.textContent).not.toContain("R$ 0");
   });
 

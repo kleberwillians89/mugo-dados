@@ -1776,11 +1776,14 @@ export default function Dashboard({
     lastSuccessAt: executiveData?.meta?.last_success_at,
     hasDataNow: paidHasData,
   });
+  const organicEverHadData = providerEverHadData(dashboardSnapshot.sources, "instagram", {
+    lastSuccessAt: executiveData?.instagram?.last_success_at,
+    hasDataNow: organicHasData,
+  });
   const paidNotice = paidMediaNotice({
     provider: "Meta Ads",
     syncStatus: paidSyncStatus,
     everHadData: paidEverHadData,
-    lastError: paidConnection?.last_error,
   });
   const followersLine = followerGrowth.current != null
     ? `${formatInteger(followerGrowth.current)}${followerGrowth.delta != null ? ` (${followerGrowth.delta >= 0 ? "+" : "−"}${formatInteger(Math.abs(followerGrowth.delta))} ${followerGrowth.label})` : ""}`
@@ -2243,10 +2246,14 @@ export default function Dashboard({
               </MetaBlockBoundary>
             </div>
           ) : instagramConnected ? (
-            <DataNotice role="status" title={dashError ? "Instagram indisponível" : "Instagram conectado"} tone={dashError ? "negative" : "neutral"}>
+            <DataNotice
+              role="status"
+              title={dashError ? "Instagram indisponível" : organicEverHadData ? "Ainda não há dados do Instagram para este período" : "Ainda não há dados do Instagram"}
+              tone={dashError ? "negative" : "neutral"}
+            >
               {dashError
                 ? "Não foi possível carregar as métricas do Instagram agora."
-                : "Aguardando a primeira sincronização das métricas da conta. Os números aparecem assim que a importação terminar."}
+                : "A conta está conectada e os números aparecem aqui quando houver publicações com alcance no período."}
             </DataNotice>
           ) : paidHasData ? (
             <p className="ds-footnote">Instagram não conectado: a página mostra só Meta Ads desta empresa.</p>

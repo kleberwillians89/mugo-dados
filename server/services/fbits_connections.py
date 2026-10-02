@@ -27,6 +27,7 @@ from .generic_connections import (
     upsert_connection,
 )
 from .ig_supabase import sb_select, sb_update, sb_upsert
+from .job_runs import finish_job_run, start_job_run
 from .integration_errors import IntegrationError
 from .runtime_cache import invalidate_namespace
 from .sync_locks import guarded_sync
@@ -317,6 +318,23 @@ async def disconnect_fbits(*, client_id: str, user_id: str) -> Dict[str, Any]:
 # Sincronização
 # ---------------------------------------------------------------------------
 
+async def _safe_start_job_run(**kwargs) -> Dict[str, Any]:
+    """Observabilidade nunca derruba a sincronização: sem o registro, os dados
+    continuam entrando e a falha fica no log."""
+    try:
+        return await start_job_run(**kwargs)
+    except Exception as exc:
+        print(f"[fbits][sync] stage=job_run_start status=failed error_type={exc.__class__.__name__}")
+        return {}
+
+
+async def _safe_finish_job_run(job_run_id: str, **kwargs) -> None:
+    try:
+        await finish_job_run(job_run_id, **kwargs)
+    except Exception as exc:
+        print(f"[fbits][sync] stage=job_run_finish status=failed error_type={exc.__class__.__name__}")
+
+
 async def _persist_state(client_id: str, connection_id: str, patch: Dict[str, Any]) -> None:
     await sb_update(
         "integration_connections",
@@ -351,6 +369,9 @@ async def sync_fbits_connection(
     client_id: str,
     client_factory: ClientFactory = default_client_factory,
     now: Optional[datetime] = None,
+    job_name: str = "fbits_sync_manual",
+    trigger_source: str = "manual_api",
+    record_job_run: bool = True,
 ) -> Dict[str, Any]:
     row = await load_fbits_connection(client_id)
     if not row:
@@ -383,6 +404,15 @@ async def sync_fbits_connection(
         if isinstance(item, dict)
     }
     run_started = now or _now()
+    attempt_at = _iso(run_started)
+    metadata["last_attempt_at"] = attempt_at
+    job_run = None
+    if record_job_run:
+        job_run = await _safe_start_job_run(
+            job_name=job_name, client_id=client_id, connection_id=connection_id,
+            trigger_source=trigger_source, payload_json={"provider": PROVIDER},
+        )
+    job_run_id = _safe_str((job_run or {}).get("id"))
     historical = not metadata.get("history_completed_at")
     if historical:
         history_start = _parse_dt(metadata.get("history_start")) or (run_started - timedelta(days=HISTORY_DAYS))
@@ -432,6 +462,17 @@ async def sync_fbits_connection(
                 "metadata": {**metadata, "last_sync_error_code": exc.code, "last_sync_requests": client.requests_made},
             })
             print(f"[fbits][sync] client_id={client_id} mode={mode} status=error code={exc.code} orders={orders_upserted} requests={client.requests_made}")
+            if job_run_id:
+                # Mensagem pública da FbitsApiError: nunca contém token.
+                await _safe_finish_job_run(
+                    job_run_id, status="error", rows_upserted=orders_upserted,
+                    error=f"{exc.code}: {exc.public_message[:240]}",
+                    payload_json={
+                        "provider": PROVIDER, "mode": mode, "error_code": exc.code,
+                        "orders_upserted": orders_upserted, "requests": client.requests_made,
+                    },
+                    client_id=client_id, connection_id=connection_id,
+                )
             raise IntegrationError(
                 exc.public_message,
                 status_code=429 if exc.code == "FBITS_RATE_LIMITED" else (401 if exc.code == "FBITS_INVALID_TOKEN" else 502),
@@ -446,6 +487,8 @@ async def sync_fbits_connection(
         metadata["incremental_marker"] = _iso(run_started)
         metadata["last_sync_mode"] = mode
         metadata["last_sync_requests"] = client.requests_made
+        metadata["last_success_at"] = _iso(finished)
+        metadata["last_sync_orders"] = orders_upserted
         metadata.pop("last_sync_error_code", None)
         patch: Dict[str, Any] = {
             "status": "connected",
@@ -462,7 +505,7 @@ async def sync_fbits_connection(
         f"[fbits][sync] client_id={client_id} mode={mode} status=ok orders={orders_upserted} "
         f"items={items_upserted} days={daily_upserted} requests={client.requests_made}"
     )
-    return {
+    payload = {
         "ok": True,
         "client_id": client_id,
         "mode": mode,
@@ -470,4 +513,15 @@ async def sync_fbits_connection(
         "items_upserted": items_upserted,
         "daily_upserted": daily_upserted,
         "requests": client.requests_made,
+        "last_attempt_at": attempt_at,
+        "last_success_at": metadata.get("last_success_at"),
+        "job_run_id": job_run_id or None,
     }
+    if job_run_id:
+        # Zero pedido novo é sucesso: a janela incremental simplesmente não
+        # trouxe alteração. Nunca vira erro nem apaga last_success_at.
+        await _safe_finish_job_run(
+            job_run_id, status="success", rows_upserted=orders_upserted,
+            payload_json=payload, client_id=client_id, connection_id=connection_id,
+        )
+    return payload

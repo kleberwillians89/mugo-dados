@@ -12,6 +12,7 @@ ensure_env_loaded()
 from services.ads_sync import sync_ads_for_client_period
 from services.cron_jobs import (
     run_daily_instagram_sync,
+    run_fbits_sync_all,
     run_hourly_ads_sync,
     run_ga4_sync_all,
     run_google_ads_sync_all,
@@ -71,6 +72,8 @@ async def _run(args: argparse.Namespace) -> Any:
         return await run_shopify_reconciliation(fallback_days=args.fallback_days)
     if args.command == "shopify-historical-reconcile":
         return await run_shopify_historical_reconciliation(window_days=args.days)
+    if args.command == "fbits-sync-all":
+        return await run_fbits_sync_all(window_days=args.days)
     if args.command == "fbits-reconcile":
         report = await collect_fbits_reconciliation(
             client_id=args.client_id,
@@ -138,6 +141,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     shopify_historical.add_argument(
         "--days", type=int, default=14, help="Janela móvel limitada de reconciliação.",
+    )
+
+    fbits_sync = sub.add_parser(
+        "fbits-sync-all",
+        help="Sincroniza os dados analíticos de todas as conexões FBITS ativas (os KPIs oficiais vêm da própria FBITS).",
+    )
+    fbits_sync.add_argument(
+        "--days", type=int, default=1,
+        help="Janela nominal; o incremental real usa o marcador persistido da conexão.",
     )
 
     fbits_reconcile = sub.add_parser(

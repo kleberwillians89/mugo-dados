@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findProviderSource, paidMediaNotice, providerEverHadData } from "./providerFreshness";
+import {
+  findProviderSource,
+  paidMediaNotice,
+  providerEverHadData,
+  providerValidUpdatedAt,
+} from "./providerFreshness";
 
 const sources = [
   { provider: "meta", last_success_at: null, data_max_available: "2026-09-30" },
@@ -43,34 +48,69 @@ describe("providerEverHadData — decidido pelo dado, não pela telemetria", () 
   });
 });
 
-describe("paidMediaNotice — nunca contradiz dado existente", () => {
-  it("com dado existente, informa o período sem falar de primeira importação", () => {
+describe("paidMediaNotice — linguagem de cliente, sem jargão de pipeline", () => {
+  const internalWords = /job|pipeline|sincroniza|importa|primeira leitura/i;
+
+  it("com dado existente, informa o período sem falar de sincronização", () => {
     const notice = paidMediaNotice({ provider: "Meta Ads", syncStatus: "never", everHadData: true });
-    expect(notice.title).toBe("Sem dados de Meta Ads neste período");
-    expect(notice.body).not.toContain("primeira importação");
-    expect(notice.title).not.toContain("Aguardando");
+    expect(notice.title).toBe("Ainda não há dados de Meta Ads para este período");
+    expect(notice.title).not.toMatch(internalWords);
+    expect(notice.body).not.toMatch(internalWords);
   });
 
-  it("só sem nenhum dado é que aparece a espera da primeira importação", () => {
+  it("sem nenhum dado, o estado vazio é simples e também sem jargão", () => {
     const notice = paidMediaNotice({ provider: "Meta Ads", syncStatus: "never", everHadData: false });
-    expect(notice.title).toBe("Aguardando sincronização válida");
-    expect(notice.body).toContain("primeira importação");
+    expect(notice.title).toBe("Ainda não há dados de Meta Ads");
+    expect(notice.title).not.toMatch(internalWords);
+    expect(notice.body).not.toMatch(internalWords);
   });
 
-  it("job parcial ou sem dados mantém o diagnóstico da plataforma", () => {
-    const partial = paidMediaNotice({
-      provider: "Meta Ads", syncStatus: "partial", everHadData: true, lastError: "Janela incompleta",
-    });
-    expect(partial.title).toBe("Importação de Meta Ads parcial");
-    expect(partial.body).toBe("Janela incompleta");
+  it("resultado parcial não passa por sucesso e não mostra erro técnico", () => {
+    const partial = paidMediaNotice({ provider: "Meta Ads", syncStatus: "partial", everHadData: true });
+    expect(partial.title).toBe("Dados de Meta Ads incompletos neste período");
+    expect(partial.body).toContain("podem mudar na próxima atualização");
+    expect(partial.title).not.toMatch(internalWords);
+  });
 
+  it("skipped é lido como ausência de dado no período, não como falha", () => {
     const skipped = paidMediaNotice({ provider: "Meta Ads", syncStatus: "skipped", everHadData: false });
-    expect(skipped.title).toBe("Meta Ads sem dados no período");
-    expect(skipped.body).toContain("não retornou dados agregados");
+    expect(skipped.title).toBe("Ainda não há dados de Meta Ads para este período");
   });
 
   it("serve a outros providers sem herdar a semântica do Meta", () => {
     expect(paidMediaNotice({ provider: "Google Ads", everHadData: true }).title)
-      .toBe("Sem dados de Google Ads neste período");
+      .toBe("Ainda não há dados de Google Ads para este período");
+  });
+});
+
+describe("providerValidUpdatedAt — \"atualizado em\" é dado válido, não tentativa", () => {
+  it("uma tentativa recente sem sucesso não rejuvenesce a tela", () => {
+    const withAttempt = [{
+      provider: "meta",
+      last_attempt_at: "2026-10-02T18:00:00Z",
+      last_success_at: "2026-09-28T10:00:00Z",
+      data_max_available: "2026-09-28",
+    }];
+    expect(providerValidUpdatedAt(withAttempt, "meta")).toBe("2026-09-28T10:00:00Z");
+  });
+
+  it("sem sucesso registrado, não inventa data de atualização", () => {
+    expect(providerValidUpdatedAt([{ provider: "meta", last_attempt_at: "2026-10-02T18:00:00Z" }], "meta")).toBeNull();
+    expect(providerValidUpdatedAt([], "meta")).toBeNull();
+    expect(providerValidUpdatedAt(null, "meta")).toBeNull();
+  });
+
+  it("aceita o sucesso do resumo executivo como alternativa", () => {
+    expect(providerValidUpdatedAt([], "meta", { lastSuccessAt: "2026-10-01T09:00:00Z" }))
+      .toBe("2026-10-01T09:00:00Z");
+  });
+
+  it("não mistura providers", () => {
+    const rows = [
+      { provider: "meta", last_success_at: "2026-09-28T10:00:00Z" },
+      { provider: "google_ads", last_success_at: "2026-10-02T17:42:00Z" },
+    ];
+    expect(providerValidUpdatedAt(rows, "google_ads")).toBe("2026-10-02T17:42:00Z");
+    expect(providerValidUpdatedAt(rows, "ga4")).toBeNull();
   });
 });

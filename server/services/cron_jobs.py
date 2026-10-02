@@ -342,6 +342,60 @@ async def run_google_ads_sync_all(window_days: int = 7) -> Dict[str, Any]:
     return _provider_job_summary("google_ads_sync", conns, results, window_days)
 
 
+async def run_fbits_sync_all(window_days: int = 1) -> Dict[str, Any]:
+    """Sincronização recorrente da FBITS, por empresa.
+
+    `sync_fbits_connection` já decide a janela: histórico de 90 dias em blocos
+    de 7 até concluir, depois incremental pelo marcador persistido menos 2h
+    (DataAlteracao). Então o job só itera as empresas — `window_days` existe
+    para simetria com os outros providers e não encurta o incremental.
+
+    NÃO filtra `status=connected`: a própria sincronização marca `sync_error`
+    ou `reauth_required` ao falhar, e filtrar por "connected" excluiria a
+    empresa para sempre depois do primeiro erro. Só conexão desconectada é
+    ignorada. Uma empresa que falha não interrompe as demais.
+
+    Os KPIs executivos continuam vindo de GET /dashboard/faturamento: este job
+    atualiza apenas os dados analíticos derivados de /pedidos.
+    """
+    from .fbits_connections import PROVIDER as FBITS_PROVIDER, sync_fbits_connection
+
+    conns = await sb_select(
+        "integration_connections", filters={"provider": f"eq.{FBITS_PROVIDER}"},
+        order="updated_at.asc", limit=500,
+    )
+    active = [
+        row for row in conns
+        if not row.get("disconnected_at")
+        and str(row.get("status") or "").strip().lower() not in {"disconnected", "not_configured"}
+    ]
+    results: List[Dict[str, Any]] = []
+    for connection in active:
+        client_id = str(connection.get("client_id") or "").strip()
+        connection_id = str(connection.get("id") or "").strip()
+        if not client_id or not connection_id:
+            continue
+        try:
+            response = await sync_fbits_connection(
+                client_id=client_id, job_name="fbits_sync_cron",
+                trigger_source="cron", record_job_run=True,
+            )
+            results.append({
+                "client_id": client_id, "connection_id": connection_id, "ok": True,
+                "mode": response.get("mode"),
+                "orders_upserted": response.get("orders_upserted"),
+                "requests": response.get("requests"),
+            })
+        except Exception as exc:
+            # Mensagem já sanitizada pela IntegrationError/FbitsApiError.
+            results.append({
+                "client_id": client_id, "connection_id": connection_id, "ok": False,
+                "error_code": str(getattr(exc, "code", "") or exc.__class__.__name__),
+                "error": str(exc)[:240],
+            })
+    return _provider_job_summary("fbits_sync", active, results, window_days)
+
+
 def _provider_job_summary(
     job: str, connections: List[Dict[str, Any]], results: List[Dict[str, Any]], window_days: int,
 ) -> Dict[str, Any]:
