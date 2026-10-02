@@ -1,7 +1,7 @@
 import { memo } from "react";
 import type { CommentItem, TopWord } from "../app/types";
 import WordCloud from "./WordCloud";
-import MetaStateNotice from "./dashboard/MetaStateNotice";
+import DataNotice from "./data/DataNotice";
 
 type Props = {
   comments: CommentItem[];
@@ -44,99 +44,73 @@ function CommentsPanel({
     typeof total === "number" && Number.isFinite(total)
       ? Math.max(total, safeComments.length)
       : safeComments.length;
-  const pillLabel = loading
+  const countLabel = loading
     ? "Carregando..."
     : refreshing
       ? "Atualizando..."
-      : showUnavailable
-        ? "Indisponível"
-        : `${commentCount} comentários`;
+      : `${commentCount.toLocaleString("pt-BR")} ${commentCount === 1 ? "comentário" : "comentários"} no período`;
 
   return (
-    <div className="card cardWide">
-      <div className="sectionHeader">
-        <div>
-          <div className="h1">Comentários</div>
-          <div className="p">Lista + nuvem de palavras dentro do período selecionado.</div>
-        </div>
-        <div className="dashboardSectionMeta">
-          {updatedAtLabel ? <span className="dashboardTimestamp">{updatedAtLabel}</span> : null}
-          <span className={`pill ${showUnavailable ? "pillDanger" : "pillSoft"}`}>
-            {pillLabel}
-          </span>
+    <section className="ds-section commentsSection" aria-labelledby="comments-title">
+      <div className="ds-sectionHead">
+        <div className="ds-sectionHeadText">
+          <h3 id="comments-title" className="ds-sectionTitle">Comentários</h3>
+          {!showUnavailable ? (
+            <p className="ds-caption">{countLabel}{updatedAtLabel ? ` · ${updatedAtLabel.replace(/^Última atualização /, "atualizado em ")}` : ""}</p>
+          ) : null}
         </div>
       </div>
 
       {showUnavailable ? (
-        <MetaStateNotice
-          title="Comentários indisponíveis"
-          description="Esse bloco é secundário e pode falhar sem comprometer o restante da página."
-          tone="unavailable"
-          message={
-            message ||
-            (hasOrganicData ? "Não foi possível carregar os comentários agora." : "Comentários ainda não sincronizados.")
-          }
-          secondaryMessage="O resumo principal continua disponível enquanto esse bloco se recupera."
-        />
+        <DataNotice tone="negative" title="Comentários indisponíveis">
+          {message || (hasOrganicData ? "Não foi possível carregar os comentários agora." : "Comentários ainda não sincronizados.")}
+        </DataNotice>
       ) : showEmpty ? (
-        <MetaStateNotice
-          title={hasOrganicData ? "Sem comentários no período" : "Comentários ainda não sincronizados"}
-          description={
-            hasOrganicData
-              ? "A leitura orgânica está disponível e não retornou comentários nesse recorte."
-              : "A nuvem de palavras e a lista aparecem quando a sincronização orgânica trouxer comentários."
-          }
-          tone="empty"
-          message={message || (hasOrganicData ? "Sem dados no período." : "Comentários ainda não sincronizados.")}
-        />
+        <p className="ds-emptyLine">
+          {message || (hasOrganicData ? "Nenhum comentário neste período." : "Comentários ainda não sincronizados.")}
+        </p>
       ) : (
         <>
-          {error ? <div className="metaInlineNotice">Falha parcial ao atualizar comentários. Exibindo a última leitura disponível.</div> : null}
+          {error ? <DataNotice tone="warning" title="Atualização parcial dos comentários">Exibindo a última leitura disponível.</DataNotice> : null}
 
           <div className="commentsGrid">
-            <div>
-              <div className="smallMuted" style={{ marginBottom: 8 }}>Nuvem de palavras</div>
+            <div className="commentsWords">
+              <p className="ds-subTitle">Palavras mais citadas</p>
               {hasTopWords ? (
                 <WordCloud words={safeTopWords} />
               ) : loading ? (
-                <div className="smallMuted">Carregando palavras mais citadas...</div>
+                <p className="ds-status">Carregando palavras mais citadas...</p>
               ) : (
-                <div className="smallMuted">Sem palavras suficientes no período.</div>
+                <p className="ds-emptyLine">Sem palavras suficientes no período.</p>
               )}
             </div>
 
             <div className="commentsList">
               {showSkeleton ? (
-                <>
-                  <div className="skeleton skeletonComment" />
-                  <div className="skeleton skeletonComment" />
-                  <div className="skeleton skeletonComment" />
-                </>
+                <p className="ds-status" role="status">Carregando comentários...</p>
               ) : safeComments.length ? (
                 safeComments.slice(0, 120).map((c, index) => (
                   <div className="commentItem" key={c.comment_id || `${c.media_id || "media"}-${index}`}>
                     <div className="commentHead">
                       <b>@{c.username || "usuario"}</b>
-                      <span>{c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR") : ""}</span>
+                      <span>{c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}</span>
                     </div>
                     <div>{c.text || "(sem texto)"}</div>
                   </div>
                 ))
               ) : (
-                <div className="smallMuted">Sem comentários no período.</div>
+                <p className="ds-emptyLine">Nenhum comentário neste período.</p>
               )}
               {hasMore && onLoadMore ? (
-                <div className="row" style={{ marginTop: 8 }}>
-                  <button type="button" className="btn btnGhost" onClick={onLoadMore} disabled={loading}>
-                    {loading ? "Carregando..." : "Ver mais comentários"}
-                  </button>
-                </div>
+                <button type="button" className="ds-button" onClick={onLoadMore} disabled={loading}>
+                  {loading ? "Carregando..." : "Ver mais comentários"}
+                </button>
               ) : null}
             </div>
           </div>
         </>
       )}
-    </div>
+    </section>
   );
 }
 

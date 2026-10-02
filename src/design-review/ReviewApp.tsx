@@ -1,17 +1,20 @@
+import type { ReactNode } from "react";
 // HARNESS DE REVISÃO VISUAL — somente desenvolvimento (fora do build).
 // Monta o frame real (AppNavigation + páginas reais) com um perfil simulado.
 
 import { useState } from "react";
 import { setActiveClient } from "../app/activeClient";
-import { DashboardDataProvider } from "../app/DashboardDataContext";
+import { DashboardDataContext, DashboardDataProvider, type DashboardDataValue } from "../app/DashboardDataContext";
 import type { AppRoute } from "../app/routes";
 import DataNotice from "../components/data/DataNotice";
 import PageHeader from "../components/data/PageHeader";
 import Shell from "../components/Shell";
 import AppNavigation from "../components/shell/AppNavigation";
+import Dashboard from "../pages/Dashboard";
 import Ecommerce from "../pages/Ecommerce";
+import GoogleAnalytics from "../pages/GoogleAnalytics";
 import Onboarding from "../pages/Onboarding";
-import { REVIEW_PROFILES, type ReviewCompany, type ReviewProfile } from "./fixtures";
+import { REVIEW_PROFILES, type ReviewChannelScenario, type ReviewCompany, type ReviewProfile } from "./fixtures";
 
 const ROUTE_TITLE: Record<AppRoute, string> = {
   ecommerce: "Ecommerce",
@@ -51,9 +54,27 @@ type Props = {
   companies: ReviewCompany[];
   initialCompanyId: string;
   initialRoute: AppRoute;
+  googleView?: "ads" | "ga4";
+  channelScenario: ReviewChannelScenario;
 };
 
-export default function ReviewApp({ profile, companies, initialCompanyId, initialRoute }: Props) {
+/**
+ * Carregamento e erro do read model (Supabase, fora do harness): o mesmo
+ * contexto da página real, com o estado simulado. Só existe aqui.
+ */
+function ReviewReadModelState({ scenario, children }: { scenario: ReviewChannelScenario; children: ReactNode }) {
+  if (scenario !== "carregando" && scenario !== "erro") return <>{children}</>;
+  const value: DashboardDataValue = {
+    snapshot: null,
+    loading: scenario === "carregando",
+    refreshing: false,
+    error: scenario === "erro" ? "Falha simulada na leitura do read model." : null,
+    refetch: async () => null,
+  };
+  return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;
+}
+
+export default function ReviewApp({ profile, companies, initialCompanyId, initialRoute, googleView, channelScenario }: Props) {
   const role = REVIEW_PROFILES[profile].role;
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [activeId, setActiveId] = useState(initialCompanyId);
@@ -109,6 +130,26 @@ export default function ReviewApp({ profile, companies, initialCompanyId, initia
             onOpenGoogleReport={() => open("google")}
             onOpenIntegrations={canManage ? () => open("integrations") : undefined}
           />
+        ) : route === "meta" ? (
+          <ReviewReadModelState scenario={channelScenario}>
+            <Dashboard
+              key={`dashboard:${active.client_id}`}
+              isAuthenticated
+              canSync={canManage}
+              onOpenSetup={canManage ? () => open("integrations") : undefined}
+            />
+          </ReviewReadModelState>
+        ) : route === "google" ? (
+          <ReviewReadModelState scenario={channelScenario}>
+            <GoogleAnalytics
+              key={`google:${active.client_id}`}
+              isAuthenticated
+              canSync={canManage}
+              initialView={googleView}
+              onLogout={noop}
+              onOpenDashboard={() => open("meta")}
+            />
+          </ReviewReadModelState>
         ) : route === "integrations" && canManage ? (
           <Onboarding key={`integrations:${active.client_id}`} isAuthenticated onCompleted={() => open("meta")} />
         ) : (

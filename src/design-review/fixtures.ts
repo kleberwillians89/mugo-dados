@@ -224,19 +224,31 @@ export function reviewMetaDiscovery(clientId: string, companyName: string) {
   };
 }
 
-/** Contrato canônico (/integrations) de exemplo: Meta, GA4, Google Ads e FBITS conectados. */
-export function reviewCanonicalIntegrations(clientId: string, companyName: string, pending: boolean) {
+/** Contrato canônico (/integrations) de exemplo: Meta, GA4, Google Ads e FBITS conectados (IDs fictícios). */
+export function reviewCanonicalIntegrations(clientId: string, companyName: string, pending: boolean, channel: ReviewChannelScenario = "padrao") {
   const base = { authorization_status: "valid", assets: {}, last_error: null, updated_at: null };
+  const auth = channel === "reautorizar" ? "invalid" : "valid";
+  const slug = companyName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const channels = channel === "desconectado" ? [] : [
+    { ...base, provider: "meta", connection_id: "exemplo-meta", status: "connected", sync_status: "sync_success", authorization_status: auth,
+      account: { name: "Pessoa autorizada (exemplo)" }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT,
+      assets: {
+        facebook_page_id: "400000000000001", facebook_page_name: companyName,
+        instagram_account_id: "500000000000001", instagram_account_name: slug,
+        ad_account_id: "act_200000000000001", ad_account_name: `${companyName} — Conversões`,
+      } },
+    { ...base, provider: "ga4", connection_id: "exemplo-ga4", status: "connected", sync_status: "sync_success", authorization_status: auth,
+      account: { name: `${companyName} — site` }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT,
+      assets: { property_id: "properties/300000001", property_name: `${companyName} — site`, stream_id: "7000001", stream_name: `www.${slug}.com.br` } },
+    { ...base, provider: "google_ads", connection_id: "exemplo-ads", status: "connected", sync_status: "sync_success", authorization_status: auth,
+      account: { id: "1234567890", name: companyName }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT,
+      assets: { customer_id: "1234567890", customer_name: companyName, login_customer_id: "9876543210" } },
+  ];
   return {
     ok: true,
     client_id: clientId,
     connections: [
-      { ...base, provider: "meta", connection_id: "exemplo-meta", status: "connected", sync_status: "sync_success",
-        account: { name: companyName }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT },
-      { ...base, provider: "ga4", connection_id: "exemplo-ga4", status: "connected", sync_status: "sync_success",
-        account: { name: `${companyName} — site` }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT },
-      { ...base, provider: "google_ads", connection_id: "exemplo-ads", status: "connected", sync_status: "sync_success",
-        account: { name: companyName }, assets: { customer_id: "1234567890" }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT },
+      ...channels,
       clientId === "roove"
         ? { ...base, provider: "shopify", connection_id: "exemplo-shopify", status: "connected", sync_status: "sync_success",
             account: { name: "Loja de exemplo", domain: "loja-exemplo.myshopify.com" }, last_sync_at: SYNC_AT, last_successful_sync_at: SYNC_AT }
@@ -361,5 +373,205 @@ export function reviewShopifyCustomers(clientId: string, start: string, end: str
     ok: true, client_id: clientId, period: { start, end, days: daysBetween(start, end).length }, count: items.length,
     summary: { total_customers: items.length, recurring_customers: items.filter((item) => item.status === "recurring").length, multi_order_customers: items.filter((item) => item.total_orders > 1).length },
     items,
+  };
+}
+
+// ===== Canais (Meta, Google Ads, GA4) — DADOS DE EXEMPLO =====
+// Read model (dashboard_daily_metrics + campanhas + fontes) semeado no
+// cache de sessão que o DashboardDataProvider lê ao iniciar; nada de
+// Supabase no harness. Cenários: estados que a página precisa distinguir.
+
+// Embaralha a chave antes do hash: dias vizinhos ficam realmente diferentes.
+function noise(key: string): number {
+  return hash(`${key.split("").reverse().join("")}|${key}|${key.length * 7919}`);
+}
+
+export type ReviewChannelScenario = "padrao" | "sem-comparacao" | "sem-dados" | "desconectado" | "reautorizar" | "erro" | "carregando";
+
+export const REVIEW_CHANNEL_SCENARIOS: Array<{ id: ReviewChannelScenario; label: string }> = [
+  { id: "padrao", label: "Com comparação" },
+  { id: "sem-comparacao", label: "Sem base anterior" },
+  { id: "sem-dados", label: "Sem dados no período" },
+  { id: "desconectado", label: "Desconectado" },
+  { id: "reautorizar", label: "Autorização expirada" },
+  { id: "erro", label: "Erro" },
+  { id: "carregando", label: "Carregando" },
+];
+
+const META_CAMPAIGNS = ["Conversões — catálogo", "Remarketing 30 dias", "Prospecção — interesses", "Lançamento da coleção"];
+const GOOGLE_CAMPAIGNS = ["Pesquisa — marca", "Performance Max", "Pesquisa — categorias"];
+
+export function reviewChannelSnapshot(clientId: string, today: string, scenario: ReviewChannelScenario) {
+  const year = today.slice(0, 4);
+  const firstDay = scenario === "sem-comparacao" ? addDays(today, -29) : `${year}-01-01`;
+  const withData = scenario !== "sem-dados" && scenario !== "desconectado";
+  let followers = 12_400;
+  const daily = daysBetween(`${year}-01-01`, today).map((day) => {
+    const active = withData && day >= firstDay;
+    const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+    const weekend = weekday === 0 || weekday === 6 ? 1.25 : 1;
+    const metaSpend = Math.round((320 + noise(`ms${day}`) * 380) * 100) / 100;
+    const purchases = Math.round((3 + noise(`mp${day}`) * 9) * weekend);
+    const googleSpend = Math.round((160 + noise(`gs${day}`) * 220) * 100) / 100;
+    const conversions = Math.round((2 + noise(`gc${day}`) * 6) * weekend);
+    const sessions = Math.round((900 + noise(`ss${day}`) * 1100) * weekend);
+    if (active) followers += Math.round(4 + noise(`fl${day}`) * 22);
+    return {
+      client_id: clientId, metric_date: day, updated_at: `${today}T11:42:00Z`,
+      shopify_net_revenue: null, shopify_gross_revenue: null, shopify_orders: null, shopify_paid_orders: null,
+      shopify_customers: null, shopify_customer_keys: null, shopify_refunds: null,
+      meta_spend: active ? metaSpend : null,
+      meta_attributed_revenue: active ? Math.round(purchases * (190 + noise(`mr${day}`) * 90) * 100) / 100 : null,
+      meta_purchases: active ? purchases : null,
+      meta_impressions: active ? Math.round(18_000 + noise(`mi${day}`) * 22_000) : null,
+      meta_reach: active ? Math.round(11_000 + noise(`mh${day}`) * 13_000) : null,
+      meta_clicks: active ? Math.round(380 + noise(`mc${day}`) * 520) : null,
+      meta_link_clicks: active ? Math.round(260 + noise(`ml${day}`) * 320) : null,
+      meta_video_views: active ? Math.round(2_000 + noise(`mv${day}`) * 3_500) : null,
+      google_ads_spend: active ? googleSpend : null,
+      google_ads_conversion_value: active ? Math.round(conversions * (210 + noise(`gv${day}`) * 120) * 100) / 100 : null,
+      google_ads_conversions: active ? conversions : null,
+      google_ads_impressions: active ? Math.round(5_000 + noise(`gi${day}`) * 9_000) : null,
+      google_ads_clicks: active ? Math.round(210 + noise(`gk${day}`) * 290) : null,
+      ga4_sessions: active ? sessions : null,
+      ga4_users: active ? Math.round(sessions * 0.81) : null,
+      ga4_revenue: active ? Math.round(Math.round(6 + noise(`gp${day}`) * 14) * (230 + noise(`gr${day}`) * 60) * 100) / 100 : null,
+      ga4_purchases: active ? Math.round(6 + noise(`gp${day}`) * 14) : null,
+      ga4_events: active ? Math.round(sessions * (5.5 + noise(`ge${day}`) * 2)) : null,
+      instagram_reach: active ? Math.round(1_500 + noise(`ir${day}`) * 2_600) : null,
+      instagram_impressions: active ? Math.round(3_200 + noise(`ii${day}`) * 4_800) : null,
+      instagram_interactions: active ? Math.round(80 + noise(`it${day}`) * 220) : null,
+      instagram_profile_views: active ? Math.round(60 + noise(`ip${day}`) * 140) : null,
+      instagram_website_clicks: active ? Math.round(10 + noise(`iw${day}`) * 50) : null,
+      instagram_followers: active ? followers : null,
+    };
+  });
+  const campaigns = withData ? daily.filter((row) => row.metric_date >= firstDay).flatMap((row) => [
+    ...META_CAMPAIGNS.map((name, index) => {
+      const share = [0.42, 0.27, 0.19, 0.12][index];
+      const conversions = Math.round(Number(row.meta_purchases) * share * (index === 2 ? 0.4 : 1));
+      return {
+        client_id: clientId, metric_date: row.metric_date, provider: "meta", campaign_id: `exemplo-meta-${index + 1}`, campaign_name: name,
+        spend: Math.round(Number(row.meta_spend) * share * 100) / 100, impressions: Math.round(Number(row.meta_impressions) * share),
+        reach: Math.round(Number(row.meta_reach) * share), clicks: Math.round(Number(row.meta_clicks) * share),
+        conversions, revenue: Math.round(conversions * 225 * 100) / 100,
+      };
+    }),
+    ...GOOGLE_CAMPAIGNS.map((name, index) => {
+      const share = [0.35, 0.45, 0.2][index];
+      const conversions = Math.round(Number(row.google_ads_conversions) * share);
+      return {
+        client_id: clientId, metric_date: row.metric_date, provider: "google_ads", campaign_id: `exemplo-google-${index + 1}`, campaign_name: name,
+        spend: Math.round(Number(row.google_ads_spend) * share * 100) / 100, impressions: Math.round(Number(row.google_ads_impressions) * share),
+        clicks: Math.round(Number(row.google_ads_clicks) * share), conversions, conversion_value: Math.round(conversions * 260 * 100) / 100,
+      };
+    }),
+  ]) : [];
+  const source = (provider: string) => ({ provider, last_success_at: `${today}T11:42:00Z`, data_max_available: today, data_min_available: firstDay, updated_at: `${today}T11:42:00Z` });
+  return {
+    daily,
+    sources: scenario === "desconectado" ? [] : ["meta", "instagram", "google_ads", "ga4"].map(source),
+    campaigns,
+    products: [],
+    fetchedAt: `${today}T11:42:00Z`,
+    queryCount: 4,
+  };
+}
+
+const CAPTIONS = [
+  "Nova coleção chegou: peças pensadas para o dia a dia",
+  "Bastidores do ensaio de primavera",
+  "Como escolher o tamanho certo em três passos",
+  "Os favoritos da semana, escolhidos por vocês",
+  "Promoção de aniversário: só até domingo",
+  "Detalhes que fazem diferença no acabamento",
+  "Look completo com três peças da coleção",
+  "Perguntas frequentes sobre trocas e envios",
+];
+
+export function reviewInstagramMedia(start: string, end: string) {
+  const days = daysBetween(start, end).reverse();
+  return {
+    ok: true,
+    media: CAPTIONS.map((caption, index) => {
+      const day = days[Math.min(days.length - 1, index * 3)];
+      const reels = index % 3 === 0;
+      return {
+        id: `exemplo-midia-${index + 1}`,
+        media_type: reels ? "VIDEO" : index % 3 === 1 ? "CAROUSEL_ALBUM" : "IMAGE",
+        media_product_type: reels ? "REELS" : "FEED",
+        caption: `${caption} (exemplo)`,
+        timestamp: `${day}T15:30:00Z`,
+        permalink: null,
+        insights: {
+          reach: Math.round(1_800 + noise(`mr${index}`) * 6_000),
+          views: reels ? Math.round(4_000 + noise(`mv${index}`) * 9_000) : 0,
+          total_interactions: Math.round(90 + noise(`mt${index}`) * 420),
+          likes: Math.round(70 + noise(`ml${index}`) * 300),
+          comments: Math.round(4 + noise(`mc${index}`) * 40),
+          shares: Math.round(2 + noise(`ms${index}`) * 30),
+          saved: Math.round(5 + noise(`mz${index}`) * 60),
+          available_metrics: ["reach", "views", "total_interactions", "likes", "comments", "shares", "saved"],
+        },
+      };
+    }),
+  };
+}
+
+export function reviewInstagramComments() {
+  const texts = ["Amei a coleção!", "Tem no tamanho M?", "Chegou super rápido, obrigada", "Qual o prazo de entrega para o Sul?", "Lindo demais", "Vocês têm loja física?"];
+  return {
+    ok: true,
+    total: 37,
+    comments: texts.map((text, index) => ({
+      id: index + 1, client_id: "exemplo", media_id: `exemplo-midia-${index + 1}`, comment_id: `exemplo-comentario-${index + 1}`,
+      text, username: `pessoa_${index + 1}_exemplo`, timestamp: `2026-09-${String(20 + index).padStart(2, "0")}T14:00:00Z`,
+    })),
+    top_words: [
+      { word: "coleção", count: 14 }, { word: "tamanho", count: 9 }, { word: "entrega", count: 8 }, { word: "lindo", count: 7 },
+      { word: "prazo", count: 5 }, { word: "loja", count: 4 }, { word: "cores", count: 3 }, { word: "troca", count: 3 },
+    ],
+  };
+}
+
+export function reviewInstagramMonthly(today: string) {
+  const months: string[] = [];
+  for (let month = 1; month <= Number(today.slice(5, 7)); month += 1) months.push(`${today.slice(0, 4)}-${String(month).padStart(2, "0")}`);
+  return {
+    ok: true,
+    months: months.map((month, index) => ({
+      month, posts: 8 + Math.round(noise(`p${month}`) * 10), reels: 4 + Math.round(noise(`r${month}`) * 6),
+      reach: Math.round(38_000 + noise(`a${month}`) * 40_000 + index * 2_000), views: Math.round(60_000 + noise(`v${month}`) * 70_000),
+      interactions: Math.round(3_000 + noise(`i${month}`) * 4_000), profile_visits: Math.round(1_800 + noise(`f${month}`) * 2_200),
+      likes: 0, comments: 0, shares: 0, saved: 0,
+    })),
+  };
+}
+
+export function reviewGa4Channels(start: string, end: string) {
+  const rows = [
+    ["google / organic", "google", "organic", 0.34], ["(direct) / (none)", "(direct)", "(none)", 0.22],
+    ["google / cpc", "google", "cpc", 0.18], ["instagram / social", "instagram", "social", 0.14], ["newsletter / email", "newsletter", "email", 0.07],
+  ] as const;
+  const total = daysBetween(start, end).length * 1_400;
+  return {
+    ok: true, client_id: "exemplo", property_id: "properties/300000001", period: { start, end, days: daysBetween(start, end).length }, count: rows.length,
+    items: rows.map(([sourceMedium, source, medium, share]) => ({
+      source_medium: sourceMedium, source, medium, sessions: Math.round(total * share), active_users: Math.round(total * share * 0.78),
+      total_users: Math.round(total * share * 0.84), event_count: Math.round(total * share * 6.2), ecommerce_purchases: 0, purchase_revenue: 0, total_revenue: 0,
+    })),
+  };
+}
+
+export function reviewGa4Campaigns(start: string, end: string) {
+  const rows = [["pmax_colecao", "google / cpc", 0.12], ["newsletter_setembro", "newsletter / email", 0.05], ["remarketing_ig", "instagram / social", 0.04]] as const;
+  const total = daysBetween(start, end).length * 1_400;
+  return {
+    ok: true, client_id: "exemplo", property_id: "properties/300000001", period: { start, end, days: daysBetween(start, end).length }, count: rows.length,
+    items: rows.map(([name, sourceMedium, share]) => ({
+      campaign_name: name, source_medium: sourceMedium, source: sourceMedium.split(" / ")[0], medium: sourceMedium.split(" / ")[1],
+      sessions: Math.round(total * share), active_users: Math.round(total * share * 0.8), total_users: Math.round(total * share * 0.86),
+      event_count: Math.round(total * share * 6), ecommerce_purchases: 0, purchase_revenue: 0, total_revenue: 0,
+    })),
   };
 }

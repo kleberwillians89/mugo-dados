@@ -454,7 +454,7 @@
 .ds-rankBar span{ display: block; height: 100%; background: var(--accent); opacity: .5; }
 
 /* ====== TABELA ====== */
-.ds-tableWrap{ width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ds-tableWrap{ position: relative; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; } /* relative: textos só para leitor de tela (absolutos) ficam dentro da rolagem */
 .ds-table{ width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .ds-table th{
   padding: 0 var(--space-4) var(--space-3);
@@ -615,3 +615,62 @@
 @media (max-width: 719px){
   .ds-sourceList > div{ grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ====== CANAIS (Meta, Google Ads, GA4) ======
+   Mesmas primitivas do Ecommerce; aqui só o que os canais acrescentam. */
+
+/* Subnavegação da página (ex.: Google Ads | Google Analytics). */
+.ds-pageSubnav{ margin-top: 2px; }
+
+/* Ativos da conexão em uso: uma linha de procedência, sem cartão. */
+.ds-assetLine{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ds-assetLine > div{ display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ds-assetLine dt{ font-size: 12px; color: var(--text-muted); }
+.ds-assetLine dd{ margin: 0; font-size: 14px; font-weight: 500; color: var(--text-primary); overflow-wrap: anywhere; }
+.ds-assetId{ display: block; font: 400 11px var(--font-mono); color: var(--text-muted); }
+
+/* Um único ponto no período: o valor, não uma linha sem sentido. */
+.ds-singleValue{ display: flex; flex-direction: column; gap: 6px; padding: var(--space-5) 0; }
+.ds-singleValue span, .ds-singleValue small{ font-size: 13px; color: var(--text-muted); }
+.ds-singleValue strong{ font-family: var(--font-display); font-size: clamp(28px, 2.4vw, 34px); font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+
+/* Controles ao lado do título do gráfico (métrica, agrupamento). */
+.ds-chartControls{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2) var(--space-4); max-width: 100%; min-width: 0; }
+
+/* Destaques de campanhas: fatos curtos, rótulo acima do nome. */
+.ds-campaigns{ display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.ds-highlights{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: var(--space-4) var(--space-6); margin: 0; }
+.ds-highlights > div{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ds-highlights dt{ font-size: 12px; color: var(--text-muted); }
+.ds-highlights dd{ display: flex; flex-direction: column; gap: 2px; margin: 0; min-width: 0; }
+.ds-highlightName{ font-size: 14px; font-weight: 500; color: var(--text-primary); overflow-wrap: anywhere; }
+.ds-highlightValue{ font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
+/* Filtros de uma lista: campos discretos lado a lado. */
+.ds-filters{ display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); }
+.ds-filters .ds-field{ flex: 1 1 180px; min-width: 0; max-width: 260px; }
+.ds-field input[type="search"], .ds-field select{ width: 100%; min-width: 0; }
+
+@media (max-width: 1023px){
+  .ds-chartControls{ justify-content: flex-start; }
+}
+@media (max-width: 719px){
+  .ds-filters .ds-field{ max-width: none; flex-basis: 100%; }
+  .ds-assetLine{ gap: var(--space-3) var(--space-5); }
+}
+
+/* Funil (só quando a fonte traz as etapas): números lado a lado, taxa abaixo. */
+.ds-funnel{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: var(--space-5); margin: 0; padding: 0; list-style: none; }
+.ds-funnel li{ display: flex; flex-direction: column; gap: 6px; padding-top: var(--space-3); border-top: 2px solid var(--border-subtle); min-width: 0; }
+.ds-funnel li:last-child{ border-top-color: var(--accent); }
+.ds-funnelLabel{ font-size: 13px; color: var(--text-secondary); }
+.ds-funnelValue{ font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.ds-funnelRate{ font-size: 12px; color: var(--text-muted); }

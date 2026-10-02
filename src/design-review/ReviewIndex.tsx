@@ -52,6 +52,45 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: "Meta",
+    links: [
+      { label: "Meta Ads + Instagram — com comparação", query: "tela=meta&perfil=cliente&empresa=vinhos" },
+      { label: "Agência (IDs dos ativos e diagnóstico)", query: "tela=meta&perfil=agencia&empresa=vinhos" },
+      { label: "Somente leitura (sem Atualizar dados)", query: "tela=meta&perfil=viewer&empresa=vinhos" },
+      { label: "Roove — com vendas da loja (Shopify) no mesmo período", query: "tela=meta&perfil=cliente&empresa=roove" },
+      { label: "Sem base anterior", query: "tela=meta&perfil=cliente&cenario=sem-comparacao" },
+      { label: "Sem dados no período", query: "tela=meta&perfil=cliente&cenario=sem-dados" },
+      { label: "Desconectado", query: "tela=meta&perfil=cliente&cenario=desconectado" },
+      { label: "Autorização expirada", query: "tela=meta&perfil=cliente&cenario=reautorizar" },
+      { label: "Erro", query: "tela=meta&perfil=cliente&cenario=erro" },
+      { label: "Carregando", query: "tela=meta&perfil=cliente&cenario=carregando" },
+    ],
+  },
+  {
+    title: "Google Ads",
+    links: [
+      { label: "Google Ads — conta via MCC", query: "tela=google-ads&perfil=cliente&empresa=vinhos" },
+      { label: "Agência (IDs da conta e da MCC)", query: "tela=google-ads&perfil=agencia&empresa=vinhos" },
+      { label: "Roove — com vendas da loja e bloco Hoje", query: "tela=google-ads&perfil=cliente&empresa=roove" },
+      { label: "Sem dados no período", query: "tela=google-ads&perfil=cliente&cenario=sem-dados" },
+      { label: "Desconectado", query: "tela=google-ads&perfil=cliente&cenario=desconectado" },
+      { label: "Autorização expirada", query: "tela=google-ads&perfil=cliente&cenario=reautorizar" },
+      { label: "Erro", query: "tela=google-ads&perfil=cliente&cenario=erro" },
+      { label: "Carregando", query: "tela=google-ads&perfil=cliente&cenario=carregando" },
+    ],
+  },
+  {
+    title: "Google Analytics (GA4)",
+    links: [
+      { label: "GA4 — aquisição, comportamento e conversão", query: "tela=ga4&perfil=cliente&empresa=vinhos" },
+      { label: "Somente leitura", query: "tela=ga4&perfil=viewer&empresa=vinhos" },
+      { label: "Sem dados no período", query: "tela=ga4&perfil=cliente&cenario=sem-dados" },
+      { label: "Desconectado", query: "tela=ga4&perfil=cliente&cenario=desconectado" },
+      { label: "Erro", query: "tela=ga4&perfil=cliente&cenario=erro" },
+      { label: "Carregando", query: "tela=ga4&perfil=cliente&cenario=carregando" },
+    ],
+  },
+  {
     title: "Integrações",
     links: [
       { label: "Administrador do cliente", query: "tela=integracoes&perfil=cliente&empresa=vinhos" },

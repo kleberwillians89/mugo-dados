@@ -13,7 +13,14 @@ import { buildDashboardCacheKey, writeDashboardCache } from "../hooks/dashboard/
 import {
   REVIEW_COMPANIES,
   REVIEW_PROFILES,
+  REVIEW_CHANNEL_SCENARIOS,
   REVIEW_SCENARIOS,
+  reviewChannelSnapshot,
+  reviewGa4Campaigns,
+  reviewGa4Channels,
+  reviewInstagramComments,
+  reviewInstagramMedia,
+  reviewInstagramMonthly,
   reviewCanonicalIntegrations,
   reviewGenericConnections,
   reviewMetaConnections,
@@ -23,6 +30,7 @@ import {
   reviewShopifyReport,
   reviewShopifySnapshot,
   reviewSummary,
+  type ReviewChannelScenario,
   type ReviewProfile,
   type ReviewScenario,
 } from "./fixtures";
@@ -41,6 +49,11 @@ const params = new URLSearchParams(window.location.search);
 const screen = params.get("tela") || "indice";
 const requestedScenario = params.get("cenario") as ReviewScenario | null;
 const scenario: ReviewScenario = REVIEW_SCENARIOS.some((item) => item.id === requestedScenario) ? requestedScenario! : "padrao";
+// Telas de canal (Meta, Google Ads, GA4) têm cenários próprios no mesmo ?cenario=.
+const CHANNEL_SCREENS = ["meta", "google-ads", "ga4"];
+const isChannelScreen = CHANNEL_SCREENS.includes(screen);
+const channelScenario: ReviewChannelScenario =
+  REVIEW_CHANNEL_SCENARIOS.find((item) => item.id === (requestedScenario as string | null))?.id || "padrao";
 const profile: ReviewProfile = (["agencia", "cliente", "viewer"] as const).find((item) => item === params.get("perfil")) || "agencia";
 const showBanner = params.get("banner") !== "0";
 
@@ -70,10 +83,22 @@ try {
 // Shopify (Roove): o read model vem do cache de sessão que o próprio
 // DashboardDataProvider lê ao iniciar — sem Supabase no harness.
 const reviewToday = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-if (companies.some((company) => company.client_id === "roove")) {
+// Canais: read model de exemplo por empresa (Roove soma o Shopify ao mesmo snapshot).
+for (const company of companies) {
+  const channels = reviewChannelSnapshot(company.client_id, reviewToday, isChannelScreen ? channelScenario : "padrao");
+  const shopify = company.client_id === "roove" ? reviewShopifySnapshot("roove", reviewToday) : null;
+  const shopifyByDay = new Map((shopify?.daily || []).map((row) => [row.metric_date, row]));
   writeDashboardCache(
-    buildDashboardCacheKey("read-model-ytd-v2", { clientId: "roove" }),
-    reviewShopifySnapshot("roove", reviewToday),
+    buildDashboardCacheKey("read-model-ytd-v2", { clientId: company.client_id }),
+    {
+      ...channels,
+      daily: channels.daily.map((row) => {
+        const store = shopifyByDay.get(row.metric_date);
+        return store ? { ...row, ...Object.fromEntries(Object.entries(store).filter(([key]) => key.startsWith("shopify_"))) } : row;
+      }),
+      sources: [...channels.sources, ...(shopify?.sources || [])],
+      products: shopify?.products || [],
+    },
     24 * 60 * 60 * 1000
   );
 }
@@ -92,11 +117,25 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   if (!url.pathname.startsWith("/api/")) return realFetch(input, init);
   await new Promise((resolve) => window.setTimeout(resolve, 300));
   if (scenario === "carregando" && url.pathname.startsWith("/api/fbits/")) return new Promise<Response>(() => undefined);
+  const channelApi = ["/api/media", "/api/comments", "/api/media/monthly", "/api/months", "/api/google/ga4/channels", "/api/google/ga4/campaigns"];
+  if (isChannelScreen && channelApi.includes(url.pathname)) {
+    if (channelScenario === "carregando") return new Promise<Response>(() => undefined);
+    if (channelScenario === "erro") return json({ ok: false, detail: "Falha simulada" }, 500);
+    const empty = channelScenario === "sem-dados" || channelScenario === "desconectado";
+    const periodStart = url.searchParams.get("start") || reviewToday;
+    const periodEnd = url.searchParams.get("end") || reviewToday;
+    if (url.pathname === "/api/media") return json(empty ? { ok: true, media: [] } : reviewInstagramMedia(periodStart, periodEnd));
+    if (url.pathname === "/api/comments") return json(empty ? { ok: true, comments: [], top_words: [], total: 0 } : reviewInstagramComments());
+    if (url.pathname === "/api/media/monthly") return json(empty ? { ok: true, months: [] } : reviewInstagramMonthly(reviewToday));
+    if (url.pathname === "/api/months") return json({ ok: true, months: empty ? [] : reviewInstagramMonthly(reviewToday).months.map((row) => row.month) });
+    if (url.pathname === "/api/google/ga4/channels") return json(empty ? { ok: true, items: [] } : reviewGa4Channels(periodStart, periodEnd));
+    return json(empty ? { ok: true, items: [] } : reviewGa4Campaigns(periodStart, periodEnd));
+  }
   const clientMatch = /^\/api\/clients\/([^/]+)\//.exec(url.pathname);
   const clientId = clientMatch ? decodeURIComponent(clientMatch[1]) : initialCompany.client_id;
   const start = url.searchParams.get("start") || "";
   const end = url.searchParams.get("end") || "";
-  if (url.pathname.endsWith("/integrations")) return json(reviewCanonicalIntegrations(clientId, companyName(clientId), scenario === "pendente"));
+  if (url.pathname.endsWith("/integrations")) return json(reviewCanonicalIntegrations(clientId, companyName(clientId), scenario === "pendente", isChannelScreen ? channelScenario : "padrao"));
   if (url.pathname.endsWith("/connections") && clientMatch) return json(reviewMetaConnections(clientId, companyName(clientId)));
   if (url.pathname === "/api/connections") return json(reviewGenericConnections(clientId, companyName(clientId)));
   if (url.pathname === "/api/version") return json({ ok: true, commit_sha: "unknown" });
@@ -172,6 +211,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       companies={companies}
       initialCompanyId={initialCompany.client_id}
       scenario={scenario}
+      channelScenario={channelScenario}
       showBanner={showBanner}
     />
   </React.StrictMode>

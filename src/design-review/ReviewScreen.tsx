@@ -3,7 +3,7 @@
 import { PeriodProvider } from "../app/PeriodContext";
 import type { AppRoute } from "../app/routes";
 import type { LoginMode } from "../pages/Login";
-import { REVIEW_PROFILES, type ReviewCompany, type ReviewProfile, type ReviewScenario } from "./fixtures";
+import { REVIEW_PROFILES, type ReviewChannelScenario, type ReviewCompany, type ReviewProfile, type ReviewScenario } from "./fixtures";
 import ReviewApp from "./ReviewApp";
 import ReviewBanner from "./ReviewBanner";
 import ReviewIndex from "./ReviewIndex";
@@ -22,6 +22,8 @@ const SCREEN_TO_ROUTE: Record<string, AppRoute> = {
   integracoes: "integrations",
   meta: "meta",
   google: "google",
+  "google-ads": "google",
+  ga4: "google",
   inteligencia: "intelligence",
   empresas: "companies",
 };
@@ -33,10 +35,11 @@ type Props = {
   companies: ReviewCompany[];
   initialCompanyId: string;
   scenario: ReviewScenario;
+  channelScenario: ReviewChannelScenario;
   showBanner: boolean;
 };
 
-export default function ReviewScreen({ screen, loginState, profile, companies, initialCompanyId, scenario, showBanner }: Props) {
+export default function ReviewScreen({ screen, loginState, profile, companies, initialCompanyId, scenario, channelScenario, showBanner }: Props) {
   if (screen === "login") {
     const state = LOGIN_STATES[loginState] || LOGIN_STATES.padrao;
     return <ReviewLogin initialMode={state.mode} initialError={state.error} />;
@@ -53,9 +56,20 @@ export default function ReviewScreen({ screen, loginState, profile, companies, i
   if (!route) return <ReviewIndex />;
   return (
     <PeriodProvider>
-      <ReviewApp profile={profile} companies={companies} initialCompanyId={initialCompanyId} initialRoute={route} />
+      <ReviewApp
+        profile={profile}
+        companies={companies}
+        initialCompanyId={initialCompanyId}
+        initialRoute={route}
+        googleView={screen === "google-ads" ? "ads" : screen === "ga4" ? "ga4" : undefined}
+        channelScenario={route === "meta" || route === "google" ? channelScenario : "padrao"}
+      />
       {showBanner ? (
-        <ReviewBanner profileLabel={REVIEW_PROFILES[profile].label} scenario={route === "ecommerce" ? scenario : undefined} />
+        <ReviewBanner
+          profileLabel={REVIEW_PROFILES[profile].label}
+          scenario={route === "ecommerce" ? scenario : undefined}
+          channelScenario={route === "meta" || route === "google" ? channelScenario : undefined}
+        />
       ) : null}
     </PeriodProvider>
   );

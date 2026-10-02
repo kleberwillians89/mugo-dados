@@ -137,10 +137,6 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
 
   return (
     <>
-      <div className="organicMediaShelfIntro">
-        <div className="h1">Conteúdo orgânico</div>
-        <div className="p">Prévia visual dos posts, reels e stories disponíveis no período.</div>
-      </div>
       <div className="organicMediaShelf" aria-label="Últimos reels e posts orgânicos">
         {rows.slice(0, 8).map((m) => {
           const ins: Record<string, unknown> = m.insights || {};

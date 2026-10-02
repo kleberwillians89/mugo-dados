@@ -96,7 +96,7 @@ export default function PerformanceChart({
   const shortSource = source === "Meta Ads" ? "Meta" : "Google Ads";
 
   return (
-    <section className="ds-section ds-chartSection performanceChart" aria-label={`Evolução diária · ${source}`}>
+    <section className="ds-section ds-chartSection" aria-label={`Evolução diária · ${source}`}>
       <div className="ds-sectionHead">
         <div className="ds-sectionHeadText">
           <h2 className="ds-sectionTitle">{title}</h2>

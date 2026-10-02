@@ -239,9 +239,27 @@ async def api_oauth_meta_callback(
 
     if error:
         query_params = getattr(request, "query_params", {})
+        # Cancelamento/recusa (ex.: /dialog/oauth/business/cancel/) também
+        # devolve o state: recuperar empresa e usuário só quando o state é
+        # válido (assinatura, registro e acesso) permite diagnosticar qual
+        # tenant tentou conectar e manter o retorno na mesma empresa.
+        # O valor do state nunca é registrado.
+        if str(state or "").strip():
+            try:
+                denied_state = await consume_oauth_state(str(state), provider="meta")
+                denied_client_id = str(denied_state.get("client_id") or "").strip()
+                denied_user_id = str(denied_state.get("user_id") or "").strip()
+                if denied_client_id and denied_user_id:
+                    await require_user_client_access(denied_user_id, denied_client_id)
+                    fallback_client_id = denied_client_id
+                    callback_user_id = denied_user_id
+            except Exception as exc:  # noqa: BLE001 - diagnóstico não altera o retorno de erro
+                _meta_oauth_log(request, stage="provider_denied_state_unresolved", error_code=exc.__class__.__name__)
         _meta_oauth_log(
             request,
             stage="provider_denied",
+            client_id=fallback_client_id,
+            user_id=callback_user_id,
             error_code=str(error)[:80],
             state_present=bool(str(state or "").strip()),
             provider_error_code=str(query_params.get("error_code") or "")[:80],

@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-import MetaStateNotice from "./MetaStateNotice";
+import DataNotice from "../data/DataNotice";
 
 type Props = {
   children: ReactNode;
@@ -39,18 +39,11 @@ export default class MetaBlockBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="card cardWide">
-          <MetaStateNotice
-            title={this.props.title}
-            description={this.props.description}
-            tone="unavailable"
-            message={
-              this.props.fallbackMessage ||
-              "Esse bloco encontrou um erro, mas o restante do dashboard continua disponível."
-            }
-            secondaryMessage="Atualize o período ou a conexão para tentar novamente."
-          />
-        </div>
+        <DataNotice tone="negative" role="alert" title={`${this.props.title} indisponível`}>
+          {this.props.fallbackMessage ||
+            "Esse bloco encontrou um erro, mas o restante da página continua disponível."}{" "}
+          Atualize o período ou a conexão para tentar novamente.
+        </DataNotice>
       );
     }
 

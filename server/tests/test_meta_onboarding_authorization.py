@@ -187,6 +187,69 @@ class AgencyAdminCanManageMeta(_Base):
         self.assertIn("provider_error_reason=user_denied", logs)
         self.assertNotIn("secret-state", logs)
 
+    def _denied_request(self):
+        return SimpleNamespace(
+            state=SimpleNamespace(request_id="test-req"),
+            query_params={"error_code": "200", "error_reason": "user_denied"},
+        )
+
+    async def test_provider_denial_with_valid_state_keeps_tenant_for_diagnosis(self):
+        # Ex.: retorno de /dialog/oauth/business/cancel/ com state válido.
+        consume = AsyncMock(return_value={"client_id": ROOVE, "user_id": "user-roove", "provider": "meta"})
+        access = AsyncMock(return_value=None)
+        output = io.StringIO()
+        with (
+            patch.object(meta_legacy, "consume_oauth_state", consume),
+            patch.object(meta_legacy, "require_user_client_access", access),
+            patch.dict("os.environ", {"ALLOW_ORIGIN": "https://app.example"}),
+            redirect_stdout(output),
+        ):
+            response = await meta_legacy.api_oauth_meta_callback(
+                self._denied_request(), state="signed-valid-state", error="access_denied", error_description="Permissions error",
+            )
+        consume.assert_awaited_once_with("signed-valid-state", provider="meta")
+        access.assert_awaited_once_with("user-roove", ROOVE)
+        location = response.headers["location"]
+        self.assertIn("client_id=roove", location)
+        self.assertIn("meta_oauth=error", location)
+        self.assertNotIn("handoff=", location)
+        logs = output.getvalue()
+        self.assertIn("client_id=roove user_id=user-roove connection_id=- stage=provider_denied error_code=access_denied", logs)
+        self.assertIn("provider_error_reason=user_denied", logs)
+        self.assertNotIn("signed-valid-state", logs)
+
+    async def test_provider_denial_without_tenant_access_does_not_expose_the_tenant(self):
+        consume = AsyncMock(return_value={"client_id": AMALIE, "user_id": "user-roove", "provider": "meta"})
+        access = AsyncMock(side_effect=HTTPException(status_code=403, detail="Sem acesso"))
+        output = io.StringIO()
+        with (
+            patch.object(meta_legacy, "consume_oauth_state", consume),
+            patch.object(meta_legacy, "require_user_client_access", access),
+            patch.dict("os.environ", {"ALLOW_ORIGIN": "https://app.example"}),
+            redirect_stdout(output),
+        ):
+            response = await meta_legacy.api_oauth_meta_callback(
+                self._denied_request(), state="signed-valid-state", error="access_denied", error_description=None,
+            )
+        self.assertNotIn("client_id=amalie", response.headers["location"])
+        logs = output.getvalue()
+        self.assertIn("stage=provider_denied_state_unresolved error_code=HTTPException", logs)
+        self.assertIn("client_id=- user_id=- connection_id=- stage=provider_denied", logs)
+
+    async def test_provider_denial_with_invalid_state_still_redirects_with_error(self):
+        output = io.StringIO()
+        with (
+            patch.object(meta_legacy, "consume_oauth_state", AsyncMock(side_effect=RuntimeError("State OAuth inválido."))),
+            redirect_stdout(output),
+        ):
+            response = await meta_legacy.api_oauth_meta_callback(
+                self._denied_request(), state="forged", error="access_denied", error_description=None,
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("meta_oauth=error", response.headers["location"])
+        self.assertIn("stage=provider_denied_state_unresolved error_code=RuntimeError", output.getvalue())
+        self.assertNotIn("forged", output.getvalue())
+
     async def test_agency_admin_links_assets_for_explicit_tenant(self):
         save = AsyncMock(return_value={"ok": True, "saved_count": 1})
         with ExitStack() as stack:

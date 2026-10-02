@@ -24,7 +24,10 @@ export type DashboardSourceSnapshot = { provider: string; last_success_at: strin
 export type DashboardSnapshot = { daily: DashboardDailyMetric[]; sources: DashboardSourceSnapshot[]; campaigns: DashboardCampaignMetric[]; products: DashboardProductMetric[]; fetchedAt: string; queryCount: number };
 
 type Value = { snapshot: DashboardSnapshot | null; loading: boolean; refreshing: boolean; error: string | null; refetch: () => Promise<DashboardSnapshot | null> };
-const DashboardDataContext = createContext<Value | null>(null);
+// Exportado só para o harness de revisão visual (src/design-review) simular
+// carregamento e erro do read model; o runtime usa apenas o provider abaixo.
+export type DashboardDataValue = Value;
+export const DashboardDataContext = createContext<Value | null>(null);
 const bootstrapCompleted = new Set<string>();
 const inFlightSnapshots = new Map<string, Promise<DashboardSnapshot | null>>();
 
