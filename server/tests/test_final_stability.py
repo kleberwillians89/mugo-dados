@@ -136,6 +136,23 @@ class MetaDriftAndAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["drift_detected"])
         self.assertIn("selected_instagram_id_mismatch", {item["reason"] for item in result["issues"]})
 
+    async def test_business_only_authorization_is_not_false_drift(self):
+        async def select(table, **_kwargs):
+            if table == "integration_connections":
+                return [connection("origami", "meta", metadata={
+                    "selected_business_id": "1162363888929790",
+                    "selected_business_name": "origami_investimentos",
+                    "coverage": "organization_only",
+                })]
+            return []
+
+        adapter = MetaConnectionAdapter()
+        with patch("services.meta_connection_adapter.sb_select", side_effect=select):
+            result = await adapter.detect_drift("origami")
+        self.assertFalse(result["drift_detected"])
+        self.assertEqual(result["authorization_count"], 1)
+        self.assertEqual(result["operational_count"], 0)
+
     async def test_dry_run_redacts_tokens_and_classifies_duplicates(self):
         async def select(table, **_kwargs):
             if table == "integration_connections":

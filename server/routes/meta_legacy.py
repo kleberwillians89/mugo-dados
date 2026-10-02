@@ -676,6 +676,7 @@ async def api_link_assets(
             page_ids=[str(v or "").strip() for v in (payload.get("page_ids") or [])],
             instagram_ig_user_ids=[str(v or "").strip() for v in (payload.get("instagram_ig_user_ids") or [])],
             ad_account_ids=[str(v or "").strip() for v in (payload.get("ad_account_ids") or [])],
+            business_ids=[str(v or "").strip() for v in (payload.get("business_ids") or [])],
         )
         paid_connection = next(
             (

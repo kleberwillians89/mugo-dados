@@ -113,8 +113,10 @@ def _build_meta_entry(auth_row: Dict[str, Any], operational_rows: List[Dict[str,
     instagram_account_name = _safe_str((organic or {}).get("username")) or _safe_str(metadata.get("selected_instagram_username"))
     facebook_page_id = _safe_str(metadata.get("selected_page_id"))
     facebook_page_name = _safe_str(metadata.get("selected_page_name"))
+    business_id = _safe_str(metadata.get("selected_business_id"))
+    business_name = _safe_str(metadata.get("selected_business_name"))
 
-    has_assets = bool(ad_account_id or instagram_account_id or facebook_page_id)
+    has_assets = bool(business_id or ad_account_id or instagram_account_id or facebook_page_id)
     requires_reauth = bool(auth_row.get("last_error")) and _safe_str(auth_row.get("status")) == "reauth_required"
     last_sync_status = _safe_str((latest or {}).get("last_sync_status"))
 
@@ -134,6 +136,8 @@ def _build_meta_entry(auth_row: Dict[str, Any], operational_rows: List[Dict[str,
             "name": _safe_str(auth_row.get("account_name")) or None,
         },
         "assets": {
+            "business_id": business_id or None,
+            "business_name": business_name or None,
             "ad_account_id": ad_account_id or None,
             "ad_account_name": ad_account_name or None,
             "instagram_account_id": instagram_account_id or None,

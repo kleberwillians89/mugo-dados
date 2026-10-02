@@ -153,9 +153,32 @@ describe("Onboarding — ativos Meta agrupados por Business", () => {
     expect(linkClientAssets).toHaveBeenCalledTimes(1);
     expect(linkClientAssets).toHaveBeenCalledWith({
       handoff: "h-ruah",
+      business_ids: [],
       page_ids: [],
       instagram_ig_user_ids: [],
       ad_account_ids: [RUAH_AD_ACCOUNT],
     });
+  });
+
+  it("Business sem ativos pode ser escolhido explicitamente e salvo sem criar seleção falsa", async () => {
+    const origamiBusiness = checkbox("origami_investimentos");
+    expect(origamiBusiness).toBeTruthy();
+    expect(origamiBusiness?.checked).toBe(false);
+    await act(async () => {
+      origamiBusiness?.click();
+    });
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar conexão e importar dados");
+    await act(async () => {
+      save?.click();
+    });
+    await flush();
+    expect(linkClientAssets).toHaveBeenCalledWith({
+      handoff: "h-ruah",
+      business_ids: ["biz-vazio"],
+      page_ids: [],
+      instagram_ig_user_ids: [],
+      ad_account_ids: [],
+    });
+    expect(container.textContent).toContain("Organização Meta vinculada");
   });
 });

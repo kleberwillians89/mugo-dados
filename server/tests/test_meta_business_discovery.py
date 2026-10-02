@@ -488,10 +488,12 @@ def handoff_row(*, client_id="ruah", user_id="user-ruah", ad_accounts=None, page
 
 
 class SelectionAndTenantTests(unittest.IsolatedAsyncioTestCase):
-    def patch_db(self, stack, row):
+    def patch_db(self, stack, row, *, generic_rows=None):
         writes = []
 
         async def select(table, filters=None, **_kwargs):
+            if table == "integration_connections" and generic_rows is not None:
+                return generic_rows
             return []
 
         async def insert(table, data, **_kwargs):
@@ -528,13 +530,97 @@ class SelectionAndTenantTests(unittest.IsolatedAsyncioTestCase):
     async def test_16_explicit_selection_is_required_before_persisting(self):
         with ExitStack() as stack:
             writes, upsert = self.patch_db(stack, handoff_row())
-            with self.assertRaisesRegex(RuntimeError, "Selecione ao menos um ativo"):
+            with self.assertRaisesRegex(RuntimeError, "Selecione ao menos um Business ou ativo"):
                 await meta_oauth.save_connections(
                     user_id="user-ruah", client_id="ruah", handoff="handoff-ruah",
                     page_ids=[], instagram_ig_user_ids=[], ad_account_ids=[],
                 )
         self.assertEqual(writes, [])
         upsert.assert_not_awaited()
+
+    async def test_business_without_assets_is_saved_only_as_tenant_authorization(self):
+        row = handoff_row(client_id="origami", user_id="user-origami", ad_accounts=[])
+        row["meta_user_json"]["business_managers"] = [{
+            "business_id": "1162363888929790", "business_name": "origami_investimentos",
+            "discovery": {"owned_ad_accounts": {"status": "ok", "count": 0}},
+        }]
+        with ExitStack() as stack:
+            writes, upsert = self.patch_db(stack, row)
+            result = await meta_oauth.save_connections(
+                user_id="user-origami", client_id="origami", handoff="handoff-ruah",
+                page_ids=[], instagram_ig_user_ids=[], ad_account_ids=[],
+                business_ids=["1162363888929790"],
+            )
+        self.assertFalse(any(write[1] == "meta_connections" for write in writes))
+        self.assertEqual(result["connections"], [])
+        self.assertEqual(upsert.await_args.kwargs["client_id"], "origami")
+        self.assertEqual(upsert.await_args.kwargs["status"], "connected")
+        metadata = upsert.await_args.kwargs["metadata"]
+        self.assertEqual(metadata["selected_business_id"], "1162363888929790")
+        self.assertEqual(metadata["selected_business_name"], "origami_investimentos")
+        self.assertEqual(metadata["coverage"], "organization_only")
+        self.assertEqual(metadata["ads_status"], "asset_required")
+        self.assertEqual(metadata["organic_status"], "asset_required")
+
+    async def test_business_from_another_authorization_is_rejected_without_writes(self):
+        with ExitStack() as stack:
+            writes, upsert = self.patch_db(stack, handoff_row(client_id="origami", user_id="user-origami"))
+            with self.assertRaisesRegex(RuntimeError, "não pertence"):
+                await meta_oauth.save_connections(
+                    user_id="user-origami", client_id="origami", handoff="handoff-ruah",
+                    page_ids=[], instagram_ig_user_ids=[], ad_account_ids=[],
+                    business_ids=["business-de-outro-tenant"],
+                )
+        self.assertEqual(writes, [])
+        upsert.assert_not_awaited()
+
+    async def test_business_can_be_saved_with_page_instagram_or_ads(self):
+        page = {"page_id": "page-ruah", "page_name": "RÜAH Página", "access_status": "accessible"}
+        instagram = [{
+            "ig_user_id": "ig-ruah", "username": "ruah", "business_id": "page-ruah",
+            "business_name": "RÜAH Página",
+        }]
+        cases = (
+            ("page", ["page-ruah"], [], [], None),
+            ("instagram", ["page-ruah"], ["ig-ruah"], [], "instagram"),
+            ("ads", [], [], [RUAH_AD_ACCOUNT], "meta_ads"),
+        )
+        for label, pages, igs, ads, expected_platform in cases:
+            with self.subTest(label=label), ExitStack() as stack:
+                row = handoff_row(pages=[page], instagram=instagram)
+                writes, upsert = self.patch_db(stack, row)
+                result = await meta_oauth.save_connections(
+                    user_id="user-ruah", client_id="ruah", handoff="handoff-ruah",
+                    page_ids=pages, instagram_ig_user_ids=igs, ad_account_ids=ads,
+                    business_ids=[RUAH_BUSINESS],
+                )
+            metadata = upsert.await_args.kwargs["metadata"]
+            self.assertEqual(metadata["selected_business_id"], RUAH_BUSINESS)
+            self.assertEqual(metadata["selected_page_id"], "page-ruah" if pages else None)
+            if expected_platform is None:
+                self.assertFalse(any(write[1] == "meta_connections" for write in writes))
+                self.assertEqual(result["connections"], [])
+            else:
+                self.assertEqual(result["connections"][0]["platform"], expected_platform)
+
+    async def test_later_asset_selection_preserves_previously_linked_business(self):
+        previous = [{
+            "id": "generic-meta", "metadata": {
+                "selected_business_id": RUAH_BUSINESS,
+                "selected_business_name": "RÜAH",
+                "coverage": "organization_only",
+            },
+        }]
+        with ExitStack() as stack:
+            _writes, upsert = self.patch_db(stack, handoff_row(), generic_rows=previous)
+            await meta_oauth.save_connections(
+                user_id="user-ruah", client_id="ruah", handoff="handoff-ruah",
+                page_ids=[], instagram_ig_user_ids=[], ad_account_ids=[RUAH_AD_ACCOUNT],
+            )
+        metadata = upsert.await_args.kwargs["metadata"]
+        self.assertEqual(metadata["selected_business_id"], RUAH_BUSINESS)
+        self.assertEqual(metadata["selected_business_name"], "RÜAH")
+        self.assertEqual(metadata["selected_ad_account_id"], f"act_{RUAH_AD_ACCOUNT}")
 
     async def test_17_selected_business_account_is_saved_only_in_current_tenant(self):
         with ExitStack() as stack:

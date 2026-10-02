@@ -167,6 +167,29 @@ class ConnectionsServiceTests(unittest.IsolatedAsyncioTestCase):
         entry = next(c for c in result["connections"] if c["provider"] == "meta")
         self.assertEqual(entry["status"], "needs_configuration")
 
+    async def test_meta_business_only_is_connected_without_fake_operational_assets(self):
+        integration_rows = [_integration_row(
+            account_id=None,
+            account_name=None,
+            metadata={
+                "selected_business_id": "1162363888929790",
+                "selected_business_name": "origami_investimentos",
+                "coverage": "organization_only",
+            },
+        )]
+        with (
+            patch.object(svc, "_load_integration_rows", AsyncMock(return_value=integration_rows)),
+            patch.object(svc, "_load_meta_operational_rows", AsyncMock(return_value=[])),
+        ):
+            result = await svc.get_client_connections("origami")
+        entry = next(c for c in result["connections"] if c["provider"] == "meta")
+        self.assertEqual(entry["status"], "connected")
+        self.assertEqual(entry["assets"]["business_id"], "1162363888929790")
+        self.assertEqual(entry["assets"]["business_name"], "origami_investimentos")
+        self.assertIsNone(entry["assets"]["ad_account_id"])
+        self.assertIsNone(entry["assets"]["instagram_account_id"])
+        self.assertIsNone(entry["sync_status"])
+
     async def test_no_tokens_leak_in_canonical_response(self):
         integration_rows = [
             _integration_row(

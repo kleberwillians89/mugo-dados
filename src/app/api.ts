@@ -1619,6 +1619,7 @@ export async function activateMetaOrganic(
 export async function linkClientAssets(
   payload: {
     handoff: string;
+    business_ids: string[];
     page_ids: string[];
     instagram_ig_user_ids: string[];
     ad_account_ids: string[];

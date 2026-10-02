@@ -146,6 +146,7 @@ describe("Onboarding — Meta Ads pendente com conexão existente", () => {
     await clickButton("Salvar conexão e importar dados");
     expect(api.linkClientAssets).toHaveBeenCalledWith({
       handoff: "h-novo",
+      business_ids: [],
       page_ids: [],
       instagram_ig_user_ids: [],
       ad_account_ids: [RUAH_AD_ACCOUNT],

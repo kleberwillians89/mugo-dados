@@ -67,7 +67,11 @@ class MetaConnectionAdapter:
             issues.append({"code": "META_CONNECTION_DRIFT", "reason": "multiple_active_authorizations", "count": len(active_auth)})
         if active_projection and not active_auth:
             issues.append({"code": "META_CONNECTION_DRIFT", "reason": "projection_without_authorization", "count": len(active_projection)})
-        if active_auth and not active_projection:
+        business_only_authorization = bool(
+            len(active_auth) == 1
+            and _text(_metadata(active_auth[0]).get("selected_business_id"))
+        )
+        if active_auth and not active_projection and not business_only_authorization:
             issues.append({"code": "META_CONNECTION_DRIFT", "reason": "authorization_without_projection", "count": len(active_auth)})
         organic = [r for r in active_projection if _text(r.get("platform")).lower() == "instagram"]
         paid = [r for r in active_projection if _text(r.get("platform")).lower() == "meta_ads"]

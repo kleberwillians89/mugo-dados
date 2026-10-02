@@ -114,6 +114,30 @@ describe("Onboarding — contrato canônico de integrações", () => {
     expect(container.textContent).toContain("Conta: Amalie");
   });
 
+  it("mostra Business-only como organização conectada sem inventar ativos", async () => {
+    mocks.canonicalResponse = {
+      ok: true,
+      client_id: "amalie",
+      connections: [canonicalConnection({
+        sync_status: null,
+        account: { id: null, name: null },
+        assets: {
+          business_id: "1162363888929790",
+          business_name: "origami_investimentos",
+          facebook_page_id: null,
+          instagram_account_id: null,
+          ad_account_id: null,
+        },
+      })],
+    };
+    await renderOnboarding();
+    expect(container.textContent).toContain("Organização: origami_investimentos");
+    expect(container.textContent).toContain("Business: 1162363888929790");
+    expect(container.textContent).toContain("Página: Não configurada");
+    expect(container.textContent).toContain("Instagram: Não configurado");
+    expect(container.textContent).toContain("Meta Ads: Não configurado");
+  });
+
   it("não existe mais o badge duplicado 'Status consolidado'", async () => {
     await renderOnboarding();
     expect(container.textContent).not.toContain("Status consolidado");

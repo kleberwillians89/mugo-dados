@@ -2070,6 +2070,7 @@ async def save_connections(
     page_ids: List[str],
     instagram_ig_user_ids: List[str],
     ad_account_ids: List[str],
+    business_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     item = await _load_handoff_row(handoff=handoff)
     token = _safe_str(item.get("handoff"))
@@ -2081,6 +2082,14 @@ async def save_connections(
     pages_requested = {_safe_str(i) for i in page_ids if _safe_str(i)}
     ig_requested = {_safe_str(i) for i in instagram_ig_user_ids if _safe_str(i)}
     ads_requested = {_normalize_ad_account_id(i) for i in ad_account_ids if _safe_str(i)}
+    businesses_requested = {_safe_str(i) for i in (business_ids or []) if _safe_str(i)}
+    meta_user = _json_object(item.get("meta_user_json"))
+    discovered_businesses = _json_array(meta_user.get("business_managers"))
+    discovered_business_ids = {
+        _safe_str((business or {}).get("business_id"))
+        for business in discovered_businesses
+        if isinstance(business, dict) and _safe_str(business.get("business_id"))
+    }
     discovered_igs = _json_array(item.get("instagram_accounts_json"))
     discovered_ads = _json_array(item.get("ad_accounts_json"))
     discovered_ig_ids = {
@@ -2118,6 +2127,11 @@ async def save_connections(
         discovered_ids=discovered_ad_ids,
         error_message="A conta Meta Ads selecionada não pertence aos ativos desta autorização.",
     )
+    _validate_requested_asset_ids(
+        requested_ids=businesses_requested,
+        discovered_ids=discovered_business_ids,
+        error_message="O Business selecionado não pertence às organizações desta autorização.",
+    )
     selected_igs = [
         a
         for a in discovered_igs
@@ -2138,7 +2152,11 @@ async def save_connections(
             "Selecione apenas uma conta Meta Ads por conexão.",
             status_code=409, code="META_AD_ACCOUNT_SELECTION_AMBIGUOUS", provider="meta",
         )
-
+    if len(businesses_requested) > 1:
+        raise IntegrationError(
+            "Selecione apenas um Business por conexão.",
+            status_code=409, code="META_BUSINESS_SELECTION_AMBIGUOUS", provider="meta",
+        )
     validate_page_selection(
         discovered_instagram_accounts=discovered_igs,
         discovered_pages=_json_array(item.get("pages_json")),
@@ -2146,15 +2164,14 @@ async def save_connections(
         selected_instagram_accounts=selected_igs,
     )
 
-    if not selected_igs and not selected_ads:
-        raise RuntimeError("Selecione ao menos um ativo Instagram ou Meta Ads para vincular.")
+    if not businesses_requested and not pages_requested and not selected_igs and not selected_ads:
+        raise RuntimeError("Selecione ao menos um Business ou ativo Meta para vincular.")
 
     now_iso = _iso(_now_utc())
     await _claim_handoff_for_finalization(handoff=token, consumed_at=now_iso)
 
     encrypted_access = _safe_str(item.get("encrypted_access_token"))
     access_token = decrypt_secret(encrypted_access)
-    meta_user = _json_object(item.get("meta_user_json"))
     scopes = _json_array(item.get("scopes_json"))
     expires_at = item.get("expires_at")
     current_meta_user_id = _safe_str(meta_user.get("id"))
@@ -2311,6 +2328,21 @@ async def save_connections(
         )
     previous_generic = generic_rows[0] if generic_rows else {}
     previous_metadata = _json_object(previous_generic.get("metadata"))
+    selected_business = next(
+        (
+            business for business in discovered_businesses
+            if _safe_str((business or {}).get("business_id")) in businesses_requested
+        ),
+        {},
+    )
+    selected_business_id = (
+        _safe_str(selected_business.get("business_id"))
+        or _safe_str(previous_metadata.get("selected_business_id"))
+    )
+    selected_business_name = (
+        _safe_str(selected_business.get("business_name"))
+        or _safe_str(previous_metadata.get("selected_business_name"))
+    )
     selected_ad = selected_ads[0] if selected_ads else {}
     selected_ad_id = (
         _normalize_ad_account_id(_safe_str(selected_ad.get("ad_account_id")))
@@ -2327,8 +2359,19 @@ async def save_connections(
     }
     merged_ad_ids = sorted(ads_requested | preserved_ad_ids | ({selected_ad_id} if selected_ad_id else set()))
     selected_ig = selected_igs[0] if selected_igs else {}
-    selected_page_id = _safe_str(selected_ig.get("business_id"))
-    selected_page_name = _safe_str(selected_ig.get("business_name"))
+    selected_page = next(
+        (
+            page for page in _json_array(item.get("pages_json"))
+            if _safe_str((page or {}).get("page_id") or (page or {}).get("id")) in pages_requested
+        ),
+        {},
+    )
+    selected_page_id = _safe_str(selected_ig.get("business_id")) or _safe_str(
+        selected_page.get("page_id") or selected_page.get("id")
+    )
+    selected_page_name = _safe_str(selected_ig.get("business_name")) or _safe_str(
+        selected_page.get("page_name") or selected_page.get("name")
+    )
     selected_ig_id = _safe_str(selected_ig.get("ig_user_id"))
     selected_ig_username = _safe_str(selected_ig.get("username"))
     # Selecionar só a conta de anúncios não desfaz o orgânico já configurado
@@ -2342,16 +2385,21 @@ async def save_connections(
         "selected_instagram_username": selected_ig_username or None,
         "organic_status": "connected",
     } if selected_ig_id else {
+        "page_ids": sorted(pages_requested) if pages_requested else previous_metadata.get("page_ids", []),
+        "selected_page_id": selected_page_id or previous_metadata.get("selected_page_id"),
+        "selected_page_name": selected_page_name or previous_metadata.get("selected_page_name"),
         "organic_status": _safe_str(previous_metadata.get("organic_status")) or "asset_required",
     }
     effective_ig_id = selected_ig_id or _safe_str(previous_metadata.get("selected_instagram_id"))
+    effective_page_id = selected_page_id or _safe_str(previous_metadata.get("selected_page_id"))
+    has_configuration = bool(selected_business_id or selected_ad_id or effective_ig_id or effective_page_id)
     generic_connection = await upsert_connection(
         client_id=client_id,
         provider="meta",
         external_key=f"meta:{client_id}",
         token_payload=json.dumps({"access_token": access_token}),
         user_id=user_id,
-        status="connected" if selected_ad_id or effective_ig_id else "selection_required",
+        status="connected" if has_configuration else "selection_required",
         account_id=selected_ad_id or None,
         account_name=selected_ad_name or None,
         token_expires_at=_safe_str(expires_at) or None,
@@ -2359,13 +2407,20 @@ async def save_connections(
         metadata={
             **previous_metadata,
             "integration_product": "meta",
-            "selection_required": not bool(selected_ad_id or effective_ig_id),
+            "selection_required": not has_configuration,
             "oauth_handoff": None,
             "meta_user_id": current_meta_user_id or None,
             "meta_user_name": _safe_str(meta_user.get("name")) or None,
+            "business_ids": [selected_business_id] if selected_business_id else [],
+            "selected_business_id": selected_business_id or None,
+            "selected_business_name": selected_business_name or None,
             **organic_metadata,
             "ads_status": "connected" if selected_ad_id else "asset_required",
-            "coverage": "full" if effective_ig_id and selected_ad_id else "partial",
+            "coverage": (
+                "full" if effective_ig_id and selected_ad_id
+                else "organization_only" if selected_business_id and not (effective_page_id or effective_ig_id or selected_ad_id)
+                else "partial"
+            ),
             "ad_account_ids": merged_ad_ids,
             "selected_ad_account_id": selected_ad_id or None,
             "selected_ad_account_name": selected_ad_name or None,
@@ -2387,6 +2442,7 @@ async def save_connections(
         "[meta_oauth][diag] stage=selection_saved "
         f"client_id={_safe_str(client_id)} "
         f"ad_account_id={selected_ad_id or '-'} ad_account_requested={','.join(sorted(ads_requested)) or '-'} "
+        f"business_id={selected_business_id or '-'} business_requested={','.join(sorted(businesses_requested)) or '-'} "
         f"instagram_id={effective_ig_id or '-'} instagram_requested={','.join(sorted(ig_requested)) or '-'} "
         f"paid_rows={sum(1 for row in saved if row.get('platform') == 'meta_ads')}"
     )

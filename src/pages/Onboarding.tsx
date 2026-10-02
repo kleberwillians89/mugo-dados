@@ -315,6 +315,7 @@ export default function Onboarding({
   // sobrepor manualmente esse padrão por provider através de "Gerenciar".
   const [expandedOverrides, setExpandedOverrides] = useState<Record<string, boolean>>({});
   const [pendingAssets, setPendingAssets] = useState<MetaDiscoverAssetsResponse | null>(null);
+  const [selectedBusinesses, setSelectedBusinesses] = useState<Record<string, boolean>>({});
   const [selectedIg, setSelectedIg] = useState<Record<string, boolean>>({});
   const [selectedPages, setSelectedPages] = useState<Record<string, boolean>>({});
   const [selectedAds, setSelectedAds] = useState<Record<string, boolean>>({});
@@ -370,6 +371,7 @@ export default function Onboarding({
     const dataClientId = String(data?.client_id || "").trim();
     if (dataClientId && dataClientId !== getActiveClientId()) return;
     setPendingAssets(data);
+    setSelectedBusinesses({});
     setSelectedIg({});
     setSelectedPages({});
     setSelectedAds({});
@@ -575,6 +577,7 @@ export default function Onboarding({
     if (previousClientIdRef.current === activeClientIdForSelection) return;
     previousClientIdRef.current = activeClientIdForSelection;
     setPendingAssets(null);
+    setSelectedBusinesses({});
     setSelectedIg({});
     setSelectedPages({});
     setSelectedAds({});
@@ -1077,6 +1080,9 @@ export default function Onboarding({
       return;
     }
 
+    const businessIds = Object.entries(selectedBusinesses)
+      .filter(([, checked]) => checked)
+      .map(([id]) => id);
     const instagramIds = Object.entries(selectedIg)
       .filter(([, checked]) => checked)
       .map(([id]) => id);
@@ -1098,6 +1104,7 @@ export default function Onboarding({
       }
       await linkClientAssets({
         handoff: pendingAssets.handoff,
+        business_ids: businessIds,
         page_ids: pageIds,
         instagram_ig_user_ids: instagramIds,
         ad_account_ids: adAccountIds,
@@ -1122,11 +1129,16 @@ export default function Onboarding({
         setActiveConnectionId(activation.organic_connection_id);
       }
       setPendingAssets(null);
+      setSelectedBusinesses({});
       setSelectedIg({});
       setSelectedPages({});
       setSelectedAds({});
       await loadConnections();
-      setInfo("Meta conectada. Ativos persistidos e importação inicial concluída.");
+      setInfo(
+        instagramIds.length || adAccountIds.length
+          ? "Meta conectada. Ativos persistidos e importação inicial concluída."
+          : "Organização Meta vinculada. Novos ativos poderão ser adicionados depois."
+      );
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao vincular os ativos do cliente ativo."));
     } finally {
@@ -1569,8 +1581,11 @@ export default function Onboarding({
                   )}
                 </div>
                 {definition.id === "meta" ? <div className="smallMuted integrationDetail" style={{ marginTop: 8 }}>
-                  Meta Ads: {metaAdsOperational ? "conectado" : "pendente"}<br />
-                  Instagram orgânico: {dashboardReady ? "conectado" : "configuração pendente"}
+                  Organização: {canonicalEntry?.assets?.business_name || "Não configurada"}<br />
+                  Business: {canonicalEntry?.assets?.business_id || "Não configurado"}<br />
+                  Página: {canonicalEntry?.assets?.facebook_page_name || canonicalEntry?.assets?.facebook_page_id || "Não configurada"}<br />
+                  Instagram: {dashboardReady ? canonicalEntry?.assets?.instagram_account_name || canonicalEntry?.assets?.instagram_account_id || "Conectado" : "Não configurado"}<br />
+                  Meta Ads: {metaAdsOperational ? canonicalEntry?.assets?.ad_account_name || canonicalEntry?.assets?.ad_account_id || "Conectado" : "Não configurado"}
                 </div> : null}
                 {canonicalEntry && canonicalAccountLabel(canonicalEntry) ? (
                   <div className="smallMuted integrationDetail integrationAccount" style={{ marginTop: 8 }}>Conta: {canonicalAccountLabel(canonicalEntry)}</div>
@@ -2030,8 +2045,19 @@ export default function Onboarding({
                     >
                       {group.businessId ? (
                         <div className="metaAssetGroupHeader">
-                          <strong>{group.businessName}</strong>
-                          <span className="smallMuted">Business {group.businessId}</span>
+                          <label className="onboardingCheck">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedBusinesses[String(group.businessId)])}
+                              onChange={(event) =>
+                                setSelectedBusinesses(event.target.checked ? { [String(group.businessId)]: true } : {})
+                              }
+                            />
+                            <span>
+                              <strong>{group.businessName}</strong><br />
+                              <span className="smallMuted">Organização Meta · Business {group.businessId}</span>
+                            </span>
+                          </label>
                         </div>
                       ) : hasBusinessGroups ? (
                         <div className="metaAssetGroupHeader">
@@ -2063,14 +2089,14 @@ export default function Onboarding({
                                     <input
                                       type="checkbox"
                                       checked={Boolean(selectedPages[page.page_id])}
-                                      disabled={!linked || restricted}
+                                      disabled={restricted}
                                       onChange={(event) =>
                                         setSelectedPages(event.target.checked ? { [page.page_id]: true } : {})
                                       }
                                     />
                                     <span>
                                       {page.page_name || page.page_id}{" "}
-                                      <span className="smallMuted">({linked || restricted ? page.page_id : "sem Instagram profissional"})</span>
+                                      <span className="smallMuted">({page.page_id}{!linked && !restricted ? " · sem Instagram profissional" : ""})</span>
                                       {restricted ? <span className="metaAssetNote">{META_ASSET_RESTRICTED_NOTE}</span> : null}
                                     </span>
                                   </label>
@@ -2171,6 +2197,7 @@ export default function Onboarding({
                 type="button"
                 onClick={() => {
                   setPendingAssets(null);
+                  setSelectedBusinesses({});
                   setSelectedIg({});
                   setSelectedPages({});
                   setSelectedAds({});
