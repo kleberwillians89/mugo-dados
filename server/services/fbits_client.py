@@ -142,6 +142,7 @@ class FbitsClient:
         rate_limiter: Optional[FbitsRateLimiter] = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         timeout: float = 45.0,
+        server_error_retries: int = FBITS_SERVER_ERROR_RETRIES,
     ) -> None:
         token = _safe_str(token)
         if token.lower().startswith("basic "):
@@ -154,6 +155,7 @@ class FbitsClient:
         self._rate_limiter = rate_limiter or FbitsRateLimiter(sleep=sleep)
         self._sleep = sleep
         self._timeout = timeout
+        self._server_error_retries = max(0, int(server_error_retries))
         self.requests_made = 0
         # Header x-total-count da última resposta (total do filtro, não da página).
         self.last_total_count: Optional[int] = None
@@ -175,7 +177,7 @@ class FbitsClient:
                         headers={"Accept": "application/json", "Authorization": self._authorization},
                     )
             except httpx.HTTPError as exc:
-                if attempt <= FBITS_SERVER_ERROR_RETRIES:
+                if attempt <= self._server_error_retries:
                     print(f"[fbits][http] endpoint={path} status=network_error attempt={attempt} retry=1")
                     await self._sleep(min(4.0, 1.0 * attempt))
                     continue
@@ -202,7 +204,7 @@ class FbitsClient:
                     status_code=status,
                 )
             if status >= 500:
-                if attempt <= FBITS_SERVER_ERROR_RETRIES:
+                if attempt <= self._server_error_retries:
                     print(f"[fbits][http] endpoint={path} status={status} attempt={attempt} retry=1")
                     await self._sleep(min(4.0, 1.0 * attempt))
                     continue
@@ -242,16 +244,25 @@ class FbitsClient:
         print(f"[fbits][http] endpoint=/situacoesPedido status=200 statuses={len(statuses)}")
         return statuses
 
-    async def revenue_indicators(self, *, start: str, end: str) -> Dict[str, Any]:
+    async def revenue_indicators(
+        self,
+        *,
+        start: str,
+        end: str,
+        compare_start: Optional[str] = None,
+        compare_end: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """GET /dashboard/faturamento: receita, pedidos e ticket médio que a
-        própria loja exibe no painel. Datas aaaa-mm-dd (dia inteiro)."""
+        própria loja exibe no painel. Datas aaaa-mm-dd (dias inteiros, sem
+        hora nem fuso). O comparativo devolve os mesmos indicadores
+        (`indicador*Comparativo`) para o período informado."""
         payload = await self._get(
             "/dashboard/faturamento",
             params={
                 "dataInicial": start,
                 "dataFinal": end,
-                "dataInicialComparativo": start,
-                "dataFinalComparativo": end,
+                "dataInicialComparativo": compare_start or start,
+                "dataFinalComparativo": compare_end or end,
             },
         )
         return payload if isinstance(payload, dict) else {}

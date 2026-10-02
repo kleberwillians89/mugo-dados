@@ -621,6 +621,8 @@ class ReportingTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertFalse(summary["connected"])
         self.assertEqual(summary["summary"]["pedidos"], 0)
+        self.assertEqual(summary["kpi_source"], "fbits_orders_fallback")
+        self.assertEqual(summary["kpi_fallback_reason"], "FBITS_NOT_CONNECTED")
 
     def test_revenue_filter_excludes_cancelled_and_invalid_orders(self):
         ids = {"1", "11"}
@@ -667,13 +669,18 @@ class ReportingTests(unittest.IsolatedAsyncioTestCase):
             "connection": {"metadata": {"revenue_status_ids": ["1"]}, "last_sync_at": "2026-09-30T12:00:00Z"},
         }
         select = AsyncMock(side_effect=[current, previous])
+        # Oficial indisponível: o fallback derivado dos pedidos é identificado.
+        official = AsyncMock(side_effect=fbits_reporting.OfficialKpisUnavailable("FBITS_UNAVAILABLE"))
         with (
             patch.object(fbits_reporting, "fbits_connection_state", AsyncMock(return_value=state)),
             patch.object(fbits_reporting, "sb_select", select),
+            patch.object(fbits_reporting, "fetch_official_kpis", official),
         ):
             summary = await fbits_reporting.build_fbits_summary(
                 client_id="curavino", period=fbits_reporting.FbitsPeriod("2026-09-01", "2026-09-02"),
             )
+        self.assertEqual(summary["kpi_source"], "fbits_orders_fallback")
+        self.assertEqual(summary["kpi_fallback_reason"], "FBITS_UNAVAILABLE")
         self.assertEqual(summary["summary"]["receita_oficial"], 200)
         self.assertEqual(summary["summary"]["pedidos"], 1)
         self.assertEqual(summary["summary"]["ticket_medio"], 200)

@@ -209,6 +209,22 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expectNoShopifyCalls();
   });
 
+  it("Sincronizar agora descarta a cache local e mostra os indicadores oficiais relidos", async () => {
+    tenant.id = "vinhos";
+    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
+    api.getFbitsOrdersSummary
+      .mockResolvedValueOnce({ ...fbitsSummary("vinhos", 10), kpi_source: "fbits_dashboard" })
+      .mockResolvedValueOnce({ ...fbitsSummary("vinhos", 12), kpi_source: "fbits_dashboard" });
+    await render();
+    expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=10");
+    await click(button("Sincronizar agora"));
+    await act(async () => { await Promise.resolve(); });
+    expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(2);
+    expect(api.getFbitsOrdersSummary).toHaveBeenLastCalledWith({ start: "2026-09-01", end: "2026-09-30" });
+    expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=12");
+  });
+
   it("períodos rápidos atualizam o contexto sem reload da página", async () => {
     tenant.id = "vinhos";
     api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits", { last_sync_at: "2026-09-30T12:00:00Z" })]));

@@ -154,4 +154,30 @@ describe("FbitsExecutiveDashboard", () => {
     expect(container.textContent).toContain("Sem base de comparação em 02/08/2026–31/08/2026.");
     expect(container.textContent).not.toContain("Variação comparada a");
   });
+
+  it("KPIs executivos oficiais da FBITS: valores do payload, sem recálculo e com a fonte na nota", async () => {
+    const official: FbitsOrdersSummaryResponse = {
+      ...data,
+      kpi_source: "fbits_dashboard",
+      kpi_fallback_reason: null,
+      // Ticket oficial diferente de receita/pedidos: precisa ser exibido como veio.
+      summary: { ...data.summary, receita_oficial: 1000, pedidos: 3, ticket_medio: 300 },
+      derived_kpis: { receita_oficial: 200, pedidos: 1, ticket_medio: 200 },
+    };
+    await act(async () => root.render(<FbitsExecutiveDashboard data={official} orders={orders} loading={false} error={null} />));
+    expect(container.querySelector('[data-testid="kpi-receita"] data')?.getAttribute("value")).toBe("1000");
+    expect(container.querySelector('[data-testid="kpi-pedidos"] data')?.getAttribute("value")).toBe("3");
+    expect(container.querySelector('[data-testid="kpi-ticket"] data')?.getAttribute("value")).toBe("300");
+    expect(container.textContent).toContain("indicadores oficiais da FBITS");
+    expect(container.querySelector('[data-testid="fbits-kpi-fallback"]')).toBeNull();
+  });
+
+  it("fallback dos KPIs é identificado na tela, nunca silencioso", async () => {
+    const fallback: FbitsOrdersSummaryResponse = { ...data, kpi_source: "fbits_orders_fallback", kpi_fallback_reason: "FBITS_UNAVAILABLE" };
+    await act(async () => root.render(<FbitsExecutiveDashboard data={fallback} orders={orders} loading={false} error={null} />));
+    const notice = container.querySelector('[data-testid="fbits-kpi-fallback"]');
+    expect(notice?.textContent).toContain("Indicadores oficiais da FBITS indisponíveis agora");
+    expect(notice?.textContent).toContain("calculados a partir dos pedidos sincronizados");
+    expect(container.textContent).not.toContain("indicadores oficiais da FBITS. Os demais");
+  });
 });

@@ -348,9 +348,16 @@ export type FbitsOrdersSummary = {
 
 export type FbitsMetricComparison = {
   current: number;
-  previous: number;
+  previous: number | null;
   change_percent: number | null;
 };
+
+/**
+ * Fonte dos KPIs executivos (receita, pedidos, ticket médio):
+ * - "fbits_dashboard": indicadores oficiais da FBITS (GET /dashboard/faturamento);
+ * - "fbits_orders_fallback": oficial indisponível; calculados a partir dos pedidos.
+ */
+export type FbitsKpiSource = "fbits_dashboard" | "fbits_orders_fallback";
 
 export type FbitsStatusDistribution = {
   status_id?: string | null;
@@ -376,7 +383,13 @@ export type FbitsOrdersSummaryResponse = {
     start: string;
     end: string;
   };
+  /** receita_oficial, pedidos e ticket_medio vêm de `kpi_source`; os demais
+   * campos de `summary` são analíticos, derivados dos pedidos. */
   summary: FbitsOrdersSummary;
+  kpi_source?: FbitsKpiSource;
+  kpi_fallback_reason?: string | null;
+  /** Referência analítica (regra de situações sobre os pedidos), não exibida como KPI. */
+  derived_kpis?: Pick<FbitsOrdersSummary, "receita_oficial" | "pedidos" | "ticket_medio">;
   previous_period?: { start: string; end: string };
   comparison?: {
     receita_oficial: FbitsMetricComparison;

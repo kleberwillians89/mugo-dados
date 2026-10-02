@@ -12,6 +12,12 @@ from .fbits_client import (
     FBITS_APPROVED_ORDER_STATUS_IDS,
 )
 from .fbits_connections import fbits_connection_state
+from .fbits_official_kpis import (
+    FALLBACK_KPI_SOURCE,
+    OFFICIAL_KPI_SOURCE,
+    OfficialKpisUnavailable,
+    fetch_official_kpis,
+)
 from .ig_supabase import sb_select, sb_upsert
 
 
@@ -993,6 +999,40 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
     }
 
 
+EXECUTIVE_KPI_KEYS = ("receita_oficial", "pedidos", "ticket_medio")
+
+
+def _executive(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: metrics[key] for key in EXECUTIVE_KPI_KEYS}
+
+
+def _comparison_or_empty(current: float, previous: float | None) -> Dict[str, Any]:
+    if previous is None:
+        return {"current": round(current, 2), "previous": None, "change_percent": None}
+    return _comparison_value(current, previous)
+
+
+async def _executive_kpis(
+    *, client_id: str, connected: bool, period: FbitsPeriod, previous_period: FbitsPeriod,
+    derived: Dict[str, Any], derived_previous: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any] | None, str, str | None]:
+    """KPIs EXECUTIVOS (receita, pedidos, ticket): oficiais da FBITS.
+
+    Fallback para os derivados dos pedidos só quando o oficial não está
+    disponível — e sempre identificado (kpi_source + kpi_fallback_reason).
+    """
+    if not connected:
+        return _executive(derived), _executive(derived_previous), FALLBACK_KPI_SOURCE, "FBITS_NOT_CONNECTED"
+    try:
+        official = await fetch_official_kpis(
+            client_id=client_id, start=period.start, end=period.end,
+            previous_start=previous_period.start, previous_end=previous_period.end,
+        )
+    except OfficialKpisUnavailable as exc:
+        return _executive(derived), _executive(derived_previous), FALLBACK_KPI_SOURCE, exc.code
+    return official["current"], official.get("previous"), OFFICIAL_KPI_SOURCE, None
+
+
 async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
     connected, revenue_status_ids, connection = await _tenant_revenue_context(client_id)
     previous_period = _previous_period(period)
@@ -1008,8 +1048,27 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
         else:
             print(f"[fbits][summary][persisted_read_error] client_id={client_id} status={exc.response.status_code}")
         raise
-    summary = _valid_metrics(current_rows, revenue_status_ids)
-    previous = _valid_metrics(previous_rows, revenue_status_ids)
+    # KPIs ANALÍTICOS derivados de GET /pedidos (persistidos): clientes,
+    # produtos, descontos, frete, situações e tendência.
+    derived = _valid_metrics(current_rows, revenue_status_ids)
+    derived_previous = _valid_metrics(previous_rows, revenue_status_ids)
+    # KPIs EXECUTIVOS oficiais: GET /dashboard/faturamento (mesmo conceito no
+    # período atual e no anterior).
+    executive, executive_previous, kpi_source, fallback_reason = await _executive_kpis(
+        client_id=client_id, connected=connected, period=period, previous_period=previous_period,
+        derived=derived, derived_previous=derived_previous,
+    )
+    summary = {**derived, **executive}
+    previous = executive_previous or {}
+    if kpi_source == OFFICIAL_KPI_SOURCE:
+        message = None if summary["pedidos"] else "Não houve vendas neste período."
+    else:
+        message = None if current_rows else ("Não houve vendas neste período." if connected else "FBits ainda não conectada.")
+    print(
+        f"[fbits][summary] client_id={client_id} start={period.start} end={period.end} kpi_source={kpi_source} "
+        f"fallback_reason={fallback_reason or '-'} receita={summary['receita_oficial']} pedidos={summary['pedidos']} "
+        f"derived_receita={derived['receita_oficial']} derived_pedidos={derived['pedidos']}"
+    )
     return {
         "ok": True,
         "connected": connected,
@@ -1017,14 +1076,16 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
         "period": {"start": period.start, "end": period.end},
         "previous_period": {"start": previous_period.start, "end": previous_period.end},
         "summary": summary,
+        "kpi_source": kpi_source,
+        "kpi_fallback_reason": fallback_reason,
+        # Referência analítica (regra de situações sobre os pedidos): não é o KPI exibido.
+        "derived_kpis": _executive(derived),
         "comparison": {
-            "receita_oficial": _comparison_value(summary["receita_oficial"], previous["receita_oficial"]),
-            "pedidos": _comparison_value(summary["pedidos"], previous["pedidos"]),
-            "ticket_medio": _comparison_value(summary["ticket_medio"], previous["ticket_medio"]),
+            key: _comparison_or_empty(summary[key], previous.get(key)) for key in EXECUTIVE_KPI_KEYS
         },
         "status_distribution": _status_distribution(current_rows, revenue_status_ids),
         "trend": _sales_trend(period, current_rows, revenue_status_ids),
         "last_sync_at": connection.get("last_sync_at"),
-        "message": None if current_rows else ("Não houve vendas neste período." if connected else "FBits ainda não conectada."),
+        "message": message,
         "source": "supabase",
     }

@@ -116,6 +116,9 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
   const noun = GRANULARITY_NOUN[granularity];
   const hasComparison = [data?.comparison?.receita_oficial, data?.comparison?.pedidos, data?.comparison?.ticket_medio]
     .some((metric) => typeof metric?.change_percent === "number" && Number.isFinite(metric.change_percent));
+  // KPIs executivos oficiais (FBITS) x analíticos derivados dos pedidos.
+  const officialKpis = data?.kpi_source === "fbits_dashboard";
+  const fallbackKpis = data?.kpi_source === "fbits_orders_fallback" && connected;
   const shownOrders = recentOrders.length;
   const totalOrders = Number(orders?.count || 0);
 
@@ -123,6 +126,11 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
     <div className={`ds-stack${loading ? " ds-refreshing" : ""}`} aria-busy={loading}>
       {loading ? <p className="ds-status" role="status">Atualizando vendas do período...</p> : null}
       {error ? <DataNotice tone="negative" role="alert" title="Não foi possível atualizar">{error}</DataNotice> : null}
+      {fallbackKpis ? (
+        <DataNotice tone="warning" role="status" title="Indicadores oficiais da FBITS indisponíveis agora" testId="fbits-kpi-fallback">
+          Receita, pedidos e ticket médio abaixo foram calculados a partir dos pedidos sincronizados e podem diferir do painel FBITS.
+        </DataNotice>
+      ) : null}
 
       {/* Uma história principal: quanto vendeu e se melhorou. Depois, o que
           a explica (pedidos, ticket, clientes) e o operacional, mais baixo. */}
@@ -164,7 +172,9 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
             {previousLabel
               ? hasComparison ? `Variações em relação a ${previousLabel}. ` : `Sem base de comparação em ${previousLabel}. `
               : null}
-            Cancelados e inválidos não entram na receita.
+            {officialKpis
+              ? "Receita, pedidos e ticket médio: indicadores oficiais da FBITS. Os demais números vêm dos pedidos sincronizados."
+              : "Cancelados e inválidos não entram na receita."}
           </p>
         </div>
       </section>

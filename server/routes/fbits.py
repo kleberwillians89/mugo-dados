@@ -18,6 +18,7 @@ from services.fbits_connections import (
     load_fbits_connection,
     sync_fbits_connection,
 )
+from services.fbits_official_kpis import invalidate_official_kpis
 from services.fbits_reporting import (
     build_fbits_orders_report,
     build_fbits_summary,
@@ -181,6 +182,9 @@ async def _run_fbits_sync_isolated(client_id: str) -> None:
         print(f"[fbits][sync] client_id={client_id} stage=background status=error code={exc.code}")
     except Exception as exc:
         print(f"[fbits][sync] client_id={client_id} stage=background status=error error_type={exc.__class__.__name__}")
+    finally:
+        # Os KPIs oficiais são relidos da FBITS depois da sincronização.
+        await invalidate_official_kpis(client_id)
 
 
 async def _schedule_tenant_sync(client_id: str, background_tasks: BackgroundTasks) -> Dict[str, Any]:
@@ -190,6 +194,9 @@ async def _schedule_tenant_sync(client_id: str, background_tasks: BackgroundTask
             "Nenhuma conexão FBITS ativa para esta empresa.",
             status_code=404, code="FBITS_CONNECTION_NOT_FOUND", provider="fbits",
         )
+    # "Sincronizar agora" recarrega o dashboard logo em seguida: os KPIs
+    # oficiais já saem frescos da FBITS, sem esperar o fim do sync.
+    await invalidate_official_kpis(client_id)
     background_tasks.add_task(_run_fbits_sync_isolated, client_id)
     return {"ok": True, "client_id": client_id, "scheduled": True}
 
@@ -227,7 +234,9 @@ async def fbits_disconnect(
 ):
     cid = await require_client_role(client_id, authorization)
     user_id = await require_user_id(authorization)
-    return {"ok": True, "connection": await disconnect_fbits(client_id=cid, user_id=user_id)}
+    connection = await disconnect_fbits(client_id=cid, user_id=user_id)
+    await invalidate_official_kpis(cid)
+    return {"ok": True, "connection": connection}
 
 
 # Compatibilidade: a rota antiga agora exige perfil de gestão e apenas agenda a
