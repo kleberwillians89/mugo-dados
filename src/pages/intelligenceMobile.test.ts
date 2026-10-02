@@ -69,3 +69,26 @@ describe("Contexto estratégico — layout mobile-first", () => {
     expect(rule).toContain("box-sizing:border-box");
   });
 });
+
+describe("Acessos — layout mobile-first", () => {
+  it("formulário começa em uma coluna e só vira duas acima de 760px", () => {
+    expect(block(companies, ".accessForm{")).toContain("grid-template-columns:1fr");
+    expect(companies).toContain("@media(min-width:760px)");
+  });
+
+  it("campos não estouram a largura disponível", () => {
+    const rule = block(companies, ".accessForm input,.accessForm select{");
+    expect(rule).toContain("width:100%");
+    expect(rule).toContain("box-sizing:border-box");
+    expect(block(companies, ".accessForm label{")).toContain("min-width:0");
+  });
+
+  it("ações embrulham em vez de cortar no celular", () => {
+    expect(block(companies, ".accessFormActions{")).toContain("flex-wrap:wrap");
+  });
+
+  it("tabela de acessos continua rolável sem estourar a página", () => {
+    // .companiesTableWrap já isola o scroll horizontal da tabela.
+    expect(companies).toContain(".companiesTableWrap{overflow-x:auto");
+  });
+});

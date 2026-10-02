@@ -154,15 +154,16 @@ describe("describeSources — nome humano, sem detalhe interno", () => {
         { id: "commerce", label: "E-commerce", status: "available" },
         { id: "meta", label: "Meta Ads", status: "available" },
       ],
-      commerce_context: { provider_label: "FBITS/Wake", official_kpis: true },
+      commerce_context: { provider: "fbits", official_kpis: true },
     });
-    expect(names).toEqual(["FBITS/Wake", "Meta Ads"]);
+    // Nome público: nada de "/Wake" ou detalhe interno na tela.
+    expect(names).toEqual(["FBITS", "Meta Ads"]);
   });
 
   it("Shopify aparece com o próprio nome", () => {
     const names = describeSources({
       sources: [{ id: "commerce", label: "E-commerce", status: "available" }],
-      commerce_context: { provider_label: "Shopify", official_kpis: false },
+      commerce_context: { provider: "shopify", official_kpis: false },
     });
     expect(names).toEqual(["Shopify"]);
   });

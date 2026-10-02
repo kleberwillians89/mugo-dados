@@ -159,11 +159,21 @@ export function buildTestIdeas(
  * provider real do tenant, e um FBITS em fallback não é anunciado como
  * indicador oficial.
  */
+/** Nome público da plataforma de vendas: sem "/Wake" nem detalhe interno. */
+const COMMERCE_PUBLIC_LABEL: Record<string, string> = {
+  fbits: "FBITS",
+  shopify: "Shopify",
+};
+
+export function commercePublicLabel(provider: string | null | undefined): string | null {
+  return COMMERCE_PUBLIC_LABEL[String(provider || "").toLowerCase()] || null;
+}
+
 export function describeSources(snapshot: {
   sources?: Array<{ id: string; label: string; status: string }>;
-  commerce_context?: { provider_label?: string | null; official_kpis?: boolean } | null;
+  commerce_context?: { provider?: string | null; official_kpis?: boolean } | null;
 } | null | undefined): string[] {
-  const commerceLabel = snapshot?.commerce_context?.provider_label || null;
+  const commerceLabel = commercePublicLabel(snapshot?.commerce_context?.provider);
   return (snapshot?.sources || [])
     .filter((source) => ["available", "partial"].includes(source.status))
     .map((source) => (source.id === "commerce" && commerceLabel ? commerceLabel : source.label));

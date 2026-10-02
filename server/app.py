@@ -50,6 +50,7 @@ from routes.google_oauth import router as google_oauth_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
+from routes.client_access import router as client_access_router
 from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
 from routes.integrations import router as integrations_router
@@ -71,7 +72,7 @@ from services.media import get_media, get_media_monthly
 from services.notes import create_note, list_notes, update_note
 from services.stories import get_stories
 from services.runtime_cache import get_cached_or_load, invalidate_namespace
-from services.tenant import require_user_id, resolve_client_id
+from services.tenant import require_client_role, require_user_id, resolve_client_id
 from services.integration_errors import IntegrationError
 
 app = FastAPI(title="Mugô Dados API")
@@ -283,6 +284,7 @@ app.include_router(fbits_router)
 app.include_router(meta_legacy_router)
 app.include_router(invitations_router)
 app.include_router(intelligence_router)
+app.include_router(client_access_router)
 app.include_router(connections_router)
 app.include_router(integrations_router)
 app.include_router(platform_admin_router)
@@ -808,7 +810,8 @@ async def api_ads_sync(
         end=payload_until,
     )
     try:
-        cid = await resolve_client_id(_pick_client_id(payload_client_id, x_client_id), authorization)
+        # Sync manual é mutação: viewer não dispara (mesma regra de /meta-ads/sync).
+        cid = await require_client_role(_pick_client_id(payload_client_id, x_client_id), authorization)
         validated_connection_id = await _validated_connection_id(
             client_id=cid,
             connection_id=payload_connection_id,

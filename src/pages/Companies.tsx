@@ -12,6 +12,7 @@ import { getActiveClient } from "../app/activeClient";
 import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
+import ClientAccessPanel from "../components/admin/ClientAccessPanel";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
 import CompanyWizard from "../components/admin/CompanyWizard";
 import Modal from "../components/Modal";
@@ -30,11 +31,12 @@ type Props = {
   canEditBusinessContext?: boolean;
 };
 
-type Tab = "empresas" | "usuarios" | "permissoes" | "contexto";
+type Tab = "empresas" | "acessos" | "usuarios" | "permissoes" | "contexto";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "empresas", label: "Empresas" },
-  { id: "usuarios", label: "Usuários" },
+  { id: "acessos", label: "Acessos" },
+  { id: "usuarios", label: "Equipe Mugô" },
   { id: "permissoes", label: "Permissões" },
   { id: "contexto", label: "Contexto estratégico" },
 ];
@@ -335,8 +337,8 @@ export default function Companies({
             <h2>Responsáveis e convites</h2>
           </div>
           <p className="wizardHint">
-            Lista com base no responsável cadastrado de cada empresa. Um diretório completo de todos os
-            membros por empresa ainda não está disponível nesta tela.
+            Responsável cadastrado de cada empresa e convites enviados. Os acessos de usuário de
+            cada empresa ficam na aba Acessos.
           </p>
           {companies.length === 0 ? (
             <p className="companiesEmptyState">Nenhuma empresa cadastrada ainda.</p>
@@ -361,6 +363,8 @@ export default function Companies({
           )}
         </section>
       ) : null}
+
+      {tab === "acessos" ? <ClientAccessPanel canManage={canEditBusinessContext} /> : null}
 
       {tab === "contexto" ? <BusinessContextPanel canEdit={canEditBusinessContext} /> : null}
 

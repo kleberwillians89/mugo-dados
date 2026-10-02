@@ -141,3 +141,39 @@
 .intelResearchItem span{display:grid;gap:3px;min-width:0;overflow-wrap:anywhere}
 .intelResearchItem small{color:#74766f;font-size:13px}
 @media(min-width:760px){.intelResearchItem{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}}
+
+/* ===== Cabeçalho compacto e primeira dobra útil ===== */
+.intelHeader{display:grid;gap:14px;grid-template-columns:1fr;align-items:start;margin-bottom:22px}
+.intelIdentity h1{margin:6px 0 4px;font-size:clamp(22px,4.2vw,30px);line-height:1.15;letter-spacing:-.02em}
+.intelIdentity p{margin:0;color:var(--intel-muted);font-size:14px;line-height:1.5}
+.intelHeaderMeta{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
+.intelHeaderMeta>span{display:grid;gap:2px;font-size:14px;min-width:0}
+.intelHeaderMeta>span small{color:var(--intel-muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.intelHeaderAction{margin-left:auto}
+
+/* Resumo do momento: texto curto, sem hero dominante. */
+.intelMoment{background:#fff;border:1px solid #e3e0d8;border-radius:18px;padding:18px;display:grid;gap:10px;margin-bottom:22px}
+.intelMoment h2{margin:0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--intel-muted)}
+.intelMomentLead{margin:0;font-size:clamp(17px,2.4vw,21px);line-height:1.4;overflow-wrap:anywhere}
+.intelMomentAction{margin:0;color:var(--intel-muted);font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.intelMomentEmpty h2{font-size:clamp(17px,2.4vw,20px);letter-spacing:-.01em;text-transform:none;color:inherit}
+.intelMomentEmpty p{margin:0;color:var(--intel-muted);font-size:15px;line-height:1.5;max-width:60ch}
+.intelMomentEmpty .btn{justify-self:start}
+
+/* Avisos e CTA em uma linha, sem cartão. */
+.intelInlineWarning{margin:0 0 16px;padding:10px 14px;border-left:3px solid #b4761f;background:#fdf7ed;border-radius:0 10px 10px 0;font-size:14px;line-height:1.5}
+.intelInlineError{margin:0 0 16px;padding:14px;border-left:3px solid #a92c2c;background:#fdf1f1;border-radius:0 10px 10px 0;display:grid;gap:10px;justify-items:start;font-size:14px}
+.intelInlineError p{margin:0}
+.intelInlineCta{margin:0 0 20px;font-size:14px;color:var(--intel-muted);line-height:1.5}
+
+/* Fontes: evidência discreta, no fim. */
+.intelSources{margin-top:28px;padding-top:18px;border-top:1px solid #e3e0d8;display:grid;gap:6px}
+.intelSources h2{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--intel-muted)}
+.intelSourcesList{margin:0;font-size:15px;overflow-wrap:anywhere}
+.intelSourcesNote{margin:0;font-size:13px;color:var(--intel-muted);line-height:1.5;overflow-wrap:anywhere}
+
+@media(min-width:900px){
+  .intelHeader{grid-template-columns:minmax(0,1fr) auto;gap:20px 28px;align-items:end}
+  .intelHeaderMeta{justify-content:flex-end}
+  .intelMoment{padding:22px 24px}
+}

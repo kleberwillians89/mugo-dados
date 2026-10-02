@@ -547,6 +547,57 @@ export async function deletePlatformCompany(
   });
 }
 
+/** Acesso de usuário na empresa ativa. Nenhuma senha trafega de volta. */
+export type ClientAccessItem = {
+  membership_id: string;
+  user_id: string;
+  email: string | null;
+  name: string | null;
+  role: string;
+  role_label: string;
+  is_global_role: boolean;
+  email_confirmed: boolean | null;
+  last_sign_in_at: string | null;
+  created_at: string | null;
+};
+
+export type ClientAccessListResponse = {
+  ok: true;
+  client_id: string;
+  items: ClientAccessItem[];
+};
+
+/** Empresa resolvida pelo contexto autorizado: nenhum client_id é enviado. */
+export async function listClientAccess(
+  options?: RequestSignalOptions
+): Promise<ClientAccessListResponse> {
+  return http("/api/client-access", { signal: options?.signal });
+}
+
+export async function createClientAccess(input: {
+  name: string;
+  email: string;
+  password: string;
+  password_confirmation: string;
+  role: "viewer" | "client_admin";
+}): Promise<JsonRecord> {
+  return http("/api/client-access", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function resetClientAccessPassword(
+  userId: string,
+  input: { password: string; password_confirmation: string }
+): Promise<JsonRecord> {
+  return http(`/api/client-access/${encodeURIComponent(userId)}/password`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function removeClientAccess(userId: string): Promise<JsonRecord> {
+  return http(`/api/client-access/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
 /** Campos do contexto estratégico da empresa, iguais ao schema do backend. */
 export type BusinessContextFields = {
   segment: string | null;

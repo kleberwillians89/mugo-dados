@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List
 from zoneinfo import ZoneInfo
@@ -16,7 +17,7 @@ from .generic_connections import list_generic_connections
 from .business_context import load_business_context
 from .commerce_context import resolve_commerce_context
 from .external_research import external_research_context
-from .ig_supabase import sb_insert, sb_select, sb_update
+from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_update
 from .instagram_organic_history import aggregate_instagram_months
 
 
@@ -522,21 +523,30 @@ async def calculate_intelligence_snapshot(
     # Provider de e-commerce resolvido pela conexão do tenant, nunca pelo nome
     # da empresa. FBITS entrega os KPIs oficiais da própria loja; Shopify, os
     # agregados já lidos do read model.
-    commerce = await resolve_commerce_context(
-        client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
-        shopify_section={
-            **shopify,
-            "previous": previous.get("shopify") or {},
-            "deltas": deltas,
-        },
-    )
-    commerce_metrics = commerce.get("metrics") or {}
-    # Contexto editorial da empresa e pesquisa externa. Sem provider externo
-    # configurado, o bloco volta not_configured e nada é inventado.
-    business, external = await asyncio.gather(
+    # As três leituras são independentes: em paralelo, o tempo total é o da
+    # mais lenta (a consulta oficial da FBITS), não a soma.
+    started_at = time.monotonic()
+    commerce, business, external = await asyncio.gather(
+        resolve_commerce_context(
+            client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
+            shopify_section={
+                **shopify,
+                "previous": previous.get("shopify") or {},
+                "deltas": deltas,
+            },
+        ),
         load_business_context(client_id),
         external_research_context(client_id=client_id),
     )
+    print(
+        f"[intelligence][snapshot] client_id={client_id} stage=context status=ok "
+        f"commerce_provider={commerce.get('provider') or '-'} "
+        f"commerce_status={commerce.get('status') or '-'} "
+        f"business_context={'yes' if business.get('available') else 'no'} "
+        f"external_research={external.get('status')} "
+        f"elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
+    )
+    commerce_metrics = commerce.get("metrics") or {}
 
     def commerce_metric(name: str) -> Dict[str, Any]:
         return commerce_metrics.get(name) if isinstance(commerce_metrics.get(name), dict) else {}
@@ -1253,6 +1263,41 @@ def context_fingerprint(snapshot: Dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+# Etapas da análise, para o log dizer o que falhou sem vazar nada.
+STAGE_CONTEXT = "INTELLIGENCE_CONTEXT_ERROR"
+STAGE_COMMERCE = "INTELLIGENCE_COMMERCE_ERROR"
+STAGE_MODEL = "INTELLIGENCE_MODEL_ERROR"
+STAGE_VALIDATION = "INTELLIGENCE_VALIDATION_ERROR"
+STAGE_PERSISTENCE = "INTELLIGENCE_PERSISTENCE_ERROR"
+# Colunas que só existem depois da migration 039. Enquanto ela não for
+# aplicada, a análise é gravada sem elas e o log diz que falta migration —
+# em vez de a geração inteira falhar por coluna ausente.
+OPTIONAL_ANALYSIS_COLUMNS = ("context_fingerprint",)
+
+
+async def _insert_analysis(row: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Grava a análise tolerando coluna ainda não migrada."""
+    attempt = dict(row)
+    while True:
+        try:
+            return await sb_insert("ai_analyses", attempt)
+        except httpx.HTTPStatusError as exc:
+            missing = next(
+                (
+                    column for column in OPTIONAL_ANALYSIS_COLUMNS
+                    if column in attempt and _is_column_compat_error(exc, column)
+                ),
+                "",
+            )
+            if not missing:
+                raise
+            print(
+                f"[intelligence][schema_pending] column={missing} "
+                "migration=20261003_000039_client_business_context action=insert_without_column"
+            )
+            attempt.pop(missing, None)
+
+
 async def _reusable_analysis(
     *, client_id: str, period: Dict[str, Any], fingerprint: str,
 ) -> Dict[str, Any] | None:
@@ -1305,8 +1350,7 @@ async def generate_analysis(
         "metrics_snapshot": snapshot["metrics"],
     }
     if not provider_configured():
-        saved = await sb_insert(
-            "ai_analyses",
+        saved = await _insert_analysis(
             {**base_row, "status": "configuration_pending", "error_code": "AI_PROVIDER_NOT_CONFIGURED"},
         )
         return {
@@ -1356,8 +1400,7 @@ async def generate_analysis(
         )
         _validate_analysis_grounding(analysis, snapshot)
         analysis = _sanitize_analysis(analysis, snapshot)
-        saved = await sb_insert(
-            "ai_analyses",
+        saved = await _insert_analysis(
             {
                 **base_row,
                 "status": "completed",
@@ -1373,8 +1416,21 @@ async def generate_analysis(
             "analysis": saved,
         }
     except Exception as exc:
+        # Etapa identificada no log; o cliente recebe mensagem genérica.
+        stage = STAGE_VALIDATION if isinstance(exc, AssertionError) else STAGE_MODEL
         code = _text(exc)[:80] or "AI_PROVIDER_ERROR"
-        await sb_insert("ai_analyses", {**base_row, "status": "failed", "error_code": code})
+        print(
+            f"[intelligence][generate] client_id={client_id} stage={stage} "
+            f"status=error error_type={exc.__class__.__name__} code={code}"
+        )
+        try:
+            await _insert_analysis({**base_row, "status": "failed", "error_code": code})
+        except Exception as persistence_error:
+            # Falha ao registrar não pode esconder a falha original.
+            print(
+                f"[intelligence][generate] client_id={client_id} stage={STAGE_PERSISTENCE} "
+                f"status=error error_type={persistence_error.__class__.__name__}"
+            )
         raise RuntimeError(code) from exc
 
 

@@ -71,13 +71,31 @@ const snapshot = {
 const state = {
   snapshot: snapshot as Record<string, unknown>,
   analysis: analysis as Record<string, unknown>,
+  /** Falhas simuladas por teste (o mock da api é inline neste arquivo). */
+  contextError: null as Error | null,
+  /** Backend inacessível: as três leituras falham, como no timeout real. */
+  readError: null as Error | null,
+  generateError: null as Error | null,
 };
 
 vi.mock("../app/api", () => ({
-  getIntelligenceContext: vi.fn(async () => ({ ok: true, snapshot: state.snapshot })),
-  getLatestIntelligenceAnalysis: vi.fn(async () => ({ ok: true, provider_configured: true, analysis: state.analysis })),
-  getIntelligenceHistory: vi.fn(async () => ({ ok: true, items: [state.analysis] })),
-  generateIntelligenceAnalysis: vi.fn(async () => ({ ok: true, provider_configured: true, status: "completed", snapshot: state.snapshot, analysis: state.analysis })),
+  getIntelligenceContext: vi.fn(async () => {
+    if (state.readError) throw state.readError;
+    if (state.contextError) throw state.contextError;
+    return { ok: true, snapshot: state.snapshot };
+  }),
+  getLatestIntelligenceAnalysis: vi.fn(async () => {
+    if (state.readError) throw state.readError;
+    return { ok: true, provider_configured: true, analysis: state.analysis };
+  }),
+  getIntelligenceHistory: vi.fn(async () => {
+    if (state.readError) throw state.readError;
+    return { ok: true, items: [state.analysis] };
+  }),
+  generateIntelligenceAnalysis: vi.fn(async () => {
+    if (state.generateError) throw state.generateError;
+    return { ok: true, provider_configured: true, status: "completed", snapshot: state.snapshot, analysis: state.analysis };
+  }),
   askIntelligence: vi.fn(),
 }));
 
@@ -89,6 +107,10 @@ let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
   state.snapshot = snapshot;
   state.analysis = analysis;
+  mocks.period = { start: "2026-08-01", end: "2026-08-31" };
+  state.contextError = null;
+  state.readError = null;
+  state.generateError = null;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -122,10 +144,13 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
     expect(badges).toContain("Recomendação");
   });
 
-  it("mostra o resumo executivo no topo, antes dos insights", async () => {
+  it("abre com o resumo do momento, curto e no topo", async () => {
     await renderIntelligence();
-    expect(container.textContent).toContain("Resumo executivo");
-    expect(container.textContent).toContain("Receita cresceu no período.");
+    expect(container.textContent).toContain("Resumo do momento");
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    // Primeira dobra é leitura, não arquitetura de providers.
+    const moment = container.querySelector(".intelMoment");
+    expect(moment?.textContent).not.toMatch(/Meta Ads|Google Ads|FBITS/);
   });
 
   it("mostra a fonte de cada métrica de evidência", async () => {
@@ -133,10 +158,14 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
     expect(container.textContent).toContain("meta_ads");
   });
 
-  it("traduz status técnico de fonte para linguagem do cliente", async () => {
+  it("não mostra status técnico de fonte nem fileira de chips no topo", async () => {
     await renderIntelligence();
-    expect(container.textContent).toContain("Conectado • sem dados no período");
     expect(container.textContent).not.toContain("connected_no_data");
+    expect(container.querySelector(".intelSourceBar")).toBeNull();
+    // Fontes viram uma linha discreta no fim.
+    const sources = container.querySelector('[data-testid="intel-sources"]');
+    expect(sources?.querySelector(".intelSourcesList")?.textContent).toBe("Meta Ads");
+    expect(container.querySelector(".intelHeader")?.textContent).not.toContain("Meta Ads");
   });
 
   it("mantém a análise gerada sem banner de erro atrasado", async () => {
@@ -163,36 +192,41 @@ describe("Intelligence — provider de e-commerce e pesquisa externa", () => {
     source_url: "https://exemplo/post", researched_at: "2026-10-02T12:00:00Z",
   };
 
-  it("mostra a plataforma de vendas resolvida, com indicadores oficiais no FBITS", async () => {
+  it("a plataforma de vendas aparece por nome público, sem jargão interno", async () => {
     state.snapshot = {
       ...snapshot,
+      sources: [...snapshot.sources, { id: "commerce", label: "E-commerce", status: "available" as const, connected: true, data_points: 30, covered_days: 30, last_sync_at: "2026-08-31T12:00:00Z" }],
       commerce_context: {
         provider: "fbits", provider_label: "FBITS/Wake", connected: true,
         status: "ok", kpi_source: "fbits_dashboard", official_kpis: true,
       },
     };
     await renderIntelligence();
-    const badge = container.querySelector('[data-testid="intel-commerce-provider"]');
-    expect(badge?.textContent).toContain("FBITS/Wake");
-    expect(badge?.textContent).toContain("indicadores oficiais");
+    const sources = container.querySelector('[data-testid="intel-sources"]');
+    expect(sources?.querySelector(".intelSourcesList")?.textContent).toContain("FBITS");
+    // Sem "/Wake", sem read_model, sem nome de fallback técnico.
+    expect(container.textContent).not.toContain("FBITS/Wake");
+    expect(container.textContent).not.toContain("read_model");
     expect(container.textContent).not.toContain("Shopify");
+    // KPI oficial: nenhuma ressalva de confiança.
+    expect(container.querySelector('[data-testid="intel-commerce-note"]')).toBeNull();
   });
 
-  it("Shopify não é apresentado como indicador oficial", async () => {
+  it("Shopify aparece com o próprio nome e sem termo técnico", async () => {
     state.snapshot = {
       ...snapshot,
+      sources: [...snapshot.sources, { id: "commerce", label: "E-commerce", status: "available" as const, connected: true, data_points: 30, covered_days: 30, last_sync_at: "2026-08-31T12:00:00Z" }],
       commerce_context: {
         provider: "shopify", provider_label: "Shopify", connected: true,
         status: "ok", kpi_source: "shopify_read_model", official_kpis: false,
       },
     };
     await renderIntelligence();
-    const badge = container.querySelector('[data-testid="intel-commerce-provider"]');
-    expect(badge?.textContent).toContain("Shopify");
-    expect(badge?.textContent).not.toContain("indicadores oficiais");
+    expect(container.querySelector(".intelSourcesList")?.textContent).toContain("Shopify");
+    expect(container.textContent).not.toContain("shopify_read_model");
   });
 
-  it("duas plataformas ativas geram aviso em vez de escolha silenciosa", async () => {
+  it("duas plataformas conectadas são avisadas discretamente, sem lista técnica", async () => {
     state.snapshot = {
       ...snapshot,
       commerce_context: {
@@ -202,7 +236,8 @@ describe("Intelligence — provider de e-commerce e pesquisa externa", () => {
       },
     };
     await renderIntelligence();
-    expect(container.textContent).toContain("Há mais de uma plataforma de vendas ativa");
+    const sources = container.querySelector('[data-testid="intel-sources"]');
+    expect(sources?.textContent).toContain("mais de uma plataforma de vendas conectada");
   });
 
   it("sem pesquisa externa configurada, nenhuma seção de mercado ou creators é renderizada", async () => {
@@ -333,7 +368,7 @@ describe("Intelligence — hierarquia de decisão", () => {
     expect(note?.textContent).toContain("atualizado");
   });
 
-  it("FBITS em fallback não é apresentado como indicador oficial", async () => {
+  it("FBITS em fallback vira ressalva humana, não jargão", async () => {
     state.snapshot = {
       ...snapshot,
       commerce_context: {
@@ -342,16 +377,19 @@ describe("Intelligence — hierarquia de decisão", () => {
       },
     };
     await renderIntelligence();
-    const badge = container.querySelector('[data-testid="intel-commerce-provider"]');
-    expect(badge?.textContent).toContain("FBITS/Wake");
-    expect(badge?.textContent).not.toContain("indicadores oficiais");
+    const note = container.querySelector('[data-testid="intel-commerce-note"]');
+    expect(note?.textContent).toContain("podem diferir do painel da loja");
+    expect(container.textContent).not.toContain("fallback");
+    expect(container.textContent).not.toContain("fbits_orders_fallback");
   });
 
   it("sem contexto da marca, gestão recebe convite discreto", async () => {
     state.snapshot = { ...snapshot, business_context: { available: false, context: {} } };
     await renderIntelligence(true);
-    expect(container.querySelector('[data-testid="intel-context-cta"]')?.textContent)
-      .toContain("Adicionar contexto da marca");
+    const cta = container.querySelector('[data-testid="intel-context-cta"]');
+    expect(cta?.textContent).toContain("adicionando contexto estratégico");
+    // Linha discreta, não cartão dominante.
+    expect(cta?.tagName).toBe("P");
   });
 
   it("viewer não recebe convite para editar contexto", async () => {
@@ -378,5 +416,78 @@ describe("Intelligence — hierarquia de decisão", () => {
     expect(container.querySelector('[data-testid="intel-movements"]')).toBeNull();
     expect(container.querySelector('[data-testid="intel-opportunities"]')).toBeNull();
     expect(container.querySelector('[data-testid="intel-ideas"]')).toBeNull();
+  });
+});
+
+describe("Intelligence — estados da leitura", () => {
+  it("sem análise, estado vazio compacto com ação de gerar", async () => {
+    state.analysis = { ...analysis, status: "pending", analysis: null };
+    await renderIntelligence(true);
+    const empty = container.querySelector('[data-testid="intel-empty"]');
+    expect(empty?.textContent).toContain("Sua leitura estratégica ainda não foi gerada");
+    expect([...container.querySelectorAll("button")].map((el) => el.textContent)).toContain("Gerar análise");
+    // Sem hero gigante e sem seções de prioridade vazias.
+    expect(container.querySelector(".intelExecutive")).toBeNull();
+    expect(container.querySelector('[data-testid="intel-movements"]')).toBeNull();
+  });
+
+  it("viewer sem análise vê o estado vazio sem ação de gerar", async () => {
+    state.analysis = { ...analysis, status: "pending", analysis: null };
+    await renderIntelligence(false);
+    expect(container.querySelector('[data-testid="intel-empty"]')).not.toBeNull();
+    expect(container.textContent).toContain("Peça a um administrador");
+    expect([...container.querySelectorAll("button")].map((el) => el.textContent)).not.toContain("Gerar análise");
+  });
+
+  it("erro com análise anterior preserva a leitura e avisa discretamente", async () => {
+    await renderIntelligence();
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    state.generateError = new Error("Falha ao gerar");
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((el) => el.textContent === "Atualizar")?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(container.querySelector('[data-testid="intel-stale-warning"]')?.textContent)
+      .toContain("A última análise válida continua disponível");
+    // Last-known-good: a análise não foi apagada.
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    expect(container.querySelector('[data-testid="intel-error"]')).toBeNull();
+  });
+
+  it("erro sem nenhuma análise mostra erro compacto com nova tentativa", async () => {
+    // Período inédito: sem última leitura válida em cache para preservar.
+    mocks.period = { start: "2026-01-01", end: "2026-01-31" };
+    state.analysis = { ...analysis, status: "pending", analysis: null };
+    state.readError = new Error("Backend fora");
+    await renderIntelligence(true);
+    const errorBox = container.querySelector('[data-testid="intel-error"]');
+    expect(errorBox?.textContent).toContain("Não conseguimos montar sua leitura agora");
+    expect(errorBox?.querySelector("button")?.textContent).toBe("Tentar novamente");
+    // Erro compacto, não página destruída.
+    expect(container.querySelector(".intelHeader")).not.toBeNull();
+  });
+
+  it("não expõe detalhe técnico do erro ao cliente", async () => {
+    mocks.period = { start: "2026-02-01", end: "2026-02-28" };
+    state.analysis = { ...analysis, status: "pending", analysis: null };
+    state.readError = new Error("INTELLIGENCE_CONTEXT_ERROR: traceback");
+    await renderIntelligence(true);
+    expect(container.textContent).not.toContain("traceback");
+    expect(container.textContent).not.toContain("INTELLIGENCE_CONTEXT_ERROR");
+  });
+
+  it("falha de uma leitura só não vira erro: a análise anterior continua", async () => {
+    state.contextError = new Error("Contexto indisponível");
+    await renderIntelligence(true);
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    expect(container.querySelector('[data-testid="intel-error"]')).toBeNull();
+  });
+
+  it("cobertura de fontes é dita em linguagem humana, não como nota de qualidade", async () => {
+    await renderIntelligence();
+    expect(container.querySelector('[data-testid="intel-sources"]')?.textContent)
+      .toContain("2 de 2 fontes com dados no período");
+    expect(container.querySelector(".intelHeader")?.textContent).not.toContain("Qualidade");
+    expect(container.querySelector(".intelHeader")?.textContent).not.toContain("%");
   });
 });

@@ -5,6 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from services.intelligence import (
+    STAGE_CONTEXT,
     analysis_history,
     ask_intelligence,
     calculate_intelligence_snapshot,
@@ -26,6 +27,14 @@ async def _context(
     user_id = await require_user_id(authorization)
     resolved_client_id = await resolve_client_id(client_id or x_client_id, authorization)
     return resolved_client_id, user_id
+
+
+def _log_stage_error(*, endpoint: str, client_id: str, stage: str, exc: BaseException) -> None:
+    """Etapa e tipo do erro no log do servidor; nada sensível, nada ao cliente."""
+    print(
+        f"[intelligence][route] endpoint={endpoint} client_id={client_id} stage={stage} "
+        f"status=error error_type={exc.__class__.__name__} code={str(exc)[:80]}"
+    )
 
 
 def _raise_service_error(exc: RuntimeError) -> None:
@@ -88,7 +97,16 @@ async def intelligence_context(
             client_id=cid, start=start, end=end, days=days,
         )
     except RuntimeError as exc:
+        _log_stage_error(endpoint="/api/intelligence/context", client_id=cid, stage=STAGE_CONTEXT, exc=exc)
         _raise_service_error(exc)
+    except Exception as exc:
+        # Erro não previsto na montagem do contexto: etapa identificada no log,
+        # mensagem genérica para o cliente.
+        _log_stage_error(endpoint="/api/intelligence/context", client_id=cid, stage=STAGE_CONTEXT, exc=exc)
+        raise HTTPException(
+            status_code=502,
+            detail="A leitura dos dados não pôde ser concluída agora. Tente novamente em instantes.",
+        ) from exc
     return {"ok": True, "snapshot": snapshot}
 
 

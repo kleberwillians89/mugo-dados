@@ -109,13 +109,6 @@ function metricMap(metrics: IntelligenceMetric[]) {
   return new Map(metrics.map((metric) => [metric.id, metric]));
 }
 
-function sourceStatusLabel(status: string): string {
-  if (status === "available") return "Com dados";
-  if (status === "connected_no_data") return "Conectado • sem dados no período";
-  if (status === "not_connected") return "Não conectado";
-  if (status === "error") return "Temporariamente indisponível";
-  return "Dados insuficientes no período";
-}
 
 function IntelligenceSkeleton() {
   return (
@@ -261,6 +254,15 @@ export default function Intelligence({ canRefresh = false }: Props) {
   const testIdeas = useMemo(() => buildTestIdeas(content, metricIndex), [content, metricIndex]);
   const sourceNames = useMemo(() => describeSources(snapshot), [snapshot]);
   const businessContextAvailable = Boolean(snapshot?.business_context?.available);
+  const analysisUpdatedLabel = useMemo(
+    () => formatDate(analysis?.completed_at || analysis?.created_at, true),
+    [analysis?.completed_at, analysis?.created_at]
+  );
+  // Cobertura de fontes em linguagem humana: "4 de 5 fontes com dados" é
+  // verificável; "qualidade 80%" soa como nota e não explica nada.
+  const sourceCoverage = snapshot?.quality
+    ? `${snapshot.quality.available_sources} de ${snapshot.quality.total_sources} fontes com dados no período`
+    : "";
   // Frescor pelo último SUCESSO das fontes (nunca por tentativa de sync).
   const updatedLabel = useMemo(
     () => (snapshot?.last_sync_at ? formatDate(snapshot.last_sync_at, true) : ""),
@@ -347,96 +349,82 @@ export default function Intelligence({ canRefresh = false }: Props) {
 
   return (
     <main className="intelligencePage">
+      {/* Primeira dobra responde "o que eu preciso saber hoje?": identidade
+          curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
       <header className="intelHeader">
         <div className="intelIdentity">
-          <div>
-            <span className="intelEyebrow">Central de decisão</span>
-            <h1>Mugô Inteligência</h1>
-            <small className="intelPoweredBy">Análise gerada com IA</small>
-            <p>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</p>
-          </div>
+          <span className="intelEyebrow">Inteligência</span>
+          <h1>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</h1>
+          <p>Leitura estratégica baseada nos dados da empresa.</p>
         </div>
         <div className="intelHeaderMeta">
           <span><small>Período</small>{formatDate(period.start)} — {formatDate(period.end)}</span>
-          <span><small>Qualidade</small>{snapshot?.quality.score ?? "—"}%</span>
-          <span><small>Última sincronização</small>{formatDate(snapshot?.last_sync_at, true)}</span>
-          <span><small>Última análise</small>{formatDate(analysis?.completed_at || analysis?.created_at, true)}</span>
-        </div>
-        {canRefresh ? (
-          <div className="intelHeaderActions">
-            <button className="btn btnPrimary" onClick={() => void refreshAnalysis()} disabled={refreshing}>
-              {refreshing ? "Gerando análise..." : "Atualizar análise"}
+          {analysisUpdatedLabel ? (
+            <span><small>Última análise</small>{analysisUpdatedLabel}</span>
+          ) : null}
+          {canRefresh ? (
+            <button className="btn btnPrimary intelHeaderAction" onClick={() => void refreshAnalysis()} disabled={refreshing}>
+              {refreshing ? "Gerando..." : content ? "Atualizar" : "Gerar análise"}
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </header>
 
-      <section className="intelSourceBar" aria-label="Fontes utilizadas">
-        <strong>Fontes</strong>
-        {(snapshot?.sources || []).map((source) => (
-          <span className={`intelSource is-${source.status}`} key={source.id}>
-            {source.label}<small>{sourceStatusLabel(source.status)}</small>
-          </span>
-        ))}
-        {/* Qual plataforma de vendas sustenta a leitura. Vem da conexão da
-            empresa, não do nome dela. */}
-        {commerceContext?.provider_label ? (
-          <span className="intelSource is-available" data-testid="intel-commerce-provider">
-            Vendas
-            <small>
-              {commerceContext.provider_label}
-              {commerceContext.official_kpis ? " · indicadores oficiais" : ""}
-            </small>
-          </span>
-        ) : null}
-      </section>
-      {commerceContext?.ambiguous ? (
-        <section className="intelSourceBar" aria-label="Plataformas de venda ativas">
-          <strong>Atenção</strong>
-          <span>
-            Há mais de uma plataforma de vendas ativa ({(commerceContext.active_providers || []).join(", ")}).
-            A leitura usa {commerceContext.provider_label}.
-          </span>
-        </section>
+      {/* Erro nunca destrói a página: com análise anterior válida, ela
+          permanece e o aviso é discreto. */}
+      {error && content ? (
+        <p className="intelInlineWarning" role="status" data-testid="intel-stale-warning">
+          Não conseguimos atualizar agora. A última análise válida continua disponível.
+        </p>
       ) : null}
-      {snapshot?.historical_context?.coverage_start && snapshot.historical_context.coverage_end ? (
-        <section className="intelSourceBar" aria-label="Histórico analisado">
-          <strong>Histórico comercial analisado</strong>
-          <span>{formatDate(snapshot.historical_context.coverage_start)} — {formatDate(snapshot.historical_context.coverage_end)}</span>
-          {Object.entries(snapshot.historical_context.source_coverage).map(([provider, coverage]) => coverage.start && coverage.end ? (
-            <span key={provider}>{provider === "shopify" ? "Shopify" : provider === "meta" ? "Meta" : provider === "google_ads" ? "Google Ads" : provider.toUpperCase()}<small>{formatDate(coverage.start)} — {formatDate(coverage.end)}</small></span>
-          ) : null)}
-        </section>
+      {error && !content ? (
+        <div className="intelInlineError" role="alert" data-testid="intel-error">
+          <p>Não conseguimos montar sua leitura agora.</p>
+          {canRefresh ? (
+            <button className="btn" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
+              Tentar novamente
+            </button>
+          ) : null}
+        </div>
       ) : null}
-
-      {error ? <div className="intelError" role="alert">{error}</div> : null}
       {providerConfigured === false || analysis?.status === "configuration_pending" ? (
-        <section className="intelConfigState">
-          <strong>Análise temporariamente indisponível</strong>
+        <p className="intelInlineWarning" role="status">
+          A geração de novas análises está temporariamente indisponível. Os dados da empresa seguem acessíveis.
+        </p>
+      ) : null}
+
+      {/* Resumo do momento: duas a quatro linhas, sem hero gigante. */}
+      {content ? (
+        <section className="intelMoment" aria-labelledby="intel-moment-title">
+          <h2 id="intel-moment-title">Resumo do momento</h2>
+          <p className="intelMomentLead">{content.executive.overall}</p>
+          {content.executive.priority_action ? (
+            <p className="intelMomentAction">{content.executive.priority_action}</p>
+          ) : null}
+        </section>
+      ) : !error ? (
+        <section className="intelMoment intelMomentEmpty" data-testid="intel-empty">
+          <h2>Sua leitura estratégica ainda não foi gerada</h2>
           <p>
-            Os dados da empresa continuam disponíveis. A geração de novas análises será liberada assim que o serviço for restabelecido.
+            Vamos cruzar os dados disponíveis para destacar movimentos, oportunidades e próximos
+            testes deste período.
           </p>
+          {canRefresh ? (
+            <button className="btn btnPrimary" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
+              {refreshing ? "Gerando análise..." : "Gerar análise"}
+            </button>
+          ) : (
+            <p className="intelMomentAction">Peça a um administrador da empresa para gerar a leitura.</p>
+          )}
         </section>
       ) : null}
 
-      <section className="intelExecutive">
-        <div className="intelExecutiveMain">
-          <span className="intelEyebrow">Resumo executivo</span>
-          <h2>{content?.executive.overall || "Ainda não existe uma análise para este período."}</h2>
-          <p>
-            {content
-              ? content.executive.priority_action
-              : canRefresh
-                ? "Revise as evidências calculadas e use “Atualizar análise” quando quiser criar uma nova versão."
-                : "Ainda não existe uma análise disponível para este período."}
-          </p>
-        </div>
-        <div className="intelExecutiveGrid">
-          <article><small>Principal mudança</small><p>{content?.executive.main_change || "Aguardando análise."}</p></article>
-          <article><small>Maior oportunidade</small><p>{content?.executive.opportunity || "Aguardando análise."}</p></article>
-          <article><small>Ponto de atenção</small><p>{content?.executive.attention || snapshot?.quality.message}</p></article>
-        </div>
-      </section>
+      {/* Contexto da marca: uma linha, nunca um cartão dominante. */}
+      {!businessContextAvailable && canRefresh ? (
+        <p className="intelInlineCta" data-testid="intel-context-cta">
+          Melhore esta leitura adicionando contexto estratégico em Administração › Contexto estratégico.
+        </p>
+      ) : null}
 
       {/* O que merece decisão primeiro. No máximo três, sempre com evidência:
           menos de três é resposta legítima, não falha. */}
@@ -724,6 +712,31 @@ export default function Intelligence({ canRefresh = false }: Props) {
               </a>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {/* Fontes são evidência, não produto: ficam no fim, em uma linha. */}
+      {sourceNames.length || commerceContext?.provider_label ? (
+        <section className="intelSources" aria-label="Fontes da análise" data-testid="intel-sources">
+          <h2>Fontes da análise</h2>
+          <p className="intelSourcesList">{sourceNames.join(" · ")}</p>
+          {sourceCoverage ? <p className="intelSourcesNote">{sourceCoverage}</p> : null}
+          {commerceContext?.provider && !commerceContext.official_kpis ? (
+            <p className="intelSourcesNote" data-testid="intel-commerce-note">
+              Os números de vendas vêm dos pedidos já sincronizados e podem diferir do painel da
+              loja.
+            </p>
+          ) : null}
+          {commerceContext?.ambiguous ? (
+            <p className="intelSourcesNote">
+              Há mais de uma plataforma de vendas conectada; a leitura usa a principal.
+            </p>
+          ) : null}
+          {snapshot?.historical_context?.coverage_start && snapshot.historical_context.coverage_end ? (
+            <p className="intelSourcesNote">
+              Histórico considerado: {formatDate(snapshot.historical_context.coverage_start)} — {formatDate(snapshot.historical_context.coverage_end)}
+            </p>
+          ) : null}
         </section>
       ) : null}
 

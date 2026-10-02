@@ -92,3 +92,15 @@
 .businessContextHint{font-weight:400;color:#74766f;font-size:13px;line-height:1.4}
 .businessContextCount{font-weight:400;color:#8c8e86;font-size:12px;align-self:flex-end}
 @media(min-width:900px){.businessContextForm{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}}
+
+/* Acessos da empresa: formulário e confirmação, mobile-first. */
+.accessForm{display:grid;grid-template-columns:1fr;gap:14px;margin:0 0 20px;padding:16px;border:1px solid #e3e0d8;border-radius:16px;background:#fbfaf7}
+.accessForm label{display:flex;flex-direction:column;gap:6px;font-weight:600;min-width:0}
+.accessForm input,.accessForm select{width:100%;box-sizing:border-box;font:inherit;font-weight:400;padding:10px 12px;border:1px solid #dedbd3;border-radius:10px;background:#fff}
+.accessForm p{margin:0;grid-column:1/-1}
+.accessHint{font-weight:400;color:#74766f;font-size:13px;line-height:1.4}
+.accessFormActions{display:flex;flex-wrap:wrap;gap:10px;grid-column:1/-1}
+.accessConfirm{display:grid;gap:12px;padding:16px;border:1px solid #e4cfcf;border-left:3px solid #a92c2c;border-radius:0 16px 16px 0;background:#fdf1f1;margin-top:18px}
+.accessConfirm p{margin:0;line-height:1.5}
+.accessTable td{vertical-align:top}
+@media(min-width:760px){.accessForm{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}}
