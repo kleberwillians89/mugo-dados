@@ -26,6 +26,20 @@ export type IntelligenceSource = {
   last_sync_at: string | null;
 };
 
+/** Item de pesquisa externa. Só é exibido com evidência verificável. */
+export type ExternalResearchItem = {
+  kind: "CONTENT_REFERENCE" | "POTENTIAL_UGC_CREATOR";
+  handle: string | null;
+  platform: string | null;
+  profile_url: string | null;
+  category: string | null;
+  reason_relevant: string | null;
+  observed_format: string | null;
+  public_signal: string | null;
+  source_url: string | null;
+  researched_at: string | null;
+};
+
 export type IntelligenceSnapshot = {
   client: { id: string; name: string };
   period: {
@@ -61,6 +75,31 @@ export type IntelligenceSnapshot = {
     revenue: number;
     conversions: number;
   }>;
+  /** Provider de e-commerce resolvido pela conexão do tenant, com procedência. */
+  commerce_context?: {
+    provider: "fbits" | "shopify" | null;
+    provider_label: string | null;
+    connected: boolean;
+    status: string;
+    kpi_source: string | null;
+    official_kpis: boolean;
+    provenance?: Record<string, string | null>;
+    ambiguous?: boolean;
+    active_providers?: string[];
+  };
+  business_context?: {
+    available: boolean;
+    context: Record<string, string | null>;
+    updated_at?: string | null;
+  };
+  /** Pesquisa externa: sem provider real vem "not_configured" e nada é exibido. */
+  external_research?: {
+    status: "ok" | "not_configured" | "unavailable";
+    provider: string | null;
+    market_signals: ExternalResearchItem[];
+    content_references: ExternalResearchItem[];
+    ugc_creators: ExternalResearchItem[];
+  };
   historical_context?: {
     coverage_start: string | null;
     coverage_end: string | null;

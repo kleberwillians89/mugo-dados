@@ -113,3 +113,31 @@
   .intelMessage{padding:14px;border-radius:8px}
 }
 @media(prefers-reduced-motion:reduce){.intelSkeletonHero,.intelSkeletonMetrics span,.intelSkeletonBody span{animation:none}.intelHistoryList>button{scroll-behavior:auto}}
+
+/* ===== Prioridade: 3 movimentos, oportunidades e ideias (mobile-first) ===== */
+.intelMovementList{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.intelMovement{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;background:#fff;border:1px solid #e3e0d8;border-left:4px solid #c9c5ba;border-radius:16px;padding:16px}
+.intelMovement.is-risk,.intelMovement.is-anomaly{border-left-color:#a92c2c}
+.intelMovement.is-attention{border-left-color:#b4761f}
+.intelMovement.is-opportunity{border-left-color:#286141}
+.intelMovement.is-positive{border-left-color:#4b7f5f}
+.intelMovementRank{font-size:13px;font-weight:700;color:#74766f;background:#f2f0ea;border-radius:99px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center}
+.intelMovementBody{min-width:0;display:grid;gap:10px}
+.intelMovementBody h3{margin:0;font-size:17px;line-height:1.3}
+.intelMovementBody p{margin:0;display:grid;gap:6px;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.intelMovementBody .intelInsightBadge{justify-self:start}
+.intelOpportunityList,.intelIdeaList{display:grid;gap:14px;grid-template-columns:1fr}
+.intelOpportunityList>article,.intelIdeaList>article{background:#fff;border:1px solid #e3e0d8;border-radius:16px;padding:16px;display:grid;gap:10px;min-width:0}
+.intelOpportunityList h3,.intelIdeaList h3{margin:0;font-size:16px;line-height:1.35;overflow-wrap:anywhere}
+.intelOpportunityList p,.intelIdeaList p{margin:0;font-size:15px;line-height:1.5;display:grid;gap:3px;overflow-wrap:anywhere}
+.intelIdeaList small{color:#74766f;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.intelContextCta .intelSectionTitle p{max-width:58ch}
+@media(min-width:760px){
+  .intelOpportunityList,.intelIdeaList{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .intelMovementBody h3{font-size:19px}
+}
+.intelResearchItem{display:grid;gap:8px;grid-template-columns:1fr;background:#fff;border:1px solid #e3e0d8;border-radius:14px;padding:14px;color:inherit;text-decoration:none;min-width:0}
+.intelResearchItem:hover{border-color:#c9c5ba}
+.intelResearchItem span{display:grid;gap:3px;min-width:0;overflow-wrap:anywhere}
+.intelResearchItem small{color:#74766f;font-size:13px}
+@media(min-width:760px){.intelResearchItem{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}}

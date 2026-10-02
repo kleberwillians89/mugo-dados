@@ -547,6 +547,42 @@ export async function deletePlatformCompany(
   });
 }
 
+/** Campos do contexto estratégico da empresa, iguais ao schema do backend. */
+export type BusinessContextFields = {
+  segment: string | null;
+  product_description: string | null;
+  audience: string | null;
+  positioning: string | null;
+  differentiators: string | null;
+  commercial_context: string | null;
+  goals: string | null;
+  strategic_notes: string | null;
+};
+
+export type BusinessContextResponse = {
+  ok: true;
+  client_id: string;
+  available: boolean;
+  context: BusinessContextFields;
+  updated_at?: string | null;
+};
+
+/** Empresa ativa resolvida pelo contexto autorizado: nenhum client_id é enviado. */
+export async function getBusinessContext(
+  options?: RequestSignalOptions
+): Promise<BusinessContextResponse> {
+  return http("/api/intelligence/business-context", { signal: options?.signal });
+}
+
+export async function saveBusinessContext(
+  context: Partial<BusinessContextFields>
+): Promise<BusinessContextResponse> {
+  return http("/api/intelligence/business-context", {
+    method: "PUT",
+    body: JSON.stringify(context),
+  });
+}
+
 export async function getIntelligenceContext(
   period: Period,
   options?: RequestSignalOptions,

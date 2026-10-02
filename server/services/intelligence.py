@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -12,6 +13,9 @@ import httpx
 
 from .periods import resolve_period
 from .generic_connections import list_generic_connections
+from .business_context import load_business_context
+from .commerce_context import resolve_commerce_context
+from .external_research import external_research_context
 from .ig_supabase import sb_insert, sb_select, sb_update
 from .instagram_organic_history import aggregate_instagram_months
 
@@ -126,9 +130,13 @@ período") e nunca "porque", "causou", "provou" ou equivalentes sem evidência c
 
 Leia métricas relacionadas em conjunto quando disponíveis: receita com pedidos e ticket;
 investimento com receita atribuída, compras e ROAS; sessões com conversão, pedidos e receita.
-Ao dizer que a loja vendeu ou faturou, use exclusivamente receita/pedidos Shopify. Meta e Google
-medem receita atribuída segundo cada plataforma; descreva sempre como atribuição, nunca como
-faturamento real nem como prova de causalidade sobre a receita total da loja.
+Ao dizer que a loja vendeu ou faturou, use exclusivamente receita/pedidos do provider de
+e-commerce informado em commerce_context (FBITS ou Shopify) — nunca presuma a plataforma e nunca
+misture a semântica de uma com a da outra. Em FBITS com kpi_source fbits_dashboard, receita,
+pedidos e ticket são indicadores oficiais da própria loja: trate-os como definitivos e não os
+reconstrua a partir de situações de pedido. Meta e Google medem receita atribuída segundo cada
+plataforma; descreva sempre como atribuição, nunca como faturamento real nem como prova de
+causalidade sobre a receita total da loja.
 Procure contradições úteis, como receita e pedidos em direções opostas. Não use benchmark ou
 meta que não esteja no payload. Não classifique automaticamente alta como boa ou queda como ruim.
 
@@ -136,8 +144,8 @@ Use historical_context apenas para contextualizar o período principal. Dois mes
 movimento, não tendência; só descreva tendência quando recent_trend.is_trend for verdadeiro.
 Não alegue sazonalidade com um único ano. Meses parciais não são diretamente comparáveis a meses
 completos. Respeite source_coverage: uma fonte não explica meses anteriores à sua cobertura.
-roas_real usa receita real Shopify; attributed_roas usa a atribuição da plataforma e os conceitos
-devem permanecer explicitamente separados.
+roas_real usa a receita real do provider de e-commerce do tenant; attributed_roas usa a atribuição
+da plataforma e os conceitos devem permanecer explicitamente separados.
 
 Respeite analysis_policy. Cobertura indica até que data existem dados; freshness indica quando o
 job terminou. Não confunda esses conceitos. Não cruze fontes quando cross_source_comparison_allowed
@@ -511,6 +519,36 @@ async def calculate_intelligence_snapshot(
     previous = current.get("previous_period") or {}
     deltas = current.get("deltas") or {}
     shopify = current.get("shopify") or {}
+    # Provider de e-commerce resolvido pela conexão do tenant, nunca pelo nome
+    # da empresa. FBITS entrega os KPIs oficiais da própria loja; Shopify, os
+    # agregados já lidos do read model.
+    commerce = await resolve_commerce_context(
+        client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
+        shopify_section={
+            **shopify,
+            "previous": previous.get("shopify") or {},
+            "deltas": deltas,
+        },
+    )
+    commerce_metrics = commerce.get("metrics") or {}
+    # Contexto editorial da empresa e pesquisa externa. Sem provider externo
+    # configurado, o bloco volta not_configured e nada é inventado.
+    business, external = await asyncio.gather(
+        load_business_context(client_id),
+        external_research_context(client_id=client_id),
+    )
+
+    def commerce_metric(name: str) -> Dict[str, Any]:
+        return commerce_metrics.get(name) if isinstance(commerce_metrics.get(name), dict) else {}
+
+    commerce_source_payload = {
+        "connected": bool(commerce.get("connected")),
+        "data_available": commerce_metric("revenue").get("value") is not None,
+        "last_success_at": commerce.get("last_success_at"),
+        "data_max_available": (
+            end_date.isoformat() if commerce_metric("revenue").get("value") is not None else None
+        ),
+    }
     meta = current.get("meta") or {}
     google_ads = current.get("google_ads") or {}
     ga4 = current.get("ga4") or {}
@@ -530,7 +568,14 @@ async def calculate_intelligence_snapshot(
         }
 
     sources = [
-        provider_source("commerce", "E-commerce", shopify),
+        {
+            **provider_source("commerce", "E-commerce", commerce_source_payload),
+            # Proveniência explícita: quem lê sabe de qual plataforma é o número.
+            "provider": commerce.get("provider"),
+            "provider_label": commerce.get("provider_label"),
+            "kpi_source": commerce.get("kpi_source"),
+            "official_kpis": bool(commerce.get("official_kpis")),
+        },
         provider_source("meta", "Meta Ads", meta),
         provider_source("google_ads", "Google Ads", google_ads),
         provider_source("ga4", "Google Analytics 4", ga4),
@@ -539,11 +584,12 @@ async def calculate_intelligence_snapshot(
     prev_shopify = previous.get("shopify") or {}
     prev_meta = previous.get("meta") or {}
     metrics = [
-        _metric("revenue", "Faturamento", shopify.get("net_revenue"), fmt="currency", status="confirmed" if shopify.get("net_revenue") is not None else "unavailable", source="shopify", previous=prev_shopify.get("net_revenue"), variation=(deltas.get("shopify_net_revenue") or {}).get("percent")),
-        _metric("orders", "Pedidos", shopify.get("orders"), fmt="integer", status="confirmed" if shopify.get("orders") is not None else "unavailable", source="shopify", previous=prev_shopify.get("orders"), variation=(deltas.get("shopify_orders") or {}).get("percent")),
-        _metric("average_ticket", "Ticket médio", shopify.get("average_order_value"), fmt="currency", status="confirmed" if shopify.get("average_order_value") is not None else "unavailable", source="shopify"),
-        _metric("new_customers", "Novos clientes", shopify.get("new_customers"), fmt="integer", status="confirmed" if shopify.get("new_customers") is not None else "unavailable", source="shopify"),
-        _metric("repeat_customers", "Clientes recorrentes", shopify.get("returning_customers"), fmt="integer", status="confirmed" if shopify.get("returning_customers") is not None else "unavailable", source="shopify"),
+        # Comércio: valores do provider resolvido, com a procedência no source.
+        _metric("revenue", "Faturamento", commerce_metric("revenue").get("value"), fmt="currency", status="confirmed" if commerce_metric("revenue").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce", previous=commerce_metric("revenue").get("previous"), variation=commerce_metric("revenue").get("variation"), extra={"kpi_source": commerce.get("kpi_source")}),
+        _metric("orders", "Pedidos", commerce_metric("orders").get("value"), fmt="integer", status="confirmed" if commerce_metric("orders").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce", previous=commerce_metric("orders").get("previous"), variation=commerce_metric("orders").get("variation"), extra={"kpi_source": commerce.get("kpi_source")}),
+        _metric("average_ticket", "Ticket médio", commerce_metric("average_ticket").get("value"), fmt="currency", status="confirmed" if commerce_metric("average_ticket").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce", previous=commerce_metric("average_ticket").get("previous"), variation=commerce_metric("average_ticket").get("variation"), extra={"kpi_source": commerce.get("kpi_source")}),
+        _metric("new_customers", "Novos clientes", commerce_metric("customers").get("value"), fmt="integer", status="confirmed" if commerce_metric("customers").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce"),
+        _metric("repeat_customers", "Clientes recorrentes", shopify.get("returning_customers"), fmt="integer", status="confirmed" if shopify.get("returning_customers") is not None else "unavailable", source=commerce.get("provider") or "commerce"),
         _metric("meta_investment", "Investimento Meta", meta.get("spend"), fmt="currency", status="partial" if (meta.get("coverage") or {}).get("is_partial") else "confirmed" if meta.get("spend") is not None else "unavailable", source="meta", previous=prev_meta.get("spend"), variation=(deltas.get("meta_spend") or {}).get("percent")),
         _metric("google_ads_investment", "Investimento Google Ads", google_ads.get("spend"), fmt="currency", status="partial" if (google_ads.get("coverage") or {}).get("is_partial") else "confirmed" if google_ads.get("spend") is not None else "unavailable", source="google_ads"),
         _metric("investment", "Investimento total", total_media.get("paid_media_spend"), fmt="currency", status="confirmed" if total_media.get("paid_media_spend") is not None else "unavailable", source="paid_media", extra={"included_paid_sources": total_media.get("included_paid_sources") or []}),
@@ -566,6 +612,20 @@ async def calculate_intelligence_snapshot(
         },
         "last_sync_at": max((str(source.get("last_sync_at") or "") for source in sources), default="") or None,
         "metrics": metrics, "crossings": [], "top_campaigns": [],
+        "commerce_context": {
+            "provider": commerce.get("provider"),
+            "provider_label": commerce.get("provider_label"),
+            "connected": bool(commerce.get("connected")),
+            "status": commerce.get("status"),
+            "kpi_source": commerce.get("kpi_source"),
+            "official_kpis": bool(commerce.get("official_kpis")),
+            "provenance": commerce.get("provenance") or {},
+            "ambiguous": bool(commerce.get("ambiguous")),
+            "active_providers": commerce.get("active_providers") or [],
+            "status_distribution": commerce.get("status_distribution") or [],
+        },
+        "business_context": business,
+        "external_research": external,
         "executive_context": executive_context,
         "historical_context": (executive_context or {}).get("historical_context"),
     }
@@ -1145,6 +1205,80 @@ def _sanitize_analysis(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Di
     return analysis
 
 
+ANALYSIS_VERSION = "v2-commerce-provider"
+
+
+def context_fingerprint(snapshot: Dict[str, Any]) -> str:
+    """Identidade do contexto que alimenta a análise.
+
+    Entram período, valores e status das métricas, frescor das fontes, o
+    provider de e-commerce com a procedência dos KPIs e o contexto de negócio.
+    Mudança relevante nos dados muda a impressão digital e invalida o reuso;
+    uma nova visita com os mesmos dados reaproveita a análise e não gasta
+    token. A versão entra na conta: ao mudar schema ou instruções, o reuso
+    expira sozinho.
+    """
+    period = snapshot.get("period") or {}
+    commerce = snapshot.get("commerce_context") or {}
+    business = (snapshot.get("business_context") or {}).get("context") or {}
+    external = snapshot.get("external_research") or {}
+    material = [
+        {
+            "id": metric.get("id"), "value": metric.get("value"),
+            "status": metric.get("status"), "previous": metric.get("previous"),
+        }
+        for metric in snapshot.get("metrics") or []
+    ]
+    sources = [
+        {
+            "id": source.get("id"), "status": source.get("status"),
+            # Só sucesso: uma tentativa sem dado novo não invalida a análise.
+            "last_sync_at": source.get("last_sync_at"),
+            "data_max_available": source.get("data_max_available"),
+        }
+        for source in snapshot.get("sources") or []
+    ]
+    fingerprint_payload = {
+        "version": ANALYSIS_VERSION,
+        "period": {"start": period.get("start"), "end": period.get("end")},
+        "metrics": material,
+        "sources": sources,
+        "commerce": {
+            "provider": commerce.get("provider"), "kpi_source": commerce.get("kpi_source"),
+        },
+        "business_context": business,
+        "external_research": {"status": external.get("status"), "provider": external.get("provider")},
+    }
+    serialized = json.dumps(fingerprint_payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+async def _reusable_analysis(
+    *, client_id: str, period: Dict[str, Any], fingerprint: str,
+) -> Dict[str, Any] | None:
+    """Análise concluída do mesmo tenant, período e contexto."""
+    try:
+        rows = await sb_select(
+            "ai_analyses",
+            filters={
+                "client_id": f"eq.{client_id}",
+                "period_start": f"eq.{period['start']}",
+                "period_end": f"eq.{period['end']}",
+                "status": "eq.completed",
+                "context_fingerprint": f"eq.{fingerprint}",
+            },
+            order="created_at.desc", limit=1,
+        )
+    except Exception as exc:
+        # Coluna ainda não aplicada no remoto: segue gerando normalmente.
+        print(f"[intelligence][cache] client_id={client_id} status=lookup_unavailable error_type={exc.__class__.__name__}")
+        return None
+    row = rows[0] if rows else None
+    if not row or _text(row.get("client_id")) != client_id:
+        return None
+    return row
+
+
 async def generate_analysis(
     *,
     client_id: str,
@@ -1157,11 +1291,13 @@ async def generate_analysis(
         client_id=client_id, start=start, end=end, days=days,
     )
     period = snapshot["period"]
+    fingerprint = context_fingerprint(snapshot)
     base_row = {
         "client_id": client_id,
         "requested_by": user_id,
         "period_start": period["start"],
         "period_end": period["end"],
+        "context_fingerprint": fingerprint,
         "provider": "openai" if provider_configured() else None,
         "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini") if provider_configured() else None,
         "sources": snapshot["sources"],
@@ -1180,6 +1316,17 @@ async def generate_analysis(
             "snapshot": snapshot,
             "analysis": saved,
         }
+    reusable = await _reusable_analysis(client_id=client_id, period=period, fingerprint=fingerprint)
+    if reusable:
+        print(f"[intelligence][cache] client_id={client_id} status=reused period={period['start']}..{period['end']}")
+        return {
+            "ok": True,
+            "provider_configured": True,
+            "status": "completed",
+            "reused": True,
+            "snapshot": snapshot,
+            "analysis": reusable,
+        }
     try:
         analysis = await _call_provider(
             payload={
@@ -1194,6 +1341,13 @@ async def generate_analysis(
                 # fontes incluídas explícitas, GA4 separado) — a IA só
                 # interpreta, nunca soma/divide nada daqui.
                 "real_operation": snapshot.get("executive_context"),
+                # Provider de e-commerce com procedência dos KPIs: impede
+                # atribuir a uma loja FBITS semântica de Shopify.
+                "commerce_context": snapshot.get("commerce_context"),
+                # Texto editorial da empresa: segmento, público, objetivos.
+                "business_context": (snapshot.get("business_context") or {}).get("context"),
+                # Sem provider externo, chega not_configured e nada é inventado.
+                "external_research": snapshot.get("external_research"),
                 # Monthly aggregates only: no order, customer, email or other PII.
                 "historical_context": snapshot.get("historical_context"),
             },

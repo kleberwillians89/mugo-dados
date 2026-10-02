@@ -12,7 +12,8 @@ from services.intelligence import (
     generate_analysis,
     latest_analysis,
 )
-from services.tenant import require_user_id, resolve_client_id
+from services.business_context import load_business_context, save_business_context
+from services.tenant import require_client_role, require_user_id, resolve_client_id
 
 router = APIRouter(prefix="/api/intelligence", tags=["intelligence"])
 
@@ -42,6 +43,34 @@ def _raise_service_error(exc: RuntimeError) -> None:
         status_code=502,
         detail="A análise não pôde ser concluída agora. Os demais dados continuam disponíveis.",
     ) from exc
+
+
+@router.get("/business-context")
+async def intelligence_business_context(
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    # Contexto da empresa: qualquer membro lê, inclusive viewer.
+    cid, _ = await _context(client_id, x_client_id, authorization)
+    return {"ok": True, "client_id": cid, **await load_business_context(cid)}
+
+
+@router.put("/business-context")
+async def intelligence_save_business_context(
+    payload: Dict[str, Any],
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    # Escrever é mutação: viewer é recusado por require_client_role.
+    cid = await require_client_role(client_id or x_client_id, authorization)
+    user_id = await require_user_id(authorization)
+    try:
+        saved = await save_business_context(client_id=cid, user_id=user_id, payload=payload)
+    except RuntimeError as exc:
+        _raise_service_error(exc)
+    return {"ok": True, "client_id": cid, **saved}
 
 
 @router.get("/context")

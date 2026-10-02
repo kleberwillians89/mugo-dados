@@ -15,6 +15,12 @@ import type {
   IntelligenceMetric,
   IntelligenceSnapshot,
 } from "../app/intelligenceTypes";
+import {
+  buildTestIdeas,
+  describeSources,
+  selectMovements,
+  selectOpportunities,
+} from "../app/intelligencePriority";
 import { usePeriod } from "../app/PeriodContext";
 import "../styles/intelligence.css";
 
@@ -240,6 +246,33 @@ export default function Intelligence({ canRefresh = false }: Props) {
   );
   const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
   const content = analysis?.status === "completed" ? analysis.analysis : null;
+  const commerceContext = snapshot?.commerce_context;
+  const metricIndex = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
+  // Prioridade a partir dos sinais que já existem na análise: nenhum score
+  // numérico inventado e nenhum texto novo gerado aqui.
+  const movements = useMemo(
+    () => selectMovements(content?.insights, metricIndex),
+    [content?.insights, metricIndex]
+  );
+  const opportunities = useMemo(
+    () => selectOpportunities(content?.insights, metricIndex, movements),
+    [content?.insights, metricIndex, movements]
+  );
+  const testIdeas = useMemo(() => buildTestIdeas(content, metricIndex), [content, metricIndex]);
+  const sourceNames = useMemo(() => describeSources(snapshot), [snapshot]);
+  const businessContextAvailable = Boolean(snapshot?.business_context?.available);
+  // Frescor pelo último SUCESSO das fontes (nunca por tentativa de sync).
+  const updatedLabel = useMemo(
+    () => (snapshot?.last_sync_at ? formatDate(snapshot.last_sync_at, true) : ""),
+    [snapshot?.last_sync_at]
+  );
+  // Pesquisa externa só aparece com provider real E item verificável: sem
+  // provider, nada de seção vazia nem dado inventado.
+  const research = snapshot?.external_research;
+  const researchAvailable = research?.status === "ok";
+  const marketSignals = researchAvailable ? research?.market_signals || [] : [];
+  const contentReferences = researchAvailable ? research?.content_references || [] : [];
+  const ugcCreators = researchAvailable ? research?.ugc_creators || [] : [];
 
   async function refreshAnalysis() {
     if (refreshing) return;
@@ -345,7 +378,27 @@ export default function Intelligence({ canRefresh = false }: Props) {
             {source.label}<small>{sourceStatusLabel(source.status)}</small>
           </span>
         ))}
+        {/* Qual plataforma de vendas sustenta a leitura. Vem da conexão da
+            empresa, não do nome dela. */}
+        {commerceContext?.provider_label ? (
+          <span className="intelSource is-available" data-testid="intel-commerce-provider">
+            Vendas
+            <small>
+              {commerceContext.provider_label}
+              {commerceContext.official_kpis ? " · indicadores oficiais" : ""}
+            </small>
+          </span>
+        ) : null}
       </section>
+      {commerceContext?.ambiguous ? (
+        <section className="intelSourceBar" aria-label="Plataformas de venda ativas">
+          <strong>Atenção</strong>
+          <span>
+            Há mais de uma plataforma de vendas ativa ({(commerceContext.active_providers || []).join(", ")}).
+            A leitura usa {commerceContext.provider_label}.
+          </span>
+        </section>
+      ) : null}
       {snapshot?.historical_context?.coverage_start && snapshot.historical_context.coverage_end ? (
         <section className="intelSourceBar" aria-label="Histórico analisado">
           <strong>Histórico comercial analisado</strong>
@@ -384,6 +437,102 @@ export default function Intelligence({ canRefresh = false }: Props) {
           <article><small>Ponto de atenção</small><p>{content?.executive.attention || snapshot?.quality.message}</p></article>
         </div>
       </section>
+
+      {/* O que merece decisão primeiro. No máximo três, sempre com evidência:
+          menos de três é resposta legítima, não falha. */}
+      {movements.length ? (
+        <section className="intelSection intelMovements" data-testid="intel-movements">
+          <div className="intelSectionTitle">
+            <div>
+              <span className="intelEyebrow">Prioridade</span>
+              <h2>{movements.length === 1 ? "1 movimento que merece sua atenção" : `${movements.length} movimentos que merecem sua atenção`}</h2>
+            </div>
+            {sourceNames.length ? (
+              <p data-testid="intel-source-note">
+                Fontes: {sourceNames.join(" · ")}
+                {updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
+              </p>
+            ) : null}
+          </div>
+          <ol className="intelMovementList">
+            {movements.map((insight, index) => (
+              <li className={`intelMovement is-${insight.category}`} key={`${insight.title}-${index}`}>
+                <span className="intelMovementRank" aria-hidden="true">{index + 1}</span>
+                <div className="intelMovementBody">
+                  <h3>{insight.title}</h3>
+                  <p className="intelMovementFact">
+                    <span className="intelInsightBadge is-fact">O que aconteceu</span>
+                    <Evidence ids={insight.metric_ids} metrics={metricIndex} />
+                  </p>
+                  <p className="intelMovementWhy">
+                    <span className="intelInsightBadge is-interpretation">Por que importa</span>
+                    {insight.interpretation}
+                  </p>
+                  <p className="intelMovementAction">
+                    <span className="intelInsightBadge is-recommendation">O que fazer</span>
+                    {insight.action}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {/* Oportunidades só entram aterradas em dado; sem candidata, sem seção. */}
+      {opportunities.length ? (
+        <section className="intelSection" data-testid="intel-opportunities">
+          <div className="intelSectionTitle">
+            <div><span className="intelEyebrow">Caminhos</span><h2>Oportunidades</h2></div>
+            <p>Cada uma sai de um número do período, não de boa prática genérica.</p>
+          </div>
+          <div className="intelOpportunityList">
+            {opportunities.map((insight, index) => (
+              <article key={`${insight.title}-${index}`}>
+                <h3>{insight.title}</h3>
+                <Evidence ids={insight.metric_ids} metrics={metricIndex} />
+                <p>{insight.interpretation}</p>
+                <strong>{insight.action}</strong>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Ideias derivadas das recomendações da análise. Ainda não é tarefa,
+          calendário nem publicação. */}
+      {testIdeas.length ? (
+        <section className="intelSection" data-testid="intel-ideas">
+          <div className="intelSectionTitle">
+            <div><span className="intelEyebrow">Experimentos</span><h2>Ideias para testar</h2></div>
+            <p>Hipóteses para avaliar, com a métrica que diz se funcionou.</p>
+          </div>
+          <div className="intelIdeaList">
+            {testIdeas.map((idea) => (
+              <article key={idea.title}>
+                <h3>{idea.title}</h3>
+                {idea.whyNow ? <p><small>Por que agora</small>{idea.whyNow}</p> : null}
+                <p><small>Ação</small>{idea.action}</p>
+                {idea.hypothesis ? <p><small>Hipótese</small>{idea.hypothesis}</p> : null}
+                <p><small>Métrica para acompanhar</small>{idea.metricLabel}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Contexto da marca: convite discreto para quem pode editar, nunca bloqueio. */}
+      {!businessContextAvailable && canRefresh ? (
+        <section className="intelSection intelContextCta" data-testid="intel-context-cta">
+          <div className="intelSectionTitle">
+            <div><span className="intelEyebrow">Contexto</span><h2>Adicionar contexto da marca</h2></div>
+            <p>
+              Com segmento, público e objetivos preenchidos, a leitura passa a considerar a
+              realidade da empresa, não só os números. Em Administração › Contexto estratégico.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       <section className="intelSection">
         <div className="intelSectionTitle">
@@ -538,6 +687,45 @@ export default function Intelligence({ canRefresh = false }: Props) {
           </div>
         </form>
       </section>
+
+      {/* Mercado, referências e creators só existem com pesquisa externa real.
+          Sem provider conectado, estas seções não são renderizadas — nunca um
+          placeholder que pareça funcionalidade. */}
+      {marketSignals.length ? (
+        <section className="intelSection" data-testid="intel-market">
+          <div className="intelSectionTitle">
+            <div><span className="intelEyebrow">Pesquisa externa</span><h2>Mercado agora</h2></div>
+            <p>Sinais observados fora da operação, com a fonte de cada um.</p>
+          </div>
+          <div className="intelHistoryList">
+            {marketSignals.map((item) => (
+              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
+                <span><strong>{item.reason_relevant || item.observed_format || "Sinal observado"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
+                <span><strong>{item.public_signal || "Sinal público"}</strong><small>{formatDate(item.researched_at)}</small></span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {ugcCreators.length || contentReferences.length ? (
+        <section className="intelSection" data-testid="intel-creators">
+          <div className="intelSectionTitle">
+            <div><span className="intelEyebrow">Pesquisa externa</span><h2>Creators e UGC</h2></div>
+            <p>Evidências para avaliação humana. A escolha de quem contratar é sempre sua.</p>
+          </div>
+          <div className="intelHistoryList">
+            {[...ugcCreators, ...contentReferences].map((item) => (
+              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
+                <span><strong>{item.handle || item.observed_format || "Referência"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
+                <span>
+                  <strong>{item.kind === "POTENTIAL_UGC_CREATOR" ? "Creator para avaliar" : "Referência de conteúdo"}</strong>
+                  <small>{item.reason_relevant || "Sem motivo informado"}</small>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="intelSection intelHistory">
         <div className="intelSectionTitle">

@@ -332,9 +332,17 @@ class BlendedRoasPeriodConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(total["included_paid_sources"], [])
 
 
+# A empresa destes testes é Shopify: o provider de e-commerce passou a ser
+# resolvido pela conexão do tenant, nunca presumido.
+SHOPIFY_CONNECTION = {
+    "id": "shopify-1", "client_id": "amalie", "provider": "shopify",
+    "status": "connected", "disconnected_at": None, "updated_at": "2026-08-31T12:00:00Z",
+}
+
+
 class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCase):
     async def test_intelligence_roas_and_revenue_metrics_come_from_backend_executive_summary(self):
-        from services import intelligence
+        from services import commerce_context, intelligence
 
         fake_executive = {
             "shopify": {"net_revenue": 1000.0, "gross_revenue": 1000.0, "orders": 10, "connected": True},
@@ -349,6 +357,8 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         with (
             patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=fake_executive)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
+            # O provider de e-commerce é resolvido pela conexão do tenant.
+            patch.object(commerce_context, "sb_select", AsyncMock(return_value=[SHOPIFY_CONNECTION])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):
             snapshot = await intelligence.calculate_intelligence_snapshot(
@@ -366,11 +376,13 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         self.assertEqual(snapshot["executive_context"], fake_executive)
 
     async def test_intelligence_degrades_gracefully_without_shopify_connected(self):
-        from services import intelligence
+        from services import commerce_context, intelligence
 
         with (
             patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=None)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
+            # O provider de e-commerce é resolvido pela conexão do tenant.
+            patch.object(commerce_context, "sb_select", AsyncMock(return_value=[SHOPIFY_CONNECTION])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):
             snapshot = await intelligence.calculate_intelligence_snapshot(
@@ -386,7 +398,7 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         self.assertIsNone(snapshot["executive_context"])
 
     async def test_intelligence_keeps_four_provider_freshness_and_null_values(self):
-        from services import intelligence
+        from services import commerce_context, intelligence
 
         fake_executive = {
             "period": {"start": "2026-08-10", "end": "2026-08-10", "days": 1},
@@ -401,6 +413,8 @@ class IntelligenceConsumesCalculatedMetricsTests(unittest.IsolatedAsyncioTestCas
         with (
             patch.object(intelligence, "_read_model_executive_context", AsyncMock(return_value=fake_executive)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
+            # O provider de e-commerce é resolvido pela conexão do tenant.
+            patch.object(commerce_context, "sb_select", AsyncMock(return_value=[SHOPIFY_CONNECTION])),
             patch.object(intelligence, "list_generic_connections", AsyncMock(return_value=[])),
         ):
             snapshot = await intelligence.calculate_intelligence_snapshot(

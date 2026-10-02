@@ -841,6 +841,7 @@ function PrivateApp() {
           onOpenDashboard={() => openRoute("meta")}
           canCreateCompany={platformAdmin}
           canDeleteCompany={platformAdmin}
+          canEditBusinessContext={canManageIntegrations}
         />
       ) : (
       <>

@@ -11,6 +11,7 @@ import {
 import { getActiveClient } from "../app/activeClient";
 import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
+import BusinessContextPanel from "../components/admin/BusinessContextPanel";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
 import CompanyWizard from "../components/admin/CompanyWizard";
 import Modal from "../components/Modal";
@@ -25,14 +26,17 @@ type Props = {
   canCreateCompany?: boolean;
   /** Exclusão permanente é sempre exclusiva de platform_admin. */
   canDeleteCompany?: boolean;
+  /** Perfil de gestão da empresa ativa; o backend revalida no PUT. */
+  canEditBusinessContext?: boolean;
 };
 
-type Tab = "empresas" | "usuarios" | "permissoes";
+type Tab = "empresas" | "usuarios" | "permissoes" | "contexto";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "empresas", label: "Empresas" },
   { id: "usuarios", label: "Usuários" },
   { id: "permissoes", label: "Permissões" },
+  { id: "contexto", label: "Contexto estratégico" },
 ];
 
 const INVITE_ROLES: Array<{ value: "owner" | "agency_admin" | "client_admin" | "viewer"; label: string }> = [
@@ -48,6 +52,7 @@ export default function Companies({
   onOpenCompany,
   canCreateCompany = true,
   canDeleteCompany = false,
+  canEditBusinessContext = false,
 }: Props) {
   const [companies, setCompanies] = useState<PlatformCompany[]>([]);
   const [loading, setLoading] = useState(true);
@@ -356,6 +361,8 @@ export default function Companies({
           )}
         </section>
       ) : null}
+
+      {tab === "contexto" ? <BusinessContextPanel canEdit={canEditBusinessContext} /> : null}
 
       {tab === "permissoes" ? (
         <section className="companiesCard">
