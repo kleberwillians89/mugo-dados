@@ -9,6 +9,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // IDs do caso RÜAH e da Mugô: só fixtures de apresentação.
 const RUAH_BUSINESS = "2633867063339117";
 const RUAH_AD_ACCOUNT = "act_1391863696277834";
+const ORIGAMI_BUSINESS = "1162363888929790";
+const ORIGAMI_INSTAGRAM = "17841400000000000";
 
 vi.mock("../app/activeClient", () => ({
   getActiveClient: () => ({ id: "ruah", name: "RÜAH", role: "client_admin" }),
@@ -33,9 +35,15 @@ const discovered = {
   business_managers: [
     { business_id: RUAH_BUSINESS, business_name: "RÜAH", discovery: { owned_ad_accounts: { status: "ok", count: 2 } } },
     { business_id: "biz-bloqueado", business_name: "Bloqueado", discovery: { owned_ad_accounts: { status: "permission_denied" } } },
-    { business_id: "biz-vazio", business_name: "origami_investimentos", discovery: {
+    { business_id: ORIGAMI_BUSINESS, business_name: "origami_investimentos", discovery: {
       owned_ad_accounts: { status: "ok", count: 0 }, client_ad_accounts: { status: "ok", count: 0 },
       owned_pages: { status: "ok", count: 0 }, client_pages: { status: "ok", count: 0 },
+      owned_instagram_accounts: { status: "ok", count: 1 }, client_instagram_assets: { status: "ok", count: 0 },
+    } },
+    { business_id: "biz-vazio", business_name: "Business vazio", discovery: {
+      owned_ad_accounts: { status: "ok", count: 0 }, client_ad_accounts: { status: "ok", count: 0 },
+      owned_pages: { status: "ok", count: 0 }, client_pages: { status: "ok", count: 0 },
+      owned_instagram_accounts: { status: "ok", count: 0 }, client_instagram_assets: { status: "ok", count: 0 },
     } },
   ],
   pages: [{
@@ -44,7 +52,14 @@ const discovered = {
     businesses: [{ business_id: RUAH_BUSINESS, business_name: "RÜAH", relation: "owned" }],
     access_status: "accessible",
   }],
-  instagram_accounts: [{ ig_user_id: "ig-ruah", username: "ruah", business_id: "page-ruah", business_name: "RÜAH Perfumaria" }],
+  instagram_accounts: [
+    { ig_user_id: "ig-ruah", username: "ruah", business_id: "page-ruah", page_id: "page-ruah", business_name: "RÜAH Perfumaria", discovery_sources: ["page_linked"] },
+    {
+      ig_user_id: ORIGAMI_INSTAGRAM, username: "origami_investimentos", page_id: "",
+      discovery_sources: ["business_owned"],
+      businesses: [{ business_id: ORIGAMI_BUSINESS, business_name: "origami_investimentos", relation: "owned" }],
+    },
+  ],
   ad_accounts: [
     {
       ad_account_id: RUAH_AD_ACCOUNT, ad_account_name: "RÜAH Ads", access_status: "accessible",
@@ -59,7 +74,8 @@ const discovered = {
   scopes: ["business_management", "ads_read"],
 };
 
-const linkClientAssets = vi.hoisted(() => vi.fn(async () => ({ ok: true, connections: [] })));
+const linkClientAssets = vi.hoisted(() => vi.fn(async () => ({ ok: true, organic_connection_id: "organic-origami", connections: [] })));
+const refreshAll = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 
 vi.mock("../app/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../app/api")>();
@@ -67,6 +83,7 @@ vi.mock("../app/api", async (importOriginal) => {
     ...actual,
     discoverClientMetaAssets: vi.fn(async () => discovered),
     linkClientAssets,
+    refreshAll,
     listClientConnections: vi.fn(async () => ({ connections: [] })),
     listGenericConnections: vi.fn(async () => ({
       ok: true,
@@ -98,6 +115,7 @@ function checkbox(text: string): HTMLInputElement | null {
 
 beforeEach(async () => {
   linkClientAssets.mockClear();
+  refreshAll.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -118,7 +136,7 @@ describe("Onboarding — ativos Meta agrupados por Business", () => {
   it("mostra cada Business com seus ativos, uma única vez, e os diretos ao final", () => {
     const groups = [...container.querySelectorAll("section.metaAssetGroup")];
     expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
-      "Business RÜAH", "Business Bloqueado", "Business origami_investimentos", "Ativos diretamente acessíveis",
+      "Business RÜAH", "Business Bloqueado", "Business origami_investimentos", "Business Business vazio", "Ativos diretamente acessíveis",
     ]);
     expect(groups[0].textContent).toContain(`Business ${RUAH_BUSINESS}`);
     expect(groups[0].textContent).toContain("RÜAH Perfumaria");
@@ -126,9 +144,11 @@ describe("Onboarding — ativos Meta agrupados por Business", () => {
     expect(groups[0].textContent).toContain(RUAH_AD_ACCOUNT);
     expect(groups[1].textContent).toContain("A autorização atual não permite listar as contas de anúncio deste Business.");
     expect(groups[2].textContent).toContain("Nenhuma conta de anúncios encontrada");
+    expect(groups[2].textContent).toContain("@origami_investimentos");
+    expect(groups[2].textContent).not.toContain("Nenhuma conta do Instagram encontrada");
     expect(groups[2].textContent).not.toContain("autorização atual não permite");
-    expect(groups[3].textContent).toContain("Outros ativos diretamente acessíveis");
-    expect(groups[3].textContent).toContain("Conta direta");
+    expect(groups[4].textContent).toContain("Outros ativos diretamente acessíveis");
+    expect(groups[4].textContent).toContain("Conta direta");
     expect(container.textContent).not.toContain("Sem ativos para esta autorização");
     const occurrences = container.textContent?.split(RUAH_AD_ACCOUNT).length ?? 0;
     expect(occurrences - 1).toBe(1);
@@ -161,11 +181,11 @@ describe("Onboarding — ativos Meta agrupados por Business", () => {
   });
 
   it("Business sem ativos pode ser escolhido explicitamente e salvo sem criar seleção falsa", async () => {
-    const origamiBusiness = checkbox("origami_investimentos");
-    expect(origamiBusiness).toBeTruthy();
-    expect(origamiBusiness?.checked).toBe(false);
+    const emptyBusiness = checkbox("Business vazio");
+    expect(emptyBusiness).toBeTruthy();
+    expect(emptyBusiness?.checked).toBe(false);
     await act(async () => {
-      origamiBusiness?.click();
+      emptyBusiness?.click();
     });
     const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar conexão e importar dados");
     await act(async () => {
@@ -180,5 +200,25 @@ describe("Onboarding — ativos Meta agrupados por Business", () => {
       ad_account_ids: [],
     });
     expect(container.textContent).toContain("Organização Meta vinculada");
+  });
+
+  it("Instagram direto do Business pode ser salvo e sincronizado sem Página nem Ads", async () => {
+    await act(async () => {
+      checkbox(`Business ${ORIGAMI_BUSINESS}`)?.click();
+      checkbox("@origami_investimentos")?.click();
+    });
+    const save = [...container.querySelectorAll("button")].find((item) => item.textContent === "Salvar conexão e importar dados");
+    await act(async () => {
+      save?.click();
+    });
+    await flush();
+    expect(linkClientAssets).toHaveBeenCalledWith({
+      handoff: "h-ruah",
+      business_ids: [ORIGAMI_BUSINESS],
+      page_ids: [],
+      instagram_ig_user_ids: [ORIGAMI_INSTAGRAM],
+      ad_account_ids: [],
+    });
+    expect(refreshAll).toHaveBeenCalledWith(40, { connectionId: "organic-origami" });
   });
 });

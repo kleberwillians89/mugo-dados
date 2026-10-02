@@ -95,6 +95,39 @@ describe("groupMetaDiscoveredAssets — seletor Meta agrupado por Business", () 
     expect(groups[0].empty).toEqual(["ad_accounts"]);
   });
 
+  it("agrupa Instagram direto no Business e deduplica a mesma conta ligada à Página", () => {
+    const business = {
+      business_id: "1162363888929790",
+      business_name: "origami_investimentos",
+      discovery: {
+        owned_instagram_accounts: { status: "ok" as const, count: 1 },
+        client_instagram_assets: { status: "ok" as const, count: 0 },
+        owned_pages: { status: "ok" as const, count: 1 },
+        client_pages: { status: "ok" as const, count: 0 },
+      },
+    };
+    const { groups } = groupMetaDiscoveredAssets({
+      business_managers: [business],
+      pages: [{
+        page_id: "page-origami",
+        businesses: [{ business_id: business.business_id, business_name: business.business_name, relation: "owned" }],
+      }],
+      instagram_accounts: [{
+        ig_user_id: "ig-origami",
+        username: "origami_investimentos",
+        page_id: "page-origami",
+        business_id: "page-origami",
+        discovery_sources: ["page_linked", "business_owned"],
+        businesses: [{ business_id: business.business_id, business_name: business.business_name, relation: "owned" }],
+      }],
+      ad_accounts: [],
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe(`business:${business.business_id}`);
+    expect(groups[0].instagramAccounts.map((account) => account.ig_user_id)).toEqual(["ig-origami"]);
+    expect(groups[0].empty).not.toContain("instagram_accounts");
+  });
+
   it("sem Business, mantém tudo em um único grupo direto (comportamento anterior)", () => {
     const { groups } = groupMetaDiscoveredAssets({
       business_managers: [],

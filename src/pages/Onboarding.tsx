@@ -28,6 +28,7 @@ import {
   syncGoogleConnection,
   syncClientMetaAdsAccount,
   syncShopifyConnection,
+  refreshAll,
   validateManualMetaAssets,
   saveManualMetaAssets,
   type GenericConnection,
@@ -1098,11 +1099,25 @@ export default function Onboarding({
     setInfo(null);
 
     try {
-      if (instagramIds.length && (!selectedMetaAuthorizationId || instagramIds.length !== 1 || pageIds.length !== 1)) {
-        setErr("Selecione explicitamente uma autorização, uma Página e um Instagram para concluir o orgânico.");
+      const selectedInstagram = (pendingAssets.instagram_accounts || []).find((ig) =>
+        instagramIds.includes(String(ig.ig_user_id || ""))
+      );
+      const sources = new Set(selectedInstagram?.discovery_sources || []);
+      const linkedPageId = String(
+        selectedInstagram?.page_id ||
+        (!sources.has("business_owned") && !sources.has("business_client") ? selectedInstagram?.business_id : "") ||
+        ""
+      ).trim();
+      if (instagramIds.length && (
+        !selectedMetaAuthorizationId || instagramIds.length !== 1 ||
+        (linkedPageId && (pageIds.length !== 1 || pageIds[0] !== linkedPageId))
+      )) {
+        setErr(linkedPageId
+          ? "Selecione explicitamente uma autorização, a Página vinculada e um Instagram para concluir o orgânico."
+          : "Selecione explicitamente uma autorização e um Instagram para concluir o orgânico.");
         return;
       }
-      await linkClientAssets({
+      const linked = await linkClientAssets({
         handoff: pendingAssets.handoff,
         business_ids: businessIds,
         page_ids: pageIds,
@@ -1127,6 +1142,26 @@ export default function Onboarding({
         }
         setActiveConnection(activation.organic_connection_id);
         setActiveConnectionId(activation.organic_connection_id);
+      } else if (instagramIds.length === 1) {
+        const organicConnectionId = String(linked.organic_connection_id || "").trim();
+        if (!organicConnectionId) {
+          await loadConnections();
+          setErr("O Instagram foi salvo, mas a conexão orgânica não foi confirmada.");
+          return;
+        }
+        const initialSync = await refreshAll(40, { connectionId: organicConnectionId });
+        setLastIntegrationDiagnostic((current) => ({
+          ...current,
+          initialSyncOk: Boolean(initialSync.ok),
+          organicConnectionId,
+        }));
+        if (!initialSync.ok) {
+          await loadConnections();
+          setErr("O Instagram foi salvo, mas a sincronização orgânica inicial não foi concluída.");
+          return;
+        }
+        setActiveConnection(organicConnectionId);
+        setActiveConnectionId(organicConnectionId);
       }
       setPendingAssets(null);
       setSelectedBusinesses({});
@@ -1498,6 +1533,12 @@ export default function Onboarding({
               const canonicalEntry = (canonicalIntegrations.lastValidConnections || []).find(
                 (item) => item.provider === definition.id
               );
+              const metaInstagramConfigured = Boolean(
+                dashboardReady || canonicalEntry?.assets?.instagram_account_id
+              );
+              const metaAdsConfigured = Boolean(
+                metaAdsOperational || canonicalEntry?.assets?.ad_account_id
+              );
               const metaConnected =
                 definition.id === "meta" && (dashboardReady || paidConnections.length > 0);
               const productStatus = definition.id === "ga4"
@@ -1584,8 +1625,8 @@ export default function Onboarding({
                   Organização: {canonicalEntry?.assets?.business_name || "Não configurada"}<br />
                   Business: {canonicalEntry?.assets?.business_id || "Não configurado"}<br />
                   Página: {canonicalEntry?.assets?.facebook_page_name || canonicalEntry?.assets?.facebook_page_id || "Não configurada"}<br />
-                  Instagram: {dashboardReady ? canonicalEntry?.assets?.instagram_account_name || canonicalEntry?.assets?.instagram_account_id || "Conectado" : "Não configurado"}<br />
-                  Meta Ads: {metaAdsOperational ? canonicalEntry?.assets?.ad_account_name || canonicalEntry?.assets?.ad_account_id || "Conectado" : "Não configurado"}
+                  Instagram: {metaInstagramConfigured ? canonicalEntry?.assets?.instagram_account_name || canonicalEntry?.assets?.instagram_account_id || "Conectado" : "Não configurado"}<br />
+                  Meta Ads: {metaAdsConfigured ? canonicalEntry?.assets?.ad_account_name || canonicalEntry?.assets?.ad_account_id || "Conectado" : "Não configurado"}
                 </div> : null}
                 {canonicalEntry && canonicalAccountLabel(canonicalEntry) ? (
                   <div className="smallMuted integrationDetail integrationAccount" style={{ marginTop: 8 }}>Conta: {canonicalAccountLabel(canonicalEntry)}</div>
@@ -2017,7 +2058,10 @@ export default function Onboarding({
               // os mesmos checkboxes e a mesma regra de um ativo por tipo.
               const { groups } = groupMetaDiscoveredAssets(pendingAssets);
               const linkedPageIds = new Set(
-                (pendingAssets.instagram_accounts || []).map((ig) => String(ig.business_id || ""))
+                (pendingAssets.instagram_accounts || []).map((ig) => {
+                  const sources = new Set(ig.discovery_sources || []);
+                  return String(ig.page_id || (!sources.has("business_owned") && !sources.has("business_client") ? ig.business_id : "") || "");
+                }).filter(Boolean)
               );
               const hasBusinessGroups = groups.some((group) => group.businessId);
               const hasDiscoveredBusinesses = (pendingAssets.business_managers || []).length > 0;
@@ -2070,11 +2114,17 @@ export default function Onboarding({
                       {group.blocked.includes("ad_accounts") ? (
                         <div className="smallMuted">A autorização atual não permite listar as contas de anúncio deste Business.</div>
                       ) : null}
+                      {group.blocked.includes("instagram_accounts") ? (
+                        <div className="smallMuted">A autorização atual não permite listar os perfis do Instagram deste Business.</div>
+                      ) : null}
                       {group.failed.includes("pages") ? (
                         <div className="smallMuted">Não foi possível consultar as Páginas deste Business agora.</div>
                       ) : null}
                       {group.failed.includes("ad_accounts") ? (
                         <div className="smallMuted">Não foi possível consultar as contas de anúncio deste Business agora.</div>
+                      ) : null}
+                      {group.failed.includes("instagram_accounts") ? (
+                        <div className="smallMuted">Não foi possível consultar os perfis do Instagram deste Business agora.</div>
                       ) : null}
                       <div className="onboardingAssets">
                         {group.pages.length ? (
@@ -2124,7 +2174,7 @@ export default function Onboarding({
                                     />
                                     <span>
                                       @{ig.username || id}{" "}
-                                      <span className="smallMuted">({ig.business_name || ig.business_id || "-"})</span>
+                                      <span className="smallMuted">({ig.page_name || ig.business_name || group.businessName || "-"})</span>
                                     </span>
                                   </label>
                                 );

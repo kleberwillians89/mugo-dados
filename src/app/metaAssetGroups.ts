@@ -16,9 +16,9 @@ export type MetaAssetGroup = {
   instagramAccounts: MetaDiscoveredInstagramAsset[];
   adAccounts: MetaDiscoveredAdAccount[];
   /** Consultas do Business recusadas por permissão: o Business pode ter mais ativos. */
-  blocked: Array<"ad_accounts" | "pages">;
+  blocked: Array<"ad_accounts" | "pages" | "instagram_accounts">;
   /** Consultas que falharam sem indicar falta de permissão. */
-  failed: Array<"ad_accounts" | "pages">;
+  failed: Array<"ad_accounts" | "pages" | "instagram_accounts">;
   /** Tipos consultados com sucesso para os quais nenhum ativo foi encontrado. */
   empty: Array<"ad_accounts" | "pages" | "instagram_accounts">;
 };
@@ -37,14 +37,14 @@ function primaryBusiness(refs: MetaAssetBusinessRef[] | undefined): MetaAssetBus
   return list.find((ref) => ref.relation === "owned") || list[0] || null;
 }
 
-type BusinessAssetKind = "ad_accounts" | "pages";
+type BusinessAssetKind = "ad_accounts" | "pages" | "instagram_accounts";
 
 function classifyBusinessEdges(
   group: MetaAssetGroup,
   discovery: NonNullable<MetaDiscoveredBusinessManager["discovery"]>,
   kind: BusinessAssetKind,
-  owned: "owned_ad_accounts" | "owned_pages",
-  client: "client_ad_accounts" | "client_pages",
+  owned: "owned_ad_accounts" | "owned_pages" | "owned_instagram_accounts",
+  client: "client_ad_accounts" | "client_pages" | "client_instagram_assets",
 ) {
   const edges = [discovery[owned], discovery[client]].filter(Boolean);
   if (edges.some((edge) => edge?.status === "permission_denied")) {
@@ -64,9 +64,9 @@ function classifyBusinessEdges(
 /**
  * Agrupa os ativos descobertos por Business — só apresentação. Cada ativo
  * aparece uma única vez: no Business dono; senão no Business cliente; sem
- * Business, em "diretamente acessíveis". O Instagram acompanha a Página à qual
- * a Meta o vinculou (business_id do Instagram = ID da Página). Nada aqui
- * seleciona ou grava ativos.
+ * Business, em "diretamente acessíveis". O Instagram acompanha seu Business
+ * quando veio de um edge direto; no fluxo legado, acompanha a Página à qual a
+ * Meta o vinculou. Nada aqui seleciona ou grava ativos.
  */
 export function groupMetaDiscoveredAssets(
   discovered: Pick<MetaDiscoverAssetsResponse, "pages" | "instagram_accounts" | "ad_accounts" | "business_managers">
@@ -100,6 +100,7 @@ export function groupMetaDiscoveredAssets(
     const discovery = business.discovery || {};
     classifyBusinessEdges(group, discovery, "ad_accounts", "owned_ad_accounts", "client_ad_accounts");
     classifyBusinessEdges(group, discovery, "pages", "owned_pages", "client_pages");
+    classifyBusinessEdges(group, discovery, "instagram_accounts", "owned_instagram_accounts", "client_instagram_assets");
   }
 
   const groupOfPage = new Map<string, MetaAssetGroup>();
@@ -110,7 +111,9 @@ export function groupMetaDiscoveredAssets(
     groupOfPage.set(String(page.page_id), group);
   }
   for (const instagram of discovered.instagram_accounts || []) {
-    const group = groupOfPage.get(String(instagram.business_id || "")) || ensure(null);
+    const ref = primaryBusiness(instagram.businesses);
+    const pageId = String(instagram.page_id || instagram.business_id || "");
+    const group = ref ? ensure(ref.business_id, ref.business_name) : groupOfPage.get(pageId) || ensure(null);
     group.instagramAccounts.push(instagram);
   }
   for (const account of discovered.ad_accounts || []) {
@@ -124,9 +127,16 @@ export function groupMetaDiscoveredAssets(
   const all = [...groups.values()];
   const businessGroups = all.filter((group) => group.businessId);
   for (const group of businessGroups) {
-    if (group.empty.includes("pages") && !group.empty.includes("instagram_accounts")) {
+    const manager = businesses.find((business) => business.business_id === group.businessId);
+    const hasInstagramEdgeStatus = Boolean(
+      manager?.discovery?.owned_instagram_accounts || manager?.discovery?.client_instagram_assets
+    );
+    // Compatibilidade apenas para respostas antigas, anteriores aos edges
+    // diretos de Instagram. Respostas novas classificam a ausência pelos dois
+    // edges oficiais, sem inferi-la da ausência de Página.
+    if (!hasInstagramEdgeStatus && group.empty.includes("pages") && !group.empty.includes("instagram_accounts")) {
       group.empty.push("instagram_accounts");
-    } else if (
+    } else if (!hasInstagramEdgeStatus &&
       group.pages.length > 0 &&
       group.instagramAccounts.length === 0 &&
       !group.blocked.includes("pages") &&

@@ -597,7 +597,16 @@ _BUSINESS_PAGE_EDGES: Tuple[Tuple[str, str, str], ...] = (
     ("owned_pages", "business_owned", "owned"),
     ("client_pages", "business_client", "client"),
 )
-_SOURCE_RELATION = {source: relation for _edge, source, relation in _BUSINESS_AD_ACCOUNT_EDGES + _BUSINESS_PAGE_EDGES}
+_BUSINESS_INSTAGRAM_EDGES: Tuple[Tuple[str, str, str], ...] = (
+    ("owned_instagram_accounts", "business_owned", "owned"),
+    ("client_instagram_assets", "business_client", "client"),
+)
+_SOURCE_RELATION = {
+    source: relation
+    for _edge, source, relation in (
+        _BUSINESS_AD_ACCOUNT_EDGES + _BUSINESS_PAGE_EDGES + _BUSINESS_INSTAGRAM_EDGES
+    )
+}
 _AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name"
 _PAGE_IDENTITY_FIELDS = "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}"
 _BUSINESS_DISCOVERY_CONCURRENCY = 4
@@ -692,7 +701,12 @@ async def _business_edge_rows(
     semaphore: asyncio.Semaphore,
 ) -> Dict[str, Any]:
     business_id = _safe_str(business.get("business_id"))
-    fields = _AD_ACCOUNT_FIELDS if asset_type == "ad_account" else "id,name"
+    if asset_type == "ad_account":
+        fields = _AD_ACCOUNT_FIELDS
+    elif asset_type == "instagram":
+        fields = "id,ig_user_id,ig_username" if edge == "client_instagram_assets" else "id,username"
+    else:
+        fields = "id,name"
     result: Dict[str, Any] = {
         "business": business, "edge": edge, "source": source, "asset_type": asset_type,
         "status": "ok", "rows": [], "error": None,
@@ -707,14 +721,16 @@ async def _business_edge_rows(
         except Exception as exc:  # noqa: BLE001 - falha isolada por Business/edge
             result["status"] = "invalid_oauth" if _is_invalid_oauth(exc) else _graph_failure_status(exc)
             result["error"] = exc
+            stage = "instagram_business_edge_failed" if asset_type == "instagram" else "business_edge_failed"
             print(
-                "[meta_oauth][diag] stage=business_edge_failed "
+                f"[meta_oauth][diag] stage={stage} "
                 f"{_discovery_log_context()}business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
                 f"status={result['status']} {_graph_failure_fields(exc)}"
             )
             return result
+    stage = "instagram_business_edge" if asset_type == "instagram" else "business_edge"
     print(
-        "[meta_oauth][diag] stage=business_edge "
+        f"[meta_oauth][diag] stage={stage} "
         f"{_discovery_log_context()}business_id={business_id} edge={edge} asset_type={asset_type} source={source} "
         f"http_status=200 count={len(result['rows'])} ids={_ids(result['rows'], 'id')}"
     )
@@ -841,6 +857,8 @@ async def _expand_with_business_assets(
                 jobs.append(_business_edge_rows(access_token, business, edge, source, "ad_account", semaphore))
         for edge, source, _relation in _BUSINESS_PAGE_EDGES:
             jobs.append(_business_edge_rows(access_token, business, edge, source, "page", semaphore))
+        for edge, source, _relation in _BUSINESS_INSTAGRAM_EDGES:
+            jobs.append(_business_edge_rows(access_token, business, edge, source, "instagram", semaphore))
     results: List[Dict[str, Any]] = list(await asyncio.gather(*jobs)) if jobs else []
     for result in results:
         if result["status"] == "invalid_oauth":
@@ -923,13 +941,74 @@ async def _expand_with_business_assets(
                 pages_by_id[page_id] = entry
             _add_discovery_ref(entry, result["source"], result["business"])
 
-    instagram_accounts: List[Dict[str, Any]] = []
-    seen_ig: set[str] = set()
+    instagram_by_id: Dict[str, Dict[str, Any]] = {}
+
+    def merge_instagram(
+        *, ig_id: str, username: str, source: str,
+        page_id: str = "", page_name: str = "",
+        business: Optional[Dict[str, Any]] = None,
+        businesses_refs: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        normalized_id = _safe_str(ig_id)
+        if not normalized_id:
+            return
+        entry = instagram_by_id.get(normalized_id)
+        if entry is None:
+            entry = {
+                "ig_user_id": normalized_id,
+                "username": _safe_str(username),
+                # Compatibilidade: business_id historicamente guarda o ID da
+                # Página. Para Instagram direto do Business, permanece vazio.
+                "business_id": _safe_str(page_id),
+                "business_name": _safe_str(page_name),
+                "page_id": _safe_str(page_id),
+                "page_name": _safe_str(page_name),
+                "discovery_sources": [],
+                "businesses": [],
+            }
+            instagram_by_id[normalized_id] = entry
+        elif not entry.get("username") and _safe_str(username):
+            entry["username"] = _safe_str(username)
+        if source not in entry["discovery_sources"]:
+            entry["discovery_sources"].append(source)
+        if page_id and not entry.get("page_id"):
+            entry["page_id"] = _safe_str(page_id)
+            entry["page_name"] = _safe_str(page_name)
+            entry["business_id"] = _safe_str(page_id)
+            entry["business_name"] = _safe_str(page_name)
+        for ref in businesses_refs or []:
+            normalized_ref = _json_object(ref)
+            if normalized_ref and normalized_ref not in entry["businesses"]:
+                entry["businesses"].append(normalized_ref)
+        if business:
+            _add_discovery_ref(entry, source, business)
+
     for account in _json_array(identity.get("instagram_accounts")):
         ig_id = _safe_str((account or {}).get("ig_user_id"))
-        if ig_id and ig_id not in seen_ig:
-            seen_ig.add(ig_id)
-            instagram_accounts.append({**account, "discovery_sources": ["me_accounts"]})
+        page_id = _safe_str((account or {}).get("page_id") or (account or {}).get("business_id"))
+        page = pages_by_id.get(page_id) or {}
+        merge_instagram(
+            ig_id=ig_id,
+            username=_safe_str((account or {}).get("username")),
+            source="page_linked",
+            page_id=page_id,
+            page_name=_safe_str((account or {}).get("page_name") or (account or {}).get("business_name")),
+            businesses_refs=_json_array(page.get("businesses")),
+        )
+
+    for result in results:
+        if result["asset_type"] != "instagram" or result["status"] != "ok":
+            continue
+        for row in result["rows"]:
+            is_client_asset = result["edge"] == "client_instagram_assets"
+            ig_id = _safe_str(row.get("ig_user_id") if is_client_asset else row.get("id"))
+            username = _safe_str(row.get("ig_username") if is_client_asset else row.get("username"))
+            merge_instagram(
+                ig_id=ig_id,
+                username=username,
+                source=result["source"],
+                business=result["business"],
+            )
 
     pending_pages = [page for page in pages_by_id.values() if page.get("access_status") is None]
     page_checks = await asyncio.gather(*(
@@ -960,17 +1039,17 @@ async def _expand_with_business_assets(
             f"page_id={page['page_id']} access={ACCESS_ACCESSIBLE} "
             f"sources={','.join(page['discovery_sources'])} instagram_id={ig_id or '-'}"
         )
-        if ig_id and ig_id not in seen_ig:
-            seen_ig.add(ig_id)
-            instagram_accounts.append({
-                "ig_user_id": ig_id,
-                "username": _safe_str(ig.get("username")),
-                "business_id": page["page_id"],
-                "business_name": page.get("page_name") or "",
-                "discovery_sources": list(page["discovery_sources"]),
-            })
+        merge_instagram(
+            ig_id=ig_id,
+            username=_safe_str(ig.get("username")),
+            source="page_linked",
+            page_id=page["page_id"],
+            page_name=page.get("page_name") or "",
+            businesses_refs=_json_array(page.get("businesses")),
+        )
 
     merged_pages = list(pages_by_id.values())
+    instagram_accounts = list(instagram_by_id.values())
     if jobs:
         def count(rows: List[Dict[str, Any]], source: str) -> int:
             return sum(1 for row in rows if source in row.get("discovery_sources", []))
@@ -1006,6 +1085,18 @@ async def _expand_with_business_assets(
             f"merged={len(merged_pages)} business_only={len(pending_pages)} "
             f"restricted={sum(1 for p in merged_pages if p.get('access_status') == ACCESS_RESTRICTED)}"
         )
+        for account in instagram_accounts[:_SOURCE_LOG_LIMIT]:
+            refs = ",".join(
+                f"{ref.get('business_id')}:{ref.get('relation')}"
+                for ref in account.get("businesses") or []
+                if ref.get("business_id")
+            )
+            print(
+                "[meta_oauth][diag] stage=instagram_merge "
+                f"{_discovery_log_context()}instagram_id={account['ig_user_id']} "
+                f"sources={','.join(account.get('discovery_sources') or []) or '-'} "
+                f"businesses={refs or '-'} page_id={account.get('page_id') or '-'}"
+            )
 
     return {
         "identity": {**identity, "pages": merged_pages, "instagram_accounts": instagram_accounts},
@@ -2034,10 +2125,22 @@ def validate_page_selection(
     requested_page_ids: set[str],
     selected_instagram_accounts: List[Any],
 ) -> None:
+    def linked_page_id(account: Any) -> str:
+        item = account if isinstance(account, dict) else {}
+        explicit = _safe_str(item.get("page_id"))
+        if explicit:
+            return explicit
+        sources = {_safe_str(value) for value in _json_array(item.get("discovery_sources"))}
+        # Compatibilidade com handoffs anteriores, nos quais business_id do
+        # Instagram sempre significava ID da Página vinculada.
+        if not ({"business_owned", "business_client"} & sources):
+            return _safe_str(item.get("business_id"))
+        return ""
+
     discovered_page_ids = {
-        _safe_str((account or {}).get("business_id"))
+        linked_page_id(account)
         for account in discovered_instagram_accounts
-        if isinstance(account, dict) and _safe_str(account.get("business_id"))
+        if linked_page_id(account)
     }
     discovered_page_ids.update(
         _safe_str((page or {}).get("page_id") or (page or {}).get("id"))
@@ -2047,7 +2150,7 @@ def validate_page_selection(
     if not requested_page_ids.issubset(discovered_page_ids):
         raise RuntimeError("A Página selecionada não pertence aos ativos descobertos nesta autorização.")
     if any(
-        _safe_str((account or {}).get("business_id")) not in requested_page_ids
+        linked_page_id(account) and linked_page_id(account) not in requested_page_ids
         for account in selected_instagram_accounts
     ):
         raise RuntimeError(
@@ -2217,6 +2320,10 @@ async def save_connections(
             )
 
     for ig in selected_igs:
+        ig_sources = {_safe_str(value) for value in _json_array(ig.get("discovery_sources"))}
+        selected_ig_page_id = _safe_str(ig.get("page_id"))
+        if not selected_ig_page_id and not ({"business_owned", "business_client"} & ig_sources):
+            selected_ig_page_id = _safe_str(ig.get("business_id"))
         row = {
             "client_id": client_id,
             "platform": "instagram",
@@ -2224,7 +2331,7 @@ async def save_connections(
             "meta_user_id": _safe_str(meta_user.get("id")),
             "ig_user_id": _safe_str(ig.get("ig_user_id")),
             "username": _safe_str(ig.get("username")),
-            "business_id": _safe_str(ig.get("business_id")),
+            "business_id": selected_ig_page_id,
             "ad_account_id": "",
             "ad_account_name": "",
             "scopes_json": scopes,
@@ -2359,6 +2466,12 @@ async def save_connections(
     }
     merged_ad_ids = sorted(ads_requested | preserved_ad_ids | ({selected_ad_id} if selected_ad_id else set()))
     selected_ig = selected_igs[0] if selected_igs else {}
+    selected_ig_sources = {
+        _safe_str(value) for value in _json_array(selected_ig.get("discovery_sources"))
+    }
+    selected_ig_page_id = _safe_str(selected_ig.get("page_id"))
+    if not selected_ig_page_id and not ({"business_owned", "business_client"} & selected_ig_sources):
+        selected_ig_page_id = _safe_str(selected_ig.get("business_id"))
     selected_page = next(
         (
             page for page in _json_array(item.get("pages_json"))
@@ -2366,10 +2479,12 @@ async def save_connections(
         ),
         {},
     )
-    selected_page_id = _safe_str(selected_ig.get("business_id")) or _safe_str(
+    selected_page_id = selected_ig_page_id or _safe_str(
         selected_page.get("page_id") or selected_page.get("id")
     )
-    selected_page_name = _safe_str(selected_ig.get("business_name")) or _safe_str(
+    selected_page_name = _safe_str(selected_ig.get("page_name")) or (
+        _safe_str(selected_ig.get("business_name")) if selected_ig_page_id else ""
+    ) or _safe_str(
         selected_page.get("page_name") or selected_page.get("name")
     )
     selected_ig_id = _safe_str(selected_ig.get("ig_user_id"))

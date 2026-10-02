@@ -138,6 +138,28 @@ describe("Onboarding — contrato canônico de integrações", () => {
     expect(container.textContent).toContain("Meta Ads: Não configurado");
   });
 
+  it("mostra Instagram direto do Business sem inventar Página ou Meta Ads", async () => {
+    mocks.canonicalResponse = {
+      ok: true,
+      client_id: "amalie",
+      connections: [canonicalConnection({
+        assets: {
+          business_id: "1162363888929790",
+          business_name: "origami_investimentos",
+          facebook_page_id: null,
+          instagram_account_id: "17841400000000000",
+          instagram_account_name: "origami_investimentos",
+          ad_account_id: null,
+        },
+      })],
+    };
+    await renderOnboarding();
+    expect(container.textContent).toContain("Organização: origami_investimentos");
+    expect(container.textContent).toContain("Instagram: origami_investimentos");
+    expect(container.textContent).toContain("Página: Não configurada");
+    expect(container.textContent).toContain("Meta Ads: Não configurado");
+  });
+
   it("não existe mais o badge duplicado 'Status consolidado'", async () => {
     await renderOnboarding();
     expect(container.textContent).not.toContain("Status consolidado");

@@ -803,7 +803,7 @@ export type MetaOauthStartResponse = {
 };
 
 /** Origem da descoberta de um ativo Meta. */
-export type MetaDiscoverySource = "me_accounts" | "me_adaccounts" | "business_owned" | "business_client";
+export type MetaDiscoverySource = "me_accounts" | "me_adaccounts" | "page_linked" | "business_owned" | "business_client";
 
 /** Business em que o ativo foi encontrado (dono ou cliente). */
 export type MetaAssetBusinessRef = {
@@ -825,7 +825,11 @@ export type MetaDiscoveredInstagramAsset = {
   /** ID da Página do Facebook vinculada (nome legado do campo). */
   business_id?: string;
   business_name?: string;
+  /** ID explícito da Página, ausente quando o Instagram vem direto do Business. */
+  page_id?: string;
+  page_name?: string;
   discovery_sources?: MetaDiscoverySource[];
+  businesses?: MetaAssetBusinessRef[];
 };
 
 export type MetaDiscoveredPageAsset = {
@@ -858,7 +862,11 @@ export type MetaBusinessEdgeStatus = {
 export type MetaDiscoveredBusinessManager = {
   business_id: string;
   business_name?: string;
-  discovery?: Partial<Record<"owned_ad_accounts" | "client_ad_accounts" | "owned_pages" | "client_pages", MetaBusinessEdgeStatus>>;
+  discovery?: Partial<Record<
+    "owned_ad_accounts" | "client_ad_accounts" | "owned_pages" | "client_pages" |
+    "owned_instagram_accounts" | "client_instagram_assets",
+    MetaBusinessEdgeStatus
+  >>;
 };
 
 /** Aviso seguro da descoberta (texto fixo do backend, nunca a mensagem bruta da Meta). */

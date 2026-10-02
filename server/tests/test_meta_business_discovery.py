@@ -34,6 +34,8 @@ MUGO_BUSINESS = "585767010886087"
 MUGO_PAGE = "516985944838234"
 MUGO_INSTAGRAM = "17841471880135733"
 MUGO_AD_ACCOUNT = "8024076734300108"
+ORIGAMI_BUSINESS = "1162363888929790"
+ORIGAMI_INSTAGRAM = "17841400000000000"
 
 PERMISSIONS = {"data": [
     {"permission": "ads_read", "status": "granted"},
@@ -70,6 +72,8 @@ class FakeGraph:
     def _resolve(self, path):
         self.paths.append(path)
         value = self.routes.get(path)
+        if value is None and path.endswith(("/owned_instagram_accounts", "/client_instagram_assets")):
+            return {"data": []}
         if value is None:
             raise MetaApiError("Meta API error 404: Unknown path", status_code=404, error_code=803)
         if isinstance(value, Exception):
@@ -233,7 +237,7 @@ class AdAccountDiscoveryTests(_DiscoveryCase):
             "/act_c": {"id": "act_c"},
         }))
         self.assertEqual(sorted(self.ads_by_id(result)), ["act_a", "act_c"])
-        self.assertIn("edges_ok=9 edges_permission_denied=2 edges_failed=1", logs)
+        self.assertIn("edges_ok=15 edges_permission_denied=2 edges_failed=1", logs)
 
     async def test_14_identified_by_business_but_blocked_by_permission_is_restricted(self):
         result, logs, _graph = await self.discover(base_routes(**{
@@ -447,6 +451,112 @@ class PageAndInstagramDiscoveryTests(_DiscoveryCase):
         # Página direta já tem detalhe: nenhuma verificação extra além da existente.
         self.assertEqual(graph.paths.count("/page-a"), 1)
 
+    async def test_instagram_discovered_only_from_business_owned_edge(self):
+        result, logs, _graph = await self.discover(base_routes(**{
+            "/me/businesses": {"data": [{"id": ORIGAMI_BUSINESS, "name": "origami_investimentos"}]},
+            f"/{ORIGAMI_BUSINESS}/owned_ad_accounts": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/client_ad_accounts": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/owned_pages": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/client_pages": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/owned_instagram_accounts": {
+                "data": [{"id": ORIGAMI_INSTAGRAM, "username": "origami_investimentos"}],
+            },
+            f"/{ORIGAMI_BUSINESS}/client_instagram_assets": {"data": []},
+        }))
+        self.assertEqual(result["pages"], [])
+        self.assertEqual(result["ad_accounts"], [])
+        self.assertEqual(len(result["instagram_accounts"]), 1)
+        instagram = result["instagram_accounts"][0]
+        self.assertEqual(instagram["ig_user_id"], ORIGAMI_INSTAGRAM)
+        self.assertEqual(instagram["username"], "origami_investimentos")
+        self.assertEqual(instagram["page_id"], "")
+        self.assertEqual(instagram["discovery_sources"], ["business_owned"])
+        self.assertEqual(instagram["businesses"], [{
+            "business_id": ORIGAMI_BUSINESS,
+            "business_name": "origami_investimentos",
+            "relation": "owned",
+        }])
+        self.assertIn(
+            f"stage=instagram_business_edge business_id={ORIGAMI_BUSINESS} "
+            "edge=owned_instagram_accounts asset_type=instagram source=business_owned http_status=200 count=1",
+            logs,
+        )
+        self.assertIn(
+            f"stage=instagram_merge instagram_id={ORIGAMI_INSTAGRAM} sources=business_owned "
+            f"businesses={ORIGAMI_BUSINESS}:owned page_id=-",
+            logs,
+        )
+
+    async def test_instagram_from_page_and_business_is_deduplicated(self):
+        page = {
+            "id": "page-origami", "name": "Origami",
+            "instagram_business_account": {"id": ORIGAMI_INSTAGRAM, "username": "origami_investimentos"},
+        }
+        result, _logs, _graph = await self.discover(base_routes(**{
+            "/me/accounts": {"data": [page]}, "/page-origami": page,
+            "/me/businesses": {"data": [{"id": ORIGAMI_BUSINESS, "name": "origami_investimentos"}]},
+            f"/{ORIGAMI_BUSINESS}/owned_ad_accounts": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/client_ad_accounts": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/owned_pages": {"data": [{"id": "page-origami", "name": "Origami"}]},
+            f"/{ORIGAMI_BUSINESS}/client_pages": {"data": []},
+            f"/{ORIGAMI_BUSINESS}/owned_instagram_accounts": {
+                "data": [{"id": ORIGAMI_INSTAGRAM, "username": "origami_investimentos"}],
+            },
+            f"/{ORIGAMI_BUSINESS}/client_instagram_assets": {"data": []},
+        }))
+        self.assertEqual(len(result["instagram_accounts"]), 1)
+        instagram = result["instagram_accounts"][0]
+        self.assertEqual(instagram["page_id"], "page-origami")
+        self.assertEqual(instagram["discovery_sources"], ["page_linked", "business_owned"])
+        self.assertEqual(instagram["businesses"][0]["business_id"], ORIGAMI_BUSINESS)
+
+    async def test_client_instagram_asset_uses_official_ig_fields(self):
+        result, _logs, _graph = await self.discover(base_routes(**{
+            "/me/businesses": {"data": [{"id": "biz-agency", "name": "Agência"}]},
+            "/biz-agency/owned_ad_accounts": {"data": []}, "/biz-agency/client_ad_accounts": {"data": []},
+            "/biz-agency/owned_pages": {"data": []}, "/biz-agency/client_pages": {"data": []},
+            "/biz-agency/owned_instagram_accounts": {"data": []},
+            "/biz-agency/client_instagram_assets": {"data": [{
+                "id": "asset-wrapper", "ig_user_id": "ig-client", "ig_username": "cliente_compartilhado",
+            }]},
+        }))
+        instagram = result["instagram_accounts"][0]
+        self.assertEqual((instagram["ig_user_id"], instagram["username"]), ("ig-client", "cliente_compartilhado"))
+        self.assertEqual(instagram["discovery_sources"], ["business_client"])
+        self.assertEqual(instagram["businesses"][0]["relation"], "client")
+
+    async def test_instagram_edge_failure_keeps_page_linked_asset(self):
+        page = {
+            "id": "page-a", "name": "Marca",
+            "instagram_business_account": {"id": "ig-page", "username": "marca"},
+        }
+        result, logs, _graph = await self.discover(base_routes(**{
+            "/me/accounts": {"data": [page]}, "/page-a": page,
+            "/me/businesses": {"data": [{"id": "biz-a", "name": "A"}]},
+            "/biz-a/owned_ad_accounts": {"data": []}, "/biz-a/client_ad_accounts": {"data": []},
+            "/biz-a/owned_pages": {"data": []}, "/biz-a/client_pages": {"data": []},
+            "/biz-a/owned_instagram_accounts": permission_denied(),
+            "/biz-a/client_instagram_assets": MetaApiError("Meta API error 500: boom", status_code=500),
+        }))
+        self.assertEqual([row["ig_user_id"] for row in result["instagram_accounts"]], ["ig-page"])
+        self.assertIn("stage=instagram_business_edge_failed business_id=biz-a edge=owned_instagram_accounts", logs)
+        self.assertIn("graph_code=200", logs)
+        self.assertIn("trace_id=trace-abc", logs)
+
+    async def test_invalid_token_on_instagram_edge_is_fatal(self):
+        invalid = MetaApiError(
+            "Meta API error 401: Error validating access token",
+            status_code=401, error_code=190, invalid_oauth=True,
+        )
+        with self.assertRaises(MetaApiError):
+            await self.discover(base_routes(**{
+                "/me/businesses": {"data": [{"id": "biz-a", "name": "A"}]},
+                "/biz-a/owned_ad_accounts": {"data": []}, "/biz-a/client_ad_accounts": {"data": []},
+                "/biz-a/owned_pages": {"data": []}, "/biz-a/client_pages": {"data": []},
+                "/biz-a/owned_instagram_accounts": invalid,
+                "/biz-a/client_instagram_assets": {"data": []},
+            }))
+
 
 class MugoRegressionTests(_DiscoveryCase):
     async def test_known_mugo_assets_keep_working(self):
@@ -621,6 +731,72 @@ class SelectionAndTenantTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["selected_business_id"], RUAH_BUSINESS)
         self.assertEqual(metadata["selected_business_name"], "RÜAH")
         self.assertEqual(metadata["selected_ad_account_id"], f"act_{RUAH_AD_ACCOUNT}")
+
+    async def test_business_direct_instagram_saves_organic_without_page_or_ads(self):
+        instagram = [{
+            "ig_user_id": ORIGAMI_INSTAGRAM,
+            "username": "origami_investimentos",
+            "business_id": "",
+            "page_id": "",
+            "discovery_sources": ["business_owned"],
+            "businesses": [{
+                "business_id": ORIGAMI_BUSINESS,
+                "business_name": "origami_investimentos",
+                "relation": "owned",
+            }],
+        }]
+        row = handoff_row(
+            client_id="origami", user_id="user-origami", ad_accounts=[], instagram=instagram,
+        )
+        row["meta_user_json"]["business_managers"] = [{
+            "business_id": ORIGAMI_BUSINESS,
+            "business_name": "origami_investimentos",
+        }]
+        with ExitStack() as stack:
+            writes, upsert = self.patch_db(stack, row)
+            result = await meta_oauth.save_connections(
+                user_id="user-origami", client_id="origami", handoff="handoff-ruah",
+                page_ids=[], instagram_ig_user_ids=[ORIGAMI_INSTAGRAM], ad_account_ids=[],
+                business_ids=[ORIGAMI_BUSINESS],
+            )
+        projection = next(write[2] for write in writes if write[0] == "insert" and write[1] == "meta_connections")
+        self.assertEqual(projection["client_id"], "origami")
+        self.assertEqual(projection["ig_user_id"], ORIGAMI_INSTAGRAM)
+        self.assertEqual(projection["business_id"], "")
+        self.assertEqual(projection["ad_account_id"], "")
+        self.assertEqual(result["connections"][0]["platform"], "instagram")
+        metadata = upsert.await_args.kwargs["metadata"]
+        self.assertEqual(metadata["selected_business_id"], ORIGAMI_BUSINESS)
+        self.assertEqual(metadata["selected_instagram_id"], ORIGAMI_INSTAGRAM)
+        self.assertIsNone(metadata["selected_page_id"])
+        self.assertEqual(metadata["ads_status"], "asset_required")
+
+    async def test_business_direct_instagram_preserves_business_on_rediscovery(self):
+        instagram = [{
+            "ig_user_id": ORIGAMI_INSTAGRAM,
+            "username": "origami_investimentos",
+            "page_id": "",
+            "discovery_sources": ["business_owned"],
+        }]
+        previous = [{
+            "id": "generic-meta",
+            "metadata": {
+                "selected_business_id": ORIGAMI_BUSINESS,
+                "selected_business_name": "origami_investimentos",
+                "coverage": "organization_only",
+            },
+        }]
+        row = handoff_row(client_id="origami", user_id="user-origami", ad_accounts=[], instagram=instagram)
+        with ExitStack() as stack:
+            _writes, upsert = self.patch_db(stack, row, generic_rows=previous)
+            await meta_oauth.save_connections(
+                user_id="user-origami", client_id="origami", handoff="handoff-ruah",
+                page_ids=[], instagram_ig_user_ids=[ORIGAMI_INSTAGRAM], ad_account_ids=[],
+            )
+        metadata = upsert.await_args.kwargs["metadata"]
+        self.assertEqual(metadata["selected_business_id"], ORIGAMI_BUSINESS)
+        self.assertEqual(metadata["selected_business_name"], "origami_investimentos")
+        self.assertEqual(metadata["selected_instagram_id"], ORIGAMI_INSTAGRAM)
 
     async def test_17_selected_business_account_is_saved_only_in_current_tenant(self):
         with ExitStack() as stack:
