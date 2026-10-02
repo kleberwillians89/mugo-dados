@@ -19,6 +19,8 @@ from services.cron_jobs import (
     run_shopify_historical_reconciliation,
     run_token_refresh_job,
 )
+from services.fbits_reconciliation import collect_fbits_reconciliation
+from services.fbits_reporting import resolve_fbits_period
 from services.ga4_sync import sync_ga4_for_period
 from services.meta_tokens import refresh_meta_token_for_connection
 from services.meta_backfill import process_next_slice
@@ -69,6 +71,14 @@ async def _run(args: argparse.Namespace) -> Any:
         return await run_shopify_reconciliation(fallback_days=args.fallback_days)
     if args.command == "shopify-historical-reconcile":
         return await run_shopify_historical_reconciliation(window_days=args.days)
+    if args.command == "fbits-reconcile":
+        report = await collect_fbits_reconciliation(
+            client_id=args.client_id,
+            period=resolve_fbits_period(start=args.start, end=args.end),
+        )
+        if not args.orders:
+            report.pop("orders", None)
+        return report
     raise RuntimeError(f"Comando não suportado: {args.command}")
 
 
@@ -129,6 +139,15 @@ def _build_parser() -> argparse.ArgumentParser:
     shopify_historical.add_argument(
         "--days", type=int, default=14, help="Janela móvel limitada de reconciliação.",
     )
+
+    fbits_reconcile = sub.add_parser(
+        "fbits-reconcile",
+        help="Diagnóstico somente leitura: compara FBITS oficial, API /pedidos e o dashboard do Mugô.",
+    )
+    fbits_reconcile.add_argument("--client-id", required=True, help="Client ID da empresa FBITS.")
+    fbits_reconcile.add_argument("--start", required=True, help="Data inicial YYYY-MM-DD.")
+    fbits_reconcile.add_argument("--end", required=True, help="Data final YYYY-MM-DD.")
+    fbits_reconcile.add_argument("--orders", action="store_true", help="Inclui a tabela pedido a pedido (sem dados pessoais).")
 
     return parser
 

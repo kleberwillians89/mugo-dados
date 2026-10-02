@@ -155,6 +155,8 @@ class FbitsClient:
         self._sleep = sleep
         self._timeout = timeout
         self.requests_made = 0
+        # Header x-total-count da última resposta (total do filtro, não da página).
+        self.last_total_count: Optional[int] = None
 
     def __repr__(self) -> str:  # nunca expor o token em repr/logs
         return f"FbitsClient(base_url={self._base_url!r})"
@@ -216,6 +218,8 @@ class FbitsClient:
                     "A FBITS recusou a consulta" + (f": {detail}" if detail else "."),
                     code="FBITS_REQUEST_REJECTED", status_code=status,
                 )
+            total_count = _safe_str(response.headers.get("x-total-count"))
+            self.last_total_count = int(total_count) if total_count.isdigit() else None
             try:
                 return response.json()
             except ValueError:
@@ -237,6 +241,20 @@ class FbitsClient:
         ]
         print(f"[fbits][http] endpoint=/situacoesPedido status=200 statuses={len(statuses)}")
         return statuses
+
+    async def revenue_indicators(self, *, start: str, end: str) -> Dict[str, Any]:
+        """GET /dashboard/faturamento: receita, pedidos e ticket médio que a
+        própria loja exibe no painel. Datas aaaa-mm-dd (dia inteiro)."""
+        payload = await self._get(
+            "/dashboard/faturamento",
+            params={
+                "dataInicial": start,
+                "dataFinal": end,
+                "dataInicialComparativo": start,
+                "dataFinalComparativo": end,
+            },
+        )
+        return payload if isinstance(payload, dict) else {}
 
     async def iter_order_pages(
         self,
