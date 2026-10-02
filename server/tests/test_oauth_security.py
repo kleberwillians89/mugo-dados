@@ -197,6 +197,34 @@ class MetaOAuthConfigurationTests(unittest.TestCase):
         self.assertNotIn("authorization-code", safe)
         self.assertIn("after=cursor", safe)
 
+    def test_meta_permission_oauth_exception_is_not_an_invalid_token(self):
+        response = httpx.Response(
+            403,
+            request=httpx.Request("GET", "https://graph.facebook.com/v25.0/business/owned_ad_accounts"),
+            json={"error": {
+                "message": "(#200) Requires business_management permission",
+                "type": "OAuthException",
+                "code": 200,
+                "fbtrace_id": "trace-permission",
+            }},
+        )
+        error = meta_http._http_error_from_response(response)
+        self.assertFalse(error.invalid_oauth)
+        self.assertEqual(error.error_code, 200)
+        self.assertEqual(error.trace_id, "trace-permission")
+
+    def test_meta_code_190_remains_an_invalid_token(self):
+        response = httpx.Response(
+            401,
+            request=httpx.Request("GET", "https://graph.facebook.com/v25.0/me"),
+            json={"error": {
+                "message": "Error validating access token",
+                "type": "OAuthException",
+                "code": 190,
+            }},
+        )
+        self.assertTrue(meta_http._http_error_from_response(response).invalid_oauth)
+
 
 class OAuthStateTests(unittest.IsolatedAsyncioTestCase):
     async def test_meta_state_signature_is_validated(self):

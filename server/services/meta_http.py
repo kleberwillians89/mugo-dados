@@ -100,11 +100,11 @@ def _http_error_from_response(response: httpx.Response) -> MetaApiError:
     error_code = error_payload.get("code")
     error_subcode = error_payload.get("error_subcode")
     message = _safe_str(error_payload.get("message")) or _clip(response.text)
-    invalid_oauth = (
-        int(error_code or 0) == 190
-        or _safe_str(error_payload.get("type")).lower() == "oauthexception"
-        or "oauth" in message.lower()
-    )
+    # O Graph usa type=OAuthException tambem para erros de permissao
+    # (por exemplo, code=200). Somente o codigo 190 identifica credencial
+    # OAuth invalida/expirada; classificar pelo tipo ou pelo texto derruba o
+    # fallback best-effort da descoberta de ativos via Business.
+    invalid_oauth = int(error_code or 0) == 190
     rate_limited = response.status_code == 429 or int(error_code or 0) in {4, 17, 32, 613}
     retryable = response.status_code in _RETRYABLE_STATUS_CODES or rate_limited
     return MetaApiError(

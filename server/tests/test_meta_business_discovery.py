@@ -13,11 +13,13 @@ from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
+
 SERVER_DIR = str(Path(__file__).parents[1])
 if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
-from services import meta_oauth
+from services import meta_http, meta_oauth
 from services.integration_errors import IntegrationError
 from services.meta_http import MetaApiError
 
@@ -41,10 +43,21 @@ PERMISSIONS = {"data": [
 
 
 def permission_denied(message="(#200) Requires business_management permission", code=200, subcode=None, status=403):
-    return MetaApiError(
-        f"Meta API error {status}: {message}", status_code=status, error_code=code,
-        error_subcode=subcode, trace_id="trace-abc",
+    # Reproduz o payload real do Graph: erros de permissao code=200 tambem
+    # chegam com type=OAuthException. O parser nao pode confundi-los com o
+    # token invalido code=190.
+    response = httpx.Response(
+        status,
+        request=httpx.Request("GET", "https://graph.facebook.com/v25.0/business/owned_ad_accounts"),
+        json={"error": {
+            "message": message,
+            "type": "OAuthException",
+            "code": code,
+            **({"error_subcode": subcode} if subcode is not None else {}),
+            "fbtrace_id": "trace-abc",
+        }},
     )
+    return meta_http._http_error_from_response(response)
 
 
 class FakeGraph:

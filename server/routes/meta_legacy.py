@@ -78,6 +78,10 @@ def _meta_oauth_log(
     instagram_count: int | None = None,
     ad_account_count: int | None = None,
     error_code: str = "",
+    state_present: bool | None = None,
+    provider_error_code: str = "",
+    provider_error_subcode: str = "",
+    provider_error_reason: str = "",
 ) -> None:
     request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
     counts = ""
@@ -87,10 +91,33 @@ def _meta_oauth_log(
         counts += f" instagram_count={max(0, instagram_count)}"
     if ad_account_count is not None:
         counts += f" ad_account_count={max(0, ad_account_count)}"
+    callback = ""
+    if state_present is not None:
+        callback += f" state_present={1 if state_present else 0}"
+    if provider_error_code:
+        callback += f" provider_error_code={str(provider_error_code).strip()[:80]}"
+    if provider_error_subcode:
+        callback += f" provider_error_subcode={str(provider_error_subcode).strip()[:80]}"
+    if provider_error_reason:
+        callback += f" provider_error_reason={str(provider_error_reason).strip()[:80]}"
     print(
         "[meta_oauth][flow] "
         f"request_id={request_id} client_id={client_id or '-'} user_id={user_id or '-'} "
-        f"connection_id={connection_id or '-'} stage={stage} error_code={error_code or '-'}{counts}"
+        f"connection_id={connection_id or '-'} stage={stage} error_code={error_code or '-'}{counts}{callback}"
+    )
+
+
+def _meta_oauth_config_log(request: Request, *, client_id: str, settings: Dict[str, str]) -> None:
+    """Diagnostico seguro do inicio OAuth; nunca registra state ou secrets."""
+    request_id = str(getattr(getattr(request, "state", None), "request_id", "") or "-")
+    app_id = str(settings.get("app_id") or "").strip()[:80]
+    login_config_id = str(settings.get("login_config_id") or "").strip()[:80]
+    redirect_uri = str(settings.get("redirect_uri") or "").strip().replace("\n", "")[:300]
+    print(
+        "[meta_oauth][config] "
+        f"request_id={request_id} client_id={client_id or '-'} app_id={app_id or '-'} "
+        f"login_config_id={login_config_id or '-'} redirect_uri={redirect_uri or '-'} "
+        "response_type=code state_present=1"
     )
 
 META_LEGACY_ENDPOINTS = [
@@ -188,6 +215,7 @@ async def api_oauth_meta_start(
         _meta_oauth_log(
             request, stage="authorization_url_created", client_id=cid, user_id=user_id,
         )
+        _meta_oauth_config_log(request, client_id=cid, settings=settings)
         return {
             "ok": True,
             "client_id": cid,
@@ -210,7 +238,16 @@ async def api_oauth_meta_callback(
     callback_connection_id = ""
 
     if error:
-        _meta_oauth_log(request, stage="provider_denied", error_code=str(error)[:80])
+        query_params = getattr(request, "query_params", {})
+        _meta_oauth_log(
+            request,
+            stage="provider_denied",
+            error_code=str(error)[:80],
+            state_present=bool(str(state or "").strip()),
+            provider_error_code=str(query_params.get("error_code") or "")[:80],
+            provider_error_subcode=str(query_params.get("error_subcode") or "")[:80],
+            provider_error_reason=str(query_params.get("error_reason") or "")[:80],
+        )
         target = build_frontend_callback_redirect(
             success=False,
             client_id=fallback_client_id,

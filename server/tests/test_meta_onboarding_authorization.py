@@ -15,9 +15,10 @@ Convenção de nomes:
     hoje `client_admin` não tem permissão.
 """
 
+import io
 import sys
 import unittest
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -149,6 +150,42 @@ class AgencyAdminCanManageMeta(_Base):
             )
         self.assertEqual(result["client_id"], ROOVE)
         self.assertIn("authorization_url", result)
+
+    async def test_meta_oauth_start_logs_safe_runtime_configuration(self):
+        output = io.StringIO()
+        with ExitStack() as stack:
+            stack.enter_context(acting_as_agency())
+            stack.enter_context(_stub_meta_oauth_side_effects())
+            with redirect_stdout(output):
+                await meta_legacy.api_oauth_meta_start(
+                    request=_request(), client_id=ROOVE, x_client_id=None, authorization="Bearer valid",
+                )
+        logs = output.getvalue()
+        self.assertIn(
+            "[meta_oauth][config] request_id=test-req client_id=roove app_id=app "
+            "login_config_id=cfg redirect_uri=https://api.example/callback response_type=code state_present=1",
+            logs,
+        )
+        self.assertNotIn("app_secret", logs)
+        self.assertNotIn("signed-state", logs)
+
+    async def test_meta_provider_denial_logs_callback_signal_without_state_value(self):
+        request = SimpleNamespace(
+            state=SimpleNamespace(request_id="test-req"),
+            query_params={"error_code": "200", "error_subcode": "2018001", "error_reason": "user_denied"},
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            response = await meta_legacy.api_oauth_meta_callback(
+                request, state="secret-state", error="access_denied", error_description="Denied",
+            )
+        self.assertEqual(response.status_code, 302)
+        logs = output.getvalue()
+        self.assertIn("stage=provider_denied error_code=access_denied state_present=1", logs)
+        self.assertIn("provider_error_code=200", logs)
+        self.assertIn("provider_error_subcode=2018001", logs)
+        self.assertIn("provider_error_reason=user_denied", logs)
+        self.assertNotIn("secret-state", logs)
 
     async def test_agency_admin_links_assets_for_explicit_tenant(self):
         save = AsyncMock(return_value={"ok": True, "saved_count": 1})
