@@ -17,12 +17,14 @@ export type MetaAssetGroup = {
   adAccounts: MetaDiscoveredAdAccount[];
   /** Consultas do Business recusadas por permissão: o Business pode ter mais ativos. */
   blocked: Array<"ad_accounts" | "pages">;
+  /** Consultas que falharam sem indicar falta de permissão. */
+  failed: Array<"ad_accounts" | "pages">;
+  /** Tipos consultados com sucesso para os quais nenhum ativo foi encontrado. */
+  empty: Array<"ad_accounts" | "pages" | "instagram_accounts">;
 };
 
 export type MetaAssetGrouping = {
   groups: MetaAssetGroup[];
-  /** Businesses consultados sem nenhum ativo para esta autorização. */
-  emptyBusinesses: MetaDiscoveredBusinessManager[];
 };
 
 /** Identificado pelo Business, mas a autorização atual não permite ler o ativo. */
@@ -33,6 +35,30 @@ export function isRestrictedMetaAsset(asset: { access_status?: string }): boolea
 function primaryBusiness(refs: MetaAssetBusinessRef[] | undefined): MetaAssetBusinessRef | null {
   const list = refs || [];
   return list.find((ref) => ref.relation === "owned") || list[0] || null;
+}
+
+type BusinessAssetKind = "ad_accounts" | "pages";
+
+function classifyBusinessEdges(
+  group: MetaAssetGroup,
+  discovery: NonNullable<MetaDiscoveredBusinessManager["discovery"]>,
+  kind: BusinessAssetKind,
+  owned: "owned_ad_accounts" | "owned_pages",
+  client: "client_ad_accounts" | "client_pages",
+) {
+  const edges = [discovery[owned], discovery[client]].filter(Boolean);
+  if (edges.some((edge) => edge?.status === "permission_denied")) {
+    group.blocked.push(kind);
+    return;
+  }
+  if (edges.some((edge) => edge?.status === "error" || edge?.status === "rate_limited")) {
+    group.failed.push(kind);
+    return;
+  }
+  // Só afirmamos ausência quando os dois edges foram consultados com sucesso.
+  if (edges.length === 2 && edges.every((edge) => edge?.status === "ok") && edges.every((edge) => (edge?.count || 0) === 0)) {
+    group.empty.push(kind);
+  }
 }
 
 /**
@@ -61,6 +87,8 @@ export function groupMetaDiscoveredAssets(
         instagramAccounts: [],
         adAccounts: [],
         blocked: [],
+        failed: [],
+        empty: [],
       };
       groups.set(key, group);
     }
@@ -70,12 +98,8 @@ export function groupMetaDiscoveredAssets(
   for (const business of businesses) {
     const group = ensure(business.business_id, business.business_name);
     const discovery = business.discovery || {};
-    if (discovery.owned_ad_accounts?.status === "permission_denied" || discovery.client_ad_accounts?.status === "permission_denied") {
-      group.blocked.push("ad_accounts");
-    }
-    if (discovery.owned_pages?.status === "permission_denied" || discovery.client_pages?.status === "permission_denied") {
-      group.blocked.push("pages");
-    }
+    classifyBusinessEdges(group, discovery, "ad_accounts", "owned_ad_accounts", "client_ad_accounts");
+    classifyBusinessEdges(group, discovery, "pages", "owned_pages", "client_pages");
   }
 
   const groupOfPage = new Map<string, MetaAssetGroup>();
@@ -98,13 +122,22 @@ export function groupMetaDiscoveredAssets(
   const hasAssets = (group: MetaAssetGroup) =>
     group.pages.length + group.instagramAccounts.length + group.adAccounts.length > 0;
   const all = [...groups.values()];
-  const businessGroups = all.filter((group) => group.businessId && (hasAssets(group) || group.blocked.length > 0));
+  const businessGroups = all.filter((group) => group.businessId);
+  for (const group of businessGroups) {
+    if (group.empty.includes("pages") && !group.empty.includes("instagram_accounts")) {
+      group.empty.push("instagram_accounts");
+    } else if (
+      group.pages.length > 0 &&
+      group.instagramAccounts.length === 0 &&
+      !group.blocked.includes("pages") &&
+      !group.failed.includes("pages") &&
+      !group.pages.some(isRestrictedMetaAsset)
+    ) {
+      group.empty.push("instagram_accounts");
+    }
+  }
   const direct = all.find((group) => group.key === "direct");
   return {
     groups: direct && hasAssets(direct) ? [...businessGroups, direct] : businessGroups,
-    emptyBusinesses: businesses.filter((business) => {
-      const group = groups.get(`business:${business.business_id}`);
-      return Boolean(group) && !hasAssets(group!) && group!.blocked.length === 0;
-    }),
   };
 }

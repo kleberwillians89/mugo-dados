@@ -7,7 +7,7 @@ const MUGO = { business_id: "585767010886087", business_name: "Mugô" };
 
 describe("groupMetaDiscoveredAssets — seletor Meta agrupado por Business", () => {
   it("agrupa Página, Instagram (pelo vínculo da Página) e contas pelo Business dono; diretos ao final", () => {
-    const { groups, emptyBusinesses } = groupMetaDiscoveredAssets({
+    const { groups } = groupMetaDiscoveredAssets({
       business_managers: [RUAH, MUGO],
       pages: [
         { page_id: "516985944838234", page_name: "Mugô", businesses: [{ ...MUGO, relation: "owned" }] },
@@ -33,7 +33,6 @@ describe("groupMetaDiscoveredAssets — seletor Meta agrupado por Business", () 
     expect(mugo.instagramAccounts.map((ig) => ig.ig_user_id)).toEqual(["17841471880135733"]);
     expect(direct.instagramAccounts.map((ig) => ig.ig_user_id)).toEqual(["ig-solto"]);
     expect(direct.adAccounts.map((account) => account.ad_account_id)).toEqual(["act_direta"]);
-    expect(emptyBusinesses).toEqual([]);
   });
 
   it("conta vista como dona e como cliente aparece uma única vez, no Business dono", () => {
@@ -53,18 +52,47 @@ describe("groupMetaDiscoveredAssets — seletor Meta agrupado por Business", () 
     expect(all).toEqual([`business:${RUAH.business_id}:act_1`]);
   });
 
-  it("Business com consulta bloqueada fica visível com o aviso; Business sem ativos vai para a lista compacta", () => {
-    const { groups, emptyBusinesses } = groupMetaDiscoveredAssets({
+  it("distingue Business sem ativos, permissão negada e falha de consulta", () => {
+    const { groups } = groupMetaDiscoveredAssets({
       business_managers: [
-        { business_id: "bloqueado", business_name: "Bloqueado", discovery: { owned_ad_accounts: { status: "permission_denied" } } },
-        { business_id: "vazio", business_name: "Vazio", discovery: { owned_ad_accounts: { status: "ok", count: 0 } } },
+        { business_id: "bloqueado", business_name: "Bloqueado", discovery: { owned_ad_accounts: { status: "permission_denied" }, client_ad_accounts: { status: "ok", count: 0 } } },
+        { business_id: "vazio", business_name: "Vazio", discovery: {
+          owned_ad_accounts: { status: "ok", count: 0 }, client_ad_accounts: { status: "ok", count: 0 },
+          owned_pages: { status: "ok", count: 0 }, client_pages: { status: "ok", count: 0 },
+        } },
+        { business_id: "falhou", business_name: "Falhou", discovery: { owned_ad_accounts: { status: "error" }, client_ad_accounts: { status: "ok", count: 0 } } },
       ],
       pages: [],
       instagram_accounts: [],
       ad_accounts: [],
     });
-    expect(groups.map((group) => [group.key, group.blocked])).toEqual([["business:bloqueado", ["ad_accounts"]]]);
-    expect(emptyBusinesses.map((business) => business.business_id)).toEqual(["vazio"]);
+    expect(groups.map((group) => group.key)).toEqual(["business:bloqueado", "business:vazio", "business:falhou"]);
+    expect(groups[0].blocked).toEqual(["ad_accounts"]);
+    expect(groups[0].empty).not.toContain("ad_accounts");
+    expect(groups[1].empty).toEqual(["ad_accounts", "pages", "instagram_accounts"]);
+    expect(groups[1].blocked).toEqual([]);
+    expect(groups[1].failed).toEqual([]);
+    expect(groups[2].failed).toEqual(["ad_accounts"]);
+    expect(groups[2].empty).not.toContain("ad_accounts");
+  });
+
+  it("Business com Página/Instagram e sem Ads mantém os ativos e marca apenas Ads como vazio", () => {
+    const business = {
+      business_id: "origami", business_name: "origami_investimentos", discovery: {
+        owned_ad_accounts: { status: "ok" as const, count: 0 }, client_ad_accounts: { status: "ok" as const, count: 0 },
+        owned_pages: { status: "ok" as const, count: 1 }, client_pages: { status: "ok" as const, count: 0 },
+      },
+    };
+    const { groups } = groupMetaDiscoveredAssets({
+      business_managers: [business],
+      pages: [{ page_id: "page-origami", businesses: [{ business_id: "origami", business_name: "origami_investimentos", relation: "owned" }] }],
+      instagram_accounts: [{ ig_user_id: "ig-origami", business_id: "page-origami" }],
+      ad_accounts: [],
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].pages).toHaveLength(1);
+    expect(groups[0].instagramAccounts).toHaveLength(1);
+    expect(groups[0].empty).toEqual(["ad_accounts"]);
   });
 
   it("sem Business, mantém tudo em um único grupo direto (comportamento anterior)", () => {

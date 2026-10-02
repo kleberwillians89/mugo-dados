@@ -2000,11 +2000,12 @@ export default function Onboarding({
             {(() => {
               // Seleção explícita, agora agrupada por Business (só apresentação):
               // os mesmos checkboxes e a mesma regra de um ativo por tipo.
-              const { groups, emptyBusinesses } = groupMetaDiscoveredAssets(pendingAssets);
+              const { groups } = groupMetaDiscoveredAssets(pendingAssets);
               const linkedPageIds = new Set(
                 (pendingAssets.instagram_accounts || []).map((ig) => String(ig.business_id || ""))
               );
               const hasBusinessGroups = groups.some((group) => group.businessId);
+              const hasDiscoveredBusinesses = (pendingAssets.business_managers || []).length > 0;
               return (
                 <div className="metaAssetGroups">
                   {(pendingAssets.discovery_warnings || []).map((warning) => (
@@ -2042,6 +2043,12 @@ export default function Onboarding({
                       ) : null}
                       {group.blocked.includes("ad_accounts") ? (
                         <div className="smallMuted">A autorização atual não permite listar as contas de anúncio deste Business.</div>
+                      ) : null}
+                      {group.failed.includes("pages") ? (
+                        <div className="smallMuted">Não foi possível consultar as Páginas deste Business agora.</div>
+                      ) : null}
+                      {group.failed.includes("ad_accounts") ? (
+                        <div className="smallMuted">Não foi possível consultar as contas de anúncio deste Business agora.</div>
                       ) : null}
                       <div className="onboardingAssets">
                         {group.pages.length ? (
@@ -2128,22 +2135,26 @@ export default function Onboarding({
                             </div>
                           </div>
                         ) : null}
+                        {group.empty.includes("pages") ? (
+                          <div className="smallMuted">Nenhuma Página encontrada</div>
+                        ) : null}
+                        {group.empty.includes("instagram_accounts") ? (
+                          <div className="smallMuted">Nenhuma conta do Instagram encontrada</div>
+                        ) : null}
+                        {group.empty.includes("ad_accounts") ? (
+                          <div className="smallMuted">Nenhuma conta de anúncios encontrada</div>
+                        ) : null}
                       </div>
                     </section>
                   ))}
-                  {(pendingAssets.pages || []).length === 0 ? (
+                  {!hasDiscoveredBusinesses && (pendingAssets.pages || []).length === 0 ? (
                     <div className="smallMuted">Nenhuma Página acessível foi encontrada para a autorização atual.</div>
                   ) : null}
-                  {(pendingAssets.instagram_accounts || []).length === 0 ? (
+                  {!hasDiscoveredBusinesses && (pendingAssets.instagram_accounts || []).length === 0 ? (
                     <div className="smallMuted">Nenhum ativo de Instagram encontrado.</div>
                   ) : null}
-                  {(pendingAssets.ad_accounts || []).length === 0 ? (
+                  {!hasDiscoveredBusinesses && (pendingAssets.ad_accounts || []).length === 0 ? (
                     <div className="smallMuted">Nenhuma conta de anúncios encontrada.</div>
-                  ) : null}
-                  {emptyBusinesses.length ? (
-                    <div className="smallMuted">
-                      Sem ativos para esta autorização: {emptyBusinesses.map((business) => business.business_name || business.business_id).join(", ")}.
-                    </div>
                   ) : null}
                 </div>
               );
