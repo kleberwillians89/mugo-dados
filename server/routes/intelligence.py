@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
+from api_support import get_request_id
 from services.intelligence import (
+    LOG_STAGE_AUTHORIZATION,
     STAGE_CONTEXT,
     analysis_history,
     ask_intelligence,
@@ -12,6 +15,9 @@ from services.intelligence import (
     conversation_messages,
     generate_analysis,
     latest_analysis,
+    log_request_started,
+    log_stage_completed,
+    log_stage_failed,
 )
 from services.business_context import load_business_context, save_business_context
 from services.tenant import require_client_role, require_user_id, resolve_client_id
@@ -132,14 +138,42 @@ async def intelligence_generate(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid, user_id = await _context(client_id, x_client_id, authorization)
+    # request_id é o mesmo que o middleware [http] imprime e devolve no
+    # header X-Request-ID: liga a linha do HTTP às etapas da análise.
+    request_id = get_request_id()
+    start = str(payload.get("start") or "") or None
+    end = str(payload.get("end") or "") or None
+    log_request_started(
+        request_id=request_id,
+        client_id=(client_id or x_client_id or "-"),
+        period_start=start,
+        period_end=end,
+    )
+    authorization_started = time.monotonic()
+    try:
+        cid, user_id = await _context(client_id, x_client_id, authorization)
+    except BaseException as exc:
+        log_stage_failed(
+            stage=LOG_STAGE_AUTHORIZATION,
+            request_id=request_id,
+            elapsed_ms=int((time.monotonic() - authorization_started) * 1000),
+            exc=exc,
+        )
+        raise
+    log_stage_completed(
+        stage=LOG_STAGE_AUTHORIZATION,
+        request_id=request_id,
+        elapsed_ms=int((time.monotonic() - authorization_started) * 1000),
+        client_id=cid,
+    )
     try:
         return await generate_analysis(
             client_id=cid,
             user_id=user_id,
-            start=str(payload.get("start") or "") or None,
-            end=str(payload.get("end") or "") or None,
+            start=start,
+            end=end,
             days=int(payload.get("days") or 30),
+            request_id=request_id,
         )
     except RuntimeError as exc:
         _raise_service_error(exc)

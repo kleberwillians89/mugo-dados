@@ -24,6 +24,11 @@ def _reset_request_id(token: Token[str]) -> None:
     _REQUEST_ID.reset(token)
 
 
+def get_request_id() -> str:
+    """request_id da requisição em curso, o mesmo que o log [http] imprime."""
+    return _REQUEST_ID.get()
+
+
 def _pick_client_id(client_id: Optional[str], x_client_id: Optional[str]) -> Optional[str]:
     return (client_id or x_client_id or "").strip() or None
 

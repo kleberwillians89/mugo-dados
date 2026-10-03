@@ -21,6 +21,185 @@ from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_updat
 from .instagram_organic_history import aggregate_instagram_months
 
 
+# ---------------------------------------------------------------------------
+# Observabilidade da análise (POST /api/intelligence/analyses)
+#
+# Mesmo mecanismo que já aparece no Render: print() em stdout, que o app.py
+# deixa com line buffering. flush=True aqui é cinto e suspensório: se o
+# processo for iniciado por outro comando que não passe pelo app.py, a linha
+# ainda sai antes de um eventual kill/timeout.
+# ---------------------------------------------------------------------------
+
+LOG_PREFIX = "[intelligence]"
+
+LOG_STAGE_AUTHORIZATION = "authorization"
+LOG_STAGE_SNAPSHOT = "snapshot"
+LOG_STAGE_COMMERCE_CONTEXT = "commerce_context"
+LOG_STAGE_BUSINESS_CONTEXT = "business_context"
+LOG_STAGE_EXTERNAL_RESEARCH = "external_research"
+LOG_STAGE_MODEL_REQUEST = "model_request"
+LOG_STAGE_MODEL_RESPONSE = "model_response"
+LOG_STAGE_VALIDATION = "validation"
+LOG_STAGE_PERSISTENCE = "persistence"
+
+# Qualquer coisa com cara de credencial sai da linha antes de ser impressa.
+# A ordem importa: os padrões específicos limpam primeiro, o genérico de
+# cadeia longa fecha o que sobrou.
+_LOG_SECRET_PATTERNS = (
+    re.compile(r"(?i)\b(?:bearer|basic)\s+\S+"),
+    re.compile(
+        r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|"
+        r"secret|service[_-]?role|password|senha|credential)s?\s*[:=]\s*\S+"
+    ),
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"),
+    re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}(?:\.[A-Za-z0-9_\-]*){0,2}"),
+    re.compile(r"\b[A-Za-z0-9_\-]{32,}\b"),
+)
+
+
+# Campos estruturais: identificadores e enums gerados pelo próprio backend,
+# nunca texto de fora. Ficam fora da redação porque o padrão de cadeia longa
+# apagaria justamente o request_id (32 hex) e o client_id (UUID) — que são o
+# motivo de existir deste log.
+_LOG_STRUCTURAL_FIELDS = frozenset(
+    {
+        "request_id", "client_id", "stage", "elapsed_ms", "period_start", "period_end",
+        "upstream_status", "error_code", "error_type", "provider",
+        "model", "success", "status", "commerce_provider", "commerce_status",
+        "business_context", "external_research", "reused", "fingerprint",
+        "insights", "actions", "metrics", "sources",
+    }
+)
+
+
+def _log_safe(value: Any, *, key: str = "") -> str:
+    """Valor pronto para log: uma linha, sem credencial, com tamanho limitado."""
+    text = re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
+    if key not in _LOG_STRUCTURAL_FIELDS:
+        for pattern in _LOG_SECRET_PATTERNS:
+            text = pattern.sub("[redacted]", text)
+    if len(text) > 160:
+        text = f"{text[:160]}..."
+    return text or "-"
+
+
+def _log_line(event: str, **fields: Any) -> None:
+    parts = [f"event={event}"]
+    for key, value in fields.items():
+        if value is None or value == "":
+            continue
+        parts.append(f"{key}={_log_safe(value, key=key)}")
+    print(f"{LOG_PREFIX} " + " ".join(parts), flush=True)
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
+
+
+def _upstream_status(exc: BaseException | None) -> int | None:
+    """Status HTTP do serviço de fora, quando a exceção carrega resposta."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return status
+    match = re.search(r"AI_PROVIDER_ERROR_(\d{3})", str(exc or ""))
+    return int(match.group(1)) if match else None
+
+
+def _postgrest_code(exc: BaseException | None) -> str:
+    """Código do PostgREST (ex.: PGRST204). Só o código, nunca o body."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return ""
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001 - body ilegível não pode derrubar o log
+        return ""
+    code = body.get("code") if isinstance(body, dict) else None
+    return _log_safe(code) if code else ""
+
+
+def _error_code_of(exc: BaseException | None) -> str:
+    """Código curto do erro: a mensagem já é um código nos RuntimeError daqui."""
+    text = re.sub(r"\s+", " ", str(exc or "")).strip()
+    if text and re.fullmatch(r"[A-Za-z0-9_:.\-]{1,80}", text):
+        return text
+    return exc.__class__.__name__ if exc is not None else "UNKNOWN_ERROR"
+
+
+def log_request_started(
+    *, request_id: str | None, client_id: str, period_start: Any, period_end: Any,
+) -> None:
+    _log_line(
+        "request_started",
+        request_id=request_id or "-",
+        client_id=client_id,
+        period_start=period_start or "-",
+        period_end=period_end or "-",
+    )
+
+
+def log_stage_completed(
+    *, stage: str, request_id: str | None, elapsed_ms: int, **extra: Any,
+) -> None:
+    _log_line(
+        "stage_completed",
+        stage=stage,
+        request_id=request_id or "-",
+        elapsed_ms=elapsed_ms,
+        **extra,
+    )
+
+
+def log_stage_failed(
+    *,
+    stage: str,
+    request_id: str | None,
+    elapsed_ms: int,
+    exc: BaseException | None = None,
+    error_code: str | None = None,
+    **extra: Any,
+) -> None:
+    fields: Dict[str, Any] = {
+        "stage": stage,
+        "request_id": request_id or "-",
+        "error_code": error_code or _error_code_of(exc),
+        "error_type": exc.__class__.__name__ if exc is not None else "ConfigurationError",
+        "elapsed_ms": elapsed_ms,
+    }
+    upstream = extra.pop("upstream_status", None) or _upstream_status(exc)
+    if upstream is not None:
+        fields["upstream_status"] = upstream
+    postgrest = extra.pop("postgrest_code", None) or _postgrest_code(exc)
+    if postgrest:
+        fields["postgrest_code"] = postgrest
+    fields.update(extra)
+    _log_line("stage_failed", **fields)
+    if exc is not None:
+        try:
+            exc._intelligence_stage_logged = True  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - exceção imutável não pode quebrar o log
+            pass
+
+
+def _already_logged(exc: BaseException) -> bool:
+    return bool(getattr(exc, "_intelligence_stage_logged", False))
+
+
+async def _timed_stage(stage: str, request_id: str | None, awaitable: Any) -> Any:
+    """Executa uma etapa medindo o tempo e registrando sucesso ou falha."""
+    started = time.monotonic()
+    try:
+        result = await awaitable
+    except BaseException as exc:
+        log_stage_failed(
+            stage=stage, request_id=request_id, elapsed_ms=_elapsed_ms(started), exc=exc,
+        )
+        raise
+    log_stage_completed(stage=stage, request_id=request_id, elapsed_ms=_elapsed_ms(started))
+    return result
+
+
 ANALYSIS_SCHEMA = {
     "name": "mugo_intelligence_analysis_v1",
     "schema": {
@@ -507,6 +686,7 @@ async def calculate_intelligence_snapshot(
     start: str | None,
     end: str | None,
     days: int = 30,
+    request_id: str | None = None,
 ) -> Dict[str, Any]:
     start_date, end_date = _parse_period(start, end, days)
     period_days = (end_date - start_date).days + 1
@@ -526,17 +706,25 @@ async def calculate_intelligence_snapshot(
     # As três leituras são independentes: em paralelo, o tempo total é o da
     # mais lenta (a consulta oficial da FBITS), não a soma.
     started_at = time.monotonic()
+    # Cada leitura é cronometrada e registrada separadamente: num 502 sem
+    # resposta dá para ver qual das três não voltou.
     commerce, business, external = await asyncio.gather(
-        resolve_commerce_context(
-            client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
-            shopify_section={
-                **shopify,
-                "previous": previous.get("shopify") or {},
-                "deltas": deltas,
-            },
+        _timed_stage(
+            LOG_STAGE_COMMERCE_CONTEXT, request_id,
+            resolve_commerce_context(
+                client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
+                shopify_section={
+                    **shopify,
+                    "previous": previous.get("shopify") or {},
+                    "deltas": deltas,
+                },
+            ),
         ),
-        load_business_context(client_id),
-        external_research_context(client_id=client_id),
+        _timed_stage(LOG_STAGE_BUSINESS_CONTEXT, request_id, load_business_context(client_id)),
+        _timed_stage(
+            LOG_STAGE_EXTERNAL_RESEARCH, request_id,
+            external_research_context(client_id=client_id),
+        ),
     )
     print(
         f"[intelligence][snapshot] client_id={client_id} stage=context status=ok "
@@ -1168,9 +1356,22 @@ def _assert_no_untrusted_numeric_text(value: Any, path: str = "response") -> Non
             _assert_no_untrusted_numeric_text(item, f"{path}.{key}")
 
 
-async def _call_provider(*, payload: Dict[str, Any], schema: Dict[str, Any], instructions: str) -> Dict[str, Any]:
+async def _call_provider(
+    *,
+    payload: Dict[str, Any],
+    schema: Dict[str, Any],
+    instructions: str,
+    request_id: str | None = None,
+) -> Dict[str, Any]:
+    started = time.monotonic()
     api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not api_key:
+        # Só o código: o valor da variável nunca entra no log.
+        log_stage_failed(
+            stage=LOG_STAGE_MODEL_REQUEST, request_id=request_id,
+            elapsed_ms=_elapsed_ms(started), error_code="MODEL_CONFIGURATION_MISSING",
+            provider="openai",
+        )
         raise RuntimeError("AI_PROVIDER_NOT_CONFIGURED")
     model = (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip()
     body = {
@@ -1186,14 +1387,38 @@ async def _call_provider(*, payload: Dict[str, Any], schema: Dict[str, Any], ins
             }
         },
     }
-    async with httpx.AsyncClient(timeout=90) as client:
-        response = await client.post(
-            "https://api.openai.com/v1/responses",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=body,
+    # Só metadados da chamada: nem prompt, nem payload, nem chave.
+    log_stage_completed(
+        stage=LOG_STAGE_MODEL_REQUEST, request_id=request_id,
+        elapsed_ms=_elapsed_ms(started), provider="openai", model=model,
+    )
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=body,
+            )
+    except Exception as exc:
+        log_stage_failed(
+            stage=LOG_STAGE_MODEL_RESPONSE, request_id=request_id,
+            elapsed_ms=_elapsed_ms(started), exc=exc,
+            provider="openai", model=model, success="false",
         )
+        raise
     if response.status_code >= 400:
+        log_stage_failed(
+            stage=LOG_STAGE_MODEL_RESPONSE, request_id=request_id,
+            elapsed_ms=_elapsed_ms(started), error_code=f"AI_PROVIDER_ERROR_{response.status_code}",
+            upstream_status=response.status_code,
+            provider="openai", model=model, success="false",
+        )
         raise RuntimeError(f"AI_PROVIDER_ERROR_{response.status_code}")
+    log_stage_completed(
+        stage=LOG_STAGE_MODEL_RESPONSE, request_id=request_id,
+        elapsed_ms=_elapsed_ms(started), provider="openai", model=model,
+        upstream_status=response.status_code, success="true",
+    )
     text = _extract_output_text(response.json())
     if not text:
         raise RuntimeError("AI_PROVIDER_EMPTY_RESPONSE")
@@ -1275,12 +1500,15 @@ STAGE_PERSISTENCE = "INTELLIGENCE_PERSISTENCE_ERROR"
 OPTIONAL_ANALYSIS_COLUMNS = ("context_fingerprint",)
 
 
-async def _insert_analysis(row: Dict[str, Any]) -> Dict[str, Any] | None:
+async def _insert_analysis(
+    row: Dict[str, Any], *, request_id: str | None = None,
+) -> Dict[str, Any] | None:
     """Grava a análise tolerando coluna ainda não migrada."""
     attempt = dict(row)
+    started = time.monotonic()
     while True:
         try:
-            return await sb_insert("ai_analyses", attempt)
+            saved = await sb_insert("ai_analyses", attempt)
         except httpx.HTTPStatusError as exc:
             missing = next(
                 (
@@ -1290,12 +1518,30 @@ async def _insert_analysis(row: Dict[str, Any]) -> Dict[str, Any] | None:
                 "",
             )
             if not missing:
+                # PostgREST recusou por outro motivo: código e status no log,
+                # nunca o body (pode carregar a linha inteira).
+                log_stage_failed(
+                    stage=LOG_STAGE_PERSISTENCE, request_id=request_id,
+                    elapsed_ms=_elapsed_ms(started), exc=exc,
+                )
                 raise
             print(
                 f"[intelligence][schema_pending] column={missing} "
                 "migration=20261003_000039_client_business_context action=insert_without_column"
             )
             attempt.pop(missing, None)
+        except Exception as exc:
+            log_stage_failed(
+                stage=LOG_STAGE_PERSISTENCE, request_id=request_id,
+                elapsed_ms=_elapsed_ms(started), exc=exc,
+            )
+            raise
+        else:
+            log_stage_completed(
+                stage=LOG_STAGE_PERSISTENCE, request_id=request_id,
+                elapsed_ms=_elapsed_ms(started), status=_log_safe(attempt.get("status")),
+            )
+            return saved
 
 
 async def _reusable_analysis(
@@ -1331,9 +1577,26 @@ async def generate_analysis(
     start: str | None,
     end: str | None,
     days: int = 30,
+    request_id: str | None = None,
 ) -> Dict[str, Any]:
-    snapshot = await calculate_intelligence_snapshot(
-        client_id=client_id, start=start, end=end, days=days,
+    # request_started é emitido pela rota, que é a entrada real do HTTP e
+    # conhece o período pedido antes de qualquer resolução.
+    snapshot_started = time.monotonic()
+    try:
+        snapshot = await calculate_intelligence_snapshot(
+            client_id=client_id, start=start, end=end, days=days, request_id=request_id,
+        )
+    except BaseException as exc:
+        log_stage_failed(
+            stage=LOG_STAGE_SNAPSHOT, request_id=request_id,
+            elapsed_ms=_elapsed_ms(snapshot_started), exc=exc,
+        )
+        raise
+    log_stage_completed(
+        stage=LOG_STAGE_SNAPSHOT, request_id=request_id,
+        elapsed_ms=_elapsed_ms(snapshot_started),
+        metrics=len(snapshot.get("metrics") or []),
+        sources=len(snapshot.get("sources") or []),
     )
     period = snapshot["period"]
     fingerprint = context_fingerprint(snapshot)
@@ -1352,6 +1615,7 @@ async def generate_analysis(
     if not provider_configured():
         saved = await _insert_analysis(
             {**base_row, "status": "configuration_pending", "error_code": "AI_PROVIDER_NOT_CONFIGURED"},
+            request_id=request_id,
         )
         return {
             "ok": True,
@@ -1397,8 +1661,25 @@ async def generate_analysis(
             },
             schema=ANALYSIS_SCHEMA,
             instructions=ANALYSIS_INSTRUCTIONS,
+            request_id=request_id,
         )
-        _validate_analysis_grounding(analysis, snapshot)
+        validation_started = time.monotonic()
+        try:
+            _validate_analysis_grounding(analysis, snapshot)
+        except BaseException as exc:
+            # O código específico do grounding (AI_UNGROUNDED_INSIGHT etc.)
+            # sai no log sem nenhuma regra ser relaxada.
+            log_stage_failed(
+                stage=LOG_STAGE_VALIDATION, request_id=request_id,
+                elapsed_ms=_elapsed_ms(validation_started), exc=exc,
+            )
+            raise
+        log_stage_completed(
+            stage=LOG_STAGE_VALIDATION, request_id=request_id,
+            elapsed_ms=_elapsed_ms(validation_started),
+            insights=len(analysis.get("insights") or []),
+            actions=len(analysis.get("actions") or []),
+        )
         analysis = _sanitize_analysis(analysis, snapshot)
         saved = await _insert_analysis(
             {
@@ -1407,6 +1688,7 @@ async def generate_analysis(
                 "analysis": analysis,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             },
+            request_id=request_id,
         )
         return {
             "ok": True,
@@ -1419,12 +1701,31 @@ async def generate_analysis(
         # Etapa identificada no log; o cliente recebe mensagem genérica.
         stage = STAGE_VALIDATION if isinstance(exc, AssertionError) else STAGE_MODEL
         code = _text(exc)[:80] or "AI_PROVIDER_ERROR"
+        if not _already_logged(exc):
+            # Falha que não passou por nenhuma etapa instrumentada (ex.:
+            # AI_PROVIDER_EMPTY_RESPONSE, JSON inválido): nenhuma exceção
+            # chega ao 502 sem uma linha estruturada antes.
+            log_stage_failed(
+                stage=(
+                    LOG_STAGE_VALIDATION if isinstance(exc, AssertionError)
+                    else LOG_STAGE_MODEL_RESPONSE
+                ),
+                request_id=request_id,
+                elapsed_ms=_elapsed_ms(snapshot_started),
+                exc=exc,
+            )
+        # `code` é a mensagem crua da exceção: uma falha de rede pode trazer a
+        # URL com Authorization dentro. Vai sanitizada para o log; o valor
+        # gravado na linha `failed` segue o mesmo de antes.
         print(
-            f"[intelligence][generate] client_id={client_id} stage={stage} "
-            f"status=error error_type={exc.__class__.__name__} code={code}"
+            f"[intelligence][generate] client_id={client_id} request_id={request_id or '-'} "
+            f"stage={stage} status=error error_type={exc.__class__.__name__} "
+            f"code={_log_safe(code)}"
         )
         try:
-            await _insert_analysis({**base_row, "status": "failed", "error_code": code})
+            await _insert_analysis(
+                {**base_row, "status": "failed", "error_code": code}, request_id=request_id,
+            )
         except Exception as persistence_error:
             # Falha ao registrar não pode esconder a falha original.
             print(

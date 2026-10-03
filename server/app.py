@@ -105,23 +105,35 @@ async def safe_request_log(request: Request, call_next):
     if not hasattr(request, "state"):
         request.state = SimpleNamespace()
     request.state.request_id = request_id
+
+    def emit(status: int) -> None:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        path = request.url.path
+        integration_product = str(getattr(request.state, "integration_product", "") or "").strip()
+        if not integration_product:
+            integration_product = next(
+                (name for name in ("meta", "shopify") if path.startswith(f"/api/oauth/{name}/")),
+                "ga4" if "/ga4/" in path else "google_ads" if "/ads/" in path else "-",
+            )
+        print(
+            "[http] "
+            f"method={request.method} path={path} integration_product={integration_product} "
+            f"status={status} duration_ms={duration_ms} request_id={request_id}",
+            flush=True,
+        )
+
     try:
         response = await call_next(request)
+    except BaseException:
+        # O handler de Exception vive no ServerErrorMiddleware, que é externo a
+        # este middleware: quando call_next levanta, a resposta 500 é montada
+        # fora daqui e a linha [http] nunca saía. Emitimos antes de repassar,
+        # para a requisição aparecer no Render mesmo quando quebra.
+        emit(500)
+        raise
     finally:
         _reset_request_id(request_id_token)
-    duration_ms = int((time.perf_counter() - started) * 1000)
-    path = request.url.path
-    integration_product = str(getattr(request.state, "integration_product", "") or "").strip()
-    if not integration_product:
-        integration_product = next(
-            (name for name in ("meta", "shopify") if path.startswith(f"/api/oauth/{name}/")),
-            "ga4" if "/ga4/" in path else "google_ads" if "/ads/" in path else "-",
-        )
-    print(
-        "[http] "
-        f"method={request.method} path={path} integration_product={integration_product} "
-        f"status={response.status_code} duration_ms={duration_ms} request_id={request_id}"
-    )
+    emit(response.status_code)
     response.headers["X-Request-ID"] = request_id
     return response
 
