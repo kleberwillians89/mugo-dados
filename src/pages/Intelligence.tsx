@@ -29,7 +29,11 @@ import "../styles/intelligence.css";
 type Props = {
   onLogout: () => void | Promise<void>;
   /** Gerar uma nova análise altera o estado versionado; viewer permanece somente leitura. */
-  canRefresh?: boolean;
+  /**
+   * Administração do contexto estratégico (PUT /business-context exige papel
+   * de gestão). Gerar análise NÃO depende disto: qualquer membro gera.
+   */
+  canEditBusinessContext?: boolean;
 };
 
 type CachedWorkspace = {
@@ -165,7 +169,7 @@ function Evidence({
 }
 
 // onLogout segue no tipo por compatibilidade: a saída vive na sidebar global.
-export default function Intelligence({ canRefresh = false }: Props) {
+export default function Intelligence({ canEditBusinessContext = false }: Props) {
   const { period } = usePeriod();
   const clientId = getActiveClientId();
   const cacheKey = `${clientId}:${period.start}:${period.end}`;
@@ -195,6 +199,7 @@ export default function Intelligence({ canRefresh = false }: Props) {
     const timer = setInterval(() => setRefreshTick(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, []);
+  const generatingRef = useRef(false);
   const requestVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const askController = useRef<AbortController | null>(null);
@@ -355,7 +360,11 @@ export default function Intelligence({ canRefresh = false }: Props) {
   const ugcCreators = researchAvailable ? research?.ugc_creators || [] : [];
 
   async function refreshAnalysis() {
-    if (refreshing) return;
+    // `refreshing` é estado: num clique duplo rápido o segundo handler ainda
+    // enxerga `false` e dispara outra chamada ao provedor de IA. A guarda
+    // precisa ser síncrona.
+    if (generatingRef.current) return;
+    generatingRef.current = true;
     setRefreshing(true);
     setError("");
     refreshController.current?.abort();
@@ -372,17 +381,22 @@ export default function Intelligence({ canRefresh = false }: Props) {
       setError("");
       const nextHistory = [result.analysis, ...history.filter((item) => item.id !== result.analysis.id)];
       setHistory(nextHistory);
+      // A geração traz snapshot novo: o frescor do DADO também avança.
+      const generatedAt = new Date().toISOString();
+      setRefreshedAt(generatedAt);
       workspaceCache.set(cacheKey, {
         snapshot: result.snapshot,
         analysis: result.analysis,
         history: nextHistory,
         providerConfigured: result.provider_configured,
+        refreshedAt: generatedAt,
       });
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a análise.");
       }
     } finally {
+      generatingRef.current = false;
       if (refreshController.current === controller) setRefreshing(false);
     }
   }
@@ -455,11 +469,14 @@ export default function Intelligence({ canRefresh = false }: Props) {
           >
             {revalidating ? "Atualizando..." : "Atualizar dados"}
           </button>
-          {canRefresh ? (
-            <button className="btn btnPrimary intelHeaderAction" onClick={() => void refreshAnalysis()} disabled={refreshing}>
-              {refreshing ? "Gerando..." : content ? "Gerar nova análise" : "Gerar análise"}
-            </button>
-          ) : null}
+          <button
+            className="btn btnPrimary intelHeaderAction"
+            onClick={() => void refreshAnalysis()}
+            disabled={refreshing}
+            data-testid="intel-generate"
+          >
+            {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
+          </button>
         </div>
         {cooldownHint(refreshCooldown) ? (
           <p className="intelHeaderHint" role="status">{cooldownHint(refreshCooldown)}</p>
@@ -476,11 +493,9 @@ export default function Intelligence({ canRefresh = false }: Props) {
       {error && !content ? (
         <div className="intelInlineError" role="alert" data-testid="intel-error">
           <p>Não conseguimos montar sua leitura agora.</p>
-          {canRefresh ? (
-            <button className="btn" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
-              Tentar novamente
-            </button>
-          ) : null}
+          <button className="btn" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
+            {refreshing ? "Gerando análise..." : "Tentar novamente"}
+          </button>
         </div>
       ) : null}
       {fresherDataAvailable && content ? (
@@ -510,18 +525,20 @@ export default function Intelligence({ canRefresh = false }: Props) {
             Vamos cruzar os dados disponíveis para destacar movimentos, oportunidades e próximos
             testes deste período.
           </p>
-          {canRefresh ? (
-            <button className="btn btnPrimary" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
-              {refreshing ? "Gerando análise..." : "Gerar análise"}
-            </button>
-          ) : (
-            <p className="intelMomentAction">Peça a um administrador da empresa para gerar a leitura.</p>
-          )}
+          <button
+            className="btn btnPrimary"
+            type="button"
+            disabled={refreshing}
+            onClick={() => void refreshAnalysis()}
+            data-testid="intel-generate-empty"
+          >
+            {refreshing ? "Gerando análise..." : "Gerar análise"}
+          </button>
         </section>
       ) : null}
 
       {/* Contexto da marca: uma linha, nunca um cartão dominante. */}
-      {!businessContextAvailable && canRefresh ? (
+      {!businessContextAvailable && canEditBusinessContext ? (
         <p className="intelInlineCta" data-testid="intel-context-cta">
           Melhore esta leitura adicionando contexto estratégico em Administração › Contexto estratégico.
         </p>
@@ -611,7 +628,7 @@ export default function Intelligence({ canRefresh = false }: Props) {
       ) : null}
 
       {/* Contexto da marca: convite discreto para quem pode editar, nunca bloqueio. */}
-      {!businessContextAvailable && canRefresh ? (
+      {!businessContextAvailable && canEditBusinessContext ? (
         <section className="intelSection intelContextCta" data-testid="intel-context-cta">
           <div className="intelSectionTitle">
             <div><span className="intelEyebrow">Contexto</span><h2>Adicionar contexto da marca</h2></div>

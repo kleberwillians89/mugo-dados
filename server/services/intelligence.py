@@ -2028,6 +2028,68 @@ async def _insert_analysis(
             return saved
 
 
+# Geração chama a OpenAI e custa dinheiro. Qualquer membro da empresa pode
+# pedir, então a proteção é no servidor, não na interface. O cooldown mede
+# contra a última análise REALMENTE gerada para o tenant+período, lida do
+# banco — vale entre instâncias do Render, sem depender de estado em memória.
+INTELLIGENCE_GENERATION_COOLDOWN_SECONDS = float(
+    os.getenv("INTELLIGENCE_GENERATION_COOLDOWN_SECONDS", "60")
+)
+
+# Cliques concorrentes no mesmo worker colapsam no mesmo lock: o segundo
+# espera o primeiro terminar e, ao seguir, encontra a análise recém-gravada
+# reutilizável pelo fingerprint — sem uma segunda chamada ao provedor.
+_GENERATION_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+def _generation_lock(client_id: str, period: Dict[str, Any]) -> asyncio.Lock:
+    key = f"{_text(client_id)}|{_text(period.get('start'))}|{_text(period.get('end'))}"
+    lock = _GENERATION_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _GENERATION_LOCKS[key] = lock
+    return lock
+
+
+async def _generation_cooldown_remaining(
+    *, client_id: str, period: Dict[str, Any],
+) -> float:
+    """Segundos que faltam para o tenant poder gerar de novo.
+
+    Só conta análise concluída: uma tentativa que falhou não bloqueia quem
+    está tentando resolver o problema.
+    """
+    if INTELLIGENCE_GENERATION_COOLDOWN_SECONDS <= 0:
+        return 0.0
+    try:
+        rows = await sb_select(
+            "ai_analyses",
+            select="client_id,created_at,completed_at,status",
+            filters={
+                "client_id": f"eq.{_text(client_id)}",
+                "period_start": f"eq.{period['start']}",
+                "period_end": f"eq.{period['end']}",
+                "status": "eq.completed",
+            },
+            order="created_at.desc", limit=1,
+        )
+    except Exception as exc:  # noqa: BLE001 - sem leitura, não bloqueia
+        print(
+            f"[intelligence][cooldown] client_id={_text(client_id)} "
+            f"status=lookup_unavailable error_type={exc.__class__.__name__}",
+            flush=True,
+        )
+        return 0.0
+    row = rows[0] if rows else None
+    if not row or _text(row.get("client_id")) != _text(client_id):
+        return 0.0
+    generated_at = _parse_timestamp(row.get("completed_at") or row.get("created_at"))
+    if generated_at is None:
+        return 0.0
+    elapsed = (datetime.now(timezone.utc) - generated_at.astimezone(timezone.utc)).total_seconds()
+    return max(0.0, INTELLIGENCE_GENERATION_COOLDOWN_SECONDS - elapsed)
+
+
 async def _reusable_analysis(
     *, client_id: str, period: Dict[str, Any], fingerprint: str,
 ) -> Dict[str, Any] | None:
@@ -2108,17 +2170,60 @@ async def generate_analysis(
             "snapshot": snapshot,
             "analysis": saved,
         }
-    reusable = await _reusable_analysis(client_id=client_id, period=period, fingerprint=fingerprint)
-    if reusable:
-        print(f"[intelligence][cache] client_id={client_id} status=reused period={period['start']}..{period['end']}")
+    def reused_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "ok": True,
             "provider_configured": True,
             "status": "completed",
             "reused": True,
             "snapshot": snapshot,
-            "analysis": reusable,
+            "analysis": row,
         }
+
+    reusable = await _reusable_analysis(client_id=client_id, period=period, fingerprint=fingerprint)
+    if reusable:
+        print(f"[intelligence][cache] client_id={client_id} status=reused period={period['start']}..{period['end']}")
+        return reused_payload(reusable)
+
+    # Daqui para baixo a chamada ao provedor é real. O lock serializa cliques
+    # concorrentes no mesmo worker; o cooldown protege contra insistência.
+    async with _generation_lock(client_id, period):
+        # Quem esperou no lock pode encontrar pronta a análise que o primeiro
+        # acabou de gravar: devolve aquela em vez de gerar outra igual.
+        reusable = await _reusable_analysis(
+            client_id=client_id, period=period, fingerprint=fingerprint,
+        )
+        if reusable:
+            print(
+                f"[intelligence][cache] client_id={client_id} status=reused_after_wait "
+                f"period={period['start']}..{period['end']}",
+                flush=True,
+            )
+            return reused_payload(reusable)
+        remaining = await _generation_cooldown_remaining(client_id=client_id, period=period)
+        if remaining > 0:
+            print(
+                f"[intelligence][cooldown] client_id={client_id} request_id={request_id or '-'} "
+                f"status=blocked retry_after_seconds={int(remaining) + 1}",
+                flush=True,
+            )
+            raise RuntimeError(f"AI_GENERATION_COOLDOWN:{int(remaining) + 1}")
+        return await _generate_with_provider(
+            client_id=client_id, snapshot=snapshot, period=period,
+            base_row=base_row, request_id=request_id,
+        )
+
+
+async def _generate_with_provider(
+    *,
+    client_id: str,
+    snapshot: Dict[str, Any],
+    period: Dict[str, Any],
+    base_row: Dict[str, Any],
+    request_id: str | None,
+) -> Dict[str, Any]:
+    """Chamada real ao provedor, validação e persistência."""
+    generation_started = time.monotonic()
     policy = _build_analysis_policy(snapshot)
     try:
         analysis = await _call_provider(
@@ -2217,7 +2322,7 @@ async def generate_analysis(
                     else LOG_STAGE_MODEL_RESPONSE
                 ),
                 request_id=request_id,
-                elapsed_ms=_elapsed_ms(snapshot_started),
+                elapsed_ms=_elapsed_ms(generation_started),
                 exc=exc,
             )
         # `code` é a mensagem crua da exceção: uma falha de rede pode trazer a

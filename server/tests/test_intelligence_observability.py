@@ -125,7 +125,7 @@ async def run_route(
         ),
         patch.object(routes, "require_user_id", AsyncMock(return_value="user-1")),
         patch.object(routes, "resolve_client_id", AsyncMock(return_value=CLIENT)),
-        # POST /analyses autoriza por papel de gestão.
+        # POST /ask ainda autoriza por papel; a geração, por membership.
         patch.object(routes, "require_client_role", AsyncMock(return_value=CLIENT)),
         patch.object(
             intelligence, "calculate_intelligence_snapshot",
@@ -235,9 +235,8 @@ class StageFailureTests(unittest.IsolatedAsyncioTestCase):
         try:
             with (
                 redirect_stdout(output),
-                # require_client_role é o primeiro passo de autorização da
-                # rota de geração; é nele que a recusa acontece.
-                patch.object(routes, "require_client_role", AsyncMock(side_effect=denied)),
+                # A geração autoriza por membership: a recusa vem daqui.
+                patch.object(routes, "require_user_id", AsyncMock(side_effect=denied)),
                 patch.object(routes, "generate_analysis", AsyncMock()) as generated,
             ):
                 with self.assertRaises(HTTPException):

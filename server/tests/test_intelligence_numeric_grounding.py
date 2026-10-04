@@ -8,14 +8,16 @@ valor (``3506.79``, ``3.506,79``, ``R$ 3.506,79``).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import sys
 import unittest
+from datetime import datetime, timezone
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -67,6 +69,12 @@ PAYLOAD: Dict[str, Any] = {
     "crossings": [],
     "top_campaigns": [],
 }
+
+
+def _fingerprint_filter(filters: Dict[str, Any]) -> Any:
+    """Impressão digital pedida na consulta, quando houver."""
+    raw = str(filters.get("context_fingerprint") or "")
+    return raw.removeprefix("eq.") if raw else None
 
 
 def trusted() -> Any:
@@ -412,3 +420,160 @@ class CallProviderWiringTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GenerationCostGuardsTests(unittest.IsolatedAsyncioTestCase):
+    """Gerar análise chama a OpenAI: a contenção é no servidor.
+
+    Qualquer membro pode pedir desde esta release, então papel deixou de ser
+    a proteção. Sobram três: reuso por fingerprint, lock de concorrência no
+    worker e cooldown por tenant/período lido do banco.
+    """
+
+    CLIENT = "curavino-test"
+    PERIOD = {"start": "2026-10-01", "end": "2026-10-04"}
+
+    def setUp(self) -> None:
+        self.rows: list[Dict[str, Any]] = []
+        self.provider_calls = 0
+        intelligence._GENERATION_LOCKS.clear()
+
+    def snapshot(self) -> Dict[str, Any]:
+        return {
+            "period": dict(self.PERIOD),
+            "metrics": PAYLOAD["metrics"],
+            "sources": PAYLOAD["sources"],
+            "quality": PAYLOAD["quality"],
+            "crossings": [], "top_campaigns": [], "executive_context": {},
+        }
+
+    def analysis(self) -> Dict[str, Any]:
+        return {
+            "executive": {
+                "overall": "Leitura.", "main_change": "m", "opportunity": "o",
+                "attention": "a", "priority_action": "p",
+            },
+            "insights": [], "actions": [],
+        }
+
+    async def generate(self, **overrides: Any) -> tuple[Any, BaseException | None]:
+        async def select(table: str, **kwargs: Any) -> list[Dict[str, Any]]:
+            if table != "ai_analyses":
+                return []
+            filters = kwargs.get("filters") or {}
+            wanted = _fingerprint_filter(filters)
+            rows = [row for row in self.rows if row.get("status") == "completed"]
+            if wanted is not None:
+                rows = [row for row in rows if row.get("context_fingerprint") == wanted]
+            return rows
+
+        async def insert(_table: str, row: Dict[str, Any], **_kwargs: Any) -> Dict[str, Any]:
+            saved = {"id": f"an-{len(self.rows) + 1}", **row}
+            self.rows.append(saved)
+            return saved
+
+        async def provider(**_kwargs: Any) -> Dict[str, Any]:
+            self.provider_calls += 1
+            return self.analysis()
+
+        with (
+            redirect_stdout(io.StringIO()),
+            patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}, clear=False),
+            patch.object(
+                intelligence, "calculate_intelligence_snapshot",
+                AsyncMock(return_value=self.snapshot()),
+            ),
+            patch.object(intelligence, "sb_select", AsyncMock(side_effect=select)),
+            patch.object(intelligence, "sb_insert", AsyncMock(side_effect=insert)),
+            patch.object(intelligence, "_call_provider", provider),
+            patch.object(intelligence, "_validate_analysis_grounding", lambda *_a, **_k: None),
+            patch.object(intelligence, "_sanitize_analysis", lambda value, _s: value),
+            patch.object(intelligence, "_ensure_partial_today_limitation", lambda a, _s, **_k: (a, False)),
+        ):
+            try:
+                return await intelligence.generate_analysis(
+                    client_id=self.CLIENT, user_id="nasser",
+                    start=self.PERIOD["start"], end=self.PERIOD["end"], **overrides,
+                ), None
+            except BaseException as exc:  # noqa: BLE001
+                return None, exc
+
+    async def test_the_first_generation_calls_the_provider(self):
+        result, error = await self.generate()
+        self.assertIsNone(error)
+        self.assertEqual(self.provider_calls, 1)
+        self.assertEqual(result["status"], "completed")
+
+    async def test_the_same_context_is_reused_without_calling_the_provider(self):
+        await self.generate()
+        with patch.object(intelligence, "INTELLIGENCE_GENERATION_COOLDOWN_SECONDS", 0):
+            result, error = await self.generate()
+        self.assertIsNone(error)
+        # Fingerprint igual: devolve a análise existente, sem gastar token.
+        self.assertEqual(self.provider_calls, 1)
+        self.assertTrue(result["reused"])
+
+    async def test_concurrent_requests_collapse_into_one_provider_call(self):
+        results = await asyncio.gather(
+            self.generate(), self.generate(), self.generate(),
+        )
+        for _result, error in results:
+            self.assertIsNone(error)
+        # O lock serializa; quem espera encontra a análise pronta.
+        self.assertEqual(self.provider_calls, 1)
+
+    async def test_a_changed_context_inside_the_cooldown_is_refused(self):
+        await self.generate()
+        # Contexto novo: o reuso não se aplica e o cooldown entra em ação.
+        self.rows[0]["context_fingerprint"] = "impressao-antiga"
+        _result, error = await self.generate()
+        self.assertIsInstance(error, RuntimeError)
+        self.assertTrue(str(error).startswith("AI_GENERATION_COOLDOWN:"), str(error))
+        self.assertEqual(self.provider_calls, 1)
+
+    async def test_the_cooldown_reports_the_remaining_seconds(self):
+        await self.generate()
+        self.rows[0]["context_fingerprint"] = "impressao-antiga"
+        _result, error = await self.generate()
+        remaining = int(str(error).split(":")[1])
+        self.assertGreater(remaining, 0)
+        self.assertLessEqual(remaining, int(intelligence.INTELLIGENCE_GENERATION_COOLDOWN_SECONDS) + 1)
+
+    async def test_an_expired_cooldown_allows_a_new_generation(self):
+        await self.generate()
+        self.rows[0]["context_fingerprint"] = "impressao-antiga"
+        with patch.object(intelligence, "INTELLIGENCE_GENERATION_COOLDOWN_SECONDS", 0):
+            _result, error = await self.generate()
+        self.assertIsNone(error)
+        self.assertEqual(self.provider_calls, 2)
+
+    async def test_a_failed_attempt_does_not_block_the_next_one(self):
+        # Só análise concluída conta para o cooldown: quem está tentando
+        # resolver uma falha não fica travado.
+        self.rows.append({
+            "id": "an-falha", "client_id": self.CLIENT, "status": "failed",
+            "period_start": self.PERIOD["start"], "period_end": self.PERIOD["end"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        remaining = await intelligence._generation_cooldown_remaining(
+            client_id=self.CLIENT, period=self.PERIOD,
+        )
+        self.assertEqual(remaining, 0.0)
+
+    async def test_the_cooldown_is_scoped_to_the_tenant(self):
+        await self.generate()
+        self.rows[0]["client_id"] = "roove-test"
+        remaining = await intelligence._generation_cooldown_remaining(
+            client_id=self.CLIENT, period=self.PERIOD,
+        )
+        self.assertEqual(remaining, 0.0)
+
+    async def test_an_unreadable_cooldown_lookup_never_blocks(self):
+        with (
+            redirect_stdout(io.StringIO()),
+            patch.object(intelligence, "sb_select", AsyncMock(side_effect=RuntimeError("sem banco"))),
+        ):
+            remaining = await intelligence._generation_cooldown_remaining(
+                client_id=self.CLIENT, period=self.PERIOD,
+            )
+        self.assertEqual(remaining, 0.0)

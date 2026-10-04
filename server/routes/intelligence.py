@@ -41,9 +41,12 @@ async def _mutation_context(
     x_client_id: str | None,
     authorization: str | None,
 ) -> tuple[str, str]:
-    """Mutação: gerar análise e perguntar gravam linha e consomem o provedor
-    de IA, então exigem papel de gestão. Viewer é recusado por
-    require_client_role, a mesma regra que já protege o contexto de negócio.
+    """Mutação restrita a papel de gestão.
+
+    Hoje protege apenas `POST /ask`, que abre conversa livre com o modelo.
+    Gerar a análise estruturada passou a ser permitido a qualquer membro — o
+    custo lá é contido no servidor por reuso de fingerprint e cooldown, não
+    por papel.
     """
     resolved_client_id = await require_client_role(client_id or x_client_id, authorization)
     user_id = await require_user_id(authorization)
@@ -69,6 +72,16 @@ def _raise_service_error(exc: RuntimeError) -> None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada para este usuário e empresa.") from exc
     if code in {"QUESTION_INVALID", "CONVERSATION_CREATE_FAILED"} or "Período inválido" in code:
         raise HTTPException(status_code=400, detail=code) from exc
+    if code.startswith("AI_GENERATION_COOLDOWN"):
+        # Geração chama o provedor de IA: insistir é recusado com 429 e o
+        # tempo de espera, nunca com erro genérico.
+        _, _, seconds = code.partition(":")
+        retry_after = seconds.strip() or "60"
+        raise HTTPException(
+            status_code=429,
+            detail="A análise foi gerada há pouco. Aguarde alguns instantes para gerar outra.",
+            headers={"Retry-After": retry_after},
+        ) from exc
     raise HTTPException(
         status_code=502,
         detail="A análise não pôde ser concluída agora. Os demais dados continuam disponíveis.",
@@ -166,7 +179,10 @@ async def intelligence_generate(
     )
     authorization_started = time.monotonic()
     try:
-        cid, user_id = await _mutation_context(client_id, x_client_id, authorization)
+        # Gerar a análise é permitido a qualquer MEMBRO da empresa, viewer
+        # incluído. A empresa é resolvida pelo backend contra a membership
+        # real — o client_id do browser é só um pedido, e cross-tenant é 403.
+        cid, user_id = await _context(client_id, x_client_id, authorization)
     except BaseException as exc:
         log_stage_failed(
             stage=LOG_STAGE_AUTHORIZATION,

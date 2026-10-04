@@ -169,6 +169,11 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         ("shopify_oauth", "shopify_oauth_callback"),
         # Aceite de convite: a membership é derivada do convite, não de papel.
         ("invitations", "accept_invitation"),
+        # Gerar a análise estruturada é permitido a qualquer MEMBRO desde esta
+        # release. O custo da chamada de IA é contido no servidor — reuso por
+        # fingerprint, lock de concorrência e cooldown por tenant/período —
+        # e não por papel. `POST /ask` continua exigindo gestão.
+        ("intelligence", "intelligence_generate"),
         # Delega para api_refresh_all, que chama require_client_role: o guarda
         # existe, só não no corpo deste handler.
         ("meta_legacy", "api_instagram_sync"),
@@ -428,83 +433,22 @@ class CustomerApiExposesOnlyTheAllowedFieldsTests(unittest.IsolatedAsyncioTestCa
         self.assertIsNone(listing["customers"][0]["name"])
 
 
-class IntelligenceWritesRequireAManagementRoleTests(unittest.IsolatedAsyncioTestCase):
-    """Gerar análise e perguntar gravam linha e consomem o provedor de IA.
+class IntelligenceGenerationIsOpenToMembersTests(unittest.IsolatedAsyncioTestCase):
+    """Gerar a análise estruturada passou a ser permitido a qualquer membro.
 
-    Viewer lê Inteligência à vontade; mutar, não. A regra é a mesma que já
-    protegia o contexto de negócio — `require_client_role`.
+    A proteção de custo migrou do papel para o servidor: reuso por fingerprint
+    e cooldown por tenant/período. `POST /ask` continua restrito a gestão.
     """
 
-    async def call_generate(self, module_patch: Any) -> HTTPException | None:
-        with redirect_stdout(io.StringIO()), module_patch:
-            with patch.object(intelligence_routes, "generate_analysis", AsyncMock()) as generate:
-                try:
-                    await intelligence_routes.intelligence_generate(
-                        payload={"start": "2026-10-01", "end": "2026-10-04"},
-                        client_id=CURAVINO, x_client_id=None, authorization="Bearer x",
-                    )
-                except HTTPException as exc:
-                    self.generated = generate
-                    return exc
-        self.generated = generate
-        return None
-
-    async def call_ask(self, module_patch: Any) -> HTTPException | None:
-        with redirect_stdout(io.StringIO()), module_patch:
-            with patch.object(intelligence_routes, "ask_intelligence", AsyncMock()) as ask:
-                try:
-                    await intelligence_routes.intelligence_ask(
-                        payload={"question": "como foi o mês?"},
-                        client_id=CURAVINO, x_client_id=None, authorization="Bearer x",
-                    )
-                except HTTPException as exc:
-                    self.asked = ask
-                    return exc
-        self.asked = ask
-        return None
-
-    def as_viewer(self) -> Any:
-        return patch.object(
-            intelligence_routes, "require_client_role", AsyncMock(side_effect=DENIED_ROLE),
-        )
-
-    def as_manager(self) -> Any:
-        return patch.object(
-            intelligence_routes, "require_client_role", AsyncMock(return_value=CURAVINO),
-        )
-
-    async def test_viewer_gets_403_generating_an_analysis(self):
-        error = await self.call_generate(self.as_viewer())
-        self.assertIsNotNone(error)
-        self.assertEqual(error.status_code, 403)
-        self.generated.assert_not_awaited()
-
-    async def test_viewer_gets_403_asking_the_ai(self):
-        error = await self.call_ask(self.as_viewer())
-        self.assertIsNotNone(error)
-        self.assertEqual(error.status_code, 403)
-        self.asked.assert_not_awaited()
-
-    async def test_the_denial_happens_before_any_provider_call(self):
-        # Nada de custo: a recusa precede o serviço, que nem é chamado.
+    async def test_generation_authorizes_by_membership(self):
         with (
             redirect_stdout(io.StringIO()),
-            self.as_viewer(),
-            patch.object(intelligence_routes, "generate_analysis", AsyncMock()) as generate,
-            patch.object(intelligence_routes, "require_user_id", AsyncMock()) as user,
-        ):
-            with self.assertRaises(HTTPException):
-                await intelligence_routes.intelligence_generate(
-                    payload={}, client_id=CURAVINO, x_client_id=None, authorization="Bearer viewer",
-                )
-        generate.assert_not_awaited()
-        user.assert_not_awaited()
-
-    async def test_a_manager_can_still_generate(self):
-        with (
-            redirect_stdout(io.StringIO()),
-            self.as_manager(),
-            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="admin-1")),
+            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="nasser")),
+            patch.object(intelligence_routes, "resolve_client_id", AsyncMock(return_value=CURAVINO)) as tenant,
+            # Se a rota voltar a exigir papel, este mock derruba o teste.
+            patch.object(
+                intelligence_routes, "require_client_role", AsyncMock(side_effect=DENIED_ROLE),
+            ),
             patch.object(
                 intelligence_routes, "generate_analysis",
                 AsyncMock(return_value={"ok": True, "status": "completed"}),
@@ -512,48 +456,17 @@ class IntelligenceWritesRequireAManagementRoleTests(unittest.IsolatedAsyncioTest
         ):
             result = await intelligence_routes.intelligence_generate(
                 payload={"start": "2026-10-01", "end": "2026-10-04"},
-                client_id=CURAVINO, x_client_id=None, authorization="Bearer client-admin",
+                client_id=CURAVINO, x_client_id=None, authorization="Bearer viewer",
             )
         self.assertTrue(result["ok"])
+        self.assertEqual(tenant.await_args.args[0], CURAVINO)
         self.assertEqual(generate.await_args.kwargs["client_id"], CURAVINO)
 
-    async def test_a_manager_can_still_ask(self):
+    async def test_the_tenant_comes_from_the_backend_not_the_browser(self):
         with (
             redirect_stdout(io.StringIO()),
-            self.as_manager(),
-            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="admin-1")),
-            patch.object(
-                intelligence_routes, "ask_intelligence",
-                AsyncMock(return_value={"ok": True}),
-            ) as ask,
-        ):
-            result = await intelligence_routes.intelligence_ask(
-                payload={"question": "como foi o mês?"},
-                client_id=CURAVINO, x_client_id=None, authorization="Bearer client-admin",
-            )
-        self.assertTrue(result["ok"])
-        self.assertEqual(ask.await_args.kwargs["client_id"], CURAVINO)
-
-    async def test_the_mutation_guard_is_the_existing_mechanism(self):
-        # Sem mecanismo novo: o mesmo require_client_role que já protege o
-        # contexto de negócio neste arquivo.
-        source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
-        for mutation in ('@router.post("/analyses")', '@router.post("/ask")'):
-            block = source.split(mutation)[1].split("@router.")[0]
-            with self.subTest(mutation=mutation):
-                self.assertIn("_mutation_context(", block)
-                self.assertNotIn("await _context(", block)
-        self.assertIn("require_client_role(client_id or x_client_id, authorization)", source)
-
-    async def test_the_tenant_still_comes_from_the_authorized_context(self):
-        # O client_id do browser não vira tenant: o resolvido é que vale.
-        with (
-            redirect_stdout(io.StringIO()),
-            patch.object(
-                intelligence_routes, "require_client_role",
-                AsyncMock(return_value=CURAVINO),
-            ) as guard,
-            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="admin-1")),
+            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="nasser")),
+            patch.object(intelligence_routes, "resolve_client_id", AsyncMock(return_value=CURAVINO)),
             patch.object(
                 intelligence_routes, "generate_analysis",
                 AsyncMock(return_value={"ok": True}),
@@ -561,10 +474,67 @@ class IntelligenceWritesRequireAManagementRoleTests(unittest.IsolatedAsyncioTest
         ):
             await intelligence_routes.intelligence_generate(
                 payload={}, client_id=ROOVE, x_client_id=ROOVE,
-                authorization="Bearer admin-curavino",
+                authorization="Bearer viewer-curavino",
             )
-        self.assertEqual(guard.await_args.args[0], ROOVE)
         self.assertEqual(generate.await_args.kwargs["client_id"], CURAVINO)
+
+    async def test_a_cross_tenant_generation_is_denied(self):
+        with (
+            redirect_stdout(io.StringIO()),
+            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="nasser")),
+            patch.object(
+                intelligence_routes, "resolve_client_id", AsyncMock(side_effect=DENIED_TENANT),
+            ),
+            patch.object(intelligence_routes, "generate_analysis", AsyncMock()) as generate,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await intelligence_routes.intelligence_generate(
+                    payload={}, client_id=ROOVE, x_client_id=ROOVE,
+                    authorization="Bearer viewer-curavino",
+                )
+        self.assertEqual(raised.exception.status_code, 403)
+        generate.assert_not_awaited()
+
+    async def test_ask_stays_closed_to_a_viewer(self):
+        with (
+            redirect_stdout(io.StringIO()),
+            patch.object(
+                intelligence_routes, "require_client_role", AsyncMock(side_effect=DENIED_ROLE),
+            ),
+            patch.object(intelligence_routes, "ask_intelligence", AsyncMock()) as ask,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await intelligence_routes.intelligence_ask(
+                    payload={"question": "como foi o mês?"},
+                    client_id=CURAVINO, x_client_id=None, authorization="Bearer viewer",
+                )
+        self.assertEqual(raised.exception.status_code, 403)
+        ask.assert_not_awaited()
+
+    async def test_the_cooldown_answers_429_with_retry_after(self):
+        with (
+            redirect_stdout(io.StringIO()),
+            patch.object(intelligence_routes, "require_user_id", AsyncMock(return_value="nasser")),
+            patch.object(intelligence_routes, "resolve_client_id", AsyncMock(return_value=CURAVINO)),
+            patch.object(
+                intelligence_routes, "generate_analysis",
+                AsyncMock(side_effect=RuntimeError("AI_GENERATION_COOLDOWN:42")),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await intelligence_routes.intelligence_generate(
+                    payload={}, client_id=CURAVINO, x_client_id=None, authorization="Bearer viewer",
+                )
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertEqual((raised.exception.headers or {}).get("Retry-After"), "42")
+
+    async def test_the_route_sources_are_explicit_about_the_split(self):
+        source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
+        generate = source.split('@router.post("/analyses")')[1].split("@router.")[0]
+        ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
+        self.assertIn("await _context(", generate)
+        self.assertNotIn("_mutation_context(", generate)
+        self.assertIn("_mutation_context(", ask)
 
 
 class ViewerStillReadsIntelligenceTests(unittest.IsolatedAsyncioTestCase):
@@ -670,17 +640,18 @@ class NasserViewerSessionTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertIn(guard, source)
 
-    def test_intelligence_reads_stay_open_and_writes_stay_closed(self):
+    def test_intelligence_reads_stay_open_and_ask_stays_closed(self):
         source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
-        for read in ('@router.get("/context")', '@router.get("/latest")', '@router.get("/history")',
-                     '@router.get("/business-context")'):
-            block = source.split(read)[1].split("@router.")[0]
-            with self.subTest(read=read):
+        # Leituras e geração da análise: membership. /ask: papel de gestão.
+        for by_membership in ('@router.get("/context")', '@router.get("/latest")',
+                              '@router.get("/history")', '@router.get("/business-context")',
+                              '@router.post("/analyses")'):
+            block = source.split(by_membership)[1].split("@router.")[0]
+            with self.subTest(route=by_membership):
                 self.assertIn("await _context(", block)
-        for write in ('@router.post("/analyses")', '@router.post("/ask")'):
-            block = source.split(write)[1].split("@router.")[0]
-            with self.subTest(write=write):
-                self.assertIn("_mutation_context(", block)
+                self.assertNotIn("_mutation_context(", block)
+        ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
+        self.assertIn("_mutation_context(", ask)
 
 
 class RefreshIsRevalidationNotSyncTests(unittest.TestCase):
@@ -744,13 +715,11 @@ class RefreshIsRevalidationNotSyncTests(unittest.TestCase):
         self.assertIn("cooldownFrom", helper)
         self.assertIn("cooldownFrom(lastRefreshAt)", self.intelligence_page())
 
-    def test_the_intelligence_writes_stay_closed_to_a_viewer(self):
-        # A proteção da rodada anterior continua de pé.
+    def test_ask_stays_closed_to_a_viewer(self):
+        # Gerar análise abriu nesta release; conversa livre com o modelo, não.
         source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
-        for write in ('@router.post("/analyses")', '@router.post("/ask")'):
-            block = source.split(write)[1].split("@router.")[0]
-            with self.subTest(write=write):
-                self.assertIn("_mutation_context(", block)
+        ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
+        self.assertIn("_mutation_context(", ask)
 
     def test_the_persisted_cache_is_scoped_per_tenant(self):
         # Reabrir a tela não pode mostrar o último estado de OUTRA empresa.

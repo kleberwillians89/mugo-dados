@@ -851,7 +851,7 @@ function PrivateApp() {
         <Intelligence
           key={`intelligence:${activeClientId}`}
           onLogout={handleLogout}
-          canRefresh={canManageIntegrations}
+          canEditBusinessContext={canManageIntegrations}
         />
       ) : route === "google" ? (
         <GoogleAnalytics

@@ -121,9 +121,9 @@ afterEach(async () => {
   container.remove();
 });
 
-async function renderIntelligence(canRefresh = true) {
+async function renderIntelligence(canEditBusinessContext = true) {
   await act(async () => {
-    root.render(<Intelligence onLogout={() => {}} canRefresh={canRefresh} />);
+    root.render(<Intelligence onLogout={() => {}} canEditBusinessContext={canEditBusinessContext} />);
   });
   await act(async () => Promise.resolve());
   await act(async () => Promise.resolve());
@@ -431,12 +431,14 @@ describe("Intelligence — estados da leitura", () => {
     expect(container.querySelector('[data-testid="intel-movements"]')).toBeNull();
   });
 
-  it("viewer sem análise vê o estado vazio sem ação de gerar", async () => {
+  it("viewer sem análise gera a primeira leitura do próprio tenant", async () => {
+    // Regra mudou nesta release: gerar a análise estruturada é permitido a
+    // qualquer membro, viewer incluído.
     state.analysis = { ...analysis, status: "pending", analysis: null };
     await renderIntelligence(false);
     expect(container.querySelector('[data-testid="intel-empty"]')).not.toBeNull();
-    expect(container.textContent).toContain("Peça a um administrador");
-    expect([...container.querySelectorAll("button")].map((el) => el.textContent)).not.toContain("Gerar análise");
+    expect(container.textContent).not.toContain("Peça a um administrador");
+    expect(container.querySelector('[data-testid="intel-generate-empty"]')).not.toBeNull();
   });
 
   it("erro com análise anterior preserva a leitura e avisa discretamente", async () => {
@@ -510,12 +512,13 @@ describe("Intelligence — abrir com o que já existe e atualizar com segurança
     expect(meta).toContain("Análise gerada em");
   });
 
-  it("viewer tem Atualizar dados, mas nenhuma ação de gerar IA", async () => {
+  it("viewer tem os dois botões, distintos", async () => {
     await renderIntelligence(false);
     const labels = [...container.querySelectorAll("button")].map((el) => el.textContent);
     expect(labels).toContain("Atualizar dados");
-    expect(labels).not.toContain("Gerar análise");
-    expect(labels).not.toContain("Gerar nova análise");
+    expect(labels).toContain("Gerar nova análise");
+    // O CTA de contexto estratégico continua administrativo.
+    expect(container.querySelector('[data-testid="intel-context-cta"]')).toBeNull();
   });
 
   it("Atualizar dados relê as fontes persistidas e NUNCA chama a IA", async () => {
@@ -574,7 +577,7 @@ describe("Intelligence — abrir com o que já existe e atualizar com segurança
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
-      root.render(<Intelligence onLogout={() => {}} canRefresh={false} />);
+      root.render(<Intelligence onLogout={() => {}} canEditBusinessContext={false} />);
     });
     expect(container.querySelector(".intelSkeletonMetrics")).toBeNull();
     expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
@@ -598,13 +601,125 @@ describe("Intelligence — abrir com o que já existe e atualizar com segurança
     await renderIntelligence(false);
     const notice = container.querySelector('[data-testid="intel-fresher-data"]');
     expect(notice?.textContent).toContain("Há dados mais recentes disponíveis");
-    // Aviso não vira permissão: viewer continua sem ação de gerar.
-    expect([...container.querySelectorAll("button")].map((el) => el.textContent))
-      .not.toContain("Gerar nova análise");
+    // Com o aviso na tela, o viewer tem como agir: gerar a análise nova.
+    expect(container.querySelector('[data-testid="intel-generate"]')).not.toBeNull();
   });
 
   it("sem dados mais novos, nenhum aviso aparece", async () => {
     await renderIntelligence(false);
     expect(container.querySelector('[data-testid="intel-fresher-data"]')).toBeNull();
+  });
+});
+
+
+describe("Intelligence — gerar análise sem perder a anterior", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  async function api() {
+    return await import("../app/api");
+  }
+
+  it("a análise anterior continua inteira enquanto a nova é gerada", async () => {
+    const mod = await api();
+    let release: (() => void) | null = null;
+    vi.mocked(mod.generateIntelligenceAnalysis).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        release = () => resolve({
+          ok: true, provider_configured: true, status: "completed",
+          snapshot: state.snapshot, analysis: { ...analysis, completed_at: "2026-09-05T10:00:00Z" },
+        } as never);
+      }),
+    );
+    await renderIntelligence(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-generate"]')?.click();
+    });
+
+    // Durante a geração: conteúdo intacto, nenhum skeleton, botão em estado.
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    expect(container.querySelector(".intelSkeletonMetrics")).toBeNull();
+    expect(container.querySelector('[data-testid="intel-generate"]')?.textContent).toBe("Gerando análise...");
+
+    await act(async () => {
+      release?.();
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+  });
+
+  it("clique duplo não dispara duas gerações", async () => {
+    const mod = await api();
+    vi.mocked(mod.generateIntelligenceAnalysis).mockClear();
+    await renderIntelligence(false);
+    const button = () => container.querySelector<HTMLButtonElement>('[data-testid="intel-generate"]');
+    await act(async () => {
+      button()?.click();
+      button()?.click();
+      button()?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(vi.mocked(mod.generateIntelligenceAnalysis).mock.calls.length).toBe(1);
+  });
+
+  it("falha da IA preserva a análise anterior e avisa discretamente", async () => {
+    await renderIntelligence(false);
+    state.generateError = new Error("Provedor indisponível");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-generate"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    expect(container.querySelector('[data-testid="intel-stale-warning"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="intel-error"]')).toBeNull();
+    expect(container.querySelector(".intelSkeletonMetrics")).toBeNull();
+  });
+
+  it("sucesso substitui a análise e avança o frescor da análise", async () => {
+    const mod = await api();
+    vi.mocked(mod.generateIntelligenceAnalysis).mockResolvedValueOnce({
+      ok: true, provider_configured: true, status: "completed",
+      snapshot: state.snapshot,
+      analysis: {
+        ...analysis,
+        id: "an-2",
+        completed_at: "2026-09-05T10:00:00Z",
+        analysis: {
+          ...analysis.analysis,
+          executive: { ...analysis.analysis!.executive, overall: "Leitura nova do período." },
+        },
+      },
+    } as never);
+    await renderIntelligence(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-generate"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Leitura nova do período.");
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("Análise gerada em");
+  });
+
+  it("Atualizar dados segue sem chamar a IA depois da mudança", async () => {
+    const mod = await api();
+    vi.mocked(mod.generateIntelligenceAnalysis).mockClear();
+    await renderIntelligence(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-refresh-data"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(mod.generateIntelligenceAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("Gerar nova análise é o único caminho que chama a IA", async () => {
+    const mod = await api();
+    vi.mocked(mod.generateIntelligenceAnalysis).mockClear();
+    await renderIntelligence(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-generate"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(mod.generateIntelligenceAnalysis).toHaveBeenCalledTimes(1);
   });
 });
