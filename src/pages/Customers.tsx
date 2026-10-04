@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getActiveClientName } from "../app/activeClient";
+import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getCustomerDetail, getCustomers } from "../app/api";
 import { formatDateTimeSaoPaulo } from "../app/dataFormat";
 import type {
@@ -11,6 +11,8 @@ import DataNotice from "../components/data/DataNotice";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import Shell from "../components/Shell";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
+import { cooldownFrom, cooldownHint, formatFreshness } from "../app/dataRefresh";
 import "../styles/customers.css";
 
 type Props = {
@@ -18,6 +20,14 @@ type Props = {
 };
 
 const PAGE_SIZE = 25;
+
+type CachedBase = { payload: CustomerListResponse; refreshedAt: string };
+
+/** Última base válida do tenant, para a tela abrir com conteúdo em vez de
+ * skeleton. Só a primeira página sem busca: é o que a abertura mostra. */
+function baseCacheKey(clientId: string): string {
+  return buildDashboardCacheKey("customers-base", { clientId });
+}
 
 function money(value: number | null | undefined): string {
   if (value == null) return "—";
@@ -77,8 +87,15 @@ function SummaryCard({ label, value, note }: { label: string; value: string; not
 }
 
 export default function Customers({ onLogout }: Props) {
-  const [data, setData] = useState<CustomerListResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const clientId = getActiveClientId();
+  const cached = readDashboardCache<CachedBase>(baseCacheKey(clientId));
+  const [data, setData] = useState<CustomerListResponse | null>(cached?.payload || null);
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
+  const [tick, setTick] = useState(() => Date.now());
+  // Último estado válido já na tela: só mostra "carregando" quando não há
+  // nada persistido para mostrar.
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [applied, setApplied] = useState("");
@@ -110,7 +127,16 @@ export default function Customers({ onLogout }: Props) {
         { search: term, page: wanted, pageSize: PAGE_SIZE },
         { signal },
       );
-      if (request === generation.current) setData(payload);
+      if (request !== generation.current) return;
+      setData(payload);
+      const now = new Date().toISOString();
+      setRefreshedAt(now);
+      // Só a primeira página sem busca representa a base da empresa.
+      if (!term && wanted === 1) {
+        writeDashboardCache<CachedBase>(
+          baseCacheKey(clientId), { payload, refreshedAt: now }, 600_000,
+        );
+      }
     } catch (reason: unknown) {
       if (signal.aborted || request !== generation.current) return;
       setError(
@@ -121,7 +147,21 @@ export default function Customers({ onLogout }: Props) {
     } finally {
       if (request === generation.current) setLoading(false);
     }
+  }, [clientId]);
+
+  // Só move os rótulos relativos e libera o cooldown; não busca nada.
+  useEffect(() => {
+    const timer = setInterval(() => setTick(Date.now()), 15_000);
+    return () => clearInterval(timer);
   }, []);
+
+  const cooldown = cooldownFrom(lastRefreshAt, tick);
+  const refreshData = useCallback(() => {
+    if (!cooldown.ready || loading) return;
+    setLastRefreshAt(Date.now());
+    const controller = new AbortController();
+    void load(applied, page, controller.signal);
+  }, [applied, cooldown.ready, load, loading, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,6 +194,7 @@ export default function Customers({ onLogout }: Props) {
     [data?.total, data?.page_size],
   );
   const customers = data?.customers || [];
+  const freshnessLabel = formatFreshness(refreshedAt, tick);
   const connected = Boolean(data?.connected);
 
   return (
@@ -170,10 +211,26 @@ export default function Customers({ onLogout }: Props) {
         company={company}
         title="Clientes"
         dateline={
-          connected && data?.provider_label ? (
-            <span>Base de clientes de {data.provider_label}</span>
-          ) : null
+          <>
+            {connected && data?.provider_label ? (
+              <span>Base de clientes de {data.provider_label}</span>
+            ) : null}
+            {freshnessLabel ? <span> · Dados atualizados {freshnessLabel}</span> : null}
+          </>
         }
+        controls={
+          <button
+            type="button"
+            className="ds-button"
+            onClick={refreshData}
+            disabled={loading || !cooldown.ready}
+            data-testid="customers-refresh"
+            title={cooldownHint(cooldown) || undefined}
+          >
+            {loading ? "Atualizando..." : "Atualizar dados"}
+          </button>
+        }
+        controlsNote={cooldownHint(cooldown)}
       />
       <p className="customerLead">Conheça e acompanhe a base de clientes desta empresa.</p>
 

@@ -683,6 +683,86 @@ class NasserViewerSessionTests(unittest.TestCase):
                 self.assertIn("_mutation_context(", block)
 
 
+class RefreshIsRevalidationNotSyncTests(unittest.TestCase):
+    """"Atualizar dados" do viewer relê o persistido; não sincroniza provider.
+
+    O botão administrativo chama Meta, Google, FBITS e Shopify. A FBITS
+    bloqueia o token da loja por uma hora depois de insistir no 429, então
+    deixar qualquer membro disparar aquilo derrubaria a integração da empresa
+    inteira. A ação do viewer é a releitura dos GETs que ele já pode fazer —
+    nenhum endpoint novo, nenhum privilégio novo.
+    """
+
+    FRONT = SERVER_DIR.parent / "src"
+
+    def refresh_helper(self) -> str:
+        return (self.FRONT / "app" / "dataRefresh.ts").read_text(encoding="utf-8")
+
+    def intelligence_page(self) -> str:
+        return (self.FRONT / "pages" / "Intelligence.tsx").read_text(encoding="utf-8")
+
+    def test_no_new_backend_endpoint_was_created_for_refresh(self):
+        routes_dir = SERVER_DIR / "routes"
+        for path in routes_dir.glob("*.py"):
+            body = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertNotIn('@router.post("/refresh")', body)
+                self.assertNotIn('"/api/refresh"', body)
+
+    def test_the_sync_endpoints_keep_requiring_a_management_role(self):
+        # Nenhum endpoint administrativo foi aberto para resolver a UX.
+        for module, handler in (
+            (fbits_routes, "fbits_tenant_sync"),
+            (fbits_routes, "fbits_sync"),
+            (google_routes, "google_ads_sync"),
+            (google_routes, "ga4_sync"),
+        ):
+            source = Path(inspect.getfile(module)).read_text(encoding="utf-8")
+            block = source.split(f"async def {handler}(")[1].split("@router.")[0]
+            with self.subTest(handler=handler):
+                self.assertIn("require_client_role", block)
+
+    def test_the_refresh_action_never_calls_the_ai(self):
+        page = self.intelligence_page()
+        refresh = page.split("const refreshData = useCallback(")[1].split("}, [")[0]
+        for forbidden in ("generateIntelligenceAnalysis", "askIntelligence", "generate_analysis"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, refresh)
+
+    def test_the_refresh_action_never_triggers_a_provider_sync(self):
+        page = self.intelligence_page()
+        refresh = page.split("const refreshData = useCallback(")[1].split("}, [")[0]
+        # "sync" casaria com "async": a verificação é pelos símbolos reais
+        # que disparariam sincronização de provider.
+        for forbidden in ("runExclusiveSync", "syncAds", "syncFbits", "syncShopify", "syncGa4"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, refresh)
+
+    def test_a_cooldown_guards_against_spam(self):
+        helper = self.refresh_helper()
+        self.assertIn("REFRESH_COOLDOWN_MS", helper)
+        self.assertIn("cooldownFrom", helper)
+        self.assertIn("cooldownFrom(lastRefreshAt)", self.intelligence_page())
+
+    def test_the_intelligence_writes_stay_closed_to_a_viewer(self):
+        # A proteção da rodada anterior continua de pé.
+        source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
+        for write in ('@router.post("/analyses")', '@router.post("/ask")'):
+            block = source.split(write)[1].split("@router.")[0]
+            with self.subTest(write=write):
+                self.assertIn("_mutation_context(", block)
+
+    def test_the_persisted_cache_is_scoped_per_tenant(self):
+        # Reabrir a tela não pode mostrar o último estado de OUTRA empresa.
+        page = self.intelligence_page()
+        self.assertIn('buildDashboardCacheKey("intelligence-workspace", { clientId: key })', page)
+        self.assertIn("const cacheKey = `${clientId}:${period.start}:${period.end}`", page)
+
+    def test_the_customers_cache_is_scoped_per_tenant(self):
+        page = (self.FRONT / "pages" / "Customers.tsx").read_text(encoding="utf-8")
+        self.assertIn('buildDashboardCacheKey("customers-base", { clientId })', page)
+
+
 class ClientAccessReadIsIntentionalForMembersTests(unittest.TestCase):
     """Achado documentado: a LEITURA de acessos aceita qualquer membro.
 

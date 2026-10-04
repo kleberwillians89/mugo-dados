@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   askIntelligence,
   generateIntelligenceAnalysis,
@@ -22,6 +22,8 @@ import {
   selectOpportunities,
 } from "../app/intelligencePriority";
 import { usePeriod } from "../app/PeriodContext";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
+import { cooldownFrom, cooldownHint, formatFreshness, hasFresherData } from "../app/dataRefresh";
 import "../styles/intelligence.css";
 
 type Props = {
@@ -35,9 +37,30 @@ type CachedWorkspace = {
   analysis: IntelligenceAnalysisRecord | null;
   history: IntelligenceAnalysisRecord[];
   providerConfigured: boolean | null;
+  /** Quando esta leitura chegou do backend — frescor do DADO. */
+  refreshedAt?: string | null;
 };
 
-const workspaceCache = new Map<string, CachedWorkspace>();
+/**
+ * Último estado válido da central, em sessionStorage.
+ *
+ * Era um Map em memória: sobrevivia a trocas de rota, mas morria a cada carga
+ * de página, e aí a tela abria em skeleton mesmo havendo análise persistida.
+ * O cache do dashboard já resolvia isso — aqui só reaproveitamos o mesmo
+ * mecanismo.
+ */
+const workspaceCache = {
+  get(key: string): CachedWorkspace | null {
+    return readDashboardCache<CachedWorkspace>(buildDashboardCacheKey("intelligence-workspace", { clientId: key }));
+  },
+  set(key: string, value: CachedWorkspace): void {
+    writeDashboardCache<CachedWorkspace>(
+      buildDashboardCacheKey("intelligence-workspace", { clientId: key }),
+      value,
+      600_000,
+    );
+  },
+};
 
 const QUESTIONS = [
   "Por que minhas vendas caíram?",
@@ -160,6 +183,18 @@ export default function Intelligence({ canRefresh = false }: Props) {
   const [asking, setAsking] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<IntelligenceMessage[]>([]);
+  // "Atualizar dados" relê o que já está persistido. Não é geração de IA e
+  // não sincroniza provider: o custo é o de três GETs que o usuário já pode
+  // fazer. Por isso vale para viewer também.
+  const [revalidating, setRevalidating] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
+  // Só move os rótulos relativos e libera o cooldown. Nenhuma requisição.
+  const [refreshTick, setRefreshTick] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setRefreshTick(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
   const requestVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const askController = useRef<AbortController | null>(null);
@@ -180,18 +215,20 @@ export default function Intelligence({ canRefresh = false }: Props) {
     setAnalysis(nextCache?.analysis || null);
     setHistory(nextCache?.history || []);
     setProviderConfigured(nextCache?.providerConfigured ?? null);
+    setRefreshedAt(nextCache?.refreshedAt || null);
     setLoading(!nextCache);
     setError("");
     setConversationId(null);
     setMessages([]);
   }
 
-  useEffect(() => {
-    const controller = new AbortController();
+  // Leitura do workspace: a mesma para a abertura da tela e para o botão
+  // "Atualizar dados". Só GETs já autorizados — nenhuma mutação, nenhuma IA.
+  const loadWorkspace = useCallback((controller: AbortController) => {
     const version = ++requestVersion.current;
     const currentCache = workspaceCache.get(cacheKey);
     setError("");
-    void Promise.allSettled([
+    return Promise.allSettled([
       getIntelligenceContext(period, { signal: controller.signal }),
       getLatestIntelligenceAnalysis(period, { signal: controller.signal }),
       getIntelligenceHistory(20, { signal: controller.signal }),
@@ -211,11 +248,17 @@ export default function Intelligence({ canRefresh = false }: Props) {
       setAnalysis(nextAnalysis);
       setHistory(nextHistory);
       setProviderConfigured(nextProvider);
+      const anySucceeded = [contextResult, latestResult, historyResult].some(
+        (item) => item.status === "fulfilled",
+      );
+      const nextRefreshedAt = anySucceeded ? new Date().toISOString() : currentCache?.refreshedAt || null;
+      setRefreshedAt(nextRefreshedAt);
       workspaceCache.set(cacheKey, {
         snapshot: nextSnapshot,
         analysis: nextAnalysis,
         history: nextHistory,
         providerConfigured: nextProvider,
+        refreshedAt: nextRefreshedAt,
       });
       const failed = [contextResult, latestResult, historyResult].filter((item) => item.status === "rejected");
       if (failed.length === 3) {
@@ -224,12 +267,36 @@ export default function Intelligence({ canRefresh = false }: Props) {
       }
       setLoading(false);
     });
+  }, [cacheKey, period]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadWorkspace(controller);
     return () => {
       controller.abort();
       refreshController.current?.abort();
       askController.current?.abort();
     };
-  }, [cacheKey, period]);
+  }, [loadWorkspace]);
+
+  /**
+   * "Atualizar dados": revalida o que está persistido.
+   *
+   * Não chama provider nem OpenAI — é exatamente a releitura que a abertura
+   * da tela faz. Por isso vale para qualquer membro, viewer incluído, sem
+   * ampliar privilégio nenhum.
+   */
+  const refreshData = useCallback(async () => {
+    if (!cooldownFrom(lastRefreshAt).ready || revalidating) return;
+    setLastRefreshAt(Date.now());
+    setRevalidating(true);
+    const controller = new AbortController();
+    try {
+      await loadWorkspace(controller);
+    } finally {
+      setRevalidating(false);
+    }
+  }, [lastRefreshAt, loadWorkspace, revalidating]);
 
   const displayedMetrics = useMemo(
     () => analysis?.metrics_snapshot?.length
@@ -254,6 +321,17 @@ export default function Intelligence({ canRefresh = false }: Props) {
   const testIdeas = useMemo(() => buildTestIdeas(content, metricIndex), [content, metricIndex]);
   const sourceNames = useMemo(() => describeSources(snapshot), [snapshot]);
   const businessContextAvailable = Boolean(snapshot?.business_context?.available);
+  const refreshCooldown = cooldownFrom(lastRefreshAt, refreshTick);
+  const dataFreshnessLabel = useMemo(
+    () => formatFreshness(refreshedAt, refreshTick),
+    [refreshedAt, refreshTick],
+  );
+  /** Integrações mais novas que a última análise: avisa, não gera nada. */
+  const fresherDataAvailable = useMemo(
+    () => hasFresherData(snapshot?.last_sync_at, analysis?.completed_at || analysis?.created_at),
+    [snapshot?.last_sync_at, analysis?.completed_at, analysis?.created_at],
+  );
+
   const analysisUpdatedLabel = useMemo(
     () => formatDate(analysis?.completed_at || analysis?.created_at, true),
     [analysis?.completed_at, analysis?.created_at]
@@ -359,15 +437,33 @@ export default function Intelligence({ canRefresh = false }: Props) {
         </div>
         <div className="intelHeaderMeta">
           <span><small>Período</small>{formatDate(period.start)} — {formatDate(period.end)}</span>
-          {analysisUpdatedLabel ? (
-            <span><small>Última análise</small>{analysisUpdatedLabel}</span>
+          {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
+              aparecem separados: um é sincronização, o outro é a IA. */}
+          {dataFreshnessLabel ? (
+            <span><small>Dados atualizados</small>{dataFreshnessLabel}</span>
           ) : null}
+          {analysisUpdatedLabel ? (
+            <span><small>Análise gerada em</small>{analysisUpdatedLabel}</span>
+          ) : null}
+          <button
+            className="btn intelHeaderAction"
+            type="button"
+            onClick={() => void refreshData()}
+            disabled={revalidating || !refreshCooldown.ready}
+            data-testid="intel-refresh-data"
+            title={cooldownHint(refreshCooldown) || undefined}
+          >
+            {revalidating ? "Atualizando..." : "Atualizar dados"}
+          </button>
           {canRefresh ? (
             <button className="btn btnPrimary intelHeaderAction" onClick={() => void refreshAnalysis()} disabled={refreshing}>
-              {refreshing ? "Gerando..." : content ? "Atualizar" : "Gerar análise"}
+              {refreshing ? "Gerando..." : content ? "Gerar nova análise" : "Gerar análise"}
             </button>
           ) : null}
         </div>
+        {cooldownHint(refreshCooldown) ? (
+          <p className="intelHeaderHint" role="status">{cooldownHint(refreshCooldown)}</p>
+        ) : null}
       </header>
 
       {/* Erro nunca destrói a página: com análise anterior válida, ela
@@ -386,6 +482,11 @@ export default function Intelligence({ canRefresh = false }: Props) {
             </button>
           ) : null}
         </div>
+      ) : null}
+      {fresherDataAvailable && content ? (
+        <p className="intelInlineWarning" role="status" data-testid="intel-fresher-data">
+          Há dados mais recentes disponíveis. A análise abaixo é a última gerada.
+        </p>
       ) : null}
       {providerConfigured === false || analysis?.status === "configuration_pending" ? (
         <p className="intelInlineWarning" role="status">

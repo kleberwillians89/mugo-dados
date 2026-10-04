@@ -444,7 +444,7 @@ describe("Intelligence — estados da leitura", () => {
     expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
     state.generateError = new Error("Falha ao gerar");
     await act(async () => {
-      [...container.querySelectorAll("button")].find((el) => el.textContent === "Atualizar")?.click();
+      [...container.querySelectorAll("button")].find((el) => el.textContent === "Gerar nova análise")?.click();
     });
     await act(async () => Promise.resolve());
     expect(container.querySelector('[data-testid="intel-stale-warning"]')?.textContent)
@@ -489,5 +489,122 @@ describe("Intelligence — estados da leitura", () => {
       .toContain("2 de 2 fontes com dados no período");
     expect(container.querySelector(".intelHeader")?.textContent).not.toContain("Qualidade");
     expect(container.querySelector(".intelHeader")?.textContent).not.toContain("%");
+  });
+});
+
+
+describe("Intelligence — abrir com o que já existe e atualizar com segurança", () => {
+  async function api() {
+    return await import("../app/api");
+  }
+
+  beforeEach(() => {
+    // Cada caso decide se quer cache; o padrão é começar limpo.
+    window.sessionStorage.clear();
+  });
+
+  it("distingue frescor do dado e frescor da análise", async () => {
+    await renderIntelligence();
+    const meta = container.querySelector(".intelHeaderMeta")?.textContent || "";
+    expect(meta).toContain("Dados atualizados");
+    expect(meta).toContain("Análise gerada em");
+  });
+
+  it("viewer tem Atualizar dados, mas nenhuma ação de gerar IA", async () => {
+    await renderIntelligence(false);
+    const labels = [...container.querySelectorAll("button")].map((el) => el.textContent);
+    expect(labels).toContain("Atualizar dados");
+    expect(labels).not.toContain("Gerar análise");
+    expect(labels).not.toContain("Gerar nova análise");
+  });
+
+  it("Atualizar dados relê as fontes persistidas e NUNCA chama a IA", async () => {
+    const mod = await api();
+    await renderIntelligence(false);
+    const before = vi.mocked(mod.getLatestIntelligenceAnalysis).mock.calls.length;
+    vi.mocked(mod.generateIntelligenceAnalysis).mockClear();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-refresh-data"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+
+    expect(vi.mocked(mod.getLatestIntelligenceAnalysis).mock.calls.length).toBeGreaterThan(before);
+    // O ponto central: revalidar não é gerar.
+    expect(mod.generateIntelligenceAnalysis).not.toHaveBeenCalled();
+    expect(mod.askIntelligence).not.toHaveBeenCalled();
+  });
+
+  it("o cooldown desabilita o botão logo após o clique", async () => {
+    await renderIntelligence(false);
+    const button = () => container.querySelector<HTMLButtonElement>('[data-testid="intel-refresh-data"]');
+    expect(button()?.disabled).toBe(false);
+    await act(async () => {
+      button()?.click();
+    });
+    // Deixa a revalidação terminar: o que mantém o botão travado agora é o
+    // cooldown, não o estado "Atualizando...".
+    await act(async () => Promise.resolve());
+    await act(async () => Promise.resolve());
+    expect(button()?.textContent).toBe("Atualizar dados");
+    expect(button()?.disabled).toBe(true);
+    expect(container.textContent).toContain("Aguarde");
+  });
+
+  it("falha ao atualizar não apaga a análise que está na tela", async () => {
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    state.readError = new Error("Rede indisponível");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="intel-refresh-data"]')?.click();
+    });
+    await act(async () => Promise.resolve());
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+  });
+
+  it("com conteúdo persistido, reabrir não mostra skeleton", async () => {
+    // Primeira visita grava o último estado válido.
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    await act(async () => root.unmount());
+    container.remove();
+
+    // Segunda visita: o backend demora, mas a tela já abre com conteúdo.
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<Intelligence onLogout={() => {}} canRefresh={false} />);
+    });
+    expect(container.querySelector(".intelSkeletonMetrics")).toBeNull();
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    await act(async () => Promise.resolve());
+    await act(async () => Promise.resolve());
+  });
+
+  it("o último estado válido fica em sessionStorage, não só em memória", async () => {
+    // Cache em memória morre no reload e a tela volta ao skeleton; é por isso
+    // que a persistência precisa ser verificada diretamente.
+    await renderIntelligence(false);
+    const keys = Object.keys(window.sessionStorage).filter((key) => key.includes("intelligence-workspace"));
+    expect(keys).toHaveLength(1);
+    const stored = JSON.parse(window.sessionStorage.getItem(keys[0]) || "{}");
+    expect(stored.value?.analysis?.id).toBe(analysis.id);
+    expect(stored.value?.refreshedAt).toBeTruthy();
+  });
+
+  it("avisa discretamente quando os dados são mais novos que a análise", async () => {
+    state.snapshot = { ...snapshot, last_sync_at: "2026-09-02T12:00:00Z" };
+    await renderIntelligence(false);
+    const notice = container.querySelector('[data-testid="intel-fresher-data"]');
+    expect(notice?.textContent).toContain("Há dados mais recentes disponíveis");
+    // Aviso não vira permissão: viewer continua sem ação de gerar.
+    expect([...container.querySelectorAll("button")].map((el) => el.textContent))
+      .not.toContain("Gerar nova análise");
+  });
+
+  it("sem dados mais novos, nenhum aviso aparece", async () => {
+    await renderIntelligence(false);
+    expect(container.querySelector('[data-testid="intel-fresher-data"]')).toBeNull();
   });
 });
