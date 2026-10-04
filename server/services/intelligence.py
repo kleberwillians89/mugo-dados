@@ -328,8 +328,12 @@ roas_real usa a receita real do provider de e-commerce do tenant; attributed_roa
 da plataforma e os conceitos devem permanecer explicitamente separados.
 
 Respeite analysis_policy. Cobertura indica até que data existem dados; freshness indica quando o
-job terminou. Não confunda esses conceitos. Não cruze fontes quando cross_source_comparison_allowed
-for falso e explique limitações quando covers_period_end for falso.
+job terminou. Não confunda esses conceitos. Só compare fontes que estejam juntas em um mesmo grupo
+de comparable_source_groups: fontes de grupos diferentes têm cobertura diferente e não são
+comparáveis entre si, ainda que cada uma sustente conclusões isoladas. cross_source_comparison_allowed
+resume se todas as fontes ativas estão em um único grupo. Citar um indicador que o backend já
+calculou a partir de várias fontes, como investment ou roas, não é cruzar fontes. Explique
+limitações quando covers_period_end for falso.
 Instagram account reach vem apenas de instagram_account_context. A soma de reach de publicações
 em instagram_content_context deve ser chamada "alcance dos conteúdos" e nunca alcance da conta.
 Stories sem métricas persistidas são indisponíveis, não zero, e não reduzem a cobertura de Feed/Reels.
@@ -1305,6 +1309,8 @@ def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "covers_period_end": bool(coverage_values) and all(value >= period.get("end", "") for value in coverage_values),
         "temporal_compatibility_mode": temporal_mode,
         "cross_source_comparison_allowed": sources_temporally_compatible and complete_sources,
+        # Combinações válidas, explícitas: o modelo sabe antes de responder.
+        "comparable_source_groups": _comparable_source_groups(snapshot),
         "quality_label": "Qualidade dos dados",
         "causal_evidence_available": False,
         "noise_percent_threshold": INTELLIGENCE_NOISE_PERCENT_THRESHOLD,
@@ -1496,6 +1502,79 @@ def _ensure_partial_today_limitation(
     return {**analysis, "insights": [*(analysis.get("insights") or []), limitation]}, True
 
 
+def _comparable_source_groups(snapshot: Dict[str, Any]) -> List[List[str]]:
+    """Fontes agrupadas por cobertura idêntica: dentro de um grupo, comparar é
+    temporalmente sólido; entre grupos, não.
+
+    É o que o modelo precisa saber ANTES de responder. Um booleano global só
+    diz "nada pode ser cruzado" e não informa quais combinações servem.
+    """
+    groups: Dict[str, List[str]] = {}
+    for source in snapshot.get("sources") or []:
+        if source.get("status") != "available":
+            continue
+        coverage = _text(source.get("data_max_available"))
+        source_id = _text(source.get("id"))
+        if coverage and source_id:
+            groups.setdefault(coverage, []).append(source_id)
+    return [sorted(ids) for _, ids in sorted(groups.items())]
+
+
+def _cited_sources_comparable(
+    snapshot: Dict[str, Any], source_ids: Iterable[str],
+) -> tuple[bool, str]:
+    """Compatibilidade temporal entre as fontes que o insight realmente cita.
+
+    Mesmo critério da política global, mas escopado ao par citado. A precedência
+    é preservada: havendo cobertura para todas as fontes citadas, ela decide
+    sozinha — freshness é quando o job terminou, não até quando existe dado, e
+    não pode substituir a cobertura.
+    """
+    by_id = {_text(source.get("id")): source for source in snapshot.get("sources") or []}
+    cited = [by_id[source_id] for source_id in dict.fromkeys(source_ids) if source_id in by_id]
+    if len(cited) <= 1:
+        return True, "single_source"
+    if any(source.get("status") != "available" for source in cited):
+        return False, "source_not_available"
+    coverage = [_text(source.get("data_max_available")) for source in cited]
+    if all(coverage):
+        aligned = len(set(coverage)) == 1
+        return aligned, "coverage" if aligned else "coverage_mismatch"
+    sync_times = [
+        parsed.astimezone(timezone.utc)
+        for source in cited
+        if (parsed := _parse_timestamp(source.get("last_sync_at"))) is not None
+    ]
+    if len(sync_times) == len(cited):
+        spread = (max(sync_times) - min(sync_times)).total_seconds() / 3600
+        if spread <= INTELLIGENCE_CROSS_SOURCE_MAX_LAG_HOURS:
+            return True, "freshness_fallback"
+        return False, "freshness_spread_exceeded"
+    return False, "insufficient_temporal_evidence"
+
+
+def _aggregate_only_sources(
+    snapshot: Dict[str, Any], metric_ids: List[str], source_ids: List[str],
+) -> bool:
+    """As fontes citadas vêm todas de um único indicador já calculado?
+
+    `investment` (Meta + Google) e `roas` (comércio + mídia paga) são números
+    que o backend compôs. Citar um deles não é o modelo cruzar fontes: o
+    cruzamento aconteceu em código confiável. Dois indicadores lado a lado,
+    sim, são comparação e seguem para a verificação temporal.
+    """
+    if len(metric_ids) != 1:
+        return False
+    metric = next(
+        (item for item in snapshot.get("metrics") or [] if _text(item.get("id")) == metric_ids[0]),
+        None,
+    )
+    if metric is None:
+        return False
+    aggregate = set(_metric_source_ids(metric, _source_alias_index(snapshot)))
+    return bool(aggregate) and set(source_ids) <= aggregate
+
+
 def _log_grounding_failure(
     *,
     kind: str,
@@ -1506,6 +1585,10 @@ def _log_grounding_failure(
     metric_ids_count: int,
     sources_count: int,
     unknown: Iterable[str] = (),
+    metric_ids: Iterable[str] = (),
+    source_ids: Iterable[str] = (),
+    detail: str = "",
+    coverage: Dict[str, Any] | None = None,
 ) -> None:
     """Razão estrutural da recusa. Nada de prosa do modelo.
 
@@ -1523,6 +1606,13 @@ def _log_grounding_failure(
         metric_ids_count=metric_ids_count,
         sources_count=sources_count,
         unknown_ids=",".join(sorted({_text(item) for item in unknown if _text(item)})) or "-",
+        metric_ids=",".join(_text(item) for item in metric_ids) or "-",
+        source_ids=",".join(_text(item) for item in source_ids) or "-",
+        detail=detail or "-",
+        # Datas de cobertura são cálculo do backend, não texto do modelo.
+        coverage=",".join(
+            f"{key}:{_text(value) or 'none'}" for key, value in sorted((coverage or {}).items())
+        ) or "-",
     )
 
 
@@ -1572,13 +1662,26 @@ def _validate_analysis_grounding(
                 ],
             )
             raise RuntimeError("AI_UNGROUNDED_INSIGHT")
-        if not policy["cross_source_comparison_allowed"] and len(set(sources)) > 1:
-            _log_grounding_failure(
-                kind="insight", index=index, category=category,
-                reason="cross_source_not_allowed", request_id=request_id,
-                metric_ids_count=len(raw_metrics), sources_count=len(set(sources)),
-            )
-            raise RuntimeError("AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
+        cited_sources = list(dict.fromkeys(sources))
+        if len(cited_sources) > 1 and not _aggregate_only_sources(
+            snapshot, metric_ids, cited_sources,
+        ):
+            # A compatibilidade é avaliada entre as fontes CITADAS. O veredito
+            # global reprovava um par alinhado por causa de uma fonte
+            # desalinhada que o insight nem menciona.
+            compatible, mode = _cited_sources_comparable(snapshot, cited_sources)
+            if not compatible:
+                _log_grounding_failure(
+                    kind="insight", index=index, category=category,
+                    reason="cross_source_not_allowed", request_id=request_id,
+                    metric_ids_count=len(raw_metrics), sources_count=len(cited_sources),
+                    metric_ids=metric_ids, source_ids=cited_sources, detail=mode,
+                    coverage={
+                        source_id: (policy.get("source_coverage") or {}).get(source_id)
+                        for source_id in cited_sources
+                    },
+                )
+                raise RuntimeError("AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
     for index, action in enumerate(analysis.get("actions") or []):
         metric_id = _text(action.get("metric_id"))
         raw_sources = [_text(item) for item in action.get("sources") or [] if _text(item)]
