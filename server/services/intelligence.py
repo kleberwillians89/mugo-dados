@@ -1336,24 +1336,139 @@ def _validate_analysis_grounding(analysis: Dict[str, Any], snapshot: Dict[str, A
             raise RuntimeError("AI_UNGROUNDED_ACTION")
 
 
-def _assert_no_untrusted_numeric_text(value: Any, path: str = "response") -> None:
-    """Números exibidos devem vir dos objetos de métricas calculados pelo backend."""
+# Número escrito em prosa. As bordas impedem ler o "4" de GA4 ou o "5" de
+# "top5" como valor: só conta o algarismo que não está colado em letra.
+_NUMBER_IN_TEXT = re.compile(
+    r"(?<![0-9A-Za-zÀ-ÖØ-öø-ÿ])\d+(?:[.,]\d+)*(?![0-9A-Za-zÀ-ÖØ-öø-ÿ])"
+)
+
+# Chaves do schema que são identificadores ou enums, não prosa.
+_NON_PROSE_KEYS = frozenset(
+    {"metric_ids", "metric_id", "sources", "category", "impact", "confidence", "priority"}
+)
+
+
+def _number_candidates(token: str) -> List[tuple[float, int]]:
+    """Leituras legítimas de um número escrito, com as casas decimais de cada.
+
+    `3.506,79`, `3,506.79`, `3506.79` e `3506,79` são o mesmo valor escrito de
+    formas diferentes. `12.345` é ambíguo (milhar ou decimal): as duas leituras
+    são devolvidas e basta uma estar suportada pelo snapshot.
+    """
+    digits_only = token.replace(".", "").replace(",", "")
+    if not digits_only.isdigit():
+        return []
+    has_dot, has_comma = "." in token, "," in token
+    readings: List[str] = []
+    if has_dot and has_comma:
+        # O último separador é o decimal; o outro é o de milhar.
+        decimal_sep = "." if token.rfind(".") > token.rfind(",") else ","
+        readings.append(token.replace("." if decimal_sep == "," else ",", "").replace(decimal_sep, "."))
+    elif has_dot or has_comma:
+        separator = "." if has_dot else ","
+        tail = token.rsplit(separator, 1)[1]
+        if token.count(separator) > 1:
+            readings.append(digits_only)  # 1.234.567 só pode ser milhar
+        elif len(tail) == 3:
+            readings.append(digits_only)  # leitura de milhar
+            readings.append(token.replace(separator, "."))  # leitura decimal
+        else:
+            readings.append(token.replace(separator, "."))
+    else:
+        readings.append(token)
+    candidates: List[tuple[float, int]] = []
+    for reading in readings:
+        try:
+            value = float(reading)
+        except ValueError:
+            continue
+        _, _, decimals = reading.partition(".")
+        candidates.append((value, len(decimals)))
+    return candidates
+
+
+def _collect_trusted_numbers(value: Any, out: set[float]) -> None:
+    # bool é subclasse de int: True/False não podem virar os números 1 e 0.
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        out.add(float(value))
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _collect_trusted_numbers(item, out)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_trusted_numbers(item, out)
+
+
+def _trusted_numbers(payload: Dict[str, Any]) -> set[float]:
+    """Números verificáveis: os que o backend calculou e enviou ao modelo.
+
+    A fonte é o próprio payload da chamada — o modelo não recebeu nada além
+    disso, então qualquer outro número no texto é invenção. Strings do payload
+    não entram de propósito: um `last_sync_at` traria dezenas de inteiros
+    pequenos e abriria a porta para percentuais arbitrários.
+    """
+    trusted: set[float] = set()
+    for key, section in payload.items():
+        if key in {"period", "question", "business_context"}:
+            continue
+        _collect_trusted_numbers(section, trusted)
+    # O período analisado pode ser nomeado: datas de início/fim e duração.
+    period = payload.get("period") or {}
+    bounds: List[date] = []
+    for key in ("start", "end"):
+        try:
+            parsed = date.fromisoformat(_text(period.get(key)))
+        except ValueError:
+            continue
+        bounds.append(parsed)
+        trusted.update({float(parsed.year), float(parsed.month), float(parsed.day)})
+    if len(bounds) == 2:
+        trusted.add(float((bounds[1] - bounds[0]).days + 1))
+    return trusted
+
+
+def _is_number_supported(token: str, trusted: set[float]) -> bool:
+    """O número escrito corresponde a algum valor verificado do snapshot?
+
+    A comparação respeita a precisão escrita: quem escreve `11%` para uma
+    variação de 11,11 arredondou um número real; quem escreve `97%` não.
+    """
+    for value, decimals in _number_candidates(token):
+        for known in trusted:
+            if round(known, decimals) == round(value, decimals):
+                return True
+    return False
+
+
+def _assert_no_untrusted_numeric_text(
+    value: Any, path: str = "response", *, trusted: set[float] | None = None,
+) -> None:
+    """Texto da IA só pode citar número que o backend tenha calculado e enviado.
+
+    Sem conjunto verificado (`trusted` ausente ou vazio) nenhum algarismo é
+    aceito, que era o comportamento anterior desta função.
+    """
+    known = trusted or set()
     if isinstance(value, str):
-        if re.search(r"\d", value):
-            raise RuntimeError(f"AI_UNTRUSTED_NUMERIC_TEXT:{path}")
+        for token in _NUMBER_IN_TEXT.findall(value):
+            if not _is_number_supported(token, known):
+                raise RuntimeError(f"AI_UNTRUSTED_NUMERIC_TEXT:{path}")
+        # Algarismo colado em letra é identificador, não valor citado: GA4 e
+        # Meta Ads são rótulos reais do produto, não afirmações numéricas.
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
-            _assert_no_untrusted_numeric_text(item, f"{path}[{index}]")
+            _assert_no_untrusted_numeric_text(item, f"{path}[{index}]", trusted=known)
         return
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in {
-                "metric_ids", "metric_id", "sources", "category",
-                "impact", "confidence", "priority",
-            }:
+            if key in _NON_PROSE_KEYS:
                 continue
-            _assert_no_untrusted_numeric_text(item, f"{path}.{key}")
+            _assert_no_untrusted_numeric_text(item, f"{path}.{key}", trusted=known)
 
 
 async def _call_provider(
@@ -1423,7 +1538,9 @@ async def _call_provider(
     if not text:
         raise RuntimeError("AI_PROVIDER_EMPTY_RESPONSE")
     parsed = json.loads(text)
-    _assert_no_untrusted_numeric_text(parsed)
+    # O payload é tudo que o modelo recebeu: é ele que define o que é
+    # verificável. Vale para a análise e para o /ask, que usam este caminho.
+    _assert_no_untrusted_numeric_text(parsed, trusted=_trusted_numbers(payload))
     return parsed
 
 
