@@ -1,6 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getClientIntegrations } from "../../app/api";
+import { listGenericConnections, type GenericConnection } from "../../app/api";
 import type { ClientIntegrationConnection } from "../../app/types";
+
+/**
+ * Conexões do tenant no formato que a página de e-commerce consome.
+ *
+ * A fonte é `/api/connections`, que qualquer MEMBRO da empresa lê — não o
+ * contrato canônico de `/api/clients/{id}/integrations`, que é administrativo
+ * (expõe ad_account_id, business_id, property_id) e responde 403 para viewer
+ * por decisão de produto. Resolver qual loja está ativa é leitura de dados,
+ * não configuração de integração: um viewer precisa disso para ver o próprio
+ * faturamento.
+ *
+ * Só os campos que a página usa são mapeados. `last_successful_sync_at` não
+ * existe neste contrato; a página já cai para `last_sync_at`.
+ */
+function toEcommerceConnection(row: GenericConnection): ClientIntegrationConnection {
+  return {
+    provider: String(row.provider || ""),
+    connection_id: String(row.id || ""),
+    status: String(row.status || ""),
+    authorization_status: "valid",
+    // Este contrato não carrega status de sync; a página não o usa.
+    sync_status: null,
+    account: { id: row.account_id ?? null, name: row.account_name ?? null, domain: null },
+    assets: {},
+    last_sync_at: row.last_sync_at ?? null,
+    last_successful_sync_at: null,
+    last_error: row.last_error ?? null,
+    updated_at: null,
+  };
+}
 
 type State = {
   clientId: string;
@@ -28,14 +58,19 @@ export default function useActiveEcommerceProvider(activeClientId: string) {
   // Só altera estado depois do await: seguro para ser chamado por efeito.
   const fetchConnections = useCallback(async (requestId: number, requestedClientId: string, keepOnFailure: boolean) => {
     try {
-      const response = await getClientIntegrations();
+      const response = await listGenericConnections();
       if (requestId !== generation.current) return;
       if (String(response?.client_id || "") !== requestedClientId) {
         if (keepOnFailure) return;
         setState({ clientId: requestedClientId, loading: false, error: "A empresa ativa mudou durante a leitura. Tente novamente.", connections: null });
         return;
       }
-      setState({ clientId: requestedClientId, loading: false, error: null, connections: response.connections || [] });
+      setState({
+        clientId: requestedClientId,
+        loading: false,
+        error: null,
+        connections: (response.connections || []).map(toEcommerceConnection),
+      });
     } catch (cause) {
       if (requestId !== generation.current || keepOnFailure) return;
       setState({

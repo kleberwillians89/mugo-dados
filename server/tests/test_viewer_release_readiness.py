@@ -26,6 +26,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from routes import client_access as client_access_routes
+from routes import connections as connections_routes
 from routes import customers as customers_routes
 from routes import fbits as fbits_routes
 from routes import google as google_routes
@@ -616,6 +617,70 @@ class ViewerStillReadsIntelligenceTests(unittest.IsolatedAsyncioTestCase):
                 x_client_id=None, authorization="Bearer viewer",
             )
         self.assertTrue(result["ok"])
+
+
+class NasserViewerSessionTests(unittest.TestCase):
+    """O caso real: viewer de Curavino abrindo a plataforma.
+
+    O que quebrou em produção não foi autorização de leitura de dados — foi
+    uma leitura de DADOS depender de um endpoint ADMINISTRATIVO. A resolução
+    da loja ativa chamava `/api/clients/{id}/integrations` (403 para viewer) e
+    a página de Ecommerce faz early return no erro.
+    """
+
+    FRONT = SERVER_DIR.parent / "src"
+
+    def test_the_integrations_endpoint_stays_administrative(self):
+        # A proteção é intencional e não foi revertida: o contrato expõe
+        # ad_account_id, business_id e property_id.
+        source = Path(inspect.getfile(integrations_routes)).read_text(encoding="utf-8")
+        self.assertIn("require_client_role", source)
+        self.assertIn('allowed_roles=("agency_admin", "client_admin")', source)
+
+    def test_the_commerce_resolver_no_longer_depends_on_it(self):
+        hook = (self.FRONT / "hooks" / "dashboard" / "useActiveEcommerceProvider.ts").read_text(encoding="utf-8")
+        self.assertNotIn("getClientIntegrations", hook)
+        self.assertIn("listGenericConnections", hook)
+
+    def test_the_replacement_endpoint_accepts_any_member(self):
+        source = Path(inspect.getfile(connections_routes)).read_text(encoding="utf-8")
+        self.assertIn("require_client_read", source)
+        self.assertNotIn("require_client_role", source)
+
+    def test_no_page_blocks_rendering_on_the_administrative_hook(self):
+        # Early return em erro de integrações foi o que deixou o viewer sem
+        # tela. Nenhuma página pode voltar a fazer isso.
+        for page in (self.FRONT / "pages").glob("*.tsx"):
+            if ".test." in page.name:
+                continue
+            body = page.read_text(encoding="utf-8")
+            if "useClientIntegrations" not in body:
+                continue
+            with self.subTest(page=page.name):
+                for blocking in ("if (integrations.error)", "if (integrations.isLoading)"):
+                    self.assertNotIn(blocking, body)
+
+    def test_the_viewer_read_surface_uses_membership_guards(self):
+        expected = {
+            "customers": "require_client_read",
+            "connections": "require_client_read",
+        }
+        for module, guard in expected.items():
+            source = Path(inspect.getfile(__import__(f"routes.{module}", fromlist=["x"]))).read_text(encoding="utf-8")
+            with self.subTest(module=module):
+                self.assertIn(guard, source)
+
+    def test_intelligence_reads_stay_open_and_writes_stay_closed(self):
+        source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
+        for read in ('@router.get("/context")', '@router.get("/latest")', '@router.get("/history")',
+                     '@router.get("/business-context")'):
+            block = source.split(read)[1].split("@router.")[0]
+            with self.subTest(read=read):
+                self.assertIn("await _context(", block)
+        for write in ('@router.post("/analyses")', '@router.post("/ask")'):
+            block = source.split(write)[1].split("@router.")[0]
+            with self.subTest(write=write):
+                self.assertIn("_mutation_context(", block)
 
 
 class ClientAccessReadIsIntentionalForMembersTests(unittest.TestCase):

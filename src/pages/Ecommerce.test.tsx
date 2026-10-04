@@ -69,7 +69,8 @@ import Ecommerce from "./Ecommerce";
 
 function entry(provider: string, overrides: Partial<ClientIntegrationConnection> = {}): ClientIntegrationConnection {
   return {
-    provider, connection_id: `${provider}-1`, status: "connected", authorization_status: "valid",
+    provider, id: `${provider}-1`, client_id: "", connection_id: `${provider}-1`,
+    status: "connected", authorization_status: "valid",
     sync_status: null, account: {}, assets: {}, last_sync_at: null, last_successful_sync_at: null,
     last_error: null, updated_at: null, ...overrides,
   };
@@ -154,7 +155,7 @@ afterEach(async () => {
 
 describe("Ecommerce — resolução do provider pela conexão do tenant ativo", () => {
   it("7/4. Roove com Shopify conectado (mesmo sem pedidos) → dashboard Shopify, nenhum endpoint FBITS", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("meta"), entry("shopify")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("meta"), entry("shopify")]));
     await render();
     expect(container.querySelector('[data-testid="shopify-page"]')).not.toBeNull();
     expect(shopifyRenders.tenants).toContain("roove");
@@ -164,7 +165,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
   it("8/3/6. vinhos com FBITS conectado e zero pedidos → dashboard FBITS pendente, nunca Shopify", async () => {
     tenant.id = "vinhos";
     tenant.name = "Curavino";
-    api.getClientIntegrations.mockResolvedValue(
+    api.listGenericConnections.mockResolvedValue(
       integrations("vinhos", [entry("shopify", { status: "disconnected" }), entry("fbits", { connection_id: "fbits-vinhos" })]),
     );
     await render();
@@ -181,13 +182,14 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(button("Sincronizar agora")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Shopify não conectado|Conecte sua loja|Nenhuma integração/);
     expect(api.getFbitsOrdersSummary).toHaveBeenCalled();
-    // Modo FBITS não reavalia conexões genéricas nem cai em Shopify.
-    expect(api.listGenericConnections).not.toHaveBeenCalled();
+    // A leitura de conexões é a da resolução do provider (uma só); o modo
+    // FBITS não dispara nenhuma chamada Shopify.
+    expect(api.listGenericConnections).toHaveBeenCalledTimes(1);
     expectNoShopifyCalls();
   });
 
   it("5. nenhuma conexão de e-commerce → estado vazio com CTA para Integrações", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("meta"), entry("fbits", { status: "disconnected" })]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("meta"), entry("fbits", { status: "disconnected" })]));
     await render();
     expect(container.textContent).toContain("Nenhuma integração de Ecommerce conectada");
     await click(button("Ir para Integrações"));
@@ -198,14 +200,14 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("11/13. Sincronizar agora (FBITS) chama somente o sync FBITS do tenant ativo", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
     await render();
     await click(button("Sincronizar agora"));
     expect(api.syncFbitsConnection).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Sincronização FBITS iniciada");
     // Recarrega as conexões sem desmontar a tela.
-    expect(api.getClientIntegrations).toHaveBeenCalledTimes(2);
+    expect(api.listGenericConnections).toHaveBeenCalledTimes(2);
     expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(2);
     expect(container.querySelector('[data-testid="fbits-panel"]')).not.toBeNull();
     expectNoShopifyCalls();
@@ -213,7 +215,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("Sincronizar agora descarta a cache local e mostra os indicadores oficiais relidos", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
     api.getFbitsOrdersSummary
       .mockResolvedValueOnce({ ...fbitsSummary("vinhos", 10), kpi_source: "fbits_dashboard" })
@@ -229,7 +231,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("com vendas na tela, não anuncia \"Sem sincronização concluída\"", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.getFbitsOrdersSummary.mockResolvedValue({
       ...fbitsSummary("vinhos", 73),
       kpi_source: "fbits_dashboard",
@@ -241,7 +243,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("sem nenhuma venda e sem sync, o aviso de sincronização continua", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 0));
     await render();
     expect(container.textContent).toContain("Sem sincronização concluída");
@@ -249,7 +251,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("falha de atualização com dado na tela não vira alarme nem apaga os números", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(
+    api.listGenericConnections.mockResolvedValue(
       integrations("vinhos", [entry("fbits", { last_error: "FBITS_RATE_LIMITED: limite atingido" })]),
     );
     api.getFbitsOrdersSummary.mockResolvedValue({
@@ -268,7 +270,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("viewer não vê detalhe operacional de atualização", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(
+    api.listGenericConnections.mockResolvedValue(
       integrations("vinhos", [entry("fbits", { last_error: "FBITS_RATE_LIMITED: limite atingido" })]),
     );
     await render({ canSync: false });
@@ -278,7 +280,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("períodos rápidos atualizam o contexto sem reload da página", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits", { last_sync_at: "2026-09-30T12:00:00Z" })]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits", { last_sync_at: "2026-09-30T12:00:00Z" })]));
     await render();
     await click(button("7 dias"));
     expect(periodActions.setPeriod).toHaveBeenLastCalledWith(expect.objectContaining({ end: expect.any(String) }));
@@ -292,7 +294,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
   });
 
   it("15. Shopify + FBITS conectados → pede escolha explícita, sem escolher pela ordem", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("fbits"), entry("shopify")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("fbits"), entry("shopify")]));
     await render();
     expect(container.textContent).toContain("Mais de uma integração de Ecommerce está conectada");
     expectNoShopifyCalls();
@@ -303,7 +305,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
   });
 
   it("15. escolha explícita de Shopify com duas conexões → somente Shopify", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify"), entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("shopify"), entry("fbits")]));
     await render();
     await click(button("Usar Shopify"));
     expect(container.querySelector('[data-testid="shopify-page"]')).not.toBeNull();
@@ -311,7 +313,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
   });
 
   it("9. trocar Roove → vinhos recalcula: Shopify da Roove some e FBITS do vinhos aparece", async () => {
-    api.getClientIntegrations.mockImplementation(async () =>
+    api.listGenericConnections.mockImplementation(async () =>
       tenant.id === "roove" ? integrations("roove", [entry("shopify")]) : integrations("vinhos", [entry("fbits")]),
     );
     await render();
@@ -328,7 +330,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
   });
 
   it("10. trocar vinhos → Roove recalcula: FBITS some e Shopify da Roove aparece", async () => {
-    api.getClientIntegrations.mockImplementation(async () =>
+    api.listGenericConnections.mockImplementation(async () =>
       tenant.id === "roove" ? integrations("roove", [entry("shopify")]) : integrations("vinhos", [entry("fbits")]),
     );
     tenant.id = "vinhos";
@@ -347,7 +349,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("9. resposta atrasada do tenant anterior é descartada (sem estado stale)", async () => {
     let releaseRoove: (value: unknown) => void = () => undefined;
-    api.getClientIntegrations.mockImplementation(() =>
+    api.listGenericConnections.mockImplementation(() =>
       tenant.id === "roove"
         ? new Promise((resolve) => { releaseRoove = resolve; })
         : Promise.resolve(integrations("vinhos", [entry("fbits")])),
@@ -363,7 +365,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 
   it("resposta de outro tenant não é usada para decidir o provider", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("shopify")]));
     await render();
     expect(container.querySelector('[data-testid="shopify-page"]')).toBeNull();
     expect(container.textContent).toContain("A empresa ativa mudou");
@@ -375,7 +377,7 @@ describe("Ecommerce — sincronização só para quem o backend autoriza", () =>
   it("viewer: FBITS não oferece ações de sincronização ou atualização manual", async () => {
     tenant.id = "vinhos";
     tenant.name = "Curavino";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     await render({ canSync: false, integrationsShortcut: false });
     expect(container.querySelector('[data-testid="fbits-panel"]')).not.toBeNull();
     expect(button("Sincronizar agora")).toBeUndefined();
@@ -387,13 +389,13 @@ describe("Ecommerce — sincronização só para quem o backend autoriza", () =>
 
   it("administrador autorizado (client_admin/agency_admin): FBITS mostra \"Sincronizar agora\"", async () => {
     tenant.id = "vinhos";
-    api.getClientIntegrations.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+    api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     await render({ canSync: true });
     expect(button("Sincronizar agora")).toBeTruthy();
   });
 
   it("Shopify recebe a mesma permissão: viewer sem sync", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("shopify")]));
     await render({ canSync: false, integrationsShortcut: false });
     expect(container.querySelector('[data-testid="shopify-page"]')).not.toBeNull();
     expect(shopifyRenders.canSync.length).toBeGreaterThan(0);
@@ -401,14 +403,14 @@ describe("Ecommerce — sincronização só para quem o backend autoriza", () =>
   });
 
   it("Shopify recebe a mesma permissão: administrador com sync", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("shopify")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("shopify")]));
     await render({ canSync: true });
     expect(shopifyRenders.canSync.length).toBeGreaterThan(0);
     expect(shopifyRenders.canSync.every((value) => value === true)).toBe(true);
   });
 
   it("viewer sem conexão de Ecommerce: nenhum atalho nem instrução de administração", async () => {
-    api.getClientIntegrations.mockResolvedValue(integrations("roove", [entry("meta")]));
+    api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("meta")]));
     await render({ canSync: false, integrationsShortcut: false });
     expect(container.textContent).toContain("Nenhuma integração de Ecommerce conectada");
     expect(button("Ir para Integrações")).toBeUndefined();
