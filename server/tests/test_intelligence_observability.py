@@ -143,7 +143,7 @@ async def run_route(
         patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
     ]
     if not validate_for_real:
-        patches.append(patch.object(intelligence, "_validate_analysis_grounding", lambda *_a: None))
+        patches.append(patch.object(intelligence, "_validate_analysis_grounding", lambda *_a, **_kw: None))
     try:
         with redirect_stdout(output):
             for item in patches:

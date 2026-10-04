@@ -1313,15 +1313,95 @@ def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _validate_analysis_grounding(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> None:
+# Ressalva do dia parcial. Fonte única: a garantia determinística e a
+# validação usam exatamente o mesmo critério, então não há como a análise
+# entregue satisfazer uma e não a outra.
+_PARTIAL_TODAY_CAVEAT = re.compile(r"hoje.{0,60}(formação|parcial)", re.IGNORECASE)
+
+PARTIAL_TODAY_INSIGHT_TITLE = "Dados de hoje ainda em formação"
+
+# Limitação canônica do backend: texto fixo, sem algarismo, sem causalidade e
+# sem métrica inventada. Entra na estrutura que o schema e o frontend já têm
+# (`insights` com categoria `data_quality`), não numa arquitetura paralela.
+_PARTIAL_TODAY_INSIGHT = {
+    "category": "data_quality",
+    "title": PARTIAL_TODAY_INSIGHT_TITLE,
+    "interpretation": (
+        "O período analisado inclui o dia de hoje, cujos dados ainda estão parciais "
+        "e em formação. Um dia incompleto não é comparável a um dia completo."
+    ),
+    "impact": "medium",
+    "confidence": "high",
+    "action": "Reavaliar os números do período após o fechamento do dia de hoje.",
+    "reason": "A leitura do dia corrente ainda pode mudar até o fim do dia.",
+}
+
+
+def _partial_today_anchor(snapshot: Dict[str, Any]) -> tuple[str, str] | None:
+    """Métrica e fonte reais em que a ressalva se apoia.
+
+    A limitação é sobre o período, não sobre um cruzamento: basta uma métrica
+    confirmada e uma fonte do snapshot. A fonte preferida é a que o próprio
+    snapshot marca como cobertura parcial. Uma única fonte, para a ressalva
+    nunca disparar AI_TEMPORALLY_INCOMPATIBLE_SOURCES.
+    """
+    metrics = [metric for metric in snapshot.get("metrics") or [] if _text(metric.get("id"))]
+    sources = [source for source in snapshot.get("sources") or [] if _text(source.get("id"))]
+    if not metrics or not sources:
+        return None
+
+    def source_rank(source: Dict[str, Any]) -> tuple[int, int]:
+        coverage = source.get("coverage") if isinstance(source.get("coverage"), dict) else {}
+        return (
+            0 if coverage.get("is_partial") else 1,
+            0 if source.get("status") in {"available", "partial"} else 1,
+        )
+
+    metric = next(
+        (item for item in metrics if item.get("status") == "confirmed"), metrics[0],
+    )
+    source = sorted(sources, key=source_rank)[0]
+    return _text(metric.get("id")), _text(source.get("id"))
+
+
+def _ensure_partial_today_limitation(
+    analysis: Dict[str, Any], snapshot: Dict[str, Any], *, policy: Dict[str, Any] | None = None,
+) -> tuple[Dict[str, Any], bool]:
+    """Garante a ressalva do dia parcial na análise entregue.
+
+    Quando o período inclui hoje e o modelo não registrou a limitação, o
+    backend acrescenta a versão canônica. Nada do que o modelo escreveu é
+    alterado e a análise original não é mutada. Devolve a análise entregue e
+    se a injeção foi necessária.
+    """
+    resolved = policy if policy is not None else _build_analysis_policy(snapshot)
+    if not resolved.get("includes_partial_today"):
+        return analysis, False
+    if _PARTIAL_TODAY_CAVEAT.search(json.dumps(analysis, ensure_ascii=False)):
+        return analysis, False
+    anchor = _partial_today_anchor(snapshot)
+    if anchor is None:
+        # Sem métrica ou fonte não há ressalva aterrada possível. Devolvemos
+        # sem injetar para a validação acusar, em vez de omitir em silêncio.
+        return analysis, False
+    metric_id, source_id = anchor
+    limitation = {**_PARTIAL_TODAY_INSIGHT, "metric_ids": [metric_id], "sources": [source_id]}
+    return {**analysis, "insights": [*(analysis.get("insights") or []), limitation]}, True
+
+
+def _validate_analysis_grounding(
+    analysis: Dict[str, Any], snapshot: Dict[str, Any], *, policy: Dict[str, Any] | None = None,
+) -> None:
     allowed_metrics = {metric["id"] for metric in snapshot.get("metrics") or []}
     allowed_sources = {source["id"] for source in snapshot.get("sources") or []}
     forbidden_causal = re.compile(r"\b(causou|provou|certamente|sem dúvida|aconteceu porque)\b", re.IGNORECASE)
     all_text = json.dumps(analysis, ensure_ascii=False)
     if forbidden_causal.search(all_text):
         raise RuntimeError("AI_UNSUPPORTED_CAUSALITY")
-    policy = _build_analysis_policy(snapshot)
-    if policy["includes_partial_today"] and not re.search(r"hoje.{0,60}(formação|parcial)", all_text, re.IGNORECASE):
+    # A política pode vir de fora para que uma geração que atravesse a
+    # meia-noite valide contra o mesmo "hoje" que o modelo recebeu.
+    policy = policy if policy is not None else _build_analysis_policy(snapshot)
+    if policy["includes_partial_today"] and not _PARTIAL_TODAY_CAVEAT.search(all_text):
         raise RuntimeError("AI_MISSING_PARTIAL_TODAY_LIMITATION")
     for insight in analysis.get("insights") or []:
         metric_ids = [item for item in insight.get("metric_ids") or [] if item in allowed_metrics]
@@ -1752,6 +1832,7 @@ async def generate_analysis(
             "snapshot": snapshot,
             "analysis": reusable,
         }
+    policy = _build_analysis_policy(snapshot)
     try:
         analysis = await _call_provider(
             payload={
@@ -1761,7 +1842,7 @@ async def generate_analysis(
                 "quality": snapshot["quality"],
                 "crossings": snapshot["crossings"],
                 "top_campaigns": snapshot["top_campaigns"],
-                "analysis_policy": _build_analysis_policy(snapshot),
+                "analysis_policy": policy,
                 # Números já calculados (Shopify líquido, ROAS combinado com
                 # fontes incluídas explícitas, GA4 separado) — a IA só
                 # interpreta, nunca soma/divide nada daqui.
@@ -1781,8 +1862,21 @@ async def generate_analysis(
             request_id=request_id,
         )
         validation_started = time.monotonic()
+        # Quando o período inclui hoje, a ressalva de dia parcial é garantida
+        # pelo backend antes da validação — que continua sendo o portão e
+        # ainda acusa AI_MISSING_PARTIAL_TODAY_LIMITATION se faltar.
+        analysis, limitation_applied = _ensure_partial_today_limitation(
+            analysis, snapshot, policy=policy,
+        )
+        if limitation_applied:
+            _log_line(
+                "partial_today_limitation_applied",
+                request_id=request_id or "-",
+                client_id=client_id,
+                stage=LOG_STAGE_VALIDATION,
+            )
         try:
-            _validate_analysis_grounding(analysis, snapshot)
+            _validate_analysis_grounding(analysis, snapshot, policy=policy)
         except BaseException as exc:
             # O código específico do grounding (AI_UNGROUNDED_INSIGHT etc.)
             # sai no log sem nenhuma regra ser relaxada.

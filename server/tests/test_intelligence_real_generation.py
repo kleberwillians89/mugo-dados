@@ -278,7 +278,7 @@ class GenerationTests(SnapshotHarness):
                 AsyncMock(side_effect=provider) if isinstance(provider, BaseException)
                 else AsyncMock(return_value=analysis),
             ),
-            patch.object(intelligence, "_validate_analysis_grounding", lambda *_args: None),
+            patch.object(intelligence, "_validate_analysis_grounding", lambda *_args, **_kwargs: None),
             patch.object(intelligence, "_sanitize_analysis", lambda value, _snapshot: value),
             redirect_stdout(output),
         ):
@@ -328,7 +328,7 @@ class GenerationTests(SnapshotHarness):
             patch.object(intelligence, "sb_insert", AsyncMock(return_value={"id": "an-1"})),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(intelligence, "_call_provider", call),
-            patch.object(intelligence, "_validate_analysis_grounding", lambda *_args: None),
+            patch.object(intelligence, "_validate_analysis_grounding", lambda *_args, **_kwargs: None),
             patch.object(intelligence, "_sanitize_analysis", lambda value, _snapshot: value),
             redirect_stdout(io.StringIO()),
         ):
