@@ -30,8 +30,23 @@ async def _context(
     x_client_id: str | None,
     authorization: str | None,
 ) -> tuple[str, str]:
+    """Leitura: qualquer membro da empresa, inclusive viewer."""
     user_id = await require_user_id(authorization)
     resolved_client_id = await resolve_client_id(client_id or x_client_id, authorization)
+    return resolved_client_id, user_id
+
+
+async def _mutation_context(
+    client_id: str | None,
+    x_client_id: str | None,
+    authorization: str | None,
+) -> tuple[str, str]:
+    """Mutação: gerar análise e perguntar gravam linha e consomem o provedor
+    de IA, então exigem papel de gestão. Viewer é recusado por
+    require_client_role, a mesma regra que já protege o contexto de negócio.
+    """
+    resolved_client_id = await require_client_role(client_id or x_client_id, authorization)
+    user_id = await require_user_id(authorization)
     return resolved_client_id, user_id
 
 
@@ -151,7 +166,7 @@ async def intelligence_generate(
     )
     authorization_started = time.monotonic()
     try:
-        cid, user_id = await _context(client_id, x_client_id, authorization)
+        cid, user_id = await _mutation_context(client_id, x_client_id, authorization)
     except BaseException as exc:
         log_stage_failed(
             stage=LOG_STAGE_AUTHORIZATION,
@@ -197,7 +212,7 @@ async def intelligence_ask(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid, user_id = await _context(client_id, x_client_id, authorization)
+    cid, user_id = await _mutation_context(client_id, x_client_id, authorization)
     try:
         return await ask_intelligence(
             client_id=cid,

@@ -41,7 +41,8 @@ class IntelligenceAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         generated = AsyncMock(return_value={"ok": True, "status": "completed"})
         with (
             patch.object(routes, "require_user_id", AsyncMock(return_value="preview-amalie")),
-            patch.object(routes, "resolve_client_id", AsyncMock(return_value="amalie")) as tenant,
+            # Gerar análise é mutação: a rota autoriza por require_client_role.
+            patch.object(routes, "require_client_role", AsyncMock(return_value="amalie")) as tenant,
             patch.object(routes, "generate_analysis", generated),
         ):
             result = await routes.intelligence_generate(
@@ -59,7 +60,7 @@ class IntelligenceAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         denied = HTTPException(status_code=403, detail="Usuário sem acesso ao client_id solicitado")
         with (
             patch.object(routes, "require_user_id", AsyncMock(return_value="preview-amalie")),
-            patch.object(routes, "resolve_client_id", AsyncMock(side_effect=denied)),
+            patch.object(routes, "require_client_role", AsyncMock(side_effect=denied)),
             patch.object(routes, "generate_analysis", generated),
         ):
             with self.assertRaises(HTTPException) as raised:
