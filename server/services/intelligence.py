@@ -1313,6 +1313,113 @@ def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# `metrics[].source` é rótulo de procedência exibido ao usuário (o painel
+# mostra "fbits", "paid media"), não identificador de fonte. Os IDs reais
+# vivem em `sources[].id`. O modelo recebe os dois vocabulários e o schema não
+# restringe `sources` por enum, então ele pode citar o rótulo que vê ao lado da
+# métrica. Estes nomes são compostos pelo próprio snapshot e não são IDs.
+_COMPOSITE_SOURCE_LABELS = {
+    "paid_media": ("meta", "google_ads"),
+    # A perna de comércio do ROAS vem rotulada "shopify" mesmo em tenant FBITS.
+    "shopify": ("commerce",),
+}
+
+
+def _source_alias_index(snapshot: Dict[str, Any]) -> Dict[str, tuple[str, ...]]:
+    """Apelidos legítimos de fonte → IDs reais, derivados do snapshot.
+
+    Nada é fixado no código: o provider ("fbits", "shopify") e o rótulo
+    ("FBITS/Wake") de cada fonte saem do próprio snapshot. Um ID inventado
+    continua sem resolver.
+    """
+    source_ids = {_text(source.get("id")) for source in snapshot.get("sources") or []}
+    index: Dict[str, tuple[str, ...]] = {}
+    for source in snapshot.get("sources") or []:
+        source_id = _text(source.get("id"))
+        if not source_id:
+            continue
+        for alias in (source_id, source.get("provider"), source.get("provider_label")):
+            key = _text(alias).lower()
+            if key:
+                index.setdefault(key, (source_id,))
+    for label, targets in _COMPOSITE_SOURCE_LABELS.items():
+        present = tuple(target for target in targets if target in source_ids)
+        if present:
+            index.setdefault(label, present)
+    return index
+
+
+def _metric_source_ids(metric: Dict[str, Any], index: Dict[str, tuple[str, ...]]) -> List[str]:
+    """IDs de fonte reais por trás do rótulo de procedência de uma métrica."""
+    resolved: List[str] = []
+    for part in _text(metric.get("source")).split("+"):
+        resolved.extend(index.get(part.strip().lower(), ()))
+    return sorted(set(resolved))
+
+
+def _metrics_with_source_ids(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Cópia das métricas para o payload, com os IDs de fonte explícitos.
+
+    Elimina a ambiguidade na origem: o modelo deixa de ter que inferir o
+    identificador a partir de um rótulo de exibição. O snapshot persistido e o
+    que o frontend recebe não mudam — a anotação existe só no payload.
+    """
+    index = _source_alias_index(snapshot)
+    return [
+        {**metric, "source_ids": _metric_source_ids(metric, index)}
+        for metric in snapshot.get("metrics") or []
+    ]
+
+
+def _normalize_grounding_ids(
+    analysis: Dict[str, Any], snapshot: Dict[str, Any], *, request_id: str | None = None,
+) -> Dict[str, Any]:
+    """Traduz apelidos de fonte citados pelo modelo para os IDs reais.
+
+    Resolve só o que o snapshot prova ser a mesma fonte — "fbits" é a fonte
+    `commerce` daquele tenant. ID inexistente não é inventado nem descartado
+    aqui: segue adiante e a validação o acusa (fail-closed).
+    """
+    index = _source_alias_index(snapshot)
+    allowed_sources = {_text(source.get("id")) for source in snapshot.get("sources") or []}
+    rewritten = 0
+
+    def normalize(values: Any) -> List[str]:
+        nonlocal rewritten
+        out: List[str] = []
+        for value in values or []:
+            name = _text(value)
+            if name in allowed_sources:
+                out.append(name)
+                continue
+            resolved = index.get(name.lower(), ())
+            if resolved:
+                rewritten += 1
+                out.extend(resolved)
+            else:
+                out.append(name)  # desconhecido: a validação decide
+        return list(dict.fromkeys(out))
+
+    normalized = {
+        **analysis,
+        "insights": [
+            {**insight, "sources": normalize(insight.get("sources"))}
+            for insight in analysis.get("insights") or []
+        ],
+        "actions": [
+            {**action, "sources": normalize(action.get("sources"))}
+            for action in analysis.get("actions") or []
+        ],
+    }
+    if rewritten:
+        _log_line(
+            "source_alias_normalized",
+            request_id=request_id or "-",
+            rewritten=rewritten,
+        )
+    return normalized
+
+
 # Ressalva do dia parcial. Fonte única: a garantia determinística e a
 # validação usam exatamente o mesmo critério, então não há como a análise
 # entregue satisfazer uma e não a outra.
@@ -1389,8 +1496,50 @@ def _ensure_partial_today_limitation(
     return {**analysis, "insights": [*(analysis.get("insights") or []), limitation]}, True
 
 
+def _log_grounding_failure(
+    *,
+    kind: str,
+    index: int,
+    category: str,
+    reason: str,
+    request_id: str | None,
+    metric_ids_count: int,
+    sources_count: int,
+    unknown: Iterable[str] = (),
+) -> None:
+    """Razão estrutural da recusa. Nada de prosa do modelo.
+
+    `unknown` traz só os identificadores que não existem no catálogo — sem
+    eles não há como distinguir um apelido legítimo ("fbits") de um ID
+    inventado em produção. Passam pela sanitização do log como qualquer campo.
+    """
+    _log_line(
+        "grounding_validation_failed",
+        request_id=request_id or "-",
+        kind=kind,
+        index=index,
+        category=category or "-",
+        reason=reason,
+        metric_ids_count=metric_ids_count,
+        sources_count=sources_count,
+        unknown_ids=",".join(sorted({_text(item) for item in unknown if _text(item)})) or "-",
+    )
+
+
+def _grounding_reason(raw: List[str], valid: List[str], *, subject: str) -> str:
+    if not raw:
+        return f"no_{subject}"
+    if not valid:
+        return f"unknown_{subject}"
+    return ""
+
+
 def _validate_analysis_grounding(
-    analysis: Dict[str, Any], snapshot: Dict[str, Any], *, policy: Dict[str, Any] | None = None,
+    analysis: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    *,
+    policy: Dict[str, Any] | None = None,
+    request_id: str | None = None,
 ) -> None:
     allowed_metrics = {metric["id"] for metric in snapshot.get("metrics") or []}
     allowed_sources = {source["id"] for source in snapshot.get("sources") or []}
@@ -1403,16 +1552,51 @@ def _validate_analysis_grounding(
     policy = policy if policy is not None else _build_analysis_policy(snapshot)
     if policy["includes_partial_today"] and not _PARTIAL_TODAY_CAVEAT.search(all_text):
         raise RuntimeError("AI_MISSING_PARTIAL_TODAY_LIMITATION")
-    for insight in analysis.get("insights") or []:
-        metric_ids = [item for item in insight.get("metric_ids") or [] if item in allowed_metrics]
-        sources = [item for item in insight.get("sources") or [] if item in allowed_sources]
-        if not metric_ids or not sources:
+    for index, insight in enumerate(analysis.get("insights") or []):
+        category = _text(insight.get("category"))
+        raw_metrics = [_text(item) for item in insight.get("metric_ids") or [] if _text(item)]
+        raw_sources = [_text(item) for item in insight.get("sources") or [] if _text(item)]
+        metric_ids = [item for item in raw_metrics if item in allowed_metrics]
+        sources = [item for item in raw_sources if item in allowed_sources]
+        reason = _grounding_reason(raw_metrics, metric_ids, subject="metric_id") or _grounding_reason(
+            raw_sources, sources, subject="source",
+        )
+        if reason:
+            _log_grounding_failure(
+                kind="insight", index=index, category=category, reason=reason,
+                request_id=request_id, metric_ids_count=len(raw_metrics),
+                sources_count=len(raw_sources),
+                unknown=[
+                    *(item for item in raw_metrics if item not in allowed_metrics),
+                    *(item for item in raw_sources if item not in allowed_sources),
+                ],
+            )
             raise RuntimeError("AI_UNGROUNDED_INSIGHT")
         if not policy["cross_source_comparison_allowed"] and len(set(sources)) > 1:
+            _log_grounding_failure(
+                kind="insight", index=index, category=category,
+                reason="cross_source_not_allowed", request_id=request_id,
+                metric_ids_count=len(raw_metrics), sources_count=len(set(sources)),
+            )
             raise RuntimeError("AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
-    for action in analysis.get("actions") or []:
-        sources = [item for item in action.get("sources") or [] if item in allowed_sources]
-        if action.get("metric_id") not in allowed_metrics or not sources:
+    for index, action in enumerate(analysis.get("actions") or []):
+        metric_id = _text(action.get("metric_id"))
+        raw_sources = [_text(item) for item in action.get("sources") or [] if _text(item)]
+        sources = [item for item in raw_sources if item in allowed_sources]
+        valid_metric = [metric_id] if metric_id in allowed_metrics else []
+        reason = _grounding_reason(
+            [metric_id] if metric_id else [], valid_metric, subject="metric_id",
+        ) or _grounding_reason(raw_sources, sources, subject="source")
+        if reason:
+            _log_grounding_failure(
+                kind="action", index=index, category=_text(action.get("priority")),
+                reason=reason, request_id=request_id,
+                metric_ids_count=1 if metric_id else 0, sources_count=len(raw_sources),
+                unknown=[
+                    *([metric_id] if metric_id and not valid_metric else []),
+                    *(item for item in raw_sources if item not in allowed_sources),
+                ],
+            )
             raise RuntimeError("AI_UNGROUNDED_ACTION")
 
 
@@ -1837,7 +2021,9 @@ async def generate_analysis(
         analysis = await _call_provider(
             payload={
                 "period": period,
-                "metrics": snapshot["metrics"],
+                # source_ids resolve o rótulo de procedência para os IDs reais
+                # de `sources`, o único vocabulário que a validação aceita.
+                "metrics": _metrics_with_source_ids(snapshot),
                 "sources": snapshot["sources"],
                 "quality": snapshot["quality"],
                 "crossings": snapshot["crossings"],
@@ -1862,6 +2048,10 @@ async def generate_analysis(
             request_id=request_id,
         )
         validation_started = time.monotonic()
+        # Apelido de fonte ("fbits") traduzido para o ID real ("commerce")
+        # antes de qualquer verificação. ID inexistente segue adiante e é
+        # recusado pela validação.
+        analysis = _normalize_grounding_ids(analysis, snapshot, request_id=request_id)
         # Quando o período inclui hoje, a ressalva de dia parcial é garantida
         # pelo backend antes da validação — que continua sendo o portão e
         # ainda acusa AI_MISSING_PARTIAL_TODAY_LIMITATION se faltar.
@@ -1876,7 +2066,9 @@ async def generate_analysis(
                 stage=LOG_STAGE_VALIDATION,
             )
         try:
-            _validate_analysis_grounding(analysis, snapshot, policy=policy)
+            _validate_analysis_grounding(
+                analysis, snapshot, policy=policy, request_id=request_id,
+            )
         except BaseException as exc:
             # O código específico do grounding (AI_UNGROUNDED_INSIGHT etc.)
             # sai no log sem nenhuma regra ser relaxada.
