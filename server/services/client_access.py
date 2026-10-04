@@ -266,6 +266,12 @@ async def create_client_access(
                 "Este e-mail já tem acesso a esta empresa.",
                 status_code=409,
             )
+        if await _holds_global_role(user_id):
+            raise AccessError(
+                "ACCESS_ROLE_NOT_ALLOWED",
+                "Contas da equipe Mugô não são administradas nesta tela.",
+                status_code=403,
+            )
     else:
         created = await _create_auth_user(email=safe_email, password=secret, name=safe_name)
         user_id = _text(created.get("id"))
@@ -291,6 +297,15 @@ async def create_client_access(
             status_code=502,
         ) from None
 
+    if not created_now:
+        # Conta reaproveitada: o acesso precisa ser utilizável agora, com a
+        # senha que o administrador acabou de definir e sem e-mail pendente.
+        # Só depois do vínculo — um vínculo que falhasse não pode deixar a
+        # senha de alguém trocada. O nome existente não é sobrescrito.
+        await _admin_request(
+            "PUT", f"/users/{user_id}", json={"password": secret, "email_confirm": True},
+        )
+
     print(
         f"[access][create] client_id={cid} actor={actor_user_id} role={safe_role} "
         f"reused_account={str(not created_now).lower()} status=ok"
@@ -303,8 +318,37 @@ async def create_client_access(
             "user_id": user_id, "email": safe_email, "name": safe_name or None,
             "role": safe_role, "role_label": ROLE_LABELS[safe_role],
             "account_created": created_now,
+            # A senha informada vale para os dois caminhos; a interface
+            # precisa saber para instruir a pessoa corretamente.
+            "password_applied": True,
         },
     }
+
+
+async def _holds_global_role(user_id: str) -> bool:
+    """A conta pertence à equipe Mugô, em qualquer empresa?
+
+    `reset_client_access_password` já olhava o papel na empresa do contexto.
+    Aqui a pergunta é mais ampla de propósito: ao reaproveitar uma conta que
+    já existe, um client_admin não pode definir a senha de alguém que é
+    agency_admin ou platform_admin em OUTRO lugar — isso seria tomar a conta.
+    """
+    uid = _text(user_id)
+    if not uid:
+        return False
+    from .platform_admin import is_platform_admin
+
+    if await is_platform_admin(uid):
+        return True
+    rows = await sb_select(
+        "client_memberships", select="user_id,role",
+        filters={"user_id": f"eq.{uid}"}, limit=200,
+    )
+    return any(
+        _text(row.get("role")).lower() in GLOBAL_ROLES
+        for row in rows
+        if _text(row.get("user_id")) == uid
+    )
 
 
 async def _require_membership(client_id: str, user_id: str) -> Dict[str, Any]:

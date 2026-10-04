@@ -51,6 +51,9 @@ def membership(user_id="user-1", client_id=COMPANY, role="viewer") -> Dict[str, 
 
 class AccessHarness(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        # Quem é platform_admin: consultado ao reaproveitar uma conta, para
+        # impedir que esta tela redefina a senha da equipe Mugô.
+        self.platform_admins: set[str] = set()
         self.memberships: List[Dict[str, Any]] = []
         self.auth_users: List[Dict[str, Any]] = []
         self.admin_calls: List[Dict[str, Any]] = []
@@ -104,6 +107,10 @@ class AccessHarness(unittest.IsolatedAsyncioTestCase):
         output = io.StringIO()
         with (
             patch.object(client_access, "_admin_request", AsyncMock(side_effect=self._admin)),
+            patch(
+                "services.platform_admin.is_platform_admin",
+                AsyncMock(side_effect=lambda uid: str(uid) in self.platform_admins),
+            ),
             patch.object(client_access, "sb_select", AsyncMock(side_effect=self._select)),
             patch.object(client_access, "sb_insert", AsyncMock(side_effect=self._insert)),
             patch.object(client_access, "sb_delete", AsyncMock(side_effect=self._delete)),
@@ -217,6 +224,168 @@ class CreateAccessTests(AccessHarness):
     async def test_company_is_required(self):
         _result, error = await self.run_action(self.create(client_id=""))
         self.assertEqual(error.code, "ACCESS_CLIENT_REQUIRED")
+
+
+class ImmediatelyUsableAccessTests(AccessHarness):
+    """O acesso criado pelo painel precisa servir no primeiro login.
+
+    Sem convite, sem magic link, sem confirmação pendente.
+    """
+
+    def created_call(self) -> Dict[str, Any]:
+        return next(call for call in self.admin_calls if call["method"] == "POST")
+
+    def updated_call(self) -> Dict[str, Any]:
+        return next(call for call in self.admin_calls if call["method"] == "PUT")
+
+    async def test_a_new_account_is_born_with_the_email_already_confirmed(self):
+        _result, error = await self.run_action(self.create())
+        self.assertIsNone(error)
+        self.assertTrue(self.created_call()["json"]["email_confirm"])
+
+    async def test_a_new_account_is_born_with_the_password_the_admin_typed(self):
+        _result, error = await self.run_action(self.create())
+        self.assertIsNone(error)
+        self.assertEqual(self.created_call()["json"]["password"], PASSWORD)
+
+    async def test_nothing_in_the_flow_sends_an_invitation_or_magic_link(self):
+        await self.run_action(self.create())
+        for call in self.admin_calls:
+            with self.subTest(path=call["path"]):
+                for invite in ("invite", "magiclink", "magic_link", "recover", "otp", "generate_link"):
+                    self.assertNotIn(invite, call["path"].lower())
+
+    async def test_the_default_profile_for_an_external_client_is_viewer(self):
+        result, _error = await self.run_action(self.create())
+        self.assertEqual(result["access"]["role"], "viewer")
+        self.assertEqual(self.inserts[0]["row"]["role"], "viewer")
+
+    async def test_the_membership_points_at_the_authorized_company(self):
+        result, _error = await self.run_action(self.create())
+        self.assertEqual(self.inserts[0]["row"]["client_id"], COMPANY)
+        self.assertEqual(result["client_id"], COMPANY)
+
+    async def test_the_response_says_the_password_is_valid_now(self):
+        result, _error = await self.run_action(self.create())
+        self.assertTrue(result["access"]["password_applied"])
+
+
+class ReusedAccountBecomesUsableTests(AccessHarness):
+    """E-mail que já existe no Auth: sem duplicar, mas utilizável agora."""
+
+    def setUp(self):
+        super().setUp()
+        self.auth_users = [auth_user()]
+        self.memberships = [membership(client_id=OTHER)]
+
+    async def test_no_duplicate_auth_user_is_created(self):
+        _result, error = await self.run_action(self.create())
+        self.assertIsNone(error)
+        self.assertFalse(any(call["method"] == "POST" for call in self.admin_calls))
+
+    async def test_the_password_the_admin_typed_is_applied_to_the_existing_account(self):
+        _result, error = await self.run_action(self.create())
+        self.assertIsNone(error)
+        update = next(call for call in self.admin_calls if call["method"] == "PUT")
+        self.assertEqual(update["path"], "/users/user-1")
+        self.assertEqual(update["json"]["password"], PASSWORD)
+
+    async def test_the_existing_account_has_the_email_confirmed_administratively(self):
+        await self.run_action(self.create())
+        update = next(call for call in self.admin_calls if call["method"] == "PUT")
+        self.assertTrue(update["json"]["email_confirm"])
+
+    async def test_the_existing_name_is_not_overwritten(self):
+        await self.run_action(self.create(name="Outro Nome"))
+        update = next(call for call in self.admin_calls if call["method"] == "PUT")
+        self.assertNotIn("user_metadata", update["json"])
+
+    async def test_the_password_is_applied_only_after_the_membership_succeeds(self):
+        # Um vínculo que falha não pode deixar a senha de alguém trocada.
+        self.insert_fails = True
+        _result, error = await self.run_action(self.create())
+        self.assertIsNotNone(error)
+        self.assertFalse(any(call["method"] == "PUT" for call in self.admin_calls))
+
+    async def test_the_preexisting_account_is_never_deleted_on_failure(self):
+        self.insert_fails = True
+        await self.run_action(self.create())
+        self.assertFalse(any(call["method"] == "DELETE" for call in self.admin_calls))
+
+    async def test_the_password_never_leaks_in_the_reuse_path(self):
+        result, _error = await self.run_action(self.create())
+        self.assertNotIn(PASSWORD, str(result))
+        self.assertNotIn(PASSWORD, self.log)
+        self.assertNotIn(PASSWORD, str(self.inserts))
+
+    async def test_the_other_company_membership_is_untouched(self):
+        await self.run_action(self.create())
+        self.assertEqual({row["client_id"] for row in self.memberships}, {OTHER, COMPANY})
+
+
+class TeamAccountsCannotBeTakenOverTests(AccessHarness):
+    """Reaproveitar conta não pode virar escalonamento de privilégio.
+
+    Um client_admin que digite o e-mail de alguém da equipe Mugô definiria a
+    senha dessa pessoa se o fluxo apenas reaproveitasse a conta.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.auth_users = [auth_user()]
+
+    async def assert_refused(self) -> None:
+        _result, error = await self.run_action(self.create())
+        self.assertIsNotNone(error)
+        self.assertEqual(error.code, "ACCESS_ROLE_NOT_ALLOWED")
+        self.assertEqual(error.status_code, 403)
+        self.assertEqual(self.inserts, [])
+        self.assertFalse(any(call["method"] == "PUT" for call in self.admin_calls))
+
+    async def test_an_agency_admin_of_another_company_is_refused(self):
+        self.memberships = [membership(client_id=OTHER, role="agency_admin")]
+        await self.assert_refused()
+
+    async def test_a_platform_admin_is_refused(self):
+        self.platform_admins = {"user-1"}
+        await self.assert_refused()
+
+    async def test_a_legacy_owner_role_is_refused(self):
+        self.memberships = [membership(client_id=OTHER, role="owner")]
+        await self.assert_refused()
+
+    async def test_an_ordinary_client_account_is_still_reused(self):
+        self.memberships = [membership(client_id=OTHER, role="client_admin")]
+        _result, error = await self.run_action(self.create())
+        self.assertIsNone(error)
+        self.assertTrue(any(call["method"] == "PUT" for call in self.admin_calls))
+
+
+class ServiceRoleNeverLeavesTheBackendTests(unittest.TestCase):
+    def test_the_admin_key_is_read_only_on_the_server(self):
+        source = (SERVER_DIR / "services" / "client_access.py").read_text(encoding="utf-8")
+        self.assertIn("SUPABASE_SERVICE_ROLE_KEY", source)
+
+    def test_no_response_field_carries_the_admin_key(self):
+        source = (SERVER_DIR / "services" / "client_access.py").read_text(encoding="utf-8")
+        returns = [line for line in source.splitlines() if "return {" in line or '"ok": True' in line]
+        self.assertTrue(returns)
+        for line in returns:
+            self.assertNotIn("SERVICE_ROLE", line.upper())
+
+    def test_the_frontend_never_mentions_the_service_role(self):
+        src = SERVER_DIR.parent / "src"
+        for path in src.rglob("*.ts*"):
+            body = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertNotIn("SERVICE_ROLE", body.upper())
+                self.assertNotIn("service_role", body)
+
+    def test_the_frontend_talks_only_to_the_backend_endpoint(self):
+        api = (SERVER_DIR.parent / "src" / "app" / "api.ts").read_text(encoding="utf-8")
+        self.assertIn('"/api/client-access"', api)
+        # Nada de Admin API do Supabase a partir do browser.
+        self.assertNotIn("/auth/v1/admin", api)
 
 
 class ListAccessTests(AccessHarness):
