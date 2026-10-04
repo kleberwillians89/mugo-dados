@@ -9,8 +9,15 @@ Regras:
 - Incremental: marcador persistido - 2h de sobreposição (DataAlteracao).
   A semântica exata de DataAlteracao não é detalhada pela documentação
   oficial e deve ser validada com o token real antes de ativar cron.
-- Somente campos necessários para analytics são persistidos; nome, e-mail,
-  CPF, telefone e endereço do cliente nunca entram no fluxo novo.
+- `fbits_orders` segue contendo somente campos de analytics e o
+  `customer_id`: nome, e-mail, CPF, telefone e endereço NUNCA entram no
+  pedido. `sanitize_order_raw` continua reduzindo `usuario` a `usuarioId` e
+  `tipoPessoa`, e isso é protegido por teste.
+- A identidade do cliente (nome, e-mail, telefone) é extraída do MESMO
+  payload de `/pedidos` e gravada em `fbits_customers`, tabela separada com
+  finalidade declarada (Customer 360) e exclusão própria. CPF, endereço e
+  meio de pagamento continuam descartados na leitura e não têm coluna lá.
+  Nenhuma requisição externa adicional: o dado já vinha na resposta.
 """
 
 from __future__ import annotations
@@ -165,6 +172,76 @@ def normalize_order(client_id: str, order: Dict[str, Any], status_names: Dict[st
         "products_count": sum(max(0, _int(item.get("quantidade"))) for item in raw["itens"]),
         "raw": raw,
     }
+
+
+# Campos da identidade que o Customer 360 usa. `cpf` e endereço estão fora de
+# propósito: não são lidos aqui nem têm coluna em fbits_customers.
+_CUSTOMER_PHONE_KEYS = ("telefoneCelular", "telefone", "telefoneResidencial")
+
+
+def normalize_customer(client_id: str, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Identidade do cliente a partir do objeto `usuario` do pedido.
+
+    Só nome, e-mail e telefone. Campo ausente na API vira None — nada é
+    inventado. Sem `usuarioId` não há identidade e nada é gravado.
+    """
+    user = order.get("usuario") if isinstance(order.get("usuario"), dict) else {}
+    customer_id = _safe_str(user.get("usuarioId"))
+    if not customer_id:
+        return None
+    phone = next(
+        (_safe_str(user.get(key)) for key in _CUSTOMER_PHONE_KEYS if _safe_str(user.get(key))),
+        "",
+    )
+    return {
+        "client_id": client_id,
+        "fbits_customer_id": customer_id,
+        "name": _safe_str(user.get("nome")) or None,
+        "email": (_safe_str(user.get("email")).lower() or None),
+        "phone": phone or None,
+        "created_at_provider": _iso_or_none(user.get("dataCriacao")),
+        "updated_at_provider": _iso_or_none(user.get("dataAlteracao")),
+        "synced_at": _iso(datetime.now(timezone.utc)),
+    }
+
+
+def normalize_customers(client_id: str, page: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Identidades distintas de uma página de pedidos.
+
+    O mesmo cliente aparece em vários pedidos da página; o upsert recebe uma
+    linha por cliente, com a leitura mais recente ganhando.
+    """
+    latest: Dict[str, Dict[str, Any]] = {}
+    for order in page:
+        row = normalize_customer(client_id, order)
+        if row:
+            latest[row["fbits_customer_id"]] = row
+    return list(latest.values())
+
+
+async def _persist_customer_identities(
+    client_id: str, page: Iterable[Dict[str, Any]],
+) -> int:
+    """Grava as identidades da página, tolerando a migration 040 pendente.
+
+    Enquanto `fbits_customers` não existir no remoto, o sync segue normal e o
+    log diz que falta migration — em vez de a sincronização de pedidos
+    inteira falhar por uma tabela ausente. O log nunca carrega PII: só a
+    contagem.
+    """
+    rows = normalize_customers(client_id, page)
+    if not rows:
+        return 0
+    try:
+        await sb_upsert("fbits_customers", rows, on_conflict="client_id,fbits_customer_id")
+    except Exception as exc:  # noqa: BLE001 - identidade não derruba pedidos
+        print(
+            f"[fbits][customers] client_id={client_id} status=unavailable "
+            f"customers={len(rows)} error_type={exc.__class__.__name__} "
+            "migration=20261004_000040_fbits_customer_identity"
+        )
+        return 0
+    return len(rows)
 
 
 def normalize_items(client_id: str, order_row: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -428,6 +505,7 @@ async def sync_fbits_connection(
     client = client_factory(token)
     orders_upserted = 0
     items_upserted = 0
+    customers_upserted = 0
     affected_days: set = set()
     mode = "historical" if historical else "incremental"
     print(f"[fbits][sync] client_id={client_id} connection_id={connection_id} mode={mode} windows={len(windows)} filter={date_filter}")
@@ -443,6 +521,11 @@ async def sync_fbits_connection(
                     if not order_rows:
                         continue
                     await sb_upsert("fbits_orders", order_rows, on_conflict="client_id,order_id")
+                    # Identidade do cliente extraída da MESMA página já lida:
+                    # nenhuma requisição externa a mais, nenhum N+1.
+                    customers_upserted += await _persist_customer_identities(
+                        client_id, page,
+                    )
                     item_rows = [item for order_row in order_rows for item in normalize_items(client_id, order_row)]
                     if item_rows:
                         await sb_upsert("fbits_order_items", item_rows, on_conflict="client_id,order_id,item_id")
@@ -503,7 +586,8 @@ async def sync_fbits_connection(
 
     print(
         f"[fbits][sync] client_id={client_id} mode={mode} status=ok orders={orders_upserted} "
-        f"items={items_upserted} days={daily_upserted} requests={client.requests_made}"
+        f"items={items_upserted} customers={customers_upserted} days={daily_upserted} "
+        f"requests={client.requests_made}"
     )
     payload = {
         "ok": True,
@@ -511,6 +595,8 @@ async def sync_fbits_connection(
         "mode": mode,
         "orders_upserted": orders_upserted,
         "items_upserted": items_upserted,
+        # Contagem apenas: identidade de cliente nunca entra em log nem payload.
+        "customers_upserted": customers_upserted,
         "daily_upserted": daily_upserted,
         "requests": client.requests_made,
         "last_attempt_at": attempt_at,

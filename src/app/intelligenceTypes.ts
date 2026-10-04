@@ -180,3 +180,63 @@ export type IntelligenceMessage = {
   sources: IntelligenceSource[];
   created_at: string;
 };
+
+/** Customer 360: contrato único, independente do provider de e-commerce. */
+export type CustomerSummary = {
+  id: string;
+  external_id: string | null;
+  client_id: string;
+  provider: "fbits" | "shopify";
+  provider_label: string;
+  identity_kind: "external_id" | "email" | "phone";
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  orders_count: number;
+  total_revenue: number;
+  average_ticket: number | null;
+  first_order_at: string | null;
+  last_order_at: string | null;
+  status: "recurring" | "single" | "no_purchase";
+};
+
+export type CustomerBaseTotals = {
+  customers: number;
+  recurring_customers: number;
+  buyers: number;
+  total_revenue: number;
+  total_orders: number;
+  average_ticket: number | null;
+};
+
+export type CustomerListResponse = {
+  ok: true;
+  client_id: string;
+  provider: "fbits" | "shopify" | null;
+  provider_label: string | null;
+  connected: boolean;
+  totals: CustomerBaseTotals;
+  customers: CustomerSummary[];
+  page: number;
+  page_size: number;
+  total: number;
+  truncated: boolean;
+  contact_details_available: boolean;
+  orders_unattributed: number;
+};
+
+export type CustomerOrder = {
+  order_id: string;
+  reference: string;
+  happened_at: string | null;
+  value: number;
+  status: string | null;
+  counts_as_revenue: boolean;
+};
+
+export type CustomerDetailResponse = {
+  ok: true;
+  client_id: string;
+  customer: CustomerSummary;
+  orders: CustomerOrder[];
+};

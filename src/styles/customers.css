@@ -1,0 +1,49 @@
+/* Página Clientes: mesma gramática editorial das outras páginas migradas. */
+
+.customerLead{margin:0 0 var(--space-5);color:var(--text-secondary);font-size:15px;line-height:1.5}
+
+.customerCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin-bottom:var(--space-5)}
+.customerCard{display:flex;flex-direction:column;gap:4px;padding:var(--space-4);background:var(--white);border:1px solid var(--stroke);border-radius:var(--radius-lg)}
+.customerCardLabel{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary,#74766f)}
+.customerCardValue{font-size:26px;line-height:1.1;color:var(--text-primary)}
+.customerCardNote{font-size:12px;color:var(--text-secondary)}
+
+.customerSearch{display:grid;gap:6px;margin:var(--space-5) 0 var(--space-3);max-width:420px}
+.customerSearchLabel{font-size:13px;font-weight:700;color:var(--text-primary)}
+.customerSearchInput{width:100%;min-height:42px;padding:0 12px;border:1px solid var(--stroke);border-radius:var(--radius);background:var(--white);font-size:15px}
+
+.customerTableWrap{overflow-x:auto}
+.customerTable{width:100%;border-collapse:collapse;font-size:14px}
+.customerTable th,.customerTable td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--border-subtle,#e8e5de);vertical-align:top}
+.customerTable th{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary);white-space:nowrap}
+.customerTable tbody tr.is-excluded{color:var(--text-secondary)}
+
+.customerNameButton{display:block;padding:0;border:none;background:none;font:inherit;font-weight:600;color:var(--text-primary);text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:var(--stroke);text-underline-offset:3px}
+.customerNameButton:hover,.customerNameButton:focus-visible{text-decoration-color:currentColor}
+.customerRowNote{display:block;margin-top:3px;font-size:12px;color:var(--text-secondary)}
+.customerContactLine{display:block;font-size:13px;line-height:1.5;word-break:break-word}
+.customerContactLine.is-muted{color:var(--text-secondary)}
+
+.customerOrigin{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#f2f0ec;color:var(--text-primary);white-space:nowrap}
+.customerOrigin.is-fbits{background:rgba(0,79,110,.1);color:#004f6e}
+.customerOrigin.is-shopify{background:rgba(22,163,74,.12);color:#286141}
+
+.customerEmpty{padding:28px 4px;color:var(--text-secondary)}
+
+.customerPager{display:flex;align-items:center;gap:var(--space-3);margin-top:var(--space-4);font-size:14px;color:var(--text-secondary)}
+.customerPager button{min-height:38px;padding:0 14px;border:1px solid var(--stroke);border-radius:var(--radius);background:var(--white);font:inherit;cursor:pointer}
+.customerPager button:disabled{opacity:.5;cursor:default}
+
+.customerDetailGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--space-4);margin:0 0 var(--space-5)}
+.customerDetailGrid dt{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary)}
+.customerDetailGrid dd{margin:4px 0 0;font-size:16px;color:var(--text-primary);word-break:break-word}
+.customerDetailHeading{margin:0 0 var(--space-3);font-size:16px}
+.customerOrdersTable th,.customerOrdersTable td{padding:10px 12px}
+
+@media(max-width:640px){
+  .customerCardValue{font-size:22px}
+  .customerSearch{max-width:none}
+  /* iOS Safari faz zoom automático em input com font-size < 16px ao focar */
+  .customerSearchInput{font-size:16px}
+  .customerTable th,.customerTable td{padding:10px}
+}

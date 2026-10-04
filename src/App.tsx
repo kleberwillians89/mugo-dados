@@ -28,6 +28,7 @@ const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
+const loadCustomers = () => import("./pages/Customers");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
 const loadNotFound = () => import("./pages/NotFound");
@@ -37,6 +38,7 @@ const Onboarding = lazy(loadOnboarding);
 const Dashboard = lazy(loadDashboard);
 const GoogleAnalytics = lazy(loadGoogleAnalytics);
 const Ecommerce = lazy(loadEcommerce);
+const Customers = lazy(loadCustomers);
 const Companies = lazy(loadCompanies);
 const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
@@ -859,6 +861,8 @@ function PrivateApp() {
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("meta")}
         />
+      ) : route === "customers" ? (
+        <Customers key={`customers:${activeClientId}`} onLogout={handleLogout} />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}

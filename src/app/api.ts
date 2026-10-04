@@ -35,6 +35,8 @@ import type {
 } from "./types";
 import type { Period } from "./PeriodContext";
 import type {
+  CustomerDetailResponse,
+  CustomerListResponse,
   IntelligenceAnalysisRecord,
   IntelligenceMessage,
   IntelligenceSnapshot,
@@ -2165,4 +2167,29 @@ export async function updateNote(
     method: "PUT",
     body: JSON.stringify(payload),
   });
+}
+
+/** Base de clientes do tenant atual. O client_id é resolvido no backend. */
+export async function getCustomers(
+  params: { search?: string; page?: number; pageSize?: number } = {},
+  options?: RequestSignalOptions,
+): Promise<CustomerListResponse> {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.page) query.set("page", String(params.page));
+  if (params.pageSize) query.set("page_size", String(params.pageSize));
+  const suffix = query.toString();
+  return http<CustomerListResponse>(`/api/customers${suffix ? `?${suffix}` : ""}`, {
+    signal: options?.signal,
+  });
+}
+
+export async function getCustomerDetail(
+  customerId: string,
+  options?: RequestSignalOptions,
+): Promise<CustomerDetailResponse> {
+  return http<CustomerDetailResponse>(
+    `/api/customers/${encodeURIComponent(customerId)}`,
+    { signal: options?.signal },
+  );
 }

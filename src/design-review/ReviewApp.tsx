@@ -18,6 +18,7 @@ import { REVIEW_PROFILES, type ReviewChannelScenario, type ReviewCompany, type R
 
 const ROUTE_TITLE: Record<AppRoute, string> = {
   ecommerce: "Ecommerce",
+  customers: "Clientes",
   meta: "Meta",
   google: "Google",
   intelligence: "Inteligência",

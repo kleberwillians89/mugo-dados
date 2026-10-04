@@ -33,6 +33,7 @@ type NavItem = { route: AppRoute; label: string };
 // (resultado de vendas → mídia → site → leitura assistida).
 const PRODUCT_ITEMS: NavItem[] = [
   { route: "ecommerce", label: "Ecommerce" },
+  { route: "customers", label: "Clientes" },
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
   { route: "intelligence", label: "Inteligência" },

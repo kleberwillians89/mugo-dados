@@ -2,6 +2,7 @@ export type AppRoute =
   | "meta"
   | "google"
   | "ecommerce"
+  | "customers"
   | "integrations"
   | "intelligence"
   | "companies"
@@ -32,6 +33,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized.startsWith("/integracoes")) return "integrations";
   if (normalized.startsWith("/inteligencia")) return "intelligence";
   if (normalized.startsWith("/ecommerce")) return "ecommerce";
+  if (normalized.startsWith("/clientes")) return "customers";
   if (normalized.startsWith("/google") || normalized.startsWith("/analytics")) return "google";
   return "not_found";
 }
@@ -47,6 +49,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "intelligence") return "/inteligencia";
   if (route === "google") return "/google";
   if (route === "ecommerce") return "/ecommerce";
+  if (route === "customers") return "/clientes";
   if (route === "not_found") return "/404";
   return "/meta";
 }
