@@ -15,10 +15,6 @@ import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from 
 import { formatFreshness } from "../app/dataRefresh";
 import "../styles/customers.css";
 
-type Props = {
-  onLogout: () => void | Promise<void>;
-};
-
 const PAGE_SIZE = 25;
 
 type CachedBase = { payload: CustomerListResponse; refreshedAt: string };
@@ -54,7 +50,7 @@ function displayName(customer: CustomerSummary): string {
   if (name) return name;
   if (customer.email) return customer.email;
   if (customer.phone) return phoneDisplay(customer.phone);
-  return "Não informado";
+  return "—";
 }
 
 function phoneDisplay(phone: string | null): string {
@@ -64,10 +60,6 @@ function phoneDisplay(phone: string | null): string {
   if (local.length === 11) return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
   if (local.length === 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
   return local;
-}
-
-function contactLines(customer: CustomerSummary): string[] {
-  return [customer.email || "", phoneDisplay(customer.phone)].filter(Boolean);
 }
 
 const STATUS_LABEL: Record<CustomerSummary["status"], string> = {
@@ -86,10 +78,12 @@ function SummaryCard({ label, value, note }: { label: string; value: string; not
   );
 }
 
-export default function Customers({ onLogout }: Props) {
+export default function Customers() {
   const clientId = getActiveClientId();
-  const cached = readDashboardCache<CachedBase>(baseCacheKey(clientId));
-  const [data, setData] = useState<CustomerListResponse | null>(cached?.payload || null);
+  const base = readDashboardCache<CachedBase>(baseCacheKey(clientId));
+  const cached = base?.payload.client_id === clientId ? base : null;
+  const [storedData, setData] = useState<CustomerListResponse | null>(cached?.payload || null);
+  const data = storedData?.client_id === clientId ? storedData : null;
   const [refreshedAt, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
   const [tick, setTick] = useState(() => Date.now());
   // Último estado válido já na tela: só mostra "carregando" quando não há
@@ -99,7 +93,8 @@ export default function Customers({ onLogout }: Props) {
   const [search, setSearch] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<CustomerDetailResponse | null>(null);
+  const [storedSelected, setSelected] = useState<CustomerDetailResponse | null>(null);
+  const selected = storedSelected?.client_id === clientId ? storedSelected : null;
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const company = getActiveClientName();
@@ -126,7 +121,14 @@ export default function Customers({ onLogout }: Props) {
         { search: term, page: wanted, pageSize: PAGE_SIZE },
         { signal },
       );
-      if (request !== generation.current) return;
+      if (signal.aborted || request !== generation.current || getActiveClientId() !== clientId) return;
+      if (
+        payload.client_id !== clientId || !Array.isArray(payload.customers) ||
+        typeof payload.connected !== "boolean" ||
+        payload.customers.some((customer) => customer.client_id !== clientId)
+      ) {
+        throw new Error("A resposta de clientes não corresponde à empresa selecionada.");
+      }
       setData(payload);
       const now = new Date().toISOString();
       setRefreshedAt(now);
@@ -137,7 +139,7 @@ export default function Customers({ onLogout }: Props) {
         );
       }
     } catch (reason: unknown) {
-      if (signal.aborted || request !== generation.current) return;
+      if (signal.aborted || request !== generation.current || getActiveClientId() !== clientId) return;
       setError(
         reason instanceof Error && reason.message
           ? reason.message
@@ -163,21 +165,32 @@ export default function Customers({ onLogout }: Props) {
     };
   }, [applied, page, load]);
 
+  const detailGeneration = useRef(0);
+  const invalidateDetail = useCallback(() => { detailGeneration.current++; }, []);
+  useEffect(() => invalidateDetail, [clientId, invalidateDetail]);
+
   const openCustomer = useCallback((customerId: string) => {
+    if (getActiveClientId() !== clientId) return;
+    const request = ++detailGeneration.current;
     setDetailLoading(true);
     setDetailError("");
     setSelected(null);
     getCustomerDetail(customerId)
-      .then(setSelected)
+      .then((payload) => {
+        if (request !== detailGeneration.current || getActiveClientId() !== clientId) return;
+        if (payload.client_id !== clientId || payload.customer.client_id !== clientId) throw new Error("O cliente não corresponde à empresa selecionada.");
+        setSelected(payload);
+      })
       .catch((reason: unknown) => {
+        if (request !== detailGeneration.current || getActiveClientId() !== clientId) return;
         setDetailError(
           reason instanceof Error && reason.message
             ? reason.message
             : "Este cliente não pôde ser aberto agora.",
         );
       })
-      .finally(() => setDetailLoading(false));
-  }, []);
+      .finally(() => { if (request === detailGeneration.current) setDetailLoading(false); });
+  }, [clientId]);
 
   const totals = data?.totals;
   const pages = useMemo(
@@ -192,11 +205,6 @@ export default function Customers({ onLogout }: Props) {
     <Shell
       title="Clientes"
       variant="editorial"
-      right={
-        <button type="button" className="ds-utilityAction" onClick={() => void onLogout()}>
-          Sair
-        </button>
-      }
     >
       <PageHeader
         company={company}
@@ -212,11 +220,13 @@ export default function Customers({ onLogout }: Props) {
       />
       <p className="customerLead">Conheça e acompanhe a base de clientes desta empresa.</p>
 
-      {error ? <DataNotice tone="negative" role="alert" title="Não foi possível carregar">{error}</DataNotice> : null}
+      {error ? <DataNotice tone="negative" role="alert" title="Não foi possível carregar os clientes.">{error}</DataNotice> : null}
+
+      {loading && !data ? <p className="customerEmpty" role="status">Carregando clientes...</p> : null}
 
       {!error && !loading && !connected ? (
-        <DataNotice tone="neutral" title="Nenhuma loja conectada">
-          Conecte a loja desta empresa para ver a base de clientes aqui.
+        <DataNotice tone="neutral" title="Nenhum cliente encontrado para esta empresa.">
+          Nenhuma loja conectada. Conecte a loja desta empresa para ver a base de clientes aqui.
         </DataNotice>
       ) : null}
 
@@ -263,13 +273,11 @@ export default function Customers({ onLogout }: Props) {
           </section>
 
           <section className="customerTableWrap" aria-label="Clientes">
-            {loading && !data ? (
-              <p className="customerEmpty">Carregando clientes…</p>
-            ) : customers.length === 0 ? (
+            {!loading && !error && customers.length === 0 ? (
               <p className="customerEmpty">
                 {applied
                   ? "Nenhum cliente encontrado para esta busca."
-                  : "Ainda não há clientes com compras registradas."}
+                  : "Nenhum cliente encontrado para esta empresa."}
               </p>
             ) : (
               <table className="customerTable">
@@ -285,7 +293,6 @@ export default function Customers({ onLogout }: Props) {
                 </thead>
                 <tbody>
                   {customers.map((customer) => {
-                    const contacts = contactLines(customer);
                     return (
                       <tr key={customer.id}>
                         <td>
@@ -296,15 +303,8 @@ export default function Customers({ onLogout }: Props) {
                           >
                             {displayName(customer)}
                           </button>
-                          {contacts.length ? (
-                            contacts.map((line) => (
-                              <span key={line} className="customerContactLine">
-                                {line}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="customerContactLine is-muted">Não informado</span>
-                          )}
+                          <span className={`customerContactLine${customer.email ? "" : " is-muted"}`} aria-label="E-mail">{customer.email || "—"}</span>
+                          <span className={`customerContactLine${customer.phone ? "" : " is-muted"}`} aria-label="Telefone">{phoneDisplay(customer.phone) || "—"}</span>
                         </td>
                         <td>{count(customer.orders_count)}</td>
                         <td>{money(customer.total_revenue)}</td>
@@ -354,6 +354,8 @@ export default function Customers({ onLogout }: Props) {
         description={selected ? STATUS_LABEL[selected.customer.status] : undefined}
         width="lg"
         onClose={() => {
+          invalidateDetail();
+          setDetailLoading(false);
           setSelected(null);
           setDetailError("");
         }}

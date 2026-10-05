@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+const tenant = vi.hoisted(() => ({ id: "roove-test", name: "Roove" }));
+
 vi.mock("../app/activeClient", () => ({
-  getActiveClientId: () => "roove-test",
-  getActiveClientName: () => "Roove",
+  getActiveClientId: () => tenant.id,
+  getActiveClientName: () => tenant.name,
 }));
 
 const api = vi.hoisted(() => ({
@@ -19,6 +21,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../app/api", () => api);
 
 const Customers = (await import("./Customers")).default;
+const { clearDashboardCacheByPrefix } = await import("../hooks/dashboard/cache");
 
 type Summary = {
   id: string;
@@ -90,7 +93,7 @@ let root: ReturnType<typeof createRoot>;
 
 async function render() {
   await act(async () => {
-    root.render(React.createElement(Customers, { onLogout: () => {} }));
+    root.render(React.createElement(Customers, { key: tenant.id }));
   });
 }
 
@@ -108,6 +111,9 @@ function typeSearch(value: string) {
 }
 
 beforeEach(() => {
+  tenant.id = "roove-test";
+  tenant.name = "Roove";
+  clearDashboardCacheByPrefix("customers-base|");
   vi.useFakeTimers({ shouldAdvanceTime: true });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -124,6 +130,19 @@ afterEach(() => {
 });
 
 describe("página Clientes", () => {
+  it("mostra loading antes da primeira resposta, sem depender de connected", async () => {
+    api.getCustomers.mockImplementation(() => new Promise(() => {}));
+    await render();
+    expect(api.getCustomers).toHaveBeenCalledOnce();
+    expect(text()).toContain("Carregando clientes...");
+    expect(text()).not.toContain("Nenhum cliente encontrado");
+  });
+
+  it("não renderiza o botão Sair solto nem a barra utilitária", async () => {
+    await render();
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Sair")).toBe(false);
+    expect(container.querySelector(".ds-utilityBar")).toBeNull();
+  });
   it("abre com o título e a frase de apresentação", async () => {
     await render();
     expect(text()).toContain("Clientes");
@@ -193,8 +212,8 @@ describe("página Clientes", () => {
     );
     await render();
     expect(text()).not.toContain("Cliente c-100");
-    expect(container.querySelector(".customerNameButton")?.textContent).toBe("Não informado");
-    expect(text()).toContain("Não informado");
+    expect(container.querySelector(".customerNameButton")?.textContent).toBe("—");
+    expect(text()).toContain("—");
   });
 
   it("avisa quando a loja não compartilha contatos", async () => {
@@ -272,6 +291,8 @@ describe("página Clientes", () => {
     api.getCustomers.mockRejectedValue(new Error("A base de clientes não pôde ser carregada agora."));
     await render();
     expect(text()).toContain("Não foi possível carregar");
+    expect(text()).not.toContain("Nenhum cliente encontrado");
+    expect(text()).not.toContain("Nenhuma loja conectada");
   });
 
   it("abre o detalhe do cliente com histórico de pedidos", async () => {
@@ -322,6 +343,72 @@ describe("página Clientes", () => {
     expect(text()).toContain("Não foi possível abrir");
     expect(text()).toContain("Ana Recorrente");
   });
+});
+
+it("mostra vazio somente após resposta válida sem clientes", async () => {
+  api.getCustomers.mockResolvedValue(listing({ customers: [], total: 0 }));
+  await render();
+  expect(text()).toContain("Nenhum cliente encontrado para esta empresa.");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("contatos ausentes têm placeholders discretos", async () => {
+  api.getCustomers.mockResolvedValue(listing({ customers: [summary({ email: null, phone: null })] }));
+  await render();
+  const cell = container.querySelector(".customerNameButton")!.closest("td")!;
+  expect(cell.querySelector('[aria-label="E-mail"]')?.textContent).toBe("—");
+  expect(cell.querySelector('[aria-label="Telefone"]')?.textContent).toBe("—");
+});
+
+it("troca de empresa recarrega a base e descarta resposta antiga", async () => {
+  let oldResponse!: (value: unknown) => void;
+  api.getCustomers.mockImplementationOnce(() => new Promise((resolve) => { oldResponse = resolve; }));
+  await render();
+  tenant.id = "vinhos"; tenant.name = "Curavino";
+  api.getCustomers.mockResolvedValue(listing({ client_id: "vinhos", customers: [summary({ client_id: "vinhos", name: "Cliente Curavino" })] }));
+  await render();
+  expect(api.getCustomers).toHaveBeenCalledTimes(2);
+  await act(async () => { oldResponse(listing()); });
+  expect(text()).toContain("Cliente Curavino");
+  expect(text()).not.toContain("Ana Recorrente");
+});
+
+it("rejeita lista de outro tenant como erro, sem exibir seus contatos", async () => {
+  api.getCustomers.mockResolvedValue(listing({ client_id: "vinhos", customers: [summary({ client_id: "vinhos" })] }));
+  await render();
+  expect(text()).toContain("Não foi possível carregar os clientes.");
+  expect(text()).not.toContain("ana@exemplo-roove.com");
+  expect(text()).not.toContain("Nenhum cliente encontrado");
+});
+
+it("resposta incompatível não vira base vazia", async () => {
+  api.getCustomers.mockResolvedValue({ client_id: "roove-test", customers: null });
+  await render();
+  expect(text()).toContain("Não foi possível carregar os clientes.");
+  expect(text()).not.toContain("Nenhum cliente encontrado");
+});
+
+it("resposta tardia de detalhe não abre drawer em outro tenant", async () => {
+  let detail!: (value: unknown) => void;
+  api.getCustomerDetail.mockImplementation(() => new Promise((resolve) => { detail = resolve; }));
+  await render();
+  await act(async () => { container.querySelector<HTMLButtonElement>(".customerNameButton")!.click(); });
+  tenant.id = "vinhos"; tenant.name = "Curavino";
+  api.getCustomers.mockResolvedValue(listing({ client_id: "vinhos", customers: [], total: 0 }));
+  await render();
+  await act(async () => { detail({ client_id: "roove-test", customer: summary(), orders: [] }); });
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(text()).not.toContain("Ana Recorrente");
+});
+
+it("listagem permanece somente leitura e não renderiza campos sensíveis extras", async () => {
+  api.getCustomers.mockResolvedValue(listing({ customers: [{ ...summary(), cpf: "CPF-TESTE", address: "ENDERECO-TESTE", payment: "PAGAMENTO-TESTE", raw_payload: "RAW-TESTE" }] }));
+  await render();
+  for (const field of ["CPF-TESTE", "ENDERECO-TESTE", "PAGAMENTO-TESTE", "RAW-TESTE"]) expect(text()).not.toContain(field);
+  for (const label of ["Criar", "Editar", "Excluir", "Sincronizar"]) {
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes(label))).toBe(false);
+  }
+  expect(api.getCustomerDetail).not.toHaveBeenCalled();
 });
 
 

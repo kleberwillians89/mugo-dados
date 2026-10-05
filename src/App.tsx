@@ -866,7 +866,7 @@ function PrivateApp() {
           onOpenDashboard={() => openRoute("meta")}
         />
       ) : route === "customers" ? (
-        <Customers key={`customers:${activeClientId}`} onLogout={handleLogout} />
+        <Customers key={`customers:${activeClientId}`} />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}
