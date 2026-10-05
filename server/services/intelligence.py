@@ -1975,6 +1975,37 @@ async def _call_provider(
     return parsed
 
 
+async def _call_analysis_with_numeric_repair(
+    *, payload: Dict[str, Any], schema: Dict[str, Any], instructions: str,
+    request_id: str | None = None,
+) -> Dict[str, Any]:
+    """Uma regeneração, apenas para rejeição numérica; mesmo contexto/schema.
+    A resposta inválida nunca sai de _call_provider nem entra no repair.
+    """
+    try:
+        return await _call_provider(
+            payload=payload, schema=schema, instructions=instructions, request_id=request_id,
+        )
+    except RuntimeError as exc:
+        if not str(exc).startswith("AI_UNTRUSTED_NUMERIC_TEXT:"):
+            raise
+    _log_line("numeric_grounding_repair_started", request_id=request_id or "-", attempt="repair")
+    try:
+        repaired = await _call_provider(
+            payload=payload, schema=schema,
+            instructions=instructions + "\nA tentativa anterior foi rejeitada por conter número não suportado. "
+            "Gere novamente a resposta estruturada usando somente números explicitamente presentes "
+            "nos dados confiáveis fornecidos. Quando não houver número suportado, descreva "
+            "qualitativamente. Não invente percentuais, contagens, datas ou valores.",
+            request_id=request_id,
+        )
+    except Exception:
+        _log_line("numeric_grounding_repair_failed", request_id=request_id or "-", attempt="repair")
+        raise
+    _log_line("numeric_grounding_repair_succeeded", request_id=request_id or "-", attempt="repair")
+    return repaired
+
+
 def _sanitize_analysis(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Dict[str, Any]:
     allowed_metrics = {metric["id"] for metric in snapshot["metrics"]}
     allowed_sources = {source["id"] for source in snapshot["sources"]}
@@ -2290,7 +2321,7 @@ async def _generate_with_provider(
     generation_started = time.monotonic()
     policy = _build_analysis_policy(snapshot)
     try:
-        analysis = await _call_provider(
+        analysis = await _call_analysis_with_numeric_repair(
             payload={
                 "period": period,
                 # source_ids resolve o rótulo de procedência para os IDs reais

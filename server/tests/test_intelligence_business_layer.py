@@ -337,7 +337,7 @@ class AnalysisCacheTests(unittest.TestCase):
 
     def test_no_credential_is_sent_to_the_model(self):
         source = (SERVER_DIR / "services" / "intelligence.py").read_text(encoding="utf-8")
-        payload_start = source.index('analysis = await _call_provider(')
+        payload_start = source.index('analysis = await _call_analysis_with_numeric_repair(')
         payload = source[payload_start:payload_start + 2000]
         for forbidden in ("_token", "encrypted", "service_role", "client_secret", "access_token"):
             self.assertNotIn(forbidden, payload)
