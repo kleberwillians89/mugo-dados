@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
 
@@ -17,8 +18,61 @@ from services.platform_admin import (
 )
 from services.ig_supabase import sb_rpc, sb_select
 from services.tenant import require_user_id
+from services.auth import get_user_id_from_bearer
+from services.fbits_customer_backfill import CustomerBackfillError, backfill_customer_identities
 
 router = APIRouter(prefix="/api/platform", tags=["platform-admin"])
+
+BACKFILL_COUNT_FIELDS = (
+    "orders_processed", "identities_found", "identities_persisted",
+    "identities_without_contact", "errors",
+)
+
+
+def _backfill_counts(result: dict) -> dict:
+    # Allowlist explícita: nunca repassar payloads ou campos extras do serviço.
+    counts = {field: result[field] for field in BACKFILL_COUNT_FIELDS}
+    if any(type(value) is not int or value < 0 for value in counts.values()):
+        raise ValueError("Contagens operacionais inválidas.")
+    return counts
+
+
+@router.post("/fbits/customer-identities/backfill")
+async def platform_backfill_fbits_customers(
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    if not authorization or not authorization.lower().startswith("bearer ") or not authorization[7:].strip():
+        raise HTTPException(status_code=401, detail="Autenticação obrigatória.")
+    # Operação administrativa não aceita os bypasses locais de require_user_id.
+    if not await get_user_id_from_bearer(authorization):
+        raise HTTPException(status_code=401, detail="Autenticação obrigatória.")
+    await require_platform_admin(authorization, allow_agency_admin=False)
+    if set(payload) != {"client_id", "confirm_client_id"}:
+        raise HTTPException(status_code=400, detail="Informe somente client_id e confirm_client_id.")
+    client_id = payload.get("client_id")
+    try:
+        if not isinstance(client_id, str) or str(UUID(client_id)) != client_id or payload.get("confirm_client_id") != client_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="Informe e confirme um único client_id UUID válido.") from None
+    try:
+        rows = await sb_select("clients", select="id", filters={"id": f"eq.{client_id}"}, limit=1)
+        if not rows or rows[0].get("id") != client_id:
+            raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+        result = await backfill_customer_identities(client_id=client_id, confirm_client_id=client_id)
+        counts = _backfill_counts(result)
+        if counts["errors"]:
+            raise HTTPException(status_code=502, detail={"code": "FBITS_CUSTOMER_BACKFILL_FAILED", "counts": counts})
+        return counts
+    except CustomerBackfillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "counts": _backfill_counts(exc.counts)}) from None
+    except HTTPException:
+        raise
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail={"code": "FBITS_CUSTOMER_BACKFILL_TIMEOUT"}) from None
+    except Exception:
+        raise HTTPException(status_code=502, detail={"code": "FBITS_CUSTOMER_BACKFILL_FAILED"}) from None
 
 
 @router.get("/me")

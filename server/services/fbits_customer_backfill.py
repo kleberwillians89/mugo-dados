@@ -7,6 +7,15 @@ from datetime import timedelta
 from uuid import UUID
 
 from . import fbits_connections as fbits
+from .integration_errors import IntegrationError
+
+
+class CustomerBackfillError(RuntimeError):
+    def __init__(self, *, counts: dict, status_code: int, code: str):
+        super().__init__("FBITS_CUSTOMER_BACKFILL_FAILED")
+        self.counts = dict(counts)
+        self.status_code = status_code
+        self.code = code
 
 
 async def backfill_customer_identities(*, client_id: str, confirm_client_id: str, client_factory=fbits.default_client_factory) -> dict:
@@ -54,9 +63,16 @@ async def backfill_customer_identities(*, client_id: str, confirm_client_id: str
                         counts["identities_found"] += len(identities)
                         counts["identities_without_contact"] += sum(not any(row.get(field) for field in ("name", "email", "phone")) for row in identities)
                         counts["identities_persisted"] += await fbits._persist_customer_identities(client_id, page, preserve_existing=True)
-    except Exception:
+    except Exception as exc:
         counts["errors"] += 1
         print("[fbits][customer_backfill] " + json.dumps(counts, sort_keys=True), flush=True)
-        raise RuntimeError("FBITS_CUSTOMER_BACKFILL_FAILED") from None
+        status_code, code = 502, "FBITS_CUSTOMER_BACKFILL_FAILED"
+        if isinstance(exc, TimeoutError):
+            status_code, code = 504, "FBITS_CUSTOMER_BACKFILL_TIMEOUT"
+        elif isinstance(exc, IntegrationError) and exc.code == "SYNC_ALREADY_RUNNING":
+            status_code, code = 409, "FBITS_CUSTOMER_BACKFILL_BUSY"
+        elif isinstance(exc, IntegrationError) and exc.status_code == 429:
+            status_code, code = 429, "FBITS_CUSTOMER_BACKFILL_RATE_LIMITED"
+        raise CustomerBackfillError(counts=counts, status_code=status_code, code=code) from None
     print("[fbits][customer_backfill] " + json.dumps(counts, sort_keys=True), flush=True)
     return counts
