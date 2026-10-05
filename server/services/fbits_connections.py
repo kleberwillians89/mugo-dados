@@ -205,22 +205,27 @@ def normalize_customer(client_id: str, order: Dict[str, Any]) -> Optional[Dict[s
     }
 
 
-def normalize_customers(client_id: str, page: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def normalize_customers(client_id: str, page: Iterable[Dict[str, Any]], *, preserve_contacts: bool = False) -> List[Dict[str, Any]]:
     """Identidades distintas de uma página de pedidos.
 
     O mesmo cliente aparece em vários pedidos da página; o upsert recebe uma
-    linha por cliente, com a leitura mais recente ganhando.
+    linha por cliente, com a leitura mais recente ganhando. O backfill pode
+    preservar campos de contato preenchidos em outra ocorrência da página.
     """
     latest: Dict[str, Dict[str, Any]] = {}
     for order in page:
         row = normalize_customer(client_id, order)
         if row:
+            if preserve_contacts:
+                previous = latest.get(row["fbits_customer_id"], {})
+                for field in ("name", "email", "phone"):
+                    row[field] = row[field] or previous.get(field)
             latest[row["fbits_customer_id"]] = row
     return list(latest.values())
 
 
 async def _persist_customer_identities(
-    client_id: str, page: Iterable[Dict[str, Any]],
+    client_id: str, page: Iterable[Dict[str, Any]], *, preserve_existing: bool = False,
 ) -> int:
     """Grava as identidades da página, tolerando a migration 040 pendente.
 
@@ -228,11 +233,27 @@ async def _persist_customer_identities(
     log diz que falta migration — em vez de a sincronização de pedidos
     inteira falhar por uma tabela ausente. O log nunca carrega PII: só a
     contagem.
+
+    preserve_existing é exclusivo da operação histórica: mantém contatos
+    existentes, ignora perfis totalmente vazios e propaga falhas de banco.
     """
-    rows = normalize_customers(client_id, page)
+    rows = normalize_customers(client_id, page, preserve_contacts=preserve_existing)
+    if preserve_existing:
+        rows = [row for row in rows if any(row.get(field) for field in ("name", "email", "phone"))]
     if not rows:
         return 0
     try:
+        if preserve_existing:
+            quoted_ids = [json.dumps(row["fbits_customer_id"], ensure_ascii=False) for row in rows]
+            existing = await sb_select(
+                "fbits_customers", select="client_id,fbits_customer_id,name,email,phone",
+                filters={"client_id": f"eq.{client_id}", "fbits_customer_id": "in.(" + ",".join(quoted_ids) + ")"},
+                limit=len(rows),
+            )
+            profiles = {str(row.get("fbits_customer_id")): row for row in existing if row.get("client_id") == client_id}
+            for row in rows:
+                for field in ("name", "email", "phone"):
+                    row[field] = profiles.get(row["fbits_customer_id"], {}).get(field) or row[field]
         await sb_upsert("fbits_customers", rows, on_conflict="client_id,fbits_customer_id")
     except Exception as exc:  # noqa: BLE001 - identidade não derruba pedidos
         print(
@@ -240,6 +261,8 @@ async def _persist_customer_identities(
             f"customers={len(rows)} error_type={exc.__class__.__name__} "
             "migration=20261004_000040_fbits_customer_identity"
         )
+        if preserve_existing:
+            raise RuntimeError("FBITS_CUSTOMER_BACKFILL_PERSIST_FAILED") from None
         return 0
     return len(rows)
 
