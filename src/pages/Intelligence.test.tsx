@@ -8,11 +8,13 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
   period: { start: "2026-08-01", end: "2026-08-31" },
+  clientId: "amalie",
+  clientName: "Amalie",
 }));
 
 vi.mock("../app/activeClient", () => ({
-  getActiveClientId: () => "amalie",
-  getActiveClientName: () => "Amalie",
+  getActiveClientId: () => mocks.clientId,
+  getActiveClientName: () => mocks.clientName,
 }));
 
 vi.mock("../app/PeriodContext", () => ({
@@ -100,11 +102,15 @@ vi.mock("../app/api", () => ({
 }));
 
 import Intelligence from "./Intelligence";
+import { askIntelligence, generateIntelligenceAnalysis } from "../app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  mocks.clientId = "amalie";
+  mocks.clientName = "Amalie";
+  vi.mocked(askIntelligence).mockReset();
   state.snapshot = snapshot;
   state.analysis = analysis;
   mocks.period = { start: "2026-08-01", end: "2026-08-31" };
@@ -146,7 +152,7 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
 
   it("abre com o resumo do momento, curto e no topo", async () => {
     await renderIntelligence();
-    expect(container.textContent).toContain("Resumo do momento");
+    expect(container.textContent).toContain("Resumo");
     expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
     // Primeira dobra é leitura, não arquitetura de providers.
     const moment = container.querySelector(".intelMoment");
@@ -424,7 +430,7 @@ describe("Intelligence — estados da leitura", () => {
     state.analysis = { ...analysis, status: "pending", analysis: null };
     await renderIntelligence(true);
     const empty = container.querySelector('[data-testid="intel-empty"]');
-    expect(empty?.textContent).toContain("Sua leitura estratégica ainda não foi gerada");
+    expect(empty?.textContent).toContain("O que você quer entender?");
     expect([...container.querySelectorAll("button")].map((el) => el.textContent)).toContain("Gerar análise");
     // Sem hero gigante e sem seções de prioridade vazias.
     expect(container.querySelector(".intelExecutive")).toBeNull();
@@ -463,7 +469,7 @@ describe("Intelligence — estados da leitura", () => {
     state.readError = new Error("Backend fora");
     await renderIntelligence(true);
     const errorBox = container.querySelector('[data-testid="intel-error"]');
-    expect(errorBox?.textContent).toContain("Não conseguimos montar sua leitura agora");
+    expect(errorBox?.textContent).toContain("Não foi possível concluir esta análise.");
     expect(errorBox?.querySelector("button")?.textContent).toBe("Tentar novamente");
     // Erro compacto, não página destruída.
     expect(container.querySelector(".intelHeader")).not.toBeNull();
@@ -721,5 +727,126 @@ describe("Intelligence — gerar análise sem perder a anterior", () => {
     });
     await act(async () => Promise.resolve());
     expect(mod.generateIntelligenceAnalysis).toHaveBeenCalledTimes(1);
+  });
+});
+
+function conversationReply(directAnswer = "O investimento aumentou no período.", structured = true): Awaited<ReturnType<typeof askIntelligence>> {
+  const message = { period_start: "2026-08-01", period_end: "2026-08-31", sources: [], created_at: "2026-08-31T12:00:00Z" };
+  return {
+    ok: true, conversation_id: "conversation-1", snapshot,
+    user_message: { ...message, id: "user-1", role: "user", content: { question: "Como estão minhas vendas?" } },
+    assistant_message: { ...message, id: "answer-1", role: "assistant", content: {
+      direct_answer: directAnswer,
+      ...(structured ? { metric_ids: ["spend"], evidence: ["O investimento foi de R$ 1.000."], attention_points: ["Compare períodos com a mesma cobertura."], recommendations: ["Revise o orçamento."], next_steps: ["Acompanhe a próxima semana."] } : {}),
+    } },
+  } as unknown as Awaited<ReturnType<typeof askIntelligence>>;
+}
+
+async function enterQuestion(value: string) {
+  await act(async () => {
+    const input = container.querySelector<HTMLTextAreaElement>("#intel-question")!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function sendQuestion() {
+  await act(async () => {
+    container.querySelector<HTMLFormElement>(".intelAskForm")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
+
+describe("Intelligence — analista executivo", () => {
+  it("abre com título, contexto discreto e seis sugestões sem gerar IA automaticamente", async () => {
+    state.analysis = { ...analysis, status: "pending", analysis: null };
+    await renderIntelligence(false);
+    expect(container.querySelector("h1")?.textContent).toBe("Inteligência");
+    expect(container.textContent).toContain("Entenda o que está acontecendo no seu negócio e onde agir.");
+    expect(container.querySelectorAll(".intelQuestionSuggestions button")).toHaveLength(6);
+    await act(async () => { container.querySelector<HTMLButtonElement>(".intelQuestionSuggestions button")!.click(); });
+    expect(container.querySelector<HTMLTextAreaElement>("#intel-question")?.value).toBe("Como está meu desempenho este mês?");
+    expect(askIntelligence).not.toHaveBeenCalled();
+    expect(document.activeElement?.id).toBe("intel-question");
+  });
+
+  it("viewer envia pelo fluxo existente e recebe resposta editorial com dados reais da resposta", async () => {
+    vi.mocked(askIntelligence).mockResolvedValue(conversationReply());
+    await renderIntelligence(false);
+    await enterQuestion("Como estão minhas vendas?");
+    await sendQuestion();
+    expect(askIntelligence).toHaveBeenCalledWith({ question: "Como estão minhas vendas?", conversation_id: null, start: "2026-08-01", end: "2026-08-31" }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    const answer = container.querySelector(".intelMessage.is-assistant")!;
+    for (const label of ["Resumo", "Números importantes", "Leitura", "Próximos passos", "Revise o orçamento."]) expect(answer.textContent).toContain(label);
+    expect(answer.querySelector(".intelEvidence")?.textContent).toContain("1.000");
+    expect(container.querySelector(".intelAskForm")?.parentElement).toBe(container.querySelector(".intelligencePage"));
+  });
+
+  it("mostra processamento real e mantém a análise anterior", async () => {
+    let finish!: (result: Awaited<ReturnType<typeof askIntelligence>>) => void;
+    vi.mocked(askIntelligence).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await renderIntelligence();
+    await enterQuestion("Explique o período"); await sendQuestion();
+    expect(container.querySelector(".intelProcessing")?.textContent).toContain("Analisando os dados de Amalie...");
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+    expect(container.querySelector<HTMLButtonElement>(".intelAskForm button")?.disabled).toBe(true);
+    await act(async () => { finish(conversationReply()); });
+    expect(container.querySelector(".intelProcessing")).toBeNull();
+  });
+
+  it("texto sem estrutura não ganha métricas ou recomendações inventadas", async () => {
+    vi.mocked(askIntelligence).mockResolvedValue(conversationReply("Leitura simples.\nSem números adicionais.", false));
+    await renderIntelligence(); await enterQuestion("Uma leitura simples"); await sendQuestion();
+    const answer = container.querySelector(".intelMessage.is-assistant")!;
+    expect(answer.querySelector("h3")?.textContent).toBe("Leitura simples.\nSem números adicionais.");
+    expect(answer.querySelector(".intelAnswerMetrics")).toBeNull();
+    expect(answer.querySelector(".intelNextSteps")).toBeNull();
+  });
+
+  it("oferece três follow-ups e mantém o identificador da conversa ao continuar", async () => {
+    vi.mocked(askIntelligence).mockResolvedValue(conversationReply());
+    await renderIntelligence(); await enterQuestion("Como estão minhas vendas?"); await sendQuestion();
+    const suggestions = container.querySelectorAll<HTMLButtonElement>(".intelFollowUps button");
+    expect(suggestions).toHaveLength(3);
+    await act(async () => { suggestions[0].click(); });
+    expect(askIntelligence).toHaveBeenCalledTimes(1);
+    expect(container.querySelector<HTMLTextAreaElement>("#intel-question")?.value).toBe("Por que isso aconteceu?");
+    await sendQuestion();
+    expect(vi.mocked(askIntelligence).mock.calls[1][0].conversation_id).toBe("conversation-1");
+  });
+
+  it("Enter envia e Shift+Enter permite quebra sem envio", async () => {
+    vi.mocked(askIntelligence).mockResolvedValue(conversationReply());
+    await renderIntelligence(); await enterQuestion("Explique os dados");
+    const input = container.querySelector<HTMLTextAreaElement>("#intel-question")!;
+    const shift = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true });
+    await act(async () => { input.dispatchEvent(shift); });
+    expect(shift.defaultPrevented).toBe(false);
+    expect(askIntelligence).not.toHaveBeenCalled();
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(askIntelligence).toHaveBeenCalledOnce();
+  });
+
+  it("erro de pergunta é discreto e tentar novamente repete a pergunta, sem gerar análise", async () => {
+    vi.mocked(askIntelligence).mockRejectedValueOnce(new Error("TRACEBACK_TESTE")).mockResolvedValue(conversationReply());
+    await renderIntelligence(); vi.mocked(generateIntelligenceAnalysis).mockClear();
+    await enterQuestion("Como estão minhas vendas?"); await sendQuestion();
+    expect(container.textContent).toContain("Não foi possível concluir esta análise.");
+    expect(container.textContent).not.toContain("TRACEBACK_TESTE");
+    await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "Tentar novamente")!.click(); });
+    expect(askIntelligence).toHaveBeenCalledTimes(2);
+    expect(generateIntelligenceAnalysis).not.toHaveBeenCalled();
+    expect(container.querySelector(".intelMessage.is-assistant")).not.toBeNull();
+  });
+
+  it("trocar tenant remove a conversa anterior e preserva a leitura do novo tenant", async () => {
+    vi.mocked(askIntelligence).mockResolvedValue(conversationReply("Resposta exclusiva da Amalie."));
+    await renderIntelligence(); await enterQuestion("Como estão minhas vendas?"); await sendQuestion();
+    mocks.clientId = "roove"; mocks.clientName = "Roove";
+    state.snapshot = { ...snapshot, client: { id: "roove", name: "Roove" } };
+    state.analysis = { ...analysis, client_id: "roove" };
+    await renderIntelligence(false);
+    expect(container.textContent).not.toContain("Resposta exclusiva da Amalie.");
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("Roove");
+    expect(container.querySelectorAll(".intelMessage")).toHaveLength(0);
   });
 });

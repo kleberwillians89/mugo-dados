@@ -67,13 +67,15 @@ const workspaceCache = {
 };
 
 const QUESTIONS = [
-  "Por que minhas vendas caíram?",
-  "Qual campanha merece mais investimento?",
-  "Onde estou perdendo vendas?",
-  "Quais produtos vendem melhor sem mídia?",
-  "Meu crescimento no Instagram gerou resultado?",
-  "O que devo fazer nesta semana?",
+  "Como está meu desempenho este mês?",
+  "O que mais merece minha atenção?",
+  "Como estão minhas vendas?",
+  "Minha mídia está eficiente?",
+  "O que mudou em relação ao período anterior?",
+  "Onde existe oportunidade de crescimento?",
 ];
+
+const FOLLOW_UPS = ["Por que isso aconteceu?", "Compare com o mês anterior", "O que devo priorizar?"];
 
 const CATEGORY_LABELS: Record<IntelligenceInsight["category"], string> = {
   opportunity: "Oportunidade",
@@ -162,6 +164,7 @@ function Evidence({
         <span key={metric.id}>
           <small>{metric.label}</small>
           <strong>{formatMetric(metric)}</strong>
+          {metric.variation_percent != null ? <small>{metric.variation_percent > 0 ? "+" : ""}{metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior</small> : null}
         </span>
       ))}
     </div>
@@ -203,7 +206,21 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const requestVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const askController = useRef<AbortController | null>(null);
+  const questionInput = useRef<HTMLTextAreaElement | null>(null);
+  const questionForm = useRef<HTMLFormElement | null>(null);
+  const conversationView = useRef<HTMLDivElement | null>(null);
+  const workspaceView = useRef<HTMLDivElement | null>(null);
+  const retryKind = useRef<"read" | "analysis" | "question">("read");
   const cacheKeyRef = useRef(cacheKey);
+
+  useEffect(() => {
+    if (messages.length) conversationView.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [messages.length]);
+
+  function chooseQuestion(value: string) {
+    setQuestion(value);
+    questionInput.current?.focus();
+  }
 
   // Troca de empresa (ou período) nunca pode deixar o snapshot/análise/
   // histórico do tenant anterior visível — nem por um frame, e nem
@@ -267,6 +284,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       });
       const failed = [contextResult, latestResult, historyResult].filter((item) => item.status === "rejected");
       if (failed.length === 3) {
+        retryKind.current = "read";
         const reason = failed[0].status === "rejected" ? failed[0].reason : null;
         setError(reason instanceof Error ? reason.message : "Não foi possível carregar a central de inteligência.");
       }
@@ -310,6 +328,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     [analysis?.metrics_snapshot, snapshot?.metrics],
   );
   const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
+  const conversationMetrics = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
   const content = analysis?.status === "completed" ? analysis.analysis : null;
   const commerceContext = snapshot?.commerce_context;
   const metricIndex = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
@@ -393,6 +412,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       });
     } catch (cause) {
       if (!controller.signal.aborted) {
+        retryKind.current = "analysis";
         setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a análise.");
       }
     } finally {
@@ -423,6 +443,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       setQuestion("");
     } catch (cause) {
       if (!controller.signal.aborted) {
+        retryKind.current = "question";
         setError(cause instanceof Error ? cause.message : "A pergunta não pôde ser respondida.");
       }
     } finally {
@@ -432,11 +453,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
 
   function selectHistory(item: IntelligenceAnalysisRecord) {
     setAnalysis(item);
+    workspaceView.current?.scrollTo?.({ top: 0, behavior: "smooth" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   if (loading && !snapshot && !analysis) {
-    return <main className="intelligencePage"><IntelligenceSkeleton /></main>;
+    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
   }
 
   return (
@@ -445,11 +467,11 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
       <header className="intelHeader">
         <div className="intelIdentity">
-          <span className="intelEyebrow">Inteligência</span>
-          <h1>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</h1>
-          <p>Leitura estratégica baseada nos dados da empresa.</p>
+          <h1>Inteligência</h1>
+          <p>Entenda o que está acontecendo no seu negócio e onde agir.</p>
         </div>
         <div className="intelHeaderMeta">
+          <span><small>Empresa</small>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</span>
           <span><small>Período</small>{formatDate(period.start)} — {formatDate(period.end)}</span>
           {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
               aparecem separados: um é sincronização, o outro é a IA. */}
@@ -483,18 +505,19 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         ) : null}
       </header>
 
+      <div className="intelWorkspace" tabIndex={0} aria-label="Análises e conversa" ref={workspaceView}>
       {/* Erro nunca destrói a página: com análise anterior válida, ela
           permanece e o aviso é discreto. */}
-      {error && content ? (
-        <p className="intelInlineWarning" role="status" data-testid="intel-stale-warning">
-          Não conseguimos atualizar agora. A última análise válida continua disponível.
-        </p>
-      ) : null}
-      {error && !content ? (
-        <div className="intelInlineError" role="alert" data-testid="intel-error">
-          <p>Não conseguimos montar sua leitura agora.</p>
-          <button className="btn" type="button" disabled={refreshing} onClick={() => void refreshAnalysis()}>
-            {refreshing ? "Gerando análise..." : "Tentar novamente"}
+      {error ? (
+        <div className={content ? "intelInlineWarning" : "intelInlineError"} role={content ? "status" : "alert"} data-testid={content ? "intel-stale-warning" : "intel-error"}>
+          <p>Não foi possível concluir esta análise.</p>
+          {content ? <p>A última análise válida continua disponível.</p> : null}
+          <button className="btn" type="button" disabled={refreshing || asking || revalidating || (retryKind.current === "read" && !refreshCooldown.ready)} title={retryKind.current === "read" ? cooldownHint(refreshCooldown) || undefined : undefined} onClick={() => {
+            if (retryKind.current === "question") questionForm.current?.requestSubmit();
+            else if (retryKind.current === "read") void refreshData();
+            else void refreshAnalysis();
+          }}>
+            Tentar novamente
           </button>
         </div>
       ) : null}
@@ -512,19 +535,19 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {/* Resumo do momento: duas a quatro linhas, sem hero gigante. */}
       {content ? (
         <section className="intelMoment" aria-labelledby="intel-moment-title">
-          <h2 id="intel-moment-title">Resumo do momento</h2>
+          <h2 id="intel-moment-title">Resumo</h2>
           <p className="intelMomentLead">{content.executive.overall}</p>
           {content.executive.priority_action ? (
             <p className="intelMomentAction">{content.executive.priority_action}</p>
           ) : null}
         </section>
-      ) : !error ? (
+      ) : !error && !messages.length ? (
         <section className="intelMoment intelMomentEmpty" data-testid="intel-empty">
-          <h2>Sua leitura estratégica ainda não foi gerada</h2>
-          <p>
-            Vamos cruzar os dados disponíveis para destacar movimentos, oportunidades e próximos
-            testes deste período.
-          </p>
+          <h2>O que você quer entender?</h2>
+          <p>Escolha um ponto de partida ou escreva sua pergunta abaixo.</p>
+          <div className="intelQuestionSuggestions">
+            {QUESTIONS.map((suggestion) => <button key={suggestion} type="button" disabled={asking || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}
+          </div>
           <button
             className="btn btnPrimary"
             type="button"
@@ -535,6 +558,32 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             {refreshing ? "Gerando análise..." : "Gerar análise"}
           </button>
         </section>
+      ) : null}
+
+      {displayedMetrics.length ? (
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
+          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
+        </div>
+        <div className="intelMetricGrid">
+          {displayedMetrics.map((metric) => (
+            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
+              <div><span>{metric.label}</span><small>{metric.source.replaceAll("_", " ")}</small></div>
+              <strong>{formatMetric(metric)}</strong>
+              <p>
+                {metric.variation_percent == null
+                  ? metric.status === "partial"
+                    ? "Cobertura parcial do período"
+                    : metric.status === "confirmed"
+                      ? "Sem base anterior comparável"
+                      : "Evidência indisponível"
+                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
       ) : null}
 
       {/* Contexto da marca: uma linha, nunca um cartão dominante. */}
@@ -640,33 +689,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         </section>
       ) : null}
 
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Evidências</span><h2>Números que sustentam a análise</h2></div>
-          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
-        </div>
-        <div className="intelMetricGrid">
-          {displayedMetrics.map((metric) => (
-            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}</span><small>{metric.source.replaceAll("_", " ")}</small></div>
-              <strong>{formatMetric(metric)}</strong>
-              <p>
-                {metric.variation_percent == null
-                  ? metric.status === "partial"
-                    ? "Cobertura parcial do período"
-                    : metric.status === "confirmed"
-                      ? "Sem base anterior comparável"
-                      : "Evidência indisponível"
-                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
 
+
+      {content ? (
       <section className="intelSection">
         <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Leitura priorizada</span><h2>Avanços, riscos e oportunidades</h2></div>
+          <div><span className="intelEyebrow">Leitura</span><h2>Avanços, riscos e oportunidades</h2></div>
           <p>Impacto, confiança, fontes e evidências ficam visíveis em cada conclusão.</p>
         </div>
         {content?.insights?.length ? (
@@ -701,7 +729,9 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           </div>
         ) : <div className="intelEmpty">Nenhum insight versionado para este período.</div>}
       </section>
+      ) : null}
 
+      {snapshot?.crossings.length ? (
       <section className="intelSection">
         <div className="intelSectionTitle">
           <div><span className="intelEyebrow">Visão integrada</span><h2>Cruzamento de plataformas</h2></div>
@@ -717,10 +747,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           ))}
         </div>
       </section>
+      ) : null}
 
+      {content ? (
       <section className="intelSection">
         <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Execução</span><h2>Recomendações e próximas ações</h2></div>
+          <div><span className="intelEyebrow">Execução</span><h2>Próximos passos</h2></div>
           <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
         </div>
         {content?.actions?.length ? (
@@ -740,59 +772,59 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           </div>
         ) : <div className="intelEmpty">O plano será criado junto com a próxima análise.</div>}
       </section>
+      ) : null}
 
+      {content || messages.length ? (
       <section className="intelAssistant">
         <div className="intelAssistantIntro">
-          <span className="intelEyebrow">Assistente analítico</span>
-          <h2>Pergunte sobre os resultados da sua empresa</h2>
+          <span className="intelEyebrow">Seu analista</span>
+          <h2>{messages.length ? "Sua conversa com o negócio" : "O que você quer entender?"}</h2>
           <p>As respostas usam somente a empresa, o período e as fontes exibidos nesta página.</p>
         </div>
+        {!messages.length ? (
         <div className="intelQuestionSuggestions">
           {QUESTIONS.map((suggestion) => (
-            <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)}>
+            <button key={suggestion} type="button" disabled={asking || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
               {suggestion}
             </button>
           ))}
         </div>
-        <div className="intelConversation" aria-live="polite">
+        ) : null}
+        <div className="intelConversation" aria-live="polite" ref={conversationView}>
           {messages.map((message) => (
             <article className={`intelMessage is-${message.role}`} key={message.id}>
-              <small>{message.role === "user" ? "Você" : "Inteligência IA"}</small>
+              <small>{message.role === "user" ? "Sua pergunta" : "Mugô Inteligência"}</small>
               {message.role === "user" ? (
                 <p>{message.content.question}</p>
               ) : (
                 <>
-                  <h3>{message.content.direct_answer}</h3>
-                  <Evidence ids={message.content.metric_ids || []} metrics={metricMap(snapshot?.metrics || [])} />
-                  <div className="intelAnswerSections">
-                    <div><strong>Evidências consultadas</strong>{message.content.evidence?.map((item) => <p key={item}>{item}</p>)}</div>
-                    <div><strong>Pontos de atenção</strong>{message.content.attention_points?.map((item) => <p key={item}>{item}</p>)}</div>
-                    <div><strong>Recomendações</strong>{message.content.recommendations?.map((item) => <p key={item}>{item}</p>)}</div>
-                    <div><strong>Próximos passos</strong>{message.content.next_steps?.map((item) => <p key={item}>{item}</p>)}</div>
-                  </div>
+                  <div className="intelAnswerSummary"><span className="intelEyebrow">Resumo</span><h3>{message.content.direct_answer}</h3></div>
+                  {message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
+                    <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids} metrics={conversationMetrics} /></section>
+                  ) : null}
+                  {message.content.evidence?.length || message.content.attention_points?.length ? (
+                    <section className="intelAnswerReading"><h4>Leitura</h4>
+                      {message.content.evidence?.length ? <div><h5>Evidências consultadas</h5>{message.content.evidence.map((item, index) => <p key={index}>{item}</p>)}</div> : null}
+                      {message.content.attention_points?.length ? <div><h5>Pontos de atenção</h5>{message.content.attention_points.map((item, index) => <p key={index}>{item}</p>)}</div> : null}
+                    </section>
+                  ) : null}
+                  {message.content.recommendations?.length || message.content.next_steps?.length ? (
+                    <section className="intelNextSteps"><h4>Próximos passos</h4>
+                      {message.content.recommendations?.length ? <div><h5>Recomendações</h5><ul>{message.content.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+                      {message.content.next_steps?.length ? <div><h5>Ações sugeridas</h5><ul>{message.content.next_steps.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+                    </section>
+                  ) : null}
                   <footer>{formatDate(message.period_start)} — {formatDate(message.period_end)}</footer>
                 </>
               )}
             </article>
           ))}
         </div>
-        <form className="intelAskForm" onSubmit={submitQuestion}>
-          <label htmlFor="intel-question">Sua pergunta</label>
-          <div>
-            <textarea
-              id="intel-question"
-              rows={2}
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ex.: onde estou perdendo vendas neste período?"
-              disabled={asking || providerConfigured === false}
-            />
-            <button className="btn btnPrimary" disabled={asking || !question.trim() || providerConfigured === false}>
-              {asking ? "Analisando…" : "Perguntar"}
-            </button>
-          </div>
-        </form>
+
+        {messages.at(-1)?.role === "assistant" && !asking ? <div className="intelFollowUps" aria-label="Continue a análise">{FOLLOW_UPS.map((suggestion) => <button key={suggestion} type="button" disabled={providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}</div> : null}
+
       </section>
+      ) : null}
 
       {/* Mercado, referências e creators só existem com pesquisa externa real.
           Sem provider conectado, estas seções não são renderizadas — nunca um
@@ -879,6 +911,36 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           {!history.length ? <div className="intelEmpty">Nenhuma análise foi criada ainda.</div> : null}
         </div>
       </section>
+      </div>
+      {asking || refreshing ? (
+        <div className="intelProcessing" role="status" aria-live="polite">
+          <span className="intelProcessingDot" aria-hidden="true" />
+          <p>Analisando os dados de {snapshot?.client.name || getActiveClientName()}...</p>
+        </div>
+      ) : null}
+        <form className="intelAskForm" onSubmit={submitQuestion} ref={questionForm}>
+          <label htmlFor="intel-question">Sua pergunta</label>
+          <div>
+            <textarea
+              id="intel-question"
+              ref={questionInput}
+              rows={2}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Pergunte sobre seus dados..."
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  if (!asking && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              disabled={asking || providerConfigured === false}
+            />
+            <button className="btn btnPrimary" disabled={asking || !question.trim() || providerConfigured === false}>
+              {asking ? "Analisando…" : "Enviar"}
+            </button>
+          </div>
+        </form>
     </main>
   );
 }
