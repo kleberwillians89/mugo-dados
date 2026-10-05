@@ -214,7 +214,7 @@ export default function Customers() {
             {connected && data?.provider_label ? (
               <span>Base de clientes de {data.provider_label}</span>
             ) : null}
-            {freshnessLabel ? <span> · Dados atualizados {freshnessLabel}</span> : null}
+            {freshnessLabel ? <span> · Base consultada {freshnessLabel}</span> : null}
           </>
         }
       />

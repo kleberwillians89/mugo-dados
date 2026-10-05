@@ -130,6 +130,12 @@ afterEach(() => {
 });
 
 describe("página Clientes", () => {
+  it("distingue horário da consulta de sincronização dos dados", async () => {
+    await render();
+    expect(text()).toContain("Base consultada");
+    expect(text()).not.toContain("Dados atualizados");
+  });
+
   it("mostra loading antes da primeira resposta, sem depender de connected", async () => {
     api.getCustomers.mockImplementation(() => new Promise(() => {}));
     await render();

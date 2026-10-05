@@ -161,7 +161,7 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
 
   it("mostra a fonte de cada métrica de evidência", async () => {
     await renderIntelligence();
-    expect(container.textContent).toContain("meta_ads");
+    expect(container.textContent).toContain("Meta Ads");
   });
 
   it("não mostra status técnico de fonte nem fileira de chips no topo", async () => {
@@ -848,5 +848,41 @@ describe("Intelligence — analista executivo", () => {
     expect(container.textContent).not.toContain("Resposta exclusiva da Amalie.");
     expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("Roove");
     expect(container.querySelectorAll(".intelMessage")).toHaveLength(0);
+  });
+});
+
+describe("Intelligence — fechamento da apresentação", () => {
+  it("retira versionamento e histórico visual sem retirar a análise e perguntas", async () => {
+    await renderIntelligence(false);
+    expect(container.textContent).not.toContain("Versionamento");
+    expect(container.textContent).not.toContain("Histórico de análises");
+    expect(container.textContent).toContain("Receita cresceu no período.");
+    expect(container.querySelector(".intelAskForm")).not.toBeNull();
+  });
+
+  it("usa sincronização persistida e não renova freshness ao gerar análise", async () => {
+    state.snapshot = { ...snapshot, last_sync_at: new Date(Date.now() - 10 * 60_000).toISOString() };
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("há 10 min");
+    const button = [...container.querySelectorAll("button")].find((el) => el.textContent === "Gerar nova análise")!;
+    await act(async () => button.click());
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("há 10 min");
+  });
+
+  it("não anuncia freshness sem timestamp persistido", async () => {
+    state.snapshot = { ...snapshot, last_sync_at: null };
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).not.toContain("Dados atualizados");
+  });
+
+  it("traduz fontes internas somente na apresentação", async () => {
+    state.snapshot = { ...snapshot, metrics: [{ ...analysis.metrics_snapshot[0], source: "shopify+paid_media" }] };
+    state.analysis = { ...analysis, metrics_snapshot: state.snapshot.metrics,
+      analysis: { ...analysis.analysis, insights: [{ ...analysis.analysis.insights[0], sources: ["ga4", "paid_media"] }] } };
+    await renderIntelligence(false);
+    expect(container.textContent).toContain("Loja virtual e mídia paga");
+    expect(container.textContent).toContain("Google Analytics");
+    expect(container.textContent).toContain("Mídia paga");
+    expect(container.textContent).not.toContain("shopify+paid_media");
   });
 });

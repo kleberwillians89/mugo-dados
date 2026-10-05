@@ -324,7 +324,18 @@ async def _run_sync_for_client_and_ig(
         try:
             insights = await fetch_media_insights(media_id, access_token, product_type)
         except Exception:
-            insights = {}
+            warnings.append("Insights de uma mídia indisponíveis; dados anteriores preservados.")
+            continue
+        unavailable = insights.get("unavailable_metrics") or []
+        if unavailable:
+            if not insights.get("available_metrics"):
+                warnings.append("Insights de uma mídia indisponíveis; dados anteriores preservados.")
+                continue
+            previous = await sb_get_one("ig_media", f"client_id=eq.{client_id}&media_id=eq.{media_id}")
+            previous_insights = (previous or {}).get("insights_json") or {}
+            for metric in unavailable:
+                if metric in previous_insights:
+                    insights[metric] = previous_insights[metric]
 
         likes_fallback = int(m.get("like_count") or 0)
         comments_fallback = int(m.get("comments_count") or 0)
@@ -417,6 +428,8 @@ async def _run_sync_for_client_and_ig(
                     "[ig_sync][meta_warning] "
                     f"block=story_insights client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
                 )
+                warnings.append("Insights de um story indisponíveis; dados anteriores preservados.")
+                continue
             story_thumb_source = story.get("thumbnail_url") or story.get("media_url")
             if story_thumb_source:
                 thumbnail_jobs.append({
@@ -494,48 +507,69 @@ async def _run_sync_for_client_and_ig(
                 _schema_warning("media", client_id, connection_id, exc)
                 warnings.append("Mídias não foram persistidas por incompatibilidade de schema.")
 
+    unavailable = kpis.get("unavailable_metrics") or []
+    if unavailable and not kpis.get("available_metrics"):
+        block_status["insights"] = {"ok": False, "status": "unavailable"}
+        warnings.append("Insights do perfil indisponíveis; snapshot anterior preservado.")
+    if block_status["insights"]["ok"] and unavailable:
+        previous = await sb_get_one(
+            "ig_profile_snapshots", f"client_id=eq.{client_id}&snapshot_date=eq.{_utc_date_str()}"
+        )
+        fields = {
+            "reach": "reach_day", "profile_views": "profile_views_day",
+            "accounts_engaged": "accounts_engaged_day", "total_interactions": "total_interactions_day",
+            "website_clicks": "website_clicks_day", "impressions": "impressions_day",
+        }
+        for metric, field in fields.items():
+            if metric in unavailable and field in (previous or {}):
+                kpis[metric] = previous[field]
+        if "views" in unavailable and "impressions" in unavailable and previous:
+            kpis["impressions"] = previous.get("impressions_day") or 0
+
     impressions_or_views = int(kpis.get("impressions") or kpis.get("views") or 0)
 
-    try:
-        print(
-            "[ig_sync] snapshot_upsert "
-            f"client_id={client_id} connection_id={connection_id} "
-            f"snapshot_date={_utc_date_str()} "
-            f"reach={int(kpis.get('reach') or 0)} "
-            f"profile_views={int(kpis.get('profile_views') or 0)} "
-            f"accounts_engaged={int(kpis.get('accounts_engaged') or 0)} "
-            f"followers={int(profile.get('followers_count') or 0)}"
-        )
+    if block_status["insights"]["ok"]:
 
-        await sb_upsert(
-            "ig_profile_snapshots",
-            [
-                {
-                    "client_id": client_id,
-                    "connection_id": connection_id,
-                    "snapshot_date": _utc_date_str(),
-                    "followers_count": int(profile.get("followers_count") or 0),
-                    "media_count": int(profile.get("media_count") or 0),
-                    "impressions_day": impressions_or_views,
-                    "reach_day": int(kpis.get("reach") or 0),
-                    "total_interactions_day": int(kpis.get("total_interactions") or 0),
-                    "website_clicks_day": int(kpis.get("website_clicks") or 0),
-                    "profile_views_day": int(kpis.get("profile_views") or 0),
-                    "accounts_engaged_day": int(kpis.get("accounts_engaged") or 0),
-                    "metrics_available": kpis.get("available_metrics") or [],
-                    "metrics_unavailable": kpis.get("unavailable_metrics") or [],
-                    "created_at": _iso_now(),
-                }
-            ],
-            on_conflict="client_id,snapshot_date",
-        )
-        persisted_snapshot = True
-        print(f"[meta][persist_done] client_id={client_id} snapshot_date={_utc_date_str()} media={persisted_media} comments={persisted_comments}")
-    except httpx.HTTPStatusError as exc:
-        if exc.response is None or exc.response.status_code not in {400, 404, 409}:
-            raise
-        _schema_warning("snapshot", client_id, connection_id, exc)
-        warnings.append("Snapshot diário não foi persistido por incompatibilidade de schema.")
+        try:
+            print(
+                "[ig_sync] snapshot_upsert "
+                f"client_id={client_id} connection_id={connection_id} "
+                f"snapshot_date={_utc_date_str()} "
+                f"reach={int(kpis.get('reach') or 0)} "
+                f"profile_views={int(kpis.get('profile_views') or 0)} "
+                f"accounts_engaged={int(kpis.get('accounts_engaged') or 0)} "
+                f"followers={int(profile.get('followers_count') or 0)}"
+            )
+
+            await sb_upsert(
+                "ig_profile_snapshots",
+                [
+                    {
+                        "client_id": client_id,
+                        "connection_id": connection_id,
+                        "snapshot_date": _utc_date_str(),
+                        "followers_count": int(profile.get("followers_count") or 0),
+                        "media_count": int(profile.get("media_count") or 0),
+                        "impressions_day": impressions_or_views,
+                        "reach_day": int(kpis.get("reach") or 0),
+                        "total_interactions_day": int(kpis.get("total_interactions") or 0),
+                        "website_clicks_day": int(kpis.get("website_clicks") or 0),
+                        "profile_views_day": int(kpis.get("profile_views") or 0),
+                        "accounts_engaged_day": int(kpis.get("accounts_engaged") or 0),
+                        "metrics_available": kpis.get("available_metrics") or [],
+                        "metrics_unavailable": kpis.get("unavailable_metrics") or [],
+                        "created_at": _iso_now(),
+                    }
+                ],
+                on_conflict="client_id,snapshot_date",
+            )
+            persisted_snapshot = True
+            print(f"[meta][persist_done] client_id={client_id} snapshot_date={_utc_date_str()} media={persisted_media} comments={persisted_comments}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response is None or exc.response.status_code not in {400, 404, 409}:
+                raise
+            _schema_warning("snapshot", client_id, connection_id, exc)
+            warnings.append("Snapshot diário não foi persistido por incompatibilidade de schema.")
 
     return {
         "ok": True,

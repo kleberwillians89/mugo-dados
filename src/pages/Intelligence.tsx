@@ -26,6 +26,15 @@ import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from 
 import { cooldownFrom, cooldownHint, formatFreshness, hasFresherData } from "../app/dataRefresh";
 import "../styles/intelligence.css";
 
+function sourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    paid_media: "Mídia paga", ga4: "Google Analytics", shopify: "Loja virtual",
+    "shopify+paid_media": "Loja virtual e mídia paga", meta_ads: "Meta Ads",
+    google_ads: "Google Ads", instagram: "Instagram", fbits: "FBITS",
+  };
+  return labels[source] || source.replaceAll("_", " ");
+}
+
 type Props = {
   onLogout: () => void | Promise<void>;
   /**
@@ -40,7 +49,7 @@ type CachedWorkspace = {
   analysis: IntelligenceAnalysisRecord | null;
   history: IntelligenceAnalysisRecord[];
   providerConfigured: boolean | null;
-  /** Quando esta leitura chegou do backend — frescor do DADO. */
+  /** Última sincronização persistida das fontes. */
   refreshedAt?: string | null;
 };
 
@@ -194,7 +203,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   // fazer. Por isso vale para viewer também.
   const [revalidating, setRevalidating] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
-  const [refreshedAt, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
+  const [, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
   // Só move os rótulos relativos e libera o cooldown. Nenhuma requisição.
   const [refreshTick, setRefreshTick] = useState(() => Date.now());
   useEffect(() => {
@@ -269,10 +278,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       setAnalysis(nextAnalysis);
       setHistory(nextHistory);
       setProviderConfigured(nextProvider);
-      const anySucceeded = [contextResult, latestResult, historyResult].some(
-        (item) => item.status === "fulfilled",
-      );
-      const nextRefreshedAt = anySucceeded ? new Date().toISOString() : currentCache?.refreshedAt || null;
+      const nextRefreshedAt = nextSnapshot?.last_sync_at || null;
       setRefreshedAt(nextRefreshedAt);
       workspaceCache.set(cacheKey, {
         snapshot: nextSnapshot,
@@ -346,8 +352,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const businessContextAvailable = Boolean(snapshot?.business_context?.available);
   const refreshCooldown = cooldownFrom(lastRefreshAt, refreshTick);
   const dataFreshnessLabel = useMemo(
-    () => formatFreshness(refreshedAt, refreshTick),
-    [refreshedAt, refreshTick],
+    () => formatFreshness(snapshot?.last_sync_at, refreshTick),
+    [snapshot?.last_sync_at, refreshTick],
   );
   /** Integrações mais novas que a última análise: avisa, não gera nada. */
   const fresherDataAvailable = useMemo(
@@ -399,8 +405,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       setError("");
       const nextHistory = [result.analysis, ...history.filter((item) => item.id !== result.analysis.id)];
       setHistory(nextHistory);
-      // A geração traz snapshot novo: o frescor do DADO também avança.
-      const generatedAt = new Date().toISOString();
+      // Gerar análise não altera o horário de sincronização das fontes.
+      const generatedAt = result.snapshot.last_sync_at || null;
       setRefreshedAt(generatedAt);
       workspaceCache.set(cacheKey, {
         snapshot: result.snapshot,
@@ -448,12 +454,6 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     } finally {
       if (askController.current === controller) setAsking(false);
     }
-  }
-
-  function selectHistory(item: IntelligenceAnalysisRecord) {
-    setAnalysis(item);
-    workspaceView.current?.scrollTo?.({ top: 0, behavior: "smooth" });
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   if (loading && !snapshot && !analysis) {
@@ -568,7 +568,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         <div className="intelMetricGrid">
           {displayedMetrics.map((metric) => (
             <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}</span><small>{metric.source.replaceAll("_", " ")}</small></div>
+              <div><span>{metric.label}</span><small>{sourceLabel(metric.source)}</small></div>
               <strong>{formatMetric(metric)}</strong>
               <p>
                 {metric.variation_percent == null
@@ -709,7 +709,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                       <article className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
                         <div className="intelInsightTop">
                           <span>{CATEGORY_LABELS[insight.category]}</span>
-                          <small>Impacto {insight.impact} · confiança {insight.confidence}</small>
+                          <small>Impacto {({ high: "alto", medium: "médio", low: "baixo" })[insight.impact]} · confiança {({ high: "alta", medium: "média", low: "baixa" })[insight.confidence]}</small>
                         </div>
                         <h4>{insight.title}</h4>
                         <span className="intelInsightBadge is-fact">Fato</span>
@@ -718,7 +718,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                         <p>{insight.interpretation}</p>
                         <span className="intelInsightBadge is-recommendation">Recomendação</span>
                         <div className="intelInsightAction"><strong>{insight.action}</strong><small>{insight.reason}</small></div>
-                        <div className="intelTags">{insight.sources.map((source) => <span key={source}>{source}</span>)}</div>
+                        <div className="intelTags">{insight.sources.map((source) => <span key={source}>{sourceLabel(source)}</span>)}</div>
                       </article>
                     ))}
                   </div>
@@ -763,7 +763,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                   <article key={`${action.recommendation}-${index}`}>
                     <strong>{action.recommendation}</strong>
                     <p>{action.justification}</p>
-                    <small>{action.impact_expected} · confiança {action.confidence}</small>
+                    <small>{action.impact_expected} · confiança {({ high: "alta", medium: "média", low: "baixa" })[action.confidence]}</small>
                   </article>
                 ))}
               </div>
@@ -889,27 +889,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         </section>
       ) : null}
 
-      <section className="intelSection intelHistory">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Versionamento</span><h2>Histórico de análises</h2></div>
-          <p>Análises anteriores permanecem congeladas mesmo quando os dados mudam.</p>
-        </div>
-        <div className="intelHistoryList">
-          {history.map((item) => (
-            <button
-              className={analysis?.id === item.id ? "isActive" : ""}
-              key={item.id}
-              onClick={() => selectHistory(item)}
-              type="button"
-            >
-              <span><strong>{formatDate(item.created_at, true)}</strong><small>{item.period_start} — {item.period_end}</small></span>
-              <span><strong>{item.status.replace("_", " ")}</strong><small>{item.data_quality?.status || "sem qualidade"}</small></span>
-              <span><strong>{item.provider || "Configuração pendente"}</strong><small>{item.sources?.length || 0} fontes</small></span>
-            </button>
-          ))}
-          {!history.length ? <div className="intelEmpty">Nenhuma análise foi criada ainda.</div> : null}
-        </div>
-      </section>
+
       </div>
       {asking || refreshing ? (
         <div className="intelProcessing" role="status" aria-live="polite">
