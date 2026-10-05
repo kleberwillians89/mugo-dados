@@ -26,6 +26,7 @@
   },
   "include": ["src"],
   "exclude": [
+    "src/design-review",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/*.spec.ts",

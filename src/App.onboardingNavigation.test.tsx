@@ -107,6 +107,8 @@ vi.mock("./pages/Onboarding", () => ({
   default: () => React.createElement("div", { "data-testid": "onboarding-stub", "data-search": window.location.search }),
 }));
 vi.mock("./pages/Dashboard", () => ({ default: () => React.createElement("div", { "data-testid": "dashboard-stub" }) }));
+// O resumo tem testes próprios; esta suíte isola a navegação do App.
+vi.mock("./components/GoalsSummary", () => ({ default: () => null }));
 vi.mock("./pages/GoogleAnalytics", () => ({ default: () => React.createElement("div", { "data-testid": "ga-stub" }) }));
 // Expõe o que o App entrega à página: permissão de sync e atalho de Integrações.
 vi.mock("./pages/Ecommerce", () => ({
