@@ -1346,6 +1346,7 @@ async def sync_ads_for_client_period(
     else:
         period_since, period_until = _date_window(30)
 
+    print(f"[meta_ads][manual_refresh_start] client_id={cid} since={period_since} until={period_until}")
     requested_connection_id = _safe_str(connection_id) or None
     sync_request_id = _safe_str(request_id) or "-"
     job_run = (
@@ -1385,6 +1386,7 @@ async def sync_ads_for_client_period(
     resolved_connection_source = _safe_str(conn.get("_resolved_source")) or "none"
     ad_account_id = _normalize_ad_account_id(_safe_str(conn.get("ad_account_id")))
     ad_account_name = _safe_str(conn.get("ad_account_name"))
+    print(f"[meta_ads][connection_resolved] client_id={cid} connection_id={resolved_connection_id} account_present={bool(ad_account_id)}")
     validation_error = (
         "Conexão Meta Ads inválida (id ausente)." if not resolved_connection_id
         else "Conexão Meta Ads inválida (ad_account_id ausente)." if not ad_account_id
@@ -1417,6 +1419,7 @@ async def sync_ads_for_client_period(
     now_monotonic = time.monotonic()
     recent_at = _RECENT_SYNC_KEYS.get(sync_key)
     if recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS:
+        print(f"[meta_ads][manual_refresh_done] client_id={cid} status=cooldown reason=duplicate")
         if job_run:
             await _finish_job_run_reliably(
                 job_run["id"],
@@ -1484,6 +1487,7 @@ async def sync_ads_for_client_period(
                 connection_type="paid",
                 **({"persisted_only": True} if persisted_only else {}),
             )
+            print(f"[meta_ads][provider_start] client_id={cid}")
             graph_request_started_at = time.monotonic()
             print(
                 "[ads_sync][graph_request_start] "
@@ -1518,8 +1522,10 @@ async def sync_ads_for_client_period(
                 f"rows={len(account_rows_raw)} fields={','.join(account_fields)}"
             )
             if not account_rows_raw:
+                print(f"[meta_ads][provider_done] client_id={cid} rows=0")
                 reason = "Meta retornou zero agregados no nível da conta para o período; consultas de campanha e anúncio não foram iniciadas."
                 await mark_connection_sync_no_data(resolved_connection_id, reason)
+                print(f"[meta_ads][manual_refresh_done] client_id={cid} status=no_data")
                 _RECENT_SYNC_KEYS[sync_key] = time.monotonic()
                 return {
                     "ok": True,
@@ -1792,6 +1798,7 @@ async def sync_ads_for_client_period(
                 raw_rows=boosted_rows_raw,
             )
 
+            print(f"[meta_ads][provider_done] client_id={cid} rows={len(account_rows_raw)}")
             persistence_started_at = time.monotonic()
             print(
                 "[ads_sync][persistence_start] "
@@ -1812,12 +1819,20 @@ async def sync_ads_for_client_period(
                 since=period_since,
                 until=period_until,
             )
+            print(f"[meta_ads][persist_done] client_id={cid} account_rows={int((persisted_readback.get('ad_account_daily_stats') or {}).get('count') or 0)}")
             persisted_account_rows = int((persisted_readback.get("ad_account_daily_stats") or {}).get("count") or 0)
             sync_outcome = _classify_sync_outcome(
                 account_rows=account_rows_raw,
                 persisted_account_rows=persisted_account_rows,
                 upserts=[account_upsert, campaign_upsert, ad_upsert, promoted_upsert],
             )
+            if persisted_account_rows > 0 and refresh_read_model:
+                projection = await refresh_dashboard_read_model_safely(
+                    client_id=cid, start=period_since, end=period_until, provider="meta",
+                )
+                if projection.get("ok") is False:
+                    raise IntegrationError("Os dados de Meta Ads foram persistidos, mas a leitura não foi atualizada.", status_code=502, code="META_ADS_PROJECTION_FAILED", provider="meta_ads")
+                print(f"[meta_ads][freshness_updated] client_id={cid} provider=meta")
             if sync_outcome == "no_data":
                 await mark_connection_sync_no_data(
                     resolved_connection_id,
@@ -1827,14 +1842,6 @@ async def sync_ads_for_client_period(
                 await mark_connection_sync_partial(resolved_connection_id)
             else:
                 await mark_connection_sync_success(resolved_connection_id)
-
-            if persisted_account_rows > 0 and refresh_read_model:
-                await refresh_dashboard_read_model_safely(
-                    client_id=cid,
-                    start=period_since,
-                    end=period_until,
-                    provider="meta",
-                )
 
             print(
                 "[ads_sync][done] "
@@ -1860,6 +1867,7 @@ async def sync_ads_for_client_period(
                 f"revenue={sum(float(row.get('revenue') or 0) for row in account_rows):.6f} "
                 f"selected_purchase_action={','.join(selected_purchase_actions) or '-'}"
             )
+            print(f"[meta_ads][manual_refresh_done] client_id={cid} status={sync_outcome}")
             result = {
                 "ok": True,
                 "client_id": cid,
@@ -2061,8 +2069,12 @@ async def sync_ads_for_client_period(
         print(
             "[ads_sync][timeout]" if is_timeout else "[ads_sync][meta_error]",
             f"client_id={cid} ad_account_id={ad_account_id} since={period_since} until={period_until} "
-            f"error={_safe_str(message)[:360]}",
+            f"code={exc.error_code if isinstance(exc, MetaApiError) else exc.code if isinstance(exc, IntegrationError) else 'SYNC_FAILED'} "
+            f"status={exc.status_code if isinstance(exc, (MetaApiError, IntegrationError)) else 502} "
+            f"reason={'timeout' if is_timeout else 'provider_or_persistence_failure'}",
         )
+        if isinstance(exc, MetaApiError) and exc.rate_limited:
+            raise IntegrationError("A Meta limitou as solicitações de Ads. Aguarde antes de atualizar novamente.", status_code=429, code="META_ADS_RATE_LIMITED", provider="meta_ads", diagnostics={"retry_after":60}) from None
         raise
     finally:
         print(

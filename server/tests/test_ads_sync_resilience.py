@@ -72,6 +72,7 @@ class _BaseAdsSyncTest(unittest.IsolatedAsyncioTestCase):
         self._install(ads_sync, "mark_connection_sync_no_data", AsyncMock())
         self._install(ads_sync, "mark_connection_sync_partial", AsyncMock())
         self._install(ads_sync, "mark_connection_sync_success", AsyncMock())
+        self._install(ads_sync, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True}))
         self._install(ads_sync, "_pick_paid_connection", AsyncMock(return_value=_paid_connection()))
         self._install(ads_sync, "ensure_valid_meta_token", AsyncMock(return_value="token-abc"))
         self._install(ads_sync, "_fetch_boosted_insight_rows", AsyncMock(return_value=[]))
@@ -280,3 +281,42 @@ class PageCapTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectionFreshnessTests(_BaseAdsSyncTest):
+    async def test_projection_failure_never_marks_success(self):
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=[[{"date_start":"2026-05-01", "spend":"10"}], [], []]))
+        ads_sync._upsert_ad_account_daily_stats.return_value = {"upserted":1, "skipped":False}
+        ads_sync._readback_persisted_rows.return_value = {**_empty_readback(), "ad_account_daily_stats":{"count":1,"mode":"connection_scope"}}
+        ads_sync.refresh_dashboard_read_model_safely.return_value = {"ok":False}
+        from services.integration_errors import IntegrationError
+        with self.assertRaises(IntegrationError) as error:
+            await ads_sync.sync_ads_for_client_period(client_id="amalie", since="2026-05-01", until="2026-05-01", connection_id="conn-1", persisted_only=True)
+        self.assertEqual(error.exception.code, "META_ADS_PROJECTION_FAILED")
+        ads_sync.mark_connection_sync_success.assert_not_awaited()
+
+    async def test_freshness_is_projected_before_connection_success(self):
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=[[{"date_start":"2026-05-01", "spend":"10"}], [], []]))
+        ads_sync._upsert_ad_account_daily_stats.return_value = {"upserted":1, "skipped":False}
+        ads_sync._readback_persisted_rows.return_value = {**_empty_readback(), "ad_account_daily_stats":{"count":1,"mode":"connection_scope"}}
+        stages=[]
+        async def projection(**kwargs):
+            self.assertEqual(kwargs, {"client_id":"amalie","start":"2026-05-01","end":"2026-05-01","provider":"meta"})
+            stages.append("freshness"); return {"ok":True}
+        async def success(cid): stages.append("success")
+        self._install(ads_sync,"refresh_dashboard_read_model_safely",projection)
+        self._install(ads_sync,"mark_connection_sync_success",success)
+        result=await ads_sync.sync_ads_for_client_period(client_id="amalie", since="2026-05-01", until="2026-05-01", connection_id="conn-1", persisted_only=True)
+        self.assertEqual(result["sync_outcome"],"success")
+        self.assertEqual(stages,["freshness","success"])
+
+    async def test_graph_rate_limit_is_explicit_429(self):
+        from services.meta_http import MetaApiError
+        from services.integration_errors import IntegrationError
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=MetaApiError("sensitive upstream", status_code=429, error_code=4, rate_limited=True)))
+        with self.assertRaises(IntegrationError) as error:
+            await ads_sync.sync_ads_for_client_period(client_id="amalie", since="2026-05-01", until="2026-05-01", connection_id="conn-1", persisted_only=True)
+        self.assertEqual(error.exception.status_code,429)
+        self.assertEqual(error.exception.diagnostics["retry_after"],60)
+        self.assertNotIn("sensitive",error.exception.public_message)
+        ads_sync.mark_connection_sync_success.assert_not_awaited()

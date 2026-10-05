@@ -143,7 +143,6 @@ describe("página Clientes", () => {
     const headers = [...container.querySelectorAll("th")].map((cell) => cell.textContent);
     expect(headers).toEqual([
       "Cliente",
-      "Contato",
       "Pedidos",
       "Receita",
       "Ticket médio",
@@ -193,7 +192,8 @@ describe("página Clientes", () => {
       }),
     );
     await render();
-    expect(text()).toContain("Cliente c-100");
+    expect(text()).not.toContain("Cliente c-100");
+    expect(container.querySelector(".customerNameButton")?.textContent).toBe("Não informado");
     expect(text()).toContain("Não informado");
   });
 
@@ -305,7 +305,8 @@ describe("página Clientes", () => {
     });
     expect(api.getCustomerDetail).toHaveBeenCalledWith("key-ana");
     expect(text()).toContain("Histórico de pedidos");
-    expect(text()).toContain("Total comprado");
+    expect(text()).toContain("Receita");
+    expect([...container.querySelectorAll("dt")].map((item) => item.textContent)).toEqual(["Nome", "Email", "Telefone", "Origem", "Receita", "Pedidos", "Ticket médio", "Primeira compra", "Última compra"]);
     expect(text()).toContain("Primeira compra");
     expect(text()).toContain("#1003");
     expect(text()).toContain("Cancelado");
@@ -321,4 +322,34 @@ describe("página Clientes", () => {
     expect(text()).toContain("Não foi possível abrir");
     expect(text()).toContain("Ana Recorrente");
   });
+});
+
+
+it("Clientes não oferece CTA manual e mostra contato abaixo do nome", async () => {
+  api.getCustomers.mockResolvedValue(listing());
+  await render();
+  expect(container.querySelector('[data-testid="customers-refresh"]')).toBeNull();
+  expect([...container.querySelectorAll("button")].some((item) => item.textContent === "Atualizar dados")).toBe(false);
+  const cell = container.querySelector(".customerNameButton")?.closest("td");
+  expect(cell?.textContent).toContain("Ana Recorrente");
+  expect(cell?.textContent).toContain("ana@exemplo-roove.com");
+  expect(cell?.textContent).toContain("(11) 98888-7777");
+});
+
+it("nome ausente usa email ou telefone sem fabricar identidade", async () => {
+  api.getCustomers.mockResolvedValue(listing({ customers: [summary({ name: null })] }));
+  await render();
+  expect(container.querySelector(".customerNameButton")?.textContent).toBe("ana@exemplo-roove.com");
+});
+
+it("revalidação silenciosa preserva tabela durante espera e falha", async () => {
+  await render();
+  let fail!: (reason: Error) => void;
+  api.getCustomers.mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+  await act(async () => { typeSearch("Ana"); await vi.advanceTimersByTimeAsync(400); });
+  expect(container.querySelector(".customerNameButton")?.textContent).toBe("Ana Recorrente");
+  expect(text()).not.toContain("Carregando clientes");
+  await act(async () => { fail(new Error("temporariamente indisponível")); });
+  expect(container.querySelector(".customerNameButton")?.textContent).toBe("Ana Recorrente");
+  expect(text()).toContain("temporariamente indisponível");
 });

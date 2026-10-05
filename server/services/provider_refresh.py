@@ -55,6 +55,7 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                 print(f"[{provider}][manual_refresh_cooldown] retry_after=60")
             raise HTTPException(429, "Aguarde um minuto para atualizar novamente.", headers={"Retry-After": "60"})
         tasks = []
+        meta_sources = []
         if provider in {"fbits", "shopify"}:
             rows = await list_generic_connections(client_id)
             active = {row["provider"] for row in rows if row.get("provider") in {"fbits", "shopify"} and row.get("status") != "disconnected" and not row.get("disconnected_at")}
@@ -73,11 +74,14 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
         elif provider == "meta":
             organic = await resolve_connection_for_scope(client_id=client_id, platform="instagram", connection_type="organic")
             paid = await resolve_connection_for_scope(client_id=client_id, platform="meta_ads", connection_type="paid", require_ad_account=True)
+            print(f"[meta_ads][connection_resolved] client_id={client_id} configured={bool(paid['connection_id'])}")
             if organic["connection_id"] and not str((organic.get("row") or {}).get("ig_user_id") or "").strip():
                 raise HTTPException(409, "Selecione a conta Instagram antes de atualizar os dados.")
             if organic["connection_id"]:
+                meta_sources.append("Instagram")
                 tasks.append(sync_instagram_for_client(client_id, limit=200, preferred_connection_id=organic["connection_id"], persisted_only=True))
             if paid["connection_id"]:
+                meta_sources.append("Meta Ads")
                 tasks.append(sync_ads_for_client_period(client_id=client_id, connection_id=paid["connection_id"], since=start, until=end, persisted_only=True))
         elif provider == "google":
             rows = await list_generic_connections(client_id)
@@ -95,7 +99,12 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                 raise HTTPException(409, "Nenhuma fonte configurada para atualização.")
             results = await asyncio.gather(*tasks, return_exceptions=True)
             if provider == "meta":
-                for result in results:
+                for source, result in zip(meta_sources, results):
+                    if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("sync_outcome") == "partial")):
+                        code = result.code if isinstance(result, IntegrationError) else "SYNC_FAILED"
+                        status = result.status_code if isinstance(result, IntegrationError) else 502
+                        reason = "duplicate" if isinstance(result, dict) and result.get("reason") == "duplicate" else "failed"
+                        print(f"[meta_ads][manual_refresh_error] source={source} code={code} status={status} reason={reason}")
                     seconds = None
                     if isinstance(result, IntegrationError) and result.status_code == 429:
                         seconds = max(1, int(result.diagnostics.get("retry_after") or 60))
@@ -108,9 +117,14 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
             if any(isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False)) for result in results):
                 if provider == "meta":
                     print(f"[meta][manual_refresh_error] client_id={client_id} stage=sync_or_projection status=502")
-                raise HTTPException(502, "Uma fonte não pôde ser atualizada. Mantendo a última leitura disponível.")
+                failed = [name for name, result in zip(meta_sources, results) if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False))] if provider == "meta" else []
+                label = ", ".join(failed) or "Uma fonte"
+                raise HTTPException(502, f"{label} não pôde ser atualizada. Mantendo a última leitura disponível.")
         await invalidate_namespace("integration_connections")
         await invalidate_namespace("client_integrations")
         if provider in {"fbits", "meta"}:
             print(f"[{provider}][manual_refresh_done] client_id={client_id} status=success")
-        return {"ok": True, "client_id": client_id, "provider": provider}
+        response = {"ok": True, "client_id": client_id, "provider": provider}
+        if provider == "meta":
+            response["sources"] = {name: {"status": "no_data" if isinstance(result, dict) and result.get("sync_outcome") == "no_data" else "success"} for name, result in zip(meta_sources, results)}
+        return response

@@ -12,7 +12,7 @@ import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import Shell from "../components/Shell";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
-import { cooldownFrom, cooldownHint, formatFreshness } from "../app/dataRefresh";
+import { formatFreshness } from "../app/dataRefresh";
 import "../styles/customers.css";
 
 type Props = {
@@ -52,9 +52,9 @@ function day(value: string | null): string {
 function displayName(customer: CustomerSummary): string {
   const name = String(customer.name || "").trim();
   if (name) return name;
-  if (customer.external_id) return `Cliente ${customer.external_id}`;
   if (customer.email) return customer.email;
-  return "Cliente sem identificação";
+  if (customer.phone) return phoneDisplay(customer.phone);
+  return "Não informado";
 }
 
 function phoneDisplay(phone: string | null): string {
@@ -91,7 +91,6 @@ export default function Customers({ onLogout }: Props) {
   const cached = readDashboardCache<CachedBase>(baseCacheKey(clientId));
   const [data, setData] = useState<CustomerListResponse | null>(cached?.payload || null);
   const [refreshedAt, setRefreshedAt] = useState<string | null>(cached?.refreshedAt || null);
-  const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
   const [tick, setTick] = useState(() => Date.now());
   // Último estado válido já na tela: só mostra "carregando" quando não há
   // nada persistido para mostrar.
@@ -149,19 +148,11 @@ export default function Customers({ onLogout }: Props) {
     }
   }, [clientId]);
 
-  // Só move os rótulos relativos e libera o cooldown; não busca nada.
+  // Só move os rótulos relativos; não busca nada.
   useEffect(() => {
     const timer = setInterval(() => setTick(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, []);
-
-  const cooldown = cooldownFrom(lastRefreshAt, tick);
-  const refreshData = useCallback(() => {
-    if (!cooldown.ready || loading) return;
-    setLastRefreshAt(Date.now());
-    const controller = new AbortController();
-    void load(applied, page, controller.signal);
-  }, [applied, cooldown.ready, load, loading, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -218,19 +209,6 @@ export default function Customers({ onLogout }: Props) {
             {freshnessLabel ? <span> · Dados atualizados {freshnessLabel}</span> : null}
           </>
         }
-        controls={
-          <button
-            type="button"
-            className="ds-button"
-            onClick={refreshData}
-            disabled={loading || !cooldown.ready}
-            data-testid="customers-refresh"
-            title={cooldownHint(cooldown) || undefined}
-          >
-            {loading ? "Atualizando..." : "Atualizar dados"}
-          </button>
-        }
-        controlsNote={cooldownHint(cooldown)}
       />
       <p className="customerLead">Conheça e acompanhe a base de clientes desta empresa.</p>
 
@@ -257,7 +235,7 @@ export default function Customers({ onLogout }: Props) {
 
           {data && !data.contact_details_available ? (
             <DataNotice tone="neutral" title="Contatos não disponíveis nesta loja">
-              A loja desta empresa não compartilha nome, e-mail e telefone dos clientes.
+              Os dados persistidos ainda não têm nome, e-mail ou telefone dos clientes.
               O histórico de compras é real e aparece abaixo.
             </DataNotice>
           ) : null}
@@ -285,7 +263,7 @@ export default function Customers({ onLogout }: Props) {
           </section>
 
           <section className="customerTableWrap" aria-label="Clientes">
-            {loading ? (
+            {loading && !data ? (
               <p className="customerEmpty">Carregando clientes…</p>
             ) : customers.length === 0 ? (
               <p className="customerEmpty">
@@ -298,7 +276,6 @@ export default function Customers({ onLogout }: Props) {
                 <thead>
                   <tr>
                     <th scope="col">Cliente</th>
-                    <th scope="col">Contato</th>
                     <th scope="col">Pedidos</th>
                     <th scope="col">Receita</th>
                     <th scope="col">Ticket médio</th>
@@ -319,9 +296,6 @@ export default function Customers({ onLogout }: Props) {
                           >
                             {displayName(customer)}
                           </button>
-                          <small className="customerRowNote">{STATUS_LABEL[customer.status]}</small>
-                        </td>
-                        <td>
                           {contacts.length ? (
                             contacts.map((line) => (
                               <span key={line} className="customerContactLine">
@@ -340,6 +314,7 @@ export default function Customers({ onLogout }: Props) {
                           <span className={`customerOrigin is-${customer.provider}`}>
                             {customer.provider_label}
                           </span>
+                          <small className="customerRowNote">{STATUS_LABEL[customer.status]}</small>
                         </td>
                       </tr>
                     );
@@ -391,19 +366,20 @@ export default function Customers({ onLogout }: Props) {
           <>
             <dl className="customerDetailGrid">
               <div>
-                <dt>Contato</dt>
-                <dd>
-                  {contactLines(selected.customer).length
-                    ? contactLines(selected.customer).join(" · ")
-                    : "Não informado"}
-                </dd>
+                <dt>Nome</dt><dd>{selected.customer.name || "Não informado"}</dd>
+              </div>
+              <div>
+                <dt>Email</dt><dd>{selected.customer.email || "Não informado"}</dd>
+              </div>
+              <div>
+                <dt>Telefone</dt><dd>{phoneDisplay(selected.customer.phone) || "Não informado"}</dd>
               </div>
               <div>
                 <dt>Origem</dt>
                 <dd>{selected.customer.provider_label}</dd>
               </div>
               <div>
-                <dt>Total comprado</dt>
+                <dt>Receita</dt>
                 <dd>{money(selected.customer.total_revenue)}</dd>
               </div>
               <div>

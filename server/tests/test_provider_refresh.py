@@ -258,3 +258,31 @@ class GoogleSyncBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await google_ads.sync_google_ads(client_id=CID, connection_id=None, start=PERIOD["start"], end=PERIOD["end"], days=30, record_job_run=False)
             resolve.assert_awaited_once_with(CID)
             self.assertEqual(identities, ["persisted"])
+
+
+class IndependentMetaSourcesTests(unittest.IsolatedAsyncioTestCase):
+    async def run_sources(self, ads):
+        async def resolve(**kwargs):
+            return {"connection_id": "organic" if kwargs["platform"] == "instagram" else "paid", "row": {"ig_user_id":"persisted"}}
+        with patch.object(refresh,"guarded_sync",no_lock), patch.object(refresh,"acquire_sync_lock",AsyncMock(return_value=True)), patch.object(refresh,"resolve_connection_for_scope",AsyncMock(side_effect=resolve)), patch.object(refresh,"sync_instagram_for_client",AsyncMock(return_value={"ok":True,"read_model_refreshed":True})), patch.object(refresh,"sync_ads_for_client_period",ads):
+            return await refresh.refresh_provider_data(CID,"meta",**PERIOD)
+
+    async def test_organic_and_ads_success_are_independent(self):
+        ads=AsyncMock(return_value={"ok":True,"sync_outcome":"success"})
+        result=await self.run_sources(ads)
+        self.assertEqual(result["sources"],{"Instagram":{"status":"success"},"Meta Ads":{"status":"success"}})
+        self.assertEqual(ads.await_args.kwargs["client_id"],CID)
+        self.assertEqual(ads.await_args.kwargs["connection_id"],"paid")
+        self.assertTrue(ads.await_args.kwargs["persisted_only"])
+
+    async def test_ads_failure_is_identified_after_organic_success(self):
+        with self.assertRaises(HTTPException) as error:
+            await self.run_sources(AsyncMock(side_effect=RuntimeError("secret token upstream")))
+        self.assertEqual(error.exception.status_code,502)
+        self.assertIn("Meta Ads",error.exception.detail)
+        self.assertNotIn("secret",error.exception.detail)
+        self.assertNotIn("Instagram",error.exception.detail)
+
+    async def test_no_data_is_valid_consultation_not_missing_sync(self):
+        result=await self.run_sources(AsyncMock(return_value={"ok":True,"sync_outcome":"no_data"}))
+        self.assertEqual(result["sources"]["Meta Ads"]["status"],"no_data")
