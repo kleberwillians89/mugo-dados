@@ -116,6 +116,10 @@ def _iso_or_none(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+def _is_recurring(orders_count: int) -> bool:
+    return orders_count >= 2
+
+
 class _Accumulator:
     """Agrega os pedidos de um cliente sem inventar o que não existe."""
 
@@ -170,7 +174,7 @@ class _Accumulator:
     def summary(self, *, client_id: str, provider: str) -> Dict[str, Any]:
         average = round(self.total_revenue / self.orders_count, 2) if self.orders_count else None
         status = (
-            STATUS_RECURRING if self.orders_count >= 2
+            STATUS_RECURRING if _is_recurring(self.orders_count)
             else STATUS_SINGLE if self.orders_count == 1
             else STATUS_NO_PURCHASE
         )
@@ -391,6 +395,37 @@ async def _accumulators_for(client_id: str) -> Tuple[str, Dict[str, _Accumulator
         return "", {}, {"orders_scanned": 0, "orders_unattributed": 0}
     stats["truncated"] = stats.get("orders_scanned", 0) >= CUSTOMER_ORDER_SCAN_LIMIT
     return provider, accumulators, stats
+
+
+async def recurring_customers_in_period(
+    *, client_id: str, start: str, end: str, provider: str,
+) -> Optional[int]:
+    """Clientes com compra válida no período e >=2 compras válidas na base
+    persistida até o fim dele. Usa identidades/pedidos do Customer 360.
+    Sem base utilizável de clientes identificados, o valor é desconhecido.
+    """
+    resolved, accumulators, stats = await _accumulators_for(client_id)
+    if (resolved != provider or not resolved or not stats.get("orders_scanned")
+            or stats.get("truncated")):
+        return None
+    start_date = datetime.fromisoformat(start).date()
+    end_date = datetime.fromisoformat(end).date()
+    recurring = 0
+    valid_orders = 0
+    for accumulator in accumulators.values():
+        valid_dates = []
+        for order in accumulator.orders:
+            if not order.get("counts_as_revenue"):
+                continue
+            happened_at = _parse_timestamp(order.get("happened_at"))
+            if happened_at is None:
+                return None
+            if happened_at.date() <= end_date:
+                valid_dates.append(happened_at.date())
+        valid_orders += len(valid_dates)
+        if _is_recurring(len(valid_dates)) and any(start_date <= day <= end_date for day in valid_dates):
+            recurring += 1
+    return recurring if valid_orders else None
 
 
 _PHONE_SEARCH = re.compile(r"^[\d\s()+.\-]+$")

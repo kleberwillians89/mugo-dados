@@ -17,6 +17,7 @@ from .generic_connections import list_generic_connections
 from .business_context import load_business_context
 from .commerce_context import resolve_commerce_context
 from .external_research import external_research_context
+from .customers import recurring_customers_in_period
 from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_update
 from .instagram_organic_history import aggregate_instagram_months
 
@@ -743,6 +744,33 @@ async def calculate_intelligence_snapshot(
     def commerce_metric(name: str) -> Dict[str, Any]:
         return commerce_metrics.get(name) if isinstance(commerce_metrics.get(name), dict) else {}
 
+    # Priorizar o valor já fornecido pelo provider correto; FBITS nunca usa
+    # a seção Shopify. Fallback: mesma identidade/pedidos do Customer 360.
+    repeat_customers = None
+    repeat_kpi_source = None
+    official_repeat = commerce_metric("repeat_customers")
+    if (commerce.get("official_kpis") and commerce.get("status") == "ok"
+            and official_repeat.get("value") is not None
+            and official_repeat.get("status", "confirmed") == "confirmed"):
+        repeat_customers = official_repeat["value"]
+        repeat_kpi_source = commerce.get("kpi_source")
+    elif (commerce.get("provider") == "shopify" and shopify.get("connected")
+            and shopify.get("data_available") and shopify.get("returning_customers") is not None):
+        repeat_customers = shopify["returning_customers"]
+        repeat_kpi_source = "shopify_read_model"
+    elif commerce.get("provider") in {"fbits", "shopify"}:
+        try:
+            repeat_customers = await recurring_customers_in_period(
+                client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
+                provider=commerce["provider"],
+            )
+            if repeat_customers is not None:
+                repeat_kpi_source = "customer_360_persisted_orders"
+        except Exception:
+            # Falha de leitura mantém desconhecido; não vira zero nem derruba
+            # as demais métricas já obtidas para o snapshot.
+            repeat_customers = None
+
     commerce_source_payload = {
         "connected": bool(commerce.get("connected")),
         "data_available": commerce_metric("revenue").get("value") is not None,
@@ -791,7 +819,7 @@ async def calculate_intelligence_snapshot(
         _metric("orders", "Pedidos", commerce_metric("orders").get("value"), fmt="integer", status="confirmed" if commerce_metric("orders").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce", previous=commerce_metric("orders").get("previous"), variation=commerce_metric("orders").get("variation"), extra={"kpi_source": commerce.get("kpi_source")}),
         _metric("average_ticket", "Ticket médio", commerce_metric("average_ticket").get("value"), fmt="currency", status="confirmed" if commerce_metric("average_ticket").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce", previous=commerce_metric("average_ticket").get("previous"), variation=commerce_metric("average_ticket").get("variation"), extra={"kpi_source": commerce.get("kpi_source")}),
         _metric("new_customers", "Novos clientes", commerce_metric("customers").get("value"), fmt="integer", status="confirmed" if commerce_metric("customers").get("value") is not None else "unavailable", source=commerce.get("provider") or "commerce"),
-        _metric("repeat_customers", "Clientes recorrentes", shopify.get("returning_customers"), fmt="integer", status="confirmed" if shopify.get("returning_customers") is not None else "unavailable", source=commerce.get("provider") or "commerce"),
+        _metric("repeat_customers", "Clientes recorrentes", repeat_customers, fmt="integer", status="confirmed" if repeat_customers is not None else "unavailable", source=commerce.get("provider") or "commerce", extra={"kpi_source": repeat_kpi_source}),
         _metric("meta_investment", "Investimento Meta", meta.get("spend"), fmt="currency", status="partial" if (meta.get("coverage") or {}).get("is_partial") else "confirmed" if meta.get("spend") is not None else "unavailable", source="meta", previous=prev_meta.get("spend"), variation=(deltas.get("meta_spend") or {}).get("percent")),
         _metric("google_ads_investment", "Investimento Google Ads", google_ads.get("spend"), fmt="currency", status="partial" if (google_ads.get("coverage") or {}).get("is_partial") else "confirmed" if google_ads.get("spend") is not None else "unavailable", source="google_ads"),
         _metric("investment", "Investimento total", total_media.get("paid_media_spend"), fmt="currency", status="confirmed" if total_media.get("paid_media_spend") is not None else "unavailable", source="paid_media", extra={"included_paid_sources": total_media.get("included_paid_sources") or []}),
