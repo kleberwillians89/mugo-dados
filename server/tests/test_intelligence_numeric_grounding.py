@@ -411,6 +411,7 @@ class CallProviderWiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("upstream_status=200", model_response[0])
         self.assertIn("request_id=req-grounding", model_response[0])
         self.assertIn("elapsed_ms=", model_response[0])
+        self.assertIn("[intelligence][numeric_validation_failed] request_id=req-grounding", output)
 
     async def test_the_model_response_is_never_logged(self):
         _, _, output = await self._call("O faturamento cresceu 97%.")
@@ -577,3 +578,48 @@ class GenerationCostGuardsTests(unittest.IsolatedAsyncioTestCase):
                 client_id=self.CLIENT, period=self.PERIOD,
             )
         self.assertEqual(remaining, 0.0)
+
+
+class NumericFailureDiagnosticTests(unittest.TestCase):
+    def rejection(self, text, path="response.executive.main_change"):
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(RuntimeError) as error:
+            intelligence._assert_no_untrusted_numeric_text(
+                text, path, trusted={4429.1, 9.0, 492.12}, request_id="req-numeric",
+            )
+        self.assertEqual(str(error.exception), f"AI_UNTRUSTED_NUMERIC_TEXT:{path}")
+        return output.getvalue()
+
+    def test_rejected_currency_logs_only_numeric_diagnostic(self):
+        output = self.rejection("Texto reservado da análise: receita R$ 8.900.")
+        self.assertEqual(output, "[intelligence][numeric_validation_failed] request_id=req-numeric "
+                         "field=response.executive.main_change numeric_token=8.900 "
+                         "normalized_value=8900.0|8.9 reason=unsupported_numeric_value "
+                         "trusted_numeric_count=3\n")
+        self.assertNotIn("Texto reservado", output)
+        self.assertNotIn("receita", output)
+
+    def test_contact_numbers_are_redacted_including_split_phones_and_cpf(self):
+        for text in ("Telefone +55 (11) 98765-4321", "CPF 123.456.789-00", "Contato ana.8900@example.com", "Telefone 987654321", "senha=8900", "access_token=8900"):
+            with self.subTest(text=text):
+                output = self.rejection(text)
+                self.assertIn("numeric_token=[redacted]", output)
+                self.assertIn("normalized_value=[redacted]", output)
+                self.assertNotIn(text, output)
+                self.assertNotIn("98765", output)
+                self.assertNotIn("8900", output)
+
+    def test_unexpected_json_key_is_not_logged(self):
+        output = self.rejection("8900", "response.ana@example.com")
+        self.assertIn("field=response.unknown_field", output)
+        self.assertNotIn("ana@example.com", output)
+
+    def test_recursive_validation_keeps_request_id_and_field(self):
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(RuntimeError):
+            intelligence._assert_no_untrusted_numeric_text(
+                {"executive": {"main_change": "R$ 8.900"}},
+                trusted={4429.1}, request_id="req-recursive",
+            )
+        self.assertIn("request_id=req-recursive", output.getvalue())
+        self.assertIn("field=response.executive.main_change", output.getvalue())

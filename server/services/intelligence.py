@@ -1811,8 +1811,41 @@ def _is_number_supported(token: str, trusted: set[float]) -> bool:
     return False
 
 
+def _log_numeric_validation_failure(
+    *, token: str, text: str, path: str, trusted: set[float], request_id: str | None,
+) -> None:
+    # Não imprimir fragmentos de contatos/identificadores: inclusive telefones
+    # com separadores, que o tokenizer divide em vários números menores.
+    sensitive = "@" in text or any(pattern.search(text) for pattern in _LOG_SECRET_PATTERNS) or any(
+        len(re.sub(r"\D", "", match)) >= 7
+        for match in re.findall(r"\+?\d[\d .()/\-]*\d", text)
+    )
+    numeric_token = "[redacted]" if sensitive else token
+    normalized = "[redacted]" if sensitive else "|".join(
+        str(value) for value, _ in _number_candidates(token)
+    )
+    # O caminho também pode receber uma chave inesperada de JSON. Só expor
+    # nomes de campos definidos nos contratos de análise/pergunta.
+    fields = {"response", "executive", "overall", "main_change", "opportunity",
+              "attention", "priority_action", "insights", "title", "interpretation",
+              "action", "reason", "actions", "recommendation", "justification",
+              "impact_expected", "answer", "direct_answer", "limitations"}
+    safe_path = path if all(
+        part in fields for part in re.sub(r"\[\d+\]", "", path).split(".")
+    ) else "response.unknown_field"
+    print(
+        "[intelligence][numeric_validation_failed] "
+        f"request_id={_log_safe(request_id or '-', key='request_id')} "
+        f"field={safe_path} numeric_token={numeric_token} "
+        f"normalized_value={normalized or '-'} reason=unsupported_numeric_value "
+        f"trusted_numeric_count={len(trusted)}",
+        flush=True,
+    )
+
+
 def _assert_no_untrusted_numeric_text(
     value: Any, path: str = "response", *, trusted: set[float] | None = None,
+    request_id: str | None = None,
 ) -> None:
     """Texto da IA só pode citar número que o backend tenha calculado e enviado.
 
@@ -1823,19 +1856,22 @@ def _assert_no_untrusted_numeric_text(
     if isinstance(value, str):
         for token in _NUMBER_IN_TEXT.findall(value):
             if not _is_number_supported(token, known):
+                _log_numeric_validation_failure(
+                    token=token, text=value, path=path, trusted=known, request_id=request_id,
+                )
                 raise RuntimeError(f"AI_UNTRUSTED_NUMERIC_TEXT:{path}")
         # Algarismo colado em letra é identificador, não valor citado: GA4 e
         # Meta Ads são rótulos reais do produto, não afirmações numéricas.
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
-            _assert_no_untrusted_numeric_text(item, f"{path}[{index}]", trusted=known)
+            _assert_no_untrusted_numeric_text(item, f"{path}[{index}]", trusted=known, request_id=request_id)
         return
     if isinstance(value, dict):
         for key, item in value.items():
             if key in _NON_PROSE_KEYS:
                 continue
-            _assert_no_untrusted_numeric_text(item, f"{path}.{key}", trusted=known)
+            _assert_no_untrusted_numeric_text(item, f"{path}.{key}", trusted=known, request_id=request_id)
 
 
 async def _call_provider(
@@ -1907,7 +1943,7 @@ async def _call_provider(
     parsed = json.loads(text)
     # O payload é tudo que o modelo recebeu: é ele que define o que é
     # verificável. Vale para a análise e para o /ask, que usam este caminho.
-    _assert_no_untrusted_numeric_text(parsed, trusted=_trusted_numbers(payload))
+    _assert_no_untrusted_numeric_text(parsed, trusted=_trusted_numbers(payload), request_id=request_id)
     return parsed
 
 
