@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 
+import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
 import { type KpiKey } from "../components/KpiGrid";
 import MediaTable from "../components/MediaTable";
@@ -45,19 +46,13 @@ import { ensureDashboardPeriod, previousDashboardPeriod } from "../hooks/dashboa
 import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 
 import {
-  refreshAll,
+  refreshProviderData,
   listMonthsByConnection,
   listNotes,
   createNote,
   updateNote,
   listClientConnections,
   listGenericConnections,
-  selectUsableGoogleConnection,
-  syncAds,
-  syncGa4,
-  syncGoogleConnection,
-  syncShopifyConnection,
-  ApiError,
   type GenericConnection,
 } from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
@@ -75,14 +70,13 @@ import type {
   MetaConnection,
   MonthAgg,
   NoteItem,
-  RefreshAllResponse,
 } from "../app/types";
 
 import {
   getActiveConnectionId,
   getSelectedConnectionId,
 } from "../app/connectionState";
-import { paidMediaNotice, providerEverHadData } from "../app/providerFreshness";
+import { paidMediaNotice, providerEverHadData, providerValidUpdatedAt } from "../app/providerFreshness";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
@@ -662,6 +656,7 @@ export default function Dashboard({
 
   const {
     data: summaryData,
+    reloadSummary,
     refreshingSummary,
     sectionLoading,
     sectionRefreshing,
@@ -717,7 +712,6 @@ export default function Dashboard({
     loadingPaid,
     refreshingPaid,
     paidError,
-    paidUpdatedAt,
   } = useDashboardPaid({
     isAuthenticated,
     activeClientId,
@@ -1088,187 +1082,29 @@ export default function Dashboard({
   }, [activeClientId, connectionsCacheKey, paidConnectionIdCacheKey, isAuthenticated]);
 
   async function onRefresh() {
-    if (!activeClientId) {
-      setErr("Client_id do cliente ativo não configurado para atualização.");
-      return;
-    }
+    if (!activeClientId) return;
     setErr(null);
     setSyncing(true);
     const startedAt = new Date().toISOString();
-    let metaConnections: MetaConnection[] = [];
-    let genericConnections: GenericConnection[] = [];
+    const runtime = { tenant: activeClientId, provider: "meta", endpoint: `/api/clients/${activeClientId}/data-refresh/meta`, started_at: startedAt };
+    console.info("[meta][manual_refresh_click]", { endpoint: runtime.endpoint });
+    setRefreshRuntime([{ ...runtime, status: "running" }]);
     try {
-      const [metaResult, genericResult] = await Promise.all([
-        listClientConnections(),
-        listGenericConnections(),
-      ]);
-      metaConnections = arrayOrEmpty<MetaConnection>(metaResult.connections);
-      genericConnections = arrayOrEmpty<GenericConnection>(genericResult.connections);
-    } catch (connectionError: unknown) {
-      setErr(describeSyncError(connectionError, "Não foi possível preparar a atualização agora."));
-      setSyncing(false);
-      return;
-    }
-    const refreshOrganicConnectionId = resolveOperationalMetaConnectionId(
-      metaConnections, "organic", organicConnectionId || getActiveConnectionId()
-    );
-    const paidCandidates = metaConnections.filter((item) =>
-      String(item.platform || "").toLowerCase() === "meta_ads" &&
-      String(item.connection_type || "").toLowerCase() === "paid" &&
-      String(item.status || "").toLowerCase() !== "disconnected" &&
-      item.requires_reauth !== true
-    );
-    const refreshPaidConnectionId = paidCandidates.some((item) => item.id === paidConnectionId)
-      ? paidConnectionId
-      : paidCandidates.length === 1 ? paidCandidates[0].id : null;
-    const shopifyConnection = resolveCommerceConnection(
-      genericConnections.filter((item) => item.provider === "shopify"),
-      getSelectedConnectionId(activeClientId, "shopify")
-    );
-    const ga4Connection = selectUsableGoogleConnection(
-      genericConnections, "ga4", activeClientId, getSelectedConnectionId(activeClientId, "ga4")
-    );
-    const googleAdsConnection = selectUsableGoogleConnection(
-      genericConnections, "google_ads", activeClientId, getSelectedConnectionId(activeClientId, "google_ads")
-    );
-    const refreshDays = Math.max(
-      1,
-      Math.round((Date.parse(period.end) - Date.parse(period.start)) / 86_400_000) + 1
-    );
-    const syncTasks: Array<{ provider: string; connectionId: string; endpoint: string; promise: Promise<unknown> }> = [];
-    if (refreshOrganicConnectionId) {
-      syncTasks.push({
-        provider: "meta_organic", connectionId: refreshOrganicConnectionId,
-        endpoint: "/api/ig/refresh_all",
-        promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "meta_organic", connectionId: refreshOrganicConnectionId },
-          () =>
-            refreshAll(200, {
-              connectionId: refreshOrganicConnectionId,
-              start: period.start,
-              end: period.end,
-            })
-        ),
-      });
-    } else {
-      dashLog("onRefresh:refreshAll:skip", {
-        reason: "missing_organic_connection",
-      });
-    }
-    if (refreshPaidConnectionId) {
-      syncTasks.push({
-        provider: "meta_ads", connectionId: refreshPaidConnectionId,
-        endpoint: "/api/ads/sync",
-        promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "meta_ads", connectionId: refreshPaidConnectionId },
-          () =>
-            syncAds(
-              {
-                start: period.start,
-                end: period.end,
-              },
-              {
-                connectionId: refreshPaidConnectionId,
-                clientId: activeClientId,
-              }
-            )
-        ),
-      });
-    }
-    if (shopifyConnection) {
-      syncTasks.push({
-        provider: "shopify", connectionId: shopifyConnection.id,
-        endpoint: `/api/oauth/shopify/${shopifyConnection.id}/sync`,
-        promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "shopify", connectionId: shopifyConnection.id },
-          () => syncShopifyConnection(shopifyConnection.id, refreshDays)
-        ),
-      });
-    }
-    if (ga4Connection) {
-      syncTasks.push({
-        provider: "ga4", connectionId: ga4Connection.id,
-        endpoint: "/api/google/ga4/sync",
-        promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "ga4", connectionId: ga4Connection.id },
-          () => syncGa4(period, { clientId: activeClientId, connectionId: ga4Connection.id })
-        ),
-      });
-    }
-    if (googleAdsConnection) {
-      syncTasks.push({
-        provider: "google_ads", connectionId: googleAdsConnection.id,
-        endpoint: `/api/oauth/google/${googleAdsConnection.id}/sync`,
-        promise: runExclusiveSync(
-          { clientId: activeClientId, provider: "google_ads", connectionId: googleAdsConnection.id },
-          () => syncGoogleConnection(googleAdsConnection.id)
-        ),
-      });
-    }
-    if (!syncTasks.length) {
-      setErr("Nenhuma fonte configurada para atualização.");
-      setRefreshRuntime([{
-        tenant: activeClientId, status: "blocked", code: "CONNECTION_SELECTION_REQUIRED",
-        started_at: startedAt, finished_at: new Date().toISOString(), rows_written: 0,
-      }]);
-      setSyncing(false);
-      return;
-    }
-    setRefreshRuntime(syncTasks.map((task) => ({
-      tenant: activeClientId, provider: task.provider, connection_id: task.connectionId,
-      endpoint: task.endpoint, status: "running", code: "-", request_id: "-",
-      started_at: startedAt, finished_at: "-", rows_written: 0,
-    })));
-    try {
-      const syncResults = await Promise.allSettled(syncTasks.map((task) => task.promise));
-      const runtime = syncResults.map((result, index) => {
-        const task = syncTasks[index];
-        const value = result.status === "fulfilled" && result.value && typeof result.value === "object"
-          ? result.value as Record<string, unknown> : {};
-        const failure = result.status === "rejected" ? result.reason : null;
-        return {
-          tenant: activeClientId, provider: task.provider, connection_id: task.connectionId,
-          endpoint: task.endpoint, status: result.status,
-          code: failure instanceof ApiError ? failure.code : String(value.code || "OK"),
-          request_id: failure instanceof ApiError ? failure.requestId : String(value.request_id || ""),
-          started_at: startedAt, finished_at: new Date().toISOString(),
-          rows_written: Number(value.rows_written || value.saved_count || value.comments_saved || 0),
-        };
-      });
-      setRefreshRuntime(runtime);
-      const organicIndex = syncTasks.findIndex((task) => task.provider === "meta_organic");
-      const organicSync = organicIndex >= 0 ? syncResults[organicIndex] : null;
-      if (organicSync?.status === "fulfilled") {
-        const res = organicSync.value as RefreshAllResponse;
-        dashLog("onRefresh:refreshAll", {
-          ok: !!res.ok,
-          media: (res.media || []).length,
-          comments_saved: res.comments_saved || 0,
-          warnings: res.warnings || [],
-          block_status: res.block_status || {},
-        });
-        if (!res.ok) {
-          const warning = Array.isArray(res.warnings) ? String(res.warnings[0] || "").trim() : "";
-          setErr(warning || "Atualização orgânica finalizada com alertas.");
-        }
-      }
-      const rejectedSync = syncResults.find((result) => result.status === "rejected");
-      if (rejectedSync?.status === "rejected") {
-        dashLog("onRefresh:sync:error", {
-          message: errorMessage(rejectedSync.reason, "failed"),
-        });
-        const failure = rejectedSync.reason;
-        setErr(describeSyncError(
-          failure,
-          errorMessage(failure, "Falha parcial ao atualizar. Mantendo a última leitura disponível.")
-        ));
-      }
-      await dashboardSnapshot.refetch();
-      setConnections(metaConnections);
-      setCommerceConnection(shopifyConnection || null);
-      writeDashboardCache<MetaConnection[]>(connectionsCacheKey, metaConnections, 300_000);
-    } catch (error: unknown) {
-      setErr(errorMessage(error, "Erro ao atualizar dados"));
+      await runExclusiveSync(
+        { clientId: activeClientId, provider: "meta" },
+        () => refreshProviderData("meta", period)
+      );
+      if (getActiveClientId() !== activeClientId) return;
+      const snapshot = await dashboardSnapshot.refetch({ afterCurrent: true });
+      if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
+      if (getActiveClientId() !== activeClientId) return;
+      const summary = await reloadSummary({ snapshot, includeSecondary: true, loadStories: true });
+      if (!summary) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
+      console.info("[meta][ui_read_done]", { client_id: activeClientId });
+      setRefreshRuntime([{ ...runtime, status: "success", finished_at: new Date().toISOString() }]);
+    } catch (cause) {
+      setRefreshRuntime([{ ...runtime, status: "error", finished_at: new Date().toISOString() }]);
+      setErr(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível."));
     } finally {
       setSyncing(false);
     }
@@ -1324,11 +1160,6 @@ export default function Dashboard({
     [connections, paidConnectionId]
   );
   const paidSyncStatus = String(paidConnection?.last_sync_status || "never").toLowerCase();
-  const paidLastUpdatedLabel =
-    ["success", "partial"].includes(paidSyncStatus)
-      ? formatUpdatedAtLabel(paidConnection?.last_synced_at || paidConnection?.last_sync_at) ||
-        formatUpdatedAtLabel(paidUpdatedAt)
-      : "";
   const mediaLastUpdatedLabel =
     formatUpdatedAtLabel(sectionUpdatedAt.media) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
@@ -1764,10 +1595,12 @@ export default function Dashboard({
   const periodOption = periodPreset === "custom" ? (isFixedMonthPeriod ? "specific" : null) : periodPreset;
   const freshness = (label: string | null | undefined) => String(label || "").replace(/^Última atualização /, "atualizado em ");
   // Procedência: última leitura bem-sucedida da fonte no read model (o que a página mostra).
-  const paidFreshness = formatUpdatedAtLabel(executiveData?.meta?.last_success_at) || paidLastUpdatedLabel;
-  // Só datas de sincronização reais (nunca o horário em que a página montou o resumo).
-  const organicFreshness = formatUpdatedAtLabel(executiveData?.instagram?.last_success_at)
-    || formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
+  const paidFreshness = formatFreshness(providerValidUpdatedAt(dashboardSnapshot.sources, "meta", {
+    lastSuccessAt: executiveData?.meta?.last_success_at || paidConnection?.last_synced_at || paidConnection?.last_sync_at,
+  }));
+  const organicFreshness = formatFreshness(providerValidUpdatedAt(dashboardSnapshot.sources, "instagram", {
+    lastSuccessAt: executiveData?.instagram?.last_success_at || organicConnection?.last_synced_at || organicConnection?.last_sync_at,
+  }));
   const organicLead = !paidHasData && organicHasData;
   // "Já existiu dado" vem do read model (data_max_available), não da telemetria
   // de sync: um sync que não registrou last_success_at não pode fazer a tela
@@ -1800,15 +1633,15 @@ export default function Dashboard({
               <>
                 <span>
                   <span className="ds-datelineSource">Meta Ads</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? freshness(paidFreshness) : paidEverHadData ? "" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
                 <span>
                   <span className="ds-datelineSource">Instagram</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : organicFreshness ? freshness(organicFreshness) : instagramConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : organicFreshness ? `Dados atualizados ${organicFreshness}` : instagramConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
-                {canSync ? (
+                {isAuthenticated ? (
                   <span>
-                    <button className="ds-link is-quiet" onClick={() => void onRefresh()} disabled={syncing} type="button">
+                    <button className="btn intelHeaderAction" onClick={() => void onRefresh()} disabled={syncing} type="button">
                       {syncing ? "Atualizando..." : "Atualizar dados"}
                     </button>
                   </span>

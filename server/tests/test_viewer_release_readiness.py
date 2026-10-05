@@ -136,11 +136,9 @@ class ViewerIsDeniedOnAdminRoutesTests(unittest.IsolatedAsyncioTestCase):
     async def test_viewer_cannot_reach_company_administration(self):
         for handler, kwargs in (
             ("platform_companies", {"authorization": "Bearer viewer"}),
-            ("platform_company_delete", {"client_id": CURAVINO, "confirmation_name": "x", "authorization": "Bearer viewer"}),
+            ("platform_delete_company", {"client_id": CURAVINO, "payload": {"confirmation_name": "x"}, "active_client_id": None, "authorization": "Bearer viewer"}),
         ):
             with self.subTest(handler=handler):
-                if not hasattr(platform_admin_routes, handler):
-                    self.skipTest(f"handler {handler} não existe")
                 await self.assert_denied(platform_admin_routes, handler, **kwargs)
 
 
@@ -174,6 +172,9 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         # fingerprint, lock de concorrência e cooldown por tenant/período —
         # e não por papel. `POST /ask` continua exigindo gestão.
         ("intelligence", "intelligence_generate"),
+        # Fachada restrita: membership, allowlist e conexões persistidas;
+        # test_provider_refresh prova autorização e rejeição de IDs extras.
+        ("integrations", "refresh_client_provider"),
         # Delega para api_refresh_all, que chama require_client_role: o guarda
         # existe, só não no corpo deste handler.
         ("meta_legacy", "api_instagram_sync"),

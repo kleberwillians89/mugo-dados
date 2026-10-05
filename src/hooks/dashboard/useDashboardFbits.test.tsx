@@ -74,6 +74,7 @@ describe("useDashboardFbits", () => {
   });
 
   it("trocar tenant não reutiliza a cache do tenant anterior", async () => {
+    api.getFbitsOrders.mockImplementation(async () => ({ok:true, client_id:api.getFbitsOrders.mock.calls.length===1 ? "vinhos" : "empresa-b", items:[]}));
     api.getFbitsOrdersSummary.mockImplementation(async ({ start, end }: { start: string; end: string }) => {
       const clientId = api.getFbitsOrdersSummary.mock.calls.length === 1 ? "vinhos" : "empresa-b";
       return summary(clientId, start, end, clientId === "vinhos" ? 12 : 3);

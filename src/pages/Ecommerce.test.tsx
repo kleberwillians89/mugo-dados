@@ -23,7 +23,7 @@ if (!window.localStorage) {
 const tenant = vi.hoisted(() => ({ id: "roove", name: "Roove" }));
 const api = vi.hoisted(() => ({
   getClientIntegrations: vi.fn(),
-  syncFbitsConnection: vi.fn(),
+  refreshProviderData: vi.fn(),
   getFbitsOrdersSummary: vi.fn(),
   getFbitsOrders: vi.fn(),
   listGenericConnections: vi.fn(),
@@ -127,7 +127,7 @@ function expectNoShopifyCalls() {
 function expectNoFbitsCalls() {
   expect(api.getFbitsOrdersSummary).not.toHaveBeenCalled();
   expect(api.getFbitsOrders).not.toHaveBeenCalled();
-  expect(api.syncFbitsConnection).not.toHaveBeenCalled();
+  expect(api.refreshProviderData).not.toHaveBeenCalled();
   expect(container.querySelector('[data-testid="fbits-panel"]')).toBeNull();
 }
 
@@ -179,7 +179,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     // Estado vazio simples: sem linguagem de pipeline/importação.
     expect(container.textContent).toContain("Ainda não há dados para este período.");
     expect(container.textContent).not.toMatch(/primeira sincronização|importação terminar/i);
-    expect(button("Sincronizar agora")).toBeTruthy();
+    expect(button("Atualizar dados")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Shopify não conectado|Conecte sua loja|Nenhuma integração/);
     expect(api.getFbitsOrdersSummary).toHaveBeenCalled();
     // A leitura de conexões é a da resolução do provider (uma só); o modo
@@ -198,14 +198,14 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expectNoFbitsCalls();
   });
 
-  it("11/13. Sincronizar agora (FBITS) chama somente o sync FBITS do tenant ativo", async () => {
+  it("11/13. Atualizar dados (FBITS) chama somente o sync FBITS do tenant ativo", async () => {
     tenant.id = "vinhos";
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
-    api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
+    api.refreshProviderData.mockResolvedValue({ ok: true, scheduled: true });
     await render();
-    await click(button("Sincronizar agora"));
-    expect(api.syncFbitsConnection).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Sincronização FBITS iniciada");
+    await click(button("Atualizar dados"));
+    expect(api.refreshProviderData).toHaveBeenCalledTimes(1);
+    expect(api.refreshProviderData).toHaveBeenCalledWith("fbits", { start: "2026-09-01", end: "2026-09-30" });
     // Recarrega as conexões sem desmontar a tela.
     expect(api.listGenericConnections).toHaveBeenCalledTimes(2);
     expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(2);
@@ -213,16 +213,16 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expectNoShopifyCalls();
   });
 
-  it("Sincronizar agora descarta a cache local e mostra os indicadores oficiais relidos", async () => {
+  it("Atualizar dados descarta a cache local e mostra os indicadores oficiais relidos", async () => {
     tenant.id = "vinhos";
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
-    api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
+    api.refreshProviderData.mockResolvedValue({ ok: true, scheduled: true });
     api.getFbitsOrdersSummary
       .mockResolvedValueOnce({ ...fbitsSummary("vinhos", 10), kpi_source: "fbits_dashboard" })
       .mockResolvedValueOnce({ ...fbitsSummary("vinhos", 12), kpi_source: "fbits_dashboard" });
     await render();
     expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=10");
-    await click(button("Sincronizar agora"));
+    await click(button("Atualizar dados"));
     await act(async () => { await Promise.resolve(); });
     expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(2);
     expect(api.getFbitsOrdersSummary).toHaveBeenLastCalledWith({ start: "2026-09-01", end: "2026-09-30" });
@@ -290,7 +290,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(3);
     await click(button("Mês passado"));
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(4);
-    expect(container.textContent).toContain("Sincronizado em");
+    expect(container.textContent).toContain("Dados atualizados");
   });
 
   it("15. Shopify + FBITS conectados → pede escolha explícita, sem escolher pela ordem", async () => {
@@ -374,24 +374,21 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
 });
 
 describe("Ecommerce — sincronização só para quem o backend autoriza", () => {
-  it("viewer: FBITS não oferece ações de sincronização ou atualização manual", async () => {
+  it("viewer: FBITS oferece refresh sem administração", async () => {
     tenant.id = "vinhos";
     tenant.name = "Curavino";
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     await render({ canSync: false, integrationsShortcut: false });
     expect(container.querySelector('[data-testid="fbits-panel"]')).not.toBeNull();
-    expect(button("Sincronizar agora")).toBeUndefined();
-    expect(container.textContent).not.toContain("Sincronizar agora");
-    expect(button("Atualizar dados")).toBeUndefined();
-    expect(container.textContent).not.toContain("Atualizar dados");
-    expect(api.syncFbitsConnection).not.toHaveBeenCalled();
+    expect(button("Atualizar dados")).toBeTruthy();
+    expect(api.refreshProviderData).not.toHaveBeenCalled();
   });
 
-  it("administrador autorizado (client_admin/agency_admin): FBITS mostra \"Sincronizar agora\"", async () => {
+  it("administrador autorizado (client_admin/agency_admin): FBITS mostra \"Atualizar dados\"", async () => {
     tenant.id = "vinhos";
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     await render({ canSync: true });
-    expect(button("Sincronizar agora")).toBeTruthy();
+    expect(button("Atualizar dados")).toBeTruthy();
   });
 
   it("Shopify recebe a mesma permissão: viewer sem sync", async () => {
@@ -418,4 +415,79 @@ describe("Ecommerce — sincronização só para quem o backend autoriza", () =>
     expectNoShopifyCalls();
     expectNoFbitsCalls();
   });
+});
+
+
+it("viewer: sync falhando mantém last-known-good e não relê endpoints", async () => {
+  tenant.id = "vinhos";
+  api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+  api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 73));
+  api.refreshProviderData.mockRejectedValue(new Error("Limite temporário da FBITS"));
+  await render({ canSync: false, integrationsShortcut: false });
+  const panel = container.querySelector('[data-testid="fbits-panel"]');
+  await click(button("Atualizar dados"));
+  expect(container.querySelector('[data-testid="fbits-panel"]')).toBe(panel);
+  expect(panel?.textContent).toContain("pedidos=73");
+  expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("Não foi possível atualizar");
+  expect(container.querySelector('[class*="skeleton"]')).toBeNull();
+});
+
+
+it("falha oficial após sync mantém KPI oficial anterior e não avança freshness", async () => {
+  tenant.id = "vinhos";
+  api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits", {last_sync_at:"2026-09-30T12:00:00Z"})]));
+  api.refreshProviderData.mockResolvedValue({ok:true});
+  api.getFbitsOrdersSummary.mockResolvedValueOnce({...fbitsSummary("vinhos",73),kpi_source:"fbits_dashboard"}).mockResolvedValueOnce({...fbitsSummary("vinhos",0),kpi_source:"fbits_orders_fallback",kpi_fallback_reason:"FBITS_RATE_LIMITED"});
+  await render({canSync:false,integrationsShortcut:false});
+  await click(button("Atualizar dados"));
+  expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=73");
+  expect(api.listGenericConnections).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("Mantendo a última leitura disponível");
+});
+
+
+it("trocar tenant durante sync não inicia releitura para o tenant anterior", async () => {
+  tenant.id = "vinhos";
+  api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+  let finish!: (value: unknown) => void;
+  api.refreshProviderData.mockImplementation(() => new Promise((resolve) => {finish=resolve;}));
+  await render({canSync:false,integrationsShortcut:false});
+  await act(async () => {button("Atualizar dados")?.dispatchEvent(new MouseEvent("click",{bubbles:true}));});
+  tenant.id = "roove";
+  await act(async () => root.render(null));
+  await act(async () => finish({ok:true}));
+  expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(1);
+  expect(api.listGenericConnections).toHaveBeenCalledTimes(1);
+});
+
+it("resposta de dashboard de outro tenant não substitui last-known-good", async () => {
+  tenant.id="vinhos";
+  api.listGenericConnections.mockResolvedValue(integrations("vinhos",[entry("fbits")]));
+  api.refreshProviderData.mockResolvedValue({ok:true});
+  api.getFbitsOrdersSummary.mockResolvedValueOnce(fbitsSummary("vinhos",73)).mockResolvedValueOnce(fbitsSummary("roove",999));
+  await render({canSync:false,integrationsShortcut:false});
+  await click(button("Atualizar dados"));
+  expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=73");
+  expect(container.textContent).not.toContain("999");
+});
+
+it("FBITS aguarda sync completo antes de reler dashboard/orders e substituir números", async () => {
+  tenant.id = "vinhos";
+  api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
+  api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 73));
+  let finish!: (value: unknown) => void;
+  api.refreshProviderData.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  await render();
+  const reads = api.getFbitsOrdersSummary.mock.calls.length;
+  const orderReads = api.getFbitsOrders.mock.calls.length;
+  await click(button("Atualizar dados"));
+  expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(reads);
+  expect(api.getFbitsOrders).toHaveBeenCalledTimes(orderReads);
+  expect(container.textContent).toContain("pedidos=73");
+  api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 99));
+  await act(async () => { finish({ ok: true }); });
+  expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(reads + 1);
+  expect(api.getFbitsOrders).toHaveBeenCalledTimes(orderReads + 1);
+  expect(container.textContent).toContain("pedidos=99");
 });

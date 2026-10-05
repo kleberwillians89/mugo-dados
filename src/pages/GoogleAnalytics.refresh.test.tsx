@@ -37,12 +37,12 @@ const report = {
   funnel: { view_item: 10, add_to_cart: 5, begin_checkout: 3, add_payment_info: 2, purchase: 1 },
   commerce_journey: { summary: {}, items: [] },
   behavior: emptyGroup, engagement: emptyGroup, merchandising: emptyGroup,
-  trends: { daily: [] }, channels: [], campaigns: [], events: [],
+  trends: { daily: [{date:"2026-09-29",sessions:40,active_users:30,total_users:35,event_count:200,ecommerce_purchases:2,purchase_revenue:400,total_revenue:400}, {date:"2026-09-30",sessions:60,active_users:80,total_users:90,event_count:500,ecommerce_purchases:5,purchase_revenue:1000,total_revenue:1000}] }, channels: [], campaigns: [], events: [],
   meta: { daily_rows: 0, channel_rows: 0, campaign_rows: 0, event_rows: 0 },
 } as unknown as Ga4ReportResponse;
 
 const hooks = vi.hoisted(() => ({ reloadGa4: vi.fn(), reloadCampaigns: vi.fn() }));
-const api = vi.hoisted(() => ({ syncGa4: vi.fn(), syncGoogleConnection: vi.fn(), getClientIntegrations: vi.fn() }));
+const api = vi.hoisted(() => ({ refreshProviderData: vi.fn(), getClientIntegrations: vi.fn() }));
 
 vi.mock("../hooks/dashboard/useDashboardGa4", () => ({
   default: () => ({
@@ -64,8 +64,8 @@ vi.mock("../app/api", async (importOriginal) => ({
   ...api,
 }));
 
-vi.mock("../components/dashboard/PerformanceChart", () => ({
-  default: () => <div data-testid="chart" />,
+vi.mock("../components/data/TrendChart", () => ({
+  default: ({ testId }: { testId?: string }) => <div data-testid={testId} />,
 }));
 
 vi.mock("../app/DashboardDataContext", () => ({
@@ -104,8 +104,7 @@ beforeEach(() => {
       },
     ],
   });
-  api.syncGa4.mockResolvedValue({ ok: true });
-  api.syncGoogleConnection.mockResolvedValue({ ok: true, rows_upserted: 12 });
+  api.refreshProviderData.mockResolvedValue({ ok: true });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -118,10 +117,11 @@ afterEach(async () => {
 
 async function render() {
   await act(async () => {
-    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync />);
+    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync={false} />);
   });
   await act(async () => Promise.resolve());
   await act(async () => Promise.resolve());
+  await act(async () => button("Google Analytics")?.dispatchEvent(new MouseEvent("click", {bubbles:true})));
 }
 
 function button(label: string) {
@@ -136,51 +136,45 @@ async function refresh() {
   await act(async () => Promise.resolve());
 }
 
-describe("GoogleAnalytics — atualizar sincroniza GA4 e Google Ads", () => {
-  it("dispara os dois syncs e recarrega GA4 e campanhas", async () => {
+describe("GoogleAnalytics — refresh seguro para viewer", () => {
+  it("solicita a fachada sem IDs e relê o snapshot", async () => {
     await render();
     await refresh();
-    expect(api.syncGa4).toHaveBeenCalledTimes(1);
-    expect(api.syncGoogleConnection).toHaveBeenCalledTimes(1);
-    expect(api.syncGoogleConnection).toHaveBeenCalledWith("ads-1");
+    expect(api.refreshProviderData).toHaveBeenCalledExactlyOnceWith("google", { start: "2026-09-01", end: "2026-09-30" });
     expect(hooks.reloadGa4).toHaveBeenCalledWith({ force: true });
     expect(hooks.reloadCampaigns).toHaveBeenCalledTimes(1);
   });
 
-  it("GA4 falhando não impede o Google Ads de sincronizar", async () => {
-    api.syncGa4.mockRejectedValue(new Error("GA4 fora do ar"));
+  it("falha preserva cards e freshness sem reler snapshot parcial", async () => {
+    api.refreshProviderData.mockRejectedValue(new Error("provider indisponível"));
     await render();
+    const card = container.querySelector('[data-testid="ga4-sessions"]');
+    expect(card).not.toBeNull();
+    const before = card?.textContent;
+    const freshness = container.querySelector(".ds-dateline")?.textContent;
     await refresh();
-    expect(api.syncGoogleConnection).toHaveBeenCalledTimes(1);
-    // O aviso diz qual provider falhou (a mensagem crua é generalizada).
-    expect(container.textContent).toContain("Google Analytics: ");
-    expect(container.textContent).not.toContain("Google Ads: ");
-    // Falha de refresh não apaga o que já estava na tela.
-    expect(hooks.reloadGa4).toHaveBeenCalled();
+    expect(container.textContent).toContain("Mantendo a última leitura disponível");
+    expect(container.querySelector('[data-testid="ga4-sessions"]')?.textContent).toBe(before);
+    expect(container.querySelector(".ds-dateline")?.textContent).toBe(freshness);
+    expect(hooks.reloadGa4).not.toHaveBeenCalled();
+    expect(hooks.reloadCampaigns).not.toHaveBeenCalled();
   });
 
-  it("Google Ads falhando é identificado sem derrubar o GA4", async () => {
-    api.syncGoogleConnection.mockRejectedValue(new Error("Conta sem permissão"));
+  it("clique duplo compartilha um sync e mantém gráficos montados", async () => {
+    let finish!: (value: unknown) => void;
+    api.refreshProviderData.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     await render();
-    await refresh();
-    expect(api.syncGa4).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Google Ads: ");
-    expect(container.textContent).not.toContain("Google Analytics: Não foi");
-  });
-
-  it("sem conexão Google Ads, atualizar segue funcionando só com GA4", async () => {
-    api.getClientIntegrations.mockResolvedValue({
-      ok: true,
-      client_id: "curavino",
-      connections: [{
-        provider: "ga4", connection_id: "ga4-1", status: "connected", authorization_status: "valid",
-        sync_status: null, account: {}, assets: { property_id: "properties/1" },
-        last_sync_at: null, last_successful_sync_at: null, last_error: null, updated_at: null,
-      }],
+    const chart = container.querySelector('[data-testid="ga4-sessions-chart"]');
+    expect(chart).not.toBeNull();
+    await act(async () => {
+      const action = button("Atualizar dados")!;
+      action.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      action.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    await render();
-    await refresh();
-    expect(api.syncGa4).toHaveBeenCalledTimes(1);
-    expect(api.syncGoogleConnection).not.toHaveBeenCalled();
+    expect(api.refreshProviderData).toHaveBeenCalledTimes(1);
+    expect(button("Atualizando...")?.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="ga4-sessions-chart"]')).toBe(chart);
+    expect(container.querySelector('[class*="skeleton"]')).toBeNull();
+    await act(async () => finish({ ok: true }));
   });
 });

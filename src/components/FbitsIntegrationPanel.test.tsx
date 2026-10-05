@@ -8,7 +8,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const api = vi.hoisted(() => ({
   connectFbits: vi.fn(),
-  syncFbitsConnection: vi.fn(),
+  refreshProviderData: vi.fn(),
   disconnectFbitsConnection: vi.fn(),
 }));
 
@@ -120,13 +120,13 @@ describe("FbitsIntegrationPanel", () => {
   });
 
   it("conectada: sincronizar agora e desconectar", async () => {
-    api.syncFbitsConnection.mockResolvedValue({ ok: true, scheduled: true });
+    api.refreshProviderData.mockResolvedValue({ ok: true, provider: "fbits" });
     api.disconnectFbitsConnection.mockResolvedValue({ ok: true });
     const onChanged = await render(connectedEntry);
 
     expect(button("Conectar FBITS")).toBeUndefined();
     await click(button("Sincronizar agora"));
-    expect(api.syncFbitsConnection).toHaveBeenCalledTimes(1);
+    expect(api.refreshProviderData).toHaveBeenCalledTimes(1);
 
     await click(button("Desconectar"));
     expect(api.disconnectFbitsConnection).toHaveBeenCalledTimes(1);
@@ -141,4 +141,18 @@ describe("FbitsIntegrationPanel", () => {
     expect(button("Sincronizar agora")?.disabled).toBe(true);
     expect(button("Desconectar")?.disabled).toBe(true);
   });
+});
+
+
+it("admin aguarda fachada FBITS antes de reler status", async () => {
+  let finish!: (value: unknown) => void;
+  api.refreshProviderData.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  const onChanged = await render(connectedEntry);
+  await click(button("Sincronizar agora"));
+  expect(onChanged).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain("Sincronização concluída");
+  expect(api.refreshProviderData).toHaveBeenCalledWith("fbits", expect.objectContaining({ start: expect.any(String), end: expect.any(String) }));
+  await act(async () => { finish({ ok: true }); });
+  expect(onChanged).toHaveBeenCalledOnce();
+  expect(container.textContent).toContain("Sincronização concluída");
 });

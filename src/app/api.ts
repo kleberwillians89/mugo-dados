@@ -2193,3 +2193,15 @@ export async function getCustomerDetail(
     { signal: options?.signal },
   );
 }
+
+
+/** Refresh por membership: somente provider e período, sem IDs de ativos. */
+export async function refreshProviderData(
+  provider: "fbits" | "shopify" | "meta" | "google",
+  period: { start: string; end: string },
+): Promise<{ ok: boolean; client_id: string; provider: string }> {
+  return http(clientClientPath(`/data-refresh/${provider}`), {
+    method: "POST",
+    body: JSON.stringify({ start: period.start, end: period.end }),
+  });
+}

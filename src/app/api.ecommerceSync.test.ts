@@ -30,7 +30,7 @@ vi.mock("./activeClient", () => ({
   getActiveClientConfigurationWarning: () => null,
 }));
 
-import { getClientIntegrations, getFbitsOrdersSummary, syncFbitsConnection, syncShopifyConnection } from "./api";
+import { getClientIntegrations, getFbitsOrdersSummary, syncFbitsConnection, syncShopifyConnection, refreshProviderData } from "./api";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -100,4 +100,19 @@ describe("sync de e-commerce sempre no tenant ativo e no provider certo", () => 
     expect(calls[2].url).toMatch(/\/api\/clients\/roove\/integrations$/);
     expect(calls[2].clientHeader).toBe("roove");
   });
+  it("refresh envia somente período à fachada do tenant, sem OAuth, IDs ou IA", async () => {
+    tenant.id = "vinhos";
+    const fetchMock = vi.fn(async () => jsonResponse({ok:true}));
+    vi.stubGlobal("fetch", fetchMock);
+    for (const provider of ["fbits", "shopify", "meta", "google"] as const) {
+      await refreshProviderData(provider, {start:"2026-09-01",end:"2026-09-30"});
+      const [url, init] = fetchMock.mock.calls.at(-1)! as unknown as [string, RequestInit];
+      expect(url).toMatch(new RegExp(`/api/clients/vinhos/data-refresh/${provider}$`));
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body))).toEqual({start:"2026-09-01",end:"2026-09-30"});
+      expect(url).not.toMatch(/oauth|intelligence|openai|account|property|token/);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
 });

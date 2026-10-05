@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import useClientIntegrations from "../hooks/useClientIntegrations";
-import { syncGa4, syncGoogleConnection } from "../app/api";
-import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
+import { refreshProviderData } from "../app/api";
+import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   getCampaignDisplayName,
   getGa4ChannelLabel,
@@ -92,27 +93,10 @@ function resolveInitialPreset(start: string, end: string, days: number): PeriodP
   return "specific";
 }
 
-function toErrorMessage(error: unknown) {
-  console.warn("[google-ga4]", error);
-  return "Não foi possível atualizar os dados agora. Tente novamente em instantes.";
-}
-
 function formatPct(value: number) {
   return `${Number.isFinite(value) ? value.toFixed(value >= 10 ? 0 : 1) : "0.0"}%`;
 }
 
-function formatUpdatedAtLabel(value: string | null | undefined): string | null {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function hasGa4Data(report: Ga4ReportResponse | null) {
   if (!report) return false;
@@ -143,10 +127,6 @@ type Ga4Detail = "daily" | "channels" | "campaigns" | "events";
 function formatCustomerId(value: string | null | undefined): string {
   const digits = String(value || "").replace(/\D/g, "");
   return digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}` : String(value || "");
-}
-
-function freshness(label: string | null | undefined): string | null {
-  return label ? `atualizado em ${label}` : null;
 }
 
 /** Conexão em uso, do contrato canônico: a escolhida para a empresa ou a única. */
@@ -293,7 +273,7 @@ export default function GoogleAnalytics({
     };
   }, [adsModel.daily]);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-  const googleAdsUpdatedAt = formatUpdatedAtLabel(adsModel.sources.find((source) => source.provider === "google_ads")?.last_success_at);
+  const googleAdsUpdatedAt = formatFreshness(adsModel.sources.find((source) => source.provider === "google_ads")?.last_success_at);
   const shopifyStore = useMemo(() => {
     const rows = adsModel.daily.filter((row) => row.shopify_net_revenue != null || row.shopify_orders != null);
     const source = adsModel.sources.find((item) => item.provider === "shopify");
@@ -326,7 +306,7 @@ export default function GoogleAnalytics({
   const combinedError = refreshError || ga4Error;
   const configWarning = getActiveClientConfigurationWarning();
   const lastSyncedLabel =
-    formatUpdatedAtLabel(ga4Report?.meta.last_synced_at) || formatUpdatedAtLabel(ga4UpdatedAt);
+    formatFreshness(ga4Report?.meta.last_synced_at || ga4UpdatedAt);
 
   const dailyRows = useMemo(() => ga4Report?.trends.daily || [], [ga4Report?.trends.daily]);
   const filteredChannels = useMemo(() => {
@@ -409,63 +389,23 @@ export default function GoogleAnalytics({
 
   // Esta página mostra GA4 e campanhas do Google Ads: atualizar precisa
   // sincronizar os dois. Eles são independentes — um indisponível não impede
-  // o outro de receber dados novos, e o erro cita o provider que falhou.
-  const adsConnectionId = pickIntegration(
-    integrations.lastValidConnections, "google_ads", activeGa4ClientId
-  )?.connection_id || null;
-
+  // o outro de receber dados novos. A fachada devolve somente um aviso sanitizado.
   const handleRefresh = useCallback(async () => {
     setRefreshError(null);
     setSyncing(true);
-    const tasks: Array<{ label: string; run: () => Promise<unknown> }> = [
-      {
-        label: "Google Analytics",
-        run: () =>
-          runExclusiveSync(
-            { clientId: activeGa4ClientId, provider: "ga4" },
-            () =>
-              syncGa4({
-                start: selectedRange.start,
-                end: selectedRange.end,
-                days: periodDays,
-              }, {
-                clientId: activeGa4ClientId,
-              })
-          ),
-      },
-    ];
-    if (adsConnectionId) {
-      tasks.push({
-        label: "Google Ads",
-        run: () =>
-          runExclusiveSync(
-            { clientId: activeGa4ClientId, provider: "google_ads", connectionId: adsConnectionId },
-            () => syncGoogleConnection(adsConnectionId)
-          ),
-      });
-    }
     try {
-      const results = await Promise.allSettled(tasks.map((task) => task.run()));
-      // Recarrega o que já existe persistido, mesmo que um sync tenha falhado.
+      await runExclusiveSync(
+        { clientId: activeGa4ClientId, provider: "google" },
+        () => refreshProviderData("google", selectedRange)
+      );
+      if (getActiveClientId() !== activeGa4ClientId) return;
       await Promise.allSettled([reloadGa4({ force: true }), reloadCampaigns()]);
-      const failures = results
-        .map((result, index) => ({ result, label: tasks[index].label }))
-        .filter((item): item is { result: PromiseRejectedResult; label: string } => item.result.status === "rejected");
-      if (failures.length) {
-        setRefreshError(
-          failures
-            .map(({ result, label }) => {
-              const cause = result.reason;
-              const detail = isSyncAlreadyRunningError(cause) ? describeSyncError(cause, "") : toErrorMessage(cause);
-              return `${label}: ${detail}`;
-            })
-            .join(" · ")
-        );
-      }
+    } catch (cause) {
+      setRefreshError(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível."));
     } finally {
       setSyncing(false);
     }
-  }, [activeGa4ClientId, adsConnectionId, periodDays, reloadCampaigns, reloadGa4, selectedRange.end, selectedRange.start]);
+  }, [activeGa4ClientId, reloadCampaigns, reloadGa4, selectedRange]);
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
@@ -552,9 +492,9 @@ export default function GoogleAnalytics({
     : "Origem das sessões";
   const sessionsPeak = uniquePeak(dailyRows, (row) => row.sessions);
   const eventsPerSession = ga4Report && ga4Report.summary.sessions > 0 ? ga4Report.summary.event_count / ga4Report.summary.sessions : null;
-  const refreshButton = canSync ? (
+  const refreshButton = isAuthenticated ? (
     <span>
-      <button className="ds-link is-quiet" onClick={() => void handleRefresh()} disabled={syncing} type="button">
+      <button className="btn intelHeaderAction" onClick={() => void handleRefresh()} disabled={syncing} type="button">
         {syncing ? "Atualizando..." : "Atualizar dados"}
       </button>
     </span>
@@ -582,7 +522,7 @@ export default function GoogleAnalytics({
               <>
                 <span>
                   <span className="ds-datelineSource">Google Ads</span>{" "}
-                  {freshness(googleAdsUpdatedAt) || "sem sincronização concluída"}
+                  {googleAdsUpdatedAt ? `Dados atualizados ${googleAdsUpdatedAt}` : "sem sincronização concluída"}
                 </span>
                 {refreshButton}
               </>
@@ -590,7 +530,7 @@ export default function GoogleAnalytics({
               <>
                 <span>
                   <span className="ds-datelineSource">Google Analytics 4</span>{" "}
-                  {freshness(lastSyncedLabel) || "sem sincronização concluída"}
+                  {lastSyncedLabel ? `Dados atualizados ${lastSyncedLabel}` : "sem sincronização concluída"}
                 </span>
                 {syncing || refreshingGa4 ? <span>sincronizando...</span> : null}
                 {refreshButton}

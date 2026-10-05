@@ -24,7 +24,9 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import math
 from typing import Any, AsyncIterator, Awaitable, Callable, Deque, Dict, List, Optional
 
 import httpx
@@ -78,7 +80,11 @@ def _retry_after_seconds(response: httpx.Response) -> Optional[int]:
     raw = _safe_str(response.headers.get("Retry-After"))
     if raw.isdigit():
         return int(raw)
-    return None
+    try:
+        until = parsedate_to_datetime(raw)
+        return max(0, math.ceil((until - datetime.now(timezone.utc)).total_seconds()))
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def _api_message(response: httpx.Response) -> str:
@@ -169,6 +175,7 @@ class FbitsClient:
             attempt += 1
             await self._rate_limiter.acquire()
             self.requests_made += 1
+            print(f"[fbits][provider_call] endpoint={path} attempt={attempt}")
             try:
                 async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
                     response = await client.get(

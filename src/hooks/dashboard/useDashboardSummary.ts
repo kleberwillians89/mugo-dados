@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getComments, getMedia, getStories } from "../../app/api";
-import { useDashboardSnapshot } from "../../app/DashboardDataContext";
+import { type DashboardSnapshot, useDashboardSnapshot } from "../../app/DashboardDataContext";
 import type {
   CommentItem,
   DashboardResponse,
@@ -64,6 +64,7 @@ type Params = {
 };
 
 type ReloadOptions = {
+  snapshot?: DashboardSnapshot;
   force?: boolean;
   includeSecondary?: boolean;
   secondaryOnly?: boolean;
@@ -293,7 +294,7 @@ export default function useDashboardSummary({
 
     const loadDash = async () => {
       try {
-        const daily = model.daily.filter((row) =>
+        const daily = (options?.snapshot?.daily || model.daily).filter((row) => row.metric_date >= safePeriod.start && row.metric_date <= safePeriod.end).filter((row) =>
           row.instagram_impressions != null || row.instagram_reach != null || row.instagram_interactions != null ||
           row.instagram_website_clicks != null || row.instagram_profile_views != null || row.instagram_followers != null
         ).map((row) => ({ date: row.metric_date,
@@ -301,7 +302,7 @@ export default function useDashboardSummary({
           total_interactions: Number(row.instagram_interactions || 0), website_clicks: Number(row.instagram_website_clicks || 0),
           profile_views: Number(row.instagram_profile_views || 0), accounts_engaged: 0, followers: Number(row.instagram_followers || 0) }));
         const sum = (key: keyof (typeof daily)[number]) => daily.reduce((total, row) => total + Number(row[key] || 0), 0);
-        const source = model.sources.find((item) => item.provider === "instagram");
+        const source = (options?.snapshot?.sources || model.sources).find((item) => item.provider === "instagram");
         const totals = { impressions: sum("impressions"), reach: sum("reach"), total_interactions: sum("total_interactions"), website_clicks: sum("website_clicks"), profile_views: sum("profile_views"), accounts_engaged: 0 };
         const dash: DashboardResponse = { ok: true, client_id: activeClientId, days: daily.length, start: safePeriod.start, end: safePeriod.end,
           daily, period_totals: { ...totals, followers_growth: daily.length > 1 ? daily.at(-1)!.followers - daily[0].followers : 0, followers_current: daily.at(-1)?.followers || 0 },
@@ -481,7 +482,7 @@ export default function useDashboardSummary({
       }
     }
 
-    return dataRef.current;
+    return Object.values(encounteredErrors).some(Boolean) ? null : dataRef.current;
   }, [
     activeClientId,
     autoLoadStories,

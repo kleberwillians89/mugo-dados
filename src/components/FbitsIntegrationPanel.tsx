@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { connectFbits, disconnectFbitsConnection, syncFbitsConnection } from "../app/api";
+import { connectFbits, disconnectFbitsConnection, refreshProviderData } from "../app/api";
 import type { ClientIntegrationConnection } from "../app/types";
 import Drawer from "./Drawer";
+import { getActiveClientId } from "../app/activeClient";
+import { runExclusiveSync } from "../app/syncOrchestrator";
+import { ensureDashboardPeriod } from "../hooks/dashboard/period";
 
 type Props = {
   entry: ClientIntegrationConnection | undefined;
@@ -53,11 +56,14 @@ export default function FbitsIntegrationPanel({ entry, canManage, onChanged }: P
   }
 
   async function syncNow() {
+    if (busy) return;
+    const clientId = getActiveClientId();
     setBusy(true);
     setError(null);
     try {
-      await syncFbitsConnection();
-      setInfo("Sincronização iniciada. Atualize o status em alguns instantes.");
+      await runExclusiveSync({ clientId, provider: "fbits" }, () => refreshProviderData("fbits", ensureDashboardPeriod(undefined)));
+      if (getActiveClientId() !== clientId) return;
+      setInfo("Sincronização concluída.");
       await onChanged();
     } catch (cause) {
       setError(errorText(cause, "Não foi possível iniciar a sincronização."));

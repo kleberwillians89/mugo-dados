@@ -357,6 +357,7 @@ async def connect_fbits(
             exc.public_message,
             status_code=400 if exc.code in {"FBITS_INVALID_TOKEN", "FBITS_PERMISSION_DENIED", "FBITS_TOKEN_REQUIRED"} else 502,
             code=exc.code, provider=PROVIDER, retryable=exc.retryable,
+                diagnostics={"retry_after": max(60, exc.retry_after or 3600)} if exc.code == "FBITS_RATE_LIMITED" else {},
         ) from None
     known_ids = {status["id"] for status in statuses}
     connection = await upsert_connection(
@@ -441,6 +442,22 @@ async def _refresh_daily_stats(client_id: str, days: set, revenue_status_ids: Li
     return len(rows)
 
 
+def fbits_cooldown_remaining(row: Dict[str, Any], now: Optional[datetime] = None) -> int:
+    until = _parse_dt((row.get("metadata") or {}).get("rate_limit_until"))
+    return max(0, int((until - (now or _now())).total_seconds()) + 1) if until else 0
+
+
+def require_fbits_not_in_cooldown(row: Dict[str, Any], now: Optional[datetime] = None) -> None:
+    seconds = fbits_cooldown_remaining(row, now)
+    if seconds:
+        print(f"[fbits][manual_refresh_cooldown] retry_after={seconds}")
+        raise IntegrationError(
+            "A FBITS limitou as solicitações. Aguarde antes de atualizar novamente.",
+            status_code=429, code="FBITS_RATE_LIMITED", provider=PROVIDER,
+            retryable=True, diagnostics={"retry_after": seconds},
+        )
+
+
 async def sync_fbits_connection(
     *,
     client_id: str,
@@ -461,6 +478,7 @@ async def sync_fbits_connection(
             "A conexão FBITS está desconectada. Conecte novamente para sincronizar.",
             status_code=409, code="FBITS_CONNECTION_DISCONNECTED", provider=PROVIDER,
         )
+    require_fbits_not_in_cooldown(row, now)
     connection_id = _safe_str(row.get("id"))
     full = await get_connection(client_id, connection_id, include_token=True)
     try:
@@ -511,6 +529,8 @@ async def sync_fbits_connection(
     print(f"[fbits][sync] client_id={client_id} connection_id={connection_id} mode={mode} windows={len(windows)} filter={date_filter}")
 
     async with guarded_sync(client_id=client_id, provider=PROVIDER, connection_id=connection_id):
+        current = await load_fbits_connection(client_id)
+        require_fbits_not_in_cooldown(current or row, now)
         try:
             for window_start, window_end in windows:
                 async for page in client.iter_order_pages(start=window_start, end=window_end, date_filter=date_filter):
@@ -538,12 +558,14 @@ async def sync_fbits_connection(
                     metadata["history_cursor"] = _iso(window_end)
                     await _persist_state(client_id, connection_id, {"metadata": metadata})
         except FbitsApiError as exc:
-            await _refresh_daily_stats(client_id, affected_days, revenue_status_ids)
+            if exc.code == "FBITS_RATE_LIMITED":
+                metadata["rate_limit_until"] = _iso((now or _now()) + timedelta(seconds=max(60, exc.retry_after or 3600)))
             await _persist_state(client_id, connection_id, {
                 "status": "reauth_required" if exc.code in {"FBITS_INVALID_TOKEN", "FBITS_PERMISSION_DENIED"} else "sync_error",
                 "last_error": exc.public_message[:300],
                 "metadata": {**metadata, "last_sync_error_code": exc.code, "last_sync_requests": client.requests_made},
             })
+            await _refresh_daily_stats(client_id, affected_days, revenue_status_ids)
             print(f"[fbits][sync] client_id={client_id} mode={mode} status=error code={exc.code} orders={orders_upserted} requests={client.requests_made}")
             if job_run_id:
                 # Mensagem pública da FbitsApiError: nunca contém token.
@@ -563,6 +585,7 @@ async def sync_fbits_connection(
             ) from None
 
         daily_upserted = await _refresh_daily_stats(client_id, affected_days, revenue_status_ids)
+        print(f"[fbits][persist_done] client_id={client_id} orders={orders_upserted} days={daily_upserted}")
         finished = _now() if now is None else run_started
         if historical:
             metadata["history_completed_at"] = _iso(finished)
@@ -583,6 +606,7 @@ async def sync_fbits_connection(
             patch["historical_start"] = metadata["history_start"]
             patch["historical_end"] = _iso(run_started)
         await _persist_state(client_id, connection_id, patch)
+        print(f"[fbits][freshness_updated] client_id={client_id} last_success_at={metadata['last_success_at']}")
 
     print(
         f"[fbits][sync] client_id={client_id} mode={mode} status=ok orders={orders_upserted} "

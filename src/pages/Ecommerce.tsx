@@ -1,12 +1,14 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
-import { syncFbitsConnection } from "../app/api";
-import { formatCalendarRange, formatDateTimeSaoPaulo } from "../app/dataFormat";
+import { refreshProviderData } from "../app/api";
+import { formatCalendarRange } from "../app/dataFormat";
 import {
   isEcommerceSyncPending,
   resolveActiveEcommerceProvider,
   type EcommerceProvider,
 } from "../app/ecommerceProvider";
+import { formatFreshness } from "../app/dataRefresh";
+import { runExclusiveSync } from "../app/syncOrchestrator";
 import { usePeriod } from "../app/PeriodContext";
 import type { ClientIntegrationConnection } from "../app/types";
 import FbitsExecutiveDashboard from "../components/dashboard/FbitsExecutiveDashboard";
@@ -21,9 +23,8 @@ import Shopify from "./Shopify";
 type Props = {
   isAuthenticated: boolean;
   /**
-   * Mesmos papéis que o backend aceita no sync (require_client_role):
-   * platform/agency admin e client_admin (owner/admin legados). Viewer não
-   * recebe a ação — o backend responderia 403.
+   * Permissão administrativa para avisos e atalhos de configuração.
+   * Refresh de dados usa membership, inclusive viewer.
    */
   canSync: boolean;
   onLogout: () => void | Promise<void>;
@@ -142,15 +143,21 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
   }
 
   async function syncNow() {
+    if (syncing) return;
+    const requestedClientId = getActiveClientId();
+    console.info("[fbits][manual_refresh_click]", { endpoint: `/api/clients/${requestedClientId}/data-refresh/fbits` });
     setSyncing(true);
     setSyncError(null);
     try {
-      // Endpoint por tenant: POST /api/clients/{empresa ativa}/fbits/sync.
-      await syncFbitsConnection();
-      setSyncInfo("Sincronização FBITS iniciada. Atualize os dados em alguns instantes.");
+      // A fachada resolve a conexão persistida do tenant no backend.
+      await runExclusiveSync({ clientId: requestedClientId, provider: "fbits" }, () => refreshProviderData("fbits", { start: period.start, end: period.end }));
+      if (getActiveClientId() !== requestedClientId) return;
+      setSyncInfo(null);
+      const snapshot = await report.reloadFbits({ force: true });
+      if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
+      if (getActiveClientId() !== requestedClientId) return;
       await onConnectionsChanged();
-      report.invalidateFbitsCache();
-      await report.reloadFbits({ force: true });
+      console.info("[fbits][ui_read_done]", { client_id: requestedClientId });
     } catch (cause) {
       setSyncError(cause instanceof Error && cause.message ? cause.message : "Não foi possível iniciar a sincronização FBITS.");
     } finally {
@@ -173,20 +180,13 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
                     sync. Sem data e sem dado, o aviso continua. */}
                 <span>
                   {lastSyncAt
-                    ? `Sincronizado em ${formatDateTimeSaoPaulo(lastSyncAt)}`
+                    ? `Dados atualizados ${formatFreshness(lastSyncAt)}`
                     : hasCommerceData ? "" : "Sem sincronização concluída"}
                 </span>
-                {canSync ? (
+                {isAuthenticated ? (
                   <span>
-                    <button className="ds-link is-quiet" disabled={syncing} onClick={() => void syncNow()} type="button">
-                      {syncing ? "Sincronizando..." : "Sincronizar agora"}
-                    </button>
-                  </span>
-                ) : null}
-                {canSync ? (
-                  <span>
-                    <button className="ds-link is-quiet" onClick={() => void report.reloadFbits({ force: true })} type="button">
-                      Atualizar dados
+                    <button className="btn intelHeaderAction" disabled={syncing} onClick={() => void syncNow()} type="button">
+                      {syncing ? "Atualizando..." : "Atualizar dados"}
                     </button>
                   </span>
                 ) : null}
@@ -234,7 +234,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
             </DataNotice>
           ) : null}
           {syncInfo ? <p className="ds-status" role="status">{syncInfo}</p> : null}
-          {syncError ? <DataNotice tone="negative" role="alert" title="Sincronização não iniciada">{syncError}</DataNotice> : null}
+          {syncError ? <DataNotice tone="warning" role="status" title="Não foi possível atualizar">{syncError}</DataNotice> : null}
         </div>
         <FbitsExecutiveDashboard
           data={report.fbitsData}

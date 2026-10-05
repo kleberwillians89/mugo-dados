@@ -25,6 +25,12 @@ const stable = vi.hoisted(() => {
   };
 });
 
+const refreshApi = vi.hoisted(() => ({ refreshProviderData: vi.fn(), refetch: vi.fn(), reloadSummary: vi.fn() }));
+vi.mock("../app/api", async (original) => ({
+  ...(await original<typeof import("../app/api")>()),
+  ...refreshApi,
+}));
+
 vi.mock("../app/activeClient", () => ({
   getActiveClient: () => ({ id: "curavino", name: "Curavino", role: state.role }),
   getActiveClientId: () => "curavino",
@@ -53,7 +59,7 @@ vi.mock("../app/DashboardDataContext", () => ({
     snapshot: state.readModel === "ok" ? { daily: [], sources: [], campaigns: [], products: [] } : null,
     loading: state.readModel === "loading",
     error: state.readModel === "error" ? "Falha de leitura" : null,
-    daily: [], sources: [], campaigns: [], refetch: async () => null,
+    daily: [], sources: [], campaigns: [], refetch: refreshApi.refetch,
   })),
 }));
 
@@ -75,6 +81,7 @@ vi.mock("../hooks/useClientIntegrations", () => ({
 vi.mock("../hooks/dashboard/useDashboardSummary", () => ({
   default: () => stable("summary", () => ({
     data: { dash: { ok: true, daily: [], period_totals: {} }, media: [], comments: [], commentsTotal: 0, topWords: [] },
+    reloadSummary: refreshApi.reloadSummary,
     refreshingSummary: false,
     sectionLoading: { dash: false, media: false, comments: false, stories: false },
     sectionRefreshing: { dash: false, media: false, comments: false, stories: false },
@@ -126,6 +133,12 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  refreshApi.refetch.mockReset();
+  refreshApi.reloadSummary.mockReset();
+  refreshApi.refetch.mockResolvedValue({ daily: [], sources: [], campaigns: [], products: [] });
+  refreshApi.reloadSummary.mockResolvedValue({});
+  refreshApi.refreshProviderData.mockReset();
+  refreshApi.refreshProviderData.mockResolvedValue({ok:true});
   Object.assign(state, { role: "client_admin", paid: true, metaSource: true, integrations: true, readModel: "ok" });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -165,10 +178,10 @@ describe("Meta — leitura editorial", () => {
     expect(container.querySelector('[data-testid="meta-connection-assets"]')?.textContent).toContain("act_8024076734300108");
   });
 
-  it("viewer não vê Atualizar dados", async () => {
+  it("viewer vê Atualizar dados", async () => {
     state.role = "viewer";
     await render(false);
-    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(false);
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(true);
   });
 
   it("conectado e ainda não sincronizado não vira investimento zero", async () => {
@@ -203,4 +216,46 @@ describe("Meta — leitura editorial", () => {
     expect(container.textContent).toContain("Meta ainda não conectada");
     expect(container.querySelector('[data-testid="meta-connection-assets"]')).toBeNull();
   });
+});
+
+
+it("viewer atualiza somente Meta, falha preserva cards e freshness", async () => {
+  state.role = "viewer";
+  await render(false);
+  const card = container.querySelector('[data-testid="meta-ads-spend"]');
+  expect(card).not.toBeNull();
+  const header = container.querySelector(".ds-dateline")?.textContent;
+  refreshApi.refreshProviderData.mockRejectedValue(new Error("indisponível"));
+  await act(async () => {
+    const action = [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados");
+    action?.dispatchEvent(new MouseEvent("click", {bubbles:true}));
+  });
+  expect(refreshApi.refreshProviderData).toHaveBeenCalledExactlyOnceWith("meta", {start:"2026-08-01",end:"2026-08-31"});
+  expect(container.querySelector('[data-testid="meta-ads-spend"]')).toBe(card);
+  expect(container.querySelector(".ds-dateline")?.textContent).toBe(header);
+  expect(container.querySelector('[class*="skeleton"]')).toBeNull();
+  expect(container.textContent).toContain("Mantendo a última leitura disponível");
+});
+
+
+it("Meta espera sync terminar antes da releitura e entrega snapshot novo ao resumo", async () => {
+  let finish!: (value: unknown) => void;
+  refreshApi.refreshProviderData.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  await render(true);
+  await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
+  expect(refreshApi.refetch).not.toHaveBeenCalled();
+  expect(refreshApi.reloadSummary).not.toHaveBeenCalled();
+  const fresh = { daily: [{ instagram_reach: 99 }], sources: [{ provider: "instagram", last_success_at: "fresh" }] };
+  refreshApi.refetch.mockResolvedValue(fresh);
+  await act(async () => { finish({ ok: true }); });
+  expect(refreshApi.refetch).toHaveBeenCalledExactlyOnceWith({ afterCurrent: true });
+  expect(refreshApi.reloadSummary).toHaveBeenCalledExactlyOnceWith({ snapshot: fresh, includeSecondary: true, loadStories: true });
+});
+
+it("Meta não anuncia sucesso quando a releitura falha", async () => {
+  refreshApi.refetch.mockResolvedValue(null);
+  await render(true);
+  await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
+  expect(refreshApi.reloadSummary).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("Mantendo a última leitura disponível");
 });

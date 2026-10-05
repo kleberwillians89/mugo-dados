@@ -1328,6 +1328,7 @@ async def sync_ads_for_client_period(
     record_job_run: bool = True,
     request_id: str | None = None,
     refresh_read_model: bool = True,
+    persisted_only: bool = False,
 ) -> Dict[str, Any]:
     sync_started_at = time.monotonic()
     cid = _safe_str(client_id)
@@ -1431,6 +1432,7 @@ async def sync_ads_for_client_period(
             "ok": False,
             "skipped": True,
             "reason": "duplicate",
+            "retry_after": max(1, int(_SYNC_DEDUP_SECONDS - (now_monotonic - recent_at)) + 1),
             "job_status": "skipped",
             "client_id": cid,
             "connection_id": resolved_connection_id,
@@ -1480,6 +1482,7 @@ async def sync_ads_for_client_period(
                 connection_id=resolved_connection_id,
                 platform="meta_ads",
                 connection_type="paid",
+                **({"persisted_only": True} if persisted_only else {}),
             )
             graph_request_started_at = time.monotonic()
             print(

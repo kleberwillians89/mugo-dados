@@ -57,10 +57,12 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
   );
   const [loadingFbits, setLoadingFbits] = useState(false);
   const [fbitsError, setFbitsError] = useState<string | null>(null);
+  const validFbitsRef = useRef({ rangeKey, summary: cachedInitial?.summary || null });
   const activeRangeRef = useRef(rangeKey);
   activeRangeRef.current = rangeKey;
 
   useEffect(() => {
+    validFbitsRef.current = { rangeKey, summary: cachedInitial?.summary || null };
     setFbitsData(cachedInitial?.summary || null);
     setFbitsOrders(cachedInitial?.orders || null);
     setLoadingFbits(!cachedInitial);
@@ -80,6 +82,14 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     ]);
     if (summary.status === "rejected") throw summary.reason;
     if (activeRangeRef.current !== rangeKey) return null;
+    if (summary.value.client_id !== activeClientId || (orders.status === "fulfilled" && orders.value.client_id !== activeClientId)) {
+      throw new Error("Resposta de outra empresa descartada.");
+    }
+    const previous = validFbitsRef.current;
+    if (previous.rangeKey === rangeKey && previous.summary?.kpi_source === "fbits_dashboard" && summary.value.kpi_fallback_reason) {
+      throw new Error("A leitura oficial está indisponível. Mantendo os dados anteriores.");
+    }
+    validFbitsRef.current = { rangeKey, summary: summary.value };
     setFbitsData(summary.value);
     let nextOrders = cached?.orders || cachedInitial?.orders || null;
     if (orders.status === "fulfilled") {
@@ -94,7 +104,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       180_000
     );
     return summary.value;
-  }, [cachedInitial, rangeKey, safePeriod.end, safePeriod.start]);
+  }, [activeClientId, cachedInitial, rangeKey, safePeriod.end, safePeriod.start]);
 
   const reloadFbits = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated || !activeClientId) return null;
@@ -108,6 +118,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     try {
       if (fbitsOnly) return await loadFbitsEndpoints(cached);
       const connectionResponse = await listGenericConnections();
+      if (connectionResponse.client_id !== activeClientId) throw new Error("Resposta de outra empresa descartada.");
       const selectedId = getSelectedConnectionId(activeClientId, "shopify") ||
         getSelectedConnectionId(activeClientId, "fbits");
       const commerceConnection = resolveCommerceConnection(connectionResponse.connections, selectedId);
@@ -126,6 +137,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       }
       if (commerceConnection.provider === "shopify") {
         const report = await getShopifyReport({ start: safePeriod.start, end: safePeriod.end });
+        if (report.client_id !== activeClientId) throw new Error("Resposta de outra empresa descartada.");
         const summary: FbitsOrdersSummaryResponse = {
           ok: report.ok,
           connected: true,

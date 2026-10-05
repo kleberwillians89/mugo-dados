@@ -553,6 +553,11 @@ class SyncTests(SyncHarness):
         self.assertNotIn(TOKEN, state["last_error"])
         self.assertTrue(state["metadata"]["history_cursor"])  # próxima execução retoma daqui
         self.assertNotIn(TOKEN, logs)
+        self.assertEqual(state["metadata"]["rate_limit_until"], (NOW + timedelta(seconds=60)).isoformat())
+        before = len(api.requests)
+        _result, error, _logs = await self.run_sync(db, api)
+        self.assertEqual(error.status_code, 429)
+        self.assertEqual(len(api.requests), before)
 
     async def test_tenant_a_sync_never_reads_or_writes_tenant_b(self):
         db = FakeDb([connection_row("curavino"), connection_row("empresa-b")])

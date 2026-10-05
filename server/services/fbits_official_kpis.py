@@ -21,11 +21,14 @@ limitado — 5 requisições com o limite esgotado bloqueiam o token por 1 hora.
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any, Dict, Optional, Tuple
 
 from .fbits_client import FbitsApiError, FbitsClient
-from .fbits_connections import load_fbits_connection
+from .fbits_connections import load_fbits_connection, fbits_cooldown_remaining
+from .ig_supabase import sb_update
+from datetime import datetime, timedelta, timezone
 from .generic_connections import get_connection
 from .runtime_cache import get_cached_or_load, invalidate_namespace
 
@@ -109,6 +112,8 @@ async def _tenant_client(client_id: str) -> FbitsClient:
     row = await load_fbits_connection(client_id)
     if not row or _s(row.get("status")).lower() in {"disconnected", "not_configured"} or row.get("disconnected_at"):
         raise OfficialKpisUnavailable("FBITS_NOT_CONNECTED")
+    if fbits_cooldown_remaining(row):
+        raise OfficialKpisUnavailable("FBITS_RATE_LIMITED")
     full = await get_connection(client_id, _s(row.get("id")), include_token=True)
     try:
         token = _s(json.loads(full.get("_token") or "{}").get("token"))
@@ -140,7 +145,12 @@ async def fetch_official_kpis(
             )
         except FbitsApiError as exc:
             if exc.code == "FBITS_RATE_LIMITED":
-                wait = exc.retry_after or RATE_LIMIT_BACKOFF_SECONDS
+                wait = max(60, exc.retry_after or 3600)
+                row = await load_fbits_connection(client_id)
+                if row:
+                    metadata = dict(row.get("metadata") or {})
+                    metadata["rate_limit_until"] = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
+                    await sb_update("integration_connections", patch={"metadata": metadata}, filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"})
             else:
                 wait = FAILURE_BACKOFF_SECONDS
             _FAILURES[(client_id, key)] = (time.monotonic() + wait, exc.code)
@@ -160,7 +170,7 @@ async def fetch_official_kpis(
     _FAILURES.pop((client_id, key), None)
     current = value["current"]
     print(
-        f"[fbits][official_kpis] client_id={client_id} start={start} end={end} status=ok cache_hit={str(cache_hit).lower()} "
+        f"[fbits][official_kpis] pid={os.getpid()} client_id={client_id} start={start} end={end} status=ok cache_hit={str(cache_hit).lower()} "
         f"receita={current['receita_oficial']} pedidos={current['pedidos']} ticket={current['ticket_medio']}"
     )
     return value

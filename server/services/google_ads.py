@@ -257,8 +257,11 @@ async def sync_google_ads(
     `last_attempt_at`/`last_success_at` e o código do erro sejam visíveis sem
     depender de log — e para provar se métricas novas entraram.
     """
+    if not connection_id:
+        context = await resolve_google_ads_context(client_id)
+        connection_id = context.connection_id
     async with guarded_sync(
-        client_id=client_id, provider="google_ads", connection_id=str(connection_id or "resolved"),
+        client_id=client_id, provider="google_ads", connection_id=str(connection_id),
         ttl_seconds=1800,
     ):
         attempt_at = _now_iso()

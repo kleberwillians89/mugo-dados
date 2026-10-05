@@ -23,7 +23,7 @@ export type DashboardProductMetric = Record<string, string | number | null> & { 
 export type DashboardSourceSnapshot = { provider: string; last_success_at: string | null; data_max_available: string | null; data_min_available: string | null; updated_at: string };
 export type DashboardSnapshot = { daily: DashboardDailyMetric[]; sources: DashboardSourceSnapshot[]; campaigns: DashboardCampaignMetric[]; products: DashboardProductMetric[]; fetchedAt: string; queryCount: number };
 
-type Value = { snapshot: DashboardSnapshot | null; loading: boolean; refreshing: boolean; error: string | null; refetch: () => Promise<DashboardSnapshot | null> };
+type Value = { snapshot: DashboardSnapshot | null; loading: boolean; refreshing: boolean; error: string | null; refetch: (options?: { afterCurrent?: boolean }) => Promise<DashboardSnapshot | null> };
 // Exportado só para o harness de revisão visual (src/design-review) simular
 // carregamento e erro do read model; o runtime usa apenas o provider abaixo.
 export type DashboardDataValue = Value;
@@ -106,7 +106,13 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
     try { return await request; } finally { if (inFlightSnapshots.get(clientId) === request) inFlightSnapshots.delete(clientId); }
   }, [cacheKey, clientId, enabled, tenantReady]);
 
-  const refetch = useCallback(() => loadSnapshot(true), [loadSnapshot]);
+  const refetch = useCallback(async (options?: { afterCurrent?: boolean }) => {
+    if (options?.afterCurrent) {
+      const prior = inFlightSnapshots.get(clientId);
+      if (prior) await prior;
+    }
+    return loadSnapshot(true);
+  }, [clientId, loadSnapshot]);
 
   useEffect(() => { void loadSnapshot(false); }, [loadSnapshot]);
   const value = useMemo(() => ({ snapshot, loading, refreshing, error, refetch }), [error, loading, refetch, refreshing, snapshot]);

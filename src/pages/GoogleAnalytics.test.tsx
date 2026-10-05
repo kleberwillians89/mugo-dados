@@ -238,9 +238,9 @@ describe("GoogleAnalytics — GA4 em leitura linear, detalhamento alternado", ()
     expect(container.querySelector('input[name*="customer"]')).toBeNull();
   });
 
-  it("viewer não vê a ação de atualizar", async () => {
+  it("viewer vê a ação de atualizar", async () => {
     await renderGa4();
-    expect(pressed("Atualizar dados")).toBeUndefined();
+    expect(pressed("Atualizar dados")).toBeTruthy();
   });
 
   it("o bloco Hoje contém somente vendas, pedidos e ticket", async () => {

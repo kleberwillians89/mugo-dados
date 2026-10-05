@@ -12,8 +12,8 @@ import type { ClientIntegrationConnection } from "../../app/types";
  * não configuração de integração: um viewer precisa disso para ver o próprio
  * faturamento.
  *
- * Só os campos que a página usa são mapeados. `last_successful_sync_at` não
- * existe neste contrato; a página já cai para `last_sync_at`.
+ * Só os campos que a página usa são mapeados. O último sucesso vem da
+ * metadata persistida; `last_sync_at` mantém compatibilidade com conexões antigas.
  */
 function toEcommerceConnection(row: GenericConnection): ClientIntegrationConnection {
   return {
@@ -26,7 +26,7 @@ function toEcommerceConnection(row: GenericConnection): ClientIntegrationConnect
     account: { id: row.account_id ?? null, name: row.account_name ?? null, domain: null },
     assets: {},
     last_sync_at: row.last_sync_at ?? null,
-    last_successful_sync_at: null,
+    last_successful_sync_at: String(row.metadata?.last_success_at || "") || null,
     last_error: row.last_error ?? null,
     updated_at: null,
   };

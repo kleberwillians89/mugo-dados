@@ -79,6 +79,7 @@ class OfficialBase(unittest.IsolatedAsyncioTestCase):
             return {"_token": json.dumps({"token": TOKENS[cid]})} if TOKENS.get(cid) else {"_token": ""}
 
         self.patches = [
+            patch.object(fbits_official_kpis, "sb_update", AsyncMock()),
             patch.object(fbits_official_kpis, "load_fbits_connection", AsyncMock(side_effect=load)),
             patch.object(fbits_official_kpis, "get_connection", AsyncMock(side_effect=get_conn)),
             patch.object(fbits_official_kpis, "client_factory", lambda token: self.api.factory(token)),

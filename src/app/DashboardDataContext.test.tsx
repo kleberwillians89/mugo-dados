@@ -53,3 +53,20 @@ test("resposta atrasada do tenant anterior não sobrescreve o tenant atual", asy
   expect(node.textContent).toBe("0");
   act(() => root.unmount());
 });
+
+test("releitura após sync espera consulta antiga e inicia quatro queries novas", async () => {
+  const held = ["dashboard_daily_metrics", "dashboard_source_snapshots", "dashboard_campaign_metrics", "dashboard_product_metrics"];
+  for (const table of held) mocks.deferred.set(table, { resolve: () => undefined });
+  let refetch: ReturnType<typeof useDashboardSnapshot>["refetch"];
+  function RefreshConsumer() { const state = useDashboardSnapshot(); React.useEffect(() => { refetch = state.refetch; }, [state.refetch]); return <span>{state.snapshot?.daily.length ?? "pending"}</span>; }
+  const node = document.createElement("div"); const root = createRoot(node);
+  act(() => root.render(<DashboardDataProvider clientId="post-sync-race" tenantReady enabled><RefreshConsumer /></DashboardDataProvider>));
+  await act(async () => Promise.resolve());
+  const resolvers = held.map((table) => mocks.deferred.get(table)!.resolve);
+  const freshRead = refetch!({ afterCurrent: true });
+  mocks.deferred.clear();
+  await act(async () => { resolvers.forEach((resolve) => resolve({ data: [{ metric_date: "2026-08-10" }], error: null })); await freshRead; });
+  expect(mocks.calls).toHaveLength(8);
+  expect(node.textContent).toBe("0");
+  act(() => root.unmount());
+});

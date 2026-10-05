@@ -483,6 +483,7 @@ async def _sync_ga4_for_period(
     days: int = 30,
     client_id: Optional[str] = None,
     property_id: Optional[str] = None,
+    connection_id: Optional[str] = None,
     access_token: Optional[str] = None,
     job_name: str = "ga4_sync_manual",
     trigger_source: str = "manual_api",
@@ -723,7 +724,10 @@ async def _sync_ga4_for_period(
 
 async def sync_ga4_for_period(**kwargs: Any) -> Dict[str, Any]:
     client_id = _safe_str(kwargs.get("client_id")) or "default"
-    connection_id = _safe_str(kwargs.get("connection_id")) or "resolved"
+    # Todas as entradas (fachada, cron e sync administrativo) compartilham
+    # a mesma identidade, inclusive quando o caller omite connection_id.
+    property_id = normalize_ga4_property_id(kwargs.get("property_id"))
+    connection_id = f"property:{property_id}" if property_id else "resolved"
     period_start = _safe_str(kwargs.get("start"))
     period_end = _safe_str(kwargs.get("end"))
     async with guarded_sync(

@@ -482,6 +482,7 @@ async def ensure_valid_meta_token(
     platform: str = "instagram",
     connection_type: str = "organic",
     force_refresh: bool = False,
+    persisted_only: bool = False,
 ) -> str:
     conn = (
         await get_connection_by_id(connection_id)
@@ -490,7 +491,9 @@ async def ensure_valid_meta_token(
     )
 
     disable_refresh = _disable_token_refresh()
-    env_token = _env_access_token()
+    env_token = "" if persisted_only else _env_access_token()
+    if persisted_only and (not conn or _safe_str(conn.get("client_id")) != client_id):
+        raise IntegrationError("Conexão Meta não pertence à empresa.", status_code=403, code="META_TENANT_MISMATCH", provider="meta")
 
     if disable_refresh and env_token:
         _log_token_source("env", disable_refresh=True, connection_id=_safe_str(connection_id))

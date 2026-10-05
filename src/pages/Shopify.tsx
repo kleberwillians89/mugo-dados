@@ -26,17 +26,15 @@ import {
 import {
   getShopifyCustomers,
   getShopifyReport,
-  resolveShopifyConnectionIdForRead,
-  syncShopifyConnection,
+  refreshProviderData,
 } from "../app/api";
 import { useDashboardSnapshot } from "../app/DashboardDataContext";
 import { countUniqueShopifyCustomers } from "../app/shopifyReadModel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
-import { describeSyncError, isSyncAlreadyRunningError, runExclusiveSync } from "../app/syncOrchestrator";
+import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   formatShopifyCompactNumber,
   formatShopifyCurrency,
-  formatShopifyDateTime,
   formatShopifyMonthLabel,
 } from "../app/shopifyUi";
 import type {
@@ -45,19 +43,16 @@ import type {
   ShopifyReportResponse,
 } from "../app/types";
 import "../styles/shopify-report.css";
+import { formatFreshness } from "../app/dataRefresh";
 
 type Props = {
-  /** "Atualizar dados" aqui sincroniza a loja (POST sync, require_client_role): sem permissão, a ação não aparece. */
+  /** Permissão administrativa; refresh de dados usa membership no backend. */
   canSync: boolean;
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
   onOpenGoogleReport?: () => void;
 };
 
-// Regra operacional do piloto: o botão manual sincroniza os últimos 60 dias
-// (histórico recente), nunca o histórico completo — evita reprocessar anos
-// de pedidos a cada clique.
-const SHOPIFY_MANUAL_SYNC_DAYS = 60;
 
 type PeriodPreset = "day" | "7d" | "30d" | "month" | "previous_month" | "ytd" | "specific" | "custom";
 type ShopifyMetricKey = "revenue" | "orders" | "customers" | "average_ticket";
@@ -165,7 +160,7 @@ function buildCustomerSummary(customers: ShopifyCustomerRow[]) {
 }
 
 // Navegação e saída vivem na sidebar global (onLogout segue no tipo por compatibilidade).
-export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }: Props) {
+export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) {
   const { period, periodDays, setPeriod, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -236,39 +231,28 @@ export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }
   }, [detailReport?.recent_orders, model, period.end, period.start, periodDays]);
 
   const onRefreshData = useCallback(async () => {
+    const requestedClientId = getActiveClientId();
     setSyncNotice(null);
     setSyncingShopify(true);
     try {
-      const connectionId = await resolveShopifyConnectionIdForRead(getActiveClientId());
-      if (connectionId) {
-        try {
-          await runExclusiveSync(
-            { clientId: getActiveClientId(), provider: "shopify", connectionId },
-            () => syncShopifyConnection(connectionId, SHOPIFY_MANUAL_SYNC_DAYS)
-          );
-        } catch (syncError: unknown) {
-          if (isSyncAlreadyRunningError(syncError)) {
-            // Estado válido, nunca erro vermelho — outra sincronização
-            // (ex.: reconciliação periódica) já está rodando para esta loja.
-            setSyncNotice("Importação já está em andamento.");
-          } else {
-            // Preserva os dados já carregados (report/customerData não são
-            // tocados aqui) e mostra mensagem humana, sem reler os dados —
-            // a última leitura persistida válida continua na tela.
-            setError(describeSyncError(syncError, "Não foi possível sincronizar a loja Shopify agora."));
-            return;
-          }
-        }
-      }
-      // Sync concluído (ou já em andamento) — relê os dados persistidos.
+      await runExclusiveSync(
+        { clientId: requestedClientId, provider: "shopify" },
+        () => refreshProviderData("shopify", { start: period.start, end: period.end })
+      );
+      if (getActiveClientId() !== requestedClientId) return;
+      // Só depois do sucesso, relê os dados persistidos.
       await model.refetch();
+      if (getActiveClientId() !== requestedClientId) return;
       const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
       const [nextReport, nextCustomers] = await Promise.all([
         getShopifyReport(selectedPeriod),
         getShopifyCustomers(selectedPeriod),
       ]);
+      if (getActiveClientId() !== requestedClientId || nextReport.client_id !== requestedClientId || nextCustomers.client_id !== requestedClientId) return;
       setDetailReport(nextReport);
       setCustomerData(nextCustomers);
+    } catch (cause) {
+      setError(describeSyncError(cause, "Não foi possível atualizar a loja. Mantendo os dados anteriores."));
     } finally {
       setSyncingShopify(false);
     }
@@ -435,11 +419,10 @@ export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }
           dateline={
             <>
               <span className="ds-datelineSource">Shopify</span>
-              <span>Última leitura: {formatShopifyDateTime(report?.technical.last_received_at)}</span>
-              {canSync ? (
-                <span>
+              <span>{report?.technical.last_success_at ? `Dados atualizados ${formatFreshness(report.technical.last_success_at)}` : "Sem atualização concluída"}</span>
+              <span>
                   <button
-                    className="ds-link is-quiet"
+                    className="btn intelHeaderAction"
                     disabled={syncingShopify || model.refreshing}
                     onClick={() => {
                       void onRefreshData();
@@ -449,7 +432,6 @@ export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }
                     {syncingShopify || model.refreshing ? "Atualizando..." : "Atualizar dados"}
                   </button>
                 </span>
-              ) : null}
             </>
           }
           controls={
@@ -517,7 +499,7 @@ export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }
 
         {!model.loading && report ? (
           <div className="ds-stack">
-            {error ? (
+            {error || model.error ? (
               <DataNotice tone="warning" title="Não foi possível atualizar agora">
                 Exibindo a última leitura disponível.
               </DataNotice>

@@ -35,8 +35,6 @@ export default function useDashboardGa4({
       setDetailsError(null);
     } catch (error) {
       if (requestId !== requestRef.current) return;
-      setChannels([]);
-      setCampaigns([]);
       setDetailsError(error instanceof Error ? error.message : "Não foi possível carregar canais e campanhas.");
     }
   }, [activeClientId, isAuthenticated, safePeriod.end, safePeriod.start]);
@@ -145,7 +143,7 @@ export default function useDashboardGa4({
     loadingGa4: model.loading && !ga4Report,
     refreshingGa4: model.refreshing,
     ga4Error: model.error || detailsError,
-    ga4UpdatedAt: model.snapshot?.fetchedAt || null,
+    ga4UpdatedAt: model.sources.find((item) => item.provider === "ga4")?.last_success_at || null,
     reloadGa4,
   };
 }

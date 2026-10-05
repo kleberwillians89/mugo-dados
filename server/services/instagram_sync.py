@@ -453,6 +453,7 @@ async def _run_sync_for_client_and_ig(
         )
         warnings.append("Stories não ficaram disponíveis nesta atualização.")
 
+    print(f"[meta][provider_done] client_id={client_id} media={len(media_rows)} comments={len(comment_rows)}")
     if comment_rows:
         rows = [r for r in comment_rows if str(r.get("comment_id") or "").strip()]
         if rows:
@@ -529,6 +530,7 @@ async def _run_sync_for_client_and_ig(
             on_conflict="client_id,snapshot_date",
         )
         persisted_snapshot = True
+        print(f"[meta][persist_done] client_id={client_id} snapshot_date={_utc_date_str()} media={persisted_media} comments={persisted_comments}")
     except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code not in {400, 404, 409}:
             raise
@@ -568,7 +570,7 @@ async def _run_sync_for_client_and_ig(
 
 
 async def _sync_instagram_connection(
-    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True,
+    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True, persisted_only: bool = False,
 ) -> Dict[str, Any]:
     conn = await _resolve_connection_by_id(connection_id)
     if not conn:
@@ -582,6 +584,8 @@ async def _sync_instagram_connection(
         raise RuntimeError("Conexão sem client_id.")
 
     ig_user_id = str(conn.get("ig_user_id") or "").strip()
+    if not ig_user_id and persisted_only:
+        raise RuntimeError("Selecione a conta Instagram antes de atualizar os dados.")
     if not ig_user_id:
         client = await sb_get_one("clients", f"id=eq.{client_id}")
         ig_user_id = str((client or {}).get("ig_user_id") or "").strip()
@@ -608,6 +612,7 @@ async def _sync_instagram_connection(
             connection_id=connection_id,
             platform="instagram",
             connection_type="organic",
+            **({"persisted_only": True} if persisted_only else {}),
         )
         res = await _run_sync_for_client_and_ig(
             client_id=client_id,
@@ -616,6 +621,8 @@ async def _sync_instagram_connection(
             access_token=access_token,
             limit=limit,
         )
+        if not res.get("snapshot_saved"):
+            raise RuntimeError("Instagram não persistiu o snapshot diário.")
         if res.get("snapshot_saved"):
             read_model_result = await refresh_dashboard_read_model_safely(
                 client_id=client_id,
@@ -626,6 +633,7 @@ async def _sync_instagram_connection(
             res["read_model_refreshed"] = bool(read_model_result.get("ok"))
             if not res["read_model_refreshed"]:
                 raise RuntimeError("Instagram persistido, mas o read model não foi atualizado.")
+        print(f"[meta][freshness_updated] client_id={client_id} provider=instagram snapshot_date={_utc_date_str()}")
         await _mark_connection_success(connection_id)
         thumbnail_jobs = res.pop("_thumbnail_jobs", [])
         thumbnail_result = (
@@ -659,7 +667,7 @@ async def _sync_instagram_connection(
 
 
 async def sync_instagram_connection(
-    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True,
+    connection_id: str, limit: int = 40, *, process_thumbnails: bool = True, persisted_only: bool = False,
 ) -> Dict[str, Any]:
     conn = await _resolve_connection_by_id(connection_id)
     client_id = str((conn or {}).get("client_id") or "").strip()
@@ -669,6 +677,7 @@ async def sync_instagram_connection(
     ):
         return await _sync_instagram_connection(
             connection_id, limit=limit, process_thumbnails=process_thumbnails,
+            **({"persisted_only": True} if persisted_only else {}),
         )
 
 
@@ -676,6 +685,7 @@ async def sync_instagram_for_client(
     client_id: str,
     limit: int = 40,
     preferred_connection_id: str | None = None,
+    persisted_only: bool = False,
 ) -> Dict[str, Any]:
     preferred_id = str(preferred_connection_id or "").strip()
     resolved = await resolve_connection_for_scope(
@@ -696,4 +706,4 @@ async def sync_instagram_for_client(
         f"connection_id={connection_id} source={source} status={str(selected.get('status') or '-')}"
     )
 
-    return await sync_instagram_connection(connection_id, limit=limit)
+    return await sync_instagram_connection(connection_id, limit=limit, **({"persisted_only": True} if persisted_only else {}))
