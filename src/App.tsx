@@ -28,6 +28,8 @@ const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
+const Goals = lazy(() => import("./pages/Goals"));
+const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const loadCustomers = () => import("./pages/Customers");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
@@ -847,7 +849,9 @@ function PrivateApp() {
         />
       ) : (
       <>
-      {route === "intelligence" ? (
+      {route === "goals" ? (
+        <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+      ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${activeClientId}`}
           onLogout={handleLogout}
@@ -874,6 +878,7 @@ function PrivateApp() {
           onOpenIntegrations={canManageIntegrations ? () => openRoute("integrations") : undefined}
         />
       ) : (
+        <>
         <Dashboard
           key={`dashboard:${activeClientId}`}
           onLogout={handleLogout}
@@ -883,6 +888,8 @@ function PrivateApp() {
           onOpenSetup={canManageIntegrations ? () => setView("setup") : undefined}
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
+        <GoalsSummary key={`goals-summary:${activeClientId}`} onOpen={() => openRoute("goals")} />
+        </>
       )}
       </>
       )}

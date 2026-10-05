@@ -2199,9 +2199,12 @@ export async function getCustomerDetail(
 export async function refreshProviderData(
   provider: "fbits" | "shopify" | "meta" | "google",
   period: { start: string; end: string },
-): Promise<{ ok: boolean; client_id: string; provider: string }> {
+): Promise<{ ok: boolean; client_id: string; provider: string; sources?: Record<string, { status: "success" | "no_data" }> }> {
   return http(clientClientPath(`/data-refresh/${provider}`), {
     method: "POST",
     body: JSON.stringify({ start: period.start, end: period.end }),
   });
 }
+
+// Transporte existente reutilizado pela feature isolada de Metas.
+export { http, clientClientPath };

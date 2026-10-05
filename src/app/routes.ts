@@ -3,6 +3,7 @@ export type AppRoute =
   | "google"
   | "ecommerce"
   | "customers"
+  | "goals"
   | "integrations"
   | "intelligence"
   | "companies"
@@ -22,6 +23,7 @@ export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | nu
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";
+  if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized.startsWith("/meta")) return "meta";
   if (
     normalized === "/" ||
@@ -49,6 +51,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "intelligence") return "/inteligencia";
   if (route === "google") return "/google";
   if (route === "ecommerce") return "/ecommerce";
+  if (route === "goals") return "/metas";
   if (route === "customers") return "/clientes";
   if (route === "not_found") return "/404";
   return "/meta";

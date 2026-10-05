@@ -620,6 +620,7 @@ export default function Dashboard({
   const [selectedPaidConnectionId, setSelectedPaidConnectionId] = useState<string | null>(() =>
     readDashboardCache<string>(paidConnectionIdCacheKey)
   );
+  const [paidRefreshNoData, setPaidRefreshNoData] = useState<string | null>(null);
   const [refreshRuntime, setRefreshRuntime] = useState<Array<Record<string, unknown>>>([]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(() =>
     cachedConnectionsInitial.length ? pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()) : null
@@ -1090,11 +1091,12 @@ export default function Dashboard({
     console.info("[meta][manual_refresh_click]", { endpoint: runtime.endpoint });
     setRefreshRuntime([{ ...runtime, status: "running" }]);
     try {
-      await runExclusiveSync(
+      const result = await runExclusiveSync(
         { clientId: activeClientId, provider: "meta" },
         () => refreshProviderData("meta", period)
       );
       if (getActiveClientId() !== activeClientId) return;
+      setPaidRefreshNoData(result.sources?.["Meta Ads"]?.status === "no_data" ? `${period.start}:${period.end}` : null);
       const snapshot = await dashboardSnapshot.refetch({ afterCurrent: true });
       if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
       if (getActiveClientId() !== activeClientId) return;
@@ -1633,7 +1635,7 @@ export default function Dashboard({
               <>
                 <span>
                   <span className="ds-datelineSource">Meta Ads</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : paidRefreshNoData === `${period.start}:${period.end}` ? "sem dados de anúncios no período consultado" : paidConnection?.last_sync_status === "skipped" ? "última consulta sem dados de anúncios" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
                 <span>
                   <span className="ds-datelineSource">Instagram</span>{" "}

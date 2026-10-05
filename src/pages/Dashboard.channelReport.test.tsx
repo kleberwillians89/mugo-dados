@@ -259,3 +259,20 @@ it("Meta não anuncia sucesso quando a releitura falha", async () => {
   expect(refreshApi.reloadSummary).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Mantendo a última leitura disponível");
 });
+
+
+it("Ads sem dados é consulta concluída e não ausência de sync", async () => {
+  state.paid = false;
+  refreshApi.refreshProviderData.mockResolvedValue({ ok:true, sources:{ "Instagram":{status:"success"}, "Meta Ads":{status:"no_data"} } });
+  await render(true);
+  await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
+  expect(container.textContent).toContain("sem dados de anúncios no período consultado");
+});
+
+it("falha Ads identificada não vira conclusão total após orgânico sucesso", async () => {
+  refreshApi.refreshProviderData.mockRejectedValue(new (await import("../app/api")).ApiError("Meta Ads não pôde ser atualizada. Mantendo a última leitura disponível.", { status: 502 }));
+  await render(true);
+  await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
+  expect(refreshApi.refetch).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("Meta Ads não pôde ser atualizada");
+});

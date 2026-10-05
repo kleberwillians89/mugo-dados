@@ -34,6 +34,7 @@ type NavItem = { route: AppRoute; label: string };
 const PRODUCT_ITEMS: NavItem[] = [
   { route: "ecommerce", label: "Ecommerce" },
   { route: "customers", label: "Clientes" },
+  { route: "goals", label: "Metas" },
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
   { route: "intelligence", label: "Inteligência" },

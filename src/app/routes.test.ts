@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { getAppRouteFromPath, getPathForRoute, getPublicAppRouteFromPath } from "./routes";
 
 describe("platform routes", () => {
+  it("distinguishes goals from the existing Meta route", () => {
+    expect(getAppRouteFromPath("/metas")).toBe("goals");
+    expect(getAppRouteFromPath("/meta")).toBe("meta");
+    expect(getPathForRoute("goals")).toBe("/metas");
+  });
   it("maps the protected companies URL", () => {
     expect(getAppRouteFromPath("/empresas")).toBe("companies");
     expect(getPathForRoute("companies")).toBe("/empresas");

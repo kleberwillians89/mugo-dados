@@ -35,27 +35,29 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 42)
+        self.assertEqual(len(names), 43)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
-        self.assertEqual(names[-12], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
-        self.assertEqual(names[-11], "20260817_000032_shopify_explicit_sync_coverage.sql")
-        self.assertEqual(names[-10], "20260818_000033_meta_ads_backfill_queue.sql")
-        self.assertEqual(names[-9], "20260819_000034_multi_tenant_invitation_acceptance.sql")
-        self.assertEqual(names[-8], "20260820_000035_company_creation_idempotency.sql")
-        self.assertEqual(names[-7], "20260929_000036_platform_company_permanent_deletion.sql")
-        self.assertEqual(names[-6], "20261001_000037_fbits_order_financials.sql")
-        self.assertEqual(names[-5], "20261002_000038_browser_credential_lockdown.sql")
-        self.assertEqual(names[-4], "20261003_000039_client_business_context.sql")
-        self.assertEqual(names[-3], "20261004_000040_fbits_customer_identity.sql")
-        self.assertEqual(names[-2], "20261005_000041_customer_360_indexes.sql")
-        self.assertEqual(names[-1], "20261006_000042_ecommerce_browser_lockdown.sql")
+        self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
+        self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
+        self.assertEqual(names[32], "20260818_000033_meta_ads_backfill_queue.sql")
+        self.assertEqual(names[33], "20260819_000034_multi_tenant_invitation_acceptance.sql")
+        self.assertEqual(names[34], "20260820_000035_company_creation_idempotency.sql")
+        self.assertEqual(names[35], "20260929_000036_platform_company_permanent_deletion.sql")
+        self.assertEqual(names[36], "20261001_000037_fbits_order_financials.sql")
+        self.assertEqual(names[37], "20261002_000038_browser_credential_lockdown.sql")
+        self.assertEqual(names[38], "20261003_000039_client_business_context.sql")
+        self.assertEqual(names[39], "20261004_000040_fbits_customer_identity.sql")
+        self.assertEqual(names[40], "20261005_000041_customer_360_indexes.sql")
+        self.assertEqual(names[41], "20261006_000042_ecommerce_browser_lockdown.sql")
+
+        self.assertEqual(names[-1], "20261007_000043_client_goals.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 43)))
+        self.assertEqual(logical_numbers, list(range(1, 44)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
