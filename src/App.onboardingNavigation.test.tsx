@@ -109,6 +109,7 @@ vi.mock("./pages/Onboarding", () => ({
 vi.mock("./pages/Dashboard", () => ({ default: () => React.createElement("div", { "data-testid": "dashboard-stub" }) }));
 // O resumo tem testes próprios; esta suíte isola a navegação do App.
 vi.mock("./components/GoalsSummary", () => ({ default: () => null }));
+vi.mock("./pages/Goals", () => ({ default: (props: { canManage: boolean }) => React.createElement("div", { "data-testid": "goals-stub", "data-can-manage": String(props.canManage) }) }));
 vi.mock("./pages/GoogleAnalytics", () => ({ default: () => React.createElement("div", { "data-testid": "ga-stub" }) }));
 // Expõe o que o App entrega à página: permissão de sync e atalho de Integrações.
 vi.mock("./pages/Ecommerce", () => ({
@@ -575,5 +576,20 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
     expect(container.textContent).not.toMatch(/Curavino|Ruah|Rüah|Latina/);
     expect(clientLogos().every((src) => src === "/clients/origami.png" || src === "/clients/roove.png")).toBe(true);
     expect(container.querySelector('img[src="/clients/mugo.png"]')).toBeNull();
+  });
+});
+
+
+describe("App — exceção de Metas para viewer", () => {
+  it("viewer recebe CRUD apenas em Metas e não ganha administração", async () => {
+    backend.pendingInvitations = [];
+    backend.memberships = [{ client_id: "roove", role: "viewer" }];
+    backend.clients = [{ id: "roove", name: "Roove", trade_name: "Roove" }];
+    window.history.replaceState({}, "", "/metas");
+    await renderApp();
+    await waitFor(() => Boolean(container.querySelector('[data-testid="goals-stub"]')));
+    expect(container.querySelector('[data-testid="goals-stub"]')?.getAttribute("data-can-manage")).toBe("true");
+    expect(findNavItem("Integrações")).toBeUndefined();
+    expect(findNavItem("Empresas")).toBeUndefined();
   });
 });

@@ -17,8 +17,8 @@ beforeEach(() => { state.tenant="a"; state.getGoals.mockReset(); state.getGoals.
 afterEach(() => { act(() => root.unmount());node.remove(); });
 const button=(label:string) => [...node.querySelectorAll("button")].find((b) => b.textContent===label)!;
 async function render(admin=false) { await act(async () => root.render(<Goals canManage={admin} />)); }
-test("viewer lê progresso, origem e projeção sem mutações",async () => { await render();expect(node.textContent).toContain("50% atingido");expect(node.textContent).toContain("Persistido");expect(node.textContent).toContain("Projeção ao fim do período");for(const name of ["+ Nova meta","Editar","Excluir"])expect(button(name)).toBeUndefined();expect(state.saveGoal).not.toHaveBeenCalled(); });
-test("admin cria, edita e exclui somente via ações explícitas",async () => {
+test("canManage false mantém progresso sem ações de escrita",async () => { await render();expect(node.textContent).toContain("50% atingido");expect(node.textContent).toContain("Persistido");expect(node.textContent).toContain("Projeção ao fim do período");for(const name of ["+ Nova meta","Editar","Excluir"])expect(button(name)).toBeUndefined();expect(state.saveGoal).not.toHaveBeenCalled(); });
+test("perfil autorizado em Metas cria, edita e exclui somente via ações explícitas",async () => {
  await render(true);expect(state.saveGoal).not.toHaveBeenCalled();
  await act(async () => button("+ Nova meta").click());
  await act(async () => { node.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})); });

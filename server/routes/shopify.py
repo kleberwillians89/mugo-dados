@@ -173,8 +173,8 @@ async def shopify_webhook(
 
 @router.get("/api/shopify/debug/recent-webhooks")
 async def shopify_recent_webhooks(
+    request: Request,
     limit: int = Query(default=20, ge=1, le=100),
-    include_payload: bool = Query(default=False),
     client_id: str | None = Query(default=None),
     connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
@@ -183,6 +183,8 @@ async def shopify_recent_webhooks(
     started = _started()
     endpoint = "/api/shopify/debug/recent-webhooks"
     client_id = await resolve_client_id(client_id or x_client_id, authorization)
+    if "include_payload" in request.query_params:
+        raise HTTPException(status_code=400, detail="Payload bruto não está disponível neste endpoint.")
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -197,7 +199,7 @@ async def shopify_recent_webhooks(
             client_id=client_id,
             shop_domain=context.shop_domain,
             limit=limit,
-            include_payload=include_payload,
+            include_payload=False,
         )
         _log_endpoint_done(
             endpoint=endpoint,
@@ -507,8 +509,8 @@ async def shopify_sync_diagnostics(
 
 @router.get("/api/shopify/debug/recent-orders")
 async def shopify_recent_orders(
+    request: Request,
     limit: int = Query(default=20, ge=1, le=100),
-    include_raw: bool = Query(default=False),
     client_id: str | None = Query(default=None),
     connection_id: str | None = Query(default=None),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
@@ -517,6 +519,9 @@ async def shopify_recent_orders(
     started = _started()
     endpoint = "/api/shopify/debug/recent-orders"
     client_id = await resolve_client_id(client_id or x_client_id, authorization)
+    # Raw é operação interna; nunca fica disponível pela superfície HTTP.
+    if "include_raw" in request.query_params:
+        raise HTTPException(status_code=400, detail="Payload bruto não está disponível neste endpoint.")
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,
         authorization=authorization,
@@ -533,7 +538,7 @@ async def shopify_recent_orders(
             client_id=client_id,
             shop_domain=context.shop_domain,
             limit=limit,
-            include_raw=include_raw,
+            include_raw=False,
         )
         _log_endpoint_done(
             endpoint=endpoint,

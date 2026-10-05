@@ -170,8 +170,10 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         # Gerar a análise estruturada é permitido a qualquer MEMBRO desde esta
         # release. O custo da chamada de IA é contido no servidor — reuso por
         # fingerprint, lock de concorrência e cooldown por tenant/período —
-        # e não por papel. `POST /ask` continua exigindo gestão.
+        # e não por papel. Perguntas registram só estado da conversa.
         ("intelligence", "intelligence_generate"),
+        # Análise sobre snapshot, sem executor de ferramentas administrativas.
+        ("intelligence", "intelligence_ask"),
         # Fachada restrita: membership, allowlist e conexões persistidas;
         # test_provider_refresh prova autorização e rejeição de IDs extras.
         ("integrations", "refresh_client_provider"),
@@ -438,7 +440,7 @@ class IntelligenceGenerationIsOpenToMembersTests(unittest.IsolatedAsyncioTestCas
     """Gerar a análise estruturada passou a ser permitido a qualquer membro.
 
     A proteção de custo migrou do papel para o servidor: reuso por fingerprint
-    e cooldown por tenant/período. `POST /ask` continua restrito a gestão.
+    e cooldown por tenant/período. `POST /ask` também aceita membership para análise.
     """
 
     async def test_generation_authorizes_by_membership(self):
@@ -496,21 +498,14 @@ class IntelligenceGenerationIsOpenToMembersTests(unittest.IsolatedAsyncioTestCas
         self.assertEqual(raised.exception.status_code, 403)
         generate.assert_not_awaited()
 
-    async def test_ask_stays_closed_to_a_viewer(self):
+    async def test_viewer_can_ask_in_own_tenant(self):
         with (
-            redirect_stdout(io.StringIO()),
-            patch.object(
-                intelligence_routes, "require_client_role", AsyncMock(side_effect=DENIED_ROLE),
-            ),
-            patch.object(intelligence_routes, "ask_intelligence", AsyncMock()) as ask,
+            patch.object(intelligence_routes,"require_user_id",AsyncMock(return_value="viewer")),
+            patch.object(intelligence_routes,"resolve_client_id",AsyncMock(return_value=CURAVINO)),
+            patch.object(intelligence_routes,"ask_intelligence",AsyncMock(return_value={"ok":True})) as ask,
         ):
-            with self.assertRaises(HTTPException) as raised:
-                await intelligence_routes.intelligence_ask(
-                    payload={"question": "como foi o mês?"},
-                    client_id=CURAVINO, x_client_id=None, authorization="Bearer viewer",
-                )
-        self.assertEqual(raised.exception.status_code, 403)
-        ask.assert_not_awaited()
+            await intelligence_routes.intelligence_ask(payload={"question":"como foi o mês?"},client_id=CURAVINO,x_client_id=None,authorization="Bearer viewer")
+        self.assertEqual(ask.await_args.kwargs["client_id"],CURAVINO)
 
     async def test_the_cooldown_answers_429_with_retry_after(self):
         with (
@@ -535,7 +530,7 @@ class IntelligenceGenerationIsOpenToMembersTests(unittest.IsolatedAsyncioTestCas
         ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
         self.assertIn("await _context(", generate)
         self.assertNotIn("_mutation_context(", generate)
-        self.assertIn("_mutation_context(", ask)
+        self.assertIn("await _context(", ask)
 
 
 class ViewerStillReadsIntelligenceTests(unittest.IsolatedAsyncioTestCase):
@@ -641,9 +636,9 @@ class NasserViewerSessionTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertIn(guard, source)
 
-    def test_intelligence_reads_stay_open_and_ask_stays_closed(self):
+    def test_intelligence_reads_and_ask_use_membership(self):
         source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
-        # Leituras e geração da análise: membership. /ask: papel de gestão.
+        # Leituras, geração e perguntas analíticas: membership.
         for by_membership in ('@router.get("/context")', '@router.get("/latest")',
                               '@router.get("/history")', '@router.get("/business-context")',
                               '@router.post("/analyses")'):
@@ -652,7 +647,7 @@ class NasserViewerSessionTests(unittest.TestCase):
                 self.assertIn("await _context(", block)
                 self.assertNotIn("_mutation_context(", block)
         ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
-        self.assertIn("_mutation_context(", ask)
+        self.assertIn("await _context(", ask)
 
 
 class RefreshIsRevalidationNotSyncTests(unittest.TestCase):
@@ -716,11 +711,11 @@ class RefreshIsRevalidationNotSyncTests(unittest.TestCase):
         self.assertIn("cooldownFrom", helper)
         self.assertIn("cooldownFrom(lastRefreshAt)", self.intelligence_page())
 
-    def test_ask_stays_closed_to_a_viewer(self):
-        # Gerar análise abriu nesta release; conversa livre com o modelo, não.
+    def test_ask_uses_membership_for_viewer(self):
+        # Perguntas analíticas também usam membership, sem ferramentas administrativas.
         source = Path(inspect.getfile(intelligence_routes)).read_text(encoding="utf-8")
         ask = source.split('@router.post("/ask")')[1].split("@router.")[0]
-        self.assertIn("_mutation_context(", ask)
+        self.assertIn("await _context(", ask)
 
     def test_the_persisted_cache_is_scoped_per_tenant(self):
         # Reabrir a tela não pode mostrar o último estado de OUTRA empresa.

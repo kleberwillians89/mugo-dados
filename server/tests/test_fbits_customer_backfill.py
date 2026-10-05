@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import sys
@@ -7,8 +8,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services import customers, fbits_connections as fbits
-from services.fbits_customer_backfill import backfill_customer_identities
+from services import customers, sync_locks, fbits_connections as fbits
+from services.fbits_customer_backfill import CustomerBackfillError, backfill_customer_identities
 from test_fbits_customer_identity import order, no_lock
 
 TENANT = "239dfdd2-5bb9-4cfd-a4ef-e05ca0b2de94"
@@ -172,3 +173,52 @@ class BackfillTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await backfill_customer_identities(client_id="all", confirm_client_id="all")
             load.assert_not_awaited()
+
+
+class BackfillLockAndTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_concurrent_calls_use_existing_backfill_and_shared_fbits_lock(self):
+        from services.fbits_customer_backfill import backfill_customer_identities
+        entered, finish = asyncio.Event(), asyncio.Event()
+        held = False
+        async def acquire(*args):
+            nonlocal held
+            if held:
+                return False
+            held = True
+            return True
+        async def release(*args):
+            nonlocal held
+            held = False
+        async def select(table, **kwargs):
+            entered.set()
+            await finish.wait()
+            return [{"client_id": TENANT, "order_date": "2026-10-01T00:00:00Z"}]
+        connection = {"id": "conn", "client_id": TENANT, "provider": "fbits", "status": "connected"}
+        with (
+            patch.object(fbits, "load_fbits_connection", AsyncMock(return_value=connection)),
+            patch.object(fbits, "sb_select", AsyncMock(side_effect=select)),
+            patch.object(fbits, "get_connection", AsyncMock(return_value={})),
+            patch.object(sync_locks, "acquire_sync_lock", acquire),
+            patch.object(sync_locks, "release_sync_lock", release),
+            redirect_stdout(io.StringIO()),
+        ):
+            first = asyncio.create_task(backfill_customer_identities(client_id=TENANT, confirm_client_id=TENANT))
+            await asyncio.wait_for(entered.wait(), timeout=2)
+            try:
+                with self.assertRaises(CustomerBackfillError) as raised:
+                    await backfill_customer_identities(client_id=TENANT, confirm_client_id=TENANT)
+                self.assertEqual(raised.exception.status_code, 409)
+            finally:
+                finish.set()
+                with self.assertRaises(CustomerBackfillError):
+                    await first
+            self.assertFalse(held)
+
+    async def test_existing_service_timeout_is_translated_without_private_details(self):
+        from services.fbits_customer_backfill import backfill_customer_identities
+        with patch.object(fbits, "load_fbits_connection", AsyncMock(side_effect=TimeoutError("private"))), redirect_stdout(io.StringIO()):
+            with self.assertRaises(CustomerBackfillError) as raised:
+                await backfill_customer_identities(client_id=TENANT, confirm_client_id=TENANT)
+        self.assertEqual(raised.exception.status_code, 504)
+        self.assertEqual(raised.exception.counts["errors"], 1)
+        self.assertNotIn("private", str(raised.exception))

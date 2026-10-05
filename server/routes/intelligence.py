@@ -36,23 +36,6 @@ async def _context(
     return resolved_client_id, user_id
 
 
-async def _mutation_context(
-    client_id: str | None,
-    x_client_id: str | None,
-    authorization: str | None,
-) -> tuple[str, str]:
-    """Mutação restrita a papel de gestão.
-
-    Hoje protege apenas `POST /ask`, que abre conversa livre com o modelo.
-    Gerar a análise estruturada passou a ser permitido a qualquer membro — o
-    custo lá é contido no servidor por reuso de fingerprint e cooldown, não
-    por papel.
-    """
-    resolved_client_id = await require_client_role(client_id or x_client_id, authorization)
-    user_id = await require_user_id(authorization)
-    return resolved_client_id, user_id
-
-
 def _log_stage_error(*, endpoint: str, client_id: str, stage: str, exc: BaseException) -> None:
     """Etapa e tipo do erro no log do servidor; nada sensível, nada ao cliente."""
     print(
@@ -228,7 +211,7 @@ async def intelligence_ask(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid, user_id = await _mutation_context(client_id, x_client_id, authorization)
+    cid, user_id = await _context(client_id, x_client_id, authorization)
     try:
         return await ask_intelligence(
             client_id=cid,

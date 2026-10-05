@@ -28,7 +28,6 @@ import "../styles/intelligence.css";
 
 type Props = {
   onLogout: () => void | Promise<void>;
-  /** Gerar uma nova análise altera o estado versionado; viewer permanece somente leitura. */
   /**
    * Administração do contexto estratégico (PUT /business-context exige papel
    * de gestão). Gerar análise NÃO depende disto: qualquer membro gera.

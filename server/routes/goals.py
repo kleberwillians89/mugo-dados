@@ -32,7 +32,7 @@ async def read_goals(client_id:str, start:date|None=None,end:date|None=None,auth
     except Exception: raise HTTPException(503,"Não foi possível carregar as metas. Tente novamente.") from None
 
 async def writer(cid,auth):
-    return await require_client_role(cid,auth,allowed_roles=("agency_admin","client_admin"))
+    return await require_client_role(cid,auth,allowed_roles=("agency_admin","client_admin","viewer"))
 
 @router.post("",status_code=201)
 async def create_goal(client_id:str,body:GoalInput,authorization:str|None=Header(default=None)):
