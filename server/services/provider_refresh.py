@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from .integration_errors import IntegrationError
 from .connection_resolver import resolve_connection_for_scope, resolve_generic_connection
 from .fbits_connections import sync_fbits_connection
-from .fbits_official_kpis import invalidate_official_kpis
+from .fbits_official_kpis import invalidate_official_kpis, refresh_persisted_official_kpis
 from .ga4_connections import resolve_ga4_connection_context
 from .ga4_sync import sync_ga4_for_period
 from .generic_connections import list_generic_connections
@@ -66,6 +66,7 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
             if provider == "fbits":
                 await sync_fbits_connection(client_id=client_id)
                 await invalidate_official_kpis(client_id)
+                await refresh_persisted_official_kpis(client_id, start, end)
                 print(f"[fbits][cache_invalidated] client_id={client_id}")
             else:
                 row = await resolve_generic_connection(client_id=client_id, provider="shopify", prefer_metadata_flag="selected_for_reporting", require_token=False)

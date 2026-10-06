@@ -25,10 +25,12 @@ class GoalInput(BaseModel):
         return self.model_dump(mode="json")
 
 @router.get("")
-async def read_goals(client_id:str, start:date|None=None,end:date|None=None,authorization:str|None=Header(default=None)):
+async def read_goals(client_id:str, start:date|None=None,end:date|None=None,authorization:str|None=Header(default=None),include_actuals:bool=True):
     cid=await require_client_read(client_id,authorization)
     if start and end and end < start: raise HTTPException(422,"Período inválido.")
-    try: return await list_goals(cid,start.isoformat() if start else None,end.isoformat() if end else None)
+    try:
+        args = (cid,start.isoformat() if start else None,end.isoformat() if end else None)
+        return await list_goals(*args) if include_actuals else await list_goals(*args, include_actuals=False)
     except Exception: raise HTTPException(503,"Não foi possível carregar as metas. Tente novamente.") from None
 
 async def writer(cid,auth):

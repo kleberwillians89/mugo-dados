@@ -1,3 +1,4 @@
+import { markReadStage } from "./readPerformance";
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useOptionalPeriod, type Period } from "./PeriodContext";
@@ -24,7 +25,7 @@ export type DashboardDailyMetric = {
 export type DashboardCampaignMetric = Record<string, string | number | null> & { metric_date: string; provider: string; campaign_id: string };
 export type DashboardProductMetric = Record<string, string | number | null> & { metric_date: string; product_id: string };
 export type DashboardSourceSnapshot = { provider: string; last_success_at: string | null; data_max_available: string | null; data_min_available: string | null; updated_at: string };
-export type DashboardSnapshot = { daily: DashboardDailyMetric[]; sources: DashboardSourceSnapshot[]; campaigns: DashboardCampaignMetric[]; products: DashboardProductMetric[]; fetchedAt: string; queryCount: number };
+export type DashboardSnapshot = { daily: DashboardDailyMetric[]; sources: DashboardSourceSnapshot[]; campaigns: DashboardCampaignMetric[]; products: DashboardProductMetric[]; fetchedAt: string; queryCount: number; campaignsLoaded?: boolean; productsLoaded?: boolean; secondaryLoading?: boolean; campaignsLoading?: boolean; productsLoading?: boolean; secondaryErrors?: string[] };
 
 type Value = { range?: Period; readRange?: (range: Period, manual?: boolean) => Promise<DashboardSnapshot | null>; scopeKey?: string; snapshot: DashboardSnapshot | null; loading: boolean; refreshing: boolean; error: string | null; refetch: (options?: { afterCurrent?: boolean }) => Promise<DashboardSnapshot | null> };
 // Exportado só para o harness de revisão visual (src/design-review) simular
@@ -34,7 +35,7 @@ export const DashboardDataContext = createContext<Value | null>(null);
 const inFlightSnapshots = new Map<string, Promise<DashboardSnapshot | null>>();
 const PAGE_SIZE = 1000;
 
-export function DashboardDataProvider({ clientId, tenantReady, enabled, children, period }: { clientId: string; tenantReady: boolean; enabled: boolean; children: ReactNode; period?: Period }) {
+export function DashboardDataProvider({ clientId, tenantReady, enabled, children, period, resources = "both" }: { clientId: string; tenantReady: boolean; enabled: boolean; children: ReactNode; period?: Period; resources?: "none" | "campaigns" | "products" | "both" }) {
   const context = useOptionalPeriod();
   const selected = getSelectedPeriodRange(period ?? context?.period);
   const start = selected.start, end = selected.end;
@@ -42,18 +43,32 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
   const currentScope = useRef(scopeKey);
   useLayoutEffect(() => { currentScope.current = scopeKey; }, [scopeKey]);
   const [state, setState] = useState<{ key: string; snapshot: DashboardSnapshot | null; loading: boolean; error: string | null }>({ key: scopeKey, snapshot: null, loading: true, error: null });
-  const snapshot = state.key === scopeKey ? state.snapshot : null;
+  const restored = enabled && tenantReady ? readDashboardCache<DashboardSnapshot>(buildDashboardCacheKey("read-model-period-v3", { clientId, start, end })) : null;
+  const baseSnapshot = (state.key === scopeKey ? state.snapshot : null) || restored;
+  const snapshot = useMemo(() => baseSnapshot ? { ...baseSnapshot,
+    campaignsLoading: Boolean(baseSnapshot.campaignsLoading || ((resources === "campaigns" || resources === "both") && baseSnapshot.campaignsLoaded === false)),
+    productsLoading: Boolean(baseSnapshot.productsLoading || ((resources === "products" || resources === "both") && baseSnapshot.productsLoaded === false)),
+  } : null, [baseSnapshot, resources]);
   useFirstUsefulData(scopeKey, enabled && tenantReady && Boolean(snapshot));
 
   const readRange = useCallback(async (range: Period, manual = false): Promise<DashboardSnapshot | null> => {
     if (!enabled || !tenantReady || !clientId || !supabase) return null;
     const key = buildDashboardCacheKey("read-model-period-v3", { clientId, start: range.start, end: range.end });
-    const cached = readDashboardCache<DashboardSnapshot>(key);
-    if (cached && !manual) return cached;
+    let cached = readDashboardCache<DashboardSnapshot>(key);
+    const needCampaigns = resources === "campaigns" || resources === "both";
+    const needProducts = resources === "products" || resources === "both";
+    const complete = (value: DashboardSnapshot) => (!needCampaigns || value.campaignsLoaded !== false) && (!needProducts || value.productsLoaded !== false);
+    if (cached && !manual && !cached.secondaryLoading && complete(cached)) return cached;
     const prior = inFlightSnapshots.get(key);
-    if (prior) return prior;
+    if (prior) {
+      const priorValue = await prior;
+      if (!priorValue || complete(priorValue)) return priorValue;
+      if (inFlightSnapshots.get(key) === prior) inFlightSnapshots.delete(key);
+      cached = readDashboardCache<DashboardSnapshot>(key);
+    }
     const database = supabase;
     const request = (async () => {
+      markReadStage("snapshot_request_start");
       let queryCount = 0;
       async function read(table: string, dated: boolean, columns = "*") {
         const rows: Record<string, unknown>[] = [];
@@ -72,25 +87,43 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
         }
         throw new Error("Paginação do read model incompleta.");
       }
-      const [daily, sources, campaigns, products] = await Promise.all([
+      const [daily, sources] = cached && !manual ? [cached.daily, cached.sources] : await Promise.all([
         read("dashboard_daily_metrics", true),
         read("dashboard_source_snapshots", false, "provider,last_success_at,data_max_available,data_min_available,updated_at"),
-        read("dashboard_campaign_metrics", true),
-        read("dashboard_product_metrics", true),
       ]);
-      const next = { daily, sources, campaigns, products, fetchedAt: new Date().toISOString(), queryCount } as DashboardSnapshot;
+      const primary = { daily, sources, campaigns: cached?.campaigns || [], products: cached?.products || [], fetchedAt: new Date().toISOString(), queryCount, campaignsLoaded: cached?.campaignsLoaded ?? false, productsLoaded: cached?.productsLoaded ?? false, secondaryLoading: needCampaigns || needProducts, campaignsLoading: needCampaigns, productsLoading: needProducts } as unknown as DashboardSnapshot;
+      const publish = (next: DashboardSnapshot) => {
+        writeDashboardCache(key, next, 15 * 60_000);
+        if (currentScope.current === `${clientId}:${range.start}:${range.end}`)
+          setState({ key: currentScope.current, snapshot: next, loading: false, error: null });
+      };
+      publish(primary);
+      markReadStage("snapshot_ready");
+      let next = primary;
+      const secondary = async (resource: "campaigns" | "products", table: string) => {
+        try {
+          const rows = await read(table, true);
+          next = { ...next, [resource]: rows, [`${resource}Loaded`]: true, [`${resource}Loading`]: false, queryCount };
+        } catch {
+          next = { ...next, [`${resource}Loaded`]: true, [`${resource}Loading`]: false, secondaryErrors: [...(next.secondaryErrors || []), resource], queryCount };
+        }
+        publish(next);
+      };
+      await Promise.all([...(needCampaigns ? [secondary("campaigns", "dashboard_campaign_metrics")] : []), ...(needProducts ? [secondary("products", "dashboard_product_metrics")] : [])]);
+      next = { ...next, secondaryLoading: false };
       writeDashboardCache(key, next, 15 * 60_000);
+      markReadStage("secondary_data_ready");
       return next;
     })();
     inFlightSnapshots.set(key, request);
     try { return await request; } finally { if (inFlightSnapshots.get(key) === request) inFlightSnapshots.delete(key); }
-  }, [clientId, enabled, tenantReady]);
+  }, [clientId, enabled, resources, tenantReady]);
 
   const load = useCallback(async (manual = false, afterCurrent = false) => {
     const requestedScope = scopeKey;
     const key = buildDashboardCacheKey("read-model-period-v3", { clientId, start, end });
     if (afterCurrent) { try { await inFlightSnapshots.get(key); } catch { /* releitura após erro */ } }
-    setState(previous => ({ key: requestedScope, snapshot: previous.key === requestedScope ? previous.snapshot : null, loading: true, error: null }));
+    setState(previous => ({ key: requestedScope, snapshot: previous.key === requestedScope ? previous.snapshot || readDashboardCache<DashboardSnapshot>(key) : readDashboardCache<DashboardSnapshot>(key), loading: true, error: null }));
     try {
       const next = await readRange({ start, end }, manual);
       if (currentScope.current === requestedScope) setState({ key: requestedScope, snapshot: next, loading: false, error: null });
@@ -103,7 +136,7 @@ export function DashboardDataProvider({ clientId, tenantReady, enabled, children
   const refetch = useCallback((options?: { afterCurrent?: boolean }) => load(true, options?.afterCurrent), [load]);
   useEffect(() => { void load(); }, [load]);
   const value = useMemo(() => ({ snapshot, range: { start, end }, readRange, scopeKey,
-    loading: state.key !== scopeKey || state.loading && !snapshot,
+    loading: !snapshot && (state.key !== scopeKey || state.loading),
     refreshing: state.key === scopeKey && state.loading && Boolean(snapshot),
     error: state.key === scopeKey ? state.error : null, refetch }), [end, readRange, refetch, scopeKey, snapshot, start, state]);
   return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;

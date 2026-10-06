@@ -48,7 +48,7 @@ async def _has_agency_admin_membership(user_id: str) -> bool:
     return any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
 
 
-@measured("tenant")
+@measured("tenant", memo=True)
 async def resolve_client_id(client_id: Optional[str], authorization: Optional[str]) -> str:
     """
     Resolve tenant do request usando somente membership.
@@ -191,7 +191,7 @@ async def list_memberships_from_auth(authorization: Optional[str]) -> List[Dict[
     return await hydrated_memberships(user_id)
 
 
-@measured("connection_validation")
+@measured("connection_validation", memo=True)
 async def resolve_connection_id(
     connection_id: Optional[str],
     *,

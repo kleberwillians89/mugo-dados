@@ -16,7 +16,7 @@ from .fbits_official_kpis import (
     FALLBACK_KPI_SOURCE,
     OFFICIAL_KPI_SOURCE,
     OfficialKpisUnavailable,
-    fetch_official_kpis,
+    read_persisted_official_kpis as fetch_official_kpis,
 )
 from .ig_supabase import sb_select, sb_upsert
 

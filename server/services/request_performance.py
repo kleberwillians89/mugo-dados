@@ -114,3 +114,19 @@ def summary(state, status):
                    for key, value in state.phases.items()},
         "unclassified_ms": round(max(0, elapsed - state.covered_ms), 2),
     }, separators=(",", ":")), flush=True)
+
+
+def request_value(key, value=None, *, store=False):
+    """Reuse de fatos já lidos: somente no contexto HTTP atual, nunca global."""
+    state = _CURRENT.get()
+    if state is None:
+        return None
+    scoped = ("validated_fact", key)
+    if store:
+        state.memo[scoped] = value
+    return state.memo.get(scoped)
+
+
+def current_request():
+    state = _CURRENT.get()
+    return {"request_id": state.request_id, "endpoint": state.scope.get("endpoint"), "method": state.scope.get("method")} if state else {}

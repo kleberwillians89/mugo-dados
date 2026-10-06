@@ -107,6 +107,7 @@ async def safe_request_log(request: Request, call_next):
     request_id = str(request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
     request_id_token = _set_request_id(request_id)
     performance, performance_token = request_performance.begin(request_id)
+    performance.scope["method"] = request.method
     performance.scope["endpoint"] = request.url.path
     tenant_context = request.query_params.get("client_id") or request.headers.get("X-Client-Id") or ""
     if not tenant_context and request.url.path.startswith("/api/clients/"):

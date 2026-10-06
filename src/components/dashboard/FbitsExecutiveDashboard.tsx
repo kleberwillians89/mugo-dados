@@ -27,6 +27,8 @@ type Props = {
   error: string | null;
   /** Conectado, mas a primeira importação ainda não terminou. */
   syncPending?: boolean;
+  observeOrders?: (element: HTMLElement | null) => void;
+  ordersError?: string | null;
 };
 
 const fmt = formatInteger;
@@ -79,7 +81,7 @@ function trendTitle(peak: FbitsTrendPoint | null, granularity: Granularity) {
   return `${formatCalendarDateWords(peak.date)} concentrou o maior volume de vendas`;
 }
 
-export default function FbitsExecutiveDashboard({ data, orders, loading, error, syncPending = false }: Props) {
+export default function FbitsExecutiveDashboard({ data, orders, loading, error, syncPending = false, observeOrders, ordersError }: Props) {
   const summary = data?.summary;
   const connected = Boolean(data?.connected);
   const statuses = data?.status_distribution || [];
@@ -278,14 +280,14 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
         </section>
       </div>
 
-      <section className="ds-section" aria-labelledby="fbits-orders-title">
+      <section ref={observeOrders} className="ds-section" aria-labelledby="fbits-orders-title">
         <div className="ds-sectionHead">
           <h2 id="fbits-orders-title" className="ds-sectionTitle">Pedidos recentes</h2>
           {shownOrders && totalOrders > shownOrders ? (
             <p className="ds-caption">{fmt(shownOrders)} de {fmt(totalOrders)}</p>
           ) : null}
         </div>
-        {shownOrders ? (
+        {ordersError ? <p role="alert">{ordersError}</p> : !orders && observeOrders ? <p role="status">Carregando detalhes dos pedidos...</p> : shownOrders ? (
           <div className="ds-tableWrap">
             <table className="ds-table">
               <thead>

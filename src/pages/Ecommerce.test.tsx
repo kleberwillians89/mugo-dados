@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { clearDashboardCacheByPrefix } from "../hooks/dashboard/cache";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,8 +51,8 @@ vi.mock("../components/Shell", () => ({
   ),
 }));
 vi.mock("../components/dashboard/FbitsExecutiveDashboard", () => ({
-  default: ({ data }: { data: { connected?: boolean; summary?: { pedidos: number } } | null }) => (
-    <div data-testid="fbits-panel">FBITS painel · pedidos={data?.summary?.pedidos ?? "-"}</div>
+  default: ({ data, observeOrders }: { data: { connected?: boolean; summary?: { pedidos: number } } | null; observeOrders?: (node: HTMLElement | null) => void }) => (
+    <div ref={observeOrders} data-testid="fbits-panel">FBITS painel · pedidos={data?.summary?.pedidos ?? "-"}</div>
   ),
 }));
 vi.mock("./Shopify", async () => {
@@ -132,6 +133,7 @@ function expectNoFbitsCalls() {
 }
 
 beforeEach(() => {
+  clearDashboardCacheByPrefix("commerce-connections");
   tenant.id = "roove";
   tenant.name = "Roove";
   shopifyRenders.tenants = [];
@@ -490,4 +492,29 @@ it("FBITS aguarda sync completo antes de reler dashboard/orders e substituir nú
   expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(reads + 1);
   expect(api.getFbitsOrders).toHaveBeenCalledTimes(orderReads + 1);
   expect(container.textContent).toContain("pedidos=99");
+});
+
+it("FBITS: resumo renderiza antes da demanda dos pedidos, sem repetir resumo ao demandar", async () => {
+  tenant.id = "scoped-commerce-fixture";
+  api.listGenericConnections.mockResolvedValue(integrations(tenant.id, [entry("fbits")]));
+  api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary(tenant.id, 7));
+  const observed: Array<{callback: IntersectionObserverCallback; node?: Element}> = [];
+  const original = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver = class {
+    entry: typeof observed[number];
+    constructor(callback: IntersectionObserverCallback) { this.entry = {callback}; observed.push(this.entry); }
+    observe(node: Element) { this.entry.node = node; }
+    disconnect() {} unobserve() {} takeRecords() {return [];} root = null; rootMargin = ""; thresholds = [];
+  } as unknown as typeof IntersectionObserver;
+  try {
+    await render({canSync: false});
+    expect(container.textContent).toContain("pedidos=7");
+    expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(1);
+    expect(api.getFbitsOrders).not.toHaveBeenCalled();
+    const observer = [...observed].reverse().find(item => item.node?.getAttribute("data-testid") === "fbits-panel")!;
+    await act(async () => observer.callback([{isIntersecting: true} as IntersectionObserverEntry], {} as IntersectionObserver));
+    expect(api.getFbitsOrders).toHaveBeenCalledTimes(1);
+    expect(api.getFbitsOrdersSummary).toHaveBeenCalledTimes(1);
+    expect(api.getClientIntegrations).not.toHaveBeenCalled();
+  } finally { globalThis.IntersectionObserver = original; }
 });

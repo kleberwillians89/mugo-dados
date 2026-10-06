@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { readOnce } from "./readOnce";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "./cache";
 import { listGenericConnections, type GenericConnection } from "../../app/api";
 import type { ClientIntegrationConnection } from "../../app/types";
 
@@ -52,19 +54,22 @@ type LoadOptions = {
  * descartadas, e nada do tenant anterior é exposto quando a empresa muda.
  */
 export default function useActiveEcommerceProvider(activeClientId: string) {
-  const [state, setState] = useState<State>({ clientId: activeClientId, loading: true, error: null, connections: null });
+  const cacheKey = buildDashboardCacheKey("commerce-connections", { clientId: activeClientId });
+  const cached = readDashboardCache<ClientIntegrationConnection[]>(cacheKey);
+  const [state, setState] = useState<State>({ clientId: activeClientId, loading: !cached, error: null, connections: cached });
   const generation = useRef(0);
 
   // Só altera estado depois do await: seguro para ser chamado por efeito.
   const fetchConnections = useCallback(async (requestId: number, requestedClientId: string, keepOnFailure: boolean) => {
     try {
-      const response = await listGenericConnections();
+      const response = await readOnce(buildDashboardCacheKey("commerce-connections", { clientId: requestedClientId }), () => listGenericConnections());
       if (requestId !== generation.current) return;
       if (String(response?.client_id || "") !== requestedClientId) {
         if (keepOnFailure) return;
         setState({ clientId: requestedClientId, loading: false, error: "A empresa ativa mudou durante a leitura. Tente novamente.", connections: null });
         return;
       }
+      writeDashboardCache(buildDashboardCacheKey("commerce-connections", { clientId: requestedClientId }), (response.connections || []).map(toEcommerceConnection), 180_000);
       setState({
         clientId: requestedClientId,
         loading: false,
@@ -92,8 +97,10 @@ export default function useActiveEcommerceProvider(activeClientId: string) {
   useEffect(() => {
     if (!activeClientId) return undefined;
     const requestId = ++generation.current;
-    void fetchConnections(requestId, activeClientId, false);
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void fetchConnections(requestId, activeClientId, false); });
     return () => {
+      cancelled = true;
       generation.current += 1;
     };
   }, [activeClientId, fetchConnections]);
@@ -103,9 +110,9 @@ export default function useActiveEcommerceProvider(activeClientId: string) {
   }
   const current = state.clientId === activeClientId;
   return {
-    loading: !current || state.loading,
+    loading: !cached && (!current || state.loading),
     error: current ? state.error : null,
-    connections: current ? state.connections : null,
+    connections: (current ? state.connections : null) || cached,
     reload: () => load({ showLoading: true }),
     refresh: () => load({ keepOnFailure: true }),
   };

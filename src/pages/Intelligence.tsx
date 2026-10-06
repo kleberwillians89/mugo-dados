@@ -1,3 +1,4 @@
+import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
@@ -259,10 +260,27 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     const version = ++requestVersion.current;
     const currentCache = workspaceCache.get(cacheKey);
     setError("");
+    const live = () => !controller.signal.aborted && version === requestVersion.current;
+    const persist = (patch: Partial<CachedWorkspace>) => {
+      if (!live()) return;
+      workspaceCache.set(cacheKey, { snapshot: null, analysis: null, history: [], providerConfigured: null,
+        ...currentCache, ...workspaceCache.get(cacheKey), ...patch });
+    };
     return Promise.allSettled([
-      getIntelligenceContext(period, { signal: controller.signal }),
-      getLatestIntelligenceAnalysis(period, { signal: controller.signal }),
-      getIntelligenceHistory(20, { signal: controller.signal }),
+      readOnce(`intelligence-context:${cacheKey}`, () => getIntelligenceContext(period)).then(result => {
+        if (live()) { setSnapshot(result.snapshot); setLoading(false); persist({ snapshot: result.snapshot }); }
+        return result;
+      }),
+      readOnce(`intelligence-latest:${cacheKey}`, () => getLatestIntelligenceAnalysis(period)).then(result => {
+        if (live()) { setAnalysis(result.analysis); setProviderConfigured(result.provider_configured);
+          if (result.analysis) setLoading(false);
+          persist({ analysis: result.analysis, providerConfigured: result.provider_configured }); }
+        return result;
+      }),
+      readOnce(`intelligence-history:${clientId}:20`, () => getIntelligenceHistory(20)).then(result => {
+        if (live()) { setHistory(result.items); persist({ history: result.items }); }
+        return result;
+      }),
     ]).then(([contextResult, latestResult, historyResult]) => {
       if (controller.signal.aborted || version !== requestVersion.current) return;
       const nextSnapshot =
@@ -296,12 +314,14 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       }
       setLoading(false);
     });
-  }, [cacheKey, period]);
+  }, [cacheKey, clientId, period]);
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadWorkspace(controller);
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadWorkspace(controller); });
     return () => {
+      cancelled = true;
       controller.abort();
       refreshController.current?.abort();
       askController.current?.abort();

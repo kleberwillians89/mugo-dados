@@ -102,7 +102,7 @@ vi.mock("../app/api", () => ({
 }));
 
 import Intelligence from "./Intelligence";
-import { askIntelligence, generateIntelligenceAnalysis } from "../app/api";
+import { askIntelligence, generateIntelligenceAnalysis, getIntelligenceHistory } from "../app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -885,4 +885,17 @@ describe("Intelligence — fechamento da apresentação", () => {
     expect(container.textContent).toContain("Mídia paga");
     expect(container.textContent).not.toContain("shopify+paid_media");
   });
+});
+
+
+it("última análise e contexto aparecem antes do histórico lento sem gerar IA", async () => {
+  mocks.clientId = "progressive-intelligence";
+  let finish!: (value: Awaited<ReturnType<typeof getIntelligenceHistory>>) => void;
+  vi.mocked(getIntelligenceHistory).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const calls = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
+  await renderIntelligence(false);
+  expect(container.querySelector(".intelSkeletonMetrics")).toBeNull();
+  expect(container.querySelector(".intelMomentLead")?.textContent).toBe("Receita cresceu no período.");
+  expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls);
+  await act(async () => finish({ ok: true, items: [] }));
 });

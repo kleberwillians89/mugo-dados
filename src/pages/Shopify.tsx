@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { readOnce } from "../hooks/dashboard/readOnce";
+import useSectionDemand from "../hooks/useSectionDemand";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Shell from "../components/Shell";
 import DataNotice from "../components/data/DataNotice";
 import HeroFigure from "../components/data/HeroFigure";
@@ -180,10 +183,22 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
   const [minOrders, setMinOrders] = useState("");
   const [customerLifecycle, setCustomerLifecycle] = useState<CustomerLifecycleFilter>("all");
   const [customerSortBy, setCustomerSortBy] = useState<CustomerSortBy>("total_spent");
-  const [customerData, setCustomerData] = useState<ShopifyCustomersResponse | null>(null);
-  const [detailReport, setDetailReport] = useState<ShopifyReportResponse | null>(null);
+  const detailKey = buildDashboardCacheKey("shopify-details", { clientId: getActiveClientId(), start: period.start, end: period.end });
+  const cachedDetails = readDashboardCache<{ report: ShopifyReportResponse | null; customers: ShopifyCustomersResponse | null }>(detailKey);
+  const [customerData, setCustomerData] = useState<ShopifyCustomersResponse | null>(cachedDetails?.customers || null);
+  const [detailReport, setDetailReport] = useState<ShopifyReportResponse | null>(cachedDetails?.report || null);
   const [detailsLoading, setDetailsLoading] = useState(true);
   const [showCustom, setShowCustom] = useState(false);
+  const currentDetails = useRef(detailKey);
+  const requestedDetails = useRef(new Set<string>());
+  const customerDemand = useSectionDemand(`${detailKey}:customers`, !model.loading);
+  const orderDemand = useSectionDemand(`${detailKey}:orders`, !model.loading);
+  if (currentDetails.current !== detailKey) {
+    currentDetails.current = detailKey;
+    setCustomerData(cachedDetails?.customers || null);
+    setDetailReport(cachedDetails?.report || null);
+    setDetailsLoading(!cachedDetails);
+  }
 
   useEffect(() => {
     const startDate = new Date(`${period.start}T00:00:00`);
@@ -195,27 +210,36 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
 
   useEffect(() => {
     let active = true;
-    setDetailsLoading(true);
-    setCustomerData(null);
-    setDetailReport(null);
+    const cached = readDashboardCache<{ report: ShopifyReportResponse | null; customers: ShopifyCustomersResponse | null }>(detailKey);
+    setDetailsLoading(customerDemand.enabled && !cached?.customers);
+    setCustomerData(cached?.customers || null);
+    setDetailReport(cached?.report || null);
     const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
-    void Promise.all([getShopifyReport(selectedPeriod), getShopifyCustomers(selectedPeriod)])
-      .then(([nextReport, nextCustomers]) => {
+    const save = (patch: { report?: ShopifyReportResponse; customers?: ShopifyCustomersResponse }) => {
+      if (currentDetails.current !== detailKey) return;
+      writeDashboardCache(detailKey, { report: null, customers: null, ...cached, ...readDashboardCache<{ report: ShopifyReportResponse | null; customers: ShopifyCustomersResponse | null }>(detailKey), ...patch }, 180_000);
+    };
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const requestReport = orderDemand.enabled && !requestedDetails.current.has(`${detailKey}:report`);
+      const requestCustomers = customerDemand.enabled && !requestedDetails.current.has(`${detailKey}:customers`);
+      if (requestReport) requestedDetails.current.add(`${detailKey}:report`);
+      if (requestCustomers) requestedDetails.current.add(`${detailKey}:customers`);
+      void Promise.allSettled([
+        ...(requestReport ? [readOnce(`${detailKey}:report`, () => getShopifyReport(selectedPeriod)).then(next => { if (currentDetails.current === detailKey) { setDetailReport(next); save({ report: next }); } })] : []),
+        ...(requestCustomers ? [readOnce(`${detailKey}:customers`, () => getShopifyCustomers(selectedPeriod)).then(next => { if (currentDetails.current === detailKey) { setCustomerData(next); save({ customers: next }); } })] : []),
+      ]).then(results => {
         if (!active) return;
-        setDetailReport(nextReport);
-        setCustomerData(nextCustomers);
-      })
-      .catch((loadError: unknown) => {
-        if (!active) return;
-        setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os detalhes da Shopify.");
-      })
-      .finally(() => {
-        if (active) setDetailsLoading(false);
+        if (results.some(result => result.status === "rejected")) setError("Não foi possível carregar todos os detalhes da Shopify.");
+        setDetailsLoading(false);
       });
+    });
     return () => {
       active = false;
+      cancelled = true;
     };
-  }, [period.end, period.start, periodDays]);
+  }, [customerDemand.enabled, detailKey, orderDemand.enabled, period.end, period.start, periodDays]);
 
   const report = useMemo<ShopifyReportResponse | null>(() => {
     if (!model.snapshot && model.loading) return null;
@@ -599,10 +623,14 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
 
             <section className="ds-section" aria-labelledby="shopify-products-title">
               <h2 id="shopify-products-title" className="ds-sectionTitle">Produtos mais vendidos</h2>
-              <ShopifyTopProductsCard products={report.top_products} />
+              {model.snapshot?.productsLoading && !model.products.length
+                ? <p role="status">Carregando produtos...</p>
+                : model.snapshot?.secondaryErrors?.includes("products")
+                  ? <p role="alert">Não foi possível carregar produtos.</p>
+                  : <ShopifyTopProductsCard products={report.top_products} />}
             </section>
 
-            <section className="ds-section" id="shopify-customers" aria-labelledby="shopify-customers-title">
+            <section ref={customerDemand.observe} className="ds-section" id="shopify-customers" aria-labelledby="shopify-customers-title">
               <div className="ds-sectionHead">
                 <h2 id="shopify-customers-title" className="ds-sectionTitle">Clientes</h2>
                 <p className="ds-caption">
@@ -670,7 +698,7 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
               ) : null}
             </section>
 
-            <section className="ds-section" id="shopify-operations" aria-labelledby="shopify-orders-title">
+            <section ref={orderDemand.observe} className="ds-section" id="shopify-operations" aria-labelledby="shopify-orders-title">
               <h2 id="shopify-orders-title" className="ds-sectionTitle">Pedidos recentes</h2>
               <ShopifyOrdersTable orders={report.recent_orders} />
             </section>

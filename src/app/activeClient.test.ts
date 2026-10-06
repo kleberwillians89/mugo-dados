@@ -57,3 +57,14 @@ describe("estado multiempresa no navegador", () => {
     expect(window.sessionStorage.getItem("unrelated")).toBe("preserve");
   });
 });
+
+
+it("troca de empresa preserva caches segmentados mas logout continua limpando", () => {
+  window.sessionStorage.setItem("client-dashboard-cache:tenant-a", "snapshot-a");
+  window.sessionStorage.setItem("client-dashboard-cache:tenant-b", "snapshot-b");
+  clearTenantBrowserState({ preserveCaches: true });
+  expect(window.sessionStorage.getItem("client-dashboard-cache:tenant-a")).toBe("snapshot-a");
+  expect(window.sessionStorage.getItem("client-dashboard-cache:tenant-b")).toBe("snapshot-b");
+  clearTenantBrowserState();
+  expect(window.sessionStorage.getItem("client-dashboard-cache:tenant-a")).toBeNull();
+});

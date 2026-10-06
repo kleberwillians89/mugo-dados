@@ -1,3 +1,4 @@
+import { markReadStage } from "./app/readPerformance";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
@@ -288,6 +289,7 @@ function PrivateApp() {
       setView("loading");
       setBootError(null);
       setTenantReady(false);
+      markReadStage("tenant_start");
 
       if (!localMode) {
         const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
@@ -348,6 +350,7 @@ function PrivateApp() {
           });
           setActiveClientId(selected.client_id);
           setTenantReady(true);
+          markReadStage("tenant_ready");
         }
 
         if (pending.length > 0) {
@@ -440,6 +443,7 @@ function PrivateApp() {
     const authClient = supabase;
 
     const bootstrapAuth = async () => {
+      markReadStage("auth_start");
       const callbackSignal = hasSupabaseCallbackSignalInUrl();
       authDebug("bootstrap.start", { callbackSignalInUrl: callbackSignal });
 
@@ -505,6 +509,7 @@ function PrivateApp() {
         if (!mounted) return;
         knownSessionUserRef.current = nextSession?.user.id ?? null;
         setSession(nextSession);
+        if (nextSession) markReadStage("auth_ready");
       } catch (error: unknown) {
         if (!mounted) return;
         authDebug("getSession.exception", { message: toErrorMessage(error) });
@@ -719,11 +724,13 @@ function PrivateApp() {
     const client = clients.find((item) => item.client_id === canonicalId);
     if (!client) return;
     setTenantReady(false);
-    clearTenantBrowserState();
+    markReadStage("tenant_start");
+    clearTenantBrowserState({ preserveCaches: true });
     setActiveClient({ id: client.client_id, name: client.name, role: client.role });
     setActiveConnectionId(null);
     setActiveClientId(client.client_id);
     setTenantReady(true);
+    markReadStage("tenant_ready");
   }, [clients]);
 
   const handleOpenCompany = useCallback(async (company: PlatformCompany, targetRoute: AppRoute = "meta") => {
@@ -734,7 +741,8 @@ function PrivateApp() {
     const companyName = company.trade_name || company.name;
     await openPlatformCompany(canonicalId);
     setTenantReady(false);
-    clearTenantBrowserState();
+    markReadStage("tenant_start");
+    clearTenantBrowserState({ preserveCaches: true });
     // Empresa recém-criada ainda não está na lista carregada no bootstrap:
     // entra no seletor já, sem esperar F5. Nenhuma membership é criada — o
     // acesso continua vindo do papel de plataforma validado no backend.
@@ -747,6 +755,7 @@ function PrivateApp() {
     setActiveConnectionId(null);
     setActiveClientId(canonicalId);
     setTenantReady(true);
+    markReadStage("tenant_ready");
     openRoute(targetRoute);
   }, [openRoute]);
 
@@ -820,7 +829,7 @@ function PrivateApp() {
 
   return (
     <DashboardErrorBoundary>
-      <DashboardDataProvider clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
+      <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
       <AppNavigation
         route={route}

@@ -129,3 +129,33 @@ class RequestPerformanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entries[-1]["phases"]["auth"]["calls"], 1)
         self.assertEqual(entries[0]["inflight_at_start"], 2)
         self.assertEqual(entries[0]["request_id"], "fixture-request-id")
+
+
+    async def test_membership_and_connection_fact_reuse_remove_two_read_round_trips(self):
+        from services import connection_resolver
+        row = {"id": "conn", "client_id": "a", "platform": "instagram", "connection_type": "organic", "status": "active"}
+        query = AsyncMock(side_effect=[[{"client_id": "a", "role": "viewer"}], [row]])
+        _, token = performance.begin("reuse-request")
+        try:
+            with patch.object(ig_supabase, "sb_select", query), patch.object(ig_supabase, "sb_get_one_by", AsyncMock(side_effect=AssertionError("duplicate membership"))), patch.object(connection_resolver, "sb_select", AsyncMock(side_effect=AssertionError("duplicate connection"))):
+                await ig_supabase.sb_get_client_membership_roles("user")
+                self.assertEqual(await ig_supabase.sb_get_client_id_for_user("user", "a"), "a")
+                await ig_supabase.sb_get_connection_for_client("a", "conn")
+                result = await connection_resolver.resolve_connection_for_scope(client_id="a", platform="instagram", connection_type="organic", requested_connection_id="conn")
+                self.assertEqual(result["connection_id"], "conn")
+                self.assertEqual(query.await_count, 2)  # antes: membership list + exact + validation + resolution = 4
+                with self.assertRaises(RuntimeError):
+                    await connection_resolver.resolve_connection_for_scope(client_id="a", platform="meta_ads", connection_type="paid", requested_connection_id="conn")
+                with patch.object(connection_resolver, "sb_select", AsyncMock(return_value=[])):
+                    with self.assertRaises(RuntimeError):
+                        await connection_resolver.resolve_connection_for_scope(client_id="b", requested_connection_id="conn")
+        finally:
+            performance.end(token)
+
+    async def test_goal_definitions_do_not_wait_for_actuals_or_external_provider(self):
+        from services import goals
+        row = {"id": "goal", "client_id": "a", "metric": "orders", "label": "Pedidos", "target_value": 10, "period_start": "2026-10-01", "period_end": "2026-10-31"}
+        with patch.object(goals, "own_rows", AsyncMock(return_value=[row])), patch.object(goals, "resolve_goal_actual", AsyncMock(side_effect=AssertionError("actuals not on critical path"))):
+            result = await goals.list_goals("a", include_actuals=False)
+        self.assertEqual(result["goals"][0]["label"], "Pedidos")
+        self.assertIsNone(result["goals"][0]["actual"])

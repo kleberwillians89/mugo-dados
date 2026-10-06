@@ -33,7 +33,7 @@ class ManualPipelineTests(unittest.IsolatedAsyncioTestCase):
                 (fc, "guarded_sync", no_lock), (fc, "sb_select", AsyncMock(side_effect=db.select)),
                 (fc, "sb_upsert", AsyncMock(side_effect=db.upsert)), (fc, "sb_update", AsyncMock(side_effect=db.update)),
                 (fc, "get_connection", get_conn), (reporting, "sb_select", AsyncMock(side_effect=db.select)), (official, "load_fbits_connection", AsyncMock(return_value=row)),
-                (official, "get_connection", get_conn), (official, "client_factory", lambda token: Dashboard()),
+                (official, "sb_update", AsyncMock(side_effect=db.update)), (official, "get_connection", get_conn), (official, "client_factory", lambda token: Dashboard()),
             ]: stack.enter_context(patch.object(target, name, value))
             async def read():
                 return await official.fetch_official_kpis(client_id="curavino", start="2026-09-01", end="2026-09-30", previous_start="2026-08-01", previous_end="2026-08-31")

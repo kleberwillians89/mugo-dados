@@ -1,3 +1,4 @@
+import { clearDashboardCacheByPrefix } from "../hooks/dashboard/cache";
 export type ActiveClient = {
   id: string;
   name: string;
@@ -41,11 +42,12 @@ export function clearActiveClient(): void {
   localStorage.removeItem(ACTIVE_CLIENT_STORAGE_KEY);
 }
 
-export function clearTenantBrowserState(): void {
+export function clearTenantBrowserState(options?: { preserveCaches?: boolean }): void {
   clearActiveClient();
   try {
     window.localStorage.removeItem("mugo_dados.active_connection_id");
-    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    if (!options?.preserveCaches) clearDashboardCacheByPrefix("");
+    for (let index = options?.preserveCaches ? -1 : window.sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = window.sessionStorage.key(index);
       if (key?.startsWith("client-dashboard-cache:")) {
         window.sessionStorage.removeItem(key);

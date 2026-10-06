@@ -1,3 +1,4 @@
+import { markReadStage } from "../app/readPerformance";
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
@@ -268,11 +269,13 @@ export default function Login({
         });
       }
 
+      markReadStage("auth_start");
       const { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password: cleanPassword,
       });
 
+      if (!error && data.session) markReadStage("auth_ready");
       if (error) {
         authLoginDebug("sign_in.error", {
           email: maskEmail(cleanEmail),

@@ -5,7 +5,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from .crypto import decrypt_secret
 from .ig_supabase import sb_select
 from .integration_errors import IntegrationError
-from .request_performance import measured
+from .request_performance import measured, request_value
 
 
 def _safe_str(value: Any) -> str:
@@ -249,7 +249,8 @@ async def resolve_connection_for_scope(
         return True
 
     if requested:
-        rows = await sb_select(
+        validated = request_value(("connection", cid, requested))
+        rows = [validated] if validated is not None else await sb_select(
             "meta_connections",
             select=select_fields,
             filters={"id": f"eq.{requested}", "client_id": f"eq.{cid}"},

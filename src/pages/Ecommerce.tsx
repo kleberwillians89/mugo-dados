@@ -18,6 +18,7 @@ import SegmentedControl from "../components/data/SegmentedControl";
 import Shell from "../components/Shell";
 import useActiveEcommerceProvider from "../hooks/dashboard/useActiveEcommerceProvider";
 import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
+import useSectionDemand from "../hooks/useSectionDemand";
 import Shopify from "./Shopify";
 
 type Props = {
@@ -103,11 +104,13 @@ type FbitsCommerceProps = Omit<Props, "onOpenGoogleReport"> & {
 
 function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsChanged }: FbitsCommerceProps) {
   const { period, setPeriod } = usePeriod();
+  const ordersDemand = useSectionDemand(`${getActiveClientId()}:${period.start}:${period.end}:orders`, isAuthenticated);
   const report = useDashboardFbits({
     isAuthenticated,
     activeClientId: getActiveClientId(),
     period,
     provider: "fbits",
+    loadOrders: ordersDemand.enabled,
   });
   const [syncing, setSyncing] = useState(false);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
@@ -242,6 +245,8 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
           loading={report.loadingFbits}
           error={report.fbitsError}
           syncPending={pending && !hasCommerceData}
+          observeOrders={ordersDemand.observe}
+          ordersError={report.ordersError}
         />
       </div>
     </Shell>

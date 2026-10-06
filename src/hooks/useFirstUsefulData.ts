@@ -1,3 +1,4 @@
+import { markReadStage } from "../app/readPerformance";
 import { useEffect, useRef } from "react";
 
 /** Medição real no navegador após commit do read model, sem métricas/PII. */
@@ -12,6 +13,7 @@ export default function useFirstUsefulData(scope: string, ready: boolean) {
     const emit = () => {
       if (cancelled || measurement.current.scope !== scope) return;
       measurement.current.emitted = true;
+      markReadStage("first_useful_data");
       console.info("[performance][first_useful_data]", {
         dataset: "dashboard_read_model", duration_ms: Math.round(performance.now() - measurement.current.started),
       });

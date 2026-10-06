@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readOnce } from "./readOnce";
 import { getFbitsOrders, getFbitsOrdersSummary, getShopifyReport, listGenericConnections } from "../../app/api";
 import type { FbitsOrdersResponse, FbitsOrdersSummaryResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
@@ -18,6 +19,7 @@ type Params = {
   period?: DashboardPeriod | null;
   /** Provider já resolvido pela aba Ecommerce: "fbits" usa só endpoints FBITS. */
   provider?: "fbits" | null;
+  loadOrders?: boolean;
 };
 
 function friendlyError(error: unknown) {
@@ -30,7 +32,7 @@ type FbitsCachePayload = {
   orders: FbitsOrdersResponse | null;
 };
 
-export default function useDashboardFbits({ isAuthenticated, activeClientId, period, provider = null }: Params) {
+export default function useDashboardFbits({ isAuthenticated, activeClientId, period, provider = null, loadOrders = true }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
   const fbitsOnly = provider === "fbits";
   const rangeKey = useMemo(
@@ -57,8 +59,10 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
   );
   const [loadingFbits, setLoadingFbits] = useState(false);
   const [fbitsError, setFbitsError] = useState<string | null>(null);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
   const validFbitsRef = useRef({ rangeKey, summary: cachedInitial?.summary || null });
   const activeRangeRef = useRef(rangeKey);
+  const resolvedSummaryRef = useRef<string | null>(null);
   activeRangeRef.current = rangeKey;
 
   useEffect(() => {
@@ -67,22 +71,26 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     setFbitsOrders(cachedInitial?.orders || null);
     setLoadingFbits(!cachedInitial);
     setFbitsError(null);
+    setOrdersError(null);
   }, [cachedInitial, rangeKey]);
 
-  const loadFbitsEndpoints = useCallback(async (cached: FbitsCachePayload | null) => {
-    const [summary, orders] = await Promise.allSettled([
-      getFbitsOrdersSummary({
-        start: safePeriod.start,
-        end: safePeriod.end,
-      }),
-      getFbitsOrders({
-        start: safePeriod.start,
-        end: safePeriod.end,
-      }),
-    ]);
+  const loadFbitsEndpoints = useCallback(async (cached: FbitsCachePayload | null, forceOrders = false) => {
+    const summaryPromise = loadOrders && !forceOrders && resolvedSummaryRef.current === rangeKey && cached?.summary ? Promise.resolve(cached.summary) : readOnce(`${rangeKey}:summary`, () => getFbitsOrdersSummary({ start: safePeriod.start, end: safePeriod.end }));
+    const ordersPromise = loadOrders || forceOrders ? readOnce(`${rangeKey}:orders`, () => getFbitsOrders({ start: safePeriod.start, end: safePeriod.end })) : Promise.resolve(null);
+    void ordersPromise.catch(() => undefined);
+    const summaryValue = await summaryPromise;
+    if (activeRangeRef.current !== rangeKey) return null;
+    if (summaryValue.client_id !== activeClientId) throw new Error("Resposta de outra empresa descartada.");
+    resolvedSummaryRef.current = rangeKey;
+    if (validFbitsRef.current.rangeKey === rangeKey && validFbitsRef.current.summary?.kpi_source === "fbits_dashboard" && summaryValue.kpi_fallback_reason)
+      throw new Error("A leitura oficial está indisponível. Mantendo os dados anteriores.");
+    setFbitsData(summaryValue);
+    setLoadingFbits(false);
+    writeDashboardCache(rangeKey, { summary: summaryValue, orders: cached?.orders || null }, 180_000);
+    const [summary, orders] = await Promise.allSettled([Promise.resolve(summaryValue), ordersPromise]);
     if (summary.status === "rejected") throw summary.reason;
     if (activeRangeRef.current !== rangeKey) return null;
-    if (summary.value.client_id !== activeClientId || (orders.status === "fulfilled" && orders.value.client_id !== activeClientId)) {
+    if (summary.value.client_id !== activeClientId || (orders.status === "fulfilled" && orders.value && orders.value.client_id !== activeClientId)) {
       throw new Error("Resposta de outra empresa descartada.");
     }
     const previous = validFbitsRef.current;
@@ -92,10 +100,11 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     validFbitsRef.current = { rangeKey, summary: summary.value };
     setFbitsData(summary.value);
     let nextOrders = cached?.orders || cachedInitial?.orders || null;
-    if (orders.status === "fulfilled") {
+    if (orders.status === "fulfilled" && orders.value) {
       setFbitsOrders(orders.value);
       nextOrders = orders.value;
-    } else {
+    } else if (orders.status === "rejected") {
+      setOrdersError("Não foi possível carregar pedidos.");
       console.warn("[fbits-orders]", orders.reason);
     }
     writeDashboardCache<FbitsCachePayload>(
@@ -104,7 +113,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       180_000
     );
     return summary.value;
-  }, [activeClientId, cachedInitial, rangeKey, safePeriod.end, safePeriod.start]);
+  }, [activeClientId, cachedInitial, loadOrders, rangeKey, safePeriod.end, safePeriod.start]);
 
   const reloadFbits = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated || !activeClientId) return null;
@@ -113,10 +122,11 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
       setFbitsData(cached.summary);
       setFbitsOrders(cached.orders);
     }
-    setLoadingFbits(true);
+    setLoadingFbits(!cached?.summary);
     setFbitsError(null);
+    setOrdersError(null);
     try {
-      if (fbitsOnly) return await loadFbitsEndpoints(cached);
+      if (fbitsOnly) return await loadFbitsEndpoints(cached, options?.force === true);
       const connectionResponse = await listGenericConnections();
       if (connectionResponse.client_id !== activeClientId) throw new Error("Resposta de outra empresa descartada.");
       const selectedId = getSelectedConnectionId(activeClientId, "shopify") ||
@@ -157,7 +167,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
         writeDashboardCache<FbitsCachePayload>(rangeKey, { summary, orders: null }, 180_000);
         return summary;
       }
-      return await loadFbitsEndpoints(cached);
+      return await loadFbitsEndpoints(cached, options?.force === true);
     } catch (error: unknown) {
       if (activeRangeRef.current === rangeKey) setFbitsError(friendlyError(error));
       return null;
@@ -167,7 +177,9 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
   }, [activeClientId, fbitsOnly, isAuthenticated, loadFbitsEndpoints, rangeKey, safePeriod.end, safePeriod.start]);
 
   useEffect(() => {
-    void reloadFbits();
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void reloadFbits(); });
+    return () => { cancelled = true; };
   }, [reloadFbits]);
 
   const invalidateFbitsCache = useCallback(() => {
@@ -176,9 +188,10 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
   }, [activeClientId]);
 
   return {
-    fbitsData,
-    fbitsOrders,
+    fbitsData: activeRangeRef.current === rangeKey && validFbitsRef.current.rangeKey === rangeKey ? fbitsData : cachedInitial?.summary || null,
+    fbitsOrders: validFbitsRef.current.rangeKey === rangeKey ? fbitsOrders : cachedInitial?.orders || null,
     fbitsError,
+    ordersError,
     loadingFbits,
     reloadFbits,
     invalidateFbitsCache,

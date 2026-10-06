@@ -10,7 +10,7 @@ export default function useCampaignsRanking({ activeClientId, enabled=true, peri
   const safe=useMemo(()=>ensureDashboardPeriod(period),[period]);
   const model=useDashboardSnapshot(safe.start,safe.end);
   const campaignsData=useMemo<CampaignsListResponse|null>(()=>{
-    if(!enabled||!activeClientId||(!model.snapshot&&model.loading))return null;
+    if(!enabled||!activeClientId||(!model.snapshot&&model.loading)||model.snapshot?.campaignsLoading)return null;
     const grouped=new Map<string,Record<string,number|string>>();
     for(const row of model.campaigns.filter(item=>item.provider===provider)){
       const id=String(row.campaign_id);const current=grouped.get(id)||{campaign_id:id,campaign_name:String(row.campaign_name||id),spend:0,impressions:0,reach:0,clicks:0,conversions:0,revenue:0,last_stat_date:""};
@@ -21,5 +21,5 @@ export default function useCampaignsRanking({ activeClientId, enabled=true, peri
     return {ok:true,client_id:activeClientId,date_range:{since:safe.start,until:safe.end},campaigns:campaigns as CampaignsListResponse["campaigns"],total:campaigns.length};
   },[activeClientId,enabled,model.campaigns,model.loading,model.snapshot,provider,safe.end,safe.start]);
   const reloadCampaigns=useCallback(()=>model.refetch() as Promise<unknown> as Promise<CampaignsListResponse|null>,[model]);
-  return {campaignsData,loadingCampaigns:model.loading&&!campaignsData,campaignsError:model.error,reloadCampaigns};
+  return {campaignsData,loadingCampaigns:model.loading||Boolean(model.snapshot?.campaignsLoading)&&!campaignsData,campaignsError:model.error||(model.snapshot?.secondaryErrors?.includes("campaigns") ? "Não foi possível carregar campanhas." : null),reloadCampaigns};
 }

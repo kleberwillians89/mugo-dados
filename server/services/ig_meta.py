@@ -1,4 +1,6 @@
 from typing import Any, Dict, List, Tuple
+from .meta_live_trace import trace_live_call
+
 import httpx
 import time
 from urllib.parse import urlsplit, parse_qsl
@@ -163,6 +165,7 @@ def media_metrics_for(product_type: str) -> str:
 async def fetch_media_insights(
     media_id: str, access_token: str, product_type: str
 ) -> Dict[str, Any]:
+    trace_live_call("media_insights")
     metric_names = media_metrics_for(product_type).split(",")
     responses: List[Dict[str, Any]] = []
     unavailable: List[str] = []
@@ -196,6 +199,7 @@ async def fetch_media_insights(
 
 
 async def fetch_media_comments(media_id: str, access_token: str, limit: int = 50) -> List[Dict[str, Any]]:
+    trace_live_call("media_comments")
     fields = "id,text,username,timestamp,like_count"
     token = _clean_token(access_token)
     items: List[Dict[str, Any]] = []

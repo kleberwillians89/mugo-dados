@@ -100,7 +100,7 @@ class ProviderRefreshTests(unittest.IsolatedAsyncioTestCase):
         return await refresh.refresh_provider_data(CID, provider, **PERIOD)
 
     async def test_fbits_only_and_response_never_contains_credentials(self):
-        with patch.object(refresh, "list_generic_connections", AsyncMock(return_value=[{"provider": "fbits", "status": "connected"}])), patch.object(refresh, "sync_fbits_connection", AsyncMock(return_value={"access_token": "secret", "account_id": "private"})) as sync, patch.object(refresh, "invalidate_official_kpis", AsyncMock()), patch.object(refresh, "sync_shopify_connection", AsyncMock()) as shopify:
+        with patch.object(refresh, "list_generic_connections", AsyncMock(return_value=[{"provider": "fbits", "status": "connected"}])), patch.object(refresh, "sync_fbits_connection", AsyncMock(return_value={"access_token": "secret", "account_id": "private"})) as sync, patch.object(refresh, "refresh_persisted_official_kpis", AsyncMock()), patch.object(refresh, "invalidate_official_kpis", AsyncMock()), patch.object(refresh, "sync_shopify_connection", AsyncMock()) as shopify:
             result = await self.run_refresh("fbits")
             sync.assert_awaited_once_with(client_id=CID)
             shopify.assert_not_awaited()
@@ -203,7 +203,7 @@ class RefreshConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             entered.set()
             await finish.wait()
             return {"ok": True}
-        with patch("services.sync_locks.sb_rpc", AsyncMock(side_effect=rpc)), patch.object(refresh, "guarded_sync", guarded_sync), patch.object(refresh, "acquire_sync_lock", AsyncMock(return_value=True)), patch.object(refresh, "list_generic_connections", AsyncMock(return_value=[{"provider": "fbits", "status": "connected"}])), patch.object(refresh, "sync_fbits_connection", AsyncMock(side_effect=sync)) as work, patch.object(refresh, "invalidate_official_kpis", AsyncMock()):
+        with patch("services.sync_locks.sb_rpc", AsyncMock(side_effect=rpc)), patch.object(refresh, "guarded_sync", guarded_sync), patch.object(refresh, "acquire_sync_lock", AsyncMock(return_value=True)), patch.object(refresh, "list_generic_connections", AsyncMock(return_value=[{"provider": "fbits", "status": "connected"}])), patch.object(refresh, "sync_fbits_connection", AsyncMock(side_effect=sync)) as work, patch.object(refresh, "refresh_persisted_official_kpis", AsyncMock()), patch.object(refresh, "invalidate_official_kpis", AsyncMock()):
             first = asyncio.create_task(refresh.refresh_provider_data(CID, "fbits", **PERIOD))
             await asyncio.wait_for(entered.wait(), 1)
             try:

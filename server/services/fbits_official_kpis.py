@@ -21,6 +21,7 @@ limitado — 5 requisições com o limite esgotado bloqueiam o token por 1 hora.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -174,3 +175,46 @@ async def fetch_official_kpis(
         f"receita={current['receita_oficial']} pedidos={current['pedidos']} ticket={current['ticket_medio']}"
     )
     return value
+
+
+async def read_persisted_official_kpis(*, client_id, start, end, previous_start, previous_end):
+    """GET: somente números oficiais previamente coletados no refresh explícito."""
+    row = await load_fbits_connection(client_id)
+    key = f"{start}:{end}:{previous_start}:{previous_end}"
+    entry = ((row or {}).get("metadata") or {}).get("official_kpi_snapshots", {}).get(key)
+    if not entry or entry.get("connection_id") != (row or {}).get("id"):
+        raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_MISSING")
+    value = entry.get("value")
+    safe = {}
+    for block in ("current", "previous"):
+        source = value.get(block) if isinstance(value, dict) else None
+        if block == "previous" and source is None:
+            safe[block] = None
+            continue
+        if not isinstance(source, dict) or any(isinstance(source.get(key), bool) or not isinstance(source.get(key), (int, float)) or not math.isfinite(source[key]) for key in ("receita_oficial", "pedidos", "ticket_medio")):
+            raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_INVALID")
+        safe[block] = {key: source[key] for key in ("receita_oficial", "pedidos", "ticket_medio")}
+    return safe
+
+
+async def refresh_persisted_official_kpis(client_id, start, end):
+    """Operação de refresh existente; nunca chamada pelo GET de reporting."""
+    days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days + 1
+    previous_end = (datetime.fromisoformat(start) - timedelta(days=1)).date().isoformat()
+    previous_start = (datetime.fromisoformat(start) - timedelta(days=days)).date().isoformat()
+    initial = await load_fbits_connection(client_id)
+    value = await fetch_official_kpis(client_id=client_id, start=start, end=end,
+                                     previous_start=previous_start, previous_end=previous_end)
+    row = await load_fbits_connection(client_id)
+    if not row or not initial or row["id"] != initial["id"]:
+        raise OfficialKpisUnavailable("FBITS_NOT_CONNECTED")
+    metadata = dict(row.get("metadata") or {})
+    snapshots = dict(metadata.get("official_kpi_snapshots") or {})
+    key = f"{start}:{end}:{previous_start}:{previous_end}"
+    snapshots.pop(key, None)
+    snapshots[key] = {"connection_id": row["id"], "value": value, "updated_at": datetime.now(timezone.utc).isoformat()}
+    metadata["official_kpi_snapshots"] = dict(list(snapshots.items())[-12:])
+    updated = await sb_update("integration_connections", patch={"metadata": metadata},
+                    filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"})
+    if not updated:
+        raise OfficialKpisUnavailable("FBITS_OFFICIAL_PERSIST_FAILED")

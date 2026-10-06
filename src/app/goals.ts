@@ -7,8 +7,9 @@ export const GOAL_METRICS = {
 export type GoalMetric = keyof typeof GOAL_METRICS;
 export type GoalInput = { metric: GoalMetric; label: string; target_value: number; period_start: string; period_end: string };
 export type Goal = GoalInput & { id: string; client_id: string; actual: number | null; available: boolean; origin: string | null; reason: string | null; progress_percent: number | null; elapsed_percent: number; pace_delta: number | null; projected_value: number | null; remaining: number | null; status: string };
-export async function getGoals(start?: string, end?: string): Promise<{ client_id: string; goals: Goal[] }> {
+export async function getGoals(start?: string, end?: string, includeActuals = true): Promise<{ client_id: string; goals: Goal[] }> {
   const query = new URLSearchParams(); if (start) query.set("start", start); if (end) query.set("end", end);
+  if (!includeActuals) query.set("include_actuals", "false");
   return http(clientClientPath(`/goals${query.size ? `?${query}` : ""}`));
 }
 export async function saveGoal(input: GoalInput, id?: string) {

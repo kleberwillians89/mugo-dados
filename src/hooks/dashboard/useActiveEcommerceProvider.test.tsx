@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { buildDashboardCacheKey, writeDashboardCache, clearDashboardCacheByPrefix } from "./cache";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,6 +66,7 @@ async function render(clientId = CURAVINO) {
 }
 
 beforeEach(() => {
+  clearDashboardCacheByPrefix("commerce-connections");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -150,4 +152,16 @@ describe("resolução da loja ativa para um viewer", () => {
     expect(observed().loading).toBe(false);
     expect(observed().error).toBe("Serviço indisponível.");
   });
+});
+
+
+it("cache existente libera a loja imediatamente enquanto revalidação permanece pendente", async () => {
+  writeDashboardCache(buildDashboardCacheKey("commerce-connections", {clientId: CURAVINO}), [{provider:"fbits", connection_id:"cached", status:"connected"}]);
+  let finish!: (value: unknown) => void;
+  api.listGenericConnections.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await render();
+  expect(observed().loading).toBe(false);
+  expect(observed().connections?.[0].connection_id).toBe("cached");
+  await act(async () => finish({client_id:CURAVINO,connections:[connection()]}));
+  expect(observed().connections?.[0].connection_id).toBe("conn-fbits-1");
 });

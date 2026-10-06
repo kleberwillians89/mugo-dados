@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from .ads_sync import sync_ads_connection
 from .ig_supabase import sb_get_active_meta_connections, sb_rpc, sb_select
 from .instagram_sync import sync_instagram_connection
+from .meta_live_trace import live_scope
 from .job_runs import finish_job_run, start_job_run
 from .meta_tokens import ensure_valid_meta_token
 from .periods import DEFAULT_TENANT_TIMEZONE
@@ -162,9 +163,10 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
             },
         )
         try:
-            res = await sync_instagram_connection(
-                connection_id=connection_id, limit=limit, process_thumbnails=process_thumbnails,
-            )
+            with live_scope("scheduled_sync", (run or {}).get("id")):
+                res = await sync_instagram_connection(
+                    connection_id=connection_id, limit=limit, process_thumbnails=process_thumbnails,
+                )
             await _safe_finish_job_run(
                 run,
                 status="success",

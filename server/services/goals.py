@@ -120,9 +120,11 @@ def evaluate_goal(goal, actual, today=None):
     return {**goal, **actual, "progress_percent":progress, "elapsed_percent":elapsed, "pace_delta":delta, "projected_value":projected, "remaining":max(0, target-float(actual["actual"])) if progress is not None else None, "status":status}
 
 @measured("data_goals")
-async def list_goals(client_id, start=None, end=None):
+async def list_goals(client_id, start=None, end=None, *, include_actuals=True):
     rows = await own_rows("client_goals", client_id, order="period_end.asc,created_at.asc,id.asc")
     rows = [r for r in rows if (not start or r["period_end"] >= start) and (not end or r["period_start"] <= end)]
+    if not include_actuals:
+        return {"ok": True, "client_id": client_id, "goals": [evaluate_goal(row, unavailable("Progresso em carregamento.")) for row in rows]}
     results, cache = [], {}
     for goal in rows:
         key=(goal["metric"],goal["period_start"],goal["period_end"])

@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import httpx
-from .request_performance import measured, transport_started, transport_done
+from .request_performance import measured, transport_started, transport_done, request_value
 
 
 def _env(name: str) -> str:
@@ -314,6 +314,7 @@ async def sb_get_client_memberships(user_id: str, *, include_clients: bool = Tru
             )
 
         if not include_clients:
+            request_value(("memberships", uid), rows, store=True)
             return rows
         out: List[Dict[str, Any]] = []
         for r in rows:
@@ -385,6 +386,9 @@ async def sb_get_client_id_for_user(user_id: str, requested_client_id: Optional[
         raise RuntimeError("user_id vazio (sb_get_client_id_for_user)")
 
     req = (requested_client_id or "").strip()
+    known = request_value(("memberships", uid))
+    if req and known is not None and any(str(row.get("client_id") or "").strip() == req for row in known):
+        return req
     rows: List[Dict[str, Any]] = []
     try:
         if req:
@@ -469,13 +473,19 @@ async def sb_get_connection_for_client(client_id: str, connection_id: str) -> Op
     conn_id = (connection_id or "").strip()
     if not cid or not conn_id:
         return None
+    cached = request_value(("connection", cid, conn_id))
+    if cached is not None:
+        return cached
     rows = await sb_select(
         "meta_connections",
-        select="id,client_id,platform,connection_type,status,updated_at",
+        select="id,client_id,platform,connection_type,status,ig_user_id,ad_account_id,ad_account_name,requires_reauth,is_active,last_sync_at,last_synced_at,last_sync_status,last_error,updated_at",
         filters={"id": f"eq.{conn_id}", "client_id": f"eq.{cid}"},
         limit=1,
     )
-    return rows[0] if rows else None
+    row = rows[0] if rows else None
+    if row:
+        request_value(("connection", cid, conn_id), row, store=True)
+    return row
 
 
 async def sb_get_active_instagram_connections() -> List[Dict[str, Any]]:

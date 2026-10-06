@@ -70,3 +70,46 @@ test("releitura após sync espera consulta antiga e inicia quatro queries novas"
   expect(node.textContent).toBe("0");
   act(() => root.unmount());
 });
+
+
+test("daily e sources liberam KPI antes de campaigns/products lentos; cache no remount não fica vazio", async () => {
+  const node = document.createElement("div"); let root = createRoot(node);
+  for (const table of ["dashboard_campaign_metrics", "dashboard_product_metrics"]) mocks.deferred.set(table, { resolve: () => undefined });
+  function Primary() { const model = useDashboardSnapshot(); return <span>{model.loading ? "loading" : `ready:${model.daily.length}:${model.snapshot?.secondaryLoading}`}</span>; }
+  await act(async () => root.render(<DashboardDataProvider clientId="progressive-tenant" tenantReady enabled period={{start:"2026-08-04",end:"2026-08-10"}}><Primary /></DashboardDataProvider>));
+  expect(node.textContent).toBe("ready:0:true");
+  expect(mocks.calls).toHaveLength(4);
+  const finish = [...mocks.deferred.values()].map(value => value.resolve);
+  act(() => root.unmount()); root = createRoot(node);
+  act(() => root.render(<DashboardDataProvider clientId="progressive-tenant" tenantReady enabled period={{start:"2026-08-04",end:"2026-08-10"}}><Primary /></DashboardDataProvider>));
+  expect(node.textContent).toBe("ready:0:true");
+  await act(async () => { finish.forEach(resolve => resolve({data:[],error:null})); });
+  expect(node.textContent).toBe("ready:0:false");
+  act(() => root.unmount());
+});
+
+
+test("troca de módulo demanda somente recurso necessário sem reler daily/sources", async () => {
+  const node = document.createElement("div"); const root = createRoot(node);
+  const props = { clientId: "resource-tenant", tenantReady: true, enabled: true, period: {start:"2026-08-04",end:"2026-08-10"} };
+  await act(async () => root.render(<DashboardDataProvider {...props} resources="none"><Consumer /></DashboardDataProvider>));
+  expect(mocks.calls).toEqual(["dashboard_daily_metrics", "dashboard_source_snapshots"]);
+  await act(async () => root.render(<DashboardDataProvider {...props} resources="campaigns"><Consumer /></DashboardDataProvider>));
+  expect(mocks.calls).toEqual(["dashboard_daily_metrics", "dashboard_source_snapshots", "dashboard_campaign_metrics"]);
+  act(() => root.unmount());
+});
+
+test("campanhas rápidas não aguardam produtos; erro de produto preserva KPI e encerra loading", async () => {
+  const node = document.createElement("div"); const root = createRoot(node);
+  mocks.deferred.set("dashboard_product_metrics", { resolve: () => undefined });
+  function Independent() {
+    const model = useDashboardSnapshot();
+    return <span>{model.loading ? "loading" : `ready:${model.snapshot?.campaignsLoaded}:${model.snapshot?.productsLoading}:${model.snapshot?.secondaryErrors?.join(",") || "none"}`}</span>;
+  }
+  await act(async () => root.render(<DashboardDataProvider clientId="secondary-error-tenant" tenantReady enabled><Independent /></DashboardDataProvider>));
+  expect(node.textContent).toBe("ready:true:true:none");
+  await act(async () => mocks.deferred.get("dashboard_product_metrics")!.resolve({data:null,error:{message:"fixture-error"}}));
+  expect(node.textContent).toBe("ready:true:false:products");
+  expect(mocks.calls).toHaveLength(4);
+  act(() => root.unmount());
+});

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
+import { readOnce } from "./readOnce";
+import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "./cache";
 import { getGa4Report } from "../../app/api";
 import type { Ga4ReportResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
@@ -8,18 +10,20 @@ export default function useDashboardGa4({ isAuthenticated, activeClientId, perio
   isAuthenticated: boolean; activeClientId: string; period?: DashboardPeriod | null;
 }) {
   const selected = useMemo(() => ensureDashboardPeriod(period), [period]);
-  const key = `${activeClientId}:${selected.start}:${selected.end}`;
+  const key = buildDashboardCacheKey("ga4-report", { clientId: activeClientId, start: selected.start, end: selected.end });
+  const cached = readDashboardCache<Ga4ReportResponse>(key);
   const currentKey = useRef(key);
   useLayoutEffect(() => { currentKey.current = key; }, [key]);
   const request = useRef(0);
-  const [state, setState] = useState<{ key: string; report: Ga4ReportResponse | null; loading: boolean; error: string | null }>({ key, report: null, loading: true, error: null });
-  const report = state.key === key ? state.report : null;
+  const [state, setState] = useState<{ key: string; report: Ga4ReportResponse | null; loading: boolean; error: string | null }>({ key, report: cached, loading: !cached, error: null });
+  const report = (state.key === key ? state.report : null) || cached;
   const load = useCallback(async () => {
     const sequence = ++request.current;
     if (!isAuthenticated || !activeClientId) return null;
-    setState(previous => ({ key, report: previous.key === key ? previous.report : null, loading: true, error: null }));
+    setState(previous => ({ key, report: (previous.key === key ? previous.report : null) || readDashboardCache<Ga4ReportResponse>(key), loading: true, error: null }));
     try {
-      const next = await getGa4Report({ start: selected.start, end: selected.end }, { clientId: activeClientId });
+      const next = await readOnce(key, () => getGa4Report({ start: selected.start, end: selected.end }, { clientId: activeClientId }));
+      if (currentKey.current === key) writeDashboardCache(key, next, 180_000);
       if (sequence === request.current && currentKey.current === key) setState({ key, report: next, loading: false, error: null });
       return next;
     } catch (cause) {
