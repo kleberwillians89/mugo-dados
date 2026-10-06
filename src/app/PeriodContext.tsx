@@ -165,6 +165,10 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   return <PeriodContext.Provider value={value}>{children}</PeriodContext.Provider>;
 }
 
+export function useOptionalPeriod() {
+  return useContext(PeriodContext);
+}
+
 export function usePeriod() {
   const ctx = useContext(PeriodContext);
   if (!ctx) {

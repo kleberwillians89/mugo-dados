@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from .crypto import decrypt_secret
 from .ig_supabase import sb_select
 from .integration_errors import IntegrationError
+from .request_performance import measured
 
 
 def _safe_str(value: Any) -> str:
@@ -214,6 +215,7 @@ def _is_connection_type_compatible(
     return False
 
 
+@measured("connection_resolution")
 async def resolve_connection_for_scope(
     *,
     client_id: str,

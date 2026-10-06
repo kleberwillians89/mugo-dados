@@ -14,6 +14,7 @@ import {
   writeDashboardCache,
 } from "./cache";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
+import { readOnce } from "./readOnce";
 
 type SummaryData = {
   dash: DashboardResponse | null;
@@ -59,6 +60,7 @@ type Params = {
   activeClientId: string;
   activeConnectionId?: string | null;
   secondaryEnabled?: boolean;
+  commentsEnabled?: boolean;
   autoLoadStories?: boolean;
   period?: DashboardPeriod | null;
 };
@@ -103,6 +105,7 @@ export default function useDashboardSummary({
   activeClientId,
   activeConnectionId,
   secondaryEnabled = true,
+  commentsEnabled = true,
   autoLoadStories = false,
   period,
 }: Params) {
@@ -265,7 +268,7 @@ export default function useDashboardSummary({
     setSectionLoading({
       dash: secondaryOnly ? false : !currentData.dash,
       media: includeSecondary && !onlyStories && currentData.media.length === 0,
-      comments: includeSecondary && !onlyStories && currentData.comments.length === 0,
+      comments: includeSecondary && commentsEnabled && !onlyStories && currentData.comments.length === 0,
       stories: includeSecondary && includeStories && currentData.stories.length === 0,
     });
     setSectionRefreshing({
@@ -294,10 +297,13 @@ export default function useDashboardSummary({
 
     const loadDash = async () => {
       try {
+        const persisted = (options?.snapshot?.daily || model.daily).filter(row => row.metric_date >= safePeriod.start && row.metric_date <= safePeriod.end);
+        const metric_coverage = Object.fromEntries(Object.entries({ impressions: "instagram_impressions", reach: "instagram_reach", total_interactions: "instagram_interactions", website_clicks: "instagram_website_clicks", profile_views: "instagram_profile_views", followers: "instagram_followers" }).map(([key, column]) => [key, persisted.filter(row => row[column as keyof typeof row] != null).length]));
         const daily = (options?.snapshot?.daily || model.daily).filter((row) => row.metric_date >= safePeriod.start && row.metric_date <= safePeriod.end).filter((row) =>
           row.instagram_impressions != null || row.instagram_reach != null || row.instagram_interactions != null ||
           row.instagram_website_clicks != null || row.instagram_profile_views != null || row.instagram_followers != null
         ).map((row) => ({ date: row.metric_date,
+          available_metrics: Object.entries({ impressions: "instagram_impressions", reach: "instagram_reach", total_interactions: "instagram_interactions", website_clicks: "instagram_website_clicks", profile_views: "instagram_profile_views", followers: "instagram_followers" }).filter(([, column]) => row[column as keyof typeof row] != null).map(([key]) => key),
           impressions: Number(row.instagram_impressions || 0), reach: Number(row.instagram_reach || 0),
           total_interactions: Number(row.instagram_interactions || 0), website_clicks: Number(row.instagram_website_clicks || 0),
           profile_views: Number(row.instagram_profile_views || 0), accounts_engaged: 0, followers: Number(row.instagram_followers || 0) }));
@@ -309,6 +315,8 @@ export default function useDashboardSummary({
           totals_last_days: totals, followers_growth_last_days: 0, monthly_totals: totals, last_month_totals: totals,
           monthly_followers_growth: 0, last_month_followers_growth: 0,
           monthly_growth_percent: { impressions:0,reach:0,total_interactions:0,website_clicks:0,profile_views:0,accounts_engaged:0,followers:0 },
+          metric_coverage,
+          coverage: { covered_days: daily.length, expected_days: Math.round((Date.parse(safePeriod.end) - Date.parse(safePeriod.start)) / 86400000) + 1, missing_days: Math.max(0, Math.round((Date.parse(safePeriod.end) - Date.parse(safePeriod.start)) / 86400000) + 1 - daily.length), is_partial: daily.length < Math.round((Date.parse(safePeriod.end) - Date.parse(safePeriod.start)) / 86400000) + 1 },
           data_available: daily.length > 0, last_sync_at: source?.last_success_at || null };
         if (reqId !== requestRef.current) return;
         writeDashboardCache<DashboardResponse>(dashCacheKey, dash, 180_000);
@@ -328,20 +336,30 @@ export default function useDashboardSummary({
         tasks.push(
           (async () => {
           try {
-            const mediaResponse = await getMedia(
-              {
-                start: safePeriod.start,
-                end: safePeriod.end,
-              },
-              {
-                limit: 120,
-                offset: 0,
-                connectionId: resolvedConnectionId,
-                signal: controller.signal,
-              }
-            );
-            if (reqId !== requestRef.current) return;
-            const media = arrayOrEmpty<IgMediaItem>(mediaResponse.media);
+            const cached = options?.force ? null : readDashboardCache<IgMediaItem[]>(mediaCacheKey);
+            if (cached) {
+              setData(previous => ({ ...previous, media: cached }));
+              markSectionSuccess("media");
+              return;
+            }
+            const media: IgMediaItem[] = [];
+            const offsets = new Set<number>();
+            let offset = 0;
+            for (let page = 0; ; page++) {
+              if (page >= 200 || offsets.has(offset)) throw new Error("Paginação de publicações incompleta.");
+              offsets.add(offset);
+              const loadMedia = () => getMedia({ start: safePeriod.start, end: safePeriod.end }, {
+                limit: 120, offset, clientId: activeClientId,
+                connectionId: resolvedConnectionId, signal: options?.force ? controller.signal : undefined,
+              });
+              const response = options?.force ? await loadMedia() : await readOnce(`${mediaCacheKey}|offset=${offset}|limit=120`, loadMedia);
+              if (reqId !== requestRef.current) return;
+              const items = arrayOrEmpty<IgMediaItem>(response.media);
+              media.push(...items);
+              if (!response.has_more) break;
+              if (!items.length) throw new Error("Paginação de publicações incompleta.");
+              offset = response.next_offset ?? offset + items.length;
+            }
             writeDashboardCache<IgMediaItem[]>(mediaCacheKey, media, 180_000);
             startTransition(() => {
               setData((previous) => ({ ...previous, media }));
@@ -353,10 +371,16 @@ export default function useDashboardSummary({
           }
           })()
         );
-        tasks.push(
+        if (commentsEnabled) tasks.push(
           (async () => {
           try {
-            const commentsResponse = await getComments(
+            const cached = options?.force ? null : readDashboardCache<{ comments: CommentItem[]; commentsTotal?: number; topWords: TopWord[] }>(commentsCacheKey);
+            if (cached) {
+              setData(previous => ({ ...previous, comments: cached.comments, commentsTotal: cached.commentsTotal ?? cached.comments.length, topWords: cached.topWords }));
+              markSectionSuccess("comments");
+              return;
+            }
+            const loadComments = () => getComments(
               {
                 start: safePeriod.start,
                 end: safePeriod.end,
@@ -365,10 +389,12 @@ export default function useDashboardSummary({
                 limit: 120,
                 offset: 0,
                 includeMediaLinked: true,
+                clientId: activeClientId,
                 connectionId: resolvedConnectionId,
-                signal: controller.signal,
+                signal: options?.force ? controller.signal : undefined,
               }
             );
+            const commentsResponse = options?.force ? await loadComments() : await readOnce(`${commentsCacheKey}|offset=0|limit=120|linked=1`, loadComments);
             if (reqId !== requestRef.current) return;
             const comments = arrayOrEmpty<CommentItem>(commentsResponse.comments);
             const commentsTotal =
@@ -487,6 +513,7 @@ export default function useDashboardSummary({
     activeClientId,
     autoLoadStories,
     commentsCacheKey,
+    commentsEnabled,
     dashCacheKey,
     isAuthenticated,
     mediaCacheKey,
@@ -499,17 +526,17 @@ export default function useDashboardSummary({
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !activeClientId) return;
+    if (!isAuthenticated || !activeClientId || model.loading) return;
     const requestKey = dashCacheKey;
-    const secondaryRequestKey = `${dashCacheKey}|stories=${autoLoadStories ? 1 : 0}`;
     if (autoPrimaryKeyRef.current === requestKey) return;
-    autoPrimaryKeyRef.current = requestKey;
-    if (secondaryEnabled) {
-      autoSecondaryKeyRef.current = secondaryRequestKey;
-    }
-    void reloadSummary({ includeSecondary: secondaryEnabled });
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      autoPrimaryKeyRef.current = requestKey;
+      void reloadSummary({ includeSecondary: false });
+    });
     return () => {
-      abortRef.current?.abort();
+      cancelled = true;
     };
   }, [
     activeClientId,
@@ -517,7 +544,7 @@ export default function useDashboardSummary({
     dashCacheKey,
     isAuthenticated,
     reloadSummary,
-    secondaryEnabled,
+    model.loading,
   ]);
 
   // Leitura nunca dispara sincronização automaticamente. Dado "stale" é
@@ -526,19 +553,27 @@ export default function useDashboardSummary({
 
   useEffect(() => {
     if (!secondaryEnabled || !isAuthenticated || !activeClientId) return;
-    const requestKey = `${dashCacheKey}|stories=${autoLoadStories ? 1 : 0}`;
+    const requestKey = `${dashCacheKey}|stories=${autoLoadStories ? 1 : 0}|comments=${commentsEnabled ? 1 : 0}`;
     if (autoSecondaryKeyRef.current === requestKey) return;
-    autoSecondaryKeyRef.current = requestKey;
-    void reloadSummary({ includeSecondary: true, secondaryOnly: true });
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      autoSecondaryKeyRef.current = requestKey;
+      void reloadSummary({ includeSecondary: true, secondaryOnly: true });
+    });
+    return () => { cancelled = true; };
   }, [
     activeClientId,
     autoLoadStories,
+    commentsEnabled,
     dashCacheKey,
     isAuthenticated,
     reloadSummary,
     resolvedConnectionId,
     secondaryEnabled,
   ]);
+
+  useEffect(() => () => { requestRef.current += 1; abortRef.current?.abort(); }, []);
 
   return {
     data,

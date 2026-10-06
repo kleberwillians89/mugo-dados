@@ -223,10 +223,15 @@ async def _sync_google_ads(
     batches = payload if isinstance(payload, list) else [payload]
     rows: List[Dict[str, Any]] = []
     for batch in batches:
-        for item in (batch.get("results") or []) if isinstance(batch, dict) else []:
+        if not isinstance(batch, dict):
+            raise IntegrationError("Resposta Google Ads incompleta.", status_code=502,
+                                   code="GOOGLE_ADS_RESPONSE_INCOMPLETE", provider="google_ads", retryable=True)
+        for item in batch.get("results") or []:
             parsed = _parse_result(client_id, context, item)
-            if parsed:
-                rows.append(parsed)
+            if not parsed:
+                raise IntegrationError("Identidade diária Google Ads ausente.", status_code=502,
+                                       code="GOOGLE_ADS_RESPONSE_INCOMPLETE", provider="google_ads", retryable=True)
+            rows.append(parsed)
     if rows:
         await sb_upsert(
             "google_ads_daily_stats", rows,
@@ -255,6 +260,8 @@ async def _sync_google_ads(
         "customer_id": context.customer_id,
         "period": {"start": period.start.isoformat(), "end": period.end.isoformat(), "days": period.days},
         "rows_received": len(rows), "rows_upserted": len(rows), "read_model_refreshed": True,
+        "projection_success_at": _now_iso(),
+        "collection_complete": True,
     }
 
 

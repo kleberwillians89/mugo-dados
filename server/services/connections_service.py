@@ -13,6 +13,7 @@ meta_oauth, instagram_sync, ads_sync).
 """
 
 from __future__ import annotations
+from .request_performance import measured
 
 from typing import Any, Dict, List, Optional
 
@@ -289,6 +290,7 @@ _BUILDERS = {
 }
 
 
+@measured("data_integrations")
 async def get_client_connections(client_id: str) -> Dict[str, Any]:
     """
     Contrato canônico consolidado por cliente. client_id já deve ter sido

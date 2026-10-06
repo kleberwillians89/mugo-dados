@@ -252,7 +252,7 @@ class GoogleSyncBoundaryTests(unittest.IsolatedAsyncioTestCase):
             identities.append(kwargs["connection_id"])
             yield "lock"
         # Só a chamada ao Google é simulada; executa wrapper e sync reais.
-        with patch.object(ga4_sync, "guarded_sync", lock), patch.object(ga4_sync, "_run_named_report", AsyncMock(return_value={"rows": [], "row_count": 0})) as upstream:
+        with patch.object(ga4_sync, "guarded_sync", lock), patch.object(ga4_sync, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})), patch.object(ga4_sync, "_run_named_report", AsyncMock(return_value={"rows": [], "row_count": 0})) as upstream:
             for connection in ["persisted-connection", None]:
                 result = await ga4_sync.sync_ga4_for_period(client_id=CID, property_id="properties/123", connection_id=connection, access_token="test-secret", since=PERIOD["start"], until=PERIOD["end"], record_job_run=False)
                 self.assertTrue(result["ok"])

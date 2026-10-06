@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Tuple
 import httpx
 import time
+from urllib.parse import urlsplit, parse_qsl
+from .integration_errors import IntegrationError
 
 from .meta_config import META_GRAPH_BASE_URL
 
@@ -97,16 +99,28 @@ async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str
     return out
 
 
-async def fetch_media_list(ig_user_id: str, access_token: str, limit: int = 40) -> List[Dict[str, Any]]:
+async def fetch_media_list(ig_user_id: str, access_token: str, limit: int = 40, *, history: bool = False) -> List[Dict[str, Any]]:
     fields = (
         "id,media_type,media_product_type,caption,timestamp,permalink,"
         "media_url,thumbnail_url,comments_count,like_count"
     )
+    if history:
+        fields = "id,media_type,media_product_type,timestamp,permalink"
     token = _clean_token(access_token)
     items: List[Dict[str, Any]] = []
     next_url: str | None = None
 
-    while len(items) < limit:
+    visited = set()
+    pages = 0
+    while history or len(items) < limit:
+        if history:
+            parsed = urlsplit(next_url or f"{META_BASE}/{ig_user_id}/media")
+            key = (parsed.path, tuple(sorted((k, v) for k, v in parse_qsl(parsed.query) if k != "access_token")))
+            if pages >= 200 or key in visited or parsed.scheme != "https" or parsed.netloc != urlsplit(META_BASE).netloc:
+                raise IntegrationError("Paginação histórica Instagram incompleta.", status_code=502,
+                                       code="IG_MEDIA_HISTORY_INCOMPLETE", provider="instagram")
+            visited.add(key)
+            pages += 1
         if next_url:
             async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.get(next_url)
@@ -124,7 +138,7 @@ async def fetch_media_list(ig_user_id: str, access_token: str, limit: int = 40) 
             )
 
         page_items = resp.get("data", []) or []
-        if not page_items:
+        if not page_items and not history:
             break
 
         items.extend(page_items)
@@ -133,7 +147,7 @@ async def fetch_media_list(ig_user_id: str, access_token: str, limit: int = 40) 
         if not next_url:
             break
 
-    return items[:limit]
+    return items if history else items[:limit]
 
 
 def media_metrics_for(product_type: str) -> str:

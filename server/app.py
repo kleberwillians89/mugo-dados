@@ -4,6 +4,7 @@ import sys
 import time
 import traceback
 import uuid
+import hashlib
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -30,6 +31,7 @@ for _stream in (sys.stdout, sys.stderr):
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from services import request_performance
 
 from api_support import (
     _cache_key,
@@ -104,11 +106,27 @@ async def safe_request_log(request: Request, call_next):
     started = time.perf_counter()
     request_id = str(request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
     request_id_token = _set_request_id(request_id)
+    performance, performance_token = request_performance.begin(request_id)
+    performance.scope["endpoint"] = request.url.path
+    tenant_context = request.query_params.get("client_id") or request.headers.get("X-Client-Id") or ""
+    if not tenant_context and request.url.path.startswith("/api/clients/"):
+        tenant_context = request.url.path.split("/")[3]
+    if tenant_context:
+        performance.scope["tenant_scope"] = hashlib.sha256(str(tenant_context).encode()).hexdigest()[:16]
+    for key in ("start", "end"):
+        value = str(request.query_params.get(key) or "")
+        if len(value) == 10 and value.replace("-", "").isdigit():
+            performance.scope[key] = value
+    for key in ("days", "offset", "limit"):
+        value = str(request.query_params.get(key) or "")
+        if value.isdigit() and len(value) < 10:
+            performance.scope[key] = int(value)
     if not hasattr(request, "state"):
         request.state = SimpleNamespace()
     request.state.request_id = request_id
 
     def emit(status: int) -> None:
+        request_performance.summary(performance, status)
         duration_ms = int((time.perf_counter() - started) * 1000)
         path = request.url.path
         integration_product = str(getattr(request.state, "integration_product", "") or "").strip()
@@ -135,6 +153,7 @@ async def safe_request_log(request: Request, call_next):
         raise
     finally:
         _reset_request_id(request_id_token)
+        request_performance.end(performance_token)
     emit(response.status_code)
     response.headers["X-Request-ID"] = request_id
     return response

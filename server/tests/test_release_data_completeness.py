@@ -176,4 +176,4 @@ class Ga4UserSemanticsTests(unittest.IsolatedAsyncioTestCase):
         for period in (context, context['previous_period']):
             self.assertIsNone(period['ga4']['users'])
             self.assertEqual(period['ga4']['daily_user_sum'], 200)
-            self.assertEqual(period['ga4']['user_count_semantics'], 'sum_of_daily_active_users')
+            self.assertEqual(period['ga4']['user_count_semantics'], 'sum_of_daily_users')

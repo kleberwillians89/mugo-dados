@@ -10,6 +10,7 @@ from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_select
 from .periods import resolve_period
 from .instagram_organic_history import aggregate_instagram_months
+from .request_performance import measured
 
 
 def _utc_now() -> datetime:
@@ -63,6 +64,7 @@ def _is_missing_column_error(exc: httpx.HTTPStatusError, column_name: str) -> bo
     return col in body and ("column" in body or "schema cache" in body)
 
 
+@measured("data_media")
 async def get_media(
     client_id: str,
     connection_id: str | None = None,
@@ -112,7 +114,7 @@ async def get_media(
                 rows = await sb_select(
                     table_name,
                     filters=conn_filters,
-                    order="timestamp.desc",
+                    order="timestamp.desc,id.desc",
                     limit=safe_limit,
                     offset=safe_offset,
                 )
@@ -123,7 +125,7 @@ async def get_media(
                 rows = await sb_select(
                     table_name,
                     filters=filters,
-                    order="timestamp.desc",
+                    order="timestamp.desc,id.desc",
                     limit=safe_limit,
                     offset=safe_offset,
                 )
@@ -132,7 +134,7 @@ async def get_media(
             rows = await sb_select(
                 table_name,
                 filters=filters,
-                order="timestamp.desc",
+                order="timestamp.desc,id.desc",
                 limit=safe_limit,
                 offset=safe_offset,
             )
@@ -220,6 +222,17 @@ def _month_key_from_timestamp(value: str | None) -> str:
     return ""
 
 
+async def _read_monthly_pages(table: str, *, select: str, filters: dict, order: str, limit: int) -> list:
+    rows = []
+    for offset in range(0, 200000, 1000):
+        page = await sb_select(table, select=select, filters=filters, order=order + ",id.asc", limit=1000, offset=offset)
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+    raise RuntimeError("Paginação mensal de publicações incompleta.")
+
+
+@measured("data_monthly")
 async def get_media_monthly(
     client_id: str,
     connection_id: str | None = None,
@@ -248,7 +261,7 @@ async def get_media_monthly(
 
     read_mode = "monthly_connection_scoped" if resolved_connection_id else "monthly_client_scoped"
     try:
-        rows = await sb_select(
+        rows = await _read_monthly_pages(
             "ig_media",
             select="timestamp,media_product_type,insights_json",
             filters=filters,
@@ -270,7 +283,7 @@ async def get_media_monthly(
             else:
                 filters_no_conn["timestamp"] = f"gte.{since_dt.isoformat()}"
             try:
-                rows = await sb_select(
+                rows = await _read_monthly_pages(
                     "ig_media",
                     select="timestamp,media_product_type,insights_json",
                     filters=filters_no_conn,

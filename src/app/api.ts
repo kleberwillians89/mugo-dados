@@ -1340,6 +1340,11 @@ function normalizeGa4Report(raw: unknown): Ga4ReportResponse {
       days: asNumber(period.days, 30),
     },
     summary: {
+      engaged_sessions: summary.engaged_sessions == null ? undefined : asNumber(summary.engaged_sessions),
+      screen_page_views: summary.screen_page_views == null ? undefined : asNumber(summary.screen_page_views),
+      key_events: summary.key_events == null ? undefined : asNumber(summary.key_events),
+      transactions: summary.transactions == null ? undefined : asNumber(summary.transactions),
+      new_users: summary.new_users == null ? undefined : asNumber(summary.new_users),
       sessions: asNumber(summary.sessions),
       user_count_semantics: "sum_of_daily_users",
       active_users: asNumber(summary.active_users),
@@ -1721,8 +1726,8 @@ export async function linkClientAssets(
   });
 }
 
-export async function listClientConnections(): Promise<ClientConnectionsResponse> {
-  return http<ClientConnectionsResponse>(clientClientPath("/connections"));
+export async function listClientConnections(clientId?: string): Promise<ClientConnectionsResponse> {
+  return http<ClientConnectionsResponse>(clientId ? `/api/clients/${encodeURIComponent(clientId)}/connections` : clientClientPath("/connections"));
 }
 
 /**
@@ -1821,18 +1826,19 @@ export async function getComments(
     limit?: number;
     offset?: number;
     includeMediaLinked?: boolean;
+    clientId?: string | null;
     connectionId?: string | null;
     signal?: AbortSignal;
   }
 ): Promise<CommentsResponse> {
   const defaultDays = typeof period === "number" ? period : 30;
   const raw = await http<unknown>(
-    pathWithPeriodAndExtras("/api/comments", period, defaultDays, {
+    pathWithClientId(pathWithPeriodAndExtras("/api/comments", period, defaultDays, {
       limit: options?.limit,
       offset: options?.offset,
       include_media_linked: options?.includeMediaLinked ? "true" : null,
       connection_id: String(options?.connectionId || "").trim() || null,
-    }),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeComments(raw);
@@ -1868,15 +1874,15 @@ export async function listMonthsByConnection(
 
 export async function getMedia(
   period: number | PeriodQueryInput = 365,
-  options?: { limit?: number; offset?: number; connectionId?: string | null; signal?: AbortSignal }
+  options?: { limit?: number; offset?: number; connectionId?: string | null; signal?: AbortSignal; clientId?: string }
 ): Promise<MediaResponse> {
   const fallbackDays = typeof period === "number" ? positiveInt(period, 365) : positiveInt(period.days, 365);
   const raw = await http<unknown>(
-    pathWithPeriodAndExtras("/api/media", period, fallbackDays, {
+    pathWithClientId(pathWithPeriodAndExtras("/api/media", period, fallbackDays, {
       limit: options?.limit,
       offset: options?.offset,
       connection_id: String(options?.connectionId || "").trim() || null,
-    }),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeMedia(raw);
@@ -1884,12 +1890,16 @@ export async function getMedia(
 
 export async function getMediaMonthly(
   period: number | PeriodQueryInput = 3650,
-  options?: { connectionId?: string | null; signal?: AbortSignal }
+  options?: { connectionId?: string | null; signal?: AbortSignal; clientId?: string }
 ): Promise<MediaMonthlyResponse> {
+  const requested = typeof period === "number" ? period : {
+    ...period,
+    days: period.start && period.end ? periodDaysFromRange(period.start, period.end, 30) : period.days,
+  };
   const raw = await http<unknown>(
-    pathWithPeriodAndExtras("/api/media/monthly", period, 3650, {
+    pathWithClientId(pathWithPeriodAndExtras("/api/media/monthly", requested, 3650, {
       connection_id: String(options?.connectionId || "").trim() || null,
-    }),
+    }), options?.clientId),
     { signal: options?.signal }
   );
   return normalizeMediaMonthly(raw);

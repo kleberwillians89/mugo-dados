@@ -3,6 +3,7 @@ import { getClientIntegrations } from "../app/api";
 import { getActiveClientId } from "../app/activeClient";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "./dashboard/cache";
 import type { ClientIntegrationConnection } from "../app/types";
+import { readOnce } from "./dashboard/readOnce";
 
 type State = {
   connections: ClientIntegrationConnection[] | null;
@@ -77,7 +78,7 @@ export default function useClientIntegrations(params: { enabled: boolean }) {
     });
   }
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (force = true) => {
     if (!enabled) return null;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -88,7 +89,8 @@ export default function useClientIntegrations(params: { enabled: boolean }) {
     setState((prev) => ({ ...prev, isLoading: !hasExisting, isRefreshing: hasExisting, error: null }));
 
     try {
-      const response = await getClientIntegrations({ signal: controller.signal });
+      const load = () => getClientIntegrations({ signal: force ? controller.signal : undefined });
+      const response = force ? await load() : await readOnce(cacheKey, load);
       if (reqId !== requestRef.current) return null;
       const connections = Array.isArray(response.connections) ? response.connections : [];
       lastValidRef.current = connections;
@@ -120,11 +122,14 @@ export default function useClientIntegrations(params: { enabled: boolean }) {
     // Restauração do cache já aconteceu no useState inicial acima; aqui só
     // disparamos o refetch em segundo plano (isRefreshing, não isLoading,
     // quando já havia algo em cache).
-    void refetch();
+    if (readDashboardCache<ClientIntegrationConnection[]>(cacheKey)) return;
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void refetch(false); });
     return () => {
+      cancelled = true;
       abortRef.current?.abort();
     };
-  }, [enabled, refetch]);
+  }, [cacheKey, enabled, refetch]);
 
   return { ...state, refetch };
 }

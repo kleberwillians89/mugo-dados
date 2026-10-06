@@ -308,59 +308,8 @@ async def get_dashboard(
         f"client_id={cid} connection_id={resolved_connection_id or '-'} "
         f"rows={len(media_rows_period)} mode={media_read_mode}"
     )
-    # Fallback: quando snapshots ainda não existem, deriva daily/totais de ig_media.
-    if not rows:
-        media_rows = list(media_rows_period)
-        by_day: Dict[str, Dict[str, int]] = {}
-        for m in media_rows:
-            ts = str(m.get("timestamp") or "")
-            if len(ts) < 10:
-                continue
-            try:
-                parsed_timestamp = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                d_parsed = local_date(parsed_timestamp, DEFAULT_TENANT_TIMEZONE)
-                d = d_parsed.isoformat()
-            except ValueError:
-                continue
-            if not d_parsed:
-                continue
-            if d_parsed < since_date or d_parsed > until_date:
-                continue
-            ins = m.get("insights_json") or {}
-            if isinstance(ins, str):
-                ins = {}
-            cur = by_day.get(
-                d,
-                {
-                    "impressions": 0,
-                    "reach": 0,
-                    "total_interactions": 0,
-                    "website_clicks": 0,
-                    "profile_views": 0,
-                    "accounts_engaged": 0,
-                    "followers": 0,
-                },
-            )
-            cur["impressions"] += int((ins or {}).get("views") or 0)
-            cur["reach"] += int((ins or {}).get("reach") or 0)
-            cur["total_interactions"] += int((ins or {}).get("total_interactions") or 0)
-            cur["profile_views"] += int((ins or {}).get("profile_visits") or 0)
-            by_day[d] = cur
-
-        rows = [
-            {
-                "snapshot_date": k,
-                "impressions_day": v["impressions"],
-                "reach_day": v["reach"],
-                "total_interactions_day": v["total_interactions"],
-                "website_clicks_day": v["website_clicks"],
-                "profile_views_day": v["profile_views"],
-                "accounts_engaged_day": v["accounts_engaged"],
-                "followers_count": v["followers"],
-            }
-            for k, v in sorted(by_day.items())
-        ]
-
+    # Métricas lifetime de mídia não são snapshots históricos de perfil.
+    # A lista de publicações mantém timestamp real; daily usa somente snapshots.
     daily: List[Dict[str, Any]] = []
 
     for r in rows:
@@ -399,15 +348,6 @@ async def get_dashboard(
     missing_days = max(0, expected_days - covered_days)
 
     period_totals = _build_period_totals(rows)
-    if is_partial and media_rows_period:
-        media_period_totals = _build_media_period_totals(media_rows_period)
-        for metric in ("impressions", "reach", "total_interactions", "profile_views"):
-            period_totals[metric] = max(
-                int(period_totals.get(metric) or 0),
-                int(media_period_totals.get(metric) or 0),
-            )
-        period_totals["interactions"] = int(period_totals["total_interactions"])
-
     totals = {
         "impressions": int(period_totals["impressions"]),
         "reach": int(period_totals["reach"]),
@@ -492,7 +432,7 @@ async def get_dashboard(
 
     weekly_series = _build_series(rows, "weekly")
     monthly_series = _build_series(rows, "monthly")
-    data_available = bool(rows or media_rows_period)
+    data_available = bool(rows)
     connection_row = resolved_connection.get("row") or {}
     freshness = source_freshness(
         "meta_organic",

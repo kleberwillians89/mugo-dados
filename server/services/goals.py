@@ -5,6 +5,7 @@ from math import isfinite
 from .ig_supabase import sb_select
 from .fbits_reporting import _valid_metrics
 from .commerce_context import select_commerce_connection
+from .request_performance import measured
 
 METRICS = {"revenue", "orders", "average_ticket", "ad_spend", "roas", "conversions", "followers", "reach", "impressions", "engagement"}
 ADDITIVE = {"revenue", "orders", "ad_spend", "conversions", "impressions", "engagement"}
@@ -118,6 +119,7 @@ def evaluate_goal(goal, actual, today=None):
     # Estrutura já pronta para contexto futuro; não ligada à Intelligence.
     return {**goal, **actual, "progress_percent":progress, "elapsed_percent":elapsed, "pace_delta":delta, "projected_value":projected, "remaining":max(0, target-float(actual["actual"])) if progress is not None else None, "status":status}
 
+@measured("data_goals")
 async def list_goals(client_id, start=None, end=None):
     rows = await own_rows("client_goals", client_id, order="period_end.asc,created_at.asc,id.asc")
     rows = [r for r in rows if (not start or r["period_end"] >= start) and (not end or r["period_start"] <= end)]

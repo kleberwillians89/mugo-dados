@@ -422,12 +422,13 @@ async def _query_period(
 async def _query_timestamp_period(
     table: str, *, client_id: str, select: str, start: date, end: date, limit: int = 10000,
 ) -> List[Dict[str, Any]]:
+    since, until = resolve_period(start=start.isoformat(), end=end.isoformat()).utc_bounds()
     return await sb_select(
         table,
         select=select,
         filters={
             "client_id": f"eq.{client_id}",
-            "and": f"(timestamp.gte.{start.isoformat()}T00:00:00,timestamp.lt.{(end + timedelta(days=1)).isoformat()}T00:00:00)",
+            "and": f"(timestamp.gte.{since.isoformat()},timestamp.lte.{until.isoformat()})",
         },
         order="timestamp.asc",
         limit=limit,
@@ -545,7 +546,7 @@ def _historical_context(
     months: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
         metric_date = _text(row.get("metric_date"))
-        if metric_date.startswith(f"{year}-"):
+        if metric_date:
             months.setdefault(metric_date[:7], []).append(row)
     monthly: List[Dict[str, Any]] = []
     for month, month_rows in sorted(months.items()):
@@ -632,18 +633,16 @@ def _historical_context(
 async def _read_model_executive_context(
     client_id: str, start_date: date, end_date: date, previous_start: date, previous_end: date
 ) -> Dict[str, Any]:
-    history_start = date(end_date.year, 1, 1)
-    history_end = max(end_date, date.today())
     rows, snapshots, instagram_media = await asyncio.gather(
         _query_period(
             "dashboard_daily_metrics", client_id=client_id, select="*", date_column="metric_date",
-            start=min(previous_start, history_start), end=history_end, limit=800,
+            start=previous_start, end=end_date, limit=800,
         ),
         sb_select("dashboard_source_snapshots", filters={"client_id": f"eq.{client_id}"}, limit=20),
         _query_timestamp_period(
             "ig_media", client_id=client_id,
             select="timestamp,media_type,media_product_type,insights_json",
-            start=date(1970, 1, 1), end=history_end, limit=1000,
+            start=start_date, end=end_date, limit=1000,
         ),
     )
     by_provider = {_text(row.get("provider")): row for row in snapshots}
@@ -662,14 +661,49 @@ async def _read_model_executive_context(
             "shopify": {"connected": True, "data_available": any(row.get("shopify_net_revenue") is not None for row in selected), "net_revenue": net, "orders": orders, "average_order_value": net / orders if orders else None, "new_customers": _sum(selected, "shopify_customers"), "returning_customers": None, "last_success_at": source("shopify").get("last_success_at"), "data_max_available": source("shopify").get("data_max_available")},
             "meta": {"connected": True, "data_available": any(row.get("meta_spend") is not None for row in selected), "spend": meta_spend, "attributed_revenue": meta_revenue, "roas_real": net / meta_spend if meta_spend else None, "attributed_roas": meta_revenue / meta_spend if meta_spend else None, "last_success_at": source("meta").get("last_success_at"), "data_max_available": source("meta").get("data_max_available")},
             "google_ads": {"connected": True, "data_available": any(row.get("google_ads_spend") is not None for row in selected), "spend": google_spend, "attributed_revenue": google_value, "roas_real": net / google_spend if google_spend else None, "attributed_roas": google_value / google_spend if google_spend else None, "last_success_at": source("google_ads").get("last_success_at"), "data_max_available": source("google_ads").get("data_max_available")},
-            "ga4": {"connected": True, "data_available": any(row.get("ga4_sessions") is not None for row in selected), "sessions": _sum(selected, "ga4_sessions"), "users": None, "users_status": "unavailable", "daily_user_sum": _sum(selected, "ga4_users"), "user_count_semantics": "sum_of_daily_active_users", "last_success_at": source("ga4").get("last_success_at"), "data_max_available": source("ga4").get("data_max_available")},
+            "ga4": {"connected": True, "data_available": any(row.get("ga4_sessions") is not None for row in selected), "sessions": _sum(selected, "ga4_sessions"), "users": None, "users_status": "unavailable", "daily_user_sum": _sum(selected, "ga4_users"), "user_count_semantics": "sum_of_daily_users", "last_success_at": source("ga4").get("last_success_at"), "data_max_available": source("ga4").get("data_max_available")},
             "instagram": {"connected": True, "data_available": any(row.get("instagram_reach") is not None for row in selected), "last_success_at": source("instagram").get("last_success_at"), "data_max_available": source("instagram").get("data_max_available")},
             "total_paid_media": {"paid_media_spend": paid, "included_paid_sources": [provider for provider, value in (("meta", meta_spend), ("google_ads", google_spend)) if value], "blended_roas": net / paid if paid else None},
         }
 
+    def add_coverage(payload: Dict[str, Any], since: date, until: date) -> None:
+        for provider, field in (("shopify", "shopify_net_revenue"), ("meta", "meta_spend"),
+                                ("google_ads", "google_ads_spend"), ("ga4", "ga4_sessions"),
+                                ("instagram", "instagram_reach")):
+            dates = sorted({str(row["metric_date"]) for row in rows
+                            if since.isoformat() <= str(row.get("metric_date") or "") <= until.isoformat()
+                            and row.get(field) is not None})
+            if not dates:
+                fields = {"shopify": ("net_revenue", "orders", "new_customers"),
+                          "meta": ("spend", "attributed_revenue"), "google_ads": ("spend", "attributed_revenue"),
+                          "ga4": ("sessions", "daily_user_sum"), "instagram": ()}
+                for metric in fields[provider]:
+                    payload[provider][metric] = None
+            payload[provider]["coverage"] = {
+                "coverage_start": dates[0] if dates else None, "coverage_end": dates[-1] if dates else None,
+                "distinct_dates": len(dates), "covered_days": len(dates),
+                "expected_days": (until - since).days + 1,
+                "is_partial": bool(dates) and len(dates) < (until - since).days + 1,
+                "completeness": "unknown", "last_sync_at": None,
+                "projection_success_at": by_provider.get(provider, {}).get("last_success_at"),
+            }
+
+        if not payload["shopify"]["data_available"]:
+            payload["meta"]["roas_real"] = None
+            payload["google_ads"]["roas_real"] = None
+            payload["total_paid_media"]["blended_roas"] = None
+        paid_sources = [provider for provider in ("meta", "google_ads") if payload[provider]["data_available"]]
+        payload["total_paid_media"]["included_paid_sources"] = paid_sources
+        if not paid_sources:
+            payload["total_paid_media"]["paid_media_spend"] = None
+
     current = section(start_date, end_date)
     previous = section(previous_start, previous_end)
+    add_coverage(current, start_date, end_date)
+    add_coverage(previous, previous_start, previous_end)
     def delta(current_value: Any, previous_value: Any) -> Dict[str, float | None]:
+        if current_value is None or previous_value is None:
+            return {"absolute": None, "percent": None}
         current_number, previous_number = _number(current_value), _number(previous_value)
         return {"absolute": current_number - previous_number, "percent": ((current_number - previous_number) / abs(previous_number) * 100) if previous_number else None}
     current["previous_period"] = previous
@@ -680,7 +714,8 @@ async def _read_model_executive_context(
         "blended_roas": delta(current["total_paid_media"]["blended_roas"], previous["total_paid_media"]["blended_roas"]),
     }
     current["historical_context"] = _historical_context(
-        rows, snapshots, end_date.year, start_date, end_date, instagram_media
+        [row for row in rows if start_date.isoformat() <= _text(row.get("metric_date")) <= end_date.isoformat()],
+        snapshots, end_date.year, start_date, end_date, instagram_media
     )
     return current
 

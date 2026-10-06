@@ -71,7 +71,7 @@ async def fetch_ad_account_insights(
 
     selected_fields = fields or (
         "account_id,account_name,date_start,date_stop,"
-        "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+        "spend,impressions,reach,clicks,cpc,ctr,cpm,frequency,actions,action_values"
     )
 
     configured_time_increment = "-"

@@ -5,7 +5,7 @@ type Props = {
   /** Valor formatado para leitura. */
   value: string;
   /** Valor numérico bruto (atributo value de <data>). */
-  rawValue: number;
+  rawValue?: number;
   /** Valor exato, exibido ao passar o mouse quando `value` é abreviado. */
   exactValue?: string;
   delta?: ReactNode;
@@ -18,7 +18,7 @@ type Props = {
 export default function KpiFigure({ label, value, rawValue, exactValue, delta, hero = false, testId }: Props) {
   return (
     <div className={`ds-kpi${hero ? " is-hero" : ""}`} data-testid={testId}>
-      <data className="ds-kpiValue" value={String(rawValue)} title={exactValue}>{value}</data>
+      <data className="ds-kpiValue" value={rawValue == null ? undefined : String(rawValue)} title={exactValue}>{value}</data>
       <span className="ds-kpiLabel">{label}</span>
       <span className="ds-kpiDelta">{delta}</span>
     </div>

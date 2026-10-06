@@ -21,22 +21,27 @@ function buildPeriod(rows:DashboardDailyMetric[],start:string,end:string,sources
     meta:{connected:Boolean(source("meta")||metaDaily.length),last_success_at:source("meta")?.last_success_at||null,data_max_available:source("meta")?.data_max_available||null,data_available:metaDaily.length>0,spend:metaSpend,attributed_revenue:metaRevenue,roas:metaSpend>0?metaRevenue/metaSpend:null,daily:metaDaily},
     google_ads:{connected:Boolean(source("google_ads")||selected.some(r=>r.google_ads_spend!=null)),data_available:selected.some(r=>r.google_ads_spend!=null),data_max_available:source("google_ads")?.data_max_available||null,spend:googleSpend,conversion_value:googleRevenue,attributed_revenue:googleRevenue,roas:googleSpend>0?googleRevenue/googleSpend:null},
     total_paid_media:{paid_media_spend:paidSpend,included_paid_sources:[...(metaSpend?['meta']:[]),...(googleSpend?['google_ads']:[])],blended_roas:paidSpend>0?shopifyNet/paidSpend:null},
-    ga4:{connected:Boolean(source("ga4")||selected.some(r=>r.ga4_sessions!=null)),last_success_at:source("ga4")?.last_success_at||null,data_max_available:source("ga4")?.data_max_available||null,data_available:selected.some(r=>r.ga4_sessions!=null),sessions:total(selected,"ga4_sessions"),users:null,users_status:"unavailable",daily_user_sum:total(selected,"ga4_users"),user_count_semantics:"sum_of_daily_active_users",purchases:total(selected,"ga4_purchases"),revenue:total(selected,"ga4_revenue")},
+    ga4:{connected:Boolean(source("ga4")||selected.some(r=>r.ga4_sessions!=null)),last_success_at:source("ga4")?.last_success_at||null,data_max_available:source("ga4")?.data_max_available||null,data_available:selected.some(r=>r.ga4_sessions!=null),sessions:total(selected,"ga4_sessions"),users:null,users_status:"unavailable",daily_user_sum:total(selected,"ga4_users"),user_count_semantics:"sum_of_daily_users",purchases:total(selected,"ga4_purchases"),revenue:total(selected,"ga4_revenue")},
     instagram:{connected:Boolean(source("instagram")||selected.some(r=>r.instagram_reach!=null)),last_success_at:source("instagram")?.last_success_at||null,data_max_available:source("instagram")?.data_max_available||null},
     daily:selected.map(r=>{const spend=n(r.meta_spend)+n(r.google_ads_spend);return {date:r.metric_date,shopify:shopifyDaily.find(d=>d.date===r.metric_date)||null,meta:metaDaily.find(d=>d.date===r.metric_date)||null,connected_paid_spend:spend,blended_roas:spend>0?n(r.shopify_net_revenue)/spend:null};})};
 }
 
 export default function useExecutiveDashboard({activeClientId,enabled=true,period}: {isAuthenticated:boolean;activeClientId:string;enabled?:boolean;period?:DashboardPeriod|null}) {
   const safe=useMemo(()=>ensureDashboardPeriod(period),[period]);
-  const model=useDashboardSnapshot();
+  const days=Math.max(1,Math.round((Date.parse(safe.end)-Date.parse(safe.start))/86400000)+1);
+  const previousEnd=shiftDate(safe.start,-1),previousStart=shiftDate(previousEnd,-days+1);
+  const model=useDashboardSnapshot(safe.start,safe.end);
+  const previousModel=useDashboardSnapshot(previousStart,previousEnd);
   const executiveData=useMemo<ExecutiveDashboardResponse|null>(()=>{
     if(!activeClientId||!enabled||(!model.snapshot&&model.loading))return null;
-    const days=Math.max(1,Math.round((Date.parse(safe.end)-Date.parse(safe.start))/86400000)+1);
-    const previousEnd=shiftDate(safe.start,-1),previousStart=shiftDate(previousEnd,-days+1);
-    const current=buildPeriod(model.daily,safe.start,safe.end,model.sources),previous=buildPeriod(model.daily,previousStart,previousEnd,model.sources);
-    const delta=(a:number|null,b:number|null)=>({absolute:a==null||b==null?null:a-b,percent:a==null||b==null||b===0?null:(a-b)/b*100});
-    return {...current,ok:true,client_id:activeClientId,previous_period:previous,deltas:{shopify_net_revenue:delta(current.shopify?.net_revenue??null,previous.shopify?.net_revenue??null),shopify_orders:delta(current.shopify?.orders??null,previous.shopify?.orders??null),meta_spend:delta(current.meta.spend,previous.meta.spend),meta_roas:delta(current.meta.roas,previous.meta.roas),blended_roas:delta(current.total_paid_media.blended_roas,previous.total_paid_media.blended_roas)}};
-  },[activeClientId,enabled,model.daily,model.loading,model.snapshot,model.sources,safe.end,safe.start]);
+
+    const current=buildPeriod(model.daily,safe.start,safe.end,model.sources),previous=buildPeriod(previousModel.daily,previousStart,previousEnd,previousModel.sources);
+    const delta=(a:number|null,b:number|null,field:keyof DashboardDailyMetric)=>{
+      const comparable=model.daily.some(row=>row[field]!=null)&&previousModel.daily.some(row=>row[field]!=null);
+      return {absolute:!comparable||a==null||b==null?null:a-b,percent:!comparable||a==null||b==null||b===0?null:(a-b)/b*100};
+    };
+    return {...current,ok:true,client_id:activeClientId,previous_period:previous,deltas:{shopify_net_revenue:delta(current.shopify?.net_revenue??null,previous.shopify?.net_revenue??null,"shopify_net_revenue"),shopify_orders:delta(current.shopify?.orders??null,previous.shopify?.orders??null,"shopify_orders"),meta_spend:delta(current.meta.spend,previous.meta.spend,"meta_spend"),meta_roas:delta(current.meta.roas,previous.meta.roas,"meta_spend"),blended_roas:delta(current.total_paid_media.blended_roas,previous.total_paid_media.blended_roas,"shopify_net_revenue")}};
+  },[activeClientId,enabled,model.daily,model.loading,model.snapshot,model.sources,previousModel.daily,previousModel.sources,previousStart,previousEnd,safe.end,safe.start]);
   const reloadExecutive=useCallback(async(options?:{force?:boolean})=>{void options;return model.refetch() as Promise<unknown> as Promise<ExecutiveDashboardResponse|null>;},[model]);
   return {executiveData,loadingExecutive:model.loading&&!executiveData,executiveError:model.error,reloadExecutive};
 }

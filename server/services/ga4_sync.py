@@ -329,7 +329,7 @@ def _daily_upsert_rows(
                 "event_count": _safe_int(values.get("eventCount")),
                 "key_events": _safe_int(values.get("keyEvents")),
                 "transactions": _safe_int(values.get("transactions")),
-                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases")),
+                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases", values.get("transactions"))),
                 "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
                 "total_revenue": round(_safe_float(values.get("totalRevenue")), 2),
                 "view_item_count": funnel["view_item_count"],
@@ -369,7 +369,7 @@ def _channel_upsert_rows(
                 "active_users": _safe_int(values.get("activeUsers")),
                 "total_users": _safe_int(values.get("totalUsers")),
                 "event_count": _safe_int(values.get("eventCount")),
-                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases")),
+                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases", values.get("transactions"))),
                 "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
                 "total_revenue": round(_safe_float(values.get("totalRevenue")), 2),
                 "updated_at": now_iso,
@@ -407,7 +407,7 @@ def _campaign_upsert_rows(
                 "active_users": _safe_int(values.get("activeUsers")),
                 "total_users": _safe_int(values.get("totalUsers")),
                 "event_count": _safe_int(values.get("eventCount")),
-                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases")),
+                "ecommerce_purchases": _safe_int(values.get("ecommercePurchases", values.get("transactions"))),
                 "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
                 "total_revenue": round(_safe_float(values.get("totalRevenue")), 2),
                 "updated_at": now_iso,
@@ -524,6 +524,22 @@ async def _sync_ga4_for_period(
             metrics=GA4_REPORT_METRICS,
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
+        # O validador existente limita o relatório a dez métricas. Receita total e compras
+        # vêm de um segundo relatório diário, não de soma por atribuição.
+        commerce_report = await _run_named_report(
+            "daily_commerce", property_id=resolved_property_id, access_token=access_token,
+            start_date=period.start.isoformat(), end_date=period.end.isoformat(),
+            dimensions=("date",), metrics=("transactions", "ecommercePurchases", "purchaseRevenue", "totalRevenue"),
+            order_bys=[{"dimension": {"dimensionName": "date"}}],
+        )
+        by_date = {str((row.get("values") or {}).get("date")): dict(row.get("values") or {})
+                   for row in daily_report.get("rows") or []}
+        for row in commerce_report.get("rows") or []:
+            values = row.get("values") or {}
+            key = str(values.get("date") or "")
+            if key:
+                by_date.setdefault(key, {"date": key}).update(values)
+        daily_report["rows"] = [{"values": values} for values in by_date.values()]
         daily_rows = _daily_upsert_rows(
             client_id=resolved_client_id, property_id=resolved_property_id,
             daily_rows=daily_report.get("rows") or [], funnel_by_date={},
@@ -532,12 +548,6 @@ async def _sync_ga4_for_period(
             await _upsert_with_compatibility(
                 table="ga4_daily_stats", rows=daily_rows,
                 on_conflict="client_id,property_id,stat_date",
-            )
-            await refresh_dashboard_read_model_safely(
-                client_id=resolved_client_id,
-                start=period.start.isoformat(),
-                end=period.end.isoformat(),
-                provider="ga4",
             )
         channel_report = await _run_named_report(
             "channels",
@@ -624,7 +634,7 @@ async def _sync_ga4_for_period(
                     "source,medium,campaign_name"
                 ),
             )
-        await _run_named_report(
+        device_report = await _run_named_report(
             "devices",
             property_id=resolved_property_id,
             access_token=access_token,
@@ -665,9 +675,25 @@ async def _sync_ga4_for_period(
                 rows=daily_rows,
                 on_conflict="client_id,property_id,stat_date",
             )
+        try:
+            projection = await refresh_dashboard_read_model_safely(
+                client_id=resolved_client_id, start=period.start.isoformat(),
+                end=period.end.isoformat(), provider="ga4",
+            )
+        except Exception:
+            projection = None
+        if not isinstance(projection, dict) or projection.get("ok") is not True:
+            raise IntegrationError("A projeção GA4 não foi concluída.", status_code=502,
+                                   code="GA4_PROJECTION_FAILED", provider="ga4", retryable=True)
         rows_upserted = len(daily_rows) + len(channel_rows) + len(campaign_rows) + len(event_rows) + len(landing_rows)
         payload = {
             "ok": True,
+            "read_model_refreshed": True,
+            "collection_complete": all(report.get("collection_complete") is True for report in (
+                daily_report, commerce_report, channel_report, campaign_report,
+                event_report, landing_report, device_report, funnel_report,
+            )),
+            "projection_success_at": _utc_now_iso(),
             "client_id": resolved_client_id,
             "property_id": resolved_property_id,
             "period": {

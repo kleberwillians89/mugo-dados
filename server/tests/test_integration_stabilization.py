@@ -436,15 +436,15 @@ class Ga4StructuredErrorTests(unittest.TestCase):
 
 
 class Ga4ReportIsolationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_sync_builds_seven_valid_report_payloads(self):
+    async def test_sync_builds_eight_valid_report_payloads(self):
         report = AsyncMock(return_value={"rows": [], "row_count": 0})
-        with patch.object(ga4_sync, "run_ga4_report", report):
+        with patch.object(ga4_sync, "run_ga4_report", report), patch.object(ga4_sync, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})):
             result = await ga4_sync._sync_ga4_for_period(
                 client_id="amalie", property_id="properties/123456789",
                 access_token="safe", days=1, record_job_run=False,
             )
         self.assertTrue(result["ok"])
-        self.assertEqual(report.await_count, 7)
+        self.assertEqual(report.await_count, 8)
         for call in report.await_args_list:
             self.assertEqual(call.kwargs["property_id"], "123456789")
             self.assertLessEqual(len(call.kwargs["metrics"]), 10)
@@ -464,7 +464,7 @@ class Ga4ReportIsolationTests(unittest.IsolatedAsyncioTestCase):
                     client_id="amalie", property_id="123456789",
                     access_token="safe", days=1, record_job_run=False,
                 )
-        self.assertEqual(raised.exception.diagnostics["report"], "channels")
+        self.assertEqual(raised.exception.diagnostics["report"], "daily_commerce")
 
     def test_admin_api_disabled_has_specific_code(self):
         request = httpx.Request("GET", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries")

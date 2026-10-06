@@ -249,7 +249,7 @@ it("Meta espera sync terminar antes da releitura e entrega snapshot novo ao resu
   refreshApi.refetch.mockResolvedValue(fresh);
   await act(async () => { finish({ ok: true }); });
   expect(refreshApi.refetch).toHaveBeenCalledExactlyOnceWith({ afterCurrent: true });
-  expect(refreshApi.reloadSummary).toHaveBeenCalledExactlyOnceWith({ snapshot: fresh, includeSecondary: true, loadStories: true });
+  expect(refreshApi.reloadSummary).toHaveBeenCalledExactlyOnceWith({ snapshot: fresh, force: true, includeSecondary: true, loadStories: true });
 });
 
 it("Meta não anuncia sucesso quando a releitura falha", async () => {

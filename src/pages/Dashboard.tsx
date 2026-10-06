@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
@@ -21,6 +21,8 @@ import PeriodSelector from "../components/data/PeriodSelector";
 import SegmentedControl from "../components/data/SegmentedControl";
 import TrendChart from "../components/data/TrendChart";
 import useClientIntegrations from "../hooks/useClientIntegrations";
+import { readOnce } from "../hooks/dashboard/readOnce";
+import useSectionDemand from "../hooks/useSectionDemand";
 import {
   formatCalendarDateWords,
   formatCalendarRange,
@@ -47,7 +49,6 @@ import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 
 import {
   refreshProviderData,
-  listMonthsByConnection,
   listNotes,
   createNote,
   updateNote,
@@ -360,8 +361,10 @@ function InstagramTrend({ dash, metric, granularity, onMetric, onGranularity, pe
       : Array.isArray(dash?.series?.daily)
         ? dash.series.daily
         : [];
-    return aggregateRowsByGranularity(baseRows, granularity);
-  }, [dash, granularity]);
+    const availableKey = metric;
+    if (dash.metric_coverage && !dash.metric_coverage[availableKey]) return [];
+    return aggregateRowsByGranularity(baseRows.filter(row => !row.available_metrics || row.available_metrics.includes(availableKey)), granularity);
+  }, [dash, granularity, metric]);
 
   const points = useMemo(() => chartRows.map((row, index) => {
     const value = option.id === "followers"
@@ -625,6 +628,43 @@ export default function Dashboard({
   const [activeConnectionId, setActiveConnection] = useState<string | null>(() =>
     cachedConnectionsInitial.length ? pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()) : null
   );
+  const connectionScope = useRef(activeClientId);
+  const [connectionReadError, setConnectionReadError] = useState<string | null>(null);
+  if (connectionScope.current !== activeClientId) {
+    connectionScope.current = activeClientId;
+    const nextId = pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId());
+    setConnections(cachedConnectionsInitial);
+    setActiveConnection(nextId);
+    setHasActiveConnection(nextId ? true : null);
+    setConnectionReadError(null);
+  }
+  useEffect(() => {
+    if (!isAuthenticated || !activeClientId) return;
+    let alive = true;
+    const apply = (rows: MetaConnection[]) => {
+      if (!alive || connectionScope.current !== activeClientId) return;
+      const own = rows.filter(row => row.client_id === activeClientId);
+      const id = pickDefaultConnectionId(own, getActiveConnectionId());
+      setConnections(own);
+      setActiveConnection(id);
+      setHasActiveConnection(Boolean(id));
+      setConnectionReadError(null);
+      writeDashboardCache(connectionsCacheKey, own, 300_000);
+    };
+    const cached = readDashboardCache<MetaConnection[]>(connectionsCacheKey);
+    if (cached) apply(cached);
+    else queueMicrotask(() => {
+      if (!alive) return;
+      void readOnce(connectionsCacheKey, () => listClientConnections(activeClientId))
+        .then(response => apply(arrayOrEmpty<MetaConnection>(response.connections)))
+        .catch(() => {
+          if (!alive || connectionScope.current !== activeClientId) return;
+          setHasActiveConnection(false);
+          setConnectionReadError("Não foi possível resolver a conexão do Instagram.");
+        });
+    });
+    return () => { alive = false; };
+  }, [activeClientId, connectionsCacheKey, isAuthenticated]);
   // Leituras persistidas de Ads e do executivo começam junto com o orgânico.
   // Nenhuma delas chama upstream; postergar esta etapa fazia Shopify/Meta
   // parecerem ausentes enquanto Instagram ainda carregava.
@@ -637,9 +677,10 @@ export default function Dashboard({
       buildDashboardCacheKey("meta-months", {
         clientId: activeClientId,
         connectionId: organicConnectionId || "-",
+        start: period.start, end: period.end,
         extra: "available",
       }),
-    [activeClientId, organicConnectionId]
+    [activeClientId, organicConnectionId, period.start, period.end]
   );
   const notesCacheKey = useMemo(
     () =>
@@ -654,6 +695,12 @@ export default function Dashboard({
     () => pickSelectedPaidConnectionId(connections, selectedPaidConnectionId),
     [connections, selectedPaidConnectionId]
   );
+  const demandScope = `${activeClientId}:${organicConnectionId}:${period.start}:${period.end}`;
+  const dashboardSnapshot = useDashboardSnapshot();
+  const organicReadsReady = isAuthenticated && Boolean(organicConnectionId) && !dashboardSnapshot.loading;
+  const contentDemand = useSectionDemand(demandScope, organicReadsReady);
+  const commentsDemand = useSectionDemand(demandScope, organicReadsReady);
+  const monthlyDemand = useSectionDemand(demandScope, organicReadsReady);
 
   const {
     data: summaryData,
@@ -667,7 +714,8 @@ export default function Dashboard({
     isAuthenticated,
     activeClientId,
     activeConnectionId: organicConnectionId,
-    secondaryEnabled: true,
+    secondaryEnabled: contentDemand.enabled || commentsDemand.enabled,
+    commentsEnabled: commentsDemand.enabled,
     autoLoadStories: false,
     period,
   });
@@ -705,7 +753,7 @@ export default function Dashboard({
     isAuthenticated,
     activeClientId,
     activeConnectionId: organicConnectionId,
-    enabled: enableMonthlyStage,
+    enabled: enableMonthlyStage && monthlyDemand.enabled,
     period,
   });
   const {
@@ -765,14 +813,13 @@ export default function Dashboard({
   });
   // Ativos da conexão em uso (Página, Instagram, conta de anúncios): mesma
   // leitura canônica de Integrações, só para identificar a fonte na página.
-  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeClientId) });
+  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeClientId) && getActiveClient()?.role !== "viewer" });
   const secondaryOrganicLoading =
-    !enableExtrasStage &&
+    hasActiveConnection !== false && !contentDemand.enabled && !commentsDemand.enabled &&
     !mediaData.length &&
     !comments.length &&
     (loadingDash || refreshingDash || summarySettled);
   const paidPanelLoading = loadingPaid || (!enablePaidStage && !paidData);
-  const dashboardSnapshot = useDashboardSnapshot();
 
   const onSelectPeriodPreset = useCallback(
     (preset: "day" | "7d" | "30d" | "month") => {
@@ -886,18 +933,10 @@ export default function Dashboard({
       setAvailableMonths([]);
       return [];
     }
-    const force = !!options?.force;
-    const cached = !force ? readDashboardCache<string[]>(monthsCacheKey) : null;
-    if (cached) {
-      const nextMonths = arrayOrEmpty<string>(cached);
-      startTransition(() => {
-        setAvailableMonths(nextMonths);
-      });
-      return nextMonths;
-    }
+    void options;
     try {
-      const res = await listMonthsByConnection({ connectionId: organicConnectionId });
-      const rows = arrayOrEmpty<string>(res.months);
+      // O agregado já informa os meses da janela; não pedir catálogo all-time.
+      const rows = monthlyRows.map(row => row.month);
       const normalized = rows
         .map((value) => String(value || "").trim())
         .filter((value) => /^\d{4}-\d{2}$/.test(value))
@@ -913,7 +952,7 @@ export default function Dashboard({
       dashLog("loadAvailableMonths:error", { message: errorMessage(error, "failed") });
       return [];
     }
-  }, [activeClientId, isAuthenticated, monthsCacheKey, organicConnectionId]);
+  }, [activeClientId, isAuthenticated, monthsCacheKey, organicConnectionId, monthlyRows]);
 
   const handleCreateNote = useCallback(async (): Promise<NoteItem | null> => {
     const res = await createNote({ title: "Nova nota", body: "" });
@@ -1100,7 +1139,7 @@ export default function Dashboard({
       const snapshot = await dashboardSnapshot.refetch({ afterCurrent: true });
       if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
       if (getActiveClientId() !== activeClientId) return;
-      const summary = await reloadSummary({ snapshot, includeSecondary: true, loadStories: true });
+      const summary = await reloadSummary({ snapshot, force: true, includeSecondary: true, loadStories: true });
       if (!summary) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
       console.info("[meta][ui_read_done]", { client_id: activeClientId });
       setRefreshRuntime([{ ...runtime, status: "success", finished_at: new Date().toISOString() }]);
@@ -1220,6 +1259,9 @@ export default function Dashboard({
     coveredDays,
     metricValues: Object.values(kpisFromDash),
   });
+  const organicAvailable = (metric: string) => !dash?.metric_coverage || Boolean(dash.metric_coverage[metric]);
+  const organicValue = (metric: string, value: number) => organicAvailable(metric) ? formatInteger(value) : "—";
+  const organicRaw = (metric: string, value: number) => organicAvailable(metric) ? value : undefined;
   const accountHasCoverage = daily.length > 0;
   const partialCoverageLabel = `Dados parciais: ${coveredDays}/${expectedDays} dias`;
 
@@ -1352,8 +1394,8 @@ export default function Dashboard({
     { label: "Compartilhamentos", value: organicContent.metrics.shares.value, coverage: organicContent.metrics.shares },
   ], [organicContent]);
   const mediaPanelLoading = loadingMedia || secondaryOrganicLoading;
-  const commentsPanelLoading = loadingComments || secondaryOrganicLoading;
-  const monthlyPanelLoading = loadingMonthly || (!enableMonthlyStage && !monthlyRows.length);
+  const commentsPanelLoading = loadingComments || (hasActiveConnection !== false && !commentsDemand.enabled && !comments.length);
+  const monthlyPanelLoading = loadingMonthly || (hasActiveConnection !== false && !monthlyDemand.enabled && !monthlyRows.length);
 
 
   const handleLoadMoreComments = useCallback(() => {}, []);
@@ -1859,6 +1901,8 @@ export default function Dashboard({
         </MetaBlockBoundary>
 
         {/* ===== INSTAGRAM: atenção e conteúdo ===== */}
+        <div ref={contentDemand.observe} data-testid="organic-demand">
+        {connectionReadError ? <p role="status">{connectionReadError}</p> : null}
         <MetaBlockBoundary resetKey={`organic:${metaRenderKey}`} title="Instagram" description="Leitura orgânica">
           {readModelError ? null : (loadingDash && !hasDash) || readModelLoading ? (
             <p className="ds-status" role="status">Carregando Instagram...</p>
@@ -1868,9 +1912,9 @@ export default function Dashboard({
                 {organicLead ? null : <h2 id="instagram-title" className="ds-headline">Instagram</h2>}
                 {organicLead ? (
                   <HeroFigure
-                    value={formatCompactInteger(kpisFromDash.reach)}
-                    exactValue={formatInteger(kpisFromDash.reach)}
-                    rawValue={kpisFromDash.reach}
+                    value={organicAvailable("reach") ? formatCompactInteger(kpisFromDash.reach) : "—"}
+                    exactValue={organicValue("reach", kpisFromDash.reach)}
+                    rawValue={organicRaw("reach", kpisFromDash.reach)}
                     label="contas alcançadas no Instagram no período"
                     delta={<Delta change={metricChange("reach")} showReference />}
                     testId="instagram-reach"
@@ -1879,16 +1923,16 @@ export default function Dashboard({
                 {organicLead ? <h2 id="instagram-title" className="ds-srOnly">Instagram</h2> : null}
                 <div className={`ds-kpis${organicLead ? "" : " is-four"}`}>
                   {organicLead ? null : (
-                    <KpiFigure label="Alcance" value={formatInteger(kpisFromDash.reach)} rawValue={kpisFromDash.reach} delta={<Delta change={metricChange("reach")} />} />
+                    <KpiFigure label="Alcance" value={organicValue("reach", kpisFromDash.reach)} rawValue={organicRaw("reach", kpisFromDash.reach)} delta={<Delta change={metricChange("reach")} />} />
                   )}
-                  <KpiFigure label="Interações" value={formatInteger(kpisFromDash.total_interactions)} rawValue={kpisFromDash.total_interactions} delta={<Delta change={metricChange("interactions")} />} />
-                  <KpiFigure label="Visitas ao perfil" value={formatInteger(kpisFromDash.profile_views)} rawValue={kpisFromDash.profile_views} delta={<Delta change={metricChange("profile_views")} />} />
-                  <KpiFigure label="Cliques no link" value={formatInteger(kpisFromDash.website_clicks)} rawValue={kpisFromDash.website_clicks} delta={<Delta change={metricChange("website_clicks")} />} />
+                  <KpiFigure label="Interações" value={organicValue("total_interactions", kpisFromDash.total_interactions)} rawValue={organicRaw("total_interactions", kpisFromDash.total_interactions)} delta={<Delta change={metricChange("interactions")} />} />
+                  <KpiFigure label="Visitas ao perfil" value={organicValue("profile_views", kpisFromDash.profile_views)} rawValue={organicRaw("profile_views", kpisFromDash.profile_views)} delta={<Delta change={metricChange("profile_views")} />} />
+                  <KpiFigure label="Cliques no link" value={organicValue("website_clicks", kpisFromDash.website_clicks)} rawValue={organicRaw("website_clicks", kpisFromDash.website_clicks)} delta={<Delta change={metricChange("website_clicks")} />} />
                 </div>
                 <div className="ds-secondary">
                   <dl className="ds-inlineStats">
-                    <div><dt>Visualizações</dt><dd>{formatInteger(kpisFromDash.impressions)}</dd></div>
-                    <div><dt>Seguidores</dt><dd>{followersLine}</dd></div>
+                    <div><dt>Visualizações</dt><dd>{organicValue("impressions", kpisFromDash.impressions)}</dd></div>
+                    <div><dt>Seguidores</dt><dd>{organicAvailable("followers") ? followersLine : "—"}</dd></div>
                   </dl>
                   <p className="ds-footnote">
                     {isPartialCoverage ? `${partialCoverageLabel}. ` : null}
@@ -1897,7 +1941,7 @@ export default function Dashboard({
                 </div>
               </section>
 
-              {accountHasCoverage ? (
+              {accountHasCoverage && organicAvailable(activeMetric) ? (
                 <InstagramTrend
                   dash={dash!}
                   metric={activeMetric}
@@ -1976,11 +2020,11 @@ export default function Dashboard({
               </section>
 
               <MetaBlockBoundary resetKey={`monthly:${metaRenderKey}`} title="Conteúdo por mês" description="Série mensal de conteúdo">
-                <section className="ds-section ds-chartSection" aria-labelledby="instagram-monthly-title">
+                <section ref={monthlyDemand.observe} data-testid="monthly-demand" className="ds-section ds-chartSection" aria-labelledby="instagram-monthly-title">
                   <div className="ds-sectionHead">
                     <div className="ds-sectionHeadText">
                       <h3 id="instagram-monthly-title" className="ds-sectionTitle">{monthlyTitle}</h3>
-                      <p className="ds-caption">Histórico completo da conta, independente do período selecionado{monthlyLastUpdatedLabel ? ` · ${freshness(monthlyLastUpdatedLabel)}` : ""}.</p>
+                      <p className="ds-caption">Conteúdo por mês dentro do período selecionado{monthlyLastUpdatedLabel ? ` · ${freshness(monthlyLastUpdatedLabel)}` : ""}.</p>
                     </div>
                     {monthlyRowsForChart.length > 1 ? (
                       <p className="ds-chartKey" aria-hidden="true">
@@ -2066,6 +2110,7 @@ export default function Dashboard({
               </MetaBlockBoundary>
 
               <MetaBlockBoundary resetKey={`comments:${metaRenderKey}`} title="Comentários" description="Comentários e palavras mais citadas">
+                <div ref={commentsDemand.observe} data-testid="comments-demand">
                 <CommentsPanel
                   comments={deferredComments}
                   topWords={deferredTopWords}
@@ -2078,6 +2123,7 @@ export default function Dashboard({
                   error={commentsError}
                   onLoadMore={handleLoadMoreComments}
                 />
+                </div>
               </MetaBlockBoundary>
             </div>
           ) : instagramConnected ? (
@@ -2094,7 +2140,7 @@ export default function Dashboard({
             <p className="ds-footnote">Instagram não conectado: a página mostra só Meta Ads desta empresa.</p>
           ) : null}
         </MetaBlockBoundary>
-
+        </div>
         {SHOW_PRESENTATION_EXTRAS ? (
           <MetaBlockBoundary resetKey={`notes:${metaRenderKey}`} title="Notas do cliente" description="Anotações internas da conta">
             <NotesPanel

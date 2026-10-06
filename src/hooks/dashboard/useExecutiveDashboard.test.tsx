@@ -19,7 +19,7 @@ test("usuários únicos ficam indisponíveis e a soma diária tem semântica exp
   for (const section of [current!.executiveData?.ga4, current!.executiveData?.previous_period?.ga4]) {
     expect(section?.users).toBeNull();
     expect(section?.users_status).toBe("unavailable");
-    expect(section?.user_count_semantics).toBe("sum_of_daily_active_users");
+    expect(section?.user_count_semantics).toBe("sum_of_daily_users");
   }
   act(() => root.unmount());
 });

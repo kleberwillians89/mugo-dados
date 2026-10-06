@@ -3,7 +3,8 @@ from typing import Optional, Dict, Any, List
 from fastapi import HTTPException
 
 from .auth import get_user_id_from_bearer
-from .ig_supabase import sb_get_client_id_for_user, sb_get_client_memberships, sb_get_connection_for_client
+from .ig_supabase import sb_get_client_id_for_user, sb_get_client_membership_roles as sb_get_client_memberships, sb_get_connection_for_client
+from .request_performance import measured
 import os
 
 
@@ -47,6 +48,7 @@ async def _has_agency_admin_membership(user_id: str) -> bool:
     return any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
 
 
+@measured("tenant")
 async def resolve_client_id(client_id: Optional[str], authorization: Optional[str]) -> str:
     """
     Resolve tenant do request usando somente membership.
@@ -108,6 +110,7 @@ async def require_user_client_access(user_id: str, client_id: str) -> str:
     return await sb_get_client_id_for_user(uid, requested_client_id=cid)
 
 
+@measured("authorization")
 async def require_client_role(
     client_id: Optional[str],
     authorization: Optional[str],
@@ -183,10 +186,12 @@ async def require_agency_admin(authorization: Optional[str]) -> str:
 
 
 async def list_memberships_from_auth(authorization: Optional[str]) -> List[Dict[str, Any]]:
+    from .ig_supabase import sb_get_client_memberships as hydrated_memberships
     user_id = await require_user_id(authorization)
-    return await sb_get_client_memberships(user_id)
+    return await hydrated_memberships(user_id)
 
 
+@measured("connection_validation")
 async def resolve_connection_id(
     connection_id: Optional[str],
     *,

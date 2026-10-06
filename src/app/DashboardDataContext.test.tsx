@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({ calls: [] as string[], deferred: new Map<strin
 
 function query(table: string) {
   const builder: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "gte", "order", "limit"]) builder[method] = () => builder;
+  for (const method of ["select", "eq", "gte", "lte", "order", "limit", "range"]) builder[method] = () => builder;
   builder.then = (resolve: (value: unknown) => void) => {
     mocks.calls.push(table);
     const pending = mocks.deferred.get(table);
@@ -28,14 +28,14 @@ function Consumer({ period = "7d" }: { period?: string }) {
 
 beforeEach(() => { mocks.calls.length = 0; mocks.deferred.clear(); sessionStorage.clear(); });
 
-test("tenant unresolved faz zero queries; tenant canônico faz quatro e rerender/período fazem zero", async () => {
+test("tenant unresolved faz zero queries; tenant canônico faz quatro; trocar período refaz a consulta", async () => {
   const node = document.createElement("div"); const root = createRoot(node);
   await act(async () => root.render(<DashboardDataProvider clientId="" tenantReady={false} enabled><Consumer /></DashboardDataProvider>));
   expect(mocks.calls).toHaveLength(0);
-  await act(async () => root.render(<DashboardDataProvider clientId="tenant-bootstrap-1" tenantReady enabled><Consumer /></DashboardDataProvider>));
+  await act(async () => root.render(<DashboardDataProvider clientId="tenant-bootstrap-1" tenantReady enabled period={{start:"2026-08-04",end:"2026-08-10"}}><Consumer /></DashboardDataProvider>));
   expect(mocks.calls).toHaveLength(4);
-  await act(async () => root.render(<DashboardDataProvider clientId="tenant-bootstrap-1" tenantReady enabled><Consumer period="30d" /></DashboardDataProvider>));
-  expect(mocks.calls).toHaveLength(4);
+  await act(async () => root.render(<DashboardDataProvider clientId="tenant-bootstrap-1" tenantReady enabled period={{start:"2026-07-12",end:"2026-08-10"}}><Consumer period="30d" /></DashboardDataProvider>));
+  expect(mocks.calls).toHaveLength(8);
   act(() => root.unmount());
 });
 
@@ -43,11 +43,11 @@ test("resposta atrasada do tenant anterior não sobrescreve o tenant atual", asy
   const held = ["dashboard_daily_metrics", "dashboard_source_snapshots", "dashboard_campaign_metrics", "dashboard_product_metrics"];
   for (const table of held) mocks.deferred.set(table, { resolve: () => undefined });
   const node = document.createElement("div"); const root = createRoot(node);
-  act(() => root.render(<DashboardDataProvider clientId="tenant-race-old" tenantReady enabled><Consumer /></DashboardDataProvider>));
+  act(() => root.render(<DashboardDataProvider clientId="tenant-race-old" tenantReady enabled period={{start:"2026-08-04",end:"2026-08-10"}}><Consumer /></DashboardDataProvider>));
   await act(async () => Promise.resolve());
   const oldResolvers = held.map((table) => mocks.deferred.get(table)!.resolve);
   mocks.deferred.clear();
-  await act(async () => root.render(<DashboardDataProvider clientId="tenant-race-new" tenantReady enabled><Consumer /></DashboardDataProvider>));
+  await act(async () => root.render(<DashboardDataProvider clientId="tenant-race-new" tenantReady enabled period={{start:"2026-08-04",end:"2026-08-10"}}><Consumer /></DashboardDataProvider>));
   expect(node.textContent).toBe("0");
   await act(async () => { oldResolvers.forEach((resolve) => resolve({ data: [{ metric_date: "2026-08-10" }], error: null })); await Promise.resolve(); });
   expect(node.textContent).toBe("0");

@@ -25,6 +25,8 @@ from services.fbits_reporting import resolve_fbits_period
 from services.ga4_sync import sync_ga4_for_period
 from services.meta_tokens import refresh_meta_token_for_connection
 from services.meta_backfill import process_next_slice
+from services.provider_history import backfill_provider_history
+from services.provider_coverage import provider_coverage
 
 
 def _print_json(payload: Any) -> None:
@@ -32,6 +34,15 @@ def _print_json(payload: Any) -> None:
 
 
 async def _run(args: argparse.Namespace) -> Any:
+    if args.command in {"provider-coverage", "provider-history"}:
+        operation = provider_coverage if args.command == "provider-coverage" else backfill_provider_history
+        try:
+            return await operation(client_id=args.client_id, provider=args.provider, start_date=args.start_date,
+                end_date=args.end_date, connection_id=args.connection_id,
+                **({"resume": args.resume} if args.command == "provider-history" else {}))
+        except Exception as exc:
+            return {"ok": False, "provider": args.provider, "code": getattr(exc, "code", "PROVIDER_HISTORY_FAILED"),
+                    "message": "Operação não concluída. Nenhuma completude certificada; verifique os checkpoints e tente retomar."}
     if args.command == "token-refresh":
         return await run_token_refresh_job()
     if args.command == "organic-sync":
@@ -90,6 +101,21 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Executa jobs operacionais de Instagram, Meta Ads e GA4. Pode ser usado localmente ou como base de Cron Jobs no Render."
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    history = sub.add_parser("provider-history", help="Histórico de 1 a 90 dias de UMA empresa; Meta reutiliza a fila existente.")
+    history.add_argument("--client-id", required=True)
+    history.add_argument("--provider", required=True, choices=["meta_ads", "google_ads", "ga4", "instagram_content"])
+    history.add_argument("--start-date", required=True)
+    history.add_argument("--end-date", required=True)
+    history.add_argument("--connection-id", default=None)
+    history.add_argument("--resume", action="store_true")
+
+    coverage = sub.add_parser("provider-coverage", help="Cobertura persistida read-only de UMA empresa.")
+    coverage.add_argument("--client-id", required=True)
+    coverage.add_argument("--provider", required=True, choices=["meta_ads", "google_ads", "ga4", "instagram", "instagram_content"])
+    coverage.add_argument("--start-date", required=True)
+    coverage.add_argument("--end-date", required=True)
+    coverage.add_argument("--connection-id", default=None)
 
     sub.add_parser("token-refresh", help="Renova/valida tokens Meta ativos.")
 
@@ -167,7 +193,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    _print_json(asyncio.run(_run(args)))
+    result = asyncio.run(_run(args))
+    _print_json(result)
+    if args.command in {"provider-history", "provider-coverage"} and result.get("ok") is False:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

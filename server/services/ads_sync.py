@@ -728,7 +728,7 @@ async def _fetch_boosted_insight_rows(
                 level=None,
                 fields=(
                     "date_start,date_stop,ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,"
-                    "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+                    "spend,impressions,reach,clicks,cpc,ctr,cpm,frequency,actions,action_values"
                 ),
                 time_increment=1,
                 limit=200,
@@ -1502,7 +1502,7 @@ async def sync_ads_for_client_period(
                 level="account",
                 fields=(
                     "account_id,account_name,date_start,date_stop,"
-                    "spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values,purchase_roas"
+                    "spend,impressions,reach,clicks,cpc,ctr,cpm,frequency,actions,action_values,purchase_roas"
                 ),
                 time_increment=1,
                 limit=500,
@@ -1575,7 +1575,7 @@ async def sync_ads_for_client_period(
                 level="campaign",
                 fields=(
                     "account_id,account_name,date_start,date_stop,campaign_id,campaign_name,"
-                    "objective,spend,impressions,reach,clicks,cpc,ctr,cpm,actions,action_values"
+                    "objective,spend,impressions,reach,clicks,cpc,ctr,cpm,frequency,actions,action_values"
                 ),
                 time_increment=1,
                 limit=1000,

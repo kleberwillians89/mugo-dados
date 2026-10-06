@@ -27,7 +27,7 @@ def build_slices(since: str, until: str, days: int = SLICE_DAYS) -> List[Dict[st
     return slices
 
 
-async def enqueue_backfill(*, client_id: str, connection_id: str, since: str, until: str, created_by: str) -> Dict[str, Any]:
+async def enqueue_backfill(*, client_id: str, connection_id: str, since: str, until: str, created_by: str | None) -> Dict[str, Any]:
     parts = build_slices(since, until)
     connections = await sb_select("meta_connections", select="id,client_id,platform,connection_type", filters={
         "id": f"eq.{connection_id}", "client_id": f"eq.{client_id}", "platform": "eq.meta_ads", "connection_type": "eq.paid"

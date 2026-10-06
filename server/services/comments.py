@@ -9,6 +9,7 @@ import httpx
 from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_select
 from .periods import resolve_period
+from .request_performance import measured
 
 _STOPWORDS = {
     "a", "o", "os", "as", "de", "da", "do", "das", "dos", "e", "é", "em", "no", "na", "nos", "nas",
@@ -91,6 +92,7 @@ def _chunk(values: List[str], size: int = 140) -> List[List[str]]:
     return [values[i : i + size] for i in range(0, len(values), size)]
 
 
+@measured("data_comments")
 async def get_comments(
     client_id: str,
     connection_id: str | None = None,

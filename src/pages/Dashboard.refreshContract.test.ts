@@ -16,7 +16,7 @@ describe("Dashboard manual refresh contract", () => {
     expect(refreshBody.match(/dashboardSnapshot\.refetch\(/g)).toHaveLength(1);
     expect(refreshBody).not.toContain("reloadExecutive(");
     expect(refreshBody).not.toContain("reloadPaid(");
-    expect(refreshBody).toContain("reloadSummary({ snapshot, includeSecondary: true, loadStories: true })");
+    expect(refreshBody).toContain("reloadSummary({ snapshot, force: true, includeSecondary: true, loadStories: true })");
     expect(refreshBody).toContain("if (!snapshot) throw");
   });
 });

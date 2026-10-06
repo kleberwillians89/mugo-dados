@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getActiveClientId } from "../app/activeClient";
 import { getGoals, type Goal } from "../app/goals";
-export default function useGoals(clientId: string, start: string, end: string) {
+export default function useGoals(clientId: string, start: string, end: string, enabled = true) {
   const key = `${clientId}:${start}:${end}`;
   const [state, setState] = useState<{ key: string; goals: Goal[] }>({ key, goals: [] });
   const [issue, setIssue] = useState<{ key: string; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0);
   const load = useCallback(async () => {
-    if (!clientId) return;
+    if (!clientId || !enabled) return;
     const request = ++generation.current;
     setLoading(true); setIssue(null);
     try {
@@ -19,8 +19,13 @@ export default function useGoals(clientId: string, start: string, end: string) {
     } catch (cause) {
       if (request === generation.current && getActiveClientId() === clientId) setIssue({ key, message: cause instanceof Error ? cause.message : "Não foi possível ler as metas." });
     } finally { if (request === generation.current) setLoading(false); }
-  }, [clientId, end, key, start]);
+  }, [clientId, enabled, end, key, start]);
   const invalidate = useCallback(() => { generation.current++; }, []);
-  useEffect(() => { void load(); return invalidate; }, [load, invalidate]);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void load(); });
+    return () => { cancelled = true; invalidate(); };
+  }, [enabled, load, invalidate]);
   return { goals: state.key === key ? state.goals : [], error: issue?.key === key ? issue.message : null, loading, reload: load };
 }

@@ -267,8 +267,8 @@ export default function GoogleAnalytics({
         cpc: row.google_ads_spend != null && row.google_ads_clicks ? row.google_ads_spend / row.google_ads_clicks : null,
         cpm: row.google_ads_spend != null && row.google_ads_impressions ? row.google_ads_spend * 1000 / row.google_ads_impressions : null,
         ctr: row.google_ads_clicks != null && row.google_ads_impressions ? row.google_ads_clicks * 100 / row.google_ads_impressions : null,
-        roas: row.google_ads_spend != null && row.google_ads_spend > 0 && row.shopify_net_revenue != null
-          ? row.shopify_net_revenue / row.google_ads_spend : null,
+        roas: row.google_ads_spend != null && row.google_ads_spend > 0 && row.google_ads_conversion_value != null
+          ? row.google_ads_conversion_value / row.google_ads_spend : null,
       })),
     };
   }, [adsModel.daily]);
@@ -684,6 +684,9 @@ export default function GoogleAnalytics({
                         <div><dt>Eventos por sessão</dt><dd>{eventsPerSession.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</dd></div>
                       ) : null}
                       {usersDiffer ? <div><dt>Usuários ativos (soma diária)</dt><dd>{formatInteger(ga4Report.summary.active_users)}</dd></div> : null}
+                      {ga4Report.summary.engaged_sessions != null ? <div><dt>Sessões engajadas</dt><dd>{formatInteger(ga4Report.summary.engaged_sessions)}</dd></div> : null}
+                      {ga4Report.summary.screen_page_views != null ? <div><dt>Visualizações</dt><dd>{formatInteger(ga4Report.summary.screen_page_views)}</dd></div> : null}
+                      {ga4Report.summary.key_events != null ? <div><dt>Eventos principais</dt><dd>{formatInteger(ga4Report.summary.key_events)}</dd></div> : null}
                       <div><dt>Média diária de usuários ativos</dt><dd>{formatInteger(ga4Report.summary.average_daily_active_users)}</dd></div>
                     </dl>
                     <p className="ds-footnote">

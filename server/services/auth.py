@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 import httpx
 import json
 import base64
+from .request_performance import measured, transport_started, transport_done
 from datetime import datetime, timezone
 
 def _env(name: str) -> str:
@@ -88,6 +89,7 @@ async def get_user_from_bearer(authorization: Optional[str]) -> Optional[Dict[st
     return None
 
 
+@measured("auth", memo=True)
 async def get_user_id_from_bearer(authorization: Optional[str]) -> Optional[str]:
     """
     Valida token chamando Supabase Auth. Retorna user_id (sub) se válido.
@@ -116,7 +118,13 @@ async def get_user_id_from_bearer(authorization: Optional[str]) -> Optional[str]
                 "Authorization": f"Bearer {token}",
                 "apikey": key,
             }
-            r = await client.get(url, headers=headers)
+            measurement = transport_started()
+            status = "transport_error"
+            try:
+                r = await client.get(url, headers=headers)
+                status = str(r.status_code)
+            finally:
+                transport_done(measurement, dependency="supabase_auth", operation="user", status=status)
             if r.status_code != 200:
                 continue
             data: Dict[str, Any] = r.json()

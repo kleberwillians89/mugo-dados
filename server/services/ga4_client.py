@@ -295,9 +295,15 @@ async def run_ga4_report(
     offset = 0
     total_rows = 0
     response_payload: Dict[str, Any] = {}
+    collection_complete = True
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        pages = 0
         while True:
+            pages += 1
+            if pages > 200:
+                raise IntegrationError("Paginação GA4 incompleta.", status_code=502,
+                                       code="GA4_PAGINATION_INCOMPLETE", provider="ga4", retryable=True)
             body = _build_run_report_body(
                 start_date=start_date,
                 end_date=end_date,
@@ -346,21 +352,28 @@ async def run_ga4_report(
                     retryable=True,
                 ) from exc
             response_payload = response.json()
+            metadata = response_payload.get("metadata") or {}
+            if (metadata.get("dataLossFromOtherRow") or metadata.get("subjectToThresholding")
+                    or metadata.get("samplingMetadatas") or metadata.get("dataTruncationReasons")
+                    or (metadata.get("schemaRestrictionResponse") or {}).get("activeMetricRestrictions")):
+                collection_complete = False
 
             parsed_rows = _parse_response_rows(response_payload)
             all_rows.extend(parsed_rows)
             total_rows = int(response_payload.get("rowCount") or len(all_rows))
 
             fetched_count = len(parsed_rows)
-            if fetched_count <= 0:
-                break
             offset += fetched_count
-            if fetched_count < page_size or offset >= total_rows:
+            if offset >= total_rows:
                 break
+            if fetched_count <= 0:
+                raise IntegrationError("Paginação GA4 interrompida antes de rowCount.", status_code=502,
+                                       code="GA4_PAGINATION_INCOMPLETE", provider="ga4", retryable=True)
 
     return {
         "property_id": resolved_property_id,
         "row_count": total_rows,
+        "collection_complete": collection_complete,
         "rows": all_rows,
         "metadata": {
             "currency_code": _safe_str((response_payload.get("metadata") or {}).get("currencyCode")) or None,

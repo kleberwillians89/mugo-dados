@@ -1,6 +1,8 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getMediaMonthly } from "../../app/api";
+import { readOnce } from "./readOnce";
 import type { MediaMonthlyItem } from "../../app/types";
+import { ensureDashboardPeriod } from "./period";
 import type { DashboardPeriod } from "./period";
 import {
   buildDashboardCacheKey,
@@ -41,7 +43,7 @@ export default function useDashboardMonthlyContent({
   enabled = true,
   period,
 }: Params) {
-  void period;
+  const selected = useMemo(() => ensureDashboardPeriod(period), [period]);
   const resolvedConnectionId = useMemo(
     () => String(activeConnectionId || "").trim(),
     [activeConnectionId]
@@ -51,9 +53,9 @@ export default function useDashboardMonthlyContent({
       buildDashboardCacheKey("media-monthly", {
         clientId: activeClientId,
         connectionId: resolvedConnectionId || "-",
-        extra: "all-time",
+        start: selected.start, end: selected.end,
       }),
-    [activeClientId, resolvedConnectionId]
+    [activeClientId, resolvedConnectionId, selected.start, selected.end]
   );
   const cachedInitial = useMemo(() => {
     const cached = readDashboardCache<MonthlyCachePayload>(cacheKey);
@@ -115,13 +117,15 @@ export default function useDashboardMonthlyContent({
       setMonthlyError(null);
 
       try {
-        const response = await getMediaMonthly(
-          3650,
+        const load = () => getMediaMonthly(
+          { start: selected.start, end: selected.end },
           {
             connectionId: resolvedConnectionId,
-            signal: controller.signal,
+            clientId: activeClientId,
+            signal: options?.force ? controller.signal : undefined,
           }
         );
+        const response = options?.force ? await load() : await readOnce(cacheKey, load);
         if (reqId !== requestRef.current) return [] as MediaMonthlyItem[];
         const rows = arrayOrEmpty<MediaMonthlyItem>(response.months);
         startTransition(() => {
@@ -142,13 +146,15 @@ export default function useDashboardMonthlyContent({
         }
       }
     },
-    [activeClientId, cacheKey, enabled, isAuthenticated, resolvedConnectionId]
+    [activeClientId, cacheKey, enabled, isAuthenticated, resolvedConnectionId, selected.start, selected.end]
   );
 
   useEffect(() => {
     if (!enabled || !isAuthenticated || !activeClientId) return;
-    void reloadMonthly();
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void reloadMonthly(); });
     return () => {
+      cancelled = true;
       abortRef.current?.abort();
     };
   }, [activeClientId, enabled, isAuthenticated, reloadMonthly, resolvedConnectionId]);

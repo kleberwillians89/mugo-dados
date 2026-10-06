@@ -526,6 +526,11 @@ export type Ga4DailyStatRow = {
 };
 
 export type Ga4Summary = {
+  engaged_sessions?: number;
+  screen_page_views?: number;
+  key_events?: number;
+  transactions?: number;
+  new_users?: number;
   user_count_semantics?: "sum_of_daily_users" | "sum_of_daily_active_users";
   sessions: number;
   active_users: number;
@@ -631,6 +636,7 @@ export type Ga4CollectionResponse<T> = {
 // Dashboard (Meta-like)
 // =========================
 export type DashboardDailyRow = {
+  available_metrics?: string[];
   date: string;
   start?: string;
   end?: string;
@@ -695,6 +701,7 @@ export type DashboardResponse = {
   end?: string;
 
   daily: DashboardDailyRow[];
+  metric_coverage?: Record<string, number>;
   series?: DashboardSeries;
 
   period_totals?: DashboardPeriodTotals;

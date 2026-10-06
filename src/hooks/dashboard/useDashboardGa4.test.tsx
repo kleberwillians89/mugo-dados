@@ -2,7 +2,7 @@
 import React, { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { getGa4Channels } from "../../app/api";
+import { getGa4Report } from "../../app/api";
 import useDashboardGa4 from "./useDashboardGa4";
 import Ga4SiteBehaviorPanel from "../../components/dashboard/Ga4SiteBehaviorPanel";
 
@@ -33,8 +33,17 @@ const campaigns = Array.from({ length: 2 }, (_, index) => ({
 }));
 
 vi.mock("../../app/api", () => ({
-  getGa4Channels: vi.fn(async () => ({ items: channels })),
-  getGa4Campaigns: vi.fn(async () => ({ items: campaigns })),
+  getGa4Report: vi.fn(async () => ({
+    ok: true, client_id: "amalie", property_id: "123",
+    period: { start: "2026-08-01", end: "2026-08-10", days: 10 },
+    summary: { sessions: 20, active_users: 12, total_users: 15, user_count_semantics: "sum_of_daily_users", event_count: 40, purchases: 2, purchase_revenue: 90 },
+    channels, campaigns, events: [], trends: { daily: [] }, funnel: {},
+    meta: { last_synced_at: "2026-08-10T12:00:00Z", data_available: true },
+    commerce_journey: { summary: { purchase_rate_from_view_item: 0 }, items: [] },
+    behavior: { title: "Comportamento", description: "", total_events: 0, total_users: 0, items: [] },
+    engagement: { title: "Engajamento", description: "", total_events: 0, total_users: 0, items: [] },
+    merchandising: { title: "Produtos", description: "", total_events: 0, total_users: 0, items: [] },
+  })),
 }));
 vi.mock("../../app/DashboardDataContext", () => ({
   useDashboardSnapshot: () => ({
@@ -59,7 +68,7 @@ function Harness() {
   return <div>{value.ga4Report?.summary.sessions}:{value.ga4Report?.channels.length}:{value.ga4Report?.campaigns.length}</div>;
 }
 
-test("combina o diário do read model com 3 canais e 2 campanhas reais", async () => {
+test("consulta o relatório persistido com 3 canais e 2 campanhas reais", async () => {
   const node = document.createElement("div");
   const root = createRoot(node);
   await act(async () => root.render(<Harness />));
@@ -73,11 +82,12 @@ test("combina o diário do read model com 3 canais e 2 campanhas reais", async (
 test("Dashboard identifica a soma de usuários e não a apresenta como únicos do período", async () => {
   function Panel() {
     const value = useDashboardGa4({ isAuthenticated: true, activeClientId: "amalie", period: { start: "2026-08-01", end: "2026-08-10" } });
-    expect(value.ga4Report?.summary.user_count_semantics).toBe("sum_of_daily_active_users");
+    if (value.ga4Report) expect(value.ga4Report.summary.user_count_semantics).toBe("sum_of_daily_users");
     return <Ga4SiteBehaviorPanel report={value.ga4Report} loading={false} refreshing={false} error={null} />;
   }
   const node = document.createElement("div"), root = createRoot(node);
   await act(async () => root.render(<Panel />));
+  await act(async () => new Promise(resolve => window.setTimeout(resolve, 10)));
   expect(node.textContent).toContain("Usuários ativos (soma diária)");
   expect(node.textContent).toContain("A mesma pessoa pode ser contada em dias diferentes");
   expect(node.textContent).not.toContain("12 usuários totais");
@@ -97,7 +107,7 @@ test("falha na releitura preserva canais, campanhas e freshness do último suces
   await act(async () => root.render(<Capture />));
   await act(async () => new Promise((resolve) => window.setTimeout(resolve, 10)));
   expect(node.textContent).toBe("3:2");
-  vi.mocked(getGa4Channels).mockRejectedValueOnce(new Error("indisponível"));
+  vi.mocked(getGa4Report).mockRejectedValueOnce(new Error("indisponível"));
   await act(async () => { await current!.reloadGa4({force:true}); });
   expect(node.textContent).toBe("3:2");
   expect(current!.ga4UpdatedAt).toBe("2026-08-10T12:00:00Z");

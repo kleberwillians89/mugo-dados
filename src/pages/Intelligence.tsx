@@ -1,3 +1,4 @@
+import PeriodSelector from "../components/data/PeriodSelector";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   askIntelligence,
@@ -457,13 +458,14 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   }
 
   if (loading && !snapshot && !analysis) {
-    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
+    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><PeriodSelector /><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
   }
 
   return (
     <main className="intelligencePage">
       {/* Primeira dobra responde "o que eu preciso saber hoje?": identidade
           curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
+      <PeriodSelector />
       <header className="intelHeader">
         <div className="intelIdentity">
           <h1>Inteligência</h1>

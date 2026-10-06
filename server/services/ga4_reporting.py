@@ -200,11 +200,21 @@ def _period_filter(period: GA4ReportPeriod) -> str:
     return f"(stat_date.gte.{period.start.isoformat()},stat_date.lte.{period.end.isoformat()})"
 
 
+async def _select_persisted_pages(table: str, *, select: str, filters: dict, order: str, limit: int) -> list:
+    rows = []
+    for offset in range(0, 200000, 1000):
+        page = await sb_select(table, select=select, filters=filters, order=order + ",id.asc", limit=1000, offset=offset)
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+    raise RuntimeError("Paginação de fatos GA4 incompleta.")
+
+
 async def _select_ga4_daily_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
-    return await sb_select(
+    return await _select_persisted_pages(
         "ga4_daily_stats",
         select=(
-            "id,client_id,property_id,stat_date,sessions,active_users,total_users,event_count,"
+            "id,client_id,property_id,stat_date,sessions,engaged_sessions,screen_page_views,key_events,transactions,new_users,active_users,total_users,event_count,"
             "ecommerce_purchases,purchase_revenue,total_revenue,view_item_count,add_to_cart_count,"
             "begin_checkout_count,purchase_count,updated_at"
         ),
@@ -219,7 +229,7 @@ async def _select_ga4_daily_rows(*, client_id: str, property_id: str, period: GA
 
 
 async def _select_ga4_channel_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
-    return await sb_select(
+    return await _select_persisted_pages(
         "ga4_channel_stats",
         select=(
             "id,client_id,property_id,stat_date,source_medium,source,medium,sessions,active_users,total_users,"
@@ -236,7 +246,7 @@ async def _select_ga4_channel_rows(*, client_id: str, property_id: str, period: 
 
 
 async def _select_ga4_campaign_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
-    return await sb_select(
+    return await _select_persisted_pages(
         "ga4_campaign_stats",
         select=(
             "id,client_id,property_id,stat_date,campaign_name,source_medium,source,medium,sessions,active_users,"
@@ -253,7 +263,7 @@ async def _select_ga4_campaign_rows(*, client_id: str, property_id: str, period:
 
 
 async def _select_ga4_event_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
-    return await sb_select(
+    return await _select_persisted_pages(
         "ga4_event_stats",
         select="id,client_id,property_id,stat_date,event_name,event_count,total_users,updated_at",
         filters={
@@ -291,6 +301,8 @@ def _build_daily_rows(period: GA4ReportPeriod, rows: List[Dict[str, Any]]) -> Li
             continue
         bucket = daily_map[day_key]
         bucket["sessions"] = _safe_int(row.get("sessions"))
+        for metric in ("engaged_sessions", "screen_page_views", "key_events", "transactions", "new_users"):
+            bucket[metric] = _safe_int(row.get(metric))
         bucket["active_users"] = _safe_int(row.get("active_users"))
         bucket["total_users"] = _safe_int(row.get("total_users"))
         bucket["event_count"] = _safe_int(row.get("event_count"))
@@ -338,6 +350,7 @@ def _build_summary(daily_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "user_count_semantics": "sum_of_daily_users",
         "sessions": sessions,
+        **{metric: sum(_safe_int(row.get(metric)) for row in daily_rows) for metric in ("engaged_sessions", "screen_page_views", "key_events", "transactions", "new_users")},
         "active_users": active_users,
         "total_users": total_users,
         "event_count": event_count,
@@ -587,6 +600,13 @@ async def build_ga4_report(
         "events": event_items,
         "meta": {
             "user_count_semantics": "sum_of_daily_users",
+            "coverage": {
+                "coverage_start": min((str(row["stat_date"]) for row in daily_source_rows), default=None),
+                "coverage_end": max((str(row["stat_date"]) for row in daily_source_rows), default=None),
+                "distinct_dates": len({row["stat_date"] for row in daily_source_rows}),
+                "expected_days": resolved_period.days,
+                "completeness": "unknown",
+            },
             "last_synced_at": last_synced_at,
             "data_available": freshness["data_available"],
             "stale": freshness["stale"],

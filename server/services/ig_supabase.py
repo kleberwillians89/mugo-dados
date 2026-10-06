@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import httpx
+from .request_performance import measured, transport_started, transport_done
 
 
 def _env(name: str) -> str:
@@ -94,8 +95,15 @@ async def _request(
     async with httpx.AsyncClient(timeout=resolved_timeout) as client:
         for attempt in range(1, attempts + 1):
             started = time.perf_counter()
+            measurement = transport_started()
+            measurement_status = "transport_error"
             try:
-                r = await client.request(method, url, headers=h, params=params, json=json)
+                try:
+                    r = await client.request(method, url, headers=h, params=params, json=json)
+                    measurement_status = str(r.status_code)
+                finally:
+                    transport_done(measurement, dependency="supabase_rest", operation=method.upper() + " " + path.split("?", 1)[0],
+                                   status=measurement_status)
             except Exception as exc:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 print(
@@ -278,7 +286,8 @@ async def sb_upload_public(path: str, content: bytes, content_type: str) -> str:
     return f"{supa_url}/storage/v1/object/public/{bucket}/{path}"
 
 
-async def sb_get_client_memberships(user_id: str) -> List[Dict[str, Any]]:
+@measured("membership", memo=True)
+async def sb_get_client_memberships(user_id: str, *, include_clients: bool = True) -> List[Dict[str, Any]]:
     uid = (user_id or "").strip()
     if not uid:
         return []
@@ -304,6 +313,8 @@ async def sb_get_client_memberships(user_id: str) -> List[Dict[str, Any]]:
                 order="client_id.asc",
             )
 
+        if not include_clients:
+            return rows
         out: List[Dict[str, Any]] = []
         for r in rows:
             cid = str(r.get("client_id") or "").strip()
@@ -332,6 +343,11 @@ async def sb_get_client_memberships(user_id: str) -> List[Dict[str, Any]]:
             order="client_id.asc",
         )
 
+        if not include_clients:
+            return [{"id": None, "user_id": uid, "client_id": row["client_id"],
+                     "role": "owner", "created_at": None}
+                    for row in legacy_rows if row.get("client_id")]
+
         out: List[Dict[str, Any]] = []
         for r in legacy_rows:
             cid = str(r.get("client_id") or "").strip()
@@ -353,6 +369,10 @@ async def sb_get_client_memberships(user_id: str) -> List[Dict[str, Any]]:
                 }
             )
         return out
+
+
+async def sb_get_client_membership_roles(user_id: str) -> List[Dict[str, Any]]:
+    return await sb_get_client_memberships(user_id, include_clients=False)
 
 
 async def sb_get_client_id_for_user(user_id: str, requested_client_id: Optional[str] = None) -> str:

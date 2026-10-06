@@ -110,6 +110,7 @@ class SafeAccessLogTests(unittest.IsolatedAsyncioTestCase):
         request = SimpleNamespace(
             method="GET",
             headers={},
+            query_params={"code": "secret-code", "state": "secret-state", "access_token": "secret-token"},
             url=SimpleNamespace(
                 path="/api/oauth/google/callback",
                 query="code=secret-code&state=secret-state&access_token=secret-token",
