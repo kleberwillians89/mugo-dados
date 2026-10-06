@@ -1,6 +1,7 @@
+import useSectionDemand from "../hooks/useSectionDemand";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   askIntelligence,
   generateIntelligenceAnalysis,
@@ -194,6 +195,10 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     cached?.providerConfigured ?? null,
   );
   const [loading, setLoading] = useState(!cached);
+  const [displayPeriod, setDisplayPeriod] = useState(period);
+  const [transitioning, setTransitioning] = useState(false);
+  const displayedTenant = useRef(clientId);
+  const transitionRef = useRef(transitioning); useLayoutEffect(() => {transitionRef.current = transitioning;}, [transitioning]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [question, setQuestion] = useState("");
@@ -222,6 +227,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const workspaceView = useRef<HTMLDivElement | null>(null);
   const retryKind = useRef<"read" | "analysis" | "question">("read");
   const cacheKeyRef = useRef(cacheKey);
+  const detailedContextScope = useRef<string | null>(null);
+  const detailsDemand = useSectionDemand(cacheKey, Boolean(snapshot) && !transitioning && displayPeriod.start === period.start && displayPeriod.end === period.end);
 
   useEffect(() => {
     if (messages.length) conversationView.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
@@ -232,23 +239,26 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     questionInput.current?.focus();
   }
 
-  // Troca de empresa (ou período) nunca pode deixar o snapshot/análise/
-  // histórico do tenant anterior visível — nem por um frame, e nem
-  // indefinidamente quando o novo tenant ainda não tem nada em cache
-  // (antes, esse caso não limpava snapshot/analysis/history, só ligava o
-  // loading). Reset síncrono durante o render, não em useEffect.
+  // Tenant muda: limpa síncronamente. Período muda no mesmo tenant:
+  // mantém a leitura anterior com o rótulo antigo até a substituição atômica.
   if (cacheKeyRef.current !== cacheKey) {
     cacheKeyRef.current = cacheKey;
     requestVersion.current += 1;
     refreshController.current?.abort();
     askController.current?.abort();
     const nextCache = workspaceCache.get(cacheKey);
-    setSnapshot(nextCache?.snapshot || null);
-    setAnalysis(nextCache?.analysis || null);
+    const keepPrevious = displayedTenant.current === clientId && !nextCache && Boolean(snapshot || analysis);
+    displayedTenant.current = clientId;
+    setTransitioning(keepPrevious);
+    if (!keepPrevious) {
+      setSnapshot(nextCache?.snapshot || null);
+      setAnalysis(nextCache?.analysis || null);
+      setDisplayPeriod(period);
+    }
     setHistory(nextCache?.history || []);
     setProviderConfigured(nextCache?.providerConfigured ?? null);
     setRefreshedAt(nextCache?.refreshedAt || null);
-    setLoading(!nextCache);
+    setLoading(!nextCache && !keepPrevious);
     setError("");
     setConversationId(null);
     setMessages([]);
@@ -256,7 +266,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
 
   // Leitura do workspace: a mesma para a abertura da tela e para o botão
   // "Atualizar dados". Só GETs já autorizados — nenhuma mutação, nenhuma IA.
-  const loadWorkspace = useCallback((controller: AbortController) => {
+  const loadWorkspace = useCallback((controller: AbortController, detailed = false) => {
+    const transitioning = transitionRef.current;
     const version = ++requestVersion.current;
     const currentCache = workspaceCache.get(cacheKey);
     setError("");
@@ -266,24 +277,34 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       workspaceCache.set(cacheKey, { snapshot: null, analysis: null, history: [], providerConfigured: null,
         ...currentCache, ...workspaceCache.get(cacheKey), ...patch });
     };
+    const contextRead = readOnce(`intelligence-context:${cacheKey}:${detailed}`, () => getIntelligenceContext(period, {includeCommerceDetails: detailed}));
+    const historyKey = buildDashboardCacheKey("intelligence-history", {clientId});
+    const cachedHistory = !detailed ? readDashboardCache<IntelligenceAnalysisRecord[]>(historyKey) : null;
+    const latestRead = readOnce(`intelligence-latest:${cacheKey}`, () => getLatestIntelligenceAnalysis(period));
+    if (transitioning) void Promise.allSettled([contextRead, latestRead]).then(([contextResult, latestResult]) => {
+      if (!live()) return;
+      if (contextResult.status !== "fulfilled" || latestResult.status !== "fulfilled") { setError("Não foi possível atualizar o período. Mantendo a leitura anterior."); return; }
+      setSnapshot(contextResult.value.snapshot); setAnalysis(latestResult.value.analysis);
+      setProviderConfigured(latestResult.value.provider_configured); setDisplayPeriod(period); setTransitioning(false);
+    });
     return Promise.allSettled([
-      readOnce(`intelligence-context:${cacheKey}`, () => getIntelligenceContext(period)).then(result => {
-        if (live()) { setSnapshot(result.snapshot); setLoading(false); persist({ snapshot: result.snapshot }); }
+      contextRead.then(result => {
+        if (live() && !transitioning) { setDisplayPeriod(period); setSnapshot(result.snapshot); setLoading(false); persist({ snapshot: result.snapshot }); }
         return result;
       }),
-      readOnce(`intelligence-latest:${cacheKey}`, () => getLatestIntelligenceAnalysis(period)).then(result => {
-        if (live()) { setAnalysis(result.analysis); setProviderConfigured(result.provider_configured);
+      latestRead.then(result => {
+        if (live() && !transitioning) { setAnalysis(result.analysis); setProviderConfigured(result.provider_configured);
           if (result.analysis) setLoading(false);
           persist({ analysis: result.analysis, providerConfigured: result.provider_configured }); }
         return result;
       }),
-      readOnce(`intelligence-history:${clientId}:20`, () => getIntelligenceHistory(20)).then(result => {
-        if (live()) { setHistory(result.items); persist({ history: result.items }); }
+      (cachedHistory ? Promise.resolve({items:cachedHistory}) : readOnce(`intelligence-history:${clientId}:20`, () => getIntelligenceHistory(20))).then(result => {
+        if (live()) { setHistory(result.items); writeDashboardCache(historyKey,result.items,120_000); persist({ history: result.items }); }
         return result;
       }),
     ]).then(([contextResult, latestResult, historyResult]) => {
       if (controller.signal.aborted || version !== requestVersion.current) return;
-      const nextSnapshot =
+      const nextSnapshot = detailedContextScope.current === cacheKey ? workspaceCache.get(cacheKey)?.snapshot || null :
         contextResult.status === "fulfilled" ? contextResult.value.snapshot : currentCache?.snapshot || null;
       const nextAnalysis =
         latestResult.status === "fulfilled" ? latestResult.value.analysis : currentCache?.analysis || null;
@@ -293,8 +314,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         latestResult.status === "fulfilled"
           ? latestResult.value.provider_configured
           : currentCache?.providerConfigured ?? null;
-      setSnapshot(nextSnapshot);
-      setAnalysis(nextAnalysis);
+      if (!transitioning) { setSnapshot(nextSnapshot); setAnalysis(nextAnalysis); }
       setHistory(nextHistory);
       setProviderConfigured(nextProvider);
       const nextRefreshedAt = nextSnapshot?.last_sync_at || null;
@@ -307,7 +327,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         refreshedAt: nextRefreshedAt,
       });
       const failed = [contextResult, latestResult, historyResult].filter((item) => item.status === "rejected");
-      if (failed.length === 3) {
+      if (contextResult.status === "rejected" && latestResult.status === "rejected") {
         retryKind.current = "read";
         const reason = failed[0].status === "rejected" ? failed[0].reason : null;
         setError(reason instanceof Error ? reason.message : "Não foi possível carregar a central de inteligência.");
@@ -328,6 +348,20 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     };
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    if (!detailsDemand.enabled) return;
+    let active = true;
+    const requestedKey = cacheKey;
+    void readOnce(`intelligence-context:${cacheKey}:true`, () => getIntelligenceContext(period, {includeCommerceDetails: true})).then(result => {
+      if (!active || cacheKeyRef.current !== requestedKey) return;
+      detailedContextScope.current = requestedKey;
+      setSnapshot(result.snapshot);
+      const current = workspaceCache.get(requestedKey);
+      if (current) workspaceCache.set(requestedKey, {...current, snapshot:result.snapshot});
+    }).catch(() => { if (active) setError("Não foi possível completar os detalhes. Mantendo a leitura disponível."); });
+    return () => {active = false;};
+  }, [cacheKey, detailsDemand.enabled, period]);
+
   /**
    * "Atualizar dados": revalida o que está persistido.
    *
@@ -341,7 +375,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     setRevalidating(true);
     const controller = new AbortController();
     try {
-      await loadWorkspace(controller);
+      await loadWorkspace(controller, true);
     } finally {
       setRevalidating(false);
     }
@@ -486,6 +520,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {/* Primeira dobra responde "o que eu preciso saber hoje?": identidade
           curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
       <PeriodSelector />
+      {transitioning ? <p role="status">{error ? "Período não atualizado. Exibindo a leitura anterior." : "Atualizando período... Exibindo a leitura anterior até a nova ficar disponível."}</p> : null}
       <header className="intelHeader">
         <div className="intelIdentity">
           <h1>Inteligência</h1>
@@ -493,7 +528,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         </div>
         <div className="intelHeaderMeta">
           <span><small>Empresa</small>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</span>
-          <span><small>Período</small>{formatDate(period.start)} — {formatDate(period.end)}</span>
+          <span><small>Período exibido</small>{formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}</span>
           {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
               aparecem separados: um é sincronização, o outro é a IA. */}
           {dataFreshnessLabel ? (
@@ -515,7 +550,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <button
             className="btn btnPrimary intelHeaderAction"
             onClick={() => void refreshAnalysis()}
-            disabled={refreshing}
+            disabled={refreshing || transitioning}
             data-testid="intel-generate"
           >
             {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
@@ -567,12 +602,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <h2>O que você quer entender?</h2>
           <p>Escolha um ponto de partida ou escreva sua pergunta abaixo.</p>
           <div className="intelQuestionSuggestions">
-            {QUESTIONS.map((suggestion) => <button key={suggestion} type="button" disabled={asking || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}
+            {QUESTIONS.map((suggestion) => <button key={suggestion} type="button" disabled={asking || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}
           </div>
           <button
             className="btn btnPrimary"
             type="button"
-            disabled={refreshing}
+            disabled={refreshing || transitioning}
             onClick={() => void refreshAnalysis()}
             data-testid="intel-generate-empty"
           >
@@ -805,7 +840,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         {!messages.length ? (
         <div className="intelQuestionSuggestions">
           {QUESTIONS.map((suggestion) => (
-            <button key={suggestion} type="button" disabled={asking || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
+            <button key={suggestion} type="button" disabled={asking || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
               {suggestion}
             </button>
           ))}
@@ -888,7 +923,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
 
       {/* Fontes são evidência, não produto: ficam no fim, em uma linha. */}
       {sourceNames.length || commerceContext?.provider_label ? (
-        <section className="intelSources" aria-label="Fontes da análise" data-testid="intel-sources">
+        <section ref={detailsDemand.observe} className="intelSources" aria-label="Fontes da análise" data-testid="intel-sources">
           <h2>Fontes da análise</h2>
           <p className="intelSourcesList">{sourceNames.join(" · ")}</p>
           {sourceCoverage ? <p className="intelSourcesNote">{sourceCoverage}</p> : null}
@@ -935,9 +970,9 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                   if (!asking && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
                 }
               }}
-              disabled={asking || providerConfigured === false}
+              disabled={asking || transitioning || providerConfigured === false}
             />
-            <button className="btn btnPrimary" disabled={asking || !question.trim() || providerConfigured === false}>
+            <button className="btn btnPrimary" disabled={asking || transitioning || !question.trim() || providerConfigured === false}>
               {asking ? "Analisando…" : "Enviar"}
             </button>
           </div>

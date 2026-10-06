@@ -631,7 +631,7 @@ def _historical_context(
 
 
 async def _read_model_executive_context(
-    client_id: str, start_date: date, end_date: date, previous_start: date, previous_end: date
+    client_id: str, start_date: date, end_date: date, previous_start: date, previous_end: date, *, include_media: bool = True
 ) -> Dict[str, Any]:
     rows, snapshots, instagram_media = await asyncio.gather(
         _query_period(
@@ -643,7 +643,7 @@ async def _read_model_executive_context(
             "ig_media", client_id=client_id,
             select="timestamp,media_type,media_product_type,insights_json",
             start=start_date, end=end_date, limit=1000,
-        ),
+        ) if include_media else asyncio.sleep(0, result=[]),
     )
     by_provider = {_text(row.get("provider")): row for row in snapshots}
 
@@ -688,6 +688,14 @@ async def _read_model_executive_context(
                 "projection_success_at": by_provider.get(provider, {}).get("last_success_at"),
             }
 
+        shop = payload["shopify"]
+        covered = shop["coverage"]["covered_days"] == shop["coverage"]["expected_days"]
+        if not covered:
+            for metric in ("net_revenue", "orders", "new_customers"):
+                if shop.get(metric) == 0:
+                    shop[metric] = None
+        if not shop.get("orders"):
+            shop["average_order_value"] = None
         if not payload["shopify"]["data_available"]:
             payload["meta"]["roas_real"] = None
             payload["google_ads"]["roas_real"] = None
@@ -727,6 +735,8 @@ async def calculate_intelligence_snapshot(
     end: str | None,
     days: int = 30,
     request_id: str | None = None,
+    include_commerce_details: bool = True,
+    include_external_research: bool = True,
 ) -> Dict[str, Any]:
     start_date, end_date = _parse_period(start, end, days)
     period_days = (end_date - start_date).days + 1
@@ -734,7 +744,8 @@ async def calculate_intelligence_snapshot(
     previous_start = previous_end - timedelta(days=period_days - 1)
 
     executive_context = await _read_model_executive_context(
-        client_id, start_date, end_date, previous_start, previous_end
+        client_id, start_date, end_date, previous_start, previous_end,
+        **({"include_media": False} if not include_commerce_details else {}),
     )
     current = executive_context or {}
     previous = current.get("previous_period") or {}
@@ -753,6 +764,7 @@ async def calculate_intelligence_snapshot(
             LOG_STAGE_COMMERCE_CONTEXT, request_id,
             resolve_commerce_context(
                 client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),
+                **({"include_details": False} if not include_commerce_details else {}),
                 shopify_section={
                     **shopify,
                     "previous": previous.get("shopify") or {},
@@ -763,7 +775,7 @@ async def calculate_intelligence_snapshot(
         _timed_stage(LOG_STAGE_BUSINESS_CONTEXT, request_id, load_business_context(client_id)),
         _timed_stage(
             LOG_STAGE_EXTERNAL_RESEARCH, request_id,
-            external_research_context(client_id=client_id),
+            external_research_context(client_id=client_id) if include_external_research else asyncio.sleep(0, result={"status": "unavailable", "provider": None, "market_signals": [], "content_references": [], "ugc_creators": []}),
         ),
     )
     print(
@@ -781,7 +793,7 @@ async def calculate_intelligence_snapshot(
 
     # Priorizar o valor já fornecido pelo provider correto; FBITS nunca usa
     # a seção Shopify. Fallback: mesma identidade/pedidos do Customer 360.
-    repeat_customers = None
+    repeat_customers = 0 if (commerce.get("provider") == "shopify" and shopify.get("orders") == 0 and (shopify.get("coverage") or {}).get("covered_days") == period_days) else None
     repeat_kpi_source = None
     official_repeat = commerce_metric("repeat_customers")
     if (commerce.get("official_kpis") and commerce.get("status") == "ok"
@@ -793,7 +805,7 @@ async def calculate_intelligence_snapshot(
             and shopify.get("data_available") and shopify.get("returning_customers") is not None):
         repeat_customers = shopify["returning_customers"]
         repeat_kpi_source = "shopify_read_model"
-    elif commerce.get("provider") in {"fbits", "shopify"}:
+    elif repeat_customers is None and include_commerce_details and commerce.get("provider") in {"fbits", "shopify"} and (commerce.get("provider") != "shopify" or ((shopify.get("coverage") or {}).get("covered_days") == period_days and shopify.get("data_available"))):
         try:
             repeat_customers = await recurring_customers_in_period(
                 client_id=client_id, start=start_date.isoformat(), end=end_date.isoformat(),

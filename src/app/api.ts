@@ -638,9 +638,9 @@ export async function saveBusinessContext(
 
 export async function getIntelligenceContext(
   period: Period,
-  options?: RequestSignalOptions,
+  options?: RequestSignalOptions & { includeCommerceDetails?: boolean },
 ): Promise<{ ok: true; snapshot: IntelligenceSnapshot }> {
-  return http(pathWithPeriod("/api/intelligence/context", period, 30), {
+  return http(pathWithPeriodAndExtras("/api/intelligence/context", period, 30, { include_commerce_details: options?.includeCommerceDetails }), {
     signal: options?.signal,
   });
 }

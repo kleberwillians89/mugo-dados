@@ -899,3 +899,49 @@ it("última análise e contexto aparecem antes do histórico lento sem gerar IA"
   expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls);
   await act(async () => finish({ ok: true, items: [] }));
 });
+
+it("7→30→90 preserva leitura anterior, rótulo correto e troca somente após contexto e análise novos", async () => {
+  mocks.clientId = "period-transition-fixture";
+  mocks.period = {start:"2026-08-25",end:"2026-08-31"};
+  await renderIntelligence();
+  const api = await import("../app/api");
+  for (const start of ["2026-08-02", "2026-06-03"]) {
+    const beforeLabel = container.querySelector(".intelHeaderMeta")!.textContent;
+    let resolveContext!: (value: unknown) => void, resolveLatest!: (value: unknown) => void;
+    vi.mocked(api.getIntelligenceContext).mockImplementationOnce(() => new Promise(resolve => {resolveContext = resolve;}));
+    vi.mocked(api.getLatestIntelligenceAnalysis).mockImplementationOnce(() => new Promise(resolve => {resolveLatest = resolve;}));
+    mocks.period = {start,end:"2026-08-31"};
+    await renderIntelligence();
+    expect(container.textContent).toContain("Atualizando período...");
+    expect(container.textContent).toContain("Receita cresceu no período.");
+    expect(container.textContent).not.toContain("Carregando sua leitura...");
+    expect(container.querySelector(".intelHeaderMeta")!.textContent).toBe(beforeLabel);
+    await act(async () => resolveContext({ok:true,snapshot:{...snapshot,period:{...snapshot.period,...mocks.period}}}));
+    expect(container.querySelector(".intelHeaderMeta")!.textContent).toBe(beforeLabel);
+    await act(async () => resolveLatest({ok:true,provider_configured:true,analysis:{...analysis,period_start:start}}));
+    expect(container.textContent).not.toContain("Atualizando período...");
+    expect(container.querySelector(".intelHeaderMeta")!.textContent).not.toBe(beforeLabel);
+  }
+});
+
+it("context inicial leve; detalhes somente ao demandar fontes, sem provider/geração automática", async () => {
+  const api = await import("../app/api");
+  mocks.clientId = "deferred-context-fixture";
+  const initialCalls = vi.mocked(api.getIntelligenceContext).mock.calls.length;
+  const observers = new Map<Element, IntersectionObserverCallback>();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(readonly callback: IntersectionObserverCallback) {}
+    observe(node: Element) { observers.set(node, this.callback); }
+    disconnect() {}
+  });
+  try {
+    await act(async () => root.render(<React.StrictMode><Intelligence /></React.StrictMode>));
+    expect(container.textContent).toContain("Receita cresceu no período.");
+    expect(vi.mocked(api.getIntelligenceContext).mock.calls.slice(initialCalls)).toHaveLength(1);
+    expect(vi.mocked(api.getIntelligenceContext).mock.calls.at(-1)?.[1]?.includeCommerceDetails).toBe(false);
+    const sources = container.querySelector('[data-testid="intel-sources"]')!;
+    await act(async () => observers.get(sources)!([{isIntersecting:true} as IntersectionObserverEntry], {} as IntersectionObserver));
+    expect(vi.mocked(api.getIntelligenceContext).mock.calls.slice(initialCalls)).toHaveLength(2);
+    expect(vi.mocked(api.getIntelligenceContext).mock.calls.at(-1)?.[1]?.includeCommerceDetails).toBe(true);
+  } finally {vi.unstubAllGlobals();}
+});

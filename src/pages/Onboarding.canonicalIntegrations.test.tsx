@@ -8,12 +8,13 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
   activeClientId: "amalie",
+  role: "agency_admin",
   canonicalResponse: null as unknown,
   shouldRejectNext: false,
 }));
 
 vi.mock("../app/activeClient", () => ({
-  getActiveClient: () => ({ id: mocks.activeClientId, name: "Amalie", role: "agency_admin" }),
+  getActiveClient: () => ({ id: mocks.activeClientId, name: "Amalie", role: mocks.role }),
   getActiveClientId: () => mocks.activeClientId,
   getActiveClientName: () => "Amalie",
   getActiveClientConfigurationWarning: () => null,
@@ -85,6 +86,7 @@ const REFRESH_BUTTON_IDLE = "Verificar status";
 const REFRESH_BUTTON_BUSY = "Verificando...";
 
 beforeEach(() => {
+  mocks.role = "agency_admin";
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -372,3 +374,9 @@ describe("Onboarding — mount/OAuth: estabilidade de efeitos", () => {
     errorSpy.mockRestore();
   });
 });
+
+ it("viewer abre a composição de integrações sem consultar catálogo administrativo", async () => {
+  mocks.role = "viewer";
+  await renderOnboarding();
+  expect(getClientIntegrations).not.toHaveBeenCalled();
+ });

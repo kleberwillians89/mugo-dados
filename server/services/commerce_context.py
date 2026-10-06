@@ -20,6 +20,7 @@ que impede atribuir a uma loja FBITS um número com semântica de Shopify.
 """
 
 from __future__ import annotations
+from .request_performance import measured
 
 from typing import Any, Dict, List, Optional
 
@@ -152,6 +153,7 @@ def build_shopify_commerce_context(
     }
 
 
+@measured("commerce_provider", memo=True)
 async def resolve_commerce_provider(client_id: str) -> Dict[str, Any]:
     """Provider de e-commerce do tenant, pela conexão — nunca pelo nome."""
     try:
@@ -188,6 +190,7 @@ async def resolve_commerce_provider(client_id: str) -> Dict[str, Any]:
 async def resolve_commerce_context(
     *, client_id: str, start: str, end: str,
     shopify_section: Optional[Dict[str, Any]] = None,
+    include_details: bool = True,
 ) -> Dict[str, Any]:
     """Contexto de e-commerce normalizado, com provider e procedência.
 
@@ -200,6 +203,9 @@ async def resolve_commerce_context(
     if not provider:
         reason = "unavailable" if resolved.get("resolution_failed") else "not_connected"
         return {**_empty_context(reason), "ambiguous": False, "active_providers": []}
+
+    if provider == FBITS and not include_details:
+        return {**_empty_context("unavailable"), "provider": FBITS, "provider_label": PROVIDER_LABELS[FBITS], "connected": True, "ambiguous": resolved["ambiguous"], "active_providers": resolved["active_providers"]}
 
     if provider == FBITS:
         from .fbits_reporting import FbitsPeriod, build_fbits_summary

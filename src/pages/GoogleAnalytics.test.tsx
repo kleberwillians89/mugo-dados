@@ -7,8 +7,9 @@ import type { Ga4ReportResponse } from "../app/types";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+const role = vi.hoisted(() => ({value: "viewer"}));
 vi.mock("../app/activeClient", () => ({
-  getActiveClient: () => ({ id: "amalie", name: "Amalie", role: "viewer" }),
+  getActiveClient: () => ({ id: "amalie", name: "Amalie", role: role.value }),
   getActiveClientId: () => "amalie",
   getActiveClientName: () => "Amalie",
   getActiveClientConfigurationWarning: () => null,
@@ -126,6 +127,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  role.value = "viewer";
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -238,6 +240,7 @@ describe("GoogleAnalytics — GA4 em leitura linear, detalhamento alternado", ()
   });
 
   it("identifica a conta Google Ads e o acesso pela MCC sem campo manual", async () => {
+    role.value = "agency_admin";
     await renderGa4();
     const account = container.querySelector('[data-testid="google-ads-account"]');
     expect(account?.textContent).toContain("Amalie Ads");

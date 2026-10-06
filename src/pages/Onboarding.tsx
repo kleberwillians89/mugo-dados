@@ -300,7 +300,7 @@ export default function Onboarding({
   // Contrato canônico consolidado (Fase 3) — aditivo: enriquece os cards
   // abaixo com status de sync mesclado de integration_connections +
   // meta_connections, sem substituir os fetches existentes desta tela.
-  const canonicalIntegrations = useClientIntegrations({ enabled: isAuthenticated });
+  const canonicalIntegrations = useClientIntegrations({ enabled: isAuthenticated && canManageConnections });
   const canonicalIntegrationsRefetch = canonicalIntegrations.refetch;
   // Ref em vez de dependência direta: loadConnections só precisa da versão
   // mais recente do refetch canônico, sem precisar mudar de identidade

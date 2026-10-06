@@ -6,8 +6,8 @@ import type { Ga4ReportResponse } from "../../app/types";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 
 /** O relatório existente lê fatos persistidos da propriedade do tenant na janela pedida. */
-export default function useDashboardGa4({ isAuthenticated, activeClientId, period }: {
-  isAuthenticated: boolean; activeClientId: string; period?: DashboardPeriod | null;
+export default function useDashboardGa4({ isAuthenticated, activeClientId, period, enabled = true }: {
+  isAuthenticated: boolean; activeClientId: string; period?: DashboardPeriod | null; enabled?: boolean;
 }) {
   const selected = useMemo(() => ensureDashboardPeriod(period), [period]);
   const key = buildDashboardCacheKey("ga4-report", { clientId: activeClientId, start: selected.start, end: selected.end });
@@ -19,7 +19,7 @@ export default function useDashboardGa4({ isAuthenticated, activeClientId, perio
   const report = (state.key === key ? state.report : null) || cached;
   const load = useCallback(async () => {
     const sequence = ++request.current;
-    if (!isAuthenticated || !activeClientId) return null;
+    if (!enabled || !isAuthenticated || !activeClientId) return null;
     setState(previous => ({ key, report: (previous.key === key ? previous.report : null) || readDashboardCache<Ga4ReportResponse>(key), loading: true, error: null }));
     try {
       const next = await readOnce(key, () => getGa4Report({ start: selected.start, end: selected.end }, { clientId: activeClientId }));
@@ -30,13 +30,13 @@ export default function useDashboardGa4({ isAuthenticated, activeClientId, perio
       if (sequence === request.current && currentKey.current === key) setState(previous => ({ ...previous, loading: false, error: cause instanceof Error ? cause.message : "Não foi possível carregar o GA4." }));
       return null;
     }
-  }, [activeClientId, isAuthenticated, key, selected.end, selected.start]);
+  }, [activeClientId, enabled, isAuthenticated, key, selected.end, selected.start]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => { window.clearTimeout(timer); request.current += 1; };
   }, [load]);
   const reloadGa4 = useCallback(async (options?: { force?: boolean }) => { void options; return load(); }, [load]);
-  return { ga4Report: report, loadingGa4: !report && (state.key !== key || state.loading),
+  return { ga4Report: report, loadingGa4: enabled && !report && (state.key !== key || state.loading),
     refreshingGa4: Boolean(report && state.loading), ga4Error: state.key === key ? state.error : null,
     ga4UpdatedAt: report?.meta.last_synced_at || null, reloadGa4 };
 }

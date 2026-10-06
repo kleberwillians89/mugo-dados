@@ -5,13 +5,14 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { DashboardDataContext, type DashboardSnapshot } from "../app/DashboardDataContext";
 import { clearDashboardCacheByPrefix, buildDashboardCacheKey, writeDashboardCache } from "../hooks/dashboard/cache";
 const state = vi.hoisted(() => ({ tenant: "tenant-a", role: "viewer" }));
-const api = vi.hoisted(() => ({ listClientConnections: vi.fn(), getClientIntegrations: vi.fn(), getMedia: vi.fn(), getComments: vi.fn(), getMediaMonthly: vi.fn(), getStories: vi.fn() }));
+const api = vi.hoisted(() => ({ listClientConnections: vi.fn(), getClientIntegrations: vi.fn(), getMedia: vi.fn(), getComments: vi.fn(), getMediaMonthly: vi.fn(), getStories: vi.fn(), listGenericConnections: vi.fn(), getGa4Report: vi.fn() }));
 vi.mock("../app/api", async original => ({ ...await original<typeof import("../app/api")>(), ...api }));
 vi.mock("../app/activeClient", () => ({ getActiveClient: () => ({ id: state.tenant, role: state.role }), getActiveClientId: () => state.tenant, getActiveClientName: () => "Empresa", getActiveClientConfigurationWarning: () => null }));
 vi.mock("../app/connectionState", () => ({ getActiveConnectionId: () => null, getSelectedConnectionId: () => null }));
 vi.mock("../app/PeriodContext", () => ({ usePeriod: () => ({ period: { start: "2026-10-01", end: "2026-10-05" }, setPresetPeriod: vi.fn(), setCurrentMonthPeriod: vi.fn(), setMonthPeriod: vi.fn(), setDayPeriod: vi.fn() }) }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 import Dashboard from "./Dashboard";
+import GoogleAnalytics from "./GoogleAnalytics";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let node: HTMLDivElement, root: ReturnType<typeof createRoot>;
 const observers = new Map<Element, (entries: IntersectionObserverEntry[]) => void>();
@@ -72,4 +73,15 @@ test.each(["empty", "error"])("resolução %s termina sem loop e sem secundário
   expect(api.listClientConnections).toHaveBeenCalledOnce(); expect(api.getMedia).not.toHaveBeenCalled();
   if (outcome === "error") expect(node.textContent).toContain("Não foi possível resolver a conexão");
   expect(node.textContent).not.toContain("Carregando Instagram...");
+});
+
+test("viewer navega Meta→Google→Meta em StrictMode sem catálogo administrativo ou GA4 não configurado", async () => {
+  api.listGenericConnections.mockResolvedValue({client_id:state.tenant,connections:[{provider:"ga4",status:"connected",capabilities:{ga4_configured:false}}]});
+  await render(true);
+  await act(async () => root.render(<React.StrictMode><DashboardDataContext.Provider value={{snapshot,loading:false,refreshing:false,error:null,refetch:async()=>snapshot}}><GoogleAnalytics isAuthenticated onLogout={vi.fn()} onOpenDashboard={vi.fn()} /></DashboardDataContext.Provider></React.StrictMode>));
+  await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+  expect(api.listGenericConnections).toHaveBeenCalledTimes(1);
+  expect(api.getGa4Report).not.toHaveBeenCalled();
+  await render(true);
+  expect(api.getClientIntegrations).not.toHaveBeenCalled();
 });

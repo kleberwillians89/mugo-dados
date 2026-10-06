@@ -101,6 +101,7 @@ async def intelligence_save_business_context(
 
 @router.get("/context")
 async def intelligence_context(
+    include_commerce_details: bool = Query(default=True),
     start: str | None = Query(default=None),
     end: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=366),
@@ -112,6 +113,8 @@ async def intelligence_context(
     try:
         snapshot = await calculate_intelligence_snapshot(
             client_id=cid, start=start, end=end, days=days,
+            include_external_research=False,
+            **({"include_commerce_details": False} if not include_commerce_details else {}),
         )
     except RuntimeError as exc:
         _log_stage_error(endpoint="/api/intelligence/context", client_id=cid, stage=STAGE_CONTEXT, exc=exc)

@@ -1,7 +1,9 @@
+import PeriodTransition from "../components/data/PeriodTransition";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
+import useGa4Readiness from "../hooks/dashboard/useGa4Readiness";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import useClientIntegrations from "../hooks/useClientIntegrations";
@@ -228,6 +230,7 @@ export default function GoogleAnalytics({
     [period, selectedMonth, selectedYear]
   );
 
+  const ga4Readiness = useGa4Readiness(activeGa4ClientId, isAuthenticated);
   const {
     ga4Report,
     loadingGa4,
@@ -238,6 +241,7 @@ export default function GoogleAnalytics({
   } = useDashboardGa4({
     isAuthenticated,
     activeClientId: activeGa4ClientId,
+    enabled: ga4Readiness.ready === true,
     period: selectedRange,
   });
   const adsModel = useDashboardSnapshot(selectedRange.start, selectedRange.end);
@@ -303,7 +307,7 @@ export default function GoogleAnalytics({
   }, []);
 
   const hasData = hasGa4Data(ga4Report);
-  const combinedError = refreshError || ga4Error;
+  const combinedError = refreshError || ga4Error || ga4Readiness.error;
   const configWarning = getActiveClientConfigurationWarning();
   const lastSyncedLabel =
     formatFreshness(ga4Report?.meta.last_synced_at || ga4UpdatedAt);
@@ -385,7 +389,7 @@ export default function GoogleAnalytics({
   });
   const { reloadCampaigns } = googleCampaigns;
   // Conta/propriedade em uso: contrato canônico de Integrações (só leitura).
-  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeGa4ClientId) });
+  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeGa4ClientId) && ["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(String(getActiveClient()?.role || "").toLowerCase()) });
 
   // Esta página mostra GA4 e campanhas do Google Ads: atualizar precisa
   // sincronizar os dois. Eles são independentes — um indisponível não impede
@@ -501,6 +505,7 @@ export default function GoogleAnalytics({
   ) : null;
 
   return (
+    <PeriodTransition tenantId={activeGa4ClientId} period={selectedRange} ready={Boolean(adsModel.snapshot) && (view === "ads" || !ga4Readiness.ready || Boolean(ga4Report))}>
     <Shell variant="editorial" themeClass="theme-editorial" title={view === "ads" ? "Google Ads" : "Google Analytics"}>
       <div className="ds-page googleReport">
         <div className="ds-group">
@@ -641,7 +646,11 @@ export default function GoogleAnalytics({
           </section>
         ) : (
           <section className="ga4Report" aria-label="Google Analytics no período">
-            {loadingGa4 && !ga4Report ? (
+            {ga4Readiness.ready === null && !ga4Report && !ga4Readiness.error ? (
+              <p role="status">Verificando configuração GA4...</p>
+            ) : ga4Readiness.ready === false && !ga4Report ? (
+              <DataNotice role="status" title="Configuração GA4 necessária">{canSync ? "Selecione a propriedade em Integrações para disponibilizar esta leitura." : "Peça a um administrador para selecionar a propriedade GA4 em Integrações."}</DataNotice>
+            ) : loadingGa4 && !ga4Report ? (
               <p className="ds-status" role="status">Carregando Google Analytics...</p>
             ) : (combinedError && !ga4Report) || (adsModel.error && !adsModel.snapshot) ? (
               <DataNotice tone="negative" role="alert" title="Google Analytics indisponível">
@@ -1028,5 +1037,6 @@ export default function GoogleAnalytics({
         )}
       </div>
     </Shell>
+    </PeriodTransition>
   );
 }

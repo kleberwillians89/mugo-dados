@@ -1,3 +1,4 @@
+import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatFreshness } from "../app/dataRefresh";
@@ -813,7 +814,7 @@ export default function Dashboard({
   });
   // Ativos da conexão em uso (Página, Instagram, conta de anúncios): mesma
   // leitura canônica de Integrações, só para identificar a fonte na página.
-  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeClientId) && getActiveClient()?.role !== "viewer" });
+  const integrations = useClientIntegrations({ enabled: isAuthenticated && Boolean(activeClientId) && ["platform_admin", "agency_admin", "client_admin", "owner", "admin"].includes(String(getActiveClient()?.role || "").toLowerCase()) });
   const secondaryOrganicLoading =
     hasActiveConnection !== false && !contentDemand.enabled && !commentsDemand.enabled &&
     !mediaData.length &&
@@ -1667,6 +1668,7 @@ export default function Dashboard({
     : "—";
 
   return (
+    <PeriodTransition tenantId={activeClientId} period={period} ready={Boolean(dashboardSnapshot.snapshot) && dash?.client_id === activeClientId && dash?.start === period.start && dash?.end === period.end}>
     <Shell variant="editorial" themeClass="theme-editorial" title="Meta">
       <div className="ds-page metaReport">
         <div className="ds-group">
@@ -2156,5 +2158,6 @@ export default function Dashboard({
         ) : null}
       </div>
     </Shell>
+    </PeriodTransition>
   );
 }

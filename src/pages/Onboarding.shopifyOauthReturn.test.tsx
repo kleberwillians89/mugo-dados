@@ -160,10 +160,12 @@ describe("Onboarding — retorno do OAuth Shopify não dispara backfill duplicad
   it("não habilita gerenciamento de integrações para viewer", async () => {
     mocks.role = "viewer";
     await mount();
-    const manage = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Gerenciar") as HTMLButtonElement;
-    await act(async () => manage.click());
-    const update = [...container!.querySelectorAll("button")].find((button) => button.textContent === "Atualizar permissões") as HTMLButtonElement;
+    const buttons = [...container!.querySelectorAll("button")];
+    expect(buttons.find((button) => button.textContent === "Gerenciar")).toBeUndefined();
+    const update = buttons.find((button) => button.textContent === "Atualizar permissões") as HTMLButtonElement;
     expect(update.disabled).toBe(true);
+    expect(mocks.startShopifyOAuth).not.toHaveBeenCalled();
+    expect(mocks.disconnectGenericConnection).not.toHaveBeenCalled();
   });
 });
 
