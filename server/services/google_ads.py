@@ -182,8 +182,8 @@ async def _sync_google_ads(
         "SELECT segments.date, campaign.id, campaign.name, metrics.cost_micros, "
         "metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, "
         "metrics.conversions, metrics.conversions_value FROM campaign "
-        f"WHERE segments.date BETWEEN '{period.start.isoformat()}' AND '{period.end.isoformat()}' "
-        "AND campaign.status != 'REMOVED'"
+        # O status atual não deve excluir fatos financeiros históricos.
+        f"WHERE segments.date BETWEEN '{period.start.isoformat()}' AND '{period.end.isoformat()}'"
     )
     token = await get_google_access_token(client_id, context.connection_id)
     headers = {"Authorization": f"Bearer {token}", "developer-token": developer_token}
@@ -232,17 +232,29 @@ async def _sync_google_ads(
             "google_ads_daily_stats", rows,
             on_conflict="client_id,connection_id,customer_id,campaign_id,stat_date",
         )
-        await refresh_dashboard_read_model_safely(
+    # Também projetar janelas vazias: sucesso exige read model utilizável.
+    try:
+        projection = await refresh_dashboard_read_model_safely(
             client_id=client_id,
             start=period.start.isoformat(),
             end=period.end.isoformat(),
             provider="google_ads",
         )
+    except Exception:
+        raise IntegrationError(
+            "Os fatos foram consultados, mas a projeção de Google Ads falhou. Mantendo a última leitura válida.",
+            status_code=502, code="GOOGLE_ADS_PROJECTION_FAILED", provider="google_ads", retryable=True,
+        ) from None
+    if not isinstance(projection, dict) or projection.get("ok") is not True:
+        raise IntegrationError(
+            "A projeção de Google Ads não foi concluída. Mantendo a última leitura válida.",
+            status_code=502, code="GOOGLE_ADS_PROJECTION_FAILED", provider="google_ads", retryable=True,
+        )
     return {
         "ok": True, "client_id": client_id, "connection_id": context.connection_id,
         "customer_id": context.customer_id,
         "period": {"start": period.start.isoformat(), "end": period.end.isoformat(), "days": period.days},
-        "rows_received": len(rows), "rows_upserted": len(rows),
+        "rows_received": len(rows), "rows_upserted": len(rows), "read_model_refreshed": True,
     }
 
 

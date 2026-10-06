@@ -82,6 +82,7 @@ export default function useDashboardGa4({
       property_id: "read-model",
       period: { start: safePeriod.start, end: safePeriod.end, days: daily.length },
       summary: {
+        user_count_semantics: "sum_of_daily_active_users",
         sessions: total("sessions"),
         active_users: total("active_users"),
         total_users: total("total_users"),

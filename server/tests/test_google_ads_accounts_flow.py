@@ -463,7 +463,7 @@ class GoogleAdsDashboardContextTests(unittest.IsolatedAsyncioTestCase):
             patch.object(google_ads, "resolve_generic_connection", AsyncMock(return_value={"id": "ads-vinhos", "metadata": metadata})),
             patch.object(google_ads, "get_google_access_token", AsyncMock(return_value=ACCESS_TOKEN)),
             patch.object(google_ads, "sb_upsert", upsert),
-            patch.object(google_ads, "refresh_dashboard_read_model_safely", AsyncMock()),
+            patch.object(google_ads, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             patch.object(google_ads.httpx, "AsyncClient", fake.factory),
             redirect_stdout(output),
         ):
@@ -784,7 +784,7 @@ class CuravinoMccRegressionTests(unittest.IsolatedAsyncioTestCase):
             }})) as resolver,
             patch.object(google_ads, "get_google_access_token", AsyncMock(return_value=ACCESS_TOKEN)),
             patch.object(google_ads, "sb_upsert", AsyncMock()),
-            patch.object(google_ads, "refresh_dashboard_read_model_safely", AsyncMock()),
+            patch.object(google_ads, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
             patch.object(google_ads.httpx, "AsyncClient", fake.factory),
             redirect_stdout(output),
         ):

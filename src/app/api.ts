@@ -1341,6 +1341,7 @@ function normalizeGa4Report(raw: unknown): Ga4ReportResponse {
     },
     summary: {
       sessions: asNumber(summary.sessions),
+      user_count_semantics: "sum_of_daily_users",
       active_users: asNumber(summary.active_users),
       total_users: asNumber(summary.total_users),
       event_count: asNumber(summary.event_count),

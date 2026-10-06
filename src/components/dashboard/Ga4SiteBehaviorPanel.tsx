@@ -80,7 +80,7 @@ function GroupTable({ group }: { group: Ga4EventGroup }) {
         </div>
         <div className="ga4GroupSummary">
           <span>{fmt(group.total_events)} ocorrências</span>
-          <span>{fmt(group.total_users)} usuários</span>
+          <span>{fmt(group.total_users)} usuários (soma por dia e evento)</span>
         </div>
       </div>
 
@@ -90,7 +90,7 @@ function GroupTable({ group }: { group: Ga4EventGroup }) {
             <tr>
               <th>Evento</th>
               <th>Ocorrências</th>
-              <th>Usuários</th>
+              <th>Usuários (soma diária)</th>
             </tr>
           </thead>
           <tbody>
@@ -188,17 +188,17 @@ export default function Ga4SiteBehaviorPanel({
             <SummaryCard
               label="Sessões do site"
               value={fmt(report.summary.sessions)}
-              hint={`${fmt(report.summary.active_users)} usuários ativos`}
+              hint={`${fmt(report.summary.active_users)} usuários ativos (soma diária)`}
             />
             <SummaryCard
               label="Eventos observados"
               value={fmt(report.summary.event_count)}
-              hint={`${fmt(report.summary.total_users)} usuários totais`}
+              hint={`${fmt(report.summary.total_users)} usuários (soma diária)`}
             />
             <SummaryCard
-              label="Usuários ativos"
+              label="Usuários ativos (soma diária)"
               value={fmt(report.summary.active_users)}
-              hint={`${fmt(report.summary.total_users)} usuários totais`}
+              hint="A mesma pessoa pode ser contada em dias diferentes."
             />
             <SummaryCard
               label="Taxa compra / view_item"

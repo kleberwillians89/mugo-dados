@@ -11,6 +11,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from services import ads_sync
+from services.integration_errors import IntegrationError
 from services.sync_locks import build_sync_lock_name
 
 
@@ -263,20 +264,35 @@ class PageCapTests(unittest.IsolatedAsyncioTestCase):
             call_count["n"] += 1
             return {
                 "data": [{"date_start": "2026-07-01"}],
-                "paging": {"next": "https://graph.example/next-page"},
+                "paging": {"next": f"https://graph.example/next-page?after={call_count['n']}"},
             }
 
         with patch.object(ads_meta, "_meta_get", infinite_pages):
-            rows = await ads_meta.fetch_ad_account_insights(
-                ad_account_id="act_123",
-                access_token="token",
-                since="2026-07-01",
-                until="2026-07-31",
-                level="ad",
-            )
+            with self.assertRaises(IntegrationError) as raised:
+                await ads_meta.fetch_ad_account_insights(
+                    ad_account_id="act_123", access_token="token",
+                    since="2026-07-01", until="2026-07-31", level="ad",
+                )
 
         self.assertEqual(call_count["n"], ads_meta._MAX_INSIGHTS_PAGES)
-        self.assertEqual(len(rows), ads_meta._MAX_INSIGHTS_PAGES)
+        self.assertEqual(raised.exception.code, "META_ADS_PAGINATION_INCOMPLETE")
+        self.assertEqual(raised.exception.diagnostics["reason"], "safety_limit_reached")
+
+
+class IncompletePaginationSyncTests(_BaseAdsSyncTest):
+    async def test_truncated_dataset_never_persists_or_marks_sync_success_and_releases_lock(self):
+        from services import ads_meta
+        self._install(ads_sync, 'fetch_ad_account_insights', ads_meta.fetch_ad_account_insights)
+        get = AsyncMock(return_value={'data': [{'date_start': '2026-07-01', 'spend': '10'}], 'paging': {'next': 'https://graph.example/p?after=1'}})
+        with patch.object(ads_meta, '_MAX_INSIGHTS_PAGES', 1), patch.object(ads_meta, '_meta_get', get):
+            with self.assertRaises(IntegrationError) as raised:
+                await ads_sync.sync_ads_for_client_period(client_id='amalie', since='2026-07-01', until='2026-07-31', connection_id='conn-1')
+        self.assertEqual(raised.exception.code, 'META_ADS_PAGINATION_INCOMPLETE')
+        ads_sync._upsert_ad_account_daily_stats.assert_not_awaited()
+        ads_sync.mark_connection_sync_success.assert_not_awaited()
+        self.assertEqual(self.finish_job_run_calls[0]['status'], 'error')
+        self.assertEqual(len(self.release_lock_calls), 1)
+        self.assertEqual(get.await_args.kwargs['request_context']['client_id'], 'amalie')
 
 
 if __name__ == "__main__":

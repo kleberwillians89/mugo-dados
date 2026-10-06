@@ -251,7 +251,11 @@ async def _build_ga4_section(
         "last_error": None,
         "reauth_required": False,
         "sessions": _safe_int(summary.get("sessions")) if data_available else None,
-        "users": _safe_int(summary.get("total_users")) if data_available else None,
+        # Apenas fatos diários persistidos: total deduplicado não disponível.
+        "users": None,
+        "users_status": "unavailable",
+        "daily_user_sum": _safe_int(summary.get("total_users")) if data_available else None,
+        "user_count_semantics": "sum_of_daily_total_users",
         "purchases": _safe_int(summary.get("purchases")) if data_available else None,
         # Receita SOMENTE do GA4 (tracking do site) — nunca somar/misturar
         # com a receita real da loja (Shopify) nem com receita atribuída

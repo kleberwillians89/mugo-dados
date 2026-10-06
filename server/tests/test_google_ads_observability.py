@@ -160,6 +160,17 @@ class SuccessfulSyncTests(ObservabilityHarness):
 
 
 class FailedSyncTests(ObservabilityHarness):
+    async def test_projection_failure_keeps_previous_success_timestamp_and_finishes_as_error(self):
+        self.connection['metadata']['last_success_at'] = '2026-07-07T12:00:00Z'
+        error = IntegrationError('projeção indisponível', status_code=502, code='GOOGLE_ADS_PROJECTION_FAILED', provider='google_ads')
+        payload, raised, log = await self.run_sync(outcome=error)
+        self.assertIsNone(payload)
+        self.assertEqual(raised.code, 'GOOGLE_ADS_PROJECTION_FAILED')
+        self.assertEqual(self.finished[0]['status'], 'error')
+        self.assertEqual(self.metadata_patch()['last_success_at'], '2026-07-07T12:00:00Z')
+        self.assertNotIn('last_sync_at', self.updates[-1]['patch'])
+        self.assertNotIn('status=ok', log)
+
     async def test_failure_records_sanitized_code_and_keeps_raising(self):
         _payload, error, log = await self.run_sync(outcome=google_ads_error())
         self.assertIsInstance(error, IntegrationError)

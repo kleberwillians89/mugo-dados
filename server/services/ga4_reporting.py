@@ -181,6 +181,7 @@ def _group_rollup(
         if not key:
             continue
         bucket = grouped.setdefault(key, value_builder(row))
+        bucket["user_count_semantics"] = "sum_of_daily_users"
         bucket["sessions"] = _safe_int(bucket.get("sessions")) + _safe_int(row.get("sessions"))
         bucket["active_users"] = _safe_int(bucket.get("active_users")) + _safe_int(row.get("active_users"))
         bucket["total_users"] = _safe_int(bucket.get("total_users")) + _safe_int(row.get("total_users"))
@@ -310,8 +311,10 @@ def _build_daily_rows(period: GA4ReportPeriod, rows: List[Dict[str, Any]]) -> Li
 
 
 def _build_summary(daily_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    # Campos numéricos legados são somas diárias, nunca usuários únicos do período.
     if not daily_rows:
         return {
+            "user_count_semantics": "sum_of_daily_users",
             "sessions": 0,
             "active_users": 0,
             "total_users": 0,
@@ -333,6 +336,7 @@ def _build_summary(daily_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_revenue = sum(_safe_float(row.get("total_revenue")) for row in daily_rows)
 
     return {
+        "user_count_semantics": "sum_of_daily_users",
         "sessions": sessions,
         "active_users": active_users,
         "total_users": total_users,
@@ -422,6 +426,7 @@ def _build_event_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "event_name": event_name,
                 "label": GA4_EVENT_LABELS.get(event_name) or event_name,
                 "description": GA4_EVENT_DESCRIPTIONS.get(event_name) or None,
+                "user_count_semantics": "sum_of_daily_users",
                 "event_count": 0,
                 "total_users": 0,
                 "first_seen_at": _safe_str(row.get("stat_date")) or None,
@@ -463,6 +468,7 @@ def _build_group_item(event_name: str, lookup: Dict[str, Dict[str, Any]]) -> Dic
         "description": GA4_EVENT_DESCRIPTIONS.get(event_name) or None,
         "event_count": _safe_int(item.get("event_count")),
         "total_users": _safe_int(item.get("total_users")),
+        "user_count_semantics": "sum_of_daily_users",
         "first_seen_at": item.get("first_seen_at"),
         "last_seen_at": item.get("last_seen_at"),
     }
@@ -490,6 +496,7 @@ def _build_event_group(
         "total_events": total_events,
         "total_users": total_users,
         "items": items,
+        "user_count_semantics": "sum_of_daily_event_users",
     }
 
 
@@ -579,6 +586,7 @@ async def build_ga4_report(
         "campaigns": _build_campaign_items(campaign_source_rows),
         "events": event_items,
         "meta": {
+            "user_count_semantics": "sum_of_daily_users",
             "last_synced_at": last_synced_at,
             "data_available": freshness["data_available"],
             "stale": freshness["stale"],

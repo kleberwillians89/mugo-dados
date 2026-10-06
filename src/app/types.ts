@@ -283,6 +283,9 @@ export type ExecutiveGa4Section = {
   data_available?: boolean;
   sessions: number | null;
   users: number | null;
+  daily_user_sum?: number | null;
+  users_status?: "unavailable";
+  user_count_semantics?: string;
   purchases: number | null;
   revenue: number | null;
 } | null;
@@ -523,6 +526,7 @@ export type Ga4DailyStatRow = {
 };
 
 export type Ga4Summary = {
+  user_count_semantics?: "sum_of_daily_users" | "sum_of_daily_active_users";
   sessions: number;
   active_users: number;
   total_users: number;

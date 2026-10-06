@@ -145,7 +145,7 @@ function GoogleGroupTable({ group, id }: { group: Ga4EventGroup; id: string }) {
           <h3 id={`${id}-title`} className="ds-subTitle">{group.title}</h3>
           {group.description ? <p className="ds-caption">{group.description}</p> : null}
         </div>
-        <p className="ds-caption">{formatInteger(group.total_events)} ocorrências · {formatInteger(group.total_users)} usuários</p>
+        <p className="ds-caption">{formatInteger(group.total_events)} ocorrências · {formatInteger(group.total_users)} usuários (soma por dia e evento)</p>
       </div>
       <div className="ds-tableWrap">
         <table className="ds-table">
@@ -153,7 +153,7 @@ function GoogleGroupTable({ group, id }: { group: Ga4EventGroup; id: string }) {
             <tr>
               <th scope="col">Evento</th>
               <th scope="col" className="is-number">Ocorrências</th>
-              <th scope="col" className="is-number">Usuários</th>
+              <th scope="col" className="is-number">Usuários (soma diária)</th>
             </tr>
           </thead>
           <tbody>
@@ -669,7 +669,7 @@ export default function GoogleAnalytics({
                     testId="ga4-sessions"
                   />
                   <div className="ds-kpis is-four">
-                    <KpiFigure label="Usuários" value={formatInteger(ga4Report.summary.total_users)} rawValue={ga4Report.summary.total_users} />
+                    <KpiFigure label="Usuários (soma diária)" value={formatInteger(ga4Report.summary.total_users)} rawValue={ga4Report.summary.total_users} />
                     <KpiFigure label="Eventos" value={formatCompactInteger(ga4Report.summary.event_count)} exactValue={formatInteger(ga4Report.summary.event_count)} rawValue={ga4Report.summary.event_count} />
                     {ga4HasPurchases ? (
                       <KpiFigure label="Compras registradas" value={formatInteger(ga4Report.summary.purchases)} rawValue={ga4Report.summary.purchases} />
@@ -683,11 +683,12 @@ export default function GoogleAnalytics({
                       {eventsPerSession != null ? (
                         <div><dt>Eventos por sessão</dt><dd>{eventsPerSession.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</dd></div>
                       ) : null}
-                      {usersDiffer ? <div><dt>Usuários ativos</dt><dd>{formatInteger(ga4Report.summary.active_users)}</dd></div> : null}
+                      {usersDiffer ? <div><dt>Usuários ativos (soma diária)</dt><dd>{formatInteger(ga4Report.summary.active_users)}</dd></div> : null}
                       <div><dt>Média diária de usuários ativos</dt><dd>{formatInteger(ga4Report.summary.average_daily_active_users)}</dd></div>
                     </dl>
                     <p className="ds-footnote">
                       Fonte: Google Analytics 4. Os valores de receita seguem a atribuição do GA4 e podem diferir da loja e das plataformas de mídia.
+                      {" "}Usuários são somas diárias; a mesma pessoa pode aparecer em mais de um dia. O total de usuários únicos do período não está disponível.
                       {" "}Sem comparação com o período anterior nesta fonte.
                     </p>
                   </div>
@@ -742,7 +743,7 @@ export default function GoogleAnalytics({
                           rows={sortedChannels.slice(0, 5).map((row) => ({
                             id: row.source_medium || `${row.source || "source"}-${row.medium || "medium"}`,
                             label: getGa4ChannelLabel(row.source_medium),
-                            meta: `${formatInteger(row.total_users)} usuários · ${formatInteger(row.event_count)} eventos`,
+                            meta: `${formatInteger(row.total_users)} usuários (soma diária) · ${formatInteger(row.event_count)} eventos`,
                             sessions: row.sessions,
                           }))}
                         />
@@ -912,8 +913,8 @@ export default function GoogleAnalytics({
                                 <th scope="col">Origem</th>
                                 <th scope="col">Mídia</th>
                                 <th scope="col" className="is-number">Sessões</th>
-                                <th scope="col" className="is-number">Usuários ativos</th>
-                                <th scope="col" className="is-number">Usuários totais</th>
+                                <th scope="col" className="is-number">Usuários ativos (soma diária)</th>
+                                <th scope="col" className="is-number">Usuários totais (soma diária)</th>
                                 <th scope="col" className="is-number">Eventos</th>
                               </tr>
                             </thead>
@@ -955,8 +956,8 @@ export default function GoogleAnalytics({
                                 <th scope="col">Campanha</th>
                                 <th scope="col">Canal</th>
                                 <th scope="col" className="is-number">Sessões</th>
-                                <th scope="col" className="is-number">Usuários ativos</th>
-                                <th scope="col" className="is-number">Usuários totais</th>
+                                <th scope="col" className="is-number">Usuários ativos (soma diária)</th>
+                                <th scope="col" className="is-number">Usuários totais (soma diária)</th>
                                 <th scope="col" className="is-number">Eventos</th>
                               </tr>
                             </thead>
@@ -990,7 +991,7 @@ export default function GoogleAnalytics({
                               <tr>
                                 <th scope="col">Evento</th>
                                 <th scope="col" className="is-number">Ocorrências</th>
-                                <th scope="col" className="is-number">Usuários</th>
+                                <th scope="col" className="is-number">Usuários (soma diária)</th>
                                 <th scope="col">Primeira leitura</th>
                                 <th scope="col">Última leitura</th>
                               </tr>

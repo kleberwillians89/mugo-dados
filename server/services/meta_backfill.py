@@ -131,7 +131,10 @@ async def process_next_slice() -> Dict[str, Any]:
     item = claimed[0] if isinstance(claimed, list) else claimed
     job = (await sb_select("meta_ads_backfill_jobs", filters={"id": f"eq.{item['backfill_job_id']}"}, limit=1))[0]
     slice_id, since, until = str(item["id"]), str(item["slice_since"]), str(item["slice_until"])
-    if int(item.get("attempts") or 1) > 1:
+    # Fatos antigos reconciliados não provam completude de uma busca truncada.
+    pagination_error_code = "META_ADS_PAGINATION_INCOMPLETE"
+    previous_pagination_error = str(item.get("error") or "").startswith(pagination_error_code)
+    if int(item.get("attempts") or 1) > 1 and not previous_pagination_error:
         existing = await reconcile_slice(client_id=str(job["client_id"]), connection_id=str(job["connection_id"]), since=since, until=until)
         if existing["valid"]:
             try:
@@ -177,7 +180,15 @@ async def process_next_slice() -> Dict[str, Any]:
     except Exception as exc:
         # A resposta pode falhar depois da persistência. Readback vem antes de qualquer retry.
         reconciliation = await reconcile_slice(client_id=str(job["client_id"]), connection_id=str(job["connection_id"]), since=since, until=until)
-        if reconciliation["valid"]:
+        if getattr(exc, "code", None) == pagination_error_code:
+            terminal = int(item.get("attempts") or 1) >= MAX_ATTEMPTS
+            patch = {"status": "error" if terminal else "waiting",
+                     "error": f"{pagination_error_code}: paginação incompleta",
+                     "reconciliation_json": reconciliation,
+                     "next_attempt_at": (datetime.now(timezone.utc) + timedelta(minutes=2 ** int(item.get("attempts") or 1))).isoformat(),
+                     "updated_at": datetime.now(timezone.utc).isoformat(),
+                     "finished_at": datetime.now(timezone.utc).isoformat() if terminal else None}
+        elif reconciliation["valid"]:
             try:
                 await refresh_dashboard_read_model(client_id=str(job["client_id"]), start=since, end=until, provider="meta")
                 patch = {"status": "success", "reconciliation_json": reconciliation, "error": None,
@@ -204,5 +215,7 @@ async def process_next_slice() -> Dict[str, Any]:
             patch = {"status": "error", "error": str(exc)[:1000], "reconciliation_json": reconciliation,
                      "updated_at": datetime.now(timezone.utc).isoformat(), "finished_at": datetime.now(timezone.utc).isoformat()}
         await sb_update("meta_ads_backfill_slices", filters={"id": f"eq.{slice_id}"}, patch=patch, returning="minimal")
+        status = patch["status"]
     await _update_job(str(item["backfill_job_id"]))
-    return {"ok": True, "processed": True, "backfill_job_id": item["backfill_job_id"], "slice": {"since": since, "until": until}}
+    return {"ok": status in {"success", "skipped"}, "processed": True, "status": status,
+            "backfill_job_id": item["backfill_job_id"], "slice": {"since": since, "until": until}}

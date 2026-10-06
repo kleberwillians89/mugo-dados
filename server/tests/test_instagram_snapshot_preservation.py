@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services import instagram_sync
+from services import instagram_sync, ig_meta
 
 
 class InstagramSnapshotPreservationTests(unittest.IsolatedAsyncioTestCase):
@@ -75,3 +75,19 @@ class InstagramSnapshotPreservationTests(unittest.IsolatedAsyncioTestCase):
         rows = next(call.args[1] for call in write.await_args_list if call.args[0] == "ig_media")
         self.assertEqual([row["media_id"] for row in rows], ["m1"])
         self.assertTrue(result["warnings"])
+
+    async def test_current_profile_metrics_request_is_an_observation_not_a_dated_backfill(self):
+        with patch.object(ig_meta, 'meta_get_json', AsyncMock(return_value={'data': [{'name': 'reach', 'total_value': {'value': 144}}]})) as get:
+            metrics = await ig_meta._fetch_total_value_metrics('ig-a', 'fixture-only', 'reach')
+        self.assertEqual(metrics, {'reach': 144})
+        path, params = get.await_args.args
+        self.assertEqual(path, '/ig-a/insights')
+        self.assertEqual((params['period'], params['metric_type']), ('day', 'total_value'))
+        self.assertNotIn('since', params)
+        self.assertNotIn('until', params)
+
+    async def test_sync_writes_one_observation_and_never_fills_previous_days(self):
+        _, _, write = await self.run_sync()
+        snapshot_calls = [call for call in write.await_args_list if call.args[0] == 'ig_profile_snapshots']
+        self.assertEqual(len(snapshot_calls), 1)
+        self.assertEqual(len(snapshot_calls[0].args[1]), 1)

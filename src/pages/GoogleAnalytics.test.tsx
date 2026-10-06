@@ -158,6 +158,13 @@ async function click(label: string) {
 // Aquisição / Comportamento): a leitura principal é linear e só o
 // detalhamento alterna entre tabelas — nunca todas ao mesmo tempo.
 describe("GoogleAnalytics — GA4 em leitura linear, detalhamento alternado", () => {
+  it("identifica usuários agregados como soma diária, sem afirmar únicos do período", async () => {
+    await renderGa4();
+    await click("Google Analytics");
+    expect(container.textContent).toContain("Usuários (soma diária)");
+    expect(container.textContent).toContain("a mesma pessoa pode aparecer em mais de um dia");
+    expect(container.textContent).toContain("O total de usuários únicos do período não está disponível");
+  });
   it("mostra todos os 3 canais e as 2 campanhas disponíveis na aquisição", async () => {
     await renderGa4();
     await click("Google Analytics");

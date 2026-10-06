@@ -77,6 +77,26 @@ class MetaBackfillWorkerTests(unittest.IsolatedAsyncioTestCase):
         refresh.assert_awaited_once()
         self.assertEqual(update.await_args.kwargs["patch"]["status"], "success")
 
+    async def test_pagination_failure_cannot_be_recovered_as_success_from_old_rows(self):
+        from server.services.integration_errors import IntegrationError
+        error = IntegrationError('incomplete', status_code=502, code='META_ADS_PAGINATION_INCOMPLETE', provider='meta')
+        for attempts in (1, 2, 3):
+            with self.subTest(attempts=attempts):
+                self.slice.update(attempts=attempts, error='META_ADS_PAGINATION_INCOMPLETE: paginação incompleta')
+                valid = {'valid': True, 'needs_review': False, 'mismatches': []}
+                with patch.object(meta_backfill, 'sb_rpc', AsyncMock(return_value=[self.slice])), \
+                     patch.object(meta_backfill, 'sb_select', AsyncMock(return_value=[self.job])), \
+                     patch.object(meta_backfill, 'sync_ads_for_client_period', AsyncMock(side_effect=error)) as sync, \
+                     patch.object(meta_backfill, 'reconcile_slice', AsyncMock(return_value=valid)), \
+                     patch.object(meta_backfill, 'refresh_dashboard_read_model', AsyncMock()) as refresh, \
+                     patch.object(meta_backfill, 'sb_update', AsyncMock()) as update, \
+                     patch.object(meta_backfill, '_update_job', AsyncMock()):
+                    result = await meta_backfill.process_next_slice()
+                sync.assert_awaited_once()
+                refresh.assert_not_awaited()
+                self.assertFalse(result['ok'])
+                self.assertEqual(update.await_args.kwargs['patch']['status'], 'error' if attempts == 3 else 'waiting')
+
     async def test_duplicate_is_skipped_and_does_not_stop_parent(self):
         _, _, refresh, update = await self._run(sync={"ok": False, "reason": "duplicate", "rows_inserted": 0})
         self.assertEqual(update.await_args.kwargs["patch"]["status"], "skipped")

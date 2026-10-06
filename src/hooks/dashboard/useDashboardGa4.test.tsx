@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { getGa4Channels } from "../../app/api";
 import useDashboardGa4 from "./useDashboardGa4";
+import Ga4SiteBehaviorPanel from "../../components/dashboard/Ga4SiteBehaviorPanel";
 
 const channels = Array.from({ length: 3 }, (_, index) => ({
   source_medium: `source-${index} / organic`,
@@ -66,6 +67,20 @@ test("combina o diário do read model com 3 canais e 2 campanhas reais", async (
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 5)));
   }
   expect(node.textContent).toBe("20:3:2");
+  act(() => root.unmount());
+});
+
+test("Dashboard identifica a soma de usuários e não a apresenta como únicos do período", async () => {
+  function Panel() {
+    const value = useDashboardGa4({ isAuthenticated: true, activeClientId: "amalie", period: { start: "2026-08-01", end: "2026-08-10" } });
+    expect(value.ga4Report?.summary.user_count_semantics).toBe("sum_of_daily_active_users");
+    return <Ga4SiteBehaviorPanel report={value.ga4Report} loading={false} refreshing={false} error={null} />;
+  }
+  const node = document.createElement("div"), root = createRoot(node);
+  await act(async () => root.render(<Panel />));
+  expect(node.textContent).toContain("Usuários ativos (soma diária)");
+  expect(node.textContent).toContain("A mesma pessoa pode ser contada em dias diferentes");
+  expect(node.textContent).not.toContain("12 usuários totais");
   act(() => root.unmount());
 });
 

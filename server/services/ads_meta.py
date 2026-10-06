@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 from .meta_http import META_BASE, meta_get_json
+from .integration_errors import IntegrationError
 
 
 def _safe_str(value: Any) -> str:
@@ -102,16 +104,34 @@ async def fetch_ad_account_insights(
 
     rows: List[Dict[str, Any]] = []
     pages = 0
+    visited_pages = set()
+    visited_cursors = set()
+    received_rows = set()
+
+    def incomplete(reason: str) -> IntegrationError:
+        # Nunca registrar URLs/cursors: paging.next pode carregar access_token.
+        print(
+            "[ads_meta][insights][incomplete] "
+            f"reason={reason} pages={pages} max_pages={_MAX_INSIGHTS_PAGES} rows_received={len(rows)}"
+        )
+        return IntegrationError(
+            "A paginação de Meta Ads ficou incompleta. Nenhum sucesso completo foi registrado.",
+            status_code=502, code="META_ADS_PAGINATION_INCOMPLETE", provider="meta",
+            diagnostics={"incomplete": True, "reason": reason, "pages": pages, "rows_received": len(rows)},
+        )
 
     while next_url:
+        parsed = urlsplit(next_url)
+        if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+            raise incomplete("invalid_next_url")
+        page_key = (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path,
+                    tuple(sorted((k, v) for k, v in parse_qsl(parsed.query) if k != "access_token")))
+        if page_key in visited_pages:
+            raise incomplete("repeated_next_url")
+        if pages >= _MAX_INSIGHTS_PAGES:
+            raise incomplete("safety_limit_reached")
+        visited_pages.add(page_key)
         pages += 1
-        if pages > _MAX_INSIGHTS_PAGES:
-            print(
-                "[ads_meta][insights][page_limit_reached] "
-                f"ad_account_id={act_id} level={_safe_str(level) or '-'} "
-                f"pages={pages} max_pages={_MAX_INSIGHTS_PAGES} rows_so_far={len(rows)}"
-            )
-            break
         payload = await _meta_get(
             next_url,
             params=next_params,
@@ -125,12 +145,20 @@ async def fetch_ad_account_insights(
         if isinstance(data_rows, list):
             for row in data_rows:
                 if isinstance(row, dict):
-                    rows.append(row)
+                    signature = json.dumps(row, sort_keys=True, separators=(",", ":"))
+                    if signature not in received_rows:
+                        received_rows.add(signature)
+                        rows.append(row)
 
         paging = payload.get("paging") or {}
         next_value = _safe_str(paging.get("next"))
         if not next_value:
             break
+        cursor = _safe_str((paging.get("cursors") or {}).get("after"))
+        if cursor:
+            if cursor in visited_cursors:
+                raise incomplete("repeated_cursor")
+            visited_cursors.add(cursor)
         next_url = next_value
         next_params = None
 

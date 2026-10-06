@@ -151,6 +151,19 @@ class ProviderRefreshTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ga4.await_args.kwargs["client_id"], CID)
             self.assertEqual(ads.await_args.kwargs["connection_id"], "ads")
 
+    async def test_google_projection_failure_is_not_announced_as_updated(self):
+        error = IntegrationError('projection failed', status_code=502, code='GOOGLE_ADS_PROJECTION_FAILED', provider='google_ads')
+        with patch.object(refresh, 'list_generic_connections', AsyncMock(return_value=[{'provider': 'google_ads'}])), \
+             patch.object(refresh, 'resolve_google_ads_context', AsyncMock(return_value=SimpleNamespace(connection_id='ads'))), \
+             patch.object(refresh, 'sync_google_ads', AsyncMock(side_effect=error)) as sync, \
+             patch.object(refresh, 'invalidate_namespace', AsyncMock()) as invalidate:
+            with self.assertRaises(HTTPException) as raised:
+                await self.run_refresh('google')
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertIn('Mantendo a última leitura disponível', raised.exception.detail)
+        sync.assert_awaited_once()
+        invalidate.assert_not_awaited()
+
 
 class FbitsCooldownTests(unittest.IsolatedAsyncioTestCase):
     async def test_persisted_cooldown_blocks_before_token_or_provider(self):
