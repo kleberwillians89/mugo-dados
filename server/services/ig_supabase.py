@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import httpx
+from .memory_budget import records_processed
 from .request_performance import measured, transport_started, transport_done, request_value
 
 
@@ -213,6 +214,7 @@ async def sb_insert_many(table: str, rows: List[Dict[str, Any]], returning: str 
 
     headers = {"Prefer": f"return={returning}"}
     data = await _request("POST", f"/{table}", json=rows, headers=headers)
+    records_processed(len(rows))
     if returning == "minimal":
         return {"ok": True, "count": len(rows)}
     return data if isinstance(data, list) else []
@@ -254,6 +256,7 @@ async def sb_rpc(function_name: str, payload: Dict[str, Any]) -> Any:
 async def sb_upsert(table: str, rows: List[Dict[str, Any]], on_conflict: str) -> Dict[str, Any]:
     headers = {"Prefer": "resolution=merge-duplicates,return=minimal"}
     await _request("POST", f"/{table}", params={"on_conflict": on_conflict}, json=rows, headers=headers)
+    records_processed(len(rows))
     return {"ok": True}
 
 

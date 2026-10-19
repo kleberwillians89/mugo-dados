@@ -29,6 +29,7 @@ from .meta_tokens import (
     mark_connection_sync_success,
 )
 from .integration_errors import IntegrationError
+from .memory_budget import measured_operation
 from .sync_locks import acquire_sync_lock, build_sync_lock_name, release_sync_lock
 from .periods import resolve_period
 from .dashboard_read_model import refresh_dashboard_read_model_safely
@@ -1417,6 +1418,9 @@ async def sync_ads_for_client_period(
 
     sync_key = f"{cid}:{resolved_connection_id}:{ad_account_id}:{period_since}:{period_until}"
     now_monotonic = time.monotonic()
+    for expired_key, completed_at in list(_RECENT_SYNC_KEYS.items()):
+        if now_monotonic - completed_at >= _SYNC_DEDUP_SECONDS:
+            _RECENT_SYNC_KEYS.pop(expired_key, None)
     recent_at = _RECENT_SYNC_KEYS.get(sync_key)
     if recent_at is not None and now_monotonic - recent_at < _SYNC_DEDUP_SECONDS:
         print(f"[meta_ads][manual_refresh_done] client_id={cid} status=cooldown reason=duplicate")
@@ -1479,6 +1483,7 @@ async def sync_ads_for_client_period(
     )
 
     try:
+        @measured_operation("meta_ads", limit=True)
         async def _run_sync_body() -> Dict[str, Any]:
             token = await ensure_valid_meta_token(
                 cid,

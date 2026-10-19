@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 
 from .ig_supabase import sb_rpc, sb_select
 from .integration_errors import IntegrationError
+from .memory_budget import operation_memory
 
 
 def build_sync_lock_name(
@@ -72,6 +73,11 @@ async def guarded_sync(
             status_code=409, code="SYNC_ALREADY_RUNNING", provider=provider, retryable=True,
         )
     try:
-        yield lock_name
+        # Orchestrators call the concrete syncs below; do not reserve twice.
+        if provider in {"data_refresh", "provider_history"}:
+            yield lock_name
+        else:
+            async with operation_memory(provider, limit=True):
+                yield lock_name
     finally:
         await release_sync_lock(client_id, lock_name)

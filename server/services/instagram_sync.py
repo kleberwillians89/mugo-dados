@@ -306,6 +306,7 @@ async def _run_sync_for_client_and_ig(
     enriched: List[Dict[str, Any]] = []
     media_rows: List[Dict[str, Any]] = []
     comment_rows: List[Dict[str, Any]] = []
+    fetched_comments = 0
     persisted_comments = 0
     persisted_media = 0
     persisted_snapshot = False
@@ -369,6 +370,22 @@ async def _run_sync_for_client_and_ig(
                     "[ig_sync][meta_error] "
                     f"block=comments client_id={client_id} media_id={media_id} error=fetch_comments_failed"
                 )
+
+        fetched_comments += len(comment_rows)
+        rows = [r for r in comment_rows if str(r.get("comment_id") or "").strip()]
+        if rows:
+            try:
+                await sb_upsert("ig_comments", rows, on_conflict="client_id,comment_id")
+                persisted_comments += len(rows)
+            except httpx.HTTPStatusError as exc:
+                if exc.response is None or exc.response.status_code not in {400, 404, 409}:
+                    raise
+                _schema_warning("comments", client_id, connection_id, exc)
+                warnings.append("Comentários não foram persistidos por incompatibilidade de schema.")
+        comment_rows.clear()
+        rows.clear()
+        # Do not retain the provider's previous comment page across media.
+        comments = None
 
         thumb_url = m.get("thumbnail_url")
         if not thumb_url and media_type in {"IMAGE", "CAROUSEL_ALBUM"}:
@@ -466,23 +483,11 @@ async def _run_sync_for_client_and_ig(
         )
         warnings.append("Stories não ficaram disponíveis nesta atualização.")
 
-    print(f"[meta][provider_done] client_id={client_id} media={len(media_rows)} comments={len(comment_rows)}")
-    if comment_rows:
-        rows = [r for r in comment_rows if str(r.get("comment_id") or "").strip()]
-        if rows:
-            try:
-                await sb_upsert("ig_comments", rows, on_conflict="client_id,comment_id")
-                persisted_comments = len(rows)
-            except httpx.HTTPStatusError as exc:
-                if exc.response is None or exc.response.status_code not in {400, 404, 409}:
-                    raise
-                _schema_warning("comments", client_id, connection_id, exc)
-                warnings.append("Comentários não foram persistidos por incompatibilidade de schema.")
-
+    print(f"[meta][provider_done] client_id={client_id} media={len(media_rows)} comments={fetched_comments}")
     block_status["comments"] = {
         "ok": True,
         "status": "ok",
-        "fetched": len(comment_rows),
+        "fetched": fetched_comments,
         "saved": persisted_comments,
     }
 
@@ -587,7 +592,7 @@ async def _run_sync_for_client_and_ig(
         },
         "media": enriched,
         "stories_fetched": len(stories),
-        "comments_fetched": len(comment_rows),
+        "comments_fetched": fetched_comments,
         "comments_saved": persisted_comments,
         "media_saved": persisted_media,
         "snapshot_saved": persisted_snapshot,

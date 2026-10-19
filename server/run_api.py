@@ -23,6 +23,7 @@ def main() -> None:
         port=_resolve_port(),
         reload=False,
         access_log=False,
+        workers=1,
     )
 
 

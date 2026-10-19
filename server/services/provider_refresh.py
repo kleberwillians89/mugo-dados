@@ -1,7 +1,6 @@
 """Refresh de dados por membership; nenhuma configuração vem do browser."""
 from __future__ import annotations
 
-import asyncio
 import os
 from typing import Literal
 
@@ -98,7 +97,18 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
         if provider in {"meta", "google"}:
             if not tasks:
                 raise HTTPException(409, "Nenhuma fonte configurada para atualização.")
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = []
+            try:
+                # One heavy source at a time; keep per-source failure isolation.
+                for task in tasks:
+                    try:
+                        results.append(await task)
+                    except Exception as exc:
+                        results.append(exc)
+            finally:
+                # Close sources not started if the HTTP request was cancelled.
+                for task in tasks:
+                    task.close()
             if provider == "meta":
                 for source, result in zip(meta_sources, results):
                     if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("sync_outcome") == "partial")):

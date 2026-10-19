@@ -525,12 +525,7 @@ async def sync_fbits_connection(
     attempt_at = _iso(run_started)
     metadata["last_attempt_at"] = attempt_at
     job_run = None
-    if record_job_run:
-        job_run = await _safe_start_job_run(
-            job_name=job_name, client_id=client_id, connection_id=connection_id,
-            trigger_source=trigger_source, payload_json={"provider": PROVIDER},
-        )
-    job_run_id = _safe_str((job_run or {}).get("id"))
+    job_run_id = ""
     historical = not metadata.get("history_completed_at")
     if historical:
         history_start = _parse_dt(metadata.get("history_start")) or (run_started - timedelta(days=HISTORY_DAYS))
@@ -554,6 +549,12 @@ async def sync_fbits_connection(
     async with guarded_sync(client_id=client_id, provider=PROVIDER, connection_id=connection_id):
         current = await load_fbits_connection(client_id)
         require_fbits_not_in_cooldown(current or row, now)
+        if record_job_run:
+            job_run = await _safe_start_job_run(
+                job_name=job_name, client_id=client_id, connection_id=connection_id,
+                trigger_source=trigger_source, payload_json={"provider": PROVIDER},
+            )
+        job_run_id = _safe_str((job_run or {}).get("id"))
         try:
             for window_start, window_end in windows:
                 async for page in client.iter_order_pages(start=window_start, end=window_end, date_filter=date_filter):

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from weakref import WeakValueDictionary
+from .memory_budget import measured_operation
+
 import asyncio
 import hashlib
 import json
@@ -2181,7 +2184,7 @@ INTELLIGENCE_GENERATION_COOLDOWN_SECONDS = float(
 # Cliques concorrentes no mesmo worker colapsam no mesmo lock: o segundo
 # espera o primeiro terminar e, ao seguir, encontra a análise recém-gravada
 # reutilizável pelo fingerprint — sem uma segunda chamada ao provedor.
-_GENERATION_LOCKS: Dict[str, asyncio.Lock] = {}
+_GENERATION_LOCKS: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
 
 def _generation_lock(client_id: str, period: Dict[str, Any]) -> asyncio.Lock:
@@ -2258,6 +2261,7 @@ async def _reusable_analysis(
     return row
 
 
+@measured_operation("intelligence", limit=False)
 async def generate_analysis(
     *,
     client_id: str,
@@ -2356,6 +2360,7 @@ async def generate_analysis(
         )
 
 
+@measured_operation("intelligence_generation", limit=True)
 async def _generate_with_provider(
     *,
     client_id: str,

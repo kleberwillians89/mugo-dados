@@ -361,9 +361,17 @@ async def fetch_first_ad_account_id(access_token: str) -> str:
     return _normalize_ad_account_id(raw)
 
 
+# Thumbnails are best effort; never buffer an unbounded CDN response.
+MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024
+
+
 async def download_image(url: str) -> Tuple[bytes, str]:
     async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        ctype = r.headers.get("content-type") or "image/jpeg"
-        return r.content, ctype
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            content = bytearray()
+            async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                if len(content) + len(chunk) > MAX_THUMBNAIL_BYTES:
+                    raise ValueError("thumbnail_size_limit")
+                content.extend(chunk)
+            return bytes(content), response.headers.get("content-type") or "image/jpeg"
