@@ -110,6 +110,11 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
     return <DataNotice title="FBITS ainda não conectado">Conecte a plataforma para acompanhar as vendas.</DataNotice>;
   }
   if (!summary) return null;
+  if (data?.data_available === false) {
+    return <DataNotice tone="warning" role="status" title="Disponibilidade não confirmada">
+      Não há indicadores oficiais nem pedidos persistidos suficientes para comprovar o resultado deste período. Isso não significa zero vendas.
+    </DataNotice>;
+  }
   // Sem nada importado ainda, zeros e "não houve vendas" seriam falsos: a
   // página mostra o aviso de sincronização pendente.
   if (syncPending && summary.pedidos === 0) return null;

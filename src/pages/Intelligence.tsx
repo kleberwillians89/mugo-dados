@@ -1,3 +1,4 @@
+import { useDataHealth } from "../app/DataHealthContext";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
@@ -184,6 +185,7 @@ function Evidence({
 
 // onLogout segue no tipo por compatibilidade: a saída vive na sidebar global.
 export default function Intelligence({ canEditBusinessContext = false }: Props) {
+  const health = useDataHealth();
   const { period } = usePeriod();
   const clientId = getActiveClientId();
   const cacheKey = `${clientId}:${period.start}:${period.end}`;
@@ -531,7 +533,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <span><small>Período exibido</small>{formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}</span>
           {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
               aparecem separados: um é sincronização, o outro é a IA. */}
-          {dataFreshnessLabel ? (
+          {health ? <span><small>Dados das integrações</small>Consulte a saúde por fonte acima</span> : dataFreshnessLabel ? (
             <span><small>Dados atualizados</small>{dataFreshnessLabel}</span>
           ) : null}
           {analysisUpdatedLabel ? (
@@ -661,7 +663,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             {sourceNames.length ? (
               <p data-testid="intel-source-note">
                 Fontes: {sourceNames.join(" · ")}
-                {updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
+                {!health && updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
               </p>
             ) : null}
           </div>

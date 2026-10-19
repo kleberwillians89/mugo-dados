@@ -85,7 +85,7 @@ def _empty_context(reason: str) -> Dict[str, Any]:
 
 def build_fbits_commerce_context(summary: Dict[str, Any]) -> Dict[str, Any]:
     """Normaliza o resumo FBITS sem recalcular os KPIs executivos."""
-    totals = summary.get("summary") if isinstance(summary.get("summary"), dict) else {}
+    totals = summary.get("summary") if isinstance(summary.get("summary"), dict) and summary.get("data_available") is not False else {}
     comparison = summary.get("comparison") if isinstance(summary.get("comparison"), dict) else {}
     kpi_source = _text(summary.get("kpi_source")) or None
 
@@ -101,7 +101,8 @@ def build_fbits_commerce_context(summary: Dict[str, Any]) -> Dict[str, Any]:
         "provider": FBITS,
         "provider_label": PROVIDER_LABELS[FBITS],
         "connected": bool(summary.get("connected")),
-        "status": "ok",
+        "status": "unavailable" if summary.get("data_available") is False else "ok",
+        "unavailable_reason": summary.get("kpi_fallback_reason") if summary.get("data_available") is False else None,
         "kpi_source": kpi_source,
         "metrics": {
             "revenue": {"value": _number(totals.get("receita_oficial")), "previous": previous("receita_oficial"), "variation": variation("receita_oficial")},
@@ -159,7 +160,7 @@ async def resolve_commerce_provider(client_id: str) -> Dict[str, Any]:
     try:
         rows = await sb_select(
             "integration_connections",
-            select="id,client_id,provider,status,disconnected_at,updated_at",
+            select="id,client_id,provider,status,disconnected_at,updated_at,metadata,last_sync_at",
             filters={"client_id": f"eq.{_text(client_id)}"},
             order="updated_at.desc", limit=50,
         )
@@ -180,6 +181,7 @@ async def resolve_commerce_provider(client_id: str) -> Dict[str, Any]:
     if not chosen:
         return {"provider": None, "connection_id": None, "ambiguous": False, "active_providers": [], "resolution_failed": False}
     return {
+        "_connection": chosen,
         "provider": _text(chosen.get("provider")).lower(),
         "connection_id": _text(chosen.get("id")) or None,
         "ambiguous": len(active_providers) > 1,
@@ -205,7 +207,23 @@ async def resolve_commerce_context(
         return {**_empty_context(reason), "ambiguous": False, "active_providers": []}
 
     if provider == FBITS and not include_details:
-        return {**_empty_context("unavailable"), "provider": FBITS, "provider_label": PROVIDER_LABELS[FBITS], "connected": True, "ambiguous": resolved["ambiguous"], "active_providers": resolved["active_providers"]}
+        from datetime import date, timedelta
+        from .fbits_official_kpis import persisted_snapshot, OfficialKpisUnavailable
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+        try:
+            entry, value = persisted_snapshot(resolved.get("_connection"), start, end,
+                (date.fromisoformat(start) - timedelta(days=days)).isoformat(),
+                (date.fromisoformat(start) - timedelta(days=1)).isoformat())
+        except OfficialKpisUnavailable as exc:
+            return {**_empty_context("unavailable"), "provider": FBITS, "provider_label": PROVIDER_LABELS[FBITS],
+                "connected": True, "unavailable_reason": exc.code, "ambiguous": resolved["ambiguous"], "active_providers": resolved["active_providers"]}
+        from .fbits_reporting import _comparison_or_empty
+        current, previous = value["current"], value.get("previous") or {}
+        context = build_fbits_commerce_context({"connected": True, "kpi_source": "fbits_dashboard",
+            "summary": current, "comparison": {key: _comparison_or_empty(current[key], previous.get(key)) for key in current},
+            "last_sync_at": entry.get("updated_at")})
+        return {**context, "connection_id": resolved["connection_id"], "ambiguous": resolved["ambiguous"],
+                "active_providers": resolved["active_providers"]}
 
     if provider == FBITS:
         from .fbits_reporting import FbitsPeriod, build_fbits_summary

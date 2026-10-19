@@ -722,12 +722,13 @@ async def _sync_ga4_for_period(
         if record_job_run and job_run and _safe_str(job_run.get("id")):
             await finish_job_run(
                 _safe_str(job_run["id"]),
-                status="success",
+                status="success" if payload["collection_complete"] else "partial",
                 rows_upserted=rows_upserted,
                 payload_json=payload,
                 client_id=resolved_client_id,
             )
 
+        payload["partial"] = not payload["collection_complete"]
         return payload
     except Exception as exc:
         if record_job_run and job_run and _safe_str(job_run.get("id")):

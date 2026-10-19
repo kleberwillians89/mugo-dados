@@ -32,9 +32,10 @@ export default function useDashboardGa4({ isAuthenticated, activeClientId, perio
     }
   }, [activeClientId, enabled, isAuthenticated, key, selected.end, selected.start]);
   useEffect(() => {
+    if (readDashboardCache<Ga4ReportResponse>(key)) return;
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => { window.clearTimeout(timer); request.current += 1; };
-  }, [load]);
+  }, [key, load]);
   const reloadGa4 = useCallback(async (options?: { force?: boolean }) => { void options; return load(); }, [load]);
   return { ga4Report: report, loadingGa4: enabled && !report && (state.key !== key || state.loading),
     refreshingGa4: Boolean(report && state.loading), ga4Error: state.key === key ? state.error : null,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from services.integration_errors import IntegrationError
@@ -72,3 +72,13 @@ async def refresh_client_provider(
             seconds = max(60, int(exc.diagnostics.get("retry_after") or 60))
             raise HTTPException(429, exc.public_message, headers={"Retry-After": str(seconds)}) from None
         raise
+
+
+@router.get("/{client_id}/data-health")
+async def get_data_health(client_id: str, start: date = Query(...), end: date = Query(...),
+                          authorization: str | None = Header(default=None)):
+    from services.data_health import client_data_health
+    cid = await require_client_read(client_id, authorization)
+    if end < start or (end - start).days > 365:
+        raise HTTPException(400, "Período inválido: use até 366 dias.")
+    return await client_data_health(cid, start.isoformat(), end.isoformat())

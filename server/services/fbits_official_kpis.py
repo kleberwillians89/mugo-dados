@@ -177,11 +177,15 @@ async def fetch_official_kpis(
     return value
 
 
-async def read_persisted_official_kpis(*, client_id, start, end, previous_start, previous_end):
-    """GET: somente números oficiais previamente coletados no refresh explícito."""
-    row = await load_fbits_connection(client_id)
+def persisted_snapshot(row, start, end, previous_start, previous_end):
+    """Validate an exact-period official snapshot without IO or provider access."""
     key = f"{start}:{end}:{previous_start}:{previous_end}"
-    entry = ((row or {}).get("metadata") or {}).get("official_kpi_snapshots", {}).get(key)
+    metadata = (row or {}).get("metadata") or {}
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("official_kpi_snapshots", {}), dict):
+        raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_INVALID")
+    entry = metadata.get("official_kpi_snapshots", {}).get(key)
+    if entry is not None and not isinstance(entry, dict):
+        raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_INVALID")
     if not entry or entry.get("connection_id") != (row or {}).get("id"):
         raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_MISSING")
     value = entry.get("value")
@@ -194,8 +198,16 @@ async def read_persisted_official_kpis(*, client_id, start, end, previous_start,
         if not isinstance(source, dict) or any(isinstance(source.get(key), bool) or not isinstance(source.get(key), (int, float)) or not math.isfinite(source[key]) for key in ("receita_oficial", "pedidos", "ticket_medio")):
             raise OfficialKpisUnavailable("FBITS_OFFICIAL_SNAPSHOT_INVALID")
         safe[block] = {key: source[key] for key in ("receita_oficial", "pedidos", "ticket_medio")}
-    return safe
+    return entry, safe
 
+
+async def read_persisted_official_kpis(*, client_id, start, end, previous_start, previous_end, connection=None):
+    """GET: only previously persisted official data, never provider IO."""
+    row = connection if connection is not None else await load_fbits_connection(client_id)
+    if connection is not None and row and row.get("client_id") != client_id:
+        raise OfficialKpisUnavailable("FBITS_NOT_CONNECTED")
+    _entry, safe = persisted_snapshot(row, start, end, previous_start, previous_end)
+    return safe
 
 async def refresh_persisted_official_kpis(client_id, start, end):
     """Operação de refresh existente; nunca chamada pelo GET de reporting."""

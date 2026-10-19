@@ -1,3 +1,5 @@
+import { DataHealthProvider } from "./app/DataHealthContext";
+import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -800,6 +802,7 @@ function PrivateApp() {
 
   if (view === "setup") {
     return (
+      <DataHealthProvider clientId={activeClientId} enabled={!!activeClientId && !!session}>
       <div className="appFrame">
         <AppNavigation
           route="integrations"
@@ -814,6 +817,7 @@ function PrivateApp() {
           user={navigationUser}
         />
         <div className="appFrameMain">
+          <DataHealthSummary />
           <Suspense fallback={<PageLoading />}>
             <Onboarding
               isAuthenticated={!!session}
@@ -824,11 +828,13 @@ function PrivateApp() {
           </Suspense>
         </div>
       </div>
+      </DataHealthProvider>
     );
   }
 
   return (
     <DashboardErrorBoundary>
+      <DataHealthProvider clientId={activeClientId} enabled={!!activeClientId && (tenantReady || localMode) && (!!session || localMode)}>
       <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
       <AppNavigation
@@ -844,6 +850,7 @@ function PrivateApp() {
         user={navigationUser}
       />
       <div className="appFrameMain">
+      <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} />
       <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
@@ -906,6 +913,7 @@ function PrivateApp() {
       </div>
       </div>
       </DashboardDataProvider>
+      </DataHealthProvider>
     </DashboardErrorBoundary>
   );
 }

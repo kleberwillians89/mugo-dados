@@ -169,7 +169,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
                 )
             await _safe_finish_job_run(
                 run,
-                status="success",
+                status="partial" if res.get("partial") else "success",
                 client_id=client_id,
                 connection_id=connection_id,
                 payload_json={
@@ -185,7 +185,8 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
                 {
                     "connection_id": connection_id,
                     "client_id": client_id,
-                    "ok": True,
+                    "ok": not bool(res.get("partial")),
+                    "partial": bool(res.get("partial")),
                     "comments_saved": res.get("comments_saved", 0),
                     "media_count": len(res.get("media") or []),
                     "job_run_id": (run or {}).get("id"),
@@ -313,7 +314,7 @@ async def run_ga4_sync_all(window_days: int = 3) -> Dict[str, Any]:
                 access_token=token, days=window_days, job_name="ga4_sync_cron",
                 trigger_source="cron", record_job_run=True,
             )
-            results.append({"client_id": client_id, "connection_id": connection_id, "ok": True, "rows_upserted": response.get("rows_upserted")})
+            results.append({"client_id": client_id, "connection_id": connection_id, "ok": not bool(response.get("partial")) and response.get("collection_complete") is not False, "rows_upserted": response.get("rows_upserted")})
         except Exception as exc:
             results.append({"client_id": client_id, "connection_id": connection_id, "ok": False, "error": str(exc)[:240]})
     return _provider_job_summary("ga4_sync", conns, results, window_days)

@@ -178,14 +178,14 @@ describe("Onboarding — contrato canônico de integrações", () => {
     expect(container.querySelector(".statusBadge.is-error")).toBeTruthy();
   });
 
-  it("permission_error aparece corretamente no card", async () => {
+  it("autorização inválida pede reconexão no status legado permission_error", async () => {
     mocks.canonicalResponse = {
       ok: true,
       client_id: "amalie",
       connections: [canonicalConnection({ status: "permission_error", authorization_status: "invalid", sync_status: null })],
     };
     await renderOnboarding();
-    expect(container.textContent).toContain("Permissão insuficiente");
+    expect(container.textContent).toContain("Reconexão necessária");
   });
 
   it("erro de sincronização aparece sem apagar a conta selecionada", async () => {

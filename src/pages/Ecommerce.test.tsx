@@ -264,7 +264,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     await render();
     expect(container.querySelector('[data-testid="fbits-panel"]')?.textContent).toContain("pedidos=73");
     const warning = container.querySelector('[data-testid="ecommerce-fbits-sync-warning"]');
-    expect(warning?.textContent).toContain("Os números seguem válidos");
+    expect(warning?.textContent).toContain("Os dados anteriores permanecem disponíveis");
     // Nem erro cru nem alarme quando a leitura continua válida.
     expect(container.textContent).not.toContain("FBITS_RATE_LIMITED");
     expect(warning?.getAttribute("role")).toBe("status");

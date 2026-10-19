@@ -379,6 +379,8 @@ export type FbitsTrendPoint = {
 };
 
 export type FbitsOrdersSummaryResponse = {
+  data_available?: boolean;
+  data_status?: "confirmed" | "partial" | "unknown";
   ok: boolean;
   connected: boolean;
   client_id: string;
@@ -798,7 +800,7 @@ export type ClientIntegrationStatus =
   | "token_expired"
   | "permission_error";
 
-export type ClientIntegrationSyncStatus = "sync_success" | "sync_error" | null;
+export type ClientIntegrationSyncStatus = "sync_success" | "sync_error" | "sync_partial" | "sync_no_data" | null;
 
 export type ClientIntegrationConnection = {
   provider: "meta" | "ga4" | "google_ads" | "shopify" | string;

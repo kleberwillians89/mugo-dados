@@ -30,8 +30,8 @@ _STATUS_PERMISSION_ERROR = "permission_error"
 
 _SYNC_STATUS_MAP = {
     "success": "sync_success",
-    "partial": "sync_success",
-    "skipped": "sync_success",
+    "partial": "sync_partial",
+    "skipped": "sync_no_data",
     "error": "sync_error",
     "never": None,
     "": None,

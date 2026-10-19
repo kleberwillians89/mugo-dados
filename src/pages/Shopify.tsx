@@ -1,3 +1,5 @@
+import { useDataHealth } from "../app/DataHealthContext";
+import { DataFreshness } from "../components/data/DataFreshness";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
@@ -164,6 +166,7 @@ function buildCustomerSummary(customers: ShopifyCustomerRow[]) {
 
 // Navegação e saída vivem na sidebar global (onLogout segue no tipo por compatibilidade).
 export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) {
+  const health = useDataHealth();
   const { period, periodDays, setPeriod, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -443,7 +446,7 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
           dateline={
             <>
               <span className="ds-datelineSource">Shopify</span>
-              <span>{report?.technical.last_success_at ? `Dados atualizados ${formatFreshness(report.technical.last_success_at)}` : "Sem atualização concluída"}</span>
+              <span>{health ? <DataFreshness provider="shopify" /> : report?.technical.last_success_at ? `Dados atualizados ${formatFreshness(report.technical.last_success_at)}` : "Sem atualização concluída"}</span>
               <span>
                   <button
                     className="btn intelHeaderAction"

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { getGa4Report } from "../../app/api";
 import useDashboardGa4 from "./useDashboardGa4";
+import { buildDashboardCacheKey, writeDashboardCache } from "./cache";
 import Ga4SiteBehaviorPanel from "../../components/dashboard/Ga4SiteBehaviorPanel";
 
 const channels = Array.from({ length: 3 }, (_, index) => ({
@@ -112,5 +113,18 @@ test("falha na releitura preserva canais, campanhas e freshness do último suces
   expect(node.textContent).toBe("3:2");
   expect(current!.ga4UpdatedAt).toBe("2026-08-10T12:00:00Z");
   expect(current!.ga4Error).toBe("indisponível");
+  act(() => root.unmount());
+});
+
+test("remontagem reutiliza relatório do mesmo tenant e período sem GET redundante", async () => {
+  const period = {start: "2026-08-01", end: "2026-08-10"};
+  const report = await getGa4Report(period);
+  writeDashboardCache(buildDashboardCacheKey("ga4-report", {clientId: "amalie", ...period}), report, 180_000);
+  const callsBefore = vi.mocked(getGa4Report).mock.calls.length;
+  const node = document.createElement("div"), root = createRoot(node);
+  await act(async () => root.render(<Harness />));
+  await act(async () => new Promise(resolve => window.setTimeout(resolve, 10)));
+  expect(node.textContent).toBe("20:3:2");
+  expect(vi.mocked(getGa4Report).mock.calls.length).toBe(callsBefore);
   act(() => root.unmount());
 });

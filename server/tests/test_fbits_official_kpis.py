@@ -217,6 +217,7 @@ ROWS = [
 class SummaryTests(unittest.IsolatedAsyncioTestCase):
     async def summary(self, official, *, rows=ROWS, previous_rows=(), connected=True):
         state = {"connected": connected, "connection": {"metadata": {"revenue_status_ids": ["1"]}, "last_sync_at": None}}
+        self.summary_connection = state["connection"]
         self.official = official if isinstance(official, AsyncMock) else AsyncMock(return_value=official)
         with (
             patch.object(fbits_reporting, "fbits_connection_state", AsyncMock(return_value=state)),
@@ -235,7 +236,7 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["derived_kpis"], {"receita_oficial": 400.0, "pedidos": 1, "ticket_medio": 400.0})
         self.official.assert_awaited_once_with(
             client_id="loja-a", start="2026-09-01", end="2026-09-30",
-            previous_start="2026-08-02", previous_end="2026-08-31",
+            previous_start="2026-08-02", previous_end="2026-08-31", connection=self.summary_connection,
         )
 
     async def test_previous_period_comparison_uses_the_same_official_concept(self):

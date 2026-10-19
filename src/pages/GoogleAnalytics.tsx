@@ -1,3 +1,5 @@
+import { useDataHealth } from "../app/DataHealthContext";
+import { DataFreshness } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -206,6 +208,7 @@ export default function GoogleAnalytics({
   canSync = false,
   initialView,
 }: Props) {
+  const health = useDataHealth();
   const { period, periodDays, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
@@ -527,7 +530,7 @@ export default function GoogleAnalytics({
               <>
                 <span>
                   <span className="ds-datelineSource">Google Ads</span>{" "}
-                  {googleAdsUpdatedAt ? `Dados atualizados ${googleAdsUpdatedAt}` : "sem sincronização concluída"}
+                  {health ? <DataFreshness provider="google_ads" /> : googleAdsUpdatedAt ? `Dados atualizados ${googleAdsUpdatedAt}` : "sem sincronização concluída"}
                 </span>
                 {refreshButton}
               </>
@@ -535,7 +538,7 @@ export default function GoogleAnalytics({
               <>
                 <span>
                   <span className="ds-datelineSource">Google Analytics 4</span>{" "}
-                  {lastSyncedLabel ? `Dados atualizados ${lastSyncedLabel}` : "sem sincronização concluída"}
+                  {health ? <DataFreshness provider="ga4" /> : lastSyncedLabel ? `Dados atualizados ${lastSyncedLabel}` : "sem sincronização concluída"}
                 </span>
                 {syncing || refreshingGa4 ? <span>sincronizando...</span> : null}
                 {refreshButton}

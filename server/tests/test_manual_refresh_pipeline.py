@@ -48,7 +48,9 @@ class ManualPipelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await read())["current"]["receita_oficial"], 987)
             report = await reporting.build_fbits_summary(client_id="curavino", period=reporting.FbitsPeriod("2026-09-01", "2026-09-30"))
             self.assertEqual(report["summary"]["receita_oficial"], 987)
-            self.assertEqual(report["last_sync_at"], NOW.isoformat())
+            entry = row["metadata"]["official_kpi_snapshots"]["2026-09-01:2026-09-30:2026-08-02:2026-08-31"]
+            self.assertEqual(report["last_sync_at"], entry["updated_at"])
+            self.assertEqual(report["orders_last_successful_sync_at"], NOW.isoformat())
 
     async def test_meta_provider_persist_projection_freshness_in_order(self):
         rows = {}; stages = []

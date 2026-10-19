@@ -181,3 +181,13 @@ describe("FbitsExecutiveDashboard", () => {
     expect(container.textContent).not.toContain("indicadores oficiais da FBITS. Os demais");
   });
 });
+
+it("ausência sem cobertura comprovada não exibe zero como resultado", async () => {
+  const container = document.createElement("div"), root = createRoot(container);
+  const missing = {...data, data_available: false, data_status: "unknown" as const, summary: {...data.summary, receita_oficial:0,pedidos:0,ticket_medio:0}};
+  await act(async () => root.render(<FbitsExecutiveDashboard data={missing} loading={false} error={null} />));
+  expect(container.textContent).toContain("Isso não significa zero vendas");
+  expect(container.querySelector('[data-testid="kpi-receita"]')).toBeNull();
+  expect(container.textContent).not.toContain("Não houve vendas");
+  await act(async () => root.unmount());
+});

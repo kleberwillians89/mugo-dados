@@ -137,16 +137,16 @@ async def _resolve_connection_by_id(connection_id: str) -> Optional[Dict[str, An
     return rows[0] if rows else None
 
 
-async def _mark_connection_success(connection_id: str) -> None:
+async def _mark_connection_success(connection_id: str, *, partial: bool = False) -> None:
     now = _iso_now()
     await sb_update(
         "meta_connections",
         filters={"id": f"eq.{connection_id}"},
         patch={
-            "last_synced_at": now,
+            **({"last_synced_at": now} if not partial else {}),
             "last_sync_at": now,
-            "last_sync_status": "success",
-            "last_error": None,
+            "last_sync_status": "partial" if partial else "success",
+            "last_error": "Sincronização parcial; dados anteriores preservados." if partial else None,
             "status": "active",
             "updated_at": now,
         },
@@ -366,6 +366,7 @@ async def _run_sync_for_client_and_ig(
                         }
                     )
             except Exception:
+                warnings.append("Comentários indisponíveis; dados anteriores preservados.")
                 print(
                     "[ig_sync][meta_error] "
                     f"block=comments client_id={client_id} media_id={media_id} error=fetch_comments_failed"
@@ -673,7 +674,13 @@ async def _sync_instagram_connection(
             if not res["read_model_refreshed"]:
                 raise RuntimeError("Instagram persistido, mas o read model não foi atualizado.")
         print(f"[meta][freshness_updated] client_id={client_id} provider=instagram snapshot_date={_utc_date_str()}")
-        await _mark_connection_success(connection_id)
+        partial = bool(res.get("warnings") or (res.get("kpis") or {}).get("unavailable_metrics") or
+                       any((item.get("insights") or {}).get("unavailable_metrics") for item in res.get("media") or []))
+        res["partial"] = partial
+        if partial:
+            await _mark_connection_success(connection_id, partial=True)
+        else:
+            await _mark_connection_success(connection_id)
         thumbnail_jobs = res.pop("_thumbnail_jobs", [])
         thumbnail_result = (
             await _process_thumbnail_jobs(

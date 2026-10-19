@@ -1,3 +1,4 @@
+import { DataFreshness } from "../components/data/DataFreshness";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   disconnectClientConnection,
@@ -141,12 +142,15 @@ function canonicalStatusLabel(
   isRefreshing: boolean
 ): string {
   if (!entry) return "Desconectado";
-  if (isRefreshing) return "Atualizando…";
+  if (isRefreshing) return "Consultando conexão…";
   if (entry.status === "disconnected") return "Desconectado";
+  if (entry.authorization_status === "invalid") return "Reconexão necessária";
   if (entry.status === "token_expired") return "Token expirado";
   if (entry.status === "permission_error") return "Permissão insuficiente";
   if (entry.status === "needs_configuration") return "Configuração necessária";
   if (entry.sync_status === "sync_error") return "Erro de sincronização";
+  if (entry.sync_status === "sync_partial") return "Sincronização parcial";
+  if (entry.sync_status === "sync_no_data") return "Última consulta sem dados";
   if (entry.sync_status === "sync_success") return "Sincronizado";
   // Commerce: conexão válida ainda sem nenhuma importação concluída é
   // "conectado", nunca "não conectado" — só a primeira carga está pendente.
@@ -161,7 +165,7 @@ function canonicalStatusTone(entry: ClientIntegrationConnection | undefined): "r
   if (entry.status === "disconnected") return "red";
   if (entry.status === "token_expired" || entry.status === "permission_error") return "red";
   if (entry.status === "needs_configuration") return "yellow";
-  if (entry.sync_status === "sync_error") return "yellow";
+  if (["sync_error", "sync_partial", "sync_no_data"].includes(entry.sync_status || "")) return "yellow";
   return "green";
 }
 
@@ -179,6 +183,7 @@ function canonicalStatusBadgeTone(
   if (entry.status === "token_expired" || entry.status === "permission_error") return "error";
   if (entry.status === "needs_configuration") return "warning";
   if (entry.sync_status === "sync_error") return "error";
+  if (["sync_partial", "sync_no_data"].includes(entry.sync_status || "")) return "warning";
   if (entry.sync_status === "sync_success") return "success";
   return "success";
 }
@@ -1695,7 +1700,7 @@ export default function Onboarding({
                 {canonicalEntry ? (
                   <div className="smallMuted" style={{ marginTop: 10 }} data-testid={`integration-account-${definition.id}`}>
                     {canonicalAccountLabel(canonicalEntry) ? <>Conta: {canonicalAccountLabel(canonicalEntry)}<br /></> : null}
-                    Última sincronização: {fmtDate(canonicalEntry.last_sync_at)}
+                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} />
                     {canonicalEntry.last_error ? <><br />{canonicalEntry.last_error}</> : null}
                     {canonicalIntegrations.isRefreshing ? <><br />Atualizando…</> : null}
                   </div>
@@ -1703,7 +1708,7 @@ export default function Onboarding({
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
                     {definition.id === "meta" && selectedPaidConnection?.ad_account_id ? <>{selectedPaidConnection.ad_account_id}<br /></> : null}
-                    Última sincronização: {fmtDate(definition.id === "meta" ? selectedPaidConnection?.last_sync_at || selectedPaidConnection?.last_synced_at : connection?.last_sync_at)}
+                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} />
                   </div>
                 ) : null}
                 {definition.id === "shopify" ? (
@@ -1867,8 +1872,8 @@ export default function Onboarding({
           <section className="card cardWide" aria-label="Diagnóstico temporário de integrações">
             <div className="h1">Diagnóstico temporário</div>
             <div className="smallMuted" style={{ marginTop: 10 }}>
-              Meta — tenant: {getActiveClientId()} · autorização: {selectedMetaAuthorizationId || "não selecionada"} · páginas descobertas: {pendingAssets?.page_count ?? pendingAssets?.pages?.length ?? 0} · página escolhida: {Object.keys(selectedPages).find((id) => selectedPages[id]) || "-"} · Instagram escolhido: {Object.keys(selectedIg).find((id) => selectedIg[id]) || "-"} · último sync: {fmtDate(activeOrganicConnection?.last_synced_at || activeOrganicConnection?.last_sync_at)} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || pendingAssets?.request_id || "-"}<br />
-              GA4 — autorização: {selectedGoogleAuthorizationIds.ga4 || "não selecionada"} · status: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.status || "não configurada"} · propriedades: {lastIntegrationDiagnostic.propertyCount} · propriedade: {selectedGoogleProperty || lastIntegrationDiagnostic.propertyId || "-"} · streams: {lastIntegrationDiagnostic.streamCount} · stream: {selectedGoogleStream || lastIntegrationDiagnostic.streamId || "-"} · último sync: {lastIntegrationDiagnostic.ga4LastSync || "-"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"}<br />
+              Meta — tenant: {getActiveClientId()} · autorização: {selectedMetaAuthorizationId || "não selecionada"} · páginas descobertas: {pendingAssets?.page_count ?? pendingAssets?.pages?.length ?? 0} · página escolhida: {Object.keys(selectedPages).find((id) => selectedPages[id]) || "-"} · Instagram escolhido: {Object.keys(selectedIg).find((id) => selectedIg[id]) || "-"} · registro operacional: {fmtDate(activeOrganicConnection?.last_sync_at)} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || pendingAssets?.request_id || "-"}<br />
+              GA4 — autorização: {selectedGoogleAuthorizationIds.ga4 || "não selecionada"} · status: {selectUsableGoogleConnection(genericConnections, "ga4", getActiveClientId(), selectedGoogleAuthorizationIds.ga4)?.status || "não configurada"} · propriedades: {lastIntegrationDiagnostic.propertyCount} · propriedade: {selectedGoogleProperty || lastIntegrationDiagnostic.propertyId || "-"} · streams: {lastIntegrationDiagnostic.streamCount} · stream: {selectedGoogleStream || lastIntegrationDiagnostic.streamId || "-"} · registro operacional: {lastIntegrationDiagnostic.ga4LastSync || "-"} · último código: {lastIntegrationDiagnostic.code || "-"} · request_id: {lastIntegrationDiagnostic.requestId || "-"}<br />
               Google Ads — autorização: {selectedGoogleAuthorizationIds.google_ads || "não selecionada"} · conexão bloqueada: {lastIntegrationDiagnostic.adsBlockedReason ? "sim" : "não"} · motivo: {lastIntegrationDiagnostic.adsBlockedReason || "-"}
               <br />Atualizar dados — {syncRuntime.length ? syncRuntime.map((item) => `${String(item.provider || "-")}: ${String(item.status || "-")} · ${String(item.endpoint || "-")} · conexão ${String(item.connection_id || "-")} · código ${String(item.code || "-")} · request_id ${String(item.request_id || "-")} · linhas ${String(item.rows_written ?? 0)} · ${String(item.started_at || "-")} → ${String(item.finished_at || "-")}`).join(" | ") : "nenhuma ação disparada"}
             </div>
@@ -2293,7 +2298,7 @@ export default function Onboarding({
                       </div>
                       <div className="smallMuted">Conectada em: {fmtDate(connection.connected_at)}</div>
                       <div className="smallMuted">
-                        Última sincronização: {fmtDate(connection.last_synced_at || connection.last_sync_at)}
+                        Registro operacional: {fmtDate(connection.last_sync_at)} · resultado: {connection.last_sync_status || "não confirmado"}
                       </div>
                       {connection.last_error ? (
                         <div className="smallMuted">Erro recente: {connection.last_error}</div>

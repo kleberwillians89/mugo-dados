@@ -1,3 +1,5 @@
+import { useDataHealth } from "../app/DataHealthContext";
+import { DataFreshness } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
@@ -585,6 +587,7 @@ export default function Dashboard({
   const [paidPlatformFilter, setPaidPlatformFilter] = useState("");
   const [monthA, setMonthA] = useState<string>("");
   const [monthB, setMonthB] = useState<string>("");
+  const health = useDataHealth();
   const activeClientId = getActiveClientId();
   const connectionsCacheKey = useMemo(
     () =>
@@ -1202,13 +1205,14 @@ export default function Dashboard({
     [connections, paidConnectionId]
   );
   const paidSyncStatus = String(paidConnection?.last_sync_status || "never").toLowerCase();
-  const mediaLastUpdatedLabel =
+  const organicSync = health?.data?.sources.find(source => source.provider === "instagram")?.last_successful_sync_at;
+  const mediaLastUpdatedLabel = health ? formatUpdatedAtLabel(organicSync) :
     formatUpdatedAtLabel(sectionUpdatedAt.media) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
-  const commentsLastUpdatedLabel =
+  const commentsLastUpdatedLabel = health ? formatUpdatedAtLabel(organicSync) :
     formatUpdatedAtLabel(sectionUpdatedAt.comments) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
-  const monthlyLastUpdatedLabel =
+  const monthlyLastUpdatedLabel = health ? formatUpdatedAtLabel(organicSync) :
     formatUpdatedAtLabel(monthlyUpdatedAt) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
   const paidRowCount = safe(paidData?.row_count);
@@ -1679,11 +1683,11 @@ export default function Dashboard({
               <>
                 <span>
                   <span className="ds-datelineSource">Meta Ads</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : paidRefreshNoData === `${period.start}:${period.end}` ? "sem dados de anúncios no período consultado" : paidConnection?.last_sync_status === "skipped" ? "última consulta sem dados de anúncios" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : health ? <DataFreshness provider="meta_ads" /> : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : paidRefreshNoData === `${period.start}:${period.end}` ? "sem dados de anúncios no período consultado" : paidConnection?.last_sync_status === "skipped" ? "última consulta sem dados de anúncios" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
                 <span>
                   <span className="ds-datelineSource">Instagram</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : organicFreshness ? `Dados atualizados ${organicFreshness}` : instagramConnected ? "sem sincronização concluída" : "não conectado"}
+                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : health ? <DataFreshness provider="instagram" /> : organicFreshness ? `Dados atualizados ${organicFreshness}` : instagramConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
                 {isAuthenticated ? (
                   <span>

@@ -1,3 +1,5 @@
+import { useDataHealth } from "../app/DataHealthContext";
+import { DataFreshness } from "../components/data/DataFreshness";
 import { useMemo, useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { refreshProviderData } from "../app/api";
@@ -103,6 +105,7 @@ type FbitsCommerceProps = Omit<Props, "onOpenGoogleReport"> & {
 };
 
 function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsChanged }: FbitsCommerceProps) {
+  const health = useDataHealth();
   const { period, setPeriod } = usePeriod();
   const ordersDemand = useSectionDemand(`${getActiveClientId()}:${period.start}:${period.end}:orders`, isAuthenticated);
   const report = useDashboardFbits({
@@ -182,7 +185,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
                     contraditório: os KPIs oficiais da FBITS não dependem de
                     sync. Sem data e sem dado, o aviso continua. */}
                 <span>
-                  {lastSyncAt
+                  {health ? <DataFreshness provider="fbits_official" /> : lastSyncAt
                     ? `Dados atualizados ${formatFreshness(lastSyncAt)}`
                     : hasCommerceData ? "" : "Sem sincronização concluída"}
                 </span>
@@ -229,10 +232,10 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
               tone={hasCommerceData ? "warning" : "negative"}
               role="status"
               testId="ecommerce-fbits-sync-warning"
-              title={hasCommerceData ? "Atualização automática pendente" : "Não foi possível atualizar"}
+              title={hasCommerceData ? "Última atualização não concluída" : "Não foi possível atualizar"}
             >
               {hasCommerceData
-                ? "Os números seguem válidos. Verifique a conexão em Integrações para retomar as atualizações automáticas."
+                ? "Os dados anteriores permanecem disponíveis. Verifique a situação da conexão em Integrações."
                 : lastError}
             </DataNotice>
           ) : null}

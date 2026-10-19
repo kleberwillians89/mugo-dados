@@ -897,6 +897,7 @@ async def calculate_intelligence_snapshot(
             "provider_label": commerce.get("provider_label"),
             "connected": bool(commerce.get("connected")),
             "status": commerce.get("status"),
+            "unavailable_reason": commerce.get("unavailable_reason"),
             "kpi_source": commerce.get("kpi_source"),
             "official_kpis": bool(commerce.get("official_kpis")),
             "provenance": commerce.get("provenance") or {},

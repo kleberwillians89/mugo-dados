@@ -17,6 +17,7 @@ from .fbits_official_kpis import (
     OFFICIAL_KPI_SOURCE,
     OfficialKpisUnavailable,
     read_persisted_official_kpis as fetch_official_kpis,
+    persisted_snapshot,
 )
 from .ig_supabase import sb_select, sb_upsert
 
@@ -1014,7 +1015,7 @@ def _comparison_or_empty(current: float, previous: float | None) -> Dict[str, An
 
 async def _executive_kpis(
     *, client_id: str, connected: bool, period: FbitsPeriod, previous_period: FbitsPeriod,
-    derived: Dict[str, Any], derived_previous: Dict[str, Any],
+    derived: Dict[str, Any], derived_previous: Dict[str, Any], connection: Dict[str, Any] | None = None,
 ) -> tuple[Dict[str, Any], Dict[str, Any] | None, str, str | None]:
     """KPIs EXECUTIVOS (receita, pedidos, ticket): oficiais da FBITS.
 
@@ -1027,6 +1028,7 @@ async def _executive_kpis(
         official = await fetch_official_kpis(
             client_id=client_id, start=period.start, end=period.end,
             previous_start=previous_period.start, previous_end=previous_period.end,
+            connection=connection,
         )
     except OfficialKpisUnavailable as exc:
         return _executive(derived), _executive(derived_previous), FALLBACK_KPI_SOURCE, exc.code
@@ -1056,21 +1058,32 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
     # período atual e no anterior).
     executive, executive_previous, kpi_source, fallback_reason = await _executive_kpis(
         client_id=client_id, connected=connected, period=period, previous_period=previous_period,
-        derived=derived, derived_previous=derived_previous,
+        derived=derived, derived_previous=derived_previous, connection=connection,
     )
     summary = {**derived, **executive}
     previous = executive_previous or {}
     if kpi_source == OFFICIAL_KPI_SOURCE:
         message = None if summary["pedidos"] else "Não houve vendas neste período."
     else:
-        message = None if current_rows else ("Não houve vendas neste período." if connected else "FBits ainda não conectada.")
+        message = None if current_rows else ("Cobertura do período não comprovada; indicadores indisponíveis." if connected else "FBits ainda não conectada.")
     print(
         f"[fbits][summary] client_id={client_id} start={period.start} end={period.end} kpi_source={kpi_source} "
         f"fallback_reason={fallback_reason or '-'} receita={summary['receita_oficial']} pedidos={summary['pedidos']} "
         f"derived_receita={derived['receita_oficial']} derived_pedidos={derived['pedidos']}"
     )
+    official_synced_at = None
+    if kpi_source == OFFICIAL_KPI_SOURCE:
+        try:
+            entry, _ = persisted_snapshot(connection, period.start, period.end, previous_period.start, previous_period.end)
+            official_synced_at = entry.get("updated_at")
+        except OfficialKpisUnavailable:
+            pass
     return {
         "ok": True,
+        "data_available": kpi_source == OFFICIAL_KPI_SOURCE or bool(current_rows),
+        "data_status": "confirmed" if kpi_source == OFFICIAL_KPI_SOURCE else "partial" if current_rows else "unknown",
+        "official_last_successful_sync_at": official_synced_at,
+        "orders_last_successful_sync_at": connection.get("last_sync_at"),
         "connected": connected,
         "client_id": client_id,
         "period": {"start": period.start, "end": period.end},
@@ -1085,7 +1098,7 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
         },
         "status_distribution": _status_distribution(current_rows, revenue_status_ids),
         "trend": _sales_trend(period, current_rows, revenue_status_ids),
-        "last_sync_at": connection.get("last_sync_at"),
+        "last_sync_at": official_synced_at if kpi_source == OFFICIAL_KPI_SOURCE else connection.get("last_sync_at"),
         "message": message,
         "source": "supabase",
     }

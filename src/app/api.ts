@@ -1,3 +1,4 @@
+import { DATA_HEALTH_CHANGED, type DataHealthResponse } from "./dataHealth";
 
 
 import type {
@@ -453,7 +454,14 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
 
 function http<T>(path: string, init: HttpRequestInit = {}): Promise<T> {
   const method = String(init.method || "GET").toUpperCase();
-  if (method !== "GET") return executeHttp<T>(path, init);
+  if (method !== "GET") {
+    const clientId = getActiveClientId();
+    const request = executeHttp<T>(path, init);
+    if (path.split("?", 1)[0].endsWith("/sync")) {
+      return request.finally(() => window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED, {detail: {clientId}})));
+    }
+    return request;
+  }
 
   const key = `${getActiveClientId() || ""}:${path}`;
   const existing = inFlightGets.get(key);
@@ -2211,11 +2219,23 @@ export async function refreshProviderData(
   provider: "fbits" | "shopify" | "meta" | "google",
   period: { start: string; end: string },
 ): Promise<{ ok: boolean; client_id: string; provider: string; sources?: Record<string, { status: "success" | "no_data" }> }> {
-  return http(clientClientPath(`/data-refresh/${provider}`), {
-    method: "POST",
-    body: JSON.stringify({ start: period.start, end: period.end }),
-  });
+  const clientId = getActiveClientId();
+  try {
+    return await http(clientClientPath(`/data-refresh/${provider}`), {
+      method: "POST",
+      body: JSON.stringify({ start: period.start, end: period.end }),
+    });
+  } finally {
+    // Read persisted outcome even after partial/failure; never invent success.
+    window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED, {detail: {clientId}}));
+  }
 }
 
 // Transporte existente reutilizado pela feature isolada de Metas.
 export { http, clientClientPath };
+
+
+export function getClientDataHealth(clientId: string, period: {start: string; end: string}): Promise<DataHealthResponse> {
+  const query = new URLSearchParams(period);
+  return http(`/api/clients/${encodeURIComponent(clientId)}/data-health?${query}`);
+}
