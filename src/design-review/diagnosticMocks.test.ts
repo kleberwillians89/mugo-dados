@@ -4,6 +4,22 @@ const options = {clientId: "tenant-a", name: "Empresa fictícia", start: "2026-1
 const url = (path: string) => new URL(`http://localhost${path}`);
 const status = "/api/clients/tenant-a/data-refresh/meta/status";
 describe("diagnóstico local sem provider", () => {
+  it("GA4 e conexão FBITS usam fixtures coerentes com a empresa e o período", async () => {
+    const response = await diagnosticResponse(url("/api/google/ga4/report"), "GET", options);
+    const report = await response!.json();
+    expect(response!.status).toBe(200);
+    expect(report.client_id).toBe(options.clientId);
+    expect(report.period.start).toBe(options.start);
+    expect(report.summary.sessions).toBeGreaterThan(0);
+    expect(report.channels.length).toBeGreaterThan(0);
+    expect((await diagnosticResponse(url("/api/google/ga4/report"), "GET", {...options, scenario: "erro"}))!.status).toBe(502);
+    const stories = await diagnosticResponse(url("/api/ig/stories"), "GET", options);
+    expect(stories!.status).toBe(200);
+    expect((await stories!.json()).stories).toEqual([]);
+    const {reviewGenericConnections} = await import("./fixtures");
+    expect(reviewGenericConnections("vinhos", "Empresa fictícia").connections.some(row => row.provider === "fbits")).toBe(true);
+    expect(reviewGenericConnections("roove", "Empresa fictícia").connections.some(row => row.provider === "fbits")).toBe(false);
+  });
   it("retorna leituras de Inteligência consistentes com tenant e período", async () => {
     const context = await (await diagnosticResponse(url("/api/intelligence/context"), "GET", options))!.json();
     const latest = await (await diagnosticResponse(url("/api/intelligence/latest"), "GET", options))!.json();

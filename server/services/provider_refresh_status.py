@@ -13,7 +13,11 @@ async def refresh_status(client_id, provider, start, end):
     now = datetime.now(timezone.utc)
     facade = f"sync:data_refresh:{provider}"
     cooldown = f"refresh_cooldown:{provider}"
-    prefixes = ("sync:meta_ads:", "sync:meta_organic:") if provider == "meta" else ("sync:ga4:", "sync:google_ads:")
+    prefixes = {"meta": ("sync:meta_ads:", "sync:meta_organic:"),
+                "google": ("sync:ga4:", "sync:google_ads:"),
+                "shopify": ("sync:shopify:",), "fbits": ("sync:fbits:",)}.get(provider)
+    if prefixes is None:
+        raise HTTPException(400, "Plataforma inválida.")
     choices = [f"job_name.eq.{facade}", f"job_name.eq.{cooldown}"] + [f"job_name.like.{prefix}*" for prefix in prefixes]
     rows = await sb_select("cron_locks", select="client_id,job_name,locked_until",
         filters={"client_id": f"eq.{client_id}", "locked_until": f"gt.{now.isoformat()}",

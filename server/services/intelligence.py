@@ -343,7 +343,9 @@ Instagram account reach vem apenas de instagram_account_context. A soma de reach
 em instagram_content_context deve ser chamada "alcance dos conteúdos" e nunca alcance da conta.
 Stories sem métricas persistidas são indisponíveis, não zero, e não reduzem a cobertura de Feed/Reels.
 Se includes_partial_today for verdadeiro, registre que os dados de hoje ainda estão em formação
-e não compare o dia incompleto com um dia completo. Métricas em unavailable_metric_ids não podem
+e não compare o dia incompleto com um dia completo. Métricas em insufficient_coverage_metric_ids
+não podem sustentar comparações entre fontes; descreva somente fontes com cobertura comprovada.
+Métricas em unavailable_metric_ids não podem
 sustentar conclusão. Sem comparação anterior, descreva nível observado sem inventar tendência.
 
 Cada insight deve conter metric_ids e sources válidos. Recomendações com baixa evidência devem
@@ -1374,6 +1376,11 @@ def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     else:
         temporal_mode, sources_temporally_compatible = "insufficient_temporal_evidence", False
     complete_sources = all(source.get("status") == "available" for source in sources if source.get("connected"))
+    source_index = _source_alias_index(snapshot)
+    uncovered = {source.get("id") for source in sources
+                 if not source.get("data_max_available") or source.get("status") != "available"}
+    insufficient_coverage = [metric["id"] for metric in metrics
+                             if not (ids := _metric_source_ids(metric, source_index)) or uncovered.intersection(ids)]
     return {
         "includes_partial_today": includes_partial_today,
         "today_date": today if includes_partial_today else None,
@@ -1383,6 +1390,7 @@ def _build_analysis_policy(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "primary_metric_ids": [item["metric_id"] for item in metric_changes if item["primary_candidate"]],
         "supporting_metric_ids": sorted(supporting),
         "unavailable_metric_ids": unavailable,
+        "insufficient_coverage_metric_ids": insufficient_coverage,
         "source_sync_spread_hours": sync_spread_hours,
         "source_coverage": coverage_by_source,
         "common_coverage_through": coverage_values[0] if coverage_values and len(set(coverage_values)) == 1 else None,
@@ -1783,6 +1791,54 @@ def _validate_analysis_grounding(
             raise RuntimeError("AI_UNGROUNDED_ACTION")
 
 
+def _recover_temporal_sections(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Discard incompatible optional sections; never salvage rejected prose.
+
+    The caller revalidates the entire replacement. Unknown IDs, invented
+    numbers and causality still fail closed. No extra model request is made.
+    """
+    retained = []
+    removed = 0
+    metrics_by_id = {_text(item.get("id")): item for item in snapshot.get("metrics") or []}
+    source_index = _source_alias_index(snapshot)
+    for insight in analysis.get("insights") or []:
+        sources = list(dict.fromkeys(insight.get("sources") or []))
+        metrics = insight.get("metric_ids") or []
+        if (len(sources) > 1 and not _aggregate_only_sources(snapshot, metrics, sources)
+                and not _cited_sources_comparable(snapshot, sources)[0]):
+            removed += 1
+        else:
+            if insight.get("category") != "data_quality" and metrics and all(item in metrics_by_id for item in metrics):
+                cited = [metrics_by_id[item] for item in metrics]
+                if any(item.get("value") is None or item.get("status") in {"unavailable", "error", "disconnected"} for item in cited):
+                    removed += 1
+                    continue
+                provenance = {source for item in cited for source in _metric_source_ids(item, source_index)}
+                if not set(sources) <= provenance:
+                    raise RuntimeError("AI_UNGROUNDED_INSIGHT")
+            retained.append(insight)
+    useful = [item for item in retained if item.get("category") != "data_quality"]
+    if not removed or not useful:
+        raise RuntimeError("AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
+    anchor = useful[0]
+    limitation = {
+        "category": "data_quality", "title": "Análise parcial",
+        "interpretation": "Comparações entre fontes sem cobertura compatível foram excluídas desta leitura.",
+        "metric_ids": anchor.get("metric_ids") or [], "sources": (anchor.get("sources") or [])[:1],
+        "impact": "medium", "confidence": "high",
+        "action": "Acompanhar as fontes disponíveis e revisar a análise quando a cobertura estiver completa.",
+        "reason": "Somente as conclusões validadas são apresentadas.",
+    }
+    # Executive and actions may repeat the rejected comparison: replace rather
+    # than guessing which sentences can be trusted. History keeps the result.
+    return {"executive": {
+        "overall": "Análise parcial das fontes disponíveis.",
+        "main_change": "Consulte abaixo as conclusões com evidência compatível.",
+        "opportunity": "", "attention": limitation["interpretation"],
+        "priority_action": limitation["action"],
+    }, "insights": [*retained, limitation], "actions": []}
+
+
 # Número escrito em prosa. As bordas impedem ler o "4" de GA4 ou o "5" de
 # "top5" como valor: só conta o algarismo que não está colado em letra.
 _NUMBER_IN_TEXT = re.compile(
@@ -2081,7 +2137,7 @@ def _sanitize_analysis(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Di
     return analysis
 
 
-ANALYSIS_VERSION = "v2-commerce-provider-ga4-user-semantics-main-change-repair"
+ANALYSIS_VERSION = "v2-commerce-provider-ga4-user-semantics-temporal-partial"
 
 
 def context_fingerprint(snapshot: Dict[str, Any]) -> str:
@@ -2384,7 +2440,11 @@ async def _generate_with_provider(
     """Chamada real ao provedor, validação e persistência."""
     generation_started = time.monotonic()
     policy = _build_analysis_policy(snapshot)
+    partial_analysis = False
     try:
+        if not any(metric.get("value") is not None and metric.get("status") not in {"unavailable", "disconnected", "error"}
+                   for metric in snapshot.get("metrics") or []):
+            raise RuntimeError("AI_INSUFFICIENT_DATA")
         analysis = await _call_analysis_with_numeric_repair(
             payload={
                 "period": period,
@@ -2436,6 +2496,21 @@ async def _generate_with_provider(
             _validate_analysis_grounding(
                 analysis, snapshot, policy=policy, request_id=request_id,
             )
+        except RuntimeError as exc:
+            try:
+                if str(exc) != "AI_TEMPORALLY_INCOMPATIBLE_SOURCES":
+                    raise
+                analysis = _recover_temporal_sections(analysis, snapshot)
+                analysis, _ = _ensure_partial_today_limitation(analysis, snapshot, policy=policy)
+                _assert_no_untrusted_numeric_text(analysis, trusted=_trusted_numbers(snapshot), request_id=request_id)
+                _validate_analysis_grounding(analysis, snapshot, policy=policy, request_id=request_id)
+                partial_analysis = True
+                _log_line("temporal_sections_recovered", request_id=request_id or "-",
+                          insights=len(analysis.get("insights") or []))
+            except BaseException as failure:
+                log_stage_failed(stage=LOG_STAGE_VALIDATION, request_id=request_id,
+                                 elapsed_ms=_elapsed_ms(validation_started), exc=failure)
+                raise
         except BaseException as exc:
             # O código específico do grounding (AI_UNGROUNDED_INSIGHT etc.)
             # sai no log sem nenhuma regra ser relaxada.
@@ -2456,6 +2531,9 @@ async def _generate_with_provider(
                 **base_row,
                 "status": "completed",
                 "analysis": analysis,
+                **({"data_quality": {**(base_row.get("data_quality") or snapshot.get("quality") or {}),
+                                      "status": "partial", "message": "Análise parcial: comparações sem cobertura compatível foram excluídas."}}
+                   if partial_analysis else {}),
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             },
             request_id=request_id,
@@ -2469,15 +2547,16 @@ async def _generate_with_provider(
         }
     except Exception as exc:
         # Etapa identificada no log; o cliente recebe mensagem genérica.
-        stage = STAGE_VALIDATION if isinstance(exc, AssertionError) else STAGE_MODEL
-        code = _text(exc)[:80] or "AI_PROVIDER_ERROR"
+        stage = STAGE_VALIDATION if isinstance(exc, AssertionError) or str(exc).startswith((
+            "AI_INSUFFICIENT_DATA", "AI_TEMPORALLY_", "AI_UNTRUSTED_", "AI_UNGROUNDED", "AI_UNSUPPORTED_")) else STAGE_MODEL
+        code = "AI_PROVIDER_TIMEOUT" if isinstance(exc, httpx.TimeoutException) else _text(exc)[:80] or "AI_PROVIDER_ERROR"
         if not _already_logged(exc):
             # Falha que não passou por nenhuma etapa instrumentada (ex.:
             # AI_PROVIDER_EMPTY_RESPONSE, JSON inválido): nenhuma exceção
             # chega ao 502 sem uma linha estruturada antes.
             log_stage_failed(
                 stage=(
-                    LOG_STAGE_VALIDATION if isinstance(exc, AssertionError)
+                    LOG_STAGE_VALIDATION if stage == STAGE_VALIDATION
                     else LOG_STAGE_MODEL_RESPONSE
                 ),
                 request_id=request_id,

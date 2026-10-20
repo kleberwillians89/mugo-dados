@@ -2243,7 +2243,7 @@ export function getClientDataHealth(clientId: string, period: {start: string; en
   return http(`/api/clients/${encodeURIComponent(clientId)}/data-health?${query}`);
 }
 
-export type ProviderRefreshStatus = {client_id: string; provider: "meta" | "google"; authorized: true; running: boolean; cooldown_seconds: number};
-export function getProviderRefreshStatus(clientId: string, provider: "meta" | "google", period: {start: string; end: string}): Promise<ProviderRefreshStatus> {
+export type ProviderRefreshStatus = {client_id: string; provider: "meta" | "google" | "shopify" | "fbits"; authorized: true; running: boolean; cooldown_seconds: number};
+export function getProviderRefreshStatus(clientId: string, provider: ProviderRefreshStatus["provider"], period: {start: string; end: string}): Promise<ProviderRefreshStatus> {
   return http(`/api/clients/${encodeURIComponent(clientId)}/data-refresh/${provider}/status?${new URLSearchParams(period)}`);
 }

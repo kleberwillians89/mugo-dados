@@ -236,6 +236,8 @@ it("admin atualiza somente Meta, falha preserva cards e freshness", async () => 
   expect(container.querySelector(".ds-dateline")?.textContent).toBe(header);
   expect(container.querySelector('[class*="skeleton"]')).toBeNull();
   expect(container.textContent).toContain("Mantendo a última leitura disponível");
+  expect(container.textContent).not.toContain("Seus dados foram atualizados.");
+  expect(container.querySelector('[data-refresh-state="failed"]')).not.toBeNull();
 });
 
 
@@ -259,6 +261,8 @@ it("Meta não anuncia sucesso quando a releitura falha", async () => {
   await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
   expect(refreshApi.reloadSummary).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Mantendo a última leitura disponível");
+  expect(container.textContent).not.toContain("Seus dados foram atualizados.");
+  expect(container.querySelector('[data-refresh-state="failed"]')).not.toBeNull();
 });
 
 

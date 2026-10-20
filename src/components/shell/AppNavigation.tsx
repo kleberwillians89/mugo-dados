@@ -82,6 +82,12 @@ export default function AppNavigation({
     if (!drawerOpen) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") closeDrawer(true);
+      if (event.key === "Tab") {
+        const nodes = [...(sidebarRef.current?.querySelectorAll<HTMLElement>("*") || [])].filter(node => node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[hidden], [inert]'));
+        const first = nodes[0], last = nodes[nodes.length - 1];
+        if (first && last && event.shiftKey && document.activeElement === first) {event.preventDefault(); last.focus();}
+        else if (first && last && !event.shiftKey && document.activeElement === last) {event.preventDefault(); first.focus();}
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     sidebarRef.current?.querySelector<HTMLElement>("a, button")?.focus();
@@ -92,6 +98,14 @@ export default function AppNavigation({
       document.body.style.overflow = previousOverflow;
     };
   }, [closeDrawer, drawerOpen]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const changed = () => {if (desktop.matches) closeDrawer(false);};
+    desktop.addEventListener("change", changed);
+    return () => desktop.removeEventListener("change", changed);
+  }, [closeDrawer]);
 
   function go(event: ReactMouseEvent<HTMLAnchorElement>, target: AppRoute) {
     // Links reais (abrem em nova aba com Ctrl/Cmd); clique simples navega no app.

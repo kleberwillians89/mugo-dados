@@ -24,6 +24,7 @@ if (!window.localStorage) {
 const tenant = vi.hoisted(() => ({ id: "roove", name: "Roove" }));
 const api = vi.hoisted(() => ({
   getClientIntegrations: vi.fn(),
+  getProviderRefreshStatus: vi.fn(),
   refreshProviderData: vi.fn(),
   getFbitsOrdersSummary: vi.fn(),
   getFbitsOrders: vi.fn(),
@@ -34,7 +35,7 @@ const api = vi.hoisted(() => ({
 }));
 const shopifyRenders = vi.hoisted(() => ({ tenants: [] as string[], canSync: [] as Array<boolean | undefined> }));
 
-vi.mock("../app/api", () => api);
+vi.mock("../app/api", async original => ({ApiError: (await original<typeof import("../app/api")>()).ApiError, ...api}));
 vi.mock("../app/activeClient", () => ({
   getActiveClientId: () => tenant.id,
   getActiveClientName: () => tenant.name,
@@ -142,6 +143,7 @@ beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   onOpenIntegrations.mockReset();
   Object.values(periodActions).forEach((fn) => fn.mockReset());
+  api.getProviderRefreshStatus.mockImplementation(async (clientId: string, provider: string) => ({client_id: clientId, provider, authorized: true, running: false, cooldown_seconds: 0}));
   api.getFbitsOrdersSummary.mockImplementation(async () => fbitsSummary(tenant.id));
   api.getFbitsOrders.mockImplementation(async () => ({ ok: true, client_id: tenant.id, items: [] }));
   container = document.createElement("div");
@@ -270,12 +272,12 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(container.textContent).not.toContain("Sem sincronização concluída");
   });
 
-  it("sem nenhuma venda e sem sync, o aviso de sincronização continua", async () => {
+  it("sem nenhuma venda e sem sucesso, o horário permanece desconhecido", async () => {
     tenant.id = "vinhos";
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 0));
     await render();
-    expect(container.textContent).toContain("Sem sincronização concluída");
+    expect(container.textContent).toContain("Ainda não atualizado");
   });
 
   it("falha de atualização com dado na tela não vira alarme nem apaga os números", async () => {
@@ -319,7 +321,8 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(3);
     await click(button("Mês passado"));
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(4);
-    expect(container.textContent).toContain("Dados atualizados");
+    expect(container.textContent).toContain("Ainda não atualizado");
+    expect(container.textContent).not.toContain("Atualizado em 30/09/2026");
   });
 
   it("15. Shopify + FBITS conectados → pede escolha explícita, sem escolher pela ordem", async () => {

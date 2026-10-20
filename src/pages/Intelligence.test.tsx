@@ -945,3 +945,15 @@ it("context inicial leve; detalhes somente ao demandar fontes, sem provider/gera
     expect(vi.mocked(api.getIntelligenceContext).mock.calls.at(-1)?.[1]?.includeCommerceDetails).toBe(true);
   } finally {vi.unstubAllGlobals();}
 });
+
+it("análise parcial validada recebe identificação explícita sem esconder conteúdo útil", async()=>{
+ state.analysis={...analysis,data_quality:{...analysis.data_quality,status:"partial",message:"Análise parcial: comparações sem cobertura compatível foram excluídas."}};
+ await renderIntelligence();expect(container.querySelector('[data-testid="intel-partial-analysis"]')?.textContent).toContain("Análise parcial");
+ expect(container.querySelector('.intelMomentLead')?.textContent).toBe("Receita cresceu no período.");
+});
+it("erro temporal tem orientação compreensível sem expor código ou detalhe interno",async()=>{
+ mocks.period={start:"2026-02-01",end:"2026-02-28"};state.analysis={...analysis,status:"failed",analysis:null};
+ state.readError=new Error("AI_TEMPORALLY_INCOMPATIBLE_SOURCES: internal fixture");await renderIntelligence(false);
+ const error=container.querySelector('[data-testid="intel-error"]');expect(error?.textContent).toContain("cobertura compatível");expect(error?.textContent).not.toContain("AI_TEMPORALLY");
+ expect(container.querySelector('.intelSkeleton')).toBeNull();
+});

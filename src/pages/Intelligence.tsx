@@ -1,4 +1,6 @@
 import { useDataHealth } from "../app/DataHealthContext";
+import MetricHelp from "../components/data/MetricHelp";
+import type { MetricId } from "../app/metricGlossary";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
@@ -123,6 +125,20 @@ function formatDate(value?: string | null, includeTime = false) {
   }).format(parsed);
 }
 
+function failureHint(message: string) {
+  if (/INSUFFICIENT|dados suficientes/i.test(message)) return "Ainda não há indicadores suficientes para uma análise confiável neste período.";
+  if (/TEMPORALLY|fontes.*compatíveis/i.test(message)) return "As fontes ainda não têm cobertura compatível. Confira as fontes disponíveis e tente novamente mais tarde.";
+  if (/TIMEOUT|demorou|tempo.*esgotado/i.test(message)) return "O processamento demorou mais que o esperado. A leitura anterior foi preservada.";
+  if (/UNTRUSTED|UNGROUNDED|validar as conclusões/i.test(message)) return "As conclusões não puderam ser validadas. Nenhuma informação rejeitada foi publicada.";
+  return "Os dados disponíveis continuam preservados. Tente novamente mais tarde.";
+}
+
+function glossaryMetric(metric: IntelligenceMetric): MetricId | undefined {
+  if (metric.id === "roas" && metric.source.includes("+")) return "blendedReturn";
+  if (metric.id === "conversion_rate" && metric.source === "ga4") return "ga4ConversionRate";
+  return undefined;
+}
+
 function formatMetric(metric: IntelligenceMetric) {
   if (metric.value == null) {
     const statusLabel: Partial<Record<IntelligenceMetric["status"], string>> = {
@@ -174,7 +190,7 @@ function Evidence({
     <div className="intelEvidence">
       {items.map((metric) => (
         <span key={metric.id}>
-          <small>{metric.label}</small>
+          <small>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></small>
           <strong>{formatMetric(metric)}</strong>
           {metric.variation_percent != null ? <small>{metric.variation_percent > 0 ? "+" : ""}{metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior</small> : null}
         </span>
@@ -392,6 +408,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
   const conversationMetrics = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
   const content = analysis?.status === "completed" ? analysis.analysis : null;
+  const visibleActions = [...(content?.actions || [])].sort((a, b) =>
+    ["now", "week", "monitor", "investigate"].indexOf(a.priority) - ["now", "week", "monitor", "investigate"].indexOf(b.priority)).slice(0, 3);
   const commerceContext = snapshot?.commerce_context;
   const metricIndex = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
   // Prioridade a partir dos sinais que já existem na análise: nenhum score
@@ -569,6 +587,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {error ? (
         <div className={content ? "intelInlineWarning" : "intelInlineError"} role={content ? "status" : "alert"} data-testid={content ? "intel-stale-warning" : "intel-error"}>
           <p>Não foi possível concluir esta análise.</p>
+          <p>{failureHint(error)}</p>
           {content ? <p>A última análise válida continua disponível.</p> : null}
           <button className="btn" type="button" disabled={refreshing || asking || revalidating || (retryKind.current === "read" && !refreshCooldown.ready)} title={retryKind.current === "read" ? cooldownHint(refreshCooldown) || undefined : undefined} onClick={() => {
             if (retryKind.current === "question") questionForm.current?.requestSubmit();
@@ -583,6 +602,9 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         <p className="intelInlineWarning" role="status" data-testid="intel-fresher-data">
           Há dados mais recentes disponíveis. A análise abaixo é a última gerada.
         </p>
+      ) : null}
+      {content && analysis?.data_quality.message?.startsWith("Análise parcial:") ? (
+        <p className="intelInlineWarning" role="status" data-testid="intel-partial-analysis">{analysis.data_quality.message}</p>
       ) : null}
       {providerConfigured === false || analysis?.status === "configuration_pending" ? (
         <p className="intelInlineWarning" role="status">
@@ -627,7 +649,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         <div className="intelMetricGrid">
           {displayedMetrics.map((metric) => (
             <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}</span><small>{sourceLabel(metric.source)}</small></div>
+              <div><span>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span><small>{sourceLabel(metric.source)}</small></div>
               <strong>{formatMetric(metric)}</strong>
               <p>
                 {metric.variation_percent == null
@@ -818,7 +840,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             {(["now", "week", "monitor", "investigate"] as const).map((priority) => (
               <div key={priority}>
                 <h3>{PRIORITY_LABELS[priority]}</h3>
-                {content.actions.filter((action) => action.priority === priority).map((action, index) => (
+                {visibleActions.filter((action) => action.priority === priority).map((action, index) => (
                   <article key={`${action.recommendation}-${index}`}>
                     <strong>{action.recommendation}</strong>
                     <p>{action.justification}</p>

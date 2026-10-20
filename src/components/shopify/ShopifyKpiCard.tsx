@@ -1,3 +1,4 @@
+import MetricHelp from "../data/MetricHelp";
 type Props = {
   label: string;
   value: string;
@@ -13,7 +14,7 @@ export default function ShopifyKpiCard({
 }: Props) {
   return (
     <article className={`shopifyKpiCard ${tone === "accent" ? "isAccent" : ""}`.trim()}>
-      <div className="shopifyKpiLabel">{label}</div>
+      <div className="shopifyKpiLabel">{label}<MetricHelp label={label} /></div>
       <div className="shopifyKpiValue">{value}</div>
       {hint ? <div className="shopifyKpiHint">{hint}</div> : <div className="shopifyKpiHint isPlaceholder">.</div>}
     </article>

@@ -1,4 +1,5 @@
 // Development harness only. No network, credentials or provider calls.
+import {reviewChannelSnapshot, reviewGa4Channels, reviewGa4Campaigns} from "./fixtures";
 import type { DataHealthResponse } from "../app/dataHealth";
 import type { IntelligenceAnalysisRecord, IntelligenceSnapshot } from "../app/intelligenceTypes";
 
@@ -29,8 +30,9 @@ export function reviewIntelligence({clientId, name, start, end}: Options) {
 export async function diagnosticResponse(url: URL, method: string, options: Options): Promise<Response | null> {
   const {clientId, start, end, scenario, viewer, refresh} = options;
   const {snapshot, analysis} = reviewIntelligence(options);
-  const status = /^\/api\/clients\/[^/]+\/data-refresh\/(meta|google)\/status$/.exec(url.pathname);
-  const refreshPost = /^\/api\/clients\/[^/]+\/data-refresh\/(meta|google)$/.exec(url.pathname);
+  if (scenario === "parcial") analysis.data_quality = {...analysis.data_quality, status: "partial", message: "Análise parcial: comparações sem cobertura compatível foram excluídas."};
+  const status = /^\/api\/clients\/[^/]+\/data-refresh\/(meta|google|shopify|fbits)\/status$/.exec(url.pathname);
+  const refreshPost = /^\/api\/clients\/[^/]+\/data-refresh\/(meta|google|shopify|fbits)$/.exec(url.pathname);
   if (status || refreshPost) {
     if (viewer) return json({detail: "Perfil sem permissão para atualizar os dados."}, 403);
     if (refreshPost) return json({detail: "Atualização simulada indisponível; nenhum provider foi chamado."}, 503);
@@ -45,6 +47,18 @@ export async function diagnosticResponse(url: URL, method: string, options: Opti
       expected_interval_seconds: null, stale_after_seconds: null, schedule_verified: false, requested_start: start, requested_end: end,
     }))};
     return json(response);
+  }
+  if (url.pathname === "/api/ig/stories") return json({ok: true, stories: [], available: true, message: "Sem stories na amostra fictícia."});
+  if (url.pathname === "/api/google/ga4/report") {
+    if (scenario === "erro") return json({detail: "Falha simulada na leitura GA4."}, 502);
+    const empty = ["sem-dados", "desconectado"].includes(scenario);
+    const rows = empty ? [] : reviewChannelSnapshot(clientId, end, "padrao").daily.filter(row => row.metric_date >= start && row.metric_date <= end);
+    const total = (field: "ga4_sessions" | "ga4_users" | "ga4_events" | "ga4_purchases" | "ga4_revenue") => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
+    return json({ok: true, client_id: clientId, property_id: "properties/300000001", period: {start, end, days: rows.length},
+      summary: {sessions: total("ga4_sessions"), active_users: total("ga4_users"), total_users: total("ga4_users"), user_count_semantics: "sum_of_daily_users", event_count: total("ga4_events"), purchases: total("ga4_purchases"), purchase_revenue: total("ga4_revenue"), total_revenue: total("ga4_revenue")},
+      trends: {daily: rows.map(row => ({date: row.metric_date, sessions: row.ga4_sessions, active_users: row.ga4_users, total_users: row.ga4_users, event_count: row.ga4_events, ecommerce_purchases: row.ga4_purchases, purchase_revenue: row.ga4_revenue}))},
+      channels: empty ? [] : reviewGa4Channels(start, end).items, campaigns: empty ? [] : reviewGa4Campaigns(start, end).items,
+      events: [], funnel: {}, meta: {last_synced_at: timestamp, data_available: !empty, daily_rows: rows.length}});
   }
   if (!url.pathname.startsWith("/api/intelligence/")) return null;
   if (scenario === "carregando") await new Promise(resolve => setTimeout(resolve, 3000));

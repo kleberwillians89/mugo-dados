@@ -11,7 +11,7 @@ const task = vi.fn<() => Promise<void>>();
 const ready = {client_id:"tenant-a",provider:"meta" as const,authorized:true as const,running:false,cooldown_seconds:0};
 function Probe({client="tenant-a"}) {
  const refresh=useProviderRefresh(client,"meta",{start:"2026-10-01",end:"2026-10-19"},true);
- return <><span>Dados anteriores</span><button disabled={refresh.disabled} onClick={()=>void refresh.run(task).catch(()=>{})}>{refresh.label}</button><p>{refresh.error}</p></>;
+ return <><span>Dados anteriores</span><button disabled={refresh.disabled} onClick={()=>void refresh.run(task).catch(()=>{})}>{refresh.label}</button><p>{refresh.error}</p><p>{refresh.message}</p></>;
 }
 beforeEach(()=>{vi.useFakeTimers();vi.clearAllMocks();task.mockResolvedValue();vi.mocked(getProviderRefreshStatus).mockResolvedValue(ready);node=document.createElement("div");document.body.append(node);root=createRoot(node);});
 afterEach(async()=>{await act(async()=>root.unmount());node.remove();vi.useRealTimers();});
@@ -60,4 +60,28 @@ it("status indisponível mantém bloqueio e mensagem amigável sem repetir sync"
 it("resposta de outro tenant não libera botão nem inicia atualização",async()=>{
  await render();vi.mocked(getProviderRefreshStatus).mockResolvedValue(ready);await render("tenant-b");
  expect(button().disabled).toBe(true);expect(task).not.toHaveBeenCalled();
+});
+
+it("negativa de autorização não repete GET no finally: dois GETs totais e nenhum POST",async()=>{
+ await render();vi.mocked(getProviderRefreshStatus).mockRejectedValue(new ApiError("denied",{status:403}));
+ await act(async()=>button().click());expect(getProviderRefreshStatus).toHaveBeenCalledTimes(2);expect(task).not.toHaveBeenCalled();
+});
+it("eventos de foco simultâneos compartilham uma única leitura em voo",async()=>{
+ await render();vi.mocked(getProviderRefreshStatus).mockClear();let release!:(value:typeof ready)=>void;
+ vi.mocked(getProviderRefreshStatus).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+ await act(async()=>{window.dispatchEvent(new Event("focus"));window.dispatchEvent(new Event("focus"));window.dispatchEvent(new Event("focus"));});
+ expect(getProviderRefreshStatus).toHaveBeenCalledTimes(1);await act(async()=>release(ready));
+});
+it("duas montagens recuperam a mesma execução pelo servidor sem criar outro job",async()=>{
+ let running=false,finish!:()=>void;
+ vi.mocked(getProviderRefreshStatus).mockImplementation(async()=>({...ready,running}));
+ task.mockImplementationOnce(()=>{running=true;return new Promise<void>(resolve=>{finish=()=>{running=false;resolve();};});});
+ await act(async()=>root.render(<><Probe/><Probe/></>));const buttons=[...node.querySelectorAll("button")];
+ await act(async()=>buttons[0].click());await act(async()=>window.dispatchEvent(new Event("focus")));
+ expect(buttons[1].disabled).toBe(true);await act(async()=>buttons[1].click());expect(task).toHaveBeenCalledTimes(1);
+ await act(async()=>finish());await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(buttons[1].disabled).toBe(false);
+});
+it("cooldown tem mensagem explícita e sucesso depende da tarefa concluída",async()=>{
+ await render();vi.mocked(getProviderRefreshStatus).mockResolvedValueOnce(ready).mockResolvedValue({...ready,cooldown_seconds:60});
+ await act(async()=>button().click());expect(node.textContent).toContain("Seus dados foram atualizados.");expect(node.textContent).toContain("Você poderá atualizar novamente");expect(button().disabled).toBe(true);
 });

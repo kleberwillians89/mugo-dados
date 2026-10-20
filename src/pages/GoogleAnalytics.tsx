@@ -1,6 +1,6 @@
 import { useDataHealth } from "../app/DataHealthContext";
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
-import { DataFreshness } from "../components/data/DataFreshness";
+import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -233,7 +233,8 @@ export default function GoogleAnalytics({
     [period, selectedMonth, selectedYear]
   );
 
-  const {run: runRefresh, disabled: refreshDisabled, label: refreshLabel, error: accessError} = useProviderRefresh(activeGa4ClientId, "google", selectedRange, isAuthenticated && canSync);
+  const refreshControl = useProviderRefresh(activeGa4ClientId, "google", selectedRange, isAuthenticated && canSync);
+  const {run: runRefresh, disabled: refreshDisabled, label: refreshLabel, error: accessError} = refreshControl;
 
   const ga4Readiness = useGa4Readiness(activeGa4ClientId, isAuthenticated);
   const {
@@ -598,6 +599,7 @@ export default function GoogleAnalytics({
           ) : null}
           {configWarning ? <DataNotice tone="warning" title="Configuração da empresa">{configWarning}</DataNotice> : null}
           {refreshError || accessError ? <DataNotice tone="negative" role="alert" title="Não foi possível atualizar">{refreshError || accessError}</DataNotice> : null}
+          <ProviderRefreshNotice provider="google" control={refreshControl} />
         </div>
 
         {view === "ads" ? (

@@ -416,3 +416,7 @@
   font-size: 14px;
   color: var(--text-muted);
 }
+/* Menus stay inside the available viewport, including 320px screens. */
+.clientSwitcherPanel{min-width:0;max-width:calc(100vw - 32px);box-sizing:border-box}
+.appTopbarCompany,.appSidebarHead,.appSidebarContext{min-width:0;max-width:100%}
+@media(max-width:1023px){.appTopbarMenu{flex-basis:44px;width:44px;height:44px}.appNavLink,.clientSwitcherOption,.userMenuItem{min-height:44px}}

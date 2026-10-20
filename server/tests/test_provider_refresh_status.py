@@ -29,9 +29,18 @@ class RefreshStatusTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_facade_and_source_locks_keep_background_work_blocked(self):
         for provider, key in [("meta", "sync:data_refresh:meta"), ("meta", "sync:meta_ads:conn"),
                               ("meta", "sync:meta_organic:conn"), ("google", "sync:ga4:property:1"),
-                              ("google", "sync:google_ads:conn")]:
+                              ("google", "sync:google_ads:conn"), ("shopify", "sync:shopify:conn"),
+                              ("fbits", "sync:fbits:conn"), ("fbits", "sync:data_refresh:fbits")]:
             with self.subTest(key=key):
                 self.assertTrue((await self.read([self.lock(key)], provider))["running"])
+
+    async def test_commerce_status_ignores_other_provider_tenant_and_expired_lease(self):
+        for provider, foreign in [("shopify", "fbits"), ("fbits", "shopify")]:
+            result = await self.read([self.lock(f"sync:{foreign}:conn"),
+                self.lock(f"sync:{provider}:conn", client="tenant-b"),
+                self.lock(f"sync:{provider}:conn", -1)], provider)
+            self.assertFalse(result["running"])
+            self.assertEqual(result["cooldown_seconds"], 0)
 
     async def test_cooldown_and_expired_or_foreign_locks_do_not_invent_running_work(self):
         result = await self.read([self.lock("refresh_cooldown:meta"), self.lock("sync:meta_ads:c", -1),
@@ -77,7 +86,7 @@ class RefreshStatusAuthorizationTests(unittest.IsolatedAsyncioTestCase):
              patch.object(integrations, "refresh_provider_data", AsyncMock(return_value={"ok": True})) as sync:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://offline") as client:
                 period = {"start": "2026-10-01", "end": "2026-10-19"}
-                for provider in ["meta", "google"]:
+                for provider in ["meta", "google", "shopify", "fbits"]:
                     base = f"/api/clients/tenant-a/data-refresh/{provider}"
                     self.assertEqual((await client.get(base + "/status", params=period)).status_code, 403)
                     self.assertEqual((await client.post(base, json=period)).status_code, 403)

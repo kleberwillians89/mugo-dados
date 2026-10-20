@@ -37,6 +37,17 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
   </span>;
 }
 
+/** Friendly operation feedback; partial is derived only from persisted evidence. */
+export function ProviderRefreshNotice({provider, control}: {provider: "meta" | "google" | "shopify" | "fbits"; control: {phase: string; message: string; outcome?: "success" | "failed"}}) {
+  const health = useDataHealth();
+  const providers = {meta: ["meta_ads", "instagram", "instagram_content"], google: ["ga4", "google_ads"], shopify: ["shopify"], fbits: ["fbits", "fbits_official"]}[provider];
+  const partial = !health?.loading && control.outcome !== "success" && !["checking", "running"].includes(control.phase)
+    && health?.data?.sources.some(source => providers.includes(source.provider) && source.sync_status === "partial");
+  const message = partial ? "Algumas plataformas não puderam ser atualizadas na última coleta registrada. A leitura anterior continua disponível." : control.message;
+  const state = partial ? "partial" : control.phase === "ready" && control.outcome ? control.outcome : control.phase;
+  return message ? <p role="status" className="ds-status" data-refresh-state={state}>{message}</p> : null;
+}
+
 export function DataHealthSummary({onReconnect}: {onReconnect?: () => void}) {
   const health = useDataHealth();
   if (!health) return null;

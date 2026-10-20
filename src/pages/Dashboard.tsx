@@ -1,6 +1,6 @@
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { useDataHealth } from "../app/DataHealthContext";
-import { DataFreshness } from "../components/data/DataFreshness";
+import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1127,7 +1127,7 @@ export default function Dashboard({
 
   async function onRefresh() {
     try { await refreshControl.run(performRefresh); }
-    catch (cause) { if (getActiveClientId() === activeClientId) setErr(describeSyncError(cause, "Não foi possível atualizar. Os dados anteriores continuam disponíveis.")); }
+    catch (cause) { if (getActiveClientId() === activeClientId) setErr(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível.")); }
   }
 
   async function performRefresh() {
@@ -1154,6 +1154,9 @@ export default function Dashboard({
     } catch (cause) {
       setRefreshRuntime([{ ...runtime, status: "error", finished_at: new Date().toISOString() }]);
       setErr(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível."));
+      // The refresh controller must receive the failure; resolving here would
+      // publish its success message despite a provider/read-back error.
+      throw cause;
     } finally {
       setSyncing(false);
     }
@@ -1712,6 +1715,7 @@ export default function Dashboard({
           />
 
           {refreshControl.error ? <p role="alert">{refreshControl.error}</p> : null}
+          <ProviderRefreshNotice provider="meta" control={refreshControl} />
           {assetRows.length ? (
             <dl className="ds-assetLine" aria-label="Conexão Meta em uso" data-testid="meta-connection-assets">
               {assetRows.map((row) => (
