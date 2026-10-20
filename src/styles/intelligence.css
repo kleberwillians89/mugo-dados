@@ -216,3 +216,8 @@
   .intelHeaderAction{min-height:44px;white-space:normal}
   .intelAskForm>div{flex-wrap:wrap}.intelAskForm textarea{min-width:0;flex:1 1 180px}.intelAskForm button{min-height:44px}
 }
+
+/* O diagnóstico vem primeiro; o chat acompanha a leitura em fluxo normal. */
+.intelligencePage,.appFrameMain .intelligencePage{height:auto;min-height:100dvh}
+.intelWorkspace{flex:0 1 auto;overflow:visible;scrollbar-gutter:auto}
+.intelAskForm{position:relative;bottom:auto}
