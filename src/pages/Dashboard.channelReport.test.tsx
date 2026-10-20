@@ -25,7 +25,7 @@ const stable = vi.hoisted(() => {
   };
 });
 
-const refreshApi = vi.hoisted(() => ({ refreshProviderData: vi.fn(), refetch: vi.fn(), reloadSummary: vi.fn() }));
+const refreshApi = vi.hoisted(() => ({ getProviderRefreshStatus: vi.fn(), refreshProviderData: vi.fn(), refetch: vi.fn(), reloadSummary: vi.fn() }));
 vi.mock("../app/api", async (original) => ({
   ...(await original<typeof import("../app/api")>()),
   ...refreshApi,
@@ -133,6 +133,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  refreshApi.getProviderRefreshStatus.mockResolvedValue({client_id:"curavino",provider:"meta",authorized:true,running:false,cooldown_seconds:0});
   refreshApi.refetch.mockReset();
   refreshApi.reloadSummary.mockReset();
   refreshApi.refetch.mockResolvedValue({ daily: [], sources: [], campaigns: [], products: [] });
@@ -261,12 +262,13 @@ it("Meta não anuncia sucesso quando a releitura falha", async () => {
 });
 
 
-it("Ads sem dados é consulta concluída e não ausência de sync", async () => {
+it("consulta Ads sem dados não inventa horário de sucesso no indicador", async () => {
   state.paid = false;
   refreshApi.refreshProviderData.mockResolvedValue({ ok:true, sources:{ "Instagram":{status:"success"}, "Meta Ads":{status:"no_data"} } });
   await render(true);
   await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
-  expect(container.textContent).toContain("sem dados de anúncios no período consultado");
+  expect(container.querySelector(".ds-dateline")?.textContent).toContain("Ainda não atualizado");
+  expect(refreshApi.refetch).toHaveBeenCalledTimes(1);
 });
 
 it("falha Ads identificada não vira conclusão total após orgânico sucesso", async () => {

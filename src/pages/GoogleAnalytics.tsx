@@ -1,9 +1,9 @@
 import { useDataHealth } from "../app/DataHealthContext";
+import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
 import useGa4Readiness from "../hooks/dashboard/useGa4Readiness";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
@@ -233,13 +233,13 @@ export default function GoogleAnalytics({
     [period, selectedMonth, selectedYear]
   );
 
+  const {run: runRefresh, disabled: refreshDisabled, label: refreshLabel, error: accessError} = useProviderRefresh(activeGa4ClientId, "google", selectedRange, isAuthenticated && canSync);
+
   const ga4Readiness = useGa4Readiness(activeGa4ClientId, isAuthenticated);
   const {
     ga4Report,
     loadingGa4,
-    refreshingGa4,
     ga4Error,
-    ga4UpdatedAt,
     reloadGa4,
   } = useDashboardGa4({
     isAuthenticated,
@@ -280,7 +280,6 @@ export default function GoogleAnalytics({
     };
   }, [adsModel.daily]);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-  const googleAdsUpdatedAt = formatFreshness(adsModel.sources.find((source) => source.provider === "google_ads")?.last_success_at);
   const shopifyStore = useMemo(() => {
     const rows = adsModel.daily.filter((row) => row.shopify_net_revenue != null || row.shopify_orders != null);
     const source = adsModel.sources.find((item) => item.provider === "shopify");
@@ -312,8 +311,6 @@ export default function GoogleAnalytics({
   const hasData = hasGa4Data(ga4Report);
   const combinedError = refreshError || ga4Error || ga4Readiness.error;
   const configWarning = getActiveClientConfigurationWarning();
-  const lastSyncedLabel =
-    formatFreshness(ga4Report?.meta.last_synced_at || ga4UpdatedAt);
 
   const dailyRows = useMemo(() => ga4Report?.trends.daily || [], [ga4Report?.trends.daily]);
   const filteredChannels = useMemo(() => {
@@ -400,20 +397,23 @@ export default function GoogleAnalytics({
   const handleRefresh = useCallback(async () => {
     if (!canSync) return;
     setRefreshError(null);
-    setSyncing(true);
     try {
+      await runRefresh(async () => {
+      setSyncing(true);
       await runExclusiveSync(
         { clientId: activeGa4ClientId, provider: "google" },
         () => refreshProviderData("google", selectedRange)
       );
       if (getActiveClientId() !== activeGa4ClientId) return;
       await Promise.allSettled([reloadGa4({ force: true }), reloadCampaigns()]);
+      });
     } catch (cause) {
+      if (getActiveClientId() !== activeGa4ClientId) return;
       setRefreshError(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível."));
     } finally {
-      setSyncing(false);
+      if (getActiveClientId() === activeGa4ClientId) setSyncing(false);
     }
-  }, [canSync, activeGa4ClientId, reloadCampaigns, reloadGa4, selectedRange]);
+  }, [canSync, activeGa4ClientId, reloadCampaigns, reloadGa4, selectedRange, runRefresh]);
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
@@ -502,8 +502,8 @@ export default function GoogleAnalytics({
   const eventsPerSession = ga4Report && ga4Report.summary.sessions > 0 ? ga4Report.summary.event_count / ga4Report.summary.sessions : null;
   const refreshButton = isAuthenticated && canSync ? (
     <span>
-      <button className="btn intelHeaderAction" onClick={() => void handleRefresh()} disabled={syncing} type="button">
-        {syncing ? "Atualizando..." : "Atualizar dados"}
+      <button className="btn intelHeaderAction" onClick={() => void handleRefresh()} disabled={refreshDisabled || syncing} type="button">
+        {refreshLabel}
       </button>
     </span>
   ) : null;
@@ -529,19 +529,16 @@ export default function GoogleAnalytics({
             }
             dateline={view === "ads" ? (
               <>
-                <span>
-                  <span className="ds-datelineSource">Google Ads</span>{" "}
-                  {health ? <DataFreshness provider="google_ads" /> : googleAdsUpdatedAt ? `Dados atualizados ${googleAdsUpdatedAt}` : "sem sincronização concluída"}
+                <span aria-busy={health?.loading}>
+                  <span className="ds-datelineSource">Google Ads</span> — <DataFreshness provider="google_ads" compact />
                 </span>
                 {refreshButton}
               </>
             ) : (
               <>
-                <span>
-                  <span className="ds-datelineSource">Google Analytics 4</span>{" "}
-                  {health ? <DataFreshness provider="ga4" /> : lastSyncedLabel ? `Dados atualizados ${lastSyncedLabel}` : "sem sincronização concluída"}
+                <span aria-busy={health?.loading}>
+                  <span className="ds-datelineSource">Google Analytics 4</span> — <DataFreshness provider="ga4" compact />
                 </span>
-                {syncing || refreshingGa4 ? <span>sincronizando...</span> : null}
                 {refreshButton}
               </>
             )}
@@ -600,7 +597,7 @@ export default function GoogleAnalytics({
             </DataNotice>
           ) : null}
           {configWarning ? <DataNotice tone="warning" title="Configuração da empresa">{configWarning}</DataNotice> : null}
-          {refreshError ? <DataNotice tone="negative" role="alert" title="Não foi possível atualizar">{refreshError}</DataNotice> : null}
+          {refreshError || accessError ? <DataNotice tone="negative" role="alert" title="Não foi possível atualizar">{refreshError || accessError}</DataNotice> : null}
         </div>
 
         {view === "ads" ? (
@@ -669,7 +666,7 @@ export default function GoogleAnalytics({
             ) : ga4Report ? (
               <div className="ds-stack">
                 {combinedError ? (
-                  <DataNotice tone="warning" title="Atualização parcial">A última base carregada continua visível.</DataNotice>
+                  <DataNotice tone="warning" title="Dados anteriores mantidos">A última base carregada continua visível.</DataNotice>
                 ) : null}
 
                 {/* AQUISIÇÃO → COMPORTAMENTO → CONVERSÃO, só com o que a fonte trouxe. */}

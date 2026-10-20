@@ -44,6 +44,7 @@ import "../styles/shell.css";
 import "../components/mugo-logo.css";
 import "./review.css";
 import ReviewScreen from "./ReviewScreen";
+import { diagnosticResponse } from "./diagnosticMocks";
 
 const params = new URLSearchParams(window.location.search);
 const screen = params.get("tela") || "indice";
@@ -115,7 +116,18 @@ const realFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, window.location.origin);
   if (!url.pathname.startsWith("/api/")) return realFetch(input, init);
+  const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+  const clientPath = /^\/api\/clients\/([^/]+)\//.exec(url.pathname);
+  const clientId = clientPath ? decodeURIComponent(clientPath[1]) : headers.get("X-Client-Id") || initialCompany.client_id;
+  if (!companies.some(company => company.client_id === clientId)) return json({detail: "Empresa não autorizada no harness."}, 403);
+  const periodStart = url.searchParams.get("start") || reviewToday;
+  const periodEnd = url.searchParams.get("end") || reviewToday;
   await new Promise((resolve) => window.setTimeout(resolve, 300));
+  const diagnostic = await diagnosticResponse(url, init?.method || (input instanceof Request ? input.method : "GET"), {
+    clientId, name: companyName(clientId), start: periodStart, end: periodEnd,
+    scenario: requestedScenario || "padrao", viewer: profile === "viewer", refresh: params.get("refresh") || "",
+  });
+  if (diagnostic) return diagnostic;
   if (scenario === "carregando" && url.pathname.startsWith("/api/fbits/")) return new Promise<Response>(() => undefined);
   const channelApi = ["/api/media", "/api/comments", "/api/media/monthly", "/api/months", "/api/google/ga4/channels", "/api/google/ga4/campaigns"];
   if (isChannelScreen && channelApi.includes(url.pathname)) {
@@ -132,7 +144,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     return json(empty ? { ok: true, items: [] } : reviewGa4Campaigns(periodStart, periodEnd));
   }
   const clientMatch = /^\/api\/clients\/([^/]+)\//.exec(url.pathname);
-  const clientId = clientMatch ? decodeURIComponent(clientMatch[1]) : initialCompany.client_id;
   const start = url.searchParams.get("start") || "";
   const end = url.searchParams.get("end") || "";
   if (url.pathname.endsWith("/integrations")) return json(reviewCanonicalIntegrations(clientId, companyName(clientId), scenario === "pendente", isChannelScreen ? channelScenario : "padrao"));

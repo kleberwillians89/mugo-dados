@@ -101,6 +101,8 @@ class LegacyRefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status_code, 403, response.text)
         for mock in self.work:
             mock.assert_not_awaited()
+        self.context.assert_not_awaited()
+        google.get_google_access_token.assert_not_awaited()
         ig_supabase._request.assert_not_awaited()
 
     async def test_admin_can_sync_current_and_legacy_own_tenant(self):
@@ -123,6 +125,9 @@ class LegacyRefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request('POST', '/api/google/ga4/sync')
         self.assertEqual(response.status_code, 403)
         self.context.assert_not_awaited()
+        google.get_google_access_token.assert_not_awaited()
+        google.sync_ga4_for_period.assert_not_awaited()
+        ig_supabase._request.assert_not_awaited()
 
     async def test_identity_debug_get_is_a_mutation_and_requires_admin(self):
         # The identity helper defaults to persisting Meta connection/client IDs.
@@ -130,9 +135,12 @@ class LegacyRefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             response = await self.request('GET', '/api/ig/debug/identity')
             self.assertEqual(response.status_code, 403)
             discover.assert_not_awaited()
+            meta_legacy._validated_connection_id.assert_not_awaited()
+            ig_supabase._request.assert_not_awaited()
             self.role = 'client_admin'
             self.assertEqual((await self.request('GET', '/api/ig/debug/identity', cid='tenant-b')).status_code, 403)
             discover.assert_not_awaited()
+            meta_legacy._validated_connection_id.assert_not_awaited()
             self.assertEqual((await self.request('GET', '/api/ig/debug/identity')).status_code, 200)
             discover.assert_awaited_once_with('conn')
 

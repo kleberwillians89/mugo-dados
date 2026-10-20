@@ -12,9 +12,17 @@ const reason: Record<string, string> = {
 const day = (value: string) => value.length > 10
   ? new Date(value).toLocaleDateString("pt-BR", {timeZone: "America/Sao_Paulo"})
   : value.slice(0, 10).split("-").reverse().join("/");
-export function DataFreshness({ provider }: {provider: string}) {
+export function DataFreshness({ provider, compact = false }: {provider: string; compact?: boolean}) {
   const health = useDataHealth();
   const source = health?.data?.sources.find(item => item.provider === provider);
+  if (compact) {
+    const stamp = source?.last_successful_sync_at;
+    const at = stamp ? new Date(stamp) : null;
+    if (!at || Number.isNaN(at.getTime())) return <span>Ainda não atualizado</span>;
+    const parts = new Intl.DateTimeFormat("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", hourCycle: "h23"}).formatToParts(at);
+    const part = (name: string) => parts.find(item => item.type === name)?.value;
+    return <span>Atualizado em {part("day")}/{part("month")}/{part("year")} às {part("hour")}</span>;
+  }
   if (!source) return <span>{health?.loading ? "Verificando situação dos dados…" : "Situação dos dados não confirmada"}</span>;
   return <span>
     {health?.error ? "Leitura de status indisponível · última evidência: " : ""}{HEALTH_LABELS[source.state]}

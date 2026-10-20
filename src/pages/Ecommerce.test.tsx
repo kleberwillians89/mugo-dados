@@ -156,6 +156,33 @@ afterEach(async () => {
 });
 
 describe("Ecommerce — resolução do provider pela conexão do tenant ativo", () => {
+  it("identificação pendente mostra carregamento sem chamar dados de nenhum provider", async () => {
+    let resolve!: (value: ReturnType<typeof integrations>) => void;
+    api.listGenericConnections.mockReturnValue(new Promise((done) => { resolve = done; }));
+    await render();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("Identificando a integração de e-commerce");
+    expectNoShopifyCalls();
+    expectNoFbitsCalls();
+    await act(async () => resolve(integrations("roove", [])));
+    expect(container.textContent).toContain("Nenhuma integração de Ecommerce conectada");
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("falha de leitura mostra erro e tentar novamente recupera sem sincronizar", async () => {
+    api.listGenericConnections.mockRejectedValueOnce(new Error("Serviço indisponível"));
+    await render();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível verificar as integrações");
+    expectNoShopifyCalls();
+    expectNoFbitsCalls();
+    api.listGenericConnections.mockResolvedValue(integrations("roove", []));
+    await click(button("Tentar novamente"));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("Nenhuma integração de Ecommerce conectada");
+    expect(api.listGenericConnections).toHaveBeenCalledTimes(2);
+    expectNoShopifyCalls();
+    expectNoFbitsCalls();
+  });
+
   it("7/4. Roove com Shopify conectado (mesmo sem pedidos) → dashboard Shopify, nenhum endpoint FBITS", async () => {
     api.listGenericConnections.mockResolvedValue(integrations("roove", [entry("meta"), entry("shopify")]));
     await render();

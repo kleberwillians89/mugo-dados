@@ -110,3 +110,17 @@ it("desabilitar e reabilitar não reutiliza GET invalidado nem prende loading", 
  expect(host.textContent).toContain("17/10/2026");
  expect(host.textContent).not.toContain("16/10/2026");
 });
+
+it("indicador compacto conserva só o último sucesso em São Paulo durante execução e parcial", async () => {
+ for (const sync_status of ["success", "partial", "running", "error"]) {
+  const value={data:response("tenant-a",[{...source,sync_status,last_attempt_at:"2026-10-20T15:00:00Z"}]),loading:false,error:false,reload:async()=>{}};
+  await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="ga4" compact /></DataHealthContext.Provider>));
+  expect(host.textContent).toBe("Atualizado em 19/10/2026 às 09");
+ }
+});
+
+it("tentativa e parcial sem sucesso anterior não inventam horário no indicador compacto", async () => {
+ const value={data:response("tenant-a",[{...source,last_successful_sync_at:null}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="ga4" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Ainda não atualizado");
+});

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -20,16 +21,20 @@ def analysis(text):
 
 
 class NumericRepairTests(unittest.IsolatedAsyncioTestCase):
-    async def generate(self, texts, status=200):
+    async def generate(self, texts, status=200, field="overall", period=None):
         requests, saved = [], []
         async def post(_client, url, **kwargs):
             requests.append(kwargs["json"])
             text = texts[len(requests)-1]
-            return httpx.Response(status, json={"output_text": json.dumps(analysis(text))}, request=httpx.Request("POST", url))
+            output = analysis(text)
+            if field != "overall":
+                output["executive"]["overall"] = "Leitura qualitativa do período."
+                output["executive"][field] = text
+            return httpx.Response(status, json={"output_text": json.dumps(output)}, request=httpx.Request("POST", url))
         async def insert(row, **kwargs):
             saved.append(row)
             return {"id": "analysis-a", **row}
-        snapshot = {"period": {"start": "2026-10-01", "end": "2026-10-05"},
+        snapshot = {"period": period or {"start": "2026-10-01", "end": "2026-10-05"},
                     "metrics": [{"id": "revenue", "value": 4429.1, "source": "commerce"}],
                     "sources": [{"id": "commerce"}], "quality": {}, "crossings": [], "top_campaigns": []}
         output = io.StringIO()
@@ -98,3 +103,58 @@ class NumericRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(error), "AI_PROVIDER_ERROR_502")
         self.assertEqual(len(requests), 1)
         self.assertEqual(saved[0]["status"], "failed")
+
+    async def test_main_change_30_gets_one_strict_qualitative_repair_without_changing_context(self):
+        invalid = "A receita cresceu 30 por cento."
+        result, error, requests, saved, logs = await self.generate([invalid, "A variação confirmada orienta a leitura."], field="main_change",
+            period={"start": "2026-10-01", "end": "2026-10-20"})
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[0]["input"], requests[1]["input"])
+        self.assertNotIn(30, intelligence._trusted_numbers(json.loads(requests[0]["input"])))
+        self.assertTrue(requests[1]["text"]["format"]["strict"])
+        schema = requests[1]["text"]["format"]["schema"]
+        field = schema["properties"]["executive"]["properties"]["main_change"]
+        self.assertIsNone(re.fullmatch(field["pattern"], invalid))
+        self.assertIsNotNone(re.fullmatch(field["pattern"], "Os sinais do GA4 merecem acompanhamento."))
+        self.assertEqual(schema["properties"]["insights"], requests[0]["text"]["format"]["schema"]["properties"]["insights"])
+        self.assertNotIn("pattern", intelligence.ANALYSIS_SCHEMA["schema"]["properties"]["executive"]["properties"]["main_change"])
+        self.assertNotIn(invalid, json.dumps(requests[1]))
+        self.assertEqual(saved[0]["status"], "completed")
+        self.assertEqual(saved[0]["client_id"], "tenant-a")
+        self.assertIn("field=response.executive.main_change numeric_token=30", logs)
+        self.assertNotIn(invalid, logs)
+
+    async def test_repeated_30_in_main_change_stays_rejected_even_with_strict_repair(self):
+        result, error, requests, saved, logs = await self.generate(["Cresceu 30%.", "Mantém 30%."], field="main_change",
+            period={"start": "2026-10-01", "end": "2026-10-20"})
+        self.assertIsNone(result)
+        self.assertEqual(str(error), "AI_UNTRUSTED_NUMERIC_TEXT:response.executive.main_change")
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(saved[0]["status"], "failed")
+        self.assertIn("numeric_grounding_repair_failed", logs)
+
+    async def test_supported_initial_number_in_main_change_keeps_existing_contract(self):
+        result, error, requests, _, _ = await self.generate(["Receita registrada R$ 4.429,10."], field="main_change")
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(requests), 1)
+
+    async def test_legitimate_30_day_context_is_accepted_only_when_period_proves_it(self):
+        result, error, requests, _, _ = await self.generate(["Nos 30 dias analisados, acompanhe os indicadores."], field="main_change",
+            period={"start": "2026-09-01", "end": "2026-09-30"})
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(requests), 1)
+        self.assertNotIn("strict", requests[0]["text"]["format"])
+
+    async def test_20_day_period_does_not_authorize_invented_30_day_context(self):
+        result, error, requests, _, _ = await self.generate(["Nos 30 dias analisados, houve mudança.", "Acompanhe a mudança no período selecionado."], field="main_change",
+            period={"start": "2026-10-01", "end": "2026-10-20"})
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(requests), 2)
+        trusted = intelligence._trusted_numbers(json.loads(requests[0]["input"]))
+        self.assertIn(20, trusted)
+        self.assertNotIn(30, trusted)

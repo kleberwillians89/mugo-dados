@@ -834,7 +834,7 @@ function PrivateApp() {
         user={navigationUser}
       />
       <div className="appFrameMain">
-      <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} />
+      {route !== "meta" && route !== "google" ? <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} /> : null}
       <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("meta")} />

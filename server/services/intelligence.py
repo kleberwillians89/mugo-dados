@@ -4,6 +4,7 @@ from weakref import WeakValueDictionary
 from .memory_budget import measured_operation
 
 import asyncio
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -1981,6 +1982,7 @@ async def _call_provider(
                 "type": "json_schema",
                 "name": schema["name"],
                 "schema": schema["schema"],
+                **({"strict": True} if schema.get("strict") is True else {}),
             }
         },
     }
@@ -2040,10 +2042,19 @@ async def _call_analysis_with_numeric_repair(
     except RuntimeError as exc:
         if not str(exc).startswith("AI_UNTRUSTED_NUMERIC_TEXT:"):
             raise
+        repair_main_change = str(exc) == "AI_UNTRUSTED_NUMERIC_TEXT:response.executive.main_change"
+    repair_schema = schema
+    if repair_main_change and schema.get("name") == ANALYSIS_SCHEMA["name"]:
+        # The bounded retry must not repeat an unsupported magnitude in the
+        # executive headline. Keep the first response contract and all grounding
+        # checks; GA4 remains a product label, not a numeric claim.
+        repair_schema = deepcopy(schema)
+        repair_schema["strict"] = True
+        repair_schema["schema"]["properties"]["executive"]["properties"]["main_change"]["pattern"] = r"^([^0-9]|GA4)*$"
     _log_line("numeric_grounding_repair_started", request_id=request_id or "-", attempt="repair")
     try:
         repaired = await _call_provider(
-            payload=payload, schema=schema,
+            payload=payload, schema=repair_schema,
             instructions=instructions + "\nA tentativa anterior foi rejeitada por conter número não suportado. "
             "Gere novamente a resposta estruturada usando somente números explicitamente presentes "
             "nos dados confiáveis fornecidos. Quando não houver número suportado, descreva "
@@ -2070,7 +2081,7 @@ def _sanitize_analysis(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Di
     return analysis
 
 
-ANALYSIS_VERSION = "v2-commerce-provider-ga4-user-semantics"
+ANALYSIS_VERSION = "v2-commerce-provider-ga4-user-semantics-main-change-repair"
 
 
 def context_fingerprint(snapshot: Dict[str, Any]) -> str:
