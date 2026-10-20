@@ -17,7 +17,7 @@ const authCalls = vi.hoisted(() => ({
 const backend = vi.hoisted(() => ({
   session: null as unknown,
   memberships: [] as Array<{ client_id: string; role: string }>,
-  clients: [] as Array<{ id: string; name: string; trade_name: string }>,
+  clients: [] as Array<{ id: string; name: string; trade_name: string; status?: string }>,
   pendingInvitations: [] as Array<Record<string, unknown>>,
   acceptedRole: "client_admin",
   platformAdmin: false,
@@ -66,7 +66,10 @@ vi.mock("./app/api", () => ({
     requestId = "";
   },
   setApiAccessToken: vi.fn(),
-  listClients: vi.fn(async () => ({ clients: [] })),
+  listClients: vi.fn(async () => ({ clients: backend.clients.filter(row => row.status !== "inactive" &&
+    (backend.platformAdmin || backend.memberships.some(m => m.role === "agency_admin" || m.client_id === row.id)))
+    .map(row => ({client_id: row.id, name: row.trade_name || row.name,
+      role: backend.platformAdmin ? "platform_admin" : backend.memberships.find(m=>m.role === "agency_admin") ? "agency_admin" : backend.memberships.find(m=>m.client_id === row.id)?.role || "viewer"})) })),
   openPlatformCompany: vi.fn(async () => ({ ok: true })),
   getMyPendingInvitations: vi.fn(async () => ({ ok: true, invitations: backend.pendingInvitations })),
   acceptInvitation: vi.fn(async (invitationId: string) => {
@@ -179,6 +182,9 @@ function findNavItem(text: string): HTMLElement | undefined {
 }
 
 beforeEach(() => {
+  vi.mocked(listClients).mockImplementation(async () => ({clients: backend.clients.filter(row => row.status !== "inactive" &&
+    (backend.platformAdmin || backend.memberships.some(m=>m.role === "agency_admin" || m.client_id === row.id)))
+    .map(row=>({client_id:row.id,name:row.trade_name || row.name,role:backend.platformAdmin ? "platform_admin" : backend.memberships.some(m=>m.role === "agency_admin") ? "agency_admin" : backend.memberships.find(m=>m.client_id === row.id)?.role || "viewer"}))}));
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -330,6 +336,9 @@ describe("App — empresa recém-aberta pela administração", () => {
   }
 
   beforeEach(() => {
+  vi.mocked(listClients).mockImplementation(async () => ({clients: backend.clients.filter(row => row.status !== "inactive" &&
+    (backend.platformAdmin || backend.memberships.some(m=>m.role === "agency_admin" || m.client_id === row.id)))
+    .map(row=>({client_id:row.id,name:row.trade_name || row.name,role:backend.platformAdmin ? "platform_admin" : backend.memberships.some(m=>m.role === "agency_admin") ? "agency_admin" : backend.memberships.find(m=>m.client_id === row.id)?.role || "viewer"}))}));
     backend.platformAdmin = true;
     backend.memberships = [];
     backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
@@ -362,6 +371,9 @@ describe("App — empresa recém-aberta pela administração", () => {
 
 describe("App — shell global: empresa, administração e conta", () => {
   beforeEach(() => {
+  vi.mocked(listClients).mockImplementation(async () => ({clients: backend.clients.filter(row => row.status !== "inactive" &&
+    (backend.platformAdmin || backend.memberships.some(m=>m.role === "agency_admin" || m.client_id === row.id)))
+    .map(row=>({client_id:row.id,name:row.trade_name || row.name,role:backend.platformAdmin ? "platform_admin" : backend.memberships.some(m=>m.role === "agency_admin") ? "agency_admin" : backend.memberships.find(m=>m.client_id === row.id)?.role || "viewer"}))}));
     backend.pendingInvitations = [];
     window.history.replaceState({}, "", "/meta");
   });
@@ -463,6 +475,9 @@ describe("App — shell global: empresa, administração e conta", () => {
 
 describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
   beforeEach(() => {
+  vi.mocked(listClients).mockImplementation(async () => ({clients: backend.clients.filter(row => row.status !== "inactive" &&
+    (backend.platformAdmin || backend.memberships.some(m=>m.role === "agency_admin" || m.client_id === row.id)))
+    .map(row=>({client_id:row.id,name:row.trade_name || row.name,role:backend.platformAdmin ? "platform_admin" : backend.memberships.some(m=>m.role === "agency_admin") ? "agency_admin" : backend.memberships.find(m=>m.client_id === row.id)?.role || "viewer"}))}));
     backend.pendingInvitations = [];
     window.history.replaceState({}, "", "/ecommerce");
   });
@@ -580,16 +595,26 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
 });
 
 
-describe("App — exceção de Metas para viewer", () => {
-  it("viewer recebe CRUD apenas em Metas e não ganha administração", async () => {
+describe("App — Metas somente leitura para viewer", () => {
+  it("viewer lê Metas sem CRUD nem administração", async () => {
     backend.pendingInvitations = [];
     backend.memberships = [{ client_id: "roove", role: "viewer" }];
     backend.clients = [{ id: "roove", name: "Roove", trade_name: "Roove" }];
     window.history.replaceState({}, "", "/metas");
     await renderApp();
     await waitFor(() => Boolean(container.querySelector('[data-testid="goals-stub"]')));
-    expect(container.querySelector('[data-testid="goals-stub"]')?.getAttribute("data-can-manage")).toBe("true");
+    expect(container.querySelector('[data-testid="goals-stub"]')?.getAttribute("data-can-manage")).toBe("false");
     expect(findNavItem("Integrações")).toBeUndefined();
     expect(findNavItem("Empresas")).toBeUndefined();
   });
+});
+
+
+it("empresa Amalie inativa não é reintroduzida pela membership nem pelo tenant salvo", async () => {
+ backend.memberships=[{client_id:"amalie",role:"viewer"},{client_id:"roove",role:"viewer"}];
+ backend.clients=[{id:"amalie",name:"Amalie",trade_name:"Amalie",status:"inactive"},{id:"roove",name:"Roove",trade_name:"Roove",status:"active"}];
+ activeClientStore.current={id:"amalie",name:"Amalie",role:"viewer"};
+ await renderApp();
+ expect(container.querySelector(".appSidebar .clientSwitcher")?.getAttribute("aria-label")).toBe("Empresa ativa: Roove");
+ expect(container.querySelector(".appSidebar")?.textContent).not.toContain("Amalie");
 });

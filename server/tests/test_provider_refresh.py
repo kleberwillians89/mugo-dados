@@ -28,6 +28,7 @@ class RefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         app.include_router(integrations.router)
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(self.client.aclose)
+        self.role = "client_admin"
         self.work = AsyncMock(return_value={"ok": True, "client_id": CID, "provider": "fbits"})
         async def membership(uid, requested_client_id=None):
             if requested_client_id != CID:
@@ -35,7 +36,7 @@ class RefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             return CID
         self.patches = [
             patch.object(tenant, "require_user_id", AsyncMock(return_value="viewer")),
-            patch.object(tenant, "sb_get_client_memberships", AsyncMock(return_value=[{"client_id": CID, "role": "viewer"}])),
+            patch.object(tenant, "sb_get_client_memberships", AsyncMock(side_effect=lambda _uid: [{"client_id": CID, "role": self.role}])),
             patch.object(tenant, "sb_get_client_id_for_user", AsyncMock(side_effect=membership)),
             patch("services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
             patch.object(integrations, "refresh_provider_data", self.work),
@@ -47,11 +48,11 @@ class RefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
     async def post(self, provider="fbits", cid=CID, **kwargs):
         return await self.client.post(f"/api/clients/{cid}/data-refresh/{provider}", headers={"Authorization": "Bearer viewer"}, json=kwargs.pop("json", PERIOD), **kwargs)
 
-    async def test_viewer_curavino_can_refresh_each_allowed_provider(self):
+    async def test_viewer_cannot_start_any_provider_refresh(self):
+        self.role = "viewer"
         for provider in ["fbits", "shopify", "meta", "google"]:
-            response = await self.post(provider)
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(self.work.await_args.args, (CID, provider, PERIOD["start"], PERIOD["end"]))
+            self.assertEqual((await self.post(provider)).status_code, 403)
+        self.work.assert_not_awaited()
 
     async def test_cross_tenant_is_403_before_sync(self):
         for provider in ["fbits", "shopify", "meta", "google"]:
@@ -78,6 +79,7 @@ class RefreshAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.post()).status_code, 200)
 
     async def test_viewer_still_cannot_read_admin_integrations(self):
+        self.role = "viewer"
         response = await self.client.get(f"/api/clients/{CID}/integrations", headers={"Authorization": "Bearer viewer"})
         self.assertEqual(response.status_code, 403)
 

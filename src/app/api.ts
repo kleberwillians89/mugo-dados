@@ -2223,6 +2223,9 @@ export async function refreshProviderData(
   try {
     return await http(clientClientPath(`/data-refresh/${provider}`), {
       method: "POST",
+      // Manual provider work can exceed the default 25s read budget. Bounded,
+      // explicit click only; no retry or extra provider request.
+      timeoutMs: 600_000,
       body: JSON.stringify({ start: period.start, end: period.end }),
     });
   } finally {

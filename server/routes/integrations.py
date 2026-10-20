@@ -60,7 +60,7 @@ async def refresh_client_provider(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_read(client_id, authorization)
+    cid = await require_client_role(client_id, authorization)
     if request.query_params:
         raise HTTPException(400, "Parâmetros extras não são permitidos.")
     try:

@@ -182,33 +182,14 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
   const platformAdmin = Boolean(adminResult.data) && !adminResult.error;
   const membershipRows = membershipsResult.data || [];
   const agencyAdmin = membershipRows.some((row) => String(row.role || "") === "agency_admin");
-  if (agencyAdmin && !platformAdmin) {
-    const response = await listClients();
-    return { platformAdmin, agencyAdmin, clients: response.clients || [] };
-  }
-  const ids = membershipRows.map((row) => String(row.client_id));
-  const clientsResult = platformAdmin
-    ? await supabase.from("clients").select("id,name,trade_name").order("name")
-    : ids.length
-      ? await supabase.from("clients").select("id,name,trade_name").in("id", ids)
-      : { data: [], error: null };
-  if (clientsResult.error) throw clientsResult.error;
-  const clientRows = clientsResult.data || [];
-  const nativeCanonicalIds = new Set(
-    clientRows
-      .map((row) => String(row.id))
-      .filter((id) => canonicalizeClientId(id) === id)
-  );
-  const canonicalRows = clientRows.filter((row) => {
-    const rawId = String(row.id);
-    const canonicalId = canonicalizeClientId(rawId);
-    return rawId === canonicalId || !nativeCanonicalIds.has(canonicalId);
-  });
-  const names = new Map(canonicalRows.map((row) => [canonicalizeClientId(String(row.id)), String(row.trade_name || row.name || row.id)]));
-  const candidates = platformAdmin
-    ? canonicalRows.map((row) => ({ client_id: canonicalizeClientId(String(row.id)), name: String(row.trade_name || row.name || row.id), role: "platform_admin" }))
-    : membershipRows.map((row) => { const id = canonicalizeClientId(String(row.client_id)); return { client_id: id, name: names.get(id) || id, role: String(row.role || "viewer") }; });
-  const clients = [...new Map(candidates.map((client) => [client.client_id, client])).values()];
+  // Lifecycle is checked by the authenticated API; status is not granted to
+  // browser SQL. Do not reconstruct inaccessible/inactive companies from membership.
+  const response = await listClients();
+  const nativeIds = new Set((response.clients || []).map(row => row.client_id));
+  const candidates = (response.clients || []).filter(row =>
+    row.client_id === canonicalizeClientId(row.client_id) || !nativeIds.has(canonicalizeClientId(row.client_id))
+  ).map(row => ({...row, client_id: canonicalizeClientId(row.client_id)}));
+  const clients = [...new Map(candidates.map(client => [client.client_id, client])).values()];
   return { platformAdmin, agencyAdmin, clients };
 }
 
@@ -353,6 +334,9 @@ function PrivateApp() {
           setActiveClientId(selected.client_id);
           setTenantReady(true);
           markReadStage("tenant_ready");
+        } else {
+          clearTenantBrowserState();
+          setActiveClientId("");
         }
 
         if (pending.length > 0) {
@@ -866,7 +850,7 @@ function PrivateApp() {
       ) : (
       <>
       {route === "goals" ? (
-        <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin", "viewer"].includes(activeClientRole)} />
+        <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${activeClientId}`}

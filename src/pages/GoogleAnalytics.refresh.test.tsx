@@ -117,7 +117,7 @@ afterEach(async () => {
 
 async function render() {
   await act(async () => {
-    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync={false} />);
+    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync={true} />);
   });
   await act(async () => Promise.resolve());
   await act(async () => Promise.resolve());
@@ -136,7 +136,7 @@ async function refresh() {
   await act(async () => Promise.resolve());
 }
 
-describe("GoogleAnalytics — refresh seguro para viewer", () => {
+describe("GoogleAnalytics — refresh seguro para administrador", () => {
   it("solicita a fachada sem IDs e relê o snapshot", async () => {
     await render();
     await refresh();

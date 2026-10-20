@@ -69,3 +69,44 @@ it("indicador só avança para sincronizado após reler sucesso e cobertura pers
  await act(async()=>{window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED,{detail:{clientId:"tenant-a"}}));});
  expect(host.textContent).toContain("Sincronizado");expect(host.textContent).toContain("Cobertura verificada até 19/10/2026");
 });
+
+it("coalesce notificações durante GET e relê uma vez após a conclusão do sync", async () => {
+ let finish!: (data: DataHealthResponse) => void;
+ vi.mocked(getClientDataHealth).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+ await render();
+ await act(async () => {
+  for (let i=0; i<4; i++) window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED,{detail:{clientId:"tenant-a"}}));
+ });
+ expect(getClientDataHealth).toHaveBeenCalledTimes(1);
+ vi.mocked(getClientDataHealth).mockResolvedValueOnce(response("tenant-a",[{...source,state:"synced",sync_status:"success",coverage_end:"2026-10-19"}]));
+ await act(async () => finish(response()));
+ expect(getClientDataHealth).toHaveBeenCalledTimes(2);
+ expect(host.textContent).toContain("Sincronizado");
+});
+
+it("Roove → Ruah → Origami descarta respostas e notificações antigas", async () => {
+ const finish: Array<(data:DataHealthResponse)=>void> = [];
+ vi.mocked(getClientDataHealth).mockImplementation(() => new Promise(resolve => {finish.push(resolve);}));
+ await render("roove"); await render("ruah"); await render("origami");
+ await act(async () => {
+  window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED,{detail:{clientId:"roove"}}));
+  finish[2](response("origami",[{...source,last_data_at:"2026-10-19"}]));
+  finish[0](response("roove")); finish[1](response("ruah"));
+ });
+ expect(getClientDataHealth).toHaveBeenCalledTimes(3);
+ expect(host.textContent).toContain("19/10/2026");
+ expect(host.textContent).not.toContain("17/10/2026");
+});
+
+it("desabilitar e reabilitar não reutiliza GET invalidado nem prende loading", async () => {
+ let finish!: (data:DataHealthResponse)=>void;
+ vi.mocked(getClientDataHealth).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ await render();
+ await act(async()=>root.render(<DataHealthProvider clientId="tenant-a" enabled={false}><DataFreshness provider="ga4" /></DataHealthProvider>));
+ vi.mocked(getClientDataHealth).mockResolvedValueOnce(response());
+ await render();
+ await act(async()=>finish(response("tenant-a",[{...source,last_data_at:"2026-10-16"}])));
+ expect(getClientDataHealth).toHaveBeenCalledTimes(2);
+ expect(host.textContent).toContain("17/10/2026");
+ expect(host.textContent).not.toContain("16/10/2026");
+});

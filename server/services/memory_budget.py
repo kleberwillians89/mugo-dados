@@ -41,14 +41,20 @@ def rss_bytes():
     return None
 
 
-@asynccontextmanager
-async def operation_memory(operation, *, limit=False):
-    global _ACTIVE
-    if limit and _ACTIVE:
+def reject_if_memory_busy(operation):
+    """Advisory preflight; operation_memory still owns atomic admission."""
+    if _ACTIVE:
         raise IntegrationError(
             "Há um processamento em andamento. Tente novamente em instantes.",
             status_code=503, code="PROCESS_MEMORY_BUSY", provider=operation, retryable=True,
         )
+
+
+@asynccontextmanager
+async def operation_memory(operation, *, limit=False):
+    global _ACTIVE
+    if limit:
+        reject_if_memory_busy(operation)
     if limit:
         _ACTIVE += 1
     request = current_request()

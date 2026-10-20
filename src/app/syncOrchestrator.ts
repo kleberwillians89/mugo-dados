@@ -48,6 +48,9 @@ export function isSyncAlreadyRunningError(error: unknown): boolean {
 
 /** Mensagem amigável para erro de sync — nunca expõe o código técnico ao usuário. */
 export function describeSyncError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.code === "PROCESS_MEMORY_BUSY") {
+    return "Há outra atualização em andamento. Os dados anteriores continuam disponíveis. Aguarde e tente novamente.";
+  }
   if (isSyncAlreadyRunningError(error)) {
     return "A atualização já está em andamento.";
   }

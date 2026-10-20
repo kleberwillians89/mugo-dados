@@ -398,6 +398,7 @@ export default function GoogleAnalytics({
   // sincronizar os dois. Eles são independentes — um indisponível não impede
   // o outro de receber dados novos. A fachada devolve somente um aviso sanitizado.
   const handleRefresh = useCallback(async () => {
+    if (!canSync) return;
     setRefreshError(null);
     setSyncing(true);
     try {
@@ -412,7 +413,7 @@ export default function GoogleAnalytics({
     } finally {
       setSyncing(false);
     }
-  }, [activeGa4ClientId, reloadCampaigns, reloadGa4, selectedRange]);
+  }, [canSync, activeGa4ClientId, reloadCampaigns, reloadGa4, selectedRange]);
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
@@ -499,7 +500,7 @@ export default function GoogleAnalytics({
     : "Origem das sessões";
   const sessionsPeak = uniquePeak(dailyRows, (row) => row.sessions);
   const eventsPerSession = ga4Report && ga4Report.summary.sessions > 0 ? ga4Report.summary.event_count / ga4Report.summary.sessions : null;
-  const refreshButton = isAuthenticated ? (
+  const refreshButton = isAuthenticated && canSync ? (
     <span>
       <button className="btn intelHeaderAction" onClick={() => void handleRefresh()} disabled={syncing} type="button">
         {syncing ? "Atualizando..." : "Atualizar dados"}

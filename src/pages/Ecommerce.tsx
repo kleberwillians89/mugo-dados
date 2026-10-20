@@ -149,7 +149,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
   }
 
   async function syncNow() {
-    if (syncing) return;
+    if (syncing || !canSync) return;
     const requestedClientId = getActiveClientId();
     console.info("[fbits][manual_refresh_click]", { endpoint: `/api/clients/${requestedClientId}/data-refresh/fbits` });
     setSyncing(true);
@@ -189,7 +189,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
                     ? `Dados atualizados ${formatFreshness(lastSyncAt)}`
                     : hasCommerceData ? "" : "Sem sincronização concluída"}
                 </span>
-                {isAuthenticated ? (
+                {isAuthenticated && canSync ? (
                   <span>
                     <button className="btn intelHeaderAction" disabled={syncing} onClick={() => void syncNow()} type="button">
                       {syncing ? "Atualizando..." : "Atualizar dados"}

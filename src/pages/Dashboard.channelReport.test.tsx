@@ -178,10 +178,10 @@ describe("Meta — leitura editorial", () => {
     expect(container.querySelector('[data-testid="meta-connection-assets"]')?.textContent).toContain("act_8024076734300108");
   });
 
-  it("viewer vê Atualizar dados", async () => {
+  it("viewer lê cards sem ação de sincronização", async () => {
     state.role = "viewer";
     await render(false);
-    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(true);
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(false);
   });
 
   it("conectado e ainda não sincronizado não vira investimento zero", async () => {
@@ -219,9 +219,9 @@ describe("Meta — leitura editorial", () => {
 });
 
 
-it("viewer atualiza somente Meta, falha preserva cards e freshness", async () => {
-  state.role = "viewer";
-  await render(false);
+it("admin atualiza somente Meta, falha preserva cards e freshness", async () => {
+  state.role = "client_admin";
+  await render(true);
   const card = container.querySelector('[data-testid="meta-ads-spend"]');
   expect(card).not.toBeNull();
   const header = container.querySelector(".ds-dateline")?.textContent;

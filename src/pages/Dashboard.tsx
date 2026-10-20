@@ -1126,7 +1126,7 @@ export default function Dashboard({
   }, [activeClientId, connectionsCacheKey, paidConnectionIdCacheKey, isAuthenticated]);
 
   async function onRefresh() {
-    if (!activeClientId) return;
+    if (!activeClientId || !canSync) return;
     setErr(null);
     setSyncing(true);
     const startedAt = new Date().toISOString();
@@ -1689,7 +1689,7 @@ export default function Dashboard({
                   <span className="ds-datelineSource">Instagram</span>{" "}
                   {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : health ? <DataFreshness provider="instagram" /> : organicFreshness ? `Dados atualizados ${organicFreshness}` : instagramConnected ? "sem sincronização concluída" : "não conectado"}
                 </span>
-                {isAuthenticated ? (
+                {isAuthenticated && canSync ? (
                   <span>
                     <button className="btn intelHeaderAction" onClick={() => void onRefresh()} disabled={syncing} type="button">
                       {syncing ? "Atualizando..." : "Atualizar dados"}
