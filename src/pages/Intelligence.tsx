@@ -1,4 +1,6 @@
 import { useDataHealth } from "../app/DataHealthContext";
+import MetricHelp from "../components/data/MetricHelp";
+import type { MetricId } from "../app/metricGlossary";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
@@ -31,6 +33,7 @@ import { cooldownFrom, cooldownHint, formatFreshness, hasFresherData } from "../
 import "../styles/intelligence.css";
 
 function sourceLabel(source: string): string {
+  if (source.startsWith("meta_campaign_")) return "Meta Ads · campanha";
   const labels: Record<string, string> = {
     paid_media: "Mídia paga", ga4: "Google Analytics", shopify: "Loja virtual",
     "shopify+paid_media": "Loja virtual e mídia paga", meta_ads: "Meta Ads",
@@ -78,6 +81,16 @@ const workspaceCache = {
   },
 };
 
+// Only persisted, completed analyses from the active tenant can be promoted.
+// Failed attempts never replace the last valid diagnosis from the bounded history.
+function lastValidAnalysis(records: Array<IntelligenceAnalysisRecord | null>, clientId: string) {
+  return records.filter((record): record is IntelligenceAnalysisRecord => Boolean(
+    record?.client_id === clientId && record.status === "completed" && record.analysis?.executive?.overall?.trim(),
+  )).sort((left, right) =>
+    Date.parse(right.completed_at || right.created_at) - Date.parse(left.completed_at || left.created_at),
+  )[0] || null;
+}
+
 const QUESTIONS = [
   "Como está meu desempenho este mês?",
   "O que mais merece minha atenção?",
@@ -121,6 +134,20 @@ function formatDate(value?: string | null, includeTime = false) {
     dateStyle: "short",
     ...(includeTime ? { timeStyle: "short" as const } : {}),
   }).format(parsed);
+}
+
+function failureHint(message: string) {
+  if (/INSUFFICIENT|dados suficientes/i.test(message)) return "Ainda não há indicadores suficientes para uma análise confiável neste período.";
+  if (/TEMPORALLY|fontes.*compatíveis/i.test(message)) return "As fontes ainda não têm cobertura compatível. Confira as fontes disponíveis e tente novamente mais tarde.";
+  if (/TIMEOUT|demorou|tempo.*esgotado/i.test(message)) return "O processamento demorou mais que o esperado. A leitura anterior foi preservada.";
+  if (/UNTRUSTED|UNGROUNDED|validar as conclusões/i.test(message)) return "As conclusões não puderam ser validadas. Nenhuma informação rejeitada foi publicada.";
+  return "Os dados disponíveis continuam preservados. Tente novamente mais tarde.";
+}
+
+function glossaryMetric(metric: IntelligenceMetric): MetricId | undefined {
+  if (metric.id === "roas" && metric.source.includes("+")) return "blendedReturn";
+  if (metric.id === "conversion_rate" && metric.source === "ga4") return "ga4ConversionRate";
+  return undefined;
 }
 
 function formatMetric(metric: IntelligenceMetric) {
@@ -174,7 +201,7 @@ function Evidence({
     <div className="intelEvidence">
       {items.map((metric) => (
         <span key={metric.id}>
-          <small>{metric.label}</small>
+          <small>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></small>
           <strong>{formatMetric(metric)}</strong>
           {metric.variation_percent != null ? <small>{metric.variation_percent > 0 ? "+" : ""}{metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior</small> : null}
         </span>
@@ -191,8 +218,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const cacheKey = `${clientId}:${period.start}:${period.end}`;
   const cached = workspaceCache.get(cacheKey);
   const [snapshot, setSnapshot] = useState<IntelligenceSnapshot | null>(cached?.snapshot || null);
-  const [analysis, setAnalysis] = useState<IntelligenceAnalysisRecord | null>(cached?.analysis || null);
+  const [latestAnalysis, setAnalysis] = useState<IntelligenceAnalysisRecord | null>(cached?.analysis || null);
   const [history, setHistory] = useState<IntelligenceAnalysisRecord[]>(cached?.history || []);
+  const analysis = useMemo(
+    () => lastValidAnalysis([latestAnalysis, ...history], clientId),
+    [latestAnalysis, history, clientId],
+  );
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(
     cached?.providerConfigured ?? null,
   );
@@ -384,20 +415,28 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   }, [lastRefreshAt, loadWorkspace, revalidating]);
 
   const displayedMetrics = useMemo(
-    () => analysis?.metrics_snapshot?.length
-      ? analysis.metrics_snapshot
-      : snapshot?.metrics || [],
-    [analysis?.metrics_snapshot, snapshot?.metrics],
+    () => analysis ? analysis.metrics_snapshot : snapshot?.metrics || [],
+    [analysis, snapshot?.metrics],
   );
   const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
   const conversationMetrics = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
   const content = analysis?.status === "completed" ? analysis.analysis : null;
+  const supportedMetric = (id: string) => {
+    const metric = metrics.get(id);
+    return metric?.value != null && ["confirmed", "partial"].includes(metric.status);
+  };
+  const visibleActions = [...(content?.actions || [])]
+    .filter(action => action.recommendation.trim() && supportedMetric(action.metric_id)).sort((a, b) =>
+    ["now", "week", "monitor", "investigate"].indexOf(a.priority) - ["now", "week", "monitor", "investigate"].indexOf(b.priority)).slice(0, 3);
   const commerceContext = snapshot?.commerce_context;
-  const metricIndex = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
+  const metricIndex = metrics;
   // Prioridade a partir dos sinais que já existem na análise: nenhum score
   // numérico inventado e nenhum texto novo gerado aqui.
   const movements = useMemo(
-    () => selectMovements(content?.insights, metricIndex),
+    () => selectMovements(content?.insights?.filter(insight => insight.metric_ids.some(id => {
+      const metric = metricIndex.get(id);
+      return metric?.value != null && ["confirmed", "partial"].includes(metric.status);
+    })), metricIndex),
     [content?.insights, metricIndex]
   );
   const opportunities = useMemo(
@@ -405,7 +444,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     [content?.insights, metricIndex, movements]
   );
   const testIdeas = useMemo(() => buildTestIdeas(content, metricIndex), [content, metricIndex]);
-  const sourceNames = useMemo(() => describeSources(snapshot), [snapshot]);
+  const analysisMatchesContext = !analysis || (
+    analysis.period_start === snapshot?.period.start && analysis.period_end === snapshot?.period.end
+  );
+  const sourceNames = useMemo(() => analysis?.sources.length
+    ? describeSources(analysis)
+    : analysisMatchesContext ? describeSources(snapshot) : [], [analysis, analysisMatchesContext, snapshot]);
   const businessContextAvailable = Boolean(snapshot?.business_context?.available);
   const refreshCooldown = cooldownFrom(lastRefreshAt, refreshTick);
   const dataFreshnessLabel = useMemo(
@@ -417,6 +461,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     () => hasFresherData(snapshot?.last_sync_at, analysis?.completed_at || analysis?.created_at),
     [snapshot?.last_sync_at, analysis?.completed_at, analysis?.created_at],
   );
+
+  const contextUpdatedAt = Date.parse(snapshot?.business_context?.updated_at || "");
+  const analysisCreatedAt = Date.parse(analysis?.created_at || "");
+  const analysisPredatesContext = Boolean(analysis && snapshot?.client.id === clientId
+    && Number.isFinite(contextUpdatedAt) && Number.isFinite(analysisCreatedAt)
+    && analysisCreatedAt < contextUpdatedAt);
 
   const analysisUpdatedLabel = useMemo(
     () => formatDate(analysis?.completed_at || analysis?.created_at, true),
@@ -569,6 +619,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {error ? (
         <div className={content ? "intelInlineWarning" : "intelInlineError"} role={content ? "status" : "alert"} data-testid={content ? "intel-stale-warning" : "intel-error"}>
           <p>Não foi possível concluir esta análise.</p>
+          <p>{failureHint(error)}</p>
           {content ? <p>A última análise válida continua disponível.</p> : null}
           <button className="btn" type="button" disabled={refreshing || asking || revalidating || (retryKind.current === "read" && !refreshCooldown.ready)} title={retryKind.current === "read" ? cooldownHint(refreshCooldown) || undefined : undefined} onClick={() => {
             if (retryKind.current === "question") questionForm.current?.requestSubmit();
@@ -579,12 +630,22 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           </button>
         </div>
       ) : null}
+      {analysisPredatesContext ? (
+        <div className="intelInlineWarning" role="status" data-testid="intel-context-updated">
+          <p>O contexto de negócio foi atualizado depois desta análise. Ela ainda não considera essas alterações.</p>
+          <button className="btn" type="button" disabled={refreshing || transitioning || providerConfigured === false}
+            onClick={() => void refreshAnalysis()}>Gerar análise com contexto atualizado</button>
+        </div>
+      ) : null}
       {fresherDataAvailable && content ? (
         <p className="intelInlineWarning" role="status" data-testid="intel-fresher-data">
           Há dados mais recentes disponíveis. A análise abaixo é a última gerada.
         </p>
       ) : null}
-      {providerConfigured === false || analysis?.status === "configuration_pending" ? (
+      {content && analysis?.data_quality.message?.startsWith("Análise parcial:") ? (
+        <p className="intelInlineWarning" role="status" data-testid="intel-partial-analysis">{analysis.data_quality.message}</p>
+      ) : null}
+      {providerConfigured === false || latestAnalysis?.status === "configuration_pending" ? (
         <p className="intelInlineWarning" role="status">
           A geração de novas análises está temporariamente indisponível. Os dados da empresa seguem acessíveis.
         </p>
@@ -593,7 +654,16 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {/* Resumo do momento: duas a quatro linhas, sem hero gigante. */}
       {content ? (
         <section className="intelMoment" aria-labelledby="intel-moment-title">
-          <h2 id="intel-moment-title">Resumo</h2>
+          <h2 id="intel-moment-title">Resumo executivo</h2>
+          <p className="intelSourcesNote" data-testid="intel-diagnosis-period">
+            Período da análise: {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}
+          </p>
+          <p className="intelSourcesNote" data-testid="intel-diagnosis-sources">
+            Fontes da análise: {describeSources(analysis).join(" · ") || "Não informadas na análise salva"}
+          </p>
+          {analysis?.data_quality.message ? (
+            <p className="intelSourcesNote" data-testid="intel-diagnosis-limitations">Cobertura e limitações: {analysis.data_quality.message}</p>
+          ) : null}
           <p className="intelMomentLead">{content.executive.overall}</p>
           {content.executive.priority_action ? (
             <p className="intelMomentAction">{content.executive.priority_action}</p>
@@ -601,11 +671,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         </section>
       ) : !error && !messages.length ? (
         <section className="intelMoment intelMomentEmpty" data-testid="intel-empty">
-          <h2>O que você quer entender?</h2>
-          <p>Escolha um ponto de partida ou escreva sua pergunta abaixo.</p>
-          <div className="intelQuestionSuggestions">
-            {QUESTIONS.map((suggestion) => <button key={suggestion} type="button" disabled={asking || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}
-          </div>
+          <h2>Ainda não há análise válida</h2>
+          <p>Gere uma análise para visualizar o diagnóstico da empresa. Nada é gerado automaticamente ao abrir esta tela.</p>
           <button
             className="btn btnPrimary"
             type="button"
@@ -616,32 +683,6 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             {refreshing ? "Gerando análise..." : "Gerar análise"}
           </button>
         </section>
-      ) : null}
-
-      {displayedMetrics.length ? (
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
-          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
-        </div>
-        <div className="intelMetricGrid">
-          {displayedMetrics.map((metric) => (
-            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}</span><small>{sourceLabel(metric.source)}</small></div>
-              <strong>{formatMetric(metric)}</strong>
-              <p>
-                {metric.variation_percent == null
-                  ? metric.status === "partial"
-                    ? "Cobertura parcial do período"
-                    : metric.status === "confirmed"
-                      ? "Sem base anterior comparável"
-                      : "Evidência indisponível"
-                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
       ) : null}
 
       {/* Contexto da marca: uma linha, nunca um cartão dominante. */}
@@ -663,7 +704,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             {sourceNames.length ? (
               <p data-testid="intel-source-note">
                 Fontes: {sourceNames.join(" · ")}
-                {!health && updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
+                {!health && analysisMatchesContext && updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
               </p>
             ) : null}
           </div>
@@ -690,6 +731,57 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
             ))}
           </ol>
         </section>
+      ) : null}
+
+      {content ? (
+      <section className="intelSection" data-testid="intel-recommendations">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Execução</span><h2>Próximos passos</h2></div>
+          <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
+        </div>
+        {visibleActions.length ? (
+          <div className="intelActionColumns">
+            {(["now", "week", "monitor", "investigate"] as const).filter(priority => visibleActions.some(action => action.priority === priority)).map((priority) => (
+              <div key={priority}>
+                <h3>{PRIORITY_LABELS[priority]}</h3>
+                {visibleActions.filter((action) => action.priority === priority).map((action, index) => (
+                  <article key={`${action.recommendation}-${index}`}>
+                    <strong>{action.recommendation}</strong>
+                    <p>{action.justification}</p>
+                    <small>{action.impact_expected} · confiança {({ high: "alta", medium: "média", low: "baixa" })[action.confidence]}</small>
+                  </article>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : <div className="intelEmpty">Não há ações com evidências disponíveis nesta análise.</div>}
+      </section>
+      ) : null}
+
+      {displayedMetrics.length ? (
+      <section className="intelSection">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
+          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
+        </div>
+        <div className="intelMetricGrid">
+          {displayedMetrics.map((metric) => (
+            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
+              <div><span>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span><small>{sourceLabel(metric.source)}</small></div>
+              <strong>{formatMetric(metric)}</strong>
+              <p>
+                {metric.variation_percent == null
+                  ? metric.status === "partial"
+                    ? "Cobertura parcial do período"
+                    : metric.status === "confirmed"
+                      ? "Sem base anterior comparável"
+                      : "Evidência indisponível"
+                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
       ) : null}
 
       {/* Oportunidades só entram aterradas em dado; sem candidata, sem seção. */}
@@ -807,37 +899,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       </section>
       ) : null}
 
-      {content ? (
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Execução</span><h2>Próximos passos</h2></div>
-          <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
-        </div>
-        {content?.actions?.length ? (
-          <div className="intelActionColumns">
-            {(["now", "week", "monitor", "investigate"] as const).map((priority) => (
-              <div key={priority}>
-                <h3>{PRIORITY_LABELS[priority]}</h3>
-                {content.actions.filter((action) => action.priority === priority).map((action, index) => (
-                  <article key={`${action.recommendation}-${index}`}>
-                    <strong>{action.recommendation}</strong>
-                    <p>{action.justification}</p>
-                    <small>{action.impact_expected} · confiança {({ high: "alta", medium: "média", low: "baixa" })[action.confidence]}</small>
-                  </article>
-                ))}
-              </div>
-            ))}
-          </div>
-        ) : <div className="intelEmpty">O plano será criado junto com a próxima análise.</div>}
-      </section>
-      ) : null}
-
-      {content || messages.length ? (
       <section className="intelAssistant">
         <div className="intelAssistantIntro">
           <span className="intelEyebrow">Seu analista</span>
-          <h2>{messages.length ? "Sua conversa com o negócio" : "O que você quer entender?"}</h2>
-          <p>As respostas usam somente a empresa, o período e as fontes exibidos nesta página.</p>
+          <h2>{messages.length ? "Sua conversa com o negócio" : "Aprofunde o diagnóstico"}</h2>
+          <p>As perguntas usam os dados da empresa no período selecionado: {formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}.</p>
+          {!analysisMatchesContext ? <p>A análise salva acima se refere a outro período.</p> : null}
         </div>
         {!messages.length ? (
         <div className="intelQuestionSuggestions">
@@ -882,7 +949,6 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         {messages.at(-1)?.role === "assistant" && !asking ? <div className="intelFollowUps" aria-label="Continue a análise">{FOLLOW_UPS.map((suggestion) => <button key={suggestion} type="button" disabled={providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}</div> : null}
 
       </section>
-      ) : null}
 
       {/* Mercado, referências e creators só existem com pesquisa externa real.
           Sem provider conectado, estas seções não são renderizadas — nunca um

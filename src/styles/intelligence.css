@@ -205,3 +205,19 @@
 @media(max-height:560px){.intelligencePage,.appFrameMain .intelligencePage{height:auto;min-height:100dvh}.intelWorkspace{overflow:visible}.intelAskForm{position:sticky;bottom:8px}}
 @media(prefers-reduced-motion:reduce){.intelProcessingDot,.intelSkeletonHero,.intelSkeletonMetrics span,.intelSkeletonBody span{animation:none}.intelWorkspace{scroll-behavior:auto}}
 .intelMetric strong,.intelEvidence strong,.intelHeaderMeta>span{overflow-wrap:anywhere}.intelProcessing{flex-shrink:0;margin:0;padding:8px 0;font-size:13px}.intelQuestionSuggestions button:disabled,.intelFollowUps button:disabled{opacity:.55;cursor:default}
+/* Small screens read vertically; the keyboard must not consume the workspace. */
+.intelligencePage,.intelHeaderMeta,.intelWorkspace,.intelAskForm{min-width:0;max-width:100%}
+@media(max-width:719px){
+  .intelligencePage,.appFrameMain .intelligencePage{height:auto;min-height:calc(100dvh - 57px)}
+  .intelWorkspace{overflow:visible;flex:0 1 auto;scrollbar-gutter:auto;padding-right:0}
+  .intelHeaderMeta{display:flex;flex-wrap:wrap;align-items:flex-start}
+  .intelHeaderMeta>span:nth-of-type(n+3){display:grid}
+  .intelHeaderMeta>span{flex:1 1 130px;font-size:12px}
+  .intelHeaderAction{min-height:44px;white-space:normal}
+  .intelAskForm>div{flex-wrap:wrap}.intelAskForm textarea{min-width:0;flex:1 1 180px}.intelAskForm button{min-height:44px}
+}
+
+/* O diagnóstico vem primeiro; o chat acompanha a leitura em fluxo normal. */
+.intelligencePage,.appFrameMain .intelligencePage{height:auto;min-height:100dvh}
+.intelWorkspace{flex:0 1 auto;overflow:visible;scrollbar-gutter:auto}
+.intelAskForm{position:relative;bottom:auto}

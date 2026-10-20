@@ -14,6 +14,7 @@ Reproduz o request 45c06ecc3ea6464985a1bfa87d31eef6 (Curavino, FBITS, período
 from __future__ import annotations
 
 import io
+import json
 import itertools
 import os
 import sys
@@ -573,12 +574,16 @@ class EndToEndTests(RealSnapshotHarness):
             [item["title"] for item in analysis["insights"]],
         )
 
-    async def test_a_genuinely_incompatible_comparison_still_returns_the_error(self):
-        _, error, output = await self.generate(
-            analysis_with(metric_ids=["revenue", "meta_investment"], sources=["commerce", "meta"]),
-        )
-        self.assertIsInstance(error, RuntimeError)
-        self.assertEqual(str(error), "AI_TEMPORALLY_INCOMPATIBLE_SOURCES")
+    async def test_incompatible_optional_comparison_is_excluded_from_partial_result(self):
+        original = analysis_with(metric_ids=["revenue", "meta_investment"], sources=["commerce", "meta"])
+        with self.assertRaisesRegex(RuntimeError, "AI_TEMPORALLY_INCOMPATIBLE_SOURCES"):
+            intelligence._validate_analysis_grounding(original, self.snapshot)
+        result, error, output = await self.generate(original)
+        self.assertIsNone(error)
+        self.assertEqual(result["analysis"]["data_quality"]["status"], "partial")
+        self.assertNotIn("Leitura combinada", json.dumps(result["analysis"]["analysis"]))
+        self.assertIn("Avanço de faturamento", json.dumps(result["analysis"]["analysis"], ensure_ascii=False))
+        intelligence._validate_analysis_grounding(result["analysis"]["analysis"], self.snapshot)
         self.assertIn("detail=coverage_mismatch", output)
         self.assertIn("source_ids=commerce,meta", output)
 

@@ -65,6 +65,14 @@ def _raise_service_error(exc: RuntimeError) -> None:
             detail="A análise foi gerada há pouco. Aguarde alguns instantes para gerar outra.",
             headers={"Retry-After": retry_after},
         ) from exc
+    if code == "AI_INSUFFICIENT_DATA":
+        raise HTTPException(status_code=502, detail="Ainda não há dados suficientes para gerar uma análise confiável neste período.") from exc
+    if code == "AI_TEMPORALLY_INCOMPATIBLE_SOURCES":
+        raise HTTPException(status_code=502, detail="As fontes ainda não têm dados compatíveis para esta análise. Os dados anteriores continuam disponíveis.") from exc
+    if code == "AI_PROVIDER_TIMEOUT":
+        raise HTTPException(status_code=502, detail="A análise demorou mais que o esperado. Tente novamente mais tarde; a leitura anterior foi preservada.") from exc
+    if code.startswith(("AI_UNTRUSTED_NUMERIC_TEXT", "AI_UNGROUNDED", "AI_UNSUPPORTED_CAUSALITY")):
+        raise HTTPException(status_code=502, detail="Não foi possível validar as conclusões com os dados disponíveis. Nenhuma conclusão rejeitada foi publicada.") from exc
     raise HTTPException(
         status_code=502,
         detail="A análise não pôde ser concluída agora. Os demais dados continuam disponíveis.",

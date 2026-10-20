@@ -5,15 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+const tenant = vi.hoisted(() => ({id: "curavino"}));
 const api = vi.hoisted(() => ({ getBusinessContext: vi.fn(), saveBusinessContext: vi.fn() }));
 
 vi.mock("../../app/api", () => api);
 vi.mock("../../app/activeClient", () => ({
-  getActiveClientId: () => "curavino",
+  getActiveClientId: () => tenant.id,
   getActiveClientName: () => "Curavino",
 }));
 
 import BusinessContextPanel from "./BusinessContextPanel";
+import { clearDashboardCacheByPrefix, readDashboardCache, writeDashboardCache } from "../../hooks/dashboard/cache";
 
 const EMPTY_CONTEXT = {
   segment: null, product_description: null, audience: null, positioning: null,
@@ -24,6 +26,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  tenant.id = "curavino";
   Object.values(api).forEach((fn) => fn.mockReset());
   api.getBusinessContext.mockResolvedValue({
     ok: true, client_id: "curavino", available: true,
@@ -181,4 +184,37 @@ describe("Contexto estratégico — administração do contexto da empresa", () 
       release({ ok: true, client_id: "curavino", available: false, context: EMPTY_CONTEXT });
     });
   });
+});
+
+
+it("salvar não afirma uso retroativo e invalida somente os caches de Inteligência do tenant", async () => {
+  const own = "intelligence-workspace|c=curavino:2026-08-01:2026-08-31|k=-|s=-|e=-|x=-";
+  const other = "intelligence-workspace|c=roove:2026-08-01:2026-08-31|k=-|s=-|e=-|x=-";
+  writeDashboardCache(own, {fixture: "old"}); writeDashboardCache(other, {fixture: "other"});
+  try {
+    await render(); await type("Objetivos", "Acompanhar recompra");
+    await act(async () => button("Salvar contexto")?.click());
+    expect(container.textContent).toContain("As análises anteriores permanecem como foram geradas");
+    expect(container.textContent).not.toContain("A Inteligência já usa estas informações");
+    expect(readDashboardCache(own)).toBeNull();
+    expect(readDashboardCache(other)).toEqual({fixture: "other"});
+  } finally {clearDashboardCacheByPrefix("intelligence-workspace");}
+});
+
+
+it("salvar em voo invalida o tenant original e não altera o cache da empresa recém-selecionada", async () => {
+  const own = "intelligence-workspace|c=curavino:period|k=-|s=-|e=-|x=-";
+  const other = "intelligence-workspace|c=roove:period|k=-|s=-|e=-|x=-";
+  writeDashboardCache(own, "old"); writeDashboardCache(other, "other");
+  let finish!: (value: unknown) => void;
+  api.saveBusinessContext.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+  try {
+    await render(); await type("Objetivos", "Novo objetivo");
+    await act(async () => button("Salvar contexto")?.click());
+    tenant.id = "roove";
+    await act(async () => finish({ok: true, client_id: "curavino", context: EMPTY_CONTEXT}));
+    expect(readDashboardCache(own)).toBeNull();
+    expect(readDashboardCache(other)).toBe("other");
+    expect(container.textContent).not.toContain("Contexto salvo");
+  } finally {clearDashboardCacheByPrefix("intelligence-workspace");}
 });

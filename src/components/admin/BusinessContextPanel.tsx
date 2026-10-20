@@ -4,7 +4,8 @@ import {
   saveBusinessContext,
   type BusinessContextFields,
 } from "../../app/api";
-import { getActiveClientName } from "../../app/activeClient";
+import { clearDashboardCacheByPrefix } from "../../hooks/dashboard/cache";
+import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 
 /**
  * Contexto estratégico da empresa ativa.
@@ -28,9 +29,9 @@ const FIELDS: Array<{
   { name: "audience", label: "Público", hint: "Quem compra e como costuma decidir.", rows: 3 },
   { name: "positioning", label: "Posicionamento", hint: "Como a marca quer ser percebida.", rows: 3 },
   { name: "differentiators", label: "Diferenciais", hint: "O que a empresa tem que a concorrência não tem.", rows: 3 },
-  { name: "commercial_context", label: "Contexto comercial", hint: "Faixa de preço, margem, sazonalidade, canais de venda.", rows: 3 },
+  { name: "commercial_context", label: "Contexto comercial", hint: "Ticket médio de referência, faixa de preço, margem, sazonalidade e canais de venda.", rows: 3 },
   { name: "goals", label: "Objetivos", hint: "O que a empresa quer alcançar no período.", rows: 3 },
-  { name: "strategic_notes", label: "Observações estratégicas", hint: "Qualquer coisa que ajude a interpretar os números.", rows: 3 },
+  { name: "strategic_notes", label: "Observações estratégicas", hint: "Restrições, prioridades comerciais e limitações para interpretar os números.", rows: 3 },
 ];
 
 const EMPTY: BusinessContextFields = {
@@ -100,6 +101,7 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
 
   async function submit() {
     if (!canEdit || !dirty) return;
+    const clientId = getActiveClientId();
     setSaving(true);
     setError("");
     setSaved("");
@@ -109,10 +111,14 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
         return body;
       }, {});
       const response = await saveBusinessContext(payload);
+      if (response.client_id !== clientId) throw new Error("Não foi possível confirmar o contexto da empresa.");
+      clearDashboardCacheByPrefix(`intelligence-workspace|c=${clientId}:`);
+      clearDashboardCacheByPrefix(`intelligence-history|c=${clientId}|`);
+      if (getActiveClientId() !== clientId) return;
       const persisted = toForm(response.context);
       savedRef.current = persisted;
       setForm(persisted);
-      setSaved("Contexto salvo. A Inteligência já usa estas informações.");
+      setSaved("Contexto salvo. As análises anteriores permanecem como foram geradas. Gere uma nova análise na Inteligência para usar o contexto atualizado.");
     } catch (cause) {
       setError(cause instanceof Error && cause.message
         ? cause.message

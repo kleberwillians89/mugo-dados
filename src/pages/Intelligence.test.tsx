@@ -73,6 +73,7 @@ const snapshot = {
 const state = {
   snapshot: snapshot as Record<string, unknown>,
   analysis: analysis as Record<string, unknown>,
+  history: null as Record<string, unknown>[] | null,
   /** Falhas simuladas por teste (o mock da api é inline neste arquivo). */
   contextError: null as Error | null,
   /** Backend inacessível: as três leituras falham, como no timeout real. */
@@ -92,7 +93,7 @@ vi.mock("../app/api", () => ({
   }),
   getIntelligenceHistory: vi.fn(async () => {
     if (state.readError) throw state.readError;
-    return { ok: true, items: [state.analysis] };
+    return { ok: true, items: state.history ?? [state.analysis] };
   }),
   generateIntelligenceAnalysis: vi.fn(async () => {
     if (state.generateError) throw state.generateError;
@@ -102,12 +103,16 @@ vi.mock("../app/api", () => ({
 }));
 
 import Intelligence from "./Intelligence";
+import { clearDashboardCacheByPrefix } from "../hooks/dashboard/cache";
 import { askIntelligence, generateIntelligenceAnalysis, getIntelligenceHistory } from "../app/api";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  clearDashboardCacheByPrefix("intelligence-workspace");
+  clearDashboardCacheByPrefix("intelligence-history");
+  state.history = null;
   mocks.clientId = "amalie";
   mocks.clientName = "Amalie";
   vi.mocked(askIntelligence).mockReset();
@@ -430,7 +435,7 @@ describe("Intelligence — estados da leitura", () => {
     state.analysis = { ...analysis, status: "pending", analysis: null };
     await renderIntelligence(true);
     const empty = container.querySelector('[data-testid="intel-empty"]');
-    expect(empty?.textContent).toContain("O que você quer entender?");
+    expect(empty?.textContent).toContain("Ainda não há análise válida");
     expect([...container.querySelectorAll("button")].map((el) => el.textContent)).toContain("Gerar análise");
     // Sem hero gigante e sem seções de prioridade vazias.
     expect(container.querySelector(".intelExecutive")).toBeNull();
@@ -507,6 +512,9 @@ describe("Intelligence — abrir com o que já existe e atualizar com segurança
   }
 
   beforeEach(() => {
+  clearDashboardCacheByPrefix("intelligence-workspace");
+  clearDashboardCacheByPrefix("intelligence-history");
+  state.history = null;
     // Cada caso decide se quer cache; o padrão é começar limpo.
     window.sessionStorage.clear();
   });
@@ -620,6 +628,9 @@ describe("Intelligence — abrir com o que já existe e atualizar com segurança
 
 describe("Intelligence — gerar análise sem perder a anterior", () => {
   beforeEach(() => {
+  clearDashboardCacheByPrefix("intelligence-workspace");
+  clearDashboardCacheByPrefix("intelligence-history");
+  state.history = null;
     window.sessionStorage.clear();
   });
 
@@ -890,6 +901,8 @@ describe("Intelligence — fechamento da apresentação", () => {
 
 it("última análise e contexto aparecem antes do histórico lento sem gerar IA", async () => {
   mocks.clientId = "progressive-intelligence";
+  state.analysis = {...analysis, client_id: mocks.clientId};
+  state.snapshot = {...snapshot, client: {...snapshot.client, id: mocks.clientId}};
   let finish!: (value: Awaited<ReturnType<typeof getIntelligenceHistory>>) => void;
   vi.mocked(getIntelligenceHistory).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const calls = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
@@ -902,6 +915,8 @@ it("última análise e contexto aparecem antes do histórico lento sem gerar IA"
 
 it("7→30→90 preserva leitura anterior, rótulo correto e troca somente após contexto e análise novos", async () => {
   mocks.clientId = "period-transition-fixture";
+  state.analysis = {...analysis, client_id: mocks.clientId};
+  state.snapshot = {...snapshot, client: {...snapshot.client, id: mocks.clientId}};
   mocks.period = {start:"2026-08-25",end:"2026-08-31"};
   await renderIntelligence();
   const api = await import("../app/api");
@@ -918,7 +933,7 @@ it("7→30→90 preserva leitura anterior, rótulo correto e troca somente após
     expect(container.querySelector(".intelHeaderMeta")!.textContent).toBe(beforeLabel);
     await act(async () => resolveContext({ok:true,snapshot:{...snapshot,period:{...snapshot.period,...mocks.period}}}));
     expect(container.querySelector(".intelHeaderMeta")!.textContent).toBe(beforeLabel);
-    await act(async () => resolveLatest({ok:true,provider_configured:true,analysis:{...analysis,period_start:start}}));
+    await act(async () => resolveLatest({ok:true,provider_configured:true,analysis:{...analysis,client_id:mocks.clientId,period_start:start}}));
     expect(container.textContent).not.toContain("Atualizando período...");
     expect(container.querySelector(".intelHeaderMeta")!.textContent).not.toBe(beforeLabel);
   }
@@ -927,6 +942,8 @@ it("7→30→90 preserva leitura anterior, rótulo correto e troca somente após
 it("context inicial leve; detalhes somente ao demandar fontes, sem provider/geração automática", async () => {
   const api = await import("../app/api");
   mocks.clientId = "deferred-context-fixture";
+  state.analysis = {...analysis, client_id: mocks.clientId};
+  state.snapshot = {...snapshot, client: {...snapshot.client, id: mocks.clientId}};
   const initialCalls = vi.mocked(api.getIntelligenceContext).mock.calls.length;
   const observers = new Map<Element, IntersectionObserverCallback>();
   vi.stubGlobal("IntersectionObserver", class {
@@ -944,4 +961,115 @@ it("context inicial leve; detalhes somente ao demandar fontes, sem provider/gera
     expect(vi.mocked(api.getIntelligenceContext).mock.calls.slice(initialCalls)).toHaveLength(2);
     expect(vi.mocked(api.getIntelligenceContext).mock.calls.at(-1)?.[1]?.includeCommerceDetails).toBe(true);
   } finally {vi.unstubAllGlobals();}
+});
+
+it("análise parcial validada recebe identificação explícita sem esconder conteúdo útil", async()=>{
+ state.analysis={...analysis,data_quality:{...analysis.data_quality,status:"partial",message:"Análise parcial: comparações sem cobertura compatível foram excluídas."}};
+ await renderIntelligence();expect(container.querySelector('[data-testid="intel-partial-analysis"]')?.textContent).toContain("Análise parcial");
+ expect(container.querySelector('.intelMomentLead')?.textContent).toBe("Receita cresceu no período.");
+});
+it("erro temporal tem orientação compreensível sem expor código ou detalhe interno",async()=>{
+ mocks.period={start:"2026-02-01",end:"2026-02-28"};state.analysis={...analysis,status:"failed",analysis:null};
+ state.readError=new Error("AI_TEMPORALLY_INCOMPATIBLE_SOURCES: internal fixture");await renderIntelligence(false);
+ const error=container.querySelector('[data-testid="intel-error"]');expect(error?.textContent).toContain("cobertura compatível");expect(error?.textContent).not.toContain("AI_TEMPORALLY");
+ expect(container.querySelector('.intelSkeleton')).toBeNull();
+});
+
+
+describe("Intelligence — diagnóstico automático persistido", () => {
+  it("abre a última análise válida do tenant mesmo após falha e em outro período, sem gerar ou perguntar", async () => {
+    const valid = {...analysis, period_start: "2026-07-01", period_end: "2026-07-31",
+      sources: [snapshot.sources[0]], data_quality: {...analysis.data_quality, status: "partial", message: "Somente Meta Ads tem cobertura neste diagnóstico."}};
+    state.analysis = {...analysis, status: "failed", analysis: null, created_at: "2026-09-02T12:00:00Z"};
+    state.history = [state.analysis, {...valid, id: "older", completed_at: "2026-07-01T12:00:00Z",
+      analysis: {...analysis.analysis, executive: {...analysis.analysis.executive, overall: "Resumo antigo."}}}, valid];
+    const generates = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe(analysis.analysis.executive.overall);
+    expect(container.querySelector('[data-testid="intel-diagnosis-period"]')?.textContent).toContain("01/07/2026 — 31/07/2026");
+    expect(container.querySelector('[data-testid="intel-diagnosis-sources"]')?.textContent).toContain("Meta Ads");
+    expect(container.querySelector('[data-testid="intel-diagnosis-sources"]')?.textContent).not.toContain("Google Ads");
+    expect(container.querySelector('[data-testid="intel-diagnosis-limitations"]')?.textContent).toContain(valid.data_quality.message);
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(generates);
+    expect(askIntelligence).not.toHaveBeenCalled();
+  });
+
+  it("destaca até três insights e três ações da análise antes do chat, com evidência salva", async () => {
+    state.snapshot = {...snapshot, metrics: []}; // O contexto atual não substitui a evidência da análise salva.
+    state.analysis = {...analysis, analysis: {...analysis.analysis,
+      insights: [...analysis.analysis.insights, {...analysis.analysis.insights[0], title: "Quarto insight"},
+        {...analysis.analysis.insights[0], title: "Sem suporte", metric_ids: ["missing"]}],
+      actions: [...Array.from({length: 4}, (_, i) => ({...analysis.analysis.actions[0], recommendation: `Ação salva ${i}`})),
+        {...analysis.analysis.actions[0], recommendation: "Ação sem suporte", metric_id: "missing"}]}};
+    await renderIntelligence();
+    const insights = container.querySelector('[data-testid="intel-movements"]')!;
+    const actions = container.querySelector('[data-testid="intel-recommendations"]')!;
+    expect(insights.querySelectorAll(".intelMovement")).toHaveLength(3);
+    expect(insights.textContent).not.toContain("Sem suporte");
+    expect(actions.querySelectorAll("article")).toHaveLength(3);
+    expect(actions.textContent).not.toContain("Ação sem suporte");
+    const chat = container.querySelector(".intelAssistant")!;
+    expect(insights.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chat.compareDocumentPosition(container.querySelector(".intelAskForm")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("não usa análise rejeitada nem registro de outro tenant para preencher o diagnóstico", async () => {
+    state.analysis = {...analysis, status: "failed", analysis: null};
+    state.history = [{...analysis, client_id: "other-tenant"}, {...analysis, status: "completed", analysis: null}];
+    const generates = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
+    await renderIntelligence(false);
+    expect(container.querySelector('[data-testid="intel-empty"]')?.textContent).toContain("Ainda não há análise válida");
+    expect(container.querySelector('[data-testid="intel-generate-empty"]')).not.toBeNull();
+    expect(container.querySelector(".intelMomentLead")).toBeNull();
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(generates);
+  });
+
+  it("troca de tenant remove imediatamente o diagnóstico anterior e ignora sua resposta atrasada", async () => {
+    await renderIntelligence();
+    const api = await import("../app/api");
+    let finish!: (value: Awaited<ReturnType<typeof api.getLatestIntelligenceAnalysis>>) => void;
+    vi.mocked(api.getLatestIntelligenceAnalysis).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    mocks.clientId = "other-tenant"; mocks.clientName = "Outra empresa";
+    state.snapshot = {...snapshot, client: {id: mocks.clientId, name: mocks.clientName}};
+    state.history = [{...analysis, client_id: "amalie"}];
+    await renderIntelligence(false);
+    expect(container.querySelector(".intelMomentLead")).toBeNull();
+    await act(async () => finish({ok: true, provider_configured: true, analysis}));
+    expect(container.querySelector(".intelMomentLead")).toBeNull();
+    expect(container.querySelector('[data-testid="intel-empty"]')).not.toBeNull();
+  });
+});
+
+
+describe("Intelligence — atualização do contexto de negócio", () => {
+  it("avisa que análise antiga não usa o contexto atualizado e só gera após ação explícita", async () => {
+    const business = {available: true, context: {segment: "Moda", goals: "Recompra"}, updated_at: "2026-09-01T12:00:00Z"};
+    state.snapshot = {...snapshot, business_context: business};
+    const calls = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
+    await renderIntelligence(false);
+    const warning = container.querySelector('[data-testid="intel-context-updated"]');
+    expect(warning?.textContent).toContain("ainda não considera essas alterações");
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe(analysis.analysis.executive.overall);
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls);
+    vi.mocked(generateIntelligenceAnalysis).mockResolvedValueOnce({ok: true, provider_configured: true, status: "completed",
+      snapshot: {...snapshot, sources: [snapshot.sources[0]], business_context: business},
+      analysis: {...analysis, id: "updated-context", created_at: "2026-09-02T12:00:00Z", completed_at: "2026-09-02T12:00:00Z"}});
+    await act(async () => warning?.querySelector<HTMLButtonElement>("button")?.click());
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls + 1);
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
+
+  it("não rotula análise posterior ao contexto como antiga", async () => {
+    state.snapshot = {...snapshot, business_context: {available: true, context: {}, updated_at: "2026-08-01T12:00:00Z"}};
+    await renderIntelligence();
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
+
+  it("não usa a data de contexto de outro tenant para produzir aviso", async () => {
+    state.snapshot = {...snapshot, client: {id: "other-tenant", name: "Outra empresa"},
+      business_context: {available: true, context: {}, updated_at: "2026-09-01T12:00:00Z"}};
+    await renderIntelligence();
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
 });
