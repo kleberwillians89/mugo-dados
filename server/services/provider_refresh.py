@@ -20,6 +20,7 @@ from .ads_sync import sync_ads_for_client_period
 from .shopify_oauth import resolve_shopify_reconciliation_since, sync_shopify_connection
 from .sync_locks import acquire_sync_lock, guarded_sync
 from .runtime_cache import invalidate_namespace
+from .request_performance import current_request
 
 RefreshProvider = Literal["fbits", "shopify", "meta", "google"]
 
@@ -82,7 +83,7 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                 tasks.append(sync_instagram_for_client(client_id, limit=200, preferred_connection_id=organic["connection_id"], persisted_only=True))
             if paid["connection_id"]:
                 meta_sources.append("Meta Ads")
-                tasks.append(sync_ads_for_client_period(client_id=client_id, connection_id=paid["connection_id"], since=start, until=end, persisted_only=True))
+                tasks.append(sync_ads_for_client_period(client_id=client_id, connection_id=paid["connection_id"], since=start, until=end, persisted_only=True, **({"request_id": current_request()["request_id"]} if current_request().get("request_id") else {})))
         elif provider == "google":
             rows = await list_generic_connections(client_id)
             providers = {row["provider"] for row in rows if row.get("status") != "disconnected" and not row.get("disconnected_at")}
@@ -111,11 +112,23 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                     task.close()
             if provider == "meta":
                 for source, result in zip(meta_sources, results):
-                    if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("sync_outcome") == "partial")):
+                    if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False)):
                         code = result.code if isinstance(result, IntegrationError) else "SYNC_FAILED"
                         status = result.status_code if isinstance(result, IntegrationError) else 502
                         reason = "duplicate" if isinstance(result, dict) and result.get("reason") == "duplicate" else "failed"
-                        print(f"[meta_ads][manual_refresh_error] source={source} code={code} status={status} reason={reason}")
+                        error_type = type(result).__name__ if isinstance(result, BaseException) else "none"
+                        # Only code location and exception class; never message, locals or payload.
+                        origin = "-"
+                        if isinstance(result, BaseException):
+                            trace = result.__traceback__
+                            while trace and trace.tb_next:
+                                trace = trace.tb_next
+                            if trace:
+                                frame = trace.tb_frame.f_code
+                                origin = f"{frame.co_filename.rsplit('/', 1)[-1]}:{trace.tb_lineno}:{frame.co_name}"
+                        outcome = "exception" if isinstance(result, BaseException) else "partial" if result.get("partial") is True or result.get("sync_outcome") == "partial" else "projection_failed" if result.get("read_model_refreshed") is False else "not_ok"
+                        request_id = current_request().get("request_id") or "-"
+                        print(f"[meta_ads][manual_refresh_error] request_id={request_id} source={source} stage=source_result code={code} status={status} reason={reason} outcome={outcome} error_type={error_type} error_origin={origin}")
                     seconds = None
                     if isinstance(result, IntegrationError) and result.status_code == 429:
                         seconds = max(1, int(result.diagnostics.get("retry_after") or 60))
@@ -127,7 +140,7 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
             # Nunca devolver payloads dos providers ou texto de exceções cruas.
             if any(isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False)) for result in results):
                 if provider == "meta":
-                    print(f"[meta][manual_refresh_error] client_id={client_id} stage=sync_or_projection status=502")
+                    print(f"[meta][manual_refresh_error] request_id={current_request().get('request_id') or '-'} client_id={client_id} stage=sync_or_projection status=502")
                 failed = [name for name, result in zip(meta_sources, results) if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False))] if provider == "meta" else []
                 label = ", ".join(failed) or "Uma fonte"
                 raise HTTPException(502, f"{label} não pôde ser atualizada. Mantendo a última leitura disponível.")

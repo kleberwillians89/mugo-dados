@@ -336,3 +336,112 @@ class ProjectionFreshnessTests(_BaseAdsSyncTest):
         self.assertEqual(error.exception.diagnostics["retry_after"],60)
         self.assertNotIn("sensitive",error.exception.public_message)
         ads_sync.mark_connection_sync_success.assert_not_awaited()
+
+
+class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
+    """Real Ads/facade/router/finally boundaries, synthetic provider and DB only."""
+    async def request_refresh(self, *, organic=None, outer_release_error=False, finish_error=False):
+        import httpx
+        from fastapi import FastAPI
+        from routes import integrations
+        from services import provider_refresh, sync_locks
+        account = [{"date_start": "2026-05-01", "spend": "10"}]
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(side_effect=[account, [], []]))
+        ads_sync._upsert_ad_account_daily_stats.return_value = {"upserted": 1, "skipped": False}
+        ads_sync._readback_persisted_rows.return_value = {
+            **_empty_readback(), "ad_account_daily_stats": {"count": 1, "mode": "connection_scope"},
+        }
+        self.rpc_calls = []
+        async def rpc(name, args):
+            self.rpc_calls.append((name, args))
+            if name == 'release_client_job_lock':
+                print(f"[test][release] {args['p_job_name']}")
+            if outer_release_error and name == 'release_client_job_lock' and args['p_job_name'] == 'sync:data_refresh:meta':
+                raise RuntimeError('synthetic cleanup failure')
+            return True
+        async def resolve(**kwargs):
+            return {"connection_id": ('organic' if organic is not None else None) if kwargs['platform']=='instagram' else 'conn-1',
+                    "row": {"ig_user_id": "synthetic"}}
+        self._install(sync_locks, 'sb_rpc', rpc)
+        self._install(ads_sync, 'acquire_sync_lock', sync_locks.acquire_sync_lock)
+        self._install(ads_sync, 'release_sync_lock', sync_locks.release_sync_lock)
+        self._install(provider_refresh, 'acquire_sync_lock', sync_locks.acquire_sync_lock)
+        self._install(provider_refresh, 'resolve_connection_for_scope', resolve)
+        self._install(provider_refresh, 'invalidate_namespace', AsyncMock())
+        self._install(provider_refresh, 'sync_instagram_for_client', AsyncMock(side_effect=organic) if isinstance(organic, Exception) else AsyncMock(return_value=organic))
+        self._install(integrations, 'require_client_read', AsyncMock(return_value='amalie'))
+        if finish_error:
+            self._install(ads_sync, 'finish_job_run', AsyncMock(side_effect=RuntimeError('synthetic finish failure')))
+        import io
+        from contextlib import redirect_stdout
+        from services import request_performance
+        app = FastAPI()
+        app.include_router(integrations.router)
+        output = io.StringIO()
+        _state, token = request_performance.begin('synthetic-refresh-request')
+        try:
+            with redirect_stdout(output):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url='http://test') as client:
+                    response = await client.post('/api/clients/amalie/data-refresh/meta', json={'start':'2026-05-01','end':'2026-05-01'})
+        finally:
+            request_performance.end(token)
+            self.output = output.getvalue()
+        return response
+
+    async def test_completed_ads_returns_http_success_after_job_finish_and_both_distinct_releases(self):
+        response = await self.request_refresh()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {'ok':True,'client_id':'amalie','provider':'meta','sources':{'Meta Ads':{'status':'success'}}})
+        ads_sync._upsert_ad_account_daily_stats.assert_awaited_once()
+        ads_sync.refresh_dashboard_read_model_safely.assert_awaited_once()
+        ads_sync.mark_connection_sync_success.assert_awaited_once()
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
+        self.assertEqual(self.finish_job_run_calls[-1]['rows_upserted'], 1)
+        released = [args['p_job_name'] for name, args in self.rpc_calls if name == 'release_client_job_lock']
+        self.assertEqual(released, ['sync:meta_ads:conn-1','sync:data_refresh:meta'])
+        self.assertNotIn('refresh_cooldown:meta', released)
+
+    async def test_ads_success_does_not_mask_partial_instagram_http_502(self):
+        response = await self.request_refresh(organic={'ok':True,'partial':True,'read_model_refreshed':True})
+        self.assertEqual(response.status_code, 502)
+        self.assertIn('Instagram', response.json()['detail'])
+        self.assertNotIn('Meta Ads', response.json()['detail'])
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
+        self.assertEqual(len(self.mark_error_calls), 0)
+
+    async def test_terminal_job_failure_after_body_success_is_not_forced_to_200(self):
+        response = await self.request_refresh(finish_error=True)
+        self.assertEqual(response.status_code, 502)
+        self.assertIn('Meta Ads', response.json()['detail'])
+        self.assertNotIn('synthetic', response.text)
+
+    async def test_outer_release_exception_overrides_return_but_does_not_rewrite_ads_job(self):
+        response = await self.request_refresh(outer_release_error=True)
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
+        self.assertEqual(len(self.mark_error_calls), 0)
+
+
+    async def test_instagram_exception_reproduces_502_after_successful_ads_finalization(self):
+        response = await self.request_refresh(organic=ValueError('synthetic-sensitive-provider-message'))
+        self.assertEqual(response.status_code, 502)
+        self.assertIn('Instagram', response.json()['detail'])
+        self.assertNotIn('Meta Ads', response.json()['detail'])
+        self.assertNotIn('synthetic-sensitive-provider-message', response.text)
+        self.assertNotIn('synthetic-sensitive-provider-message', self.output)
+        self.assertIn('source=Instagram stage=source_result', self.output)
+        self.assertIn('error_type=ValueError error_origin=', self.output)
+        self.assertIn('request_id=synthetic-refresh-request', self.output)
+        markers = ['[meta_ads][manual_refresh_done] client_id=amalie status=success',
+                   '[ads_sync][job_finish_complete]', '[test][release] sync:meta_ads:conn-1',
+                   '[ads_sync][lock_release_complete] request_id=synthetic-refresh-request',
+                   '[meta][manual_refresh_error]', '[test][release] sync:data_refresh:meta']
+        positions = [self.output.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(len(self.finish_job_run_calls), 1)
+        self.assertEqual(self.finish_job_run_calls[0]['status'], 'success')
+        self.assertEqual(len(self.mark_error_calls), 0)
+        ads_sync._upsert_ad_account_daily_stats.assert_awaited_once()
+        ads_sync.refresh_dashboard_read_model_safely.assert_awaited_once()
+        self.assertEqual([args['p_job_name'] for name, args in self.rpc_calls if name=='release_client_job_lock'],
+                         ['sync:meta_ads:conn-1', 'sync:data_refresh:meta'])
