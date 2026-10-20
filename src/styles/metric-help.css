@@ -1,0 +1,9 @@
+.metricHelp{position:relative;display:inline-flex;vertical-align:middle;flex:0 0 auto;z-index:2}
+.metricHelpTrigger{display:inline-flex;align-items:center;justify-content:center;width:28px;min-height:28px;padding:4px;border:0;border-radius:var(--radius-sm,6px);background:transparent;color:var(--text-secondary,#58645e);cursor:pointer}
+.metricHelpTrigger:hover{background:var(--surface-subtle,#f4f3ef)}
+.metricHelpTrigger:focus-visible{outline:2px solid var(--accent,#245c49);outline-offset:2px}
+.metricHelpPanel{position:fixed;z-index:1200;left:8px;top:8px;width:min(320px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;overflow-y:auto;padding:16px;border:1px solid var(--border-subtle,#dedbd3);border-radius:var(--radius-md,10px);background:var(--surface,#fff);box-shadow:0 4px 18px #15201818;color:var(--text-primary,#18201d);font:400 13px/1.5 var(--font-body,sans-serif);overflow-wrap:anywhere}
+.metricHelpPanel strong{display:block;font-weight:600}.metricHelpPanel p{margin:8px 0 0}.metricHelpCaveat{color:var(--text-secondary,#58645e)}
+@media(pointer:coarse){.metricHelpTrigger{width:44px;min-height:44px}}
+.kpiCard{position:relative;min-width:0}.kpiSelect{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;border-radius:inherit;background:transparent;cursor:pointer}
+.kpiSelect:focus-visible{outline:2px solid var(--accent,#245c49);outline-offset:2px}.kpiValue,.shopifyKpiValue{min-width:0;overflow-wrap:anywhere}
