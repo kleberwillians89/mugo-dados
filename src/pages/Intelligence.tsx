@@ -1,3 +1,4 @@
+import ConversationHistory from "../components/intelligence/ConversationHistory";
 import { useDataHealth } from "../app/DataHealthContext";
 import MetricHelp from "../components/data/MetricHelp";
 import type { MetricId } from "../app/metricGlossary";
@@ -49,6 +50,7 @@ type Props = {
    * de gestão). Gerar análise NÃO depende disto: qualquer membro gera.
    */
   canEditBusinessContext?: boolean;
+  conversationUserId?: string | null;
 };
 
 type CachedWorkspace = {
@@ -216,7 +218,7 @@ function Evidence({
 }
 
 // onLogout segue no tipo por compatibilidade: a saída vive na sidebar global.
-export default function Intelligence({ canEditBusinessContext = false }: Props) {
+export default function Intelligence({ canEditBusinessContext = false, conversationUserId = null }: Props) {
   const health = useDataHealth();
   const { period } = usePeriod();
   const clientId = getActiveClientId();
@@ -243,6 +245,15 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
   const [asking, setAsking] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<IntelligenceMessage[]>([]);
+  const [conversationLoading, setConversationLoading] = useState(Boolean(conversationUserId));
+  const [answerSnapshotId, setAnswerSnapshotId] = useState<string | null>(null);
+  const [conversationMetrics, setConversationMetrics] = useState<Map<string, IntelligenceMetric>>(new Map());
+  const conversationScope = useRef(`${clientId}:${conversationUserId}`);
+  if (conversationScope.current !== `${clientId}:${conversationUserId}`) {
+    conversationScope.current = `${clientId}:${conversationUserId}`;
+    setConversationId(null); setMessages([]); setQuestion(""); setAnswerSnapshotId(null); setConversationMetrics(new Map());
+    setConversationLoading(Boolean(conversationUserId));
+  }
   // "Atualizar dados" relê o que já está persistido. Não é geração de IA e
   // não sincroniza provider: o custo é o de três GETs que o usuário já pode
   // fazer. Por isso vale para viewer também.
@@ -298,8 +309,6 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     setRefreshedAt(nextCache?.refreshedAt || null);
     setLoading(!nextCache && !keepPrevious);
     setError("");
-    setConversationId(null);
-    setMessages([]);
   }
 
   // Leitura do workspace: a mesma para a abertura da tela e para o botão
@@ -424,7 +433,6 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     [analysis, snapshot?.metrics],
   );
   const metrics = useMemo(() => metricMap(displayedMetrics), [displayedMetrics]);
-  const conversationMetrics = useMemo(() => metricMap(snapshot?.metrics || []), [snapshot?.metrics]);
   const content = analysis?.status === "completed" ? analysis.analysis : null;
   const supportedMetric = (id: string) => {
     const metric = metrics.get(id);
@@ -538,10 +546,16 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     }
   }
 
+  const restoreConversation = useCallback((id: string, restored: IntelligenceMessage[]) => {
+    askController.current?.abort();
+    setConversationId(id || null); setMessages(restored); setQuestion("");
+    setAnswerSnapshotId(null); setConversationMetrics(new Map()); setAsking(false);
+  }, []);
+
   async function submitQuestion(event: FormEvent) {
     event.preventDefault();
     const clean = question.trim();
-    if (!clean || asking) return;
+    if (!clean || asking || conversationLoading) return;
     setAsking(true);
     setError("");
     askController.current?.abort();
@@ -554,6 +568,10 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         start: period.start,
         end: period.end,
       }, { signal: controller.signal });
+      if (controller.signal.aborted || getActiveClientId() !== clientId) return;
+      if (result.snapshot.client.id !== clientId) throw new Error("Não foi possível validar a empresa desta resposta.");
+      setAnswerSnapshotId(result.assistant_message.id);
+      setConversationMetrics(metricMap(result.snapshot.metrics));
       setConversationId(result.conversation_id);
       setMessages((current) => [...current, result.user_message, result.assistant_message]);
       setSnapshot(result.snapshot);
@@ -939,10 +957,15 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <p>As perguntas usam os dados da empresa no período selecionado: {formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}.</p>
           {!analysisMatchesContext ? <p>A análise salva acima se refere a outro período.</p> : null}
         </div>
+        <ConversationHistory key={`${clientId}:${conversationUserId}`} clientId={clientId} userId={conversationUserId}
+          activeId={conversationId} revision={answerSnapshotId || ""} busy={asking}
+          onRestore={restoreConversation} onLoadingChange={setConversationLoading} />
+        {messages.length && !answerSnapshotId ? <p className="intelInlineWarning" role="status">Conversa restaurada do histórico. As respostas mantêm suas datas originais e não são evidências numéricas atuais. Para consultar outro período, selecione-o antes de perguntar.</p> : null}
+        {messages.at(-1)?.role === "user" && !asking ? <p role="status">A última pergunta não tem resposta salva nesta conversa. Você pode reformulá-la ou enviá-la novamente.</p> : null}
         {!messages.length ? (
         <div className="intelQuestionSuggestions">
           {QUESTIONS.map((suggestion) => (
-            <button key={suggestion} type="button" disabled={asking || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
+            <button key={suggestion} type="button" disabled={asking || conversationLoading || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
               {suggestion}
             </button>
           ))}
@@ -958,7 +981,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                 <>
                   {message.content.attention_points?.some(item => /resposta parcial|análise parcial/i.test(item)) ? <p className="intelAnswerPartial" role="status">Resposta parcial · confira as limitações desta leitura.</p> : null}
                   <div className="intelAnswerSummary"><span className="intelEyebrow">Resumo</span><h3>{message.content.direct_answer}</h3></div>
-                  {message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
+                  {message.id === answerSnapshotId && message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
                     <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids} metrics={conversationMetrics} /></section>
                   ) : null}
                   {message.content.evidence?.length || message.content.attention_points?.length ? (
@@ -980,7 +1003,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           ))}
         </div>
 
-        {messages.at(-1)?.role === "assistant" && !asking ? <div className="intelFollowUps" aria-label="Continue a análise">{FOLLOW_UPS.map((suggestion) => <button key={suggestion} type="button" disabled={providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}</div> : null}
+        {messages.at(-1)?.role === "assistant" && !asking ? <div className="intelFollowUps" aria-label="Continue a análise">{FOLLOW_UPS.map((suggestion) => <button key={suggestion} type="button" disabled={conversationLoading || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}</div> : null}
 
       </section>
 
@@ -1071,12 +1094,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
-                  if (!asking && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
+                  if (!asking && !conversationLoading && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
                 }
               }}
-              disabled={asking || transitioning || providerConfigured === false}
+              disabled={asking || conversationLoading || transitioning || providerConfigured === false}
             />
-            <button className="btn btnPrimary" disabled={asking || transitioning || !question.trim() || providerConfigured === false}>
+            <button className="btn btnPrimary" disabled={asking || conversationLoading || transitioning || !question.trim() || providerConfigured === false}>
               {asking ? "Analisando…" : "Enviar"}
             </button>
           </div>

@@ -240,3 +240,8 @@ export type CustomerDetailResponse = {
   customer: CustomerSummary;
   orders: CustomerOrder[];
 };
+
+
+export type IntelligenceConversation = {
+  id: string; client_id: string; user_id: string; title: string; created_at: string; updated_at: string;
+};

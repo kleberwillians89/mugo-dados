@@ -1,0 +1,16 @@
+.intelConversationHistory{padding:18px 0;margin-top:18px;border-block:1px solid var(--stroke,#dedbd3);min-width:0}
+.intelConversationHistory header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.intelConversationHistory h3{margin:0;font-size:15px}
+.intelConversationHistory summary{padding:12px 0;cursor:pointer;color:var(--intel-green,#153f35);font-size:14px}
+.intelConversationHistory p{font-size:13px;line-height:1.6;color:var(--intel-muted,#68716c)}
+.intelConversationHistory ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.intelConversationHistory li{display:flex;flex-wrap:wrap;gap:8px;padding:12px;border:1px solid #dedbd3;border-radius:8px;min-width:0}
+.intelConversationHistory li>button{flex:1 1 180px;text-align:left}.intelConversationHistory li>span{display:flex;gap:10px;flex-wrap:wrap}
+.intelConversationHistory button{font:inherit;font-size:13px;min-height:40px;cursor:pointer;background:#fff;border:1px solid #dedbd3;border-radius:6px;padding:8px 12px;color:var(--intel-ink,#18201d);white-space:normal;overflow-wrap:anywhere}
+.intelConversationHistory button.isActive{background:#eff4ee;border-color:#153f35}
+.intelConversationHistory button:disabled{opacity:.55;cursor:default}
+.intelConversationHistory form,.intelConversationHistory li>div{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:end;gap:10px}
+.intelConversationHistory label{display:grid;gap:6px;flex:1 1 180px;font-size:13px;min-width:0}
+.intelConversationHistory input{box-sizing:border-box;width:100%;font:inherit;min-height:42px;border:1px solid #dedbd3;border-radius:6px;padding:8px}
+.intelConversationHistory :is(button,input,summary):focus-visible{outline:2px solid #153f35;outline-offset:3px}
+@media(max-width:500px){.intelConversationHistory li>button{flex-basis:100%}.intelConversationHistory button{min-height:44px}}
