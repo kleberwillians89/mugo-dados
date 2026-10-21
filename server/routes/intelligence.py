@@ -11,6 +11,7 @@ from services.intelligence import (
     STAGE_CONTEXT,
     analysis_history,
     ask_intelligence,
+    _log_ask_failure,
     calculate_intelligence_snapshot,
     conversation_messages,
     generate_analysis,
@@ -223,6 +224,7 @@ async def intelligence_ask(
     authorization: str | None = Header(default=None),
 ):
     cid, user_id = await _context(client_id, x_client_id, authorization)
+    started = time.monotonic()
     try:
         return await ask_intelligence(
             client_id=cid,
@@ -232,8 +234,12 @@ async def intelligence_ask(
             start=str(payload.get("start") or "") or None,
             end=str(payload.get("end") or "") or None,
         )
-    except RuntimeError as exc:
-        _raise_service_error(exc)
+    except Exception as exc:
+        if not getattr(exc, "_intelligence_ask_logged", False):
+            _log_ask_failure(exc=exc, request_id=get_request_id(), stage="ask", started=started)
+        if isinstance(exc, RuntimeError):
+            _raise_service_error(exc)
+        raise
 
 
 @router.get("/conversations/{conversation_id}/messages")
