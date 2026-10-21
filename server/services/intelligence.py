@@ -2993,7 +2993,22 @@ async def ask_intelligence(
     existing = await conversation_messages(client_id, user_id, conversation_id) if conversation_id else None
     since, until = _parse_period(start, end)
     period = {"start": since.isoformat(), "end": until.isoformat()}
-    answer, snapshot = await _investigate_question(client_id=client_id, question=clean_question, period=period)
+    from .intelligence_context import recover_context
+    from .intelligence_tools import empty_answer
+    context = recover_context(clean_question, period, existing, client_id=client_id,
+                              user_id=user_id, conversation_id=conversation_id)
+    request_period = dict(period)
+    period = context.period
+    if context.clarification:
+        answer = empty_answer(context.clarification)
+        snapshot = _investigation_snapshot(client_id, {
+            "period": period, "sources": [], "metrics": [], "top_campaigns": [], "crossings": [],
+            "limitations": [context.clarification],
+            "quality": {"status": "partial", "message": context.clarification},
+        })
+    else:
+        answer, snapshot = await _investigate_question(client_id=client_id, question=context.question, period=period)
+        answer["attention_points"] = [*answer.get("attention_points", []), *context.limitations]
     analysis_rows = await sb_select(
         "ai_analyses",
         filters={
@@ -3028,7 +3043,8 @@ async def ask_intelligence(
             "user_id": user_id,
             "analysis_id": analysis_id,
             "role": "user",
-            "content": {"question": clean_question},
+            "content": {"question": clean_question, "context_topics": context.topics,
+                        "context_request_period": request_period},
             "period_start": period["start"],
             "period_end": period["end"],
             "sources": snapshot["sources"],
