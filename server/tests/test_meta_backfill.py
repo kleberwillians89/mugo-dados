@@ -52,6 +52,9 @@ class MetaBackfillReconciliationTests(unittest.IsolatedAsyncioTestCase):
 
 class MetaBackfillWorkerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        lifecycle = patch.object(meta_backfill, "operational_connections", AsyncMock(side_effect=lambda rows: rows))
+        lifecycle.start()
+        self.addCleanup(lifecycle.stop)
         self.slice = {"id": "s1", "backfill_job_id": "j1", "slice_since": "2026-01-01", "slice_until": "2026-01-07", "attempts": 1}
         self.job = {"id": "j1", "client_id": "amalie", "connection_id": "c1"}
 

@@ -1,9 +1,9 @@
+import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { useDataHealth } from "../app/DataHealthContext";
-import { DataFreshness } from "../components/data/DataFreshness";
+import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
-import { formatFreshness } from "../app/dataRefresh";
 import Shell from "../components/Shell";
 import { type KpiKey } from "../components/KpiGrid";
 import MediaTable from "../components/MediaTable";
@@ -80,7 +80,7 @@ import {
   getActiveConnectionId,
   getSelectedConnectionId,
 } from "../app/connectionState";
-import { paidMediaNotice, providerEverHadData, providerValidUpdatedAt } from "../app/providerFreshness";
+import { paidMediaNotice, providerEverHadData } from "../app/providerFreshness";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
@@ -589,6 +589,7 @@ export default function Dashboard({
   const [monthB, setMonthB] = useState<string>("");
   const health = useDataHealth();
   const activeClientId = getActiveClientId();
+  const refreshControl = useProviderRefresh(activeClientId, "meta", period, isAuthenticated && canSync);
   const connectionsCacheKey = useMemo(
     () =>
       buildDashboardCacheKey("meta-connections", {
@@ -627,7 +628,6 @@ export default function Dashboard({
   const [selectedPaidConnectionId, setSelectedPaidConnectionId] = useState<string | null>(() =>
     readDashboardCache<string>(paidConnectionIdCacheKey)
   );
-  const [paidRefreshNoData, setPaidRefreshNoData] = useState<string | null>(null);
   const [refreshRuntime, setRefreshRuntime] = useState<Array<Record<string, unknown>>>([]);
   const [activeConnectionId, setActiveConnection] = useState<string | null>(() =>
     cachedConnectionsInitial.length ? pickDefaultConnectionId(cachedConnectionsInitial, getActiveConnectionId()) : null
@@ -1126,7 +1126,12 @@ export default function Dashboard({
   }, [activeClientId, connectionsCacheKey, paidConnectionIdCacheKey, isAuthenticated]);
 
   async function onRefresh() {
-    if (!activeClientId) return;
+    try { await refreshControl.run(performRefresh); }
+    catch (cause) { if (getActiveClientId() === activeClientId) setErr(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível.")); }
+  }
+
+  async function performRefresh() {
+    if (!activeClientId || !canSync) return;
     setErr(null);
     setSyncing(true);
     const startedAt = new Date().toISOString();
@@ -1134,12 +1139,11 @@ export default function Dashboard({
     console.info("[meta][manual_refresh_click]", { endpoint: runtime.endpoint });
     setRefreshRuntime([{ ...runtime, status: "running" }]);
     try {
-      const result = await runExclusiveSync(
+      await runExclusiveSync(
         { clientId: activeClientId, provider: "meta" },
         () => refreshProviderData("meta", period)
       );
       if (getActiveClientId() !== activeClientId) return;
-      setPaidRefreshNoData(result.sources?.["Meta Ads"]?.status === "no_data" ? `${period.start}:${period.end}` : null);
       const snapshot = await dashboardSnapshot.refetch({ afterCurrent: true });
       if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
       if (getActiveClientId() !== activeClientId) return;
@@ -1150,6 +1154,9 @@ export default function Dashboard({
     } catch (cause) {
       setRefreshRuntime([{ ...runtime, status: "error", finished_at: new Date().toISOString() }]);
       setErr(describeSyncError(cause, "Não foi possível atualizar. Mantendo a última leitura disponível."));
+      // The refresh controller must receive the failure; resolving here would
+      // publish its success message despite a provider/read-back error.
+      throw cause;
     } finally {
       setSyncing(false);
     }
@@ -1644,12 +1651,6 @@ export default function Dashboard({
   const periodOption = periodPreset === "custom" ? (isFixedMonthPeriod ? "specific" : null) : periodPreset;
   const freshness = (label: string | null | undefined) => String(label || "").replace(/^Última atualização /, "atualizado em ");
   // Procedência: última leitura bem-sucedida da fonte no read model (o que a página mostra).
-  const paidFreshness = formatFreshness(providerValidUpdatedAt(dashboardSnapshot.sources, "meta", {
-    lastSuccessAt: executiveData?.meta?.last_success_at || paidConnection?.last_synced_at || paidConnection?.last_sync_at,
-  }));
-  const organicFreshness = formatFreshness(providerValidUpdatedAt(dashboardSnapshot.sources, "instagram", {
-    lastSuccessAt: executiveData?.instagram?.last_success_at || organicConnection?.last_synced_at || organicConnection?.last_sync_at,
-  }));
   const organicLead = !paidHasData && organicHasData;
   // "Já existiu dado" vem do read model (data_max_available), não da telemetria
   // de sync: um sync que não registrou last_success_at não pode fazer a tela
@@ -1682,17 +1683,15 @@ export default function Dashboard({
             dateline={
               <>
                 <span>
-                  <span className="ds-datelineSource">Meta Ads</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : health ? <DataFreshness provider="meta_ads" /> : paidFreshness ? `Dados atualizados ${paidFreshness}` : paidEverHadData ? "" : paidRefreshNoData === `${period.start}:${period.end}` ? "sem dados de anúncios no período consultado" : paidConnection?.last_sync_status === "skipped" ? "última consulta sem dados de anúncios" : metaAdsConnected ? "sem sincronização concluída" : "não conectado"}
+                  <span className="ds-datelineSource">Meta Ads</span> — <DataFreshness provider="meta_ads" compact />
                 </span>
                 <span>
-                  <span className="ds-datelineSource">Instagram</span>{" "}
-                  {readModelLoading ? "carregando" : readModelError ? "leitura indisponível" : health ? <DataFreshness provider="instagram" /> : organicFreshness ? `Dados atualizados ${organicFreshness}` : instagramConnected ? "sem sincronização concluída" : "não conectado"}
+                  <span className="ds-datelineSource">Instagram</span> — <DataFreshness provider="instagram" compact />
                 </span>
-                {isAuthenticated ? (
+                {isAuthenticated && canSync ? (
                   <span>
-                    <button className="btn intelHeaderAction" onClick={() => void onRefresh()} disabled={syncing} type="button">
-                      {syncing ? "Atualizando..." : "Atualizar dados"}
+                    <button className="btn intelHeaderAction" onClick={() => void onRefresh()} disabled={refreshControl.disabled} type="button">
+                      {refreshControl.label}
                     </button>
                   </span>
                 ) : null}
@@ -1715,6 +1714,8 @@ export default function Dashboard({
             controlsNote={formatCalendarRange(period.start, period.end)}
           />
 
+          {refreshControl.error ? <p role="alert">{refreshControl.error}</p> : null}
+          <ProviderRefreshNotice provider="meta" control={refreshControl} />
           {assetRows.length ? (
             <dl className="ds-assetLine" aria-label="Conexão Meta em uso" data-testid="meta-connection-assets">
               {assetRows.map((row) => (
@@ -1983,7 +1984,7 @@ export default function Dashboard({
                   ) : null}
                 </div>
                 {mediaError && deferredMediaFiltered.length ? (
-                  <DataNotice tone="warning" title="Atualização parcial das publicações">Exibindo a última leitura disponível.</DataNotice>
+                  <DataNotice tone="warning" title="Publicações anteriores mantidas">Exibindo a última leitura disponível.</DataNotice>
                 ) : null}
                 {organicContent.eligibleContentCount ? (
                   <dl className="ds-inlineStats">

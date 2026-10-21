@@ -147,6 +147,7 @@ export default function FbitsExecutiveDashboard({ data, orders, loading, error, 
           exactValue={money(summary.receita_oficial)}
           rawValue={summary.receita_oficial}
           label="vendidos no período"
+          metricId="revenue"
           delta={<Delta change={data?.comparison?.receita_oficial?.change_percent} showReference />}
           testId="kpi-receita"
         />

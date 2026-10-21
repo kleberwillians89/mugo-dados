@@ -2223,6 +2223,9 @@ export async function refreshProviderData(
   try {
     return await http(clientClientPath(`/data-refresh/${provider}`), {
       method: "POST",
+      // Manual provider work can exceed the default 25s read budget. Bounded,
+      // explicit click only; no retry or extra provider request.
+      timeoutMs: 600_000,
       body: JSON.stringify({ start: period.start, end: period.end }),
     });
   } finally {
@@ -2238,4 +2241,9 @@ export { http, clientClientPath };
 export function getClientDataHealth(clientId: string, period: {start: string; end: string}): Promise<DataHealthResponse> {
   const query = new URLSearchParams(period);
   return http(`/api/clients/${encodeURIComponent(clientId)}/data-health?${query}`);
+}
+
+export type ProviderRefreshStatus = {client_id: string; provider: "meta" | "google" | "shopify" | "fbits"; authorized: true; running: boolean; cooldown_seconds: number};
+export function getProviderRefreshStatus(clientId: string, provider: ProviderRefreshStatus["provider"], period: {start: string; end: string}): Promise<ProviderRefreshStatus> {
+  return http(`/api/clients/${encodeURIComponent(clientId)}/data-refresh/${provider}/status?${new URLSearchParams(period)}`);
 }

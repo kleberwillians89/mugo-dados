@@ -47,3 +47,5 @@
   .customerSearchInput{font-size:16px}
   .customerTable th,.customerTable td{padding:10px}
 }
+.customerCards{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}.customerCard,.customerTableWrap,.customerSearch{min-width:0;max-width:100%}.customerCardValue{overflow-wrap:anywhere}.customerCardLabel{display:flex;flex-wrap:wrap;align-items:center;gap:4px}.customerPager{flex-wrap:wrap}
+@media(max-width:719px){.customerTableWrap::before{content:"Deslize a tabela para ver mais colunas";display:block;padding:8px 0;font-size:12px;color:var(--text-secondary)}}

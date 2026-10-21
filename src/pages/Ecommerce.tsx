@@ -1,6 +1,6 @@
-import { useDataHealth } from "../app/DataHealthContext";
-import { DataFreshness } from "../components/data/DataFreshness";
-import { useMemo, useState, type ReactNode } from "react";
+import { useProviderRefresh } from "../hooks/useProviderRefresh";
+import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import { useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { refreshProviderData } from "../app/api";
 import { formatCalendarRange } from "../app/dataFormat";
@@ -9,7 +9,6 @@ import {
   resolveActiveEcommerceProvider,
   type EcommerceProvider,
 } from "../app/ecommerceProvider";
-import { formatFreshness } from "../app/dataRefresh";
 import { runExclusiveSync } from "../app/syncOrchestrator";
 import { usePeriod } from "../app/PeriodContext";
 import type { ClientIntegrationConnection } from "../app/types";
@@ -105,7 +104,6 @@ type FbitsCommerceProps = Omit<Props, "onOpenGoogleReport"> & {
 };
 
 function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsChanged }: FbitsCommerceProps) {
-  const health = useDataHealth();
   const { period, setPeriod } = usePeriod();
   const ordersDemand = useSectionDemand(`${getActiveClientId()}:${period.start}:${period.end}:orders`, isAuthenticated);
   const report = useDashboardFbits({
@@ -115,6 +113,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
     provider: "fbits",
     loadOrders: ordersDemand.enabled,
   });
+  const refresh = useProviderRefresh(getActiveClientId(), "fbits", period, isAuthenticated && canSync);
   const [syncing, setSyncing] = useState(false);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -126,10 +125,6 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
   // Dado já visível (último válido): não há "primeira importação pendente".
   const hasCommerceData = Number(report.fbitsData?.summary?.pedidos || 0) > 0
     || Number(report.fbitsData?.summary?.receita_oficial || 0) > 0;
-  const lastSyncAt = useMemo(
-    () => connections.map((entry) => entry.last_successful_sync_at || entry.last_sync_at).find(Boolean) || report.fbitsData?.last_sync_at || null,
-    [connections, report.fbitsData?.last_sync_at]
-  );
   const activePreset = activePresetId(period);
 
   function selectPeriod(id: string) {
@@ -149,21 +144,23 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
   }
 
   async function syncNow() {
-    if (syncing) return;
+    if (syncing || !canSync) return;
     const requestedClientId = getActiveClientId();
     console.info("[fbits][manual_refresh_click]", { endpoint: `/api/clients/${requestedClientId}/data-refresh/fbits` });
     setSyncing(true);
     setSyncError(null);
     try {
-      // A fachada resolve a conexão persistida do tenant no backend.
-      await runExclusiveSync({ clientId: requestedClientId, provider: "fbits" }, () => refreshProviderData("fbits", { start: period.start, end: period.end }));
-      if (getActiveClientId() !== requestedClientId) return;
-      setSyncInfo(null);
-      const snapshot = await report.reloadFbits({ force: true });
-      if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
-      if (getActiveClientId() !== requestedClientId) return;
-      await onConnectionsChanged();
-      console.info("[fbits][ui_read_done]", { client_id: requestedClientId });
+      await refresh.run(async () => {
+        // A fachada resolve a conexão persistida do tenant no backend.
+        await runExclusiveSync({ clientId: requestedClientId, provider: "fbits" }, () => refreshProviderData("fbits", { start: period.start, end: period.end }));
+        if (getActiveClientId() !== requestedClientId) return;
+        setSyncInfo(null);
+        const snapshot = await report.reloadFbits({ force: true });
+        if (!snapshot) throw new Error("Não foi possível reler os dados. Mantendo a última leitura disponível.");
+        if (getActiveClientId() !== requestedClientId) return;
+        await onConnectionsChanged();
+        console.info("[fbits][ui_read_done]", { client_id: requestedClientId });
+      });
     } catch (cause) {
       setSyncError(cause instanceof Error && cause.message ? cause.message : "Não foi possível iniciar a sincronização FBITS.");
     } finally {
@@ -185,14 +182,12 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
                     contraditório: os KPIs oficiais da FBITS não dependem de
                     sync. Sem data e sem dado, o aviso continua. */}
                 <span>
-                  {health ? <DataFreshness provider="fbits_official" /> : lastSyncAt
-                    ? `Dados atualizados ${formatFreshness(lastSyncAt)}`
-                    : hasCommerceData ? "" : "Sem sincronização concluída"}
+                  <DataFreshness provider="fbits_official" compact />
                 </span>
-                {isAuthenticated ? (
+                {isAuthenticated && canSync ? (
                   <span>
-                    <button className="btn intelHeaderAction" disabled={syncing} onClick={() => void syncNow()} type="button">
-                      {syncing ? "Atualizando..." : "Atualizar dados"}
+                    <button className="btn intelHeaderAction" disabled={syncing || refresh.disabled} onClick={() => void syncNow()} type="button">
+                      {refresh.label}
                     </button>
                   </span>
                 ) : null}
@@ -240,6 +235,8 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
             </DataNotice>
           ) : null}
           {syncInfo ? <p className="ds-status" role="status">{syncInfo}</p> : null}
+          <ProviderRefreshNotice provider="fbits" control={refresh} />
+          {refresh.error ? <p role="alert">{refresh.error}</p> : null}
           {syncError ? <DataNotice tone="warning" role="status" title="Não foi possível atualizar">{syncError}</DataNotice> : null}
         </div>
         <FbitsExecutiveDashboard

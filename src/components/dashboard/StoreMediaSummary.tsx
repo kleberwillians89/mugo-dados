@@ -1,3 +1,4 @@
+import MetricHelp from "../data/MetricHelp";
 type Props = {
   channel: "Meta" | "Google";
   store: { revenue: number | null; orders: number | null; ticket: number | null };
@@ -25,9 +26,9 @@ export default function StoreMediaSummary({ channel, store, media, roasBasis = "
           : "O resultado comercial aguarda dados da Shopify para este período."}</p>
       </div>
       <div className="storeMediaGrid is-store">
-        <article><span>Receita real</span><strong>{currency(store.revenue)}</strong><small>Fonte: Shopify</small></article>
-        <article><span>Pedidos</span><strong>{number(store.orders)}</strong><small>Fonte: Shopify</small></article>
-        <article><span>Ticket médio</span><strong>{currency(store.ticket)}</strong><small>Fonte: Shopify</small></article>
+        <article><span>Receita real<MetricHelp label="Receita real" metricId="revenue" /></span><strong>{currency(store.revenue)}</strong><small>Fonte: Shopify</small></article>
+        <article><span>Pedidos<MetricHelp label="Pedidos" metricId="orders" /></span><strong>{number(store.orders)}</strong><small>Fonte: Shopify</small></article>
+        <article><span>Ticket médio<MetricHelp label="Ticket médio" metricId="ticket" /></span><strong>{currency(store.ticket)}</strong><small>Fonte: Shopify</small></article>
       </div>
       <div className="storeMediaNarrative">
         <span className="executiveEyebrow">Performance da mídia</span>
@@ -38,11 +39,11 @@ export default function StoreMediaSummary({ channel, store, media, roasBasis = "
           : `A performance de ${mediaSource} aguarda dados atualizados.`}</p>
       </div>
       <div className="storeMediaGrid is-media">
-        <article><span>Investimento {channel}</span><strong>{currency(media.spend)}</strong><small>Fonte: {mediaSource}</small></article>
-        <article><span>ROAS {channel}</span><strong>{media.roas == null ? "Sem dados" : `${media.roas.toFixed(2)}x`}</strong><small>{roasBasis === "shopify" ? "Receita real Shopify ÷ investimento" : `Atribuição ${channel} ÷ investimento`}</small></article>
-        <article><span>Receita atribuída</span><strong>{currency(media.attributedRevenue)}</strong><small>Fonte: {mediaSource}</small></article>
-        <article><span>ROAS atribuído {channel}</span><strong>{media.attributedRoas == null ? "Sem dados" : `${media.attributedRoas.toFixed(2)}x`}</strong><small>Atribuição {channel} ÷ investimento</small></article>
-        <article><span>Compras atribuídas</span><strong>{number(media.attributedOrders)}</strong><small>Fonte: {mediaSource}</small></article>
+        <article><span>Investimento {channel}<MetricHelp label={`Investimento ${channel}`} metricId="investment" /></span><strong>{currency(media.spend)}</strong><small>Fonte: {mediaSource}</small></article>
+        <article><span>ROAS {channel}<MetricHelp label={`ROAS ${channel}`} metricId={roasBasis === "shopify" ? "blendedReturn" : "roas"} /></span><strong>{media.roas == null ? "Sem dados" : `${media.roas.toFixed(2)}x`}</strong><small>{roasBasis === "shopify" ? "Receita real Shopify ÷ investimento" : `Atribuição ${channel} ÷ investimento`}</small></article>
+        <article><span>Receita atribuída<MetricHelp label="Receita atribuída" metricId="revenue" /></span><strong>{currency(media.attributedRevenue)}</strong><small>Fonte: {mediaSource}</small></article>
+        <article><span>ROAS atribuído {channel}<MetricHelp label={`ROAS atribuído ${channel}`} metricId="roas" /></span><strong>{media.attributedRoas == null ? "Sem dados" : `${media.attributedRoas.toFixed(2)}x`}</strong><small>Atribuição {channel} ÷ investimento</small></article>
+        <article><span>Compras atribuídas<MetricHelp label="Compras atribuídas" metricId="conversions" /></span><strong>{number(media.attributedOrders)}</strong><small>Fonte: {mediaSource}</small></article>
       </div>
     </section>
   );

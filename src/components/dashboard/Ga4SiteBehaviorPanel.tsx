@@ -1,3 +1,4 @@
+import MetricHelp from "../data/MetricHelp";
 import type { Ga4EventGroup, Ga4ReportResponse } from "../../app/types";
 import { formatSelectedPeriodLabel, type SelectedPeriodRange } from "../../app/periodRange";
 import { getGa4EventLabel, getGa4EventTechnicalDetail } from "../../app/ga4Labels";
@@ -42,7 +43,7 @@ function SummaryCard({
 }) {
   return (
     <div className="ga4SummaryCard">
-      <span className="smallMuted">{label}</span>
+      <span className="smallMuted">{label}<MetricHelp label={label} /></span>
       <strong>{value}</strong>
       {hint ? <span className="ga4SummaryHint">{hint}</span> : null}
     </div>
@@ -62,7 +63,7 @@ function JourneyStep({
 }) {
   return (
     <div className="ga4JourneyStep">
-      <span className="smallMuted">{label}</span>
+      <span className="smallMuted">{label}<MetricHelp label={label} /></span>
       <strong>{fmt(value)}</strong>
       <span className="ga4JourneyHint">{hint}</span>
       {typeof rate === "number" ? <span className="ga4JourneyRate">{fmtPct(rate)}</span> : null}

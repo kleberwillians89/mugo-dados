@@ -8,6 +8,7 @@ import httpx
 from .ads_sync import sync_ads_for_client_period
 from .dashboard_read_model import refresh_dashboard_read_model
 from .ig_supabase import sb_insert, sb_insert_many, sb_query, sb_rpc, sb_select, sb_update
+from .client_lifecycle import operational_connections
 
 MAX_ATTEMPTS = 3
 SLICE_DAYS = 7
@@ -131,6 +132,19 @@ async def process_next_slice() -> Dict[str, Any]:
     item = claimed[0] if isinstance(claimed, list) else claimed
     job = (await sb_select("meta_ads_backfill_jobs", filters={"id": f"eq.{item['backfill_job_id']}"}, limit=1))[0]
     slice_id, since, until = str(item["id"]), str(item["slice_since"]), str(item["slice_until"])
+    try:
+        operational = bool(await operational_connections([job]))
+        lifecycle_error = None
+    except Exception:
+        operational, lifecycle_error = False, "CLIENT_STATUS_UNAVAILABLE"
+    if not operational:
+        await sb_update("meta_ads_backfill_slices", filters={"id": f"eq.{slice_id}"}, patch={
+            "status": "error" if lifecycle_error else "skipped", "error": lifecycle_error or "CLIENT_INACTIVE",
+            "finished_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, returning="minimal")
+        await _update_job(str(item["backfill_job_id"]))
+        return {"ok": not bool(lifecycle_error), "processed": True, "skipped": not bool(lifecycle_error),
+                "reason": "client_status_unavailable" if lifecycle_error else "client_inactive"}
     # Fatos antigos reconciliados não provam completude de uma busca truncada.
     pagination_error_code = "META_ADS_PAGINATION_INCOMPLETE"
     previous_pagination_error = str(item.get("error") or "").startswith(pagination_error_code)

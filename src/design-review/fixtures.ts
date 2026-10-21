@@ -277,7 +277,7 @@ export function reviewGenericConnections(clientId: string, companyName: string) 
         ? [{ ...common, id: "exemplo-shopify", provider: "shopify", account_name: "loja-exemplo.myshopify.com",
             external_key: "loja-exemplo.myshopify.com", scopes: ["read_orders", "read_all_orders"],
             metadata: { shop_domain: "loja-exemplo.myshopify.com" } }]
-        : []),
+        : [{ ...common, id: "exemplo-fbits", provider: "fbits", account_name: "FBITS / Wake Commerce" }]),
     ],
   };
 }

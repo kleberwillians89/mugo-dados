@@ -7,8 +7,10 @@ export default function PeriodTransition({tenantId, period, ready, children}: {t
   const retained = previous?.tenantId === tenantId ? previous : null;
   if (ready && (previous?.children !== children || previous?.tenantId !== tenantId)) setPrevious({tenantId, period, children});
   const tenantPending = previous && previous.tenantId !== tenantId && !ready;
-  const pending = retained && !ready;
   const changedPeriod = retained && (retained.period.start !== period.start || retained.period.end !== period.end);
+  // Only a period change needs the old composition. Reusing old React nodes
+  // within the same period freezes live controls and hides finished errors.
+  const pending = retained && !ready && changedPeriod;
   return <>
     {tenantPending ? <p role="status">Carregando a leitura desta empresa...</p> : pending ? <p role="status">{changedPeriod ? "Atualizando período..." : "Atualizando leitura..."} Exibindo {retained.period.start} — {retained.period.end} até a nova leitura ficar disponível.</p> : null}
     {tenantPending ? null : pending ? retained.children : children}

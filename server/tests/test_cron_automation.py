@@ -11,6 +11,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from services import cron_jobs  # noqa: E402
+from cron_fixtures import active_companies
 
 
 class RenderCronScheduleTests(unittest.TestCase):
@@ -43,6 +44,7 @@ class MultiTenantGoogleCronTests(unittest.IsolatedAsyncioTestCase):
             {"id": "ga-b", "client_id": "roove", "metadata": {"ga4_property_id": "2"}},
         ]
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_select", AsyncMock(return_value=conns)),
             patch("services.google_oauth.get_google_access_token", AsyncMock(return_value="token")),
             patch("services.ga4_sync.sync_ga4_for_period", AsyncMock(return_value={"rows_upserted": {"total": 1}})) as sync,
@@ -58,6 +60,7 @@ class MultiTenantGoogleCronTests(unittest.IsolatedAsyncioTestCase):
         ]
         sync = AsyncMock(side_effect=[RuntimeError("setup required"), {"rows_upserted": 2}])
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_select", AsyncMock(return_value=conns)),
             patch("services.google_ads.sync_google_ads", sync),
         ):
@@ -71,6 +74,7 @@ class WideReconciliationTests(unittest.IsolatedAsyncioTestCase):
     async def test_instagram_wide_sweep_reuses_ingestion_without_thumbnail_downloads(self):
         conns = [{"id": "ig-a", "client_id": "amalie", "platform": "instagram", "connection_type": "organic"}]
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_get_active_meta_connections", AsyncMock(return_value=conns)),
             patch.object(cron_jobs, "_acquire_lock", AsyncMock(return_value=True)),
             patch.object(cron_jobs, "_release_lock", AsyncMock()),
@@ -88,6 +92,7 @@ class WideReconciliationTests(unittest.IsolatedAsyncioTestCase):
         connection_id = "00bb094c-337a-49b3-b2bc-5aec75d79da5"
         conns = [{"id": connection_id, "client_id": "amalie", "platform": "instagram", "connection_type": "organic"}]
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_get_active_meta_connections", AsyncMock(return_value=conns)),
             patch.object(cron_jobs, "_acquire_lock", AsyncMock(return_value=True)),
             patch.object(cron_jobs, "_release_lock", AsyncMock()),

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import MetricHelp from "./MetricHelp";
 
 type Props = {
   label: string;
@@ -19,7 +20,7 @@ export default function KpiFigure({ label, value, rawValue, exactValue, delta, h
   return (
     <div className={`ds-kpi${hero ? " is-hero" : ""}`} data-testid={testId}>
       <data className="ds-kpiValue" value={rawValue == null ? undefined : String(rawValue)} title={exactValue}>{value}</data>
-      <span className="ds-kpiLabel">{label}</span>
+      <span className="ds-kpiLabel">{label}<MetricHelp label={label} /></span>
       <span className="ds-kpiDelta">{delta}</span>
     </div>
   );

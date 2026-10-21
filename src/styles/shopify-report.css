@@ -4,7 +4,8 @@
   min-height: 100%;
   align-content: start;
   padding-bottom: 8px;
-  overflow-x: clip;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .shopifyHero{
@@ -981,4 +982,14 @@
 .shopifyHistoryControls{ display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 @media (max-width: 719px){
   .shopifyCustomerFilters{ grid-template-columns: minmax(0, 1fr); }
+}
+.shopifyReportPage>*{min-width:0;max-width:100%}.shopifyKpiValue,.shopifyListName{overflow-wrap:anywhere}
+@media(max-width:780px){.shopifyKpiGrid,.shopifySkeletonGrid,.shopifyCustomerSummaryGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr))}}
+
+/* Full month labels require space even when the history has many bars.
+   Preserve local scrolling rather than overlapping labels or widening the page. */
+.shopifyHistory .ds-historyBar{ flex-basis: 110px; min-width: 110px; }
+.shopifyHistoryScrollHint{ display: none; }
+@media (max-width: 719px){
+  .shopifyHistoryScrollHint{ display: block; }
 }

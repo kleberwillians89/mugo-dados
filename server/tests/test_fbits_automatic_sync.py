@@ -20,6 +20,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from services import cron_jobs
+from cron_fixtures import active_companies
 from services import fbits_connections
 from services.integration_errors import IntegrationError
 
@@ -58,6 +59,7 @@ class CronHarness(unittest.IsolatedAsyncioTestCase):
 
         output = io.StringIO()
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_select", AsyncMock(return_value=[dict(row) for row in connections])),
             # run_fbits_sync_all importa do módulo em tempo de execução.
             patch.object(fbits_connections, "sync_fbits_connection", AsyncMock(side_effect=sync)),
@@ -107,6 +109,7 @@ class ConnectionSelectionTests(CronHarness):
 
     async def test_only_fbits_connections_are_requested(self):
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_select", AsyncMock(return_value=[])) as select,
             redirect_stdout(io.StringIO()),
         ):

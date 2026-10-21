@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -60,7 +61,7 @@ async def refresh_client_provider(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    cid = await require_client_read(client_id, authorization)
+    cid = await require_client_role(client_id, authorization)
     if request.query_params:
         raise HTTPException(400, "Parâmetros extras não são permitidos.")
     try:
@@ -82,3 +83,14 @@ async def get_data_health(client_id: str, start: date = Query(...), end: date = 
     if end < start or (end - start).days > 365:
         raise HTTPException(400, "Período inválido: use até 366 dias.")
     return await client_data_health(cid, start.isoformat(), end.isoformat())
+
+
+@router.get("/{client_id}/data-refresh/{provider}/status")
+async def get_refresh_status(client_id: str, provider: Literal["meta", "google", "shopify", "fbits"],
+                             start: date = Query(...), end: date = Query(...),
+                             authorization: str | None = Header(default=None)):
+    from services.provider_refresh_status import refresh_status
+    cid = await require_client_role(client_id, authorization)
+    if end < start or (end - start).days > 365:
+        raise HTTPException(400, "Período inválido: use até 366 dias.")
+    return await refresh_status(cid, provider, start.isoformat(), end.isoformat())

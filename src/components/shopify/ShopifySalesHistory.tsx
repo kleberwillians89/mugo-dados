@@ -47,7 +47,8 @@ export default function ShopifySalesHistory({ rows, coverageStart, coverageEnd }
         </div>
       </div>
       {!points.length ? <p className="ds-emptyLine">Sem cobertura Shopify disponível para o histórico.</p> : <>
-        <div className="ds-historyBars" role="img" aria-label={`${metricLabel} por período, dentro da cobertura disponível.`}>
+        <p className="ds-caption shopifyHistoryScrollHint">Deslize o gráfico e a tabela para consultar todos os períodos.</p>
+        <div className="ds-historyBars" tabIndex={0} role="img" aria-label={`${metricLabel} por período, dentro da cobertura disponível.`}>
           {points.map((point, index) => (
             <div className={`ds-historyBar${point.isPartial ? " is-partial" : ""}`} key={point.key} title={`${point.label}: ${value(point)}${point.isPartial ? " (parcial)" : ""}`}>
               <span style={{ height: `${Math.max(2, (point[metric] / max) * 100)}%` }} />

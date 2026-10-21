@@ -11,6 +11,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from services import cron_jobs  # noqa: E402
+from cron_fixtures import active_companies
 from services.integration_errors import IntegrationError  # noqa: E402
 
 
@@ -25,6 +26,7 @@ class ShopifyReconciliationCronTests(unittest.IsolatedAsyncioTestCase):
             {"id": "conn-roove", "client_id": "roove"},
         ]
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=connections)),
             patch.object(cron_jobs, "resolve_shopify_reconciliation_since", AsyncMock(return_value="2026-08-01T00:00:00")),
             patch.object(cron_jobs, "sync_shopify_connection", AsyncMock(return_value={"ok": True, "synced": {"orders": 3}})) as sync,
@@ -57,6 +59,7 @@ class ShopifyReconciliationCronTests(unittest.IsolatedAsyncioTestCase):
             return {"ok": True, "synced": {"orders": 1}}
 
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=connections)),
             patch.object(cron_jobs, "resolve_shopify_reconciliation_since", AsyncMock(return_value="2026-08-01T00:00:00")),
             patch.object(cron_jobs, "sync_shopify_connection", AsyncMock(side_effect=fake_sync)) as sync,
@@ -75,6 +78,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
         connections = [{"id": "conn-amalie", "client_id": "amalie"}]
         response = {"ok": True, "synced": synced, "reconciliation": {"api": [], "raw": [], "read_model": []}}
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=connections)),
             patch.object(cron_jobs, "reconcile_shopify_period", AsyncMock(return_value=response)) as reconcile,
             patch.object(cron_jobs, "start_job_run", AsyncMock(return_value=_fake_job_run())),
@@ -108,6 +112,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
             code="SYNC_ALREADY_RUNNING", provider="shopify", retryable=True,
         )
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=[{"id": "conn-amalie", "client_id": "amalie"}])),
             patch.object(cron_jobs, "reconcile_shopify_period", AsyncMock(side_effect=locked)),
             patch.object(cron_jobs, "start_job_run", AsyncMock(return_value=_fake_job_run())),
@@ -137,6 +142,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=[{"id": "conn-amalie", "client_id": "amalie"}])),
             patch.object(cron_jobs, "reconcile_shopify_period", AsyncMock(side_effect=[fast_response, wide_response])) as reconcile,
             patch.object(cron_jobs, "start_job_run", AsyncMock(return_value=_fake_job_run())),
@@ -165,6 +171,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=[{"id": "conn-amalie", "client_id": "amalie"}])),
             patch.object(cron_jobs, "reconcile_shopify_period", AsyncMock(return_value=response)),
             patch.object(cron_jobs, "start_job_run", AsyncMock(return_value=_fake_job_run())),
@@ -177,6 +184,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
     async def test_reconciliation_failure_never_raises_out_of_the_job(self):
         connections = [{"id": "conn-amalie", "client_id": "amalie"}]
         with (
+            patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "list_active_shopify_connections", AsyncMock(return_value=connections)),
             patch.object(cron_jobs, "resolve_shopify_reconciliation_since", AsyncMock(return_value="2026-08-01T00:00:00")),
             patch.object(cron_jobs, "sync_shopify_connection", AsyncMock(side_effect=RuntimeError("timeout"))),
@@ -184,7 +192,7 @@ class ShopifyHistoricalSelfHealingCronTests(unittest.IsolatedAsyncioTestCase):
             patch.object(cron_jobs, "finish_job_run", AsyncMock()),
         ):
             result = await cron_jobs.run_shopify_reconciliation()
-        self.assertTrue(result["ok"])
+        self.assertFalse(result["ok"])
         self.assertEqual(result["connections_fail"], 1)
 
 
