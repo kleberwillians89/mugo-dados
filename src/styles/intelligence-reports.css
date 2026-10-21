@@ -1,0 +1,38 @@
+/* One stylesheet shared by the preview and the standalone print document. */
+.mugoReportsWorkspace{margin-block:24px}
+.mugoReportControls{display:flex;flex-wrap:wrap;align-items:end;gap:14px;margin:20px 0}
+.mugoReportControls label{display:grid;gap:8px;flex:1 1 170px;font-size:13px;font-weight:600;min-width:0}
+.mugoReportControls :is(select,input){box-sizing:border-box;width:100%;min-width:0;min-height:44px;padding:10px;border:1px solid #d8ded8;border-radius:8px;background:#fff;color:#18201d;font:inherit}
+.mugoReportControls>p{flex:1 1 220px;font-size:14px;margin:0;line-height:1.6}.mugoReportControls small{display:block;color:#68716c;font-size:12px}
+.mugoReportControls button,.mugoReportExport button{min-height:44px}
+.mugoReportExport{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:20px 0;border-top:1px solid #dedbd3;margin-top:24px}.mugoReportExport p{margin:0;flex:1 1 220px}.mugoReportExport small{flex-basis:100%;color:#68716c}
+.mugoReport{box-sizing:border-box;background:#fff;color:#18201d;padding:clamp(18px,4vw,44px);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.65;max-width:960px;margin-inline:auto;border:1px solid #dedbd3;overflow-wrap:anywhere}
+.mugoReport *{box-sizing:border-box;min-width:0}
+.mugoReportHeader{border-top:4px solid #153f35;border-bottom:1px solid #d8ded8;padding:24px 0}
+.mugoReportBrand{font-size:34px;font-weight:700;letter-spacing:-.04em;color:#153f35}.mugoReportBrand span{display:block;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.15em}
+.mugoReportHeader>p:first-of-type{text-transform:uppercase;letter-spacing:.14em;font-size:11px;margin:24px 0 6px;color:#52625a}
+.mugoReportHeader h2{font-family:Georgia,serif;font-size:32px;line-height:1.2;letter-spacing:-.02em;font-weight:400;margin:0 0 12px}
+.mugoReportHeader p{margin:6px 0}.mugoReport small{font-size:11px;color:#53625b}
+.mugoReport section{margin-top:28px}.mugoReport h3{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#153f35;margin:0 0 14px}.mugoReport h4{font-size:16px;line-height:1.4;margin:8px 0}
+.mugoReportExecutive{background:#f1f4ee;padding:22px;border-left:3px solid #153f35}.mugoReportExecutive p{font-family:Georgia,serif;font-size:21px;line-height:1.6;margin:0;white-space:pre-wrap}
+.mugoReportWarning{border-left:2px solid #a8781f;padding:8px 12px;background:#fcf5e9}
+.mugoReportKpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,165px),1fr));gap:12px}
+.mugoReportKpis>div{display:grid;align-content:start;gap:6px;border:1px solid #d8ded8;padding:14px;border-radius:4px}
+.mugoReportKpis span{font-size:12px}.mugoReportKpis strong{font-size:22px;line-height:1.4;font-variant-numeric:tabular-nums;font-weight:500}
+.mugoReportInsight,.mugoReportChannel,.mugoReportAction{padding:16px 0;border-bottom:1px solid #e4e8e2}
+.mugoReport :is(ul,ol){padding-left:22px}.mugoReport li{padding-left:3px}.mugoReport :is(p,li){white-space:pre-wrap}
+.mugoReportNote{font-size:12px;color:#53625b}.mugoReport footer{border-top:2px solid #153f35;margin-top:32px;padding-top:16px;color:#53625b;font-size:11px}
+@media(max-width:500px){.mugoReport{padding:18px}.mugoReportHeader h2{font-size:26px}.mugoReportKpis{grid-template-columns:repeat(2,minmax(0,1fr))}.mugoReportKpis>div{padding:10px}.mugoReportKpis strong{font-size:19px}.mugoReportControls button{flex:1 1 100%}}
+@media(max-width:359px){.mugoReportKpis{grid-template-columns:1fr}}
+@page{size:A4;margin:16mm 14mm 18mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff;color:#18201d}
+  .mugoReport{border:0;width:100%;max-width:none;padding:0;margin:0;font-size:10pt;line-height:1.55;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  .mugoReportHeader{padding:14pt 0}.mugoReportHeader h2{font-size:25pt}
+  .mugoReport h3{font-size:11pt;break-after:avoid}.mugoReport h4{break-after:avoid;font-size:11pt}
+  .mugoReport section{margin-top:18pt}.mugoReportExecutive p{font-size:15pt}
+  .mugoReportKpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:8pt}.mugoReportKpis strong{font-size:15pt}
+  .mugoReportKpis>div{break-inside:avoid}.mugoReportHeader{break-inside:avoid}
+  .mugoReport p,.mugoReport li{orphans:3;widows:3}.mugoReportInsight,.mugoReportAction{break-inside:avoid-page}
+  .mugoReport footer{font-size:8pt}
+}

@@ -1,3 +1,5 @@
+import IntelligenceReports from "../components/intelligence/IntelligenceReports";
+import { formatMetric, sourceLabel } from "../app/intelligenceReport";
 import ConversationHistory from "../components/intelligence/ConversationHistory";
 import { useDataHealth } from "../app/DataHealthContext";
 import MetricHelp from "../components/data/MetricHelp";
@@ -33,15 +35,6 @@ import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from 
 import { cooldownFrom, cooldownHint, formatFreshness, hasFresherData } from "../app/dataRefresh";
 import "../styles/intelligence.css";
 
-function sourceLabel(source: string): string {
-  if (source.startsWith("meta_campaign_")) return "Meta Ads · campanha";
-  const labels: Record<string, string> = {
-    paid_media: "Mídia paga", ga4: "Google Analytics", shopify: "Loja virtual",
-    "shopify+paid_media": "Loja virtual e mídia paga", meta_ads: "Meta Ads",
-    google_ads: "Google Ads", instagram: "Instagram", fbits: "FBITS",
-  };
-  return labels[source] || source.replaceAll("_", " ");
-}
 
 type Props = {
   onLogout: () => void | Promise<void>;
@@ -157,28 +150,6 @@ function glossaryMetric(metric: IntelligenceMetric): MetricId | undefined {
   return undefined;
 }
 
-function formatMetric(metric: IntelligenceMetric) {
-  if (metric.value == null) {
-    const statusLabel: Partial<Record<IntelligenceMetric["status"], string>> = {
-      unavailable: "Indisponível",
-      disconnected: "Não conectado",
-      partial: "Parcial",
-      error: "Erro na consulta",
-    };
-    return statusLabel[metric.status] || "Sem dados";
-  }
-  let formatted: string;
-  if (metric.format === "currency") {
-    formatted = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(metric.value);
-  } else if (metric.format === "percent") {
-    formatted = `${metric.value.toLocaleString("pt-BR")}%`;
-  } else if (metric.format === "decimal") {
-    formatted = `${metric.value.toLocaleString("pt-BR")}x`;
-  } else {
-    formatted = Math.round(metric.value).toLocaleString("pt-BR");
-  }
-  return metric.status === "partial" ? `${formatted} · parcial` : formatted;
-}
 
 function metricMap(metrics: IntelligenceMetric[]) {
   return new Map(metrics.map((metric) => [metric.id, metric]));
@@ -945,10 +916,8 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
       </section>
       ) : null}
 
-      <aside className="intelReportFormats" aria-label="Formatos de relatório previstos">
-        <div><span className="intelEyebrow">Relatórios · em preparação</span><h2>Da leitura à decisão recorrente</h2><p>A geração de relatórios ainda não está disponível. O diagnóstico e as evidências podem ser consultados nesta página.</p></div>
-        <div className="intelReportFormatsList"><article><h3>Relatório Semanal</h3><p>Formato previsto para acompanhamento.</p></article><article><h3>Relatório Mensal</h3><p>Formato previsto para revisão de resultados.</p></article></div>
-      </aside>
+      <IntelligenceReports key={clientId} clientId={clientId} clientName={getActiveClientName() || "Empresa ativa"}
+        initialDate={period.start} providerConfigured={providerConfigured} />
 
       <section id="intel-conversation" className="intelAssistant">
         <div className="intelAssistantIntro">
