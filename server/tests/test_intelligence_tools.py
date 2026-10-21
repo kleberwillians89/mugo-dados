@@ -342,3 +342,98 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 502, response.text)
         self.assertIn("demorou mais", response.json()["detail"])
         insert.assert_not_awaited(); model.assert_awaited_once()
+
+
+class AskObservabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_failures_log_safe_code_request_status_and_duration(self):
+        import os
+        from api_support import _set_request_id, _reset_request_id
+        cases = [
+            (httpx.ReadTimeout("private-person@example.invalid secret-fixture"), "AI_PROVIDER_TIMEOUT", None),
+            (httpx.Response(429, json={"error": "private-person@example.invalid secret-fixture"}), "AI_PROVIDER_ERROR_429", 429),
+            (httpx.Response(200, json={"status": "incomplete", "output_text": "secret-fixture"}), "AI_PROVIDER_INCOMPLETE", 200),
+            (httpx.Response(200, json={"output": []}), "AI_PROVIDER_EMPTY_RESPONSE", 200),
+            (httpx.Response(200, json={"output_text": "private-person@example.invalid secret-fixture"}), "AI_PROVIDER_INVALID_RESPONSE", 200),
+        ]
+        for outcome, code, status in cases:
+            with self.subTest(code=code):
+                capture = io.StringIO()
+                post = AsyncMock(side_effect=outcome) if isinstance(outcome, Exception) else AsyncMock(return_value=outcome)
+                token = _set_request_id("observability-fixture-request")
+                try:
+                    with patch.dict(os.environ, {"OPENAI_API_KEY": "secret-fixture"}), \
+                         patch.object(httpx.AsyncClient, "post", post), redirect_stdout(capture):
+                        with self.assertRaises((RuntimeError, json.JSONDecodeError)) as caught:
+                            await ai._call_provider(payload={"question": "private-person@example.invalid"},
+                                schema=tools.PLAN_SCHEMA, instructions="secret-fixture", max_output_tokens=100)
+                finally:
+                    _reset_request_id(token)
+                logs = capture.getvalue()
+                self.assertIn("request_id=observability-fixture-request", logs)
+                self.assertIn("error_code=" + code, logs)
+                self.assertRegex(logs, r"elapsed_ms=\d+")
+                if status is not None: self.assertIn(f"upstream_status={status}", logs)
+                self.assertNotIn("secret-fixture", logs)
+                self.assertNotIn("private-person", logs)
+                if code != "AI_PROVIDER_INVALID_RESPONSE": self.assertEqual(str(caught.exception), code)
+                post.assert_awaited_once()
+
+    async def test_investigation_failure_is_correlated_with_exact_stage(self):
+        from api_support import _set_request_id, _reset_request_id
+        cases = [
+            ("discover", "capability_discovery", RuntimeError("secret-fixture"), "AI_UNEXPECTED_ERROR"),
+            ("plan", "tool_selection", RuntimeError("AI_PROVIDER_EMPTY_RESPONSE"), "AI_PROVIDER_EMPTY_RESPONSE"),
+            ("execute", "tool_read", RuntimeError("AI_TOOL_ROW_LIMIT"), "AI_TOOL_ROW_LIMIT"),
+            ("answer", "answer_generation", RuntimeError("AI_PROVIDER_INCOMPLETE"), "AI_PROVIDER_INCOMPLETE"),
+            ("validation", "answer_validation", None, "AI_UNGROUNDED_ANSWER"),
+        ]
+        evidence = {"period": PERIOD, "metrics": [{"id": "metric", "value": 100, "label": "Indicador",
+            "format": "currency", "source": "meta", "status": "confirmed"}], "sources": [],
+            "quality": {}, "limitations": [], "crossings": [], "top_campaigns": []}
+        for where, stage, failure, code in cases:
+            with self.subTest(stage=stage):
+                model = AsyncMock(side_effect=[{"name": "read_metrics"}, {}])
+                discovery = AsyncMock(return_value={"sources": ["meta"]})
+                execute = AsyncMock(return_value=evidence)
+                if where == "discover": discovery.side_effect = failure
+                elif where == "execute": execute.side_effect = failure
+                elif where == "plan": model.side_effect = failure
+                elif where == "answer": model.side_effect = [{"name": "read_metrics"}, failure]
+                capture = io.StringIO(); token = _set_request_id("observability-stage-request")
+                try:
+                    with patch.object(tools.ReadTools, "discover", discovery), \
+                         patch.object(tools.ReadTools, "execute", execute), \
+                         patch.object(ai, "_call_provider", model), redirect_stdout(capture):
+                        with self.assertRaises(RuntimeError):
+                            await ai._investigate_question(client_id="opaque", question="Pergunta", period=PERIOD)
+                finally:
+                    _reset_request_id(token)
+                logs = capture.getvalue()
+                self.assertIn("event=ask_failed", logs)
+                self.assertIn("stage=" + stage, logs)
+                self.assertIn("error_code=" + code, logs)
+                self.assertIn("request_id=observability-stage-request", logs)
+                self.assertNotIn("secret-fixture", logs)
+                for call in model.await_args_list:
+                    self.assertEqual(call.kwargs["request_id"], "observability-stage-request")
+
+    async def test_route_logs_fallback_without_changing_http_errors(self):
+        from api_support import _set_request_id, _reset_request_id
+        app = FastAPI(); app.include_router(routes.router)
+        for failure, status in [(RuntimeError("secret-fixture"), 502), (ValueError("secret-fixture"), 500)]:
+            with self.subTest(status=status):
+                capture = io.StringIO(); token = _set_request_id("observability-route-request")
+                try:
+                    with patch.object(routes, "_context", AsyncMock(return_value=("opaque", "opaque-user"))), \
+                         patch.object(routes, "ask_intelligence", AsyncMock(side_effect=failure)), redirect_stdout(capture):
+                        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://fixture") as client:
+                            response = await client.post("/api/intelligence/ask", json={"question": "Pergunta"})
+                finally:
+                    _reset_request_id(token)
+                self.assertEqual(response.status_code, status)
+                logs = capture.getvalue()
+                self.assertEqual(logs.count("event=ask_failed"), 1)
+                self.assertIn("stage=ask", logs)
+                self.assertIn("error_code=AI_UNEXPECTED_ERROR", logs)
+                self.assertIn("request_id=observability-route-request", logs)
+                self.assertNotIn("secret-fixture", logs)
