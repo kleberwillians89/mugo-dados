@@ -111,6 +111,11 @@ const CATEGORY_LABELS: Record<IntelligenceInsight["category"], string> = {
   data_quality: "Qualidade dos dados",
 };
 
+const METRIC_STATUS_LABELS: Record<IntelligenceMetric["status"], string> = {
+  confirmed: "Confirmado", partial: "Cobertura parcial", unavailable: "Sem evidência",
+  disconnected: "Não conectado", error: "Falha na leitura",
+};
+
 const PRIORITY_LABELS: Record<IntelligenceAction["priority"], string> = {
   now: "Fazer agora",
   week: "Fazer nesta semana",
@@ -575,6 +580,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {transitioning ? <p role="status">{error ? "Período não atualizado. Exibindo a leitura anterior." : "Atualizando período... Exibindo a leitura anterior até a nova ficar disponível."}</p> : null}
       <header className="intelHeader">
         <div className="intelIdentity">
+          <span className="intelEyebrow">Mugô / Central de análise</span>
           <h1>Inteligência</h1>
           <p>Entenda o que está acontecendo no seu negócio e onde agir.</p>
         </div>
@@ -612,6 +618,13 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <p className="intelHeaderHint" role="status">{cooldownHint(refreshCooldown)}</p>
         ) : null}
       </header>
+
+      <nav className="intelReadingNav" aria-label="Navegar pelo diagnóstico">
+        {content ? <a href="#intel-executive">Resumo executivo</a> : null}
+        {displayedMetrics.length ? <a href="#intel-indicators">Indicadores</a> : null}
+        {movements.length ? <a href="#intel-priorities">Prioridades</a> : null}
+        <a href="#intel-conversation">Conversa com IA</a>
+      </nav>
 
       <div className="intelWorkspace" tabIndex={0} aria-label="Análises e conversa" ref={workspaceView}>
       {/* Erro nunca destrói a página: com análise anterior válida, ela
@@ -653,7 +666,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
 
       {/* Resumo do momento: duas a quatro linhas, sem hero gigante. */}
       {content ? (
-        <section className="intelMoment" aria-labelledby="intel-moment-title">
+        <section id="intel-executive" className="intelMoment" aria-labelledby="intel-moment-title">
           <h2 id="intel-moment-title">Resumo executivo</h2>
           <p className="intelSourcesNote" data-testid="intel-diagnosis-period">
             Período da análise: {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}
@@ -661,12 +674,15 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <p className="intelSourcesNote" data-testid="intel-diagnosis-sources">
             Fontes da análise: {describeSources(analysis).join(" · ") || "Não informadas na análise salva"}
           </p>
-          {analysis?.data_quality.message ? (
-            <p className="intelSourcesNote" data-testid="intel-diagnosis-limitations">Cobertura e limitações: {analysis.data_quality.message}</p>
-          ) : null}
           <p className="intelMomentLead">{content.executive.overall}</p>
           {content.executive.priority_action ? (
-            <p className="intelMomentAction">{content.executive.priority_action}</p>
+            <div className="intelMomentAction"><span className="intelEyebrow">Ação prioritária recomendada</span><p>{content.executive.priority_action}</p></div>
+          ) : null}
+          {analysis?.data_quality.message ? (
+            <details className="intelDisclosure intelMomentDetails">
+              <summary>Cobertura e limitações do diagnóstico</summary>
+              <p className="intelSourcesNote" data-testid="intel-diagnosis-limitations">{analysis.data_quality.message}</p>
+            </details>
           ) : null}
         </section>
       ) : !error && !messages.length ? (
@@ -692,10 +708,38 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
         </p>
       ) : null}
 
+      {displayedMetrics.length ? (
+      <section id="intel-indicators" className="intelSection intelIndicators">
+        <div className="intelSectionTitle">
+          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
+          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
+        </div>
+        <div className="intelMetricGrid">
+          {displayedMetrics.map((metric) => (
+            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
+              <div><span>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span><small>{sourceLabel(metric.source)}</small></div>
+              <span className={`intelMetricStatus is-${metric.status}`}>{METRIC_STATUS_LABELS[metric.status]}</span>
+              <strong>{formatMetric(metric)}</strong>
+              <small className="intelMetricPeriod">{formatDate(analysis?.period_start || displayPeriod.start)} — {formatDate(analysis?.period_end || displayPeriod.end)}</small>
+              <p>
+                {metric.variation_percent == null
+                  ? metric.status === "partial"
+                    ? "Cobertura parcial do período"
+                    : metric.status === "confirmed"
+                      ? "Sem base anterior comparável"
+                      : "Evidência indisponível"
+                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+      ) : null}
+
       {/* O que merece decisão primeiro. No máximo três, sempre com evidência:
           menos de três é resposta legítima, não falha. */}
       {movements.length ? (
-        <section className="intelSection intelMovements" data-testid="intel-movements">
+        <section id="intel-priorities" className="intelSection intelMovements" data-testid="intel-movements">
           <div className="intelSectionTitle">
             <div>
               <span className="intelEyebrow">Prioridade</span>
@@ -714,12 +758,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                 <span className="intelMovementRank" aria-hidden="true">{index + 1}</span>
                 <div className="intelMovementBody">
                   <h3>{insight.title}</h3>
-                  <p className="intelMovementFact">
+                  <div className="intelMovementFact">
                     <span className="intelInsightBadge is-fact">O que aconteceu</span>
                     <Evidence ids={insight.metric_ids} metrics={metricIndex} />
-                  </p>
+                  </div>
                   <p className="intelMovementWhy">
-                    <span className="intelInsightBadge is-interpretation">Por que importa</span>
+                    <span className="intelInsightBadge is-interpretation">Por que importa · hipótese a validar</span>
                     {insight.interpretation}
                   </p>
                   <p className="intelMovementAction">
@@ -749,38 +793,17 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                     <strong>{action.recommendation}</strong>
                     <p>{action.justification}</p>
                     <small>{action.impact_expected} · confiança {({ high: "alta", medium: "média", low: "baixa" })[action.confidence]}</small>
+                    <details className="intelDisclosure intelInlineEvidence">
+                      <summary>Evidência da recomendação</summary>
+                      <Evidence ids={[action.metric_id]} metrics={metricIndex} />
+                      <p className="intelSourcesNote">{action.sources.map(sourceLabel).join(" · ")} · {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}</p>
+                    </details>
                   </article>
                 ))}
               </div>
             ))}
           </div>
         ) : <div className="intelEmpty">Não há ações com evidências disponíveis nesta análise.</div>}
-      </section>
-      ) : null}
-
-      {displayedMetrics.length ? (
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
-          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
-        </div>
-        <div className="intelMetricGrid">
-          {displayedMetrics.map((metric) => (
-            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span><small>{sourceLabel(metric.source)}</small></div>
-              <strong>{formatMetric(metric)}</strong>
-              <p>
-                {metric.variation_percent == null
-                  ? metric.status === "partial"
-                    ? "Cobertura parcial do período"
-                    : metric.status === "confirmed"
-                      ? "Sem base anterior comparável"
-                      : "Evidência indisponível"
-                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
-              </p>
-            </article>
-          ))}
-        </div>
       </section>
       ) : null}
 
@@ -794,10 +817,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           <div className="intelOpportunityList">
             {opportunities.map((insight, index) => (
               <article key={`${insight.title}-${index}`}>
+                <span className="intelEyebrow">Impacto {({ high: "alto", medium: "médio", low: "baixo" })[insight.impact]} · confiança {({ high: "alta", medium: "média", low: "baixa" })[insight.confidence]}</span>
                 <h3>{insight.title}</h3>
+                <span className="intelInsightBadge is-fact">Evidência</span>
                 <Evidence ids={insight.metric_ids} metrics={metricIndex} />
-                <p>{insight.interpretation}</p>
-                <strong>{insight.action}</strong>
+                <p><span className="intelInsightBadge is-interpretation">Hipótese</span>{insight.interpretation}</p>
+                <div><span className="intelInsightBadge is-recommendation">Ação recomendada</span><p><strong>{insight.action}</strong></p></div>
               </article>
             ))}
           </div>
@@ -842,6 +867,8 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
 
 
       {content ? (
+      <details className="intelDisclosure intelFullReading" data-testid="intel-full-reading">
+        <summary>Explorar a análise completa <span>Avanços, riscos e oportunidades</span></summary>
       <section className="intelSection">
         <div className="intelSectionTitle">
           <div><span className="intelEyebrow">Leitura</span><h2>Avanços, riscos e oportunidades</h2></div>
@@ -879,6 +906,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           </div>
         ) : <div className="intelEmpty">Nenhum insight versionado para este período.</div>}
       </section>
+      </details>
       ) : null}
 
       {snapshot?.crossings.length ? (
@@ -899,7 +927,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       </section>
       ) : null}
 
-      <section className="intelAssistant">
+      <aside className="intelReportFormats" aria-label="Formatos de relatório previstos">
+        <div><span className="intelEyebrow">Relatórios · em preparação</span><h2>Da leitura à decisão recorrente</h2><p>A geração de relatórios ainda não está disponível. O diagnóstico e as evidências podem ser consultados nesta página.</p></div>
+        <div className="intelReportFormatsList"><article><h3>Relatório Semanal</h3><p>Formato previsto para acompanhamento.</p></article><article><h3>Relatório Mensal</h3><p>Formato previsto para revisão de resultados.</p></article></div>
+      </aside>
+
+      <section id="intel-conversation" className="intelAssistant">
         <div className="intelAssistantIntro">
           <span className="intelEyebrow">Seu analista</span>
           <h2>{messages.length ? "Sua conversa com o negócio" : "Aprofunde o diagnóstico"}</h2>
@@ -923,13 +956,14 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
                 <p>{message.content.question}</p>
               ) : (
                 <>
+                  {message.content.attention_points?.some(item => /resposta parcial|análise parcial/i.test(item)) ? <p className="intelAnswerPartial" role="status">Resposta parcial · confira as limitações desta leitura.</p> : null}
                   <div className="intelAnswerSummary"><span className="intelEyebrow">Resumo</span><h3>{message.content.direct_answer}</h3></div>
                   {message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
                     <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids} metrics={conversationMetrics} /></section>
                   ) : null}
                   {message.content.evidence?.length || message.content.attention_points?.length ? (
                     <section className="intelAnswerReading"><h4>Leitura</h4>
-                      {message.content.evidence?.length ? <div><h5>Evidências consultadas</h5>{message.content.evidence.map((item, index) => <p key={index}>{item}</p>)}</div> : null}
+                      {message.content.evidence?.length ? <details className="intelDisclosure"><summary>Evidências consultadas</summary>{message.content.evidence.map((item, index) => <p key={index}>{item}</p>)}</details> : null}
                       {message.content.attention_points?.length ? <div><h5>Pontos de atenção</h5>{message.content.attention_points.map((item, index) => <p key={index}>{item}</p>)}</div> : null}
                     </section>
                   ) : null}
@@ -992,6 +1026,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
       {/* Fontes são evidência, não produto: ficam no fim, em uma linha. */}
       {sourceNames.length || commerceContext?.provider_label ? (
         <section ref={detailsDemand.observe} className="intelSources" aria-label="Fontes da análise" data-testid="intel-sources">
+          <details className="intelDisclosure"><summary>Fontes e detalhes técnicos da análise</summary>
           <h2>Fontes da análise</h2>
           <p className="intelSourcesList">{sourceNames.join(" · ")}</p>
           {sourceCoverage ? <p className="intelSourcesNote">{sourceCoverage}</p> : null}
@@ -1011,6 +1046,7 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
               Histórico considerado: {formatDate(snapshot.historical_context.coverage_start)} — {formatDate(snapshot.historical_context.coverage_end)}
             </p>
           ) : null}
+          </details>
         </section>
       ) : null}
 
