@@ -40,6 +40,7 @@ import type {
   CustomerListResponse,
   IntelligenceAnalysisRecord,
   IntelligenceMessage,
+  IntelligenceConversation,
   IntelligenceSnapshot,
 } from "./intelligenceTypes";
 import { getSupabaseBootstrapError, isLocalAuthEnabled, supabase } from "./supabase";
@@ -716,11 +717,34 @@ export async function askIntelligence(payload: {
 export async function getIntelligenceMessages(
   conversationId: string,
   options?: RequestSignalOptions,
-): Promise<{ ok: true; messages: IntelligenceMessage[] }> {
-  return http(
+): Promise<{ ok: true; conversation: IntelligenceConversation; messages: IntelligenceMessage[] }> {
+  return executeHttp(
     `/api/intelligence/conversations/${encodeURIComponent(conversationId)}/messages`,
     { signal: options?.signal },
   );
+}
+
+// Owner-scoped reads must not share the generic tenant-only in-flight cache.
+export async function getIntelligenceConversations(offset = 0, options?: RequestSignalOptions): Promise<{
+  ok: true; items: IntelligenceConversation[]; has_more: boolean;
+}> {
+  return executeHttp(`/api/intelligence/conversations?limit=25&offset=${Math.max(0, Math.min(offset, 10000))}`, { signal: options?.signal });
+}
+
+export async function renameIntelligenceConversation(id: string, title: string, options?: RequestSignalOptions): Promise<{ ok: true; conversation: IntelligenceConversation }> {
+  return http(`/api/intelligence/conversations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ title }), signal: options?.signal });
+}
+
+export async function deleteIntelligenceConversation(id: string, options?: RequestSignalOptions): Promise<{ ok: true }> {
+  return http(`/api/intelligence/conversations/${encodeURIComponent(id)}`, { method: "DELETE", signal: options?.signal });
+}
+
+export async function createIntelligenceConversation(options?: RequestSignalOptions): Promise<{ ok: true; conversation: IntelligenceConversation }> {
+  return http("/api/intelligence/conversations", { method: "POST", signal: options?.signal });
+}
+
+export async function resumeIntelligenceConversation(id: string, options?: RequestSignalOptions): Promise<{ ok: true }> {
+  return http(`/api/intelligence/conversations/${encodeURIComponent(id)}/resume`, { method: "POST", signal: options?.signal });
 }
 
 export async function createClientInvitation(payload: {

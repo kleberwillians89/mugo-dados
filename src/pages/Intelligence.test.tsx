@@ -100,6 +100,10 @@ vi.mock("../app/api", () => ({
     return { ok: true, provider_configured: true, status: "completed", snapshot: state.snapshot, analysis: state.analysis };
   }),
   askIntelligence: vi.fn(),
+  getIntelligenceConversations: vi.fn(async () => ({ ok: true, items: [], has_more: false })),
+  getIntelligenceMessages: vi.fn(),
+  createIntelligenceConversation: vi.fn(), resumeIntelligenceConversation: vi.fn(),
+  renameIntelligenceConversation: vi.fn(), deleteIntelligenceConversation: vi.fn(),
 }));
 
 import Intelligence from "./Intelligence";
@@ -1119,5 +1123,28 @@ describe("Intelligence — central editorial", () => {
     expect(answer.querySelector<HTMLDetailsElement>("details")?.open).toBe(false);
     expect(answer.querySelector("details")?.textContent).toContain("R$ 1.000");
     expect(answer.textContent).toContain("Revise o orçamento.");
+  });
+});
+
+
+describe("Intelligence — continuidade sem reaproveitar números antigos", () => {
+  it("restaura a conversa privada sem reconsultar IA e não mistura KPIs atuais nas mensagens antigas", async () => {
+    const mod = await import("../app/api");
+    const conversation = { id: "persisted-thread", client_id: "amalie", user_id: "user-a", title: "Pergunta anterior", created_at: "2026-07-01", updated_at: "2026-07-01" };
+    const saved = conversationReply("Resposta histórica da empresa.");
+    saved.assistant_message.period_start = "2026-07-01"; saved.assistant_message.period_end = "2026-07-31";
+    vi.mocked(mod.getIntelligenceConversations).mockResolvedValueOnce({ ok: true, items: [conversation], has_more: false });
+    vi.mocked(mod.getIntelligenceMessages).mockResolvedValueOnce({ ok: true, conversation, messages: [saved.user_message, saved.assistant_message] });
+    vi.mocked(askIntelligence).mockClear();
+    await act(async () => { root.render(<Intelligence onLogout={() => {}} conversationUserId="user-a" />); });
+    await act(async () => Promise.resolve());
+    const answer = container.querySelector(".intelMessage.is-assistant")!;
+    expect(answer.textContent).toContain("Resposta histórica da empresa");
+    expect(answer.querySelector(".intelAnswerMetrics")).toBeNull();
+    expect(container.textContent).toContain("não são evidências numéricas atuais");
+    expect(askIntelligence).not.toHaveBeenCalled();
+    vi.mocked(askIntelligence).mockResolvedValueOnce(conversationReply());
+    await enterQuestion("Pergunta aberta sobre os resultados"); await sendQuestion();
+    expect(vi.mocked(askIntelligence).mock.calls[0][0].conversation_id).toBe("persisted-thread");
   });
 });

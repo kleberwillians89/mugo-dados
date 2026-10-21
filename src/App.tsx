@@ -853,7 +853,8 @@ function PrivateApp() {
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "intelligence" ? (
         <Intelligence
-          key={`intelligence:${activeClientId}`}
+          key={`intelligence:${resolvedUserId}:${activeClientId}`}
+          conversationUserId={resolvedUserId || null}
           onLogout={handleLogout}
           canEditBusinessContext={canManageIntegrations}
         />

@@ -20,6 +20,7 @@ from services.intelligence import (
     log_stage_completed,
     log_stage_failed,
 )
+from services.intelligence_conversations import list_conversations, rename_conversation, delete_conversation, create_conversation, resume_conversation
 from services.business_context import load_business_context, save_business_context
 from services.tenant import require_client_role, require_user_id, resolve_client_id
 
@@ -54,7 +55,7 @@ def _raise_service_error(exc: RuntimeError) -> None:
         ) from exc
     if code == "CONVERSATION_NOT_FOUND":
         raise HTTPException(status_code=404, detail="Conversa não encontrada para este usuário e empresa.") from exc
-    if code in {"QUESTION_INVALID", "CONVERSATION_CREATE_FAILED"} or "Período inválido" in code:
+    if code in {"QUESTION_INVALID", "CONVERSATION_CREATE_FAILED", "CONVERSATION_TITLE_INVALID"} or "Período inválido" in code:
         raise HTTPException(status_code=400, detail=code) from exc
     if code.startswith("AI_GENERATION_COOLDOWN"):
         # Geração chama o provedor de IA: insistir é recusado com 429 e o
@@ -252,5 +253,66 @@ async def intelligence_messages(
     cid, user_id = await _context(client_id, x_client_id, authorization)
     try:
         return await conversation_messages(cid, user_id, conversation_id)
+    except RuntimeError as exc:
+        _raise_service_error(exc)
+
+
+@router.get("/conversations")
+async def intelligence_conversations(
+    limit: int = Query(default=25, ge=1, le=25), offset: int = Query(default=0, ge=0, le=10000),
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid, user_id = await _context(client_id, x_client_id, authorization)
+    return await list_conversations(cid, user_id, limit, offset)
+
+
+@router.patch("/conversations/{conversation_id}")
+async def intelligence_rename_conversation(
+    conversation_id: str, payload: Dict[str, Any],
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid, user_id = await _context(client_id, x_client_id, authorization)
+    try:
+        return await rename_conversation(cid, user_id, conversation_id, payload.get("title"))
+    except RuntimeError as exc:
+        _raise_service_error(exc)
+
+
+@router.delete("/conversations/{conversation_id}")
+async def intelligence_delete_conversation(
+    conversation_id: str,
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid, user_id = await _context(client_id, x_client_id, authorization)
+    try:
+        return await delete_conversation(cid, user_id, conversation_id)
+    except RuntimeError as exc:
+        _raise_service_error(exc)
+
+
+@router.post("/conversations")
+async def intelligence_create_conversation(
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid, user_id = await _context(client_id, x_client_id, authorization)
+    try:
+        return await create_conversation(cid, user_id)
+    except RuntimeError as exc:
+        _raise_service_error(exc)
+
+
+@router.post("/conversations/{conversation_id}/resume")
+async def intelligence_resume_conversation(
+    conversation_id: str,
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid, user_id = await _context(client_id, x_client_id, authorization)
+    try:
+        return await resume_conversation(cid, user_id, conversation_id)
     except RuntimeError as exc:
         _raise_service_error(exc)

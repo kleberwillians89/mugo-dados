@@ -2809,10 +2809,10 @@ async def conversation_messages(client_id: str, user_id: str, conversation_id: s
             "client_id": f"eq.{client_id}",
             "user_id": f"eq.{user_id}",
         },
-        order="created_at.asc",
+        order="created_at.desc,id.desc",
         limit=100,
     )
-    return {"ok": True, "conversation": conversations[0], "messages": messages}
+    return {"ok": True, "conversation": conversations[0], "messages": list(reversed(messages))}
 
 
 @measured_operation("intelligence_investigation", limit=True)
@@ -3055,7 +3055,8 @@ async def ask_intelligence(
             "client_id": f"eq.{client_id}",
             "user_id": f"eq.{user_id}",
         },
-        patch={"updated_at": datetime.now(timezone.utc).isoformat()},
+        patch={"updated_at": datetime.now(timezone.utc).isoformat(),
+               **({"title": clean_question[:90]} if existing and not existing["messages"] and conversation.get("title") == "Nova conversa" else {})},
         returning="minimal",
     )
     return {
