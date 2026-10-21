@@ -1040,3 +1040,36 @@ describe("Intelligence — diagnóstico automático persistido", () => {
     expect(container.querySelector('[data-testid="intel-empty"]')).not.toBeNull();
   });
 });
+
+
+describe("Intelligence — atualização do contexto de negócio", () => {
+  it("avisa que análise antiga não usa o contexto atualizado e só gera após ação explícita", async () => {
+    const business = {available: true, context: {segment: "Moda", goals: "Recompra"}, updated_at: "2026-09-01T12:00:00Z"};
+    state.snapshot = {...snapshot, business_context: business};
+    const calls = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
+    await renderIntelligence(false);
+    const warning = container.querySelector('[data-testid="intel-context-updated"]');
+    expect(warning?.textContent).toContain("ainda não considera essas alterações");
+    expect(container.querySelector(".intelMomentLead")?.textContent).toBe(analysis.analysis.executive.overall);
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls);
+    vi.mocked(generateIntelligenceAnalysis).mockResolvedValueOnce({ok: true, provider_configured: true, status: "completed",
+      snapshot: {...snapshot, sources: [snapshot.sources[0]], business_context: business},
+      analysis: {...analysis, id: "updated-context", created_at: "2026-09-02T12:00:00Z", completed_at: "2026-09-02T12:00:00Z"}});
+    await act(async () => warning?.querySelector<HTMLButtonElement>("button")?.click());
+    expect(vi.mocked(generateIntelligenceAnalysis).mock.calls.length).toBe(calls + 1);
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
+
+  it("não rotula análise posterior ao contexto como antiga", async () => {
+    state.snapshot = {...snapshot, business_context: {available: true, context: {}, updated_at: "2026-08-01T12:00:00Z"}};
+    await renderIntelligence();
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
+
+  it("não usa a data de contexto de outro tenant para produzir aviso", async () => {
+    state.snapshot = {...snapshot, client: {id: "other-tenant", name: "Outra empresa"},
+      business_context: {available: true, context: {}, updated_at: "2026-09-01T12:00:00Z"}};
+    await renderIntelligence();
+    expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
+  });
+});

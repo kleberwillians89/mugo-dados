@@ -4,7 +4,8 @@ import {
   saveBusinessContext,
   type BusinessContextFields,
 } from "../../app/api";
-import { getActiveClientName } from "../../app/activeClient";
+import { clearDashboardCacheByPrefix } from "../../hooks/dashboard/cache";
+import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 
 /**
  * Contexto estratégico da empresa ativa.
@@ -100,6 +101,7 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
 
   async function submit() {
     if (!canEdit || !dirty) return;
+    const clientId = getActiveClientId();
     setSaving(true);
     setError("");
     setSaved("");
@@ -109,10 +111,14 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
         return body;
       }, {});
       const response = await saveBusinessContext(payload);
+      if (response.client_id !== clientId) throw new Error("Não foi possível confirmar o contexto da empresa.");
+      clearDashboardCacheByPrefix(`intelligence-workspace|c=${clientId}:`);
+      clearDashboardCacheByPrefix(`intelligence-history|c=${clientId}|`);
+      if (getActiveClientId() !== clientId) return;
       const persisted = toForm(response.context);
       savedRef.current = persisted;
       setForm(persisted);
-      setSaved("Contexto salvo. A Inteligência já usa estas informações.");
+      setSaved("Contexto salvo. As análises anteriores permanecem como foram geradas. Gere uma nova análise na Inteligência para usar o contexto atualizado.");
     } catch (cause) {
       setError(cause instanceof Error && cause.message
         ? cause.message

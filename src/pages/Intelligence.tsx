@@ -33,6 +33,7 @@ import { cooldownFrom, cooldownHint, formatFreshness, hasFresherData } from "../
 import "../styles/intelligence.css";
 
 function sourceLabel(source: string): string {
+  if (source.startsWith("meta_campaign_")) return "Meta Ads · campanha";
   const labels: Record<string, string> = {
     paid_media: "Mídia paga", ga4: "Google Analytics", shopify: "Loja virtual",
     "shopify+paid_media": "Loja virtual e mídia paga", meta_ads: "Meta Ads",
@@ -461,6 +462,12 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
     [snapshot?.last_sync_at, analysis?.completed_at, analysis?.created_at],
   );
 
+  const contextUpdatedAt = Date.parse(snapshot?.business_context?.updated_at || "");
+  const analysisCreatedAt = Date.parse(analysis?.created_at || "");
+  const analysisPredatesContext = Boolean(analysis && snapshot?.client.id === clientId
+    && Number.isFinite(contextUpdatedAt) && Number.isFinite(analysisCreatedAt)
+    && analysisCreatedAt < contextUpdatedAt);
+
   const analysisUpdatedLabel = useMemo(
     () => formatDate(analysis?.completed_at || analysis?.created_at, true),
     [analysis?.completed_at, analysis?.created_at]
@@ -621,6 +628,13 @@ export default function Intelligence({ canEditBusinessContext = false }: Props) 
           }}>
             Tentar novamente
           </button>
+        </div>
+      ) : null}
+      {analysisPredatesContext ? (
+        <div className="intelInlineWarning" role="status" data-testid="intel-context-updated">
+          <p>O contexto de negócio foi atualizado depois desta análise. Ela ainda não considera essas alterações.</p>
+          <button className="btn" type="button" disabled={refreshing || transitioning || providerConfigured === false}
+            onClick={() => void refreshAnalysis()}>Gerar análise com contexto atualizado</button>
         </div>
       ) : null}
       {fresherDataAvailable && content ? (

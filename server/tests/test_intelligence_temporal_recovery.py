@@ -60,7 +60,7 @@ class TemporalRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record["status"], "completed")
         self.assertEqual(record["client_id"], "tenant-fixture")
         self.assertTrue(record["data_quality"]["message"].startswith("Análise parcial:"))
-        self.assertEqual(record["analysis"]["executive"]["overall"], "Análise parcial das fontes disponíveis.")
+        self.assertEqual(record["analysis"]["executive"]["overall"], second["insights"][0]["interpretation"])
         self.assertEqual(len(saved), 1)
         policy = json.loads(calls[0]["input"])["analysis_policy"]
         self.assertIn("roas", policy["insufficient_coverage_metric_ids"])
@@ -146,3 +146,49 @@ class TemporalRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("REJECTED COMPARISON", response.text)
         self.assertEqual(len(observed["calls"]), 2)
         self.assertEqual(len(observed["saved"]), 1)
+
+
+class SelectiveTemporalRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    run_generation = TemporalRecoveryTests.run_generation
+    async def test_keeps_valid_action_and_insight_but_removes_incompatible_recommendation(self):
+        value = analysis()
+        good = {"priority": "investigate", "recommendation": "Conferir a campanha persistida.",
+            "justification": "Investimento observado na fonte disponível.", "sources": ["meta"],
+            "impact_expected": "Hipótese a verificar", "confidence": "medium", "metric_id": "meta_investment"}
+        bad = {**good, "recommendation": "REJECTED ACTION", "sources": ["meta", "commerce"]}
+        value["actions"] = [bad, good]
+        result, error, calls, saved = await self.run_generation([value])
+        self.assertIsNone(error)
+        recovered = result["analysis"]["analysis"]
+        self.assertEqual(recovered["actions"], [good])
+        self.assertEqual(recovered["insights"][0], value["insights"][0])
+        self.assertEqual(recovered["executive"]["priority_action"], good["recommendation"])
+        self.assertNotIn("REJECTED", json.dumps(recovered))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(saved), 1)
+        service._validate_analysis_grounding(recovered, snapshot())
+
+    async def test_no_supported_action_explains_insufficiency_without_inventing_recommendations(self):
+        result, error, _, _ = await self.run_generation([analysis()])
+        self.assertIsNone(error)
+        recovered = result["analysis"]["analysis"]
+        self.assertEqual(recovered["actions"], [])
+        self.assertIn("Não há recomendações com evidência suficiente", recovered["executive"]["priority_action"])
+
+    async def test_unknown_action_cannot_be_hidden_by_temporal_recovery(self):
+        value = analysis()
+        value["actions"] = [{"priority": "now", "recommendation": "Revisar.", "justification": "Evidência.",
+            "sources": ["meta"], "impact_expected": "Hipótese", "confidence": "medium", "metric_id": "other-tenant-metric"}]
+        result, error, _, saved = await self.run_generation([value])
+        self.assertIsNone(result)
+        self.assertEqual(str(error), "AI_UNGROUNDED_ACTION")
+        self.assertEqual(saved[0]["status"], "failed")
+
+    async def test_individually_valid_action_survives_without_useful_insight(self):
+        value = analysis(); value["insights"] = value["insights"][1:]
+        value["actions"] = [{"priority": "investigate", "recommendation": "Revisar o investimento.",
+            "justification": "Indicador persistido.", "sources": ["meta"], "impact_expected": "Hipótese",
+            "confidence": "medium", "metric_id": "meta_investment"}]
+        result, error, _, _ = await self.run_generation([value])
+        self.assertIsNone(error)
+        self.assertEqual(result["analysis"]["analysis"]["actions"], value["actions"])
