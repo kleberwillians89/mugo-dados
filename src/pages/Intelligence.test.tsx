@@ -1092,7 +1092,7 @@ describe("Intelligence — central editorial", () => {
     expect(askIntelligence).not.toHaveBeenCalled();
   });
 
-  it("recolhe detalhes e mantém a evidência da recomendação, sem controles de relatórios fictícios", async () => {
+  it("recolhe detalhes e mantém evidências e entradas funcionais para relatórios", async () => {
     await renderIntelligence();
     for (const selector of [".intelMomentDetails", ".intelFullReading", ".intelSources details", ".intelInlineEvidence"]) {
       const details = container.querySelector<HTMLDetailsElement>(selector)!;
@@ -1101,11 +1101,12 @@ describe("Intelligence — central editorial", () => {
       expect(details.querySelector("summary")).not.toBeNull();
     }
     expect(container.querySelector(".intelInlineEvidence .intelEvidence")?.textContent).toContain("1.000");
-    const reports = container.querySelector('aside[aria-label="Formatos de relatório previstos"]')!;
+    const reports = container.querySelector('section[aria-label="Relatórios com IA"]')!;
     expect(reports.textContent).toContain("Relatório Semanal");
     expect(reports.textContent).toContain("Relatório Mensal");
-    expect(reports.textContent).toContain("ainda não está disponível");
-    expect(reports.querySelector("button,a")).toBeNull();
+    expect(reports.textContent).toContain("Nada é gerado automaticamente");
+    expect(reports.querySelector("button")).not.toBeNull();
+    expect(reports.querySelector(".mugoReport")).toBeNull();
   });
 
   it("identifica resposta parcial real e mantém evidências expansíveis no chat", async () => {
