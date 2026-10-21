@@ -221,3 +221,80 @@
 .intelligencePage,.appFrameMain .intelligencePage{height:auto;min-height:100dvh}
 .intelWorkspace{flex:0 1 auto;overflow:visible;scrollbar-gutter:auto}
 .intelAskForm{position:relative;bottom:auto}
+
+
+/* Central editorial: mesma identidade, leitura orientada à decisão. */
+.intelReadingNav{display:flex;flex-wrap:wrap;gap:8px 22px;padding:16px 0;border-bottom:1px solid var(--stroke,#dedbd3)}
+.intelReadingNav a{color:var(--intel-green);font-size:13px;font-weight:600;text-decoration:none;min-height:36px;display:inline-flex;align-items:center;border-bottom:1px solid transparent}
+.intelReadingNav a:hover{border-color:currentColor}
+.intelligencePage :is(a,summary,button):focus-visible{outline:2px solid var(--intel-green);outline-offset:4px}
+.intelligencePage :is(section,details)[id]{scroll-margin-top:24px}
+.intelIdentity>.intelEyebrow{display:block;margin-bottom:12px;font-size:11px}
+.intelIdentity h1{font-size:clamp(28px,3.5vw,40px);letter-spacing:-.04em;font-weight:600}
+.intelMoment{position:relative;padding:clamp(22px,3vw,36px);border:1px solid #d9e2dc;border-top:3px solid var(--intel-green);background:linear-gradient(115deg,#f0f4ee 0%,#fffdf8 100%);border-radius:4px 4px 16px 16px;gap:14px}
+.intelMoment h2{color:var(--intel-green);font-size:12px;font-weight:700}
+.intelMomentLead{font-family:Georgia,'Times New Roman',serif;font-size:clamp(23px,2.8vw,32px);font-weight:400;line-height:1.5;letter-spacing:-.025em;max-width:52ch;margin:8px 0}
+.intelMomentAction{border-left:2px solid var(--intel-green);padding-left:16px;color:var(--intel-ink);max-width:68ch}
+.intelMomentAction p{margin:6px 0 0;line-height:1.6;font-size:15px}
+.intelMomentEmpty h2{font-size:22px;letter-spacing:-.02em}
+.intelDisclosure{min-width:0}
+.intelDisclosure>summary{cursor:pointer;color:var(--intel-green);font-size:13px;font-weight:600;padding:12px 2px;line-height:1.5}
+.intelDisclosure[open]>summary{margin-bottom:8px}
+.intelMomentDetails{border-top:1px solid #d9e2dc;margin-top:8px}
+.intelIndicators{padding:0;background:transparent;border:0}
+.intelMetricGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr));gap:12px}
+.intelMetric{min-width:0;min-height:0;padding:18px;gap:10px;background:#fff;border-radius:10px;box-shadow:none}
+.intelMetric>div>span{font-size:13px;line-height:1.4}
+.intelMetric strong{font-size:clamp(24px,2.4vw,30px);font-weight:600;font-variant-numeric:tabular-nums}
+.intelMetricStatus{font-size:11px;font-weight:600;color:var(--intel-muted)}
+.intelMetricStatus.is-partial{color:#8a5a1f}.intelMetricStatus.is-confirmed{color:var(--intel-green)}
+.intelMetricPeriod{font-size:11px;line-height:1.5;color:var(--intel-muted)}
+.intelMetric p{font-size:12px;line-height:1.5}
+.intelMovementList{gap:0;border-top:1px solid var(--stroke,#dedbd3)}
+.intelMovement{padding:24px 0;gap:18px;border:0;border-bottom:1px solid var(--stroke,#dedbd3);border-radius:0;background:transparent}
+.intelMovementRank{background:transparent;color:var(--intel-green);font-family:Georgia,serif;font-size:22px;min-width:30px;height:auto;justify-content:flex-start}
+.intelMovementFact{display:grid;gap:6px;min-width:0}
+.intelMovementBody .intelEvidence{margin-top:0}
+.intelMovementWhy{color:var(--intel-muted)}
+.intelMovementAction{color:var(--intel-ink)}
+.intelInlineEvidence{margin-top:12px;border-top:1px solid var(--stroke,#dedbd3)}
+.intelActionColumns{grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))}
+.intelActionColumns>div{background:var(--surface-subtle,#f6f5f1);border-radius:8px}
+.intelActionColumns article{min-width:0;line-height:1.6}
+.intelOpportunityList>article{border-top:2px solid var(--intel-green);border-radius:4px 4px 12px 12px;gap:8px}
+.intelOpportunityList .intelEyebrow{font-size:12px;line-height:1.5}
+.intelOpportunityList .intelInsightBadge{justify-self:start}
+.intelFullReading{margin:24px 0;border-block:1px solid var(--stroke,#dedbd3)}
+.intelFullReading>summary{font-size:15px;padding:18px 2px}
+.intelFullReading>summary span{display:block;color:var(--intel-muted);font-size:12px;font-weight:400;margin:4px 0 0 18px}
+.intelFullReading>.intelSection{margin:0 0 20px}
+.intelReportFormats{display:grid;grid-template-columns:1fr;gap:18px;padding:24px 0;margin:24px 0;border-block:1px solid var(--stroke,#dedbd3);color:var(--intel-muted)}
+.intelReportFormats h2{font-size:18px;font-weight:500;color:var(--intel-ink);margin:10px 0}
+.intelReportFormats p{font-size:13px;line-height:1.6;margin:0;max-width:60ch}
+.intelReportFormatsList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.intelReportFormatsList article{border-left:1px solid var(--stroke,#dedbd3);padding-left:16px;min-width:0}
+.intelReportFormats h3{font-size:14px;margin:0 0 8px;font-weight:600;color:var(--intel-ink)}
+.intelAssistant{border-top:3px solid var(--intel-green);border-radius:4px 4px 12px 12px;margin-top:24px}
+.intelAssistantIntro h2{font-size:clamp(23px,2.8vw,29px);font-weight:500}
+.intelConversation{gap:24px;margin-block:24px}
+.intelMessage{width:100%;min-width:0;box-sizing:border-box}
+.intelMessage.is-user{width:fit-content;max-width:min(85%,65ch);padding:14px 18px;border-radius:14px 14px 2px 14px;background:var(--intel-green);color:#fff}
+.intelMessage.is-user>small{color:inherit;opacity:.8}
+.intelMessage.is-assistant{padding:20px 0;border-top:1px solid var(--stroke,#dedbd3);background:transparent}
+.intelAnswerSummary h3{font-size:clamp(18px,2vw,22px);font-weight:500;line-height:1.7}
+.intelAnswerPartial{font-size:13px!important;color:#80521d;border-left:2px solid #a8781f;padding:8px 12px;background:#fcf5e9}
+.intelAnswerReading .intelDisclosure{border-block:1px solid var(--stroke,#dedbd3);padding-block:2px}
+.intelAnswerReading .intelDisclosure p{font-size:13px;line-height:1.7}
+.intelAnswerReading>div{margin-top:20px}
+.intelSources .intelDisclosure>h2{margin:12px 0}
+.intelAskForm{border:1px solid #cad8cf;box-shadow:0 4px 20px #153f3508}
+@media(min-width:1000px){.intelReportFormats{grid-template-columns:1.2fr 1fr;align-items:center}}
+@media(max-width:600px){
+  .intelReadingNav{gap:4px 18px}.intelReadingNav a{font-size:12px;min-height:40px}
+  .intelHeaderMeta{gap:14px}.intelHeaderAction{flex:1 1 140px;margin-left:0!important}
+  .intelMoment{padding:22px 18px}.intelMomentLead{font-size:24px}
+  .intelMovement{padding:20px 0;gap:8px}.intelMovementRank{font-size:19px;min-width:24px}
+  .intelMetricGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.intelMetric{padding:14px;gap:8px}.intelMetric strong{font-size:23px}
+  .intelQuestionSuggestions{grid-template-columns:1fr}.intelReportFormatsList{gap:12px}
+}
+@media(max-width:359px){.intelMetricGrid,.intelReportFormatsList{grid-template-columns:1fr}}

@@ -1073,3 +1073,51 @@ describe("Intelligence — atualização do contexto de negócio", () => {
     expect(container.querySelector('[data-testid="intel-context-updated"]')).toBeNull();
   });
 });
+
+
+describe("Intelligence — central editorial", () => {
+  it("navega por âncoras reais, mostra período e status dos KPIs sem novas chamadas de IA", async () => {
+    vi.mocked(generateIntelligenceAnalysis).mockClear();
+    vi.mocked(askIntelligence).mockClear();
+    await renderIntelligence();
+    const nav = container.querySelector('nav[aria-label="Navegar pelo diagnóstico"]')!;
+    for (const link of nav.querySelectorAll<HTMLAnchorElement>("a")) {
+      expect(container.querySelector(link.getAttribute("href")!)).not.toBeNull();
+    }
+    const metric = container.querySelector("#intel-indicators .intelMetric")!;
+    expect(metric.textContent).toContain("Meta Ads");
+    expect(metric.textContent).toContain("Confirmado");
+    expect(metric.querySelector(".intelMetricPeriod")?.textContent).toBe("01/08/2026 — 31/08/2026");
+    expect(generateIntelligenceAnalysis).not.toHaveBeenCalled();
+    expect(askIntelligence).not.toHaveBeenCalled();
+  });
+
+  it("recolhe detalhes e mantém a evidência da recomendação, sem controles de relatórios fictícios", async () => {
+    await renderIntelligence();
+    for (const selector of [".intelMomentDetails", ".intelFullReading", ".intelSources details", ".intelInlineEvidence"]) {
+      const details = container.querySelector<HTMLDetailsElement>(selector)!;
+      expect(details).not.toBeNull();
+      expect(details.open).toBe(false);
+      expect(details.querySelector("summary")).not.toBeNull();
+    }
+    expect(container.querySelector(".intelInlineEvidence .intelEvidence")?.textContent).toContain("1.000");
+    const reports = container.querySelector('aside[aria-label="Formatos de relatório previstos"]')!;
+    expect(reports.textContent).toContain("Relatório Semanal");
+    expect(reports.textContent).toContain("Relatório Mensal");
+    expect(reports.textContent).toContain("ainda não está disponível");
+    expect(reports.querySelector("button,a")).toBeNull();
+  });
+
+  it("identifica resposta parcial real e mantém evidências expansíveis no chat", async () => {
+    const reply = conversationReply();
+    reply.assistant_message.content.attention_points = ["Resposta parcial: indicadores apresentados separadamente."];
+    vi.mocked(askIntelligence).mockResolvedValue(reply);
+    await renderIntelligence(false);
+    await enterQuestion("Compare os indicadores"); await sendQuestion();
+    const answer = container.querySelector(".intelMessage.is-assistant")!;
+    expect(answer.querySelector('[role="status"]')?.textContent).toContain("Resposta parcial");
+    expect(answer.querySelector<HTMLDetailsElement>("details")?.open).toBe(false);
+    expect(answer.querySelector("details")?.textContent).toContain("R$ 1.000");
+    expect(answer.textContent).toContain("Revise o orçamento.");
+  });
+});
