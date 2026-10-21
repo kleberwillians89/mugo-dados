@@ -161,7 +161,9 @@ class ReadTools:
                 value = (float(observed[-1][field]) if mid == "followers" else sum(float(r[field]) for r in observed)) if observed else None
                 metrics.append({"id": mid, "label": label, "source": provider, "value": value, "format": fmt,
                     "status": "unavailable" if value is None else "confirmed" if len(metric_dates) == expected else "partial",
-                    "previous_value": None, "variation_percent": None})
+                    "previous_value": None, "variation_percent": None,
+                    "data_min_available": min(metric_dates) if metric_dates else None,
+                    "data_max_available": max(metric_dates) if metric_dates else None})
             if DAILY.get(provider):
                 sources.append({"id": provider, "label": provider, "connected": True,
                     "status": "available" if dates and all(m["status"] == "confirmed" for m in metrics if m["source"] == provider) else "partial" if dates else "no_data",

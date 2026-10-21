@@ -21,7 +21,7 @@ PERIOD = {"start": "2026-01-01", "end": "2026-01-01"}
 def answer(mid):
     return {"direct_answer": [],
             "metric_ids": [mid], "evidence": ["Indicador consultado."], "attention_points": [],
-            "recommendations": ["Revisar a distribuição observada."], "next_steps": []}
+            "recommendations": [{"text": "Revisar a distribuição observada.", "metric_ids": [mid]}], "next_steps": []}
 
 
 def connection(cid, provider):
@@ -218,11 +218,14 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", post.await_args.kwargs["json"])  # Existing provider contract, no agent loop.
 
 
-    async def test_incompatible_periods_remain_rejected(self):
+    async def test_incompatible_periods_preserve_independent_grounded_facts(self):
         cid = "00000000-0000-0000-0000-000000000008"
         self.install(cid, {"meta", "ga4"}, reply={**answer("meta_investment"), "metric_ids": ["meta_investment", "sessions"]})
-        with redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "AI_TEMPORALLY_INCOMPATIBLE_SOURCES"):
-            await ai._investigate_question(client_id=cid, question="Compare os indicadores", period={"start": PERIOD["start"], "end": "2026-01-02"})
+        with redirect_stdout(io.StringIO()):
+            result, snapshot = await ai._investigate_question(client_id=cid, question="Compare os indicadores", period={"start": PERIOD["start"], "end": "2026-01-02"})
+        self.assertEqual(len(result["evidence"]), 2)
+        self.assertEqual(snapshot["quality"]["status"], "partial")
+        self.assertTrue(any("Resposta parcial" in line for line in result["attention_points"]))
 
     async def test_read_timeout_and_input_budget_stop_without_retry(self):
         import asyncio
@@ -248,7 +251,7 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invented_numbers_are_never_published(self):
         cid = "00000000-0000-0000-0000-000000000011"
-        self.install(cid, {"meta"}, reply={**answer("meta_investment"), "recommendations": ["Cresceu 99999 por cento."]})
+        self.install(cid, {"meta"}, reply={**answer("meta_investment"), "recommendations": [{"text": "Cresceu 99999 por cento.", "metric_ids": ["meta_investment"]}]})
         with self.assertRaisesRegex(RuntimeError, "AI_UNTRUSTED_NUMERIC_TEXT"):
             await self.investigate(cid)
 
@@ -267,7 +270,7 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
                               ("meta_revenue", "Receita de 100.")]:
             with self.subTest(metric=metric):
                 before = len(self._cleanups)
-                self.install("opaque-a", {"meta"}, reply={**answer(metric), "recommendations": [claim]})
+                self.install("opaque-a", {"meta"}, reply={**answer(metric), "recommendations": [{"text": claim, "metric_ids": [metric]}]})
                 with self.assertRaisesRegex(RuntimeError, "AI_UNTRUSTED_NUMERIC_TEXT"):
                     await self.investigate("opaque-a")
                 # Both amounts really were in the evidence supplied to the model.
@@ -388,7 +391,8 @@ class AskObservabilityTests(unittest.IsolatedAsyncioTestCase):
             ("validation", "answer_validation", None, "AI_UNGROUNDED_ANSWER"),
         ]
         evidence = {"period": PERIOD, "metrics": [{"id": "metric", "value": 100, "label": "Indicador",
-            "format": "currency", "source": "meta", "status": "confirmed"}], "sources": [],
+            "format": "currency", "source": "meta", "status": "confirmed"}],
+            "sources": [{"id": "meta", "status": "available", "data_max_available": PERIOD["end"]}],
             "quality": {}, "limitations": [], "crossings": [], "top_campaigns": []}
         for where, stage, failure, code in cases:
             with self.subTest(stage=stage):
@@ -437,3 +441,126 @@ class AskObservabilityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("error_code=AI_UNEXPECTED_ERROR", logs)
                 self.assertIn("request_id=observability-route-request", logs)
                 self.assertNotIn("secret-fixture", logs)
+
+
+class PartialEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    def evidence(self):
+        from datetime import date, timedelta
+        end = (date.fromisoformat(PERIOD["start"]) + timedelta(days=1)).isoformat()
+        sources = [{"id": source, "status": "partial" if source == "source-c" else "available", "connected": True,
+                    "data_max_available": PERIOD["start"] if source == "source-c" else end}
+                   for source in ["source-a", "source-b", "source-c"]]
+        metrics = [{"id": mid, "label": mid, "source": source, "value": value, "format": "currency",
+                    "status": "partial" if source == "source-c" else "confirmed"}
+                   for mid, source, value in [("investment_a", "source-a", 100), ("revenue_a", "source-a", 200),
+                                               ("revenue_b", "source-b", 300), ("orders_c", "source-c", 4)]]
+        return {"period": {"start": PERIOD["start"], "end": end}, "sources": sources, "metrics": metrics,
+                "quality": {"status": "partial", "message": "Dados observados por fonte."},
+                "limitations": [], "crossings": [], "top_campaigns": []}
+
+    async def run_case(self, data, claims, cid="opaque-a", retained_refs=None, via_http=False):
+        self.calls = []
+        async def model(**kwargs):
+            self.calls.append(copy.deepcopy(kwargs))
+            if len(self.calls) == 1: return {"name": "read_metrics"}
+            refs = kwargs["payload"]["evidence_refs"]
+            result = {"direct_answer": [r["id"] for r in refs], "metric_ids": [r["metric_id"] for r in refs],
+                      "evidence": [], "attention_points": [], "recommendations": claims, "next_steps": []}
+            if retained_refs is not None: result["direct_answer"] = retained_refs
+            return result
+        async def execute(session, plan):
+            self.assertEqual(session._client_id, cid)
+            self.assertEqual(session.period, data["period"])
+            return copy.deepcopy(data)
+        with patch.object(tools.ReadTools, "discover", AsyncMock(return_value={"sources": [s["id"] for s in data["sources"]]})), \
+             patch.object(tools.ReadTools, "execute", execute), \
+             patch.object(ai, "_call_provider", AsyncMock(side_effect=model)), redirect_stdout(io.StringIO()):
+            if not via_http:
+                return await ai._investigate_question(client_id=cid, question="Compare os indicadores", period=data["period"])
+            app = FastAPI(); app.include_router(routes.router)
+            async def insert(table, row):
+                self.assertEqual(row["client_id"], cid)
+                return {"id": "opaque-record", **row}
+            with patch.object(routes, "_context", AsyncMock(return_value=(cid, "opaque-user"))), \
+                 patch.object(ai, "provider_configured", return_value=True), \
+                 patch.object(ai, "sb_select", AsyncMock(return_value=[])), \
+                 patch.object(ai, "sb_insert", AsyncMock(side_effect=insert)), \
+                 patch.object(ai, "sb_update", AsyncMock()):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture") as client:
+                    response = await client.post("/api/intelligence/ask", json={"question": "Compare os indicadores", **data["period"]})
+            self.assertEqual(response.status_code, 200, response.text)
+            body = response.json()
+            self.assertEqual(set(body), {"ok", "conversation_id", "user_message", "assistant_message", "snapshot"})
+            return body["assistant_message"]["content"], body["snapshot"]
+
+    async def test_partial_source_drops_only_invalid_crossing_and_keeps_independent_claims(self):
+        claims = [{"text": "Revisar o indicador isoladamente.", "metric_ids": ["investment_a"]},
+                  {"text": "Comparar os canais alinhados.", "metric_ids": ["investment_a", "revenue_b"]},
+                  {"text": "Rebalancear todas as fontes em conjunto.", "metric_ids": ["investment_a", "orders_c"]},
+                  {"text": "Investigar os pedidos observados isoladamente.", "metric_ids": ["orders_c"]}]
+        result, snapshot = await self.run_case(self.evidence(), claims)
+        self.assertEqual(len(result["evidence"]), 4)
+        self.assertEqual(result["recommendations"], [claims[i]["text"] for i in [0, 1, 3]])
+        self.assertNotIn(claims[2]["text"], json.dumps(result))
+        self.assertEqual(snapshot["quality"]["status"], "partial")
+        self.assertTrue(any("Resposta parcial" in text for text in result["attention_points"]))
+        payload = self.calls[1]["payload"]
+        self.assertIn(["source-a", "source-b"], payload["analysis_policy"]["comparable_source_groups"])
+        self.assertNotIn(["source-a", "source-c"], payload["analysis_policy"]["comparable_source_groups"])
+        self.assertEqual(payload["metrics"][0]["source_ids"], ["source-a"])
+        self.assertEqual([call["max_output_tokens"] for call in self.calls], [100, 900])
+        self.assertEqual([call["timeout_seconds"] for call in self.calls], [10, 15])
+
+    async def test_coverage_mismatch_is_distinct_from_unavailable_source(self):
+        data = self.evidence()
+        self.assertEqual(ai._cited_sources_comparable(data, ["source-a", "source-c"]), (False, "source_not_available"))
+        data["sources"][2]["status"] = "available"
+        self.assertEqual(ai._cited_sources_comparable(data, ["source-a", "source-c"]), (False, "coverage_mismatch"))
+        claim = {"text": "Combinar os resultados desalinhados.", "metric_ids": ["investment_a", "orders_c"]}
+        result, _ = await self.run_case(data, [claim])
+        self.assertFalse(result["recommendations"])
+        self.assertTrue(any("Não há recomendações sustentadas" in text for text in result["attention_points"]))
+        self.assertEqual(len(result["evidence"]), 4)
+
+    async def test_missing_source_is_not_available_evidence_and_does_not_hide_other_sources(self):
+        data = self.evidence(); data["sources"] = data["sources"][:2]
+        result, _ = await self.run_case(data, [{"text": "Revisar a fonte disponível.", "metric_ids": ["investment_a"]}])
+        self.assertNotIn("orders_c", result["metric_ids"])
+        self.assertEqual(len(result["evidence"]), 3)
+        self.assertEqual(result["recommendations"], ["Revisar a fonte disponível."])
+        self.assertTrue(any("sem fonte disponível" in text for text in result["attention_points"]))
+        # A model cannot restore an absent source by supplying a metric ID.
+        with self.assertRaisesRegex(RuntimeError, "AI_UNGROUNDED_ANSWER"):
+            await self.run_case(data, [{"text": "Usar fonte ausente.", "metric_ids": ["orders_c"]}])
+
+    async def test_no_authoritative_origin_returns_explicit_empty_answer_without_answer_call(self):
+        data = self.evidence(); data["sources"] = [{"id": "unrelated", "status": "available"}]
+        result, _ = await self.run_case(data, [])
+        self.assertFalse(result["metric_ids"])
+        self.assertFalse(result["evidence"])
+        self.assertIn("Não há evidências suficientes", result["direct_answer"])
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_foreign_tenant_reference_remains_rejected_during_partial_recovery(self):
+        data = self.evidence()
+        await self.run_case(data, [], cid="opaque-a")
+        stale_refs = [r["id"] for r in self.calls[1]["payload"]["evidence_refs"]]
+        with self.assertRaisesRegex(RuntimeError, "AI_UNGROUNDED_ANSWER"):
+            await self.run_case(data, [], cid="opaque-b", retained_refs=stale_refs)
+
+    async def test_partial_recovery_does_not_hide_unsupported_numbers_or_causality(self):
+        for text, code in [("Investimento de 200.", "AI_UNTRUSTED_NUMERIC_TEXT"),
+                           ("Este indicador certamente causou a mudança.", "AI_UNSUPPORTED_CAUSALITY")]:
+            with self.subTest(code=code), self.assertRaisesRegex(RuntimeError, code):
+                await self.run_case(self.evidence(), [{"text": text, "metric_ids": ["investment_a", "orders_c"]}])
+
+
+    async def test_partial_answer_is_persisted_through_existing_http_contract(self):
+        claim = {"text": "Combinar as fontes sem cobertura alinhada.", "metric_ids": ["investment_a", "orders_c"]}
+        result, snapshot = await self.run_case(self.evidence(), [claim], via_http=True)
+        self.assertIsInstance(result["direct_answer"], str)
+        self.assertEqual(len(result["evidence"]), 4)
+        self.assertFalse(result["recommendations"])
+        self.assertEqual(snapshot["quality"]["status"], "partial")
+        self.assertEqual(set(result), {"direct_answer", "metric_ids", "evidence", "attention_points", "recommendations", "next_steps"})
+        self.assertTrue(all(isinstance(text, str) for text in result["attention_points"]))
