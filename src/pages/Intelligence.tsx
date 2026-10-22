@@ -253,6 +253,32 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
   const cacheKeyRef = useRef(cacheKey);
   const detailedContextScope = useRef<string | null>(null);
   const detailsDemand = useSectionDemand(cacheKey, Boolean(snapshot) && !transitioning && displayPeriod.start === period.start && displayPeriod.end === period.end);
+  // Navegação da leitura acompanha a rolagem: a seção visível fica marcada.
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const sectionLayout = `${Boolean(analysis)}:${Boolean(snapshot)}:${loading}`;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ids = ["intel-executive", "intel-indicators", "intel-priorities", "intel-next", "intel-conversation", "intel-reports"];
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const present = ids.map((id) => document.getElementById(id)).filter((el): el is HTMLElement => Boolean(el));
+      if (!present.length) return;
+      // A seção atual é a última cujo topo já passou da navegação fixa.
+      const passed = present.filter((el) => el.getBoundingClientRect().top <= 140);
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      setActiveSection((atBottom ? present.at(-1) : passed.at(-1) || present[0])?.id || null);
+    };
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [sectionLayout]);
 
   useEffect(() => {
     if (messages.length) conversationView.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
@@ -569,6 +595,9 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
   const actionPriorities = (["now", "week", "monitor", "investigate"] as const)
     .filter((priority) => visibleActions.some((action) => action.priority === priority));
 
+  // Um botão de gerar por vez: no estado vazio, o convite do próprio estado
+  // vazio é a ação; com análise (ou com erro), o botão fica no cabeçalho.
+  const emptyStateShown = !content && !error && !messages.length && !loading;
   const header = (
     <div className="intelHeader">
       <PageHeader
@@ -587,16 +616,18 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
         controls={<PeriodSelector />}
       />
       <div className="intelHeaderActions">
+        {!emptyStateShown ? (
+          <button
+            className="ds-button is-primary"
+            onClick={() => void refreshAnalysis()}
+            disabled={refreshing || transitioning || loading}
+            data-testid="intel-generate"
+          >
+            {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
+          </button>
+        ) : null}
         <button
-          className="ds-button is-primary"
-          onClick={() => void refreshAnalysis()}
-          disabled={refreshing || transitioning || loading}
-          data-testid="intel-generate"
-        >
-          {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
-        </button>
-        <button
-          className="ds-button"
+          className="ds-button is-quiet"
           type="button"
           onClick={() => void refreshData()}
           disabled={revalidating || !refreshCooldown.ready || loading}
@@ -624,12 +655,16 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
       {header}
 
       <nav className="intelReadingNav" aria-label="Navegar pelo diagnóstico">
-        {content ? <a href="#intel-executive">Resumo</a> : null}
-        {displayedMetrics.length ? <a href="#intel-indicators">Números</a> : null}
-        {movements.length ? <a href="#intel-priorities">Onde agir</a> : null}
-        {content ? <a href="#intel-next">Próximos passos</a> : null}
-        <a href="#intel-conversation">Conversa com IA</a>
-        <a href="#intel-reports">Relatórios</a>
+        {[
+          content ? ["intel-executive", "Resumo"] : null,
+          displayedMetrics.length ? ["intel-indicators", "Números"] : null,
+          movements.length ? ["intel-priorities", "Onde agir"] : null,
+          content ? ["intel-next", "Próximos passos"] : null,
+          ["intel-conversation", "Conversa com IA"],
+          ["intel-reports", "Relatórios"],
+        ].filter((item): item is string[] => Boolean(item)).map(([id, label]) => (
+          <a key={id} href={`#${id}`} aria-current={activeSection === id ? "location" : undefined}>{label}</a>
+        ))}
       </nav>
 
       <div className="intelWorkspace" ref={workspaceView}>
@@ -679,25 +714,31 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
           abaixo, cada um em um lugar só. */}
       {content ? (
         <section id="intel-executive" className="intelMoment" aria-labelledby="intel-moment-title">
-          <h2 id="intel-moment-title" className="intelKicker">Resumo executivo</h2>
+          <h2 id="intel-moment-title" className="ds-srOnly">Resumo executivo</h2>
+          <p className="intelBriefLabel" aria-hidden="true">O período em uma frase</p>
           <p className="intelMomentLead">{content.executive.overall}</p>
-          {content.executive.priority_action ? (
-            <div className="intelMomentAction"><span className="intelKicker">Próxima decisão</span><p>{content.executive.priority_action}</p></div>
-          ) : null}
-          {analysis?.data_quality.message ? (
-            <details className="intelDisclosure intelMomentDetails">
-              <summary>Cobertura e limitações do diagnóstico</summary>
-              <p className="ds-footnote" data-testid="intel-diagnosis-limitations">{analysis.data_quality.message}</p>
-            </details>
-          ) : null}
+          <div className="intelBriefFoot">
+            {content.executive.priority_action ? (
+              <div className="intelMomentAction"><span>Próxima decisão</span><p>{content.executive.priority_action}</p></div>
+            ) : null}
+            <div className="intelBriefLinks">
+              {movements.length ? <a href="#intel-priorities" className="intelBriefCta">Ver onde agir</a> : null}
+              {analysis?.data_quality.message ? (
+                <details className="intelDisclosure intelMomentDetails">
+                  <summary>Cobertura e limitações</summary>
+                  <p data-testid="intel-diagnosis-limitations">{analysis.data_quality.message}</p>
+                </details>
+              ) : null}
+            </div>
+          </div>
         </section>
       ) : !error && !messages.length ? (
         <section className="intelMoment intelMomentEmpty" data-testid="intel-empty">
-          <h2 className="ds-headline">Ainda não há análise válida</h2>
-          <p className="ds-emptyLine">Gere uma análise para visualizar o diagnóstico da empresa. Nada é gerado automaticamente ao abrir esta tela.</p>
-          <div>
+          <h2 className="intelEmptyLead">Ainda não há análise válida</h2>
+          <p className="intelBriefText">Gere uma análise para ler o período de {companyName} em uma frase, com as prioridades e os próximos passos. Nada é gerado automaticamente ao abrir esta tela.</p>
+          <div className="intelBriefLinks">
             <button
-              className="ds-button is-primary"
+              className="intelBriefCta"
               type="button"
               disabled={refreshing || transitioning}
               onClick={() => void refreshAnalysis()}
@@ -747,6 +788,13 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
                     ? <span className="ds-delta">{metric.status === "partial" ? "Cobertura parcial" : metric.status === "confirmed" ? "Sem base anterior" : "Evidência indisponível"}</span>
                     : <Delta change={metric.variation_percent} sentiment={/investment|spend|cpa/.test(metric.id) ? "neutral" : "higher-is-better"} />}
                 </span>
+                {metric.value != null && metric.previous_value != null && metric.value >= 0 && metric.previous_value >= 0 && metric.variation_percent != null ? (
+                  <span className="intelMetricCompare" aria-label={`Período anterior: ${formatMetric({ ...metric, value: metric.previous_value })}`}>
+                    <span className="intelMetricBar is-current"><i style={{ width: `${(metric.value / Math.max(metric.value, metric.previous_value, 1e-9)) * 100}%` }} /></span>
+                    <span className="intelMetricBar is-previous"><i style={{ width: `${(metric.previous_value / Math.max(metric.value, metric.previous_value, 1e-9)) * 100}%` }} /></span>
+                    <small>Anterior {formatMetric({ ...metric, value: metric.previous_value })}</small>
+                  </span>
+                ) : null}
                 <small className="intelMetricSource">
                   {sourceLabel(metric.source)}
                   {metric.status !== "confirmed" ? <span className={`intelMetricStatus is-${metric.status}`}> · {METRIC_STATUS_LABELS[metric.status]}</span> : null}
@@ -770,7 +818,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
           <ol className="intelMovementList">
             {movements.map((insight, index) => (
               <li className={`intelMovement is-${insight.category}`} key={`${insight.title}-${index}`}>
-                <span className="intelMovementRank" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                <span className="intelMovementRank">Prioridade {index + 1}</span>
                 <div className="intelMovementHead">
                   <span className={`intelCategory is-${insight.category}`}>{CATEGORY_LABELS[insight.category]}</span>
                   <h3>{insight.title}</h3>
@@ -782,7 +830,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
                     <Evidence ids={insight.metric_ids} metrics={metricIndex} />
                   </div>
                   <p className="intelMovementWhy">
-                    <span className="intelInsightBadge is-interpretation">Por que importa · hipótese a validar</span>
+                    <span className="intelInsightBadge is-interpretation">Por que importa (hipótese a validar)</span>
                     {insight.interpretation}
                   </p>
                   <p className="intelMovementAction">
@@ -819,15 +867,10 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
                           <strong className="intelActionTitle">{action.recommendation}</strong>
                           {action.justification ? <p>{action.justification}</p> : null}
                           <dl className="intelActionFacts">
-                            {tracked ? <div><dt>Métrica para acompanhar</dt><dd>{tracked.label} · {formatMetric(tracked)}</dd></div> : null}
+                            {tracked ? <div className="intelActionTracked"><dt>Métrica para acompanhar</dt><dd><Evidence ids={[action.metric_id]} metrics={metricIndex} /></dd></div> : null}
                             {action.impact_expected ? <div><dt>Resultado esperado (hipótese)</dt><dd>{action.impact_expected}</dd></div> : null}
-                            <div><dt>Confiança</dt><dd>{CONFIDENCE_LABELS[action.confidence]}</dd></div>
+                            <div><dt>Confiança</dt><dd>{CONFIDENCE_LABELS[action.confidence]}{action.sources.length ? ` · ${action.sources.map(sourceLabel).join(", ")}` : ""}</dd></div>
                           </dl>
-                          <details className="intelDisclosure intelInlineEvidence">
-                            <summary>Evidência da recomendação</summary>
-                            <Evidence ids={[action.metric_id]} metrics={metricIndex} />
-                            <p className="ds-footnote">{action.sources.map(sourceLabel).join(" · ")} · {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}</p>
-                          </details>
                         </article>
                       );
                     })}

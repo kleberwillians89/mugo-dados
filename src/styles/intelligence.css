@@ -41,11 +41,10 @@
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--intel-quiet);
 }
-.intelEyebrow{ display: block; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelEyebrow{ display: block; font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelMuted{ margin: 0; font-size: 13px; color: var(--intel-quiet); }
 
 /* ====== CABEÇALHO ====== */
@@ -57,6 +56,8 @@
 .intelHeaderHint{ margin: 0; font-size: 12px; color: var(--intel-quiet); }
 /* Usado também pelo botão "Atualizar dados" de Meta/Google/E-commerce. */
 .intelHeaderAction{ margin-left: 0; font-size: 12px; }
+.intelHeaderActions .ds-button.is-quiet{ border-color: transparent; background: transparent; color: var(--intel-muted); }
+.intelHeaderActions .ds-button.is-quiet:hover:not(:disabled){ background: rgba(21,24,27,.06); color: var(--intel-ink); }
 
 /* Navegação da leitura: fixa no topo enquanto a página rola. */
 .intelReadingNav{
@@ -88,6 +89,7 @@
   white-space: nowrap;
 }
 .intelReadingNav a:hover{ background: rgba(21,24,27,.06); color: var(--intel-ink); }
+.intelReadingNav a[aria-current="location"]{ background: var(--intel-ink); color: #fff; }
 
 .intelWorkspace{ display: flex; flex-direction: column; gap: var(--space-7, 48px); }
 .intelBlock{ padding-top: var(--space-6, 32px); border-top: 1px solid var(--intel-rule); }
@@ -97,22 +99,60 @@
 .intelInlineCta{ margin: calc(-1 * var(--space-5, 24px)) 0 0; max-width: 80ch; font-size: 13px; line-height: 1.5; color: var(--intel-quiet); }
 
 /* ====== 1. RESUMO ====== */
-.intelMoment{ display: flex; flex-direction: column; gap: var(--space-4, 16px); }
-.intelMomentLead{
-  margin: 0;
-  max-width: 34ch;
-  font-family: var(--font-display);
-  font-size: clamp(26px, 3.2vw, 40px);
-  font-weight: 600;
-  line-height: 1.18;
-  letter-spacing: -.025em;
-  text-wrap: balance;
-  color: var(--intel-ink);
+/* O único momento ousado da página: o briefing do período num painel
+   azul Mugô. Todo o resto fica quieto. */
+.intelMoment{
+  --brief-bg: #063a50;
+  --brief-ink: #f4f7f8;
+  --brief-soft: rgba(244,247,248,.72);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5, 24px);
+  padding: clamp(28px, 4.5vw, 56px) clamp(22px, 4.5vw, 64px) clamp(24px, 3.5vw, 40px);
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 55%),
+    var(--brief-bg);
+  color: var(--brief-ink);
+  overflow: hidden;
 }
-.intelMomentAction{ display: flex; flex-direction: column; gap: 6px; max-width: 70ch; padding-left: var(--space-4, 16px); border-left: 2px solid var(--intel-accent); }
-.intelMomentAction p{ margin: 0; font-size: 17px; line-height: 1.5; color: var(--intel-ink); }
-.intelMomentDetails{ max-width: 80ch; }
-.intelMomentEmpty{ gap: var(--space-3, 12px); }
+.intelBriefLabel{ margin: 0; font-size: 14px; font-weight: 500; color: var(--brief-soft); }
+.intelMomentLead, .intelEmptyLead{
+  margin: 0;
+  max-width: 30ch;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3.6vw, 48px);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+  color: var(--brief-ink);
+}
+.intelBriefFoot{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4, 16px) var(--space-6, 32px);
+  align-items: end;
+  padding-top: var(--space-5, 24px);
+  border-top: 1px solid rgba(244,247,248,.16);
+}
+.intelMomentAction{ display: flex; flex-direction: column; gap: 4px; max-width: 64ch; }
+.intelMomentAction span{ font-size: 13px; font-weight: 500; color: var(--brief-soft); }
+.intelMomentAction p{ margin: 0; font-size: 18px; font-weight: 500; line-height: 1.45; color: var(--brief-ink); }
+.intelBriefLinks{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2, 8px) var(--space-4, 16px); }
+.intelBriefCta{
+  display: inline-flex; align-items: center; min-height: 40px; padding: 0 18px;
+  border-radius: 999px; background: var(--brief-ink); color: var(--brief-bg);
+  font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.intelBriefCta:hover{ background: #fff; }
+.intelMoment .intelMomentDetails > summary{ color: var(--brief-soft); }
+.intelMoment .intelMomentDetails p{ margin: 0; max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--brief-soft); }
+.intelMoment :is(a, summary):focus-visible{ outline-color: #fff; }
+.intelBriefText{ margin: 0; max-width: 62ch; font-size: 17px; line-height: 1.55; color: var(--brief-soft); }
+.intelBriefCta{ border: 0; font-family: inherit; cursor: pointer; }
+.intelBriefCta:disabled{ opacity: .6; cursor: default; }
 
 /* ====== 2. NÚMEROS ====== */
 .intelSourceLine{ display: flex; flex-wrap: wrap; gap: 2px var(--space-2, 8px); }
@@ -120,9 +160,13 @@
 .intelMetricGrid{
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-5, 24px) var(--space-4, 16px);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--intel-rule);
+  border-radius: 16px;
+  background: var(--intel-rule);
 }
-.intelMetric{ display: flex; flex-direction: column; gap: 6px; }
+.intelMetric{ display: flex; flex-direction: column; gap: 6px; padding: var(--space-5, 24px) var(--space-4, 16px); background: var(--surface, #fff); }
 .intelMetricLabel{ display: inline-flex; align-items: center; font-size: 14px; font-weight: 500; color: var(--intel-muted); }
 .intelMetricValue{
   font-family: var(--font-display);
@@ -137,7 +181,13 @@
 }
 .intelMetricDelta{ min-height: 18px; font-size: 13px; }
 .intelMetricDelta > .ds-delta:only-child:not(.is-positive):not(.is-negative){ color: var(--intel-quiet); font-weight: 400; }
-.intelMetricSource{ font-size: 12px; color: var(--intel-quiet); }
+.intelMetricSource{ margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--intel-quiet); }
+.intelMetricCompare{ display: grid; gap: 3px; margin-top: 6px; }
+.intelMetricBar{ display: block; height: 4px; border-radius: 2px; background: rgba(21,24,27,.05); overflow: hidden; }
+.intelMetricBar i{ display: block; height: 100%; border-radius: 2px; }
+.intelMetricBar.is-current i{ background: var(--intel-accent); }
+.intelMetricBar.is-previous i{ background: rgba(21,24,27,.22); }
+.intelMetricCompare small{ margin-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--intel-quiet); }
 .intelMetricStatus.is-partial{ color: var(--intel-warn); }
 .intelMetricStatus.is-error, .intelMetricStatus.is-disconnected{ color: var(--intel-risk); }
 .intelMetric.is-unavailable .intelMetricValue, .intelMetric.is-disconnected .intelMetricValue, .intelMetric.is-error .intelMetricValue{ color: var(--intel-quiet); }
@@ -150,63 +200,61 @@
 .intelEvidence .ds-delta{ font-size: 12px; }
 
 /* ====== 3. ONDE AGIR ====== */
-.intelMovementList{ margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--intel-rule); }
-.intelMovementList{ display: grid; }
+.intelMovementList{ display: grid; grid-template-columns: 1fr; gap: var(--space-4, 16px); margin: 0; padding: 0; list-style: none; }
 .intelMovement{
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-3, 12px) var(--space-6, 32px);
-  padding: var(--space-5, 24px) 0;
-  border-bottom: 1px solid var(--intel-rule);
+  grid-template-rows: auto auto 1fr;
+  gap: var(--space-4, 16px);
+  padding: var(--space-5, 24px);
+  border: 1px solid var(--intel-rule);
+  border-top: 3px solid var(--intel-quiet);
+  border-radius: 14px;
+  background: var(--surface, #fff);
   min-width: 0;
 }
-.intelMovementRank{
-  font-family: var(--font-display);
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--intel-quiet);
-}
-.intelMovement.is-risk .intelMovementRank, .intelMovement.is-anomaly .intelMovementRank{ color: var(--intel-risk); }
-.intelMovement.is-attention .intelMovementRank{ color: var(--intel-warn); }
-.intelMovement.is-opportunity .intelMovementRank, .intelMovement.is-positive .intelMovementRank{ color: var(--intel-accent); }
+.intelMovement.is-risk, .intelMovement.is-anomaly{ border-top-color: var(--intel-risk); }
+.intelMovement.is-attention{ border-top-color: var(--intel-warn); }
+.intelMovement.is-opportunity{ border-top-color: var(--intel-accent); }
+.intelMovement.is-positive{ border-top-color: var(--intel-good); }
+.intelMovementRank{ font-size: 12px; font-weight: 500; color: var(--intel-quiet); }
 .intelMovementHead{ display: flex; flex-direction: column; gap: 8px; }
-.intelMovementHead h3{ margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -.015em; text-wrap: balance; }
+.intelMovementHead h3{ margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 600; line-height: 1.25; letter-spacing: -.015em; text-wrap: balance; }
 .intelMovementMeta{ font-size: 12px; color: var(--intel-quiet); }
-.intelMovementBody{ display: flex; flex-direction: column; gap: var(--space-4, 16px); min-width: 0; }
+.intelMovementBody{ display: flex; flex-direction: column; gap: var(--space-4, 16px); min-width: 0; padding-top: var(--space-4, 16px); border-top: 1px solid var(--intel-rule); }
 .intelMovementBody p{ display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
 .intelMovementFact{ display: flex; flex-direction: column; gap: 6px; }
 .intelMovementWhy{ color: var(--intel-muted); }
 .intelMovementAction{ color: var(--intel-ink); font-weight: 500; }
 
 /* Categoria: palavra colorida, sem pílula. */
-.intelCategory{ font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelCategory{ font-size: 13px; font-weight: 600; color: var(--intel-quiet); }
 .intelCategory.is-risk, .intelCategory.is-anomaly{ color: var(--intel-risk); }
 .intelCategory.is-attention{ color: var(--intel-warn); }
 .intelCategory.is-opportunity{ color: var(--intel-accent); }
 .intelCategory.is-positive{ color: var(--intel-good); }
 
 /* Rótulo de papel (fato / hipótese / ação): discreto, mas distinto. */
-.intelInsightBadge{ display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelInsightBadge{ display: block; font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelInsightBadge.is-interpretation{ font-style: normal; }
 .intelInsightBadge.is-recommendation{ color: var(--intel-accent); }
 
 /* ====== 4. PRÓXIMOS PASSOS ====== */
-.intelActionList{ display: flex; flex-direction: column; border-top: 1px solid var(--intel-rule); }
-.intelActionGroup{ display: grid; grid-template-columns: 1fr; gap: var(--space-3, 12px); padding: var(--space-5, 24px) 0; border-bottom: 1px solid var(--intel-rule); min-width: 0; }
-.intelActionPriority{ margin: 0; font-size: 13px; font-weight: 600; color: var(--intel-muted); }
+.intelActionList{ display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--intel-rule); }
+.intelActionGroup{ display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-3, 12px); padding: var(--space-5, 24px) 0; border-bottom: 1px solid var(--intel-rule); min-width: 0; }
+.intelActionPriority{ display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; color: var(--intel-muted); }
+.intelActionPriority::before{ content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .intelActionGroup.is-now .intelActionPriority{ color: var(--intel-risk); }
 .intelActionGroup.is-week .intelActionPriority{ color: var(--intel-accent); }
 .intelActionGroup > div{ display: flex; flex-direction: column; gap: var(--space-5, 24px); }
 .intelAction{ display: flex; flex-direction: column; gap: 8px; }
 .intelActionTitle{ font-size: 17px; font-weight: 600; line-height: 1.35; color: var(--intel-ink); }
 .intelAction > p{ margin: 0; max-width: 70ch; font-size: 15px; line-height: 1.55; color: var(--intel-muted); }
-.intelActionFacts{ display: flex; flex-wrap: wrap; gap: 6px var(--space-6, 32px); margin: 4px 0 0; }
+.intelActionFacts{ display: flex; flex-direction: column; gap: 10px; margin: 6px 0 0; padding: 12px 14px; border-radius: 10px; background: rgba(21,24,27,.035); }
 .intelActionFacts > div{ display: flex; flex-direction: column; gap: 2px; }
 .intelActionFacts dt{ font-size: 12px; color: var(--intel-quiet); }
 .intelActionFacts dd{ margin: 0; font-size: 14px; font-weight: 500; color: var(--intel-ink); }
+.intelActionTracked .intelEvidence small{ font-size: 14px; color: var(--intel-ink); }
 
 /* ====== 5. OUTRAS LEITURAS ====== */
 .intelDisclosure{ min-width: 0; }
@@ -225,7 +273,7 @@
 .intelFullReading > summary{ font-family: var(--font-display); font-size: 20px; font-weight: 600; letter-spacing: -.015em; color: var(--intel-ink); }
 .intelFullReading > summary span{ display: block; margin-top: 2px; font-family: var(--font-body); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--intel-quiet); }
 .intelInsightGroups{ display: flex; flex-direction: column; gap: var(--space-6, 32px); margin-top: var(--space-4, 16px); }
-.intelInsightGroupTitle{ margin: 0 0 var(--space-2, 8px); font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelInsightGroupTitle{ margin: 0 0 var(--space-2, 8px); font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelInsightGroupTitle.is-positive{ color: var(--intel-good); }
 .intelInsightGroupTitle.is-risk{ color: var(--intel-risk); }
 .intelInsightGroupTitle.is-opportunity{ color: var(--intel-accent); }
@@ -276,14 +324,14 @@
 .intelConversation{ display: flex; flex-direction: column; gap: var(--space-5, 24px); }
 .intelConversation:empty{ display: none; }
 .intelMessage{ display: flex; flex-direction: column; gap: 6px; }
-.intelMessage > small{ font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelMessage > small{ font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelMessage.is-user{ align-self: flex-end; max-width: min(80%, 62ch); padding: 12px 16px; border-radius: 14px 14px 4px 14px; background: var(--intel-ink); color: #fff; }
 .intelMessage.is-user > small{ color: rgba(255,255,255,.7); }
 .intelMessage.is-user p{ margin: 0; font-size: 15px; line-height: 1.5; }
 .intelMessage.is-assistant{ padding-bottom: var(--space-5, 24px); border-bottom: 1px solid var(--intel-rule); }
 .intelAnswerSummary{ display: flex; flex-direction: column; gap: 6px; max-width: 70ch; }
 .intelAnswerSummary h3{ margin: 0; font-family: var(--font-display); font-size: clamp(19px, 2vw, 23px); font-weight: 600; line-height: 1.35; letter-spacing: -.015em; white-space: pre-wrap; }
-.intelMessage h4{ margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelMessage h4{ margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelMessage h5{ margin: 0 0 6px; font-size: 14px; font-weight: 600; }
 .intelAnswerMetrics, .intelAnswerReading, .intelNextSteps{ margin-top: var(--space-4, 16px); max-width: 75ch; }
 .intelAnswerReading p{ margin: 0 0 8px; font-size: 15px; line-height: 1.65; color: var(--intel-muted); white-space: pre-wrap; }
@@ -307,7 +355,7 @@
 .intelAskForm > div{ display: flex; align-items: flex-end; gap: var(--space-3, 12px); }
 .intelAskForm textarea{ flex: 1; min-height: 44px; max-height: 160px; padding: 10px 0; border: 0; background: transparent; resize: none; font: inherit; font-size: 15px; line-height: 1.5; color: var(--intel-ink); }
 .intelAskForm textarea:focus{ outline: none; }
-.intelAskForm .ds-button{ min-height: 40px; }
+.intelAskForm .ds-button{ min-height: 40px; border-radius: 999px; padding: 0 20px; }
 .intelAskHint{ display: block; padding-top: 2px; font-size: 11px; color: var(--intel-quiet); }
 .intelProcessing{ display: flex; align-items: center; gap: 10px; margin: calc(-1 * var(--space-6, 32px)) 0 0; font-size: 13px; color: var(--intel-muted); }
 .intelProcessing p{ margin: 0; }
@@ -324,7 +372,7 @@
 
 /* ====== FONTES ====== */
 .intelSources{ display: flex; flex-direction: column; gap: 6px; padding-top: var(--space-4, 16px); border-top: 1px solid var(--intel-rule); }
-.intelSources h2{ margin: var(--space-2, 8px) 0 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--intel-quiet); }
+.intelSources h2{ margin: var(--space-2, 8px) 0 0; font-size: 12px; font-weight: 600; color: var(--intel-quiet); }
 .intelSourcesList{ margin: 0; font-size: 15px; }
 .intelSourcesNote{ margin: 0; font-size: 13px; line-height: 1.5; color: var(--intel-quiet); }
 .intelSources .intelDisclosure > summary{ color: var(--intel-muted); }
@@ -351,26 +399,29 @@
   .intelResearchItem{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 760px){
-  .intelMovement{ grid-template-columns: 44px minmax(0, 1fr); padding: var(--space-6, 32px) 0; }
-  .intelMovementBody{ grid-column: 2; }
+  .intelBriefFoot{ grid-template-columns: minmax(0, 1fr) auto; }
 }
 @media (min-width: 900px){
-  .intelMetricGrid, .intelSkeletonMetrics{ grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-6, 32px) var(--space-5, 24px); }
-  .intelActionGroup{ grid-template-columns: 180px minmax(0, 1fr); gap: var(--space-5, 24px); }
+  .intelMetricGrid, .intelSkeletonMetrics{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .intelMetric{ padding: var(--space-5, 24px); }
+  .intelActionList{ grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); border-bottom: 1px solid var(--intel-rule); }
+  .intelActionGroup{ padding: var(--space-5, 24px) var(--space-5, 24px) var(--space-6, 32px); border-bottom: 0; }
+  .intelActionGroup:first-child{ padding-left: 0; }
+  .intelActionGroup + .intelActionGroup{ border-left: 1px solid var(--intel-rule); }
   .intelInsight{ grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
   .intelInsightTop{ grid-row: span 4; }
   .intelCrossList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .intelSkeletonBody{ grid-template-columns: 5fr 7fr; }
 }
 @media (min-width: 1100px){
-  .intelMovement{ grid-template-columns: 56px minmax(0, 5fr) minmax(0, 7fr); }
-  .intelMovementBody{ grid-column: auto; }
+  .intelMovementList{ grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; }
 }
 @media (max-width: 599px){
   .intelligencePage{ gap: var(--space-6, 32px); }
   .intelWorkspace{ gap: var(--space-6, 32px); }
   .intelHeaderActions .ds-button{ flex: 1 1 140px; min-height: 44px; }
-  .intelMovementRank{ font-size: 20px; }
+  .intelMoment{ border-radius: 16px; }
+  .intelBriefCta{ flex: 1 1 100%; justify-content: center; }
   .intelMetricValue{ font-size: 22px; white-space: normal; }
   .intelMessage.is-user{ max-width: 92%; }
   .intelAskForm > div{ align-items: stretch; }

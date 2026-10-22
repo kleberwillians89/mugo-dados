@@ -170,6 +170,16 @@ describe("Intelligence — apresentação escaneável (não parece um chat)", ()
     expect(badges).toContain("Recomendação");
   });
 
+  it("um único botão de gerar por estado da tela", async () => {
+    state.analysis = { ...analysis, status: "failed", analysis: null };
+    state.history = [];
+    await renderIntelligence();
+    const generate = [...container.querySelectorAll("button")].filter((el) => /^Gerar análise$/.test(el.textContent || ""));
+    expect(generate).toHaveLength(1);
+    expect(container.querySelector('[data-testid="intel-generate-empty"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="intel-generate"]')).toBeNull();
+  });
+
   it("abre com o resumo do momento, curto e no topo", async () => {
     await renderIntelligence();
     expect(container.textContent).toContain("Resumo");
@@ -1115,13 +1125,15 @@ describe("Intelligence — central editorial", () => {
     await renderIntelligence();
     // Tudo já está em "Onde agir": a leitura complementar não existe vazia nem repetida.
     expect(container.querySelector(".intelFullReading")).toBeNull();
-    for (const selector of [".intelMomentDetails", ".intelSources details", ".intelInlineEvidence"]) {
+    for (const selector of [".intelMomentDetails", ".intelSources details"]) {
       const details = container.querySelector<HTMLDetailsElement>(selector)!;
       expect(details).not.toBeNull();
       expect(details.open).toBe(false);
       expect(details.querySelector("summary")).not.toBeNull();
     }
-    expect(container.querySelector(".intelInlineEvidence .intelEvidence")?.textContent).toContain("1.000");
+    // A evidência da recomendação é a própria métrica para acompanhar, sem repetir em outro bloco.
+    expect(container.querySelector('[data-testid="intel-recommendations"] .intelActionTracked .intelEvidence')?.textContent).toContain("1.000");
+    expect(container.querySelector(".intelInlineEvidence")).toBeNull();
     const reports = container.querySelector('section[aria-label="Relatórios com IA"]')!;
     expect(reports.textContent).toContain("Relatório Semanal");
     expect(reports.textContent).toContain("Relatório Mensal");
