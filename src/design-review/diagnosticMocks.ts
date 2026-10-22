@@ -33,6 +33,12 @@ export function reviewIntelligence({clientId, name, start, end}: Options) {
       metric("sessions", "Sessões", 48210, 51990, "integer", "ga4"),
       metric("conversion_rate", "Taxa de conversão", 1.54, 1.35, "percent", "ga4"),
       metric("new_customers", "Novos clientes", 418, 392, "integer", "commerce"),
+      {id: "repeat_customers", label: "Clientes recorrentes", value: null, previous_value: null, variation_percent: null, format: "integer", source: "commerce", status: "unavailable"},
+      {...metric("google_ads_investment", "Investimento Google Ads", 1608.14, null, "currency", "google_ads"), status: "partial"},
+      {...metric("meta_campaign_a_spend", "Investimento · ROOVE | META | PURCHASE | BROAD | 25-44 | CAPITAIS | OUT26", 472.68, null, "currency", "meta_campaign_a"), status: "partial"},
+      {...metric("meta_campaign_a_revenue", "Receita atribuída · ROOVE | META | PURCHASE | BROAD | 25-44 | CAPITAIS | OUT26", 1890.4, null, "currency", "meta_campaign_a"), status: "partial"},
+      {...metric("meta_campaign_b_spend", "Investimento · ROOVE | META | ENGAGEMENT | PROFILE | CAPITAIS | OUT26", 69.83, null, "currency", "meta_campaign_b"), status: "partial"},
+      {...metric("meta_campaign_b_revenue", "Receita atribuída · ROOVE | META | ENGAGEMENT | PROFILE | CAPITAIS | OUT26", 0, null, "currency", "meta_campaign_b"), status: "partial"},
     ],
     crossings: [
       {id: "paid_to_revenue", label: "Investimento × faturamento", sources: ["meta_ads", "commerce"], status: "available", note: "O investimento subiu mais que o faturamento no período.", metrics: ["investment", "revenue", "roas"]},
@@ -55,6 +61,7 @@ export function reviewIntelligence({clientId, name, start, end}: Options) {
         {category: "positive", title: "Ticket médio sustentou o crescimento", interpretation: "Mais pedidos com ticket maior explicam a maior parte da alta do faturamento.", metric_ids: ["revenue", "average_ticket", "orders"], sources: ["commerce"], impact: "high", confidence: "high", action: "Manter as ofertas de maior valor em destaque.", reason: "Preservar o que está funcionando."},
         {category: "opportunity", title: "Tráfego converte melhor", interpretation: "Com menos sessões, a conversão subiu: há espaço para atrair mais visitas qualificadas.", metric_ids: ["sessions", "conversion_rate"], sources: ["ga4"], impact: "medium", confidence: "medium", action: "Testar ampliar o alcance das campanhas com melhor conversão.", reason: "Aproveitar a eficiência do site."},
         {category: "opportunity", title: "Base de novos clientes crescendo", interpretation: "Mais clientes novos no período abrem espaço para recompra.", metric_ids: ["new_customers"], sources: ["commerce"], impact: "medium", confidence: "medium", action: "Criar uma régua de recompra para quem comprou pela primeira vez.", reason: "Transformar aquisição em recorrência."},
+        {category: "data_quality", title: "Dados de hoje ainda em formação", interpretation: "O período inclui o dia de hoje, ainda parcial.", metric_ids: ["revenue"], sources: ["commerce"], impact: "medium", confidence: "high", action: "Reavaliar após o fechamento do dia.", reason: "Evitar comparar dia incompleto."},
         {category: "data_quality", title: "Comparação com mesma duração", interpretation: "O período anterior tem a mesma quantidade de dias, não o mês calendário completo.", metric_ids: ["revenue"], sources: ["commerce"], impact: "low", confidence: "high", action: "Considerar a sazonalidade ao comparar.", reason: "Evitar leitura distorcida."},
       ],
       actions: [
@@ -103,6 +110,22 @@ export async function diagnosticResponse(url: URL, method: string, options: Opti
   }
   if (!url.pathname.startsWith("/api/intelligence/")) return null;
   if (scenario === "carregando") await new Promise(resolve => setTimeout(resolve, 3000));
+  if (method === "POST" && url.pathname.endsWith("/ask") && scenario !== "erro") {
+    const now = new Date().toISOString();
+    const base = {conversation_id: `review-${clientId}`, period_start: start, period_end: end, sources: snapshot.sources};
+    return json({ok: true, conversation_id: base.conversation_id, snapshot,
+      user_message: {...base, id: "q1", role: "user", content: {question: "Minha mídia está eficiente?"}, created_at: now},
+      assistant_message: {...base, id: "a1", role: "assistant", created_at: now, content: {
+        direct_answer: "A mídia não está se pagando neste início de mês: o Google Ads consumiu R$ 1.608,14 e a Meta R$ 542,51 sem receita atribuída relevante, enquanto a loja registrou poucos pedidos. Vale revisar as campanhas de compra antes de aumentar o orçamento.",
+        metric_ids: ["investment", "orders", "roas"],
+        evidence: ["Investimento Google Ads: R$ 1.608,14 · Google Ads · parcial, dados até 20/10", "Investimento Meta: R$ 542,51 · Meta Ads · parcial, dados até 20/10", "Pedidos: 742 · Loja virtual · parcial, dados até 19/10"],
+        attention_points: ["O investimento cresceu mais rápido que as vendas da loja.", "A campanha de engajamento não gera receita atribuída.",
+          "Resposta parcial: indicadores apresentados separadamente; conclusões entre fontes sem compatibilidade comprovada foram omitidas.",
+          "Os dados de hoje ainda estão em formação."],
+        recommendations: ["Pausar ou reduzir a campanha de engajamento sem retorno.", "Revisar públicos e criativos da campanha de compra antes de ampliar orçamento."],
+        next_steps: ["Comparar a semana fechada com a anterior antes de decidir."],
+      }}});
+  }
   if (scenario === "erro" || method !== "GET") return json({detail: "Não foi possível concluir a análise simulada. Nenhuma IA foi chamada."}, 502);
   if (url.pathname.endsWith("/context")) return json({ok: true, snapshot});
   if (url.pathname.endsWith("/latest")) return json({ok: true, provider_configured: true, analysis: scenario === "sem-dados" ? null : analysis});

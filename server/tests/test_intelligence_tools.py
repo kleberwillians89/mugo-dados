@@ -91,10 +91,12 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["top_campaigns"][0]["spend"], 100)
         self.assertTrue(result["metric_ids"][0].startswith("meta_campaign_"))
         self.assertIn("Campanha de exemplo", result["evidence"][0])
-        self.assertIn(PERIOD["start"], result["evidence"][0])
-        self.assertIn("fonte", result["evidence"][0])
+        # Fato legível: valor em reais e fonte em nome humano, sem formato técnico.
+        self.assertIn("R$ 100,00", result["evidence"][0])
+        self.assertIn("Meta Ads", result["evidence"][0])
+        self.assertNotIn("currency", result["evidence"][0])
         self.assertNotIn("99999", json.dumps(result))
-        self.assertEqual([p["max_output_tokens"] for p in self.payloads], [100, 900])
+        self.assertEqual([p["max_output_tokens"] for p in self.payloads], [100, 1100])
         self.assertEqual([p["timeout_seconds"] for p in self.payloads], [10, 15])
         self.assertNotIn(cid, json.dumps(self.payloads))
 
@@ -256,14 +258,43 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
             await self.investigate(cid)
 
 
+    async def test_headline_reads_like_an_analyst_with_backend_numbers(self):
+        def reply(kwargs):
+            ref = next(r for r in kwargs["payload"]["evidence_refs"] if r["metric_id"] == "meta_investment")
+            result = answer("meta_investment")
+            result["headline"] = f"A mídia da Meta consumiu {ref['placeholder']} no período e pede revisão das campanhas."
+            return result
+        self.install("opaque-h", {"meta"}, reply=reply)
+        result, _ = await self.investigate("opaque-h")
+        self.assertEqual(result["direct_answer"], "A mídia da Meta consumiu R$ 100,00 no período e pede revisão das campanhas.")
+        self.assertNotIn("[[", json.dumps(result, ensure_ascii=False))
+
+    async def test_headline_with_its_own_number_is_rejected(self):
+        def reply(kwargs):
+            result = answer("meta_investment")
+            result["headline"] = "A Meta consumiu 150 reais."
+            return result
+        self.install("opaque-n", {"meta"}, reply=reply)
+        with self.assertRaisesRegex(RuntimeError, "AI_UNTRUSTED_NUMERIC_TEXT"):
+            await self.investigate("opaque-n")
+
+    async def test_unknown_placeholder_is_rejected(self):
+        def reply(kwargs):
+            result = answer("meta_investment")
+            result["headline"] = "Gasto de [[F42]]."
+            return result
+        self.install("opaque-u", {"meta"}, reply=reply)
+        with self.assertRaisesRegex(RuntimeError, "AI_UNGROUNDED_ANSWER"):
+            await self.investigate("opaque-u")
+
     async def test_correct_investment_is_rendered_from_canonical_reference(self):
         self.install("opaque-a", {"meta"}, reply=answer("meta_investment"))
         result, _ = await self.investigate("opaque-a")
         self.assertIsInstance(result["direct_answer"], str)
-        self.assertIn("100.0", result["direct_answer"])
+        self.assertIn("R$ 100,00", result["direct_answer"])
         self.assertNotIn("200", result["direct_answer"])
-        self.assertIn("currency; fonte meta", result["direct_answer"])
-        self.assertIn(PERIOD["start"], result["direct_answer"])
+        self.assertNotIn("currency", result["direct_answer"])
+        self.assertTrue(any("R$ 100,00 · Meta Ads" in item for item in result["evidence"]))
 
     async def test_swapped_values_in_prose_are_rejected_even_when_present_in_payload(self):
         for metric, claim in [("meta_investment", "Investimento de 200."),
@@ -508,7 +539,7 @@ class PartialEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(["source-a", "source-b"], payload["analysis_policy"]["comparable_source_groups"])
         self.assertNotIn(["source-a", "source-c"], payload["analysis_policy"]["comparable_source_groups"])
         self.assertEqual(payload["metrics"][0]["source_ids"], ["source-a"])
-        self.assertEqual([call["max_output_tokens"] for call in self.calls], [100, 900])
+        self.assertEqual([call["max_output_tokens"] for call in self.calls], [100, 1100])
         self.assertEqual([call["timeout_seconds"] for call in self.calls], [10, 15])
 
     async def test_coverage_mismatch_is_distinct_from_unavailable_source(self):
@@ -564,3 +595,23 @@ class PartialEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["quality"]["status"], "partial")
         self.assertEqual(set(result), {"direct_answer", "metric_ids", "evidence", "attention_points", "recommendations", "next_steps"})
         self.assertTrue(all(isinstance(text, str) for text in result["attention_points"]))
+
+
+class HeadlinePlaceholderTests(unittest.TestCase):
+    def test_formats_values_in_portuguese(self):
+        from services.intelligence import format_metric_value, human_fact
+        self.assertEqual(format_metric_value({"value": 408.255883, "format": "currency"}), "R$ 408,26")
+        self.assertEqual(format_metric_value({"value": 182450, "format": "currency"}), "R$ 182.450,00")
+        self.assertEqual(format_metric_value({"value": 2.0, "format": "integer"}), "2")
+        self.assertEqual(format_metric_value({"value": 1.537, "format": "percent"}), "1,54%")
+        self.assertEqual(format_metric_value({"value": 3.6, "format": "decimal"}), "3,60x")
+        fact = human_fact({"label": "Investimento Google Ads", "value": 408.255883, "format": "currency",
+                           "source": "google_ads", "status": "partial"}, "2026-10-20")
+        self.assertEqual(fact, "Investimento Google Ads: R$ 408,26 · Google Ads · parcial, dados até 20/10")
+
+    def test_placeholders_are_filled_only_with_known_facts(self):
+        from services.intelligence import _fill_fact_placeholders
+        self.assertEqual(_fill_fact_placeholders("Gasto de [[F1]] sem retorno ([[F2]]).", {"F1": "R$ 408,26", "F2": "R$ 0,00"}),
+                         "Gasto de R$ 408,26 sem retorno (R$ 0,00).")
+        self.assertEqual(_fill_fact_placeholders("Valor [[F9]].", {"F1": "x"}), "Valor .")
+

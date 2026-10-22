@@ -1,5 +1,5 @@
 import IntelligenceReports from "../components/intelligence/IntelligenceReports";
-import { formatMetric, sourceLabel } from "../app/intelligenceReport";
+import { formatMetricValue, sourceLabel } from "../app/intelligenceReport";
 import ConversationHistory from "../components/intelligence/ConversationHistory";
 import { useDataHealth } from "../app/DataHealthContext";
 import MetricHelp from "../components/data/MetricHelp";
@@ -155,6 +155,27 @@ function glossaryMetric(metric: IntelligenceMetric): MetricId | undefined {
 }
 
 
+const isCampaignMetric = (metric: IntelligenceMetric) => metric.source.startsWith("meta_campaign_");
+
+type CampaignRow = { name: string; cells: Map<string, IntelligenceMetric>; partial: boolean };
+
+/** Métricas por campanha ("Investimento · Campanha X") viram linhas de uma tabela. */
+function campaignRows(metrics: IntelligenceMetric[]) {
+  const rows = new Map<string, CampaignRow>();
+  const columns: string[] = [];
+  for (const metric of metrics.filter(isCampaignMetric)) {
+    const split = metric.label.indexOf(" · ");
+    const column = split > 0 ? metric.label.slice(0, split) : metric.label;
+    const name = split > 0 ? metric.label.slice(split + 3) : metric.label;
+    if (!columns.includes(column)) columns.push(column);
+    const row = rows.get(name) || { name, cells: new Map(), partial: false };
+    row.cells.set(column, metric);
+    row.partial ||= metric.status === "partial";
+    rows.set(name, row);
+  }
+  return { columns, rows: [...rows.values()] };
+}
+
 function metricMap(metrics: IntelligenceMetric[]) {
   return new Map(metrics.map((metric) => [metric.id, metric]));
 }
@@ -184,10 +205,36 @@ function Evidence({
       {items.map((metric) => (
         <li key={metric.id}>
           <small>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></small>
-          <strong>{formatMetric(metric)}</strong>
+          <strong>{formatMetricValue(metric)}</strong>
+          {metric.status === "partial" ? <span className="intelPartialTag">parcial</span> : null}
           {metric.variation_percent != null ? <Delta change={metric.variation_percent} sentiment={/investment|spend|cpa/.test(metric.id) ? "neutral" : "higher-is-better"} /> : null}
         </li>
       ))}
+    </ul>
+  );
+}
+
+/** Ressalvas de cobertura e compatibilidade: informação de método, não conclusão. */
+function isLimitation(text: string) {
+  return /resposta parcial|análise parcial|em formação|cobertura|não certificam|sem compatibilidade|não há recomendações sustentadas|omitid/i.test(text);
+}
+
+/** Fatos do backend ("Rótulo: valor · fonte · ressalva") em linhas legíveis. */
+function FactList({ facts }: { facts: string[] }) {
+  return (
+    <ul className="intelFactList">
+      {facts.map((fact, index) => {
+        const split = fact.indexOf(": ");
+        if (split < 0) return <li key={index}><span>{fact}</span></li>;
+        const [value, ...meta] = fact.slice(split + 2).split(" · ");
+        return (
+          <li key={index}>
+            <span className="intelFactLabel">{fact.slice(0, split)}</span>
+            <strong>{value}</strong>
+            {meta.length ? <small>{meta.join(" · ")}</small> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -779,20 +826,22 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
             <p className="ds-caption">Ausência, erro e desconexão nunca são apresentados como zero.</p>
           </div>
           <div className="intelMetricGrid">
-            {displayedMetrics.map((metric) => (
+            {displayedMetrics.filter((metric) => !isCampaignMetric(metric)).map((metric) => (
               <article className={`intelMetric is-${metric.status}`} key={metric.id}>
                 <span className="intelMetricLabel">{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span>
-                <strong className="intelMetricValue">{formatMetric(metric)}</strong>
+                <strong className={`intelMetricValue${metric.value == null ? " is-empty" : ""}`} title={metric.value == null ? undefined : formatMetricValue(metric)}>
+                  {metric.value == null ? "—" : formatMetricValue(metric)}
+                </strong>
                 <span className="intelMetricDelta">
                   {metric.variation_percent == null
-                    ? <span className="ds-delta">{metric.status === "partial" ? "Cobertura parcial" : metric.status === "confirmed" ? "Sem base anterior" : "Evidência indisponível"}</span>
+                    ? (metric.value == null ? null : <span className="ds-delta">Sem base anterior</span>)
                     : <Delta change={metric.variation_percent} sentiment={/investment|spend|cpa/.test(metric.id) ? "neutral" : "higher-is-better"} />}
                 </span>
                 {metric.value != null && metric.previous_value != null && metric.value >= 0 && metric.previous_value >= 0 && metric.variation_percent != null ? (
-                  <span className="intelMetricCompare" aria-label={`Período anterior: ${formatMetric({ ...metric, value: metric.previous_value })}`}>
+                  <span className="intelMetricCompare" aria-label={`Período anterior: ${formatMetricValue({ ...metric, value: metric.previous_value })}`}>
                     <span className="intelMetricBar is-current"><i style={{ width: `${(metric.value / Math.max(metric.value, metric.previous_value, 1e-9)) * 100}%` }} /></span>
                     <span className="intelMetricBar is-previous"><i style={{ width: `${(metric.previous_value / Math.max(metric.value, metric.previous_value, 1e-9)) * 100}%` }} /></span>
-                    <small>Anterior {formatMetric({ ...metric, value: metric.previous_value })}</small>
+                    <small>Anterior {formatMetricValue({ ...metric, value: metric.previous_value })}</small>
                   </span>
                 ) : null}
                 <small className="intelMetricSource">
@@ -802,6 +851,29 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
               </article>
             ))}
           </div>
+          {(() => {
+            const campaigns = campaignRows(displayedMetrics);
+            if (!campaigns.rows.length) return null;
+            return (
+              <div className="intelCampaigns">
+                <h3 className="intelSubTitle">Campanhas Meta Ads no período</h3>
+                <div className="ds-tableWrap">
+                  <table className="intelCampaignTable">
+                    <thead><tr><th scope="col">Campanha</th>{campaigns.columns.map((column) => <th scope="col" key={column}>{column}</th>)}</tr></thead>
+                    <tbody>{campaigns.rows.map((row) => (
+                      <tr key={row.name}>
+                        <th scope="row">{row.name}{row.partial ? <span className="intelPartialTag">parcial</span> : null}</th>
+                        {campaigns.columns.map((column) => {
+                          const metric = row.cells.get(column);
+                          return <td key={column}>{metric ? formatMetricValue(metric) : "—"}</td>;
+                        })}
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </section>
       ) : null}
 
@@ -1002,31 +1074,52 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
         <div className="intelConversation" aria-live="polite" ref={conversationView}>
           {messages.map((message) => (
             <article className={`intelMessage is-${message.role}`} key={message.id}>
-              <small>{message.role === "user" ? "Sua pergunta" : "Mugô Inteligência"}</small>
               {message.role === "user" ? (
-                <p>{message.content.question}</p>
-              ) : (
                 <>
-                  {message.content.attention_points?.some(item => /resposta parcial|análise parcial/i.test(item)) ? <p className="intelAnswerPartial" role="status">Resposta parcial · confira as limitações desta leitura.</p> : null}
-                  <div className="intelAnswerSummary"><span className="intelKicker">Resumo</span><h3>{message.content.direct_answer}</h3></div>
-                  {message.id === answerSnapshotId && message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
-                    <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids} metrics={conversationMetrics} /></section>
-                  ) : null}
-                  {message.content.evidence?.length || message.content.attention_points?.length ? (
-                    <section className="intelAnswerReading"><h4>Leitura</h4>
-                      {message.content.evidence?.length ? <details className="intelDisclosure"><summary>Evidências consultadas</summary>{message.content.evidence.map((item, index) => <p key={index}>{item}</p>)}</details> : null}
-                      {message.content.attention_points?.length ? <div><h5>Pontos de atenção</h5>{message.content.attention_points.map((item, index) => <p key={index}>{item}</p>)}</div> : null}
-                    </section>
-                  ) : null}
-                  {message.content.recommendations?.length || message.content.next_steps?.length ? (
-                    <section className="intelNextSteps"><h4>Próximos passos</h4>
-                      {message.content.recommendations?.length ? <div><h5>Recomendações</h5><ul>{message.content.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
-                      {message.content.next_steps?.length ? <div><h5>Ações sugeridas</h5><ul>{message.content.next_steps.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
-                    </section>
-                  ) : null}
-                  <footer>{formatDate(message.period_start)} — {formatDate(message.period_end)}</footer>
+                  <small>Sua pergunta</small>
+                  <p>{message.content.question}</p>
                 </>
-              )}
+              ) : (() => {
+                const partial = message.content.attention_points?.some(item => /resposta parcial|análise parcial/i.test(item));
+                const limitations = (message.content.attention_points || []).filter(isLimitation);
+                const findings = (message.content.attention_points || []).filter((item) => !isLimitation(item));
+                const showMetrics = message.id === answerSnapshotId && message.content.metric_ids?.some((id) => conversationMetrics.has(id));
+                const steps = [...(message.content.recommendations || []), ...(message.content.next_steps || [])];
+                return (
+                  <>
+                    <header className="intelAnswerHead">
+                      <span className="intelAnswerMark" aria-hidden="true">M</span>
+                      <small>Mugô Inteligência</small>
+                      {partial ? <p className="intelAnswerPartial" role="status">Resposta parcial · confira as limitações desta leitura.</p> : null}
+                      <time>{formatDate(message.period_start)} — {formatDate(message.period_end)}</time>
+                    </header>
+                    <div className="intelAnswerSummary"><span className="ds-srOnly">Resumo</span><h3>{message.content.direct_answer}</h3></div>
+                    {showMetrics ? (
+                      <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids || []} metrics={conversationMetrics} /></section>
+                    ) : message.content.evidence?.length ? (
+                      <section className="intelAnswerFacts"><h4>Números consultados na época</h4><FactList facts={message.content.evidence} /></section>
+                    ) : null}
+                    {findings.length || limitations.length || steps.length || (showMetrics && message.content.evidence?.length) ? (
+                      <div className="intelAnswerGrid">
+                        {findings.length || limitations.length || (showMetrics && message.content.evidence?.length) ? (
+                          <section className="intelAnswerReading"><h4>Leitura</h4>
+                            {findings.length ? <ul className="intelFindings">{findings.map((item, index) => <li key={index}>{item}</li>)}</ul> : null}
+                            {showMetrics && message.content.evidence?.length ? <details className="intelDisclosure"><summary>Evidências consultadas</summary><FactList facts={message.content.evidence} /></details> : null}
+                            {limitations.length ? (
+                              <div className="intelLimitations"><h5>Limitações desta leitura</h5><ul>{limitations.map((item, index) => <li key={index}>{item}</li>)}</ul></div>
+                            ) : null}
+                          </section>
+                        ) : null}
+                        {steps.length ? (
+                          <section className="intelNextSteps"><h4>Próximos passos</h4>
+                            <ol>{steps.map((item, index) => <li key={index}>{item}</li>)}</ol>
+                          </section>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </article>
           ))}
         </div>

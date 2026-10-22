@@ -16,7 +16,7 @@ async def load_report(client_id, analysis_id):
         raise RuntimeError('REPORT_NOT_FOUND')
     humanize_analysis_row(rows[0])  # análises antigas podem ter IDs técnicos no texto
     frozen = (rows[0].get('data_quality') or {}).get('report_context') or {}
-    if frozen.get('client_name'):
+    if frozen.get('client_name') and frozen['client_name'] != 'Empresa ativa':
         return rows[0], frozen['client_name']
     clients = await sb_select('clients', select='id,name,trade_name', filters={'id': f'eq.{client_id}'}, limit=1)
     client = next((row for row in clients if row.get('id') == client_id), {})

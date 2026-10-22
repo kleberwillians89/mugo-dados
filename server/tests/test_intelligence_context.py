@@ -176,7 +176,7 @@ class AskContextTests(unittest.IsolatedAsyncioTestCase):
             result = await ai.ask_intelligence(client_id='tenant-a', user_id='user-a', conversation_id='thread',
                 question='por que isso aconteceu?', start=PERIOD['start'], end=PERIOD['end'])
         self.assertEqual(len(calls), 2)
-        self.assertEqual([call['max_output_tokens'] for call in calls], [100, 900])
+        self.assertEqual([call['max_output_tokens'] for call in calls], [100, 1100])
         self.assertEqual([call['timeout_seconds'] for call in calls], [10, 15])
         for call in calls:
             payload = json.dumps(call['payload'], ensure_ascii=False)

@@ -77,13 +77,17 @@ export function rankInsights(
   });
 }
 
-/** Até três movimentos, sempre com evidência. Menos de três é resposta válida. */
+/**
+ * Até três movimentos, sempre com evidência. Menos de três é resposta válida.
+ * Qualidade de dado (dia em formação, cobertura parcial) é ressalva da
+ * leitura, não algo a fazer: nunca ocupa um lugar em "Onde agir".
+ */
 export function selectMovements(
   insights: IntelligenceInsight[] | null | undefined,
   metrics: Map<string, IntelligenceMetric>
 ): IntelligenceInsight[] {
   return rankInsights(insights, metrics)
-    .filter(hasEvidence)
+    .filter((insight) => hasEvidence(insight) && insight.category !== "data_quality")
     .slice(0, MAX_MOVEMENTS);
 }
 
@@ -174,7 +178,8 @@ export function describeSources(snapshot: {
   commerce_context?: { provider?: string | null; official_kpis?: boolean } | null;
 } | null | undefined): string[] {
   const commerceLabel = commercePublicLabel(snapshot?.commerce_context?.provider);
-  return (snapshot?.sources || [])
-    .filter((source) => ["available", "partial"].includes(source.status))
-    .map((source) => (source.id === "commerce" && commerceLabel ? commerceLabel : source.label));
+  // Campanhas são detalhe de uma fonte (Meta Ads), não fontes da análise.
+  return [...new Set((snapshot?.sources || [])
+    .filter((source) => ["available", "partial"].includes(source.status) && !source.id.startsWith("meta_campaign_"))
+    .map((source) => (source.id === "commerce" && commerceLabel ? commerceLabel : source.label)))];
 }
