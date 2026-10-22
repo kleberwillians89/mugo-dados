@@ -15,6 +15,7 @@ import httpx
 from .env_loader import ensure_env_loaded
 from .ig_supabase import sb_get_one_by, sb_insert, sb_select, sb_update, sb_upsert
 from .single_tenant import get_default_client_id, get_default_shopify_domain
+from .order_attribution import shopify_order_attribution, upsert_orders_with_attribution
 
 SUPPORTED_SHOPIFY_TOPICS = {
     "orders/create",
@@ -538,12 +539,15 @@ async def _upsert_order(
         "created_at_shopify": payload.get("created_at"),
         "updated_at_shopify": payload.get("updated_at"),
         "raw_payload": payload,
+        # Origem da venda (UTM / referência / canal), do próprio payload.
+        **shopify_order_attribution(payload, shop_domain=shop_domain),
     }
 
-    await sb_upsert(
+    await upsert_orders_with_attribution(
         "shopify_orders",
         [row],
         on_conflict="client_id,shopify_order_id",
+        upsert=sb_upsert,
     )
     return order_id
 

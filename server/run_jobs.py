@@ -93,6 +93,9 @@ async def _run(args: argparse.Namespace) -> Any:
         if not args.orders:
             report.pop("orders", None)
         return report
+    if args.command == "attribution-backfill":
+        from services.sales_by_origin import backfill_shopify_attribution
+        return await backfill_shopify_attribution(args.client_id, dry_run=args.dry_run)
     raise RuntimeError(f"Comando não suportado: {args.command}")
 
 
@@ -116,6 +119,13 @@ def _build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--start-date", required=True)
     coverage.add_argument("--end-date", required=True)
     coverage.add_argument("--connection-id", default=None)
+
+    attribution = sub.add_parser(
+        "attribution-backfill",
+        help="Preenche a origem (UTM/canal) dos pedidos Shopify já gravados, a partir do payload salvo. Sem chamar a Shopify.",
+    )
+    attribution.add_argument("--client-id", required=True)
+    attribution.add_argument("--dry-run", action="store_true")
 
     sub.add_parser("token-refresh", help="Renova/valida tokens Meta ativos.")
 
