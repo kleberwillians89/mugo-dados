@@ -177,6 +177,10 @@ export default function IntelligenceReports({ clientId, clientName, initialDate,
       <button className="btn btnPrimary" disabled={!!pending || !selectedPeriod || providerConfigured === false}>{pending === "generate" ? "Gerando relatório…" : "Gerar relatório com IA"}</button>
       <button type="button" className="btn" disabled={!!pending || !selectedPeriod} onClick={() => void load("read")}>{pending === "read" ? "Carregando…" : "Ver análise salva deste período"}</button>
     </form>
+    <div className="mugoReportExport" aria-label="Exportação de relatório">
+      <button className="btn" type="button" disabled={!shown || !!pending} onClick={() => void exportPdf()}>{pending === "export" ? "Preparando PDF…" : "Baixar relatório em PDF"}</button>
+      {!shown ? <small>Para baixar, gere um relatório ou abra uma versão salva do período ou histórico.</small> : <small>PDF A4 do relatório exibido, sem nova chamada de IA.</small>}
+    </div>
     <button className="btn" type="button" disabled={!!pending} onClick={() => void loadHistory()}>Consultar histórico</button>
     {history ? <section className="mugoReportHistory" aria-label="Histórico de relatórios"><h3>Relatórios anteriores</h3><p>Até 25 análises recentes. Cada versão preserva os indicadores e o diagnóstico da geração.</p>{!history.length ? <p>Nenhum relatório validado encontrado.</p> : <ul>{history.map(item => <li key={item.id}><button className="btn" type="button" disabled={!!pending} onClick={() => {
       if (!validReport(item, clientId, { start: item.period_start, end: item.period_end }) || getActiveClientId() !== clientId) return;
@@ -188,6 +192,6 @@ export default function IntelligenceReports({ clientId, clientName, initialDate,
     {error ? <p role="alert" className="intelInlineWarning">{error}</p> : null}
     {empty ? <p role="status">Não há análise válida salva para o período selecionado.{shown ? " A prévia anterior permanece abaixo, com seu período identificado." : ""}</p> : null}
     {!shown && !pending && !error && !empty ? <p className="intelEmpty">Escolha um período para gerar ou consultar um relatório. Nenhum conteúdo será inventado na ausência de dados.</p> : null}
-    {shown ? <><div className="mugoReportExport"><p>Relatório exibido: {reportDate(shown.analysis.period_start)} — {reportDate(shown.analysis.period_end)}</p><button type="button" className="btn" disabled={!!pending} onClick={() => void exportPdf()}>Exportar PDF</button><small>Download A4 da versão exibida, sem nova chamada de IA.</small></div><div><IntelligenceReportDocument report={shown} /></div></> : null}
+    {shown ? <><div className="mugoReportExport"><p>Relatório exibido: {reportDate(shown.analysis.period_start)} — {reportDate(shown.analysis.period_end)}</p><small>Download A4 da versão exibida, sem nova chamada de IA.</small></div><div><IntelligenceReportDocument report={shown} /></div></> : null}
   </section>;
 }
