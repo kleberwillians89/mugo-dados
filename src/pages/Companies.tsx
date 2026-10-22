@@ -13,6 +13,7 @@ import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
 import ClientAccessPanel from "../components/admin/ClientAccessPanel";
+import FbitsOriginProbePanel from "../components/admin/FbitsOriginProbePanel";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
 import CompanyWizard from "../components/admin/CompanyWizard";
 import Modal from "../components/Modal";
@@ -31,7 +32,7 @@ type Props = {
   canEditBusinessContext?: boolean;
 };
 
-type Tab = "empresas" | "acessos" | "usuarios" | "permissoes" | "contexto";
+type Tab = "empresas" | "acessos" | "usuarios" | "permissoes" | "contexto" | "origem";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "empresas", label: "Empresas" },
@@ -39,6 +40,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "usuarios", label: "Equipe Mugô" },
   { id: "permissoes", label: "Permissões" },
   { id: "contexto", label: "Contexto estratégico" },
+  { id: "origem", label: "Origem das vendas" },
 ];
 
 const INVITE_ROLES: Array<{ value: "owner" | "agency_admin" | "client_admin" | "viewer"; label: string }> = [
@@ -365,6 +367,8 @@ export default function Companies({
       ) : null}
 
       {tab === "acessos" ? <ClientAccessPanel canManage={canEditBusinessContext} /> : null}
+
+      {tab === "origem" ? <FbitsOriginProbePanel companies={companies} /> : null}
 
       {tab === "contexto" ? <BusinessContextPanel canEdit={canEditBusinessContext} /> : null}
 
