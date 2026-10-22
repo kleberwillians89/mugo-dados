@@ -144,19 +144,40 @@ async function renderIntelligence(canEditBusinessContext = true) {
   await act(async () => Promise.resolve());
 }
 
+
+const extraInsights = [
+  { metric_ids: ["spend"], sources: ["meta_ads"], impact: "high" as const, confidence: "high" as const, reason: "Motivo observado.", category: "risk" as const, title: "Frete encarecendo", interpretation: "Custo de entrega subiu.", action: "Revisar tabela." },
+  { metric_ids: ["spend"], sources: ["meta_ads"], impact: "high" as const, confidence: "high" as const, reason: "Motivo observado.", category: "attention" as const, title: "Estoque concentrado", interpretation: "Poucos SKUs sustentam a receita.", action: "Ampliar mix." },
+];
 describe("Intelligence — apresentação escaneável (não parece um chat)", () => {
-  it("agrupa insights em Avanços, Riscos e Oportunidades", async () => {
+  it("agrupa em Avanços, Riscos e Oportunidades só o que não está em Onde agir", async () => {
+    state.analysis = { ...analysis, analysis: { ...analysis.analysis, insights: [...analysis.analysis.insights, ...extraInsights] } };
     await renderIntelligence();
     const groupTitles = [...container.querySelectorAll(".intelInsightGroupTitle")].map((el) => el.textContent);
-    expect(groupTitles).toEqual(["Avanços", "Riscos", "Oportunidades"]);
+    // Os três riscos/atenções sobem para "Onde agir" e não se repetem abaixo.
+    expect(groupTitles).toEqual(["Avanços", "Oportunidades"]);
+    const reading = container.querySelector('[data-testid="intel-full-reading"]')!;
+    expect(reading.textContent).not.toContain("CPA subindo");
+    expect((reading as HTMLDetailsElement).open).toBe(false);
   });
 
   it("mostra os badges Fato, Interpretação e Recomendação em cada insight", async () => {
+    state.analysis = { ...analysis, analysis: { ...analysis.analysis, insights: [...analysis.analysis.insights, ...extraInsights] } };
     await renderIntelligence();
     const badges = [...container.querySelectorAll(".intelInsightBadge")].map((el) => el.textContent);
     expect(badges).toContain("Fato");
     expect(badges).toContain("Interpretação");
     expect(badges).toContain("Recomendação");
+  });
+
+  it("um único botão de gerar por estado da tela", async () => {
+    state.analysis = { ...analysis, status: "failed", analysis: null };
+    state.history = [];
+    await renderIntelligence();
+    const generate = [...container.querySelectorAll("button")].filter((el) => /^Gerar análise$/.test(el.textContent || ""));
+    expect(generate).toHaveLength(1);
+    expect(container.querySelector('[data-testid="intel-generate-empty"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="intel-generate"]')).toBeNull();
   });
 
   it("abre com o resumo do momento, curto e no topo", async () => {
@@ -365,9 +386,11 @@ describe("Intelligence — hierarquia de decisão", () => {
     expect(opportunities?.textContent).not.toContain("CPA subindo");
   });
 
-  it("ideias para testar saem das recomendações, com métrica e sem virar tarefa", async () => {
+  it("próximos passos trazem a métrica para acompanhar, sem seção duplicada de ideias", async () => {
     await renderIntelligence();
-    const section = container.querySelector('[data-testid="intel-ideas"]');
+    // "Ideias para testar" repetia as mesmas recomendações: agora é um lugar só.
+    expect(container.querySelector('[data-testid="intel-ideas"]')).toBeNull();
+    const section = container.querySelector('[data-testid="intel-recommendations"]');
     expect(section?.textContent).toContain("Revisar campanha X");
     expect(section?.textContent).toContain("Métrica para acompanhar");
     expect(section?.textContent).toContain("Investimento");
@@ -861,7 +884,7 @@ describe("Intelligence — analista executivo", () => {
     state.analysis = { ...analysis, client_id: "roove" };
     await renderIntelligence(false);
     expect(container.textContent).not.toContain("Resposta exclusiva da Amalie.");
-    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("Roove");
+    expect(container.querySelector(".intelHeader")?.textContent).toContain("Roove");
     expect(container.querySelectorAll(".intelMessage")).toHaveLength(0);
   });
 });
@@ -1090,21 +1113,27 @@ describe("Intelligence — central editorial", () => {
     }
     const metric = container.querySelector("#intel-indicators .intelMetric")!;
     expect(metric.textContent).toContain("Meta Ads");
-    expect(metric.textContent).toContain("Confirmado");
-    expect(metric.querySelector(".intelMetricPeriod")?.textContent).toBe("01/08/2026 — 31/08/2026");
+    // Status só aparece quando muda a leitura (parcial, erro); período uma vez só, no cabeçalho.
+    expect(metric.textContent).not.toContain("Confirmado");
+    expect(metric.querySelector(".intelMetricPeriod")).toBeNull();
+    expect(container.querySelector(".intelHeaderMeta")?.textContent).toContain("01/08/2026 — 31/08/2026");
     expect(generateIntelligenceAnalysis).not.toHaveBeenCalled();
     expect(askIntelligence).not.toHaveBeenCalled();
   });
 
   it("recolhe detalhes e mantém evidências e entradas funcionais para relatórios", async () => {
     await renderIntelligence();
-    for (const selector of [".intelMomentDetails", ".intelFullReading", ".intelSources details", ".intelInlineEvidence"]) {
+    // Tudo já está em "Onde agir": a leitura complementar não existe vazia nem repetida.
+    expect(container.querySelector(".intelFullReading")).toBeNull();
+    for (const selector of [".intelMomentDetails", ".intelSources details"]) {
       const details = container.querySelector<HTMLDetailsElement>(selector)!;
       expect(details).not.toBeNull();
       expect(details.open).toBe(false);
       expect(details.querySelector("summary")).not.toBeNull();
     }
-    expect(container.querySelector(".intelInlineEvidence .intelEvidence")?.textContent).toContain("1.000");
+    // A evidência da recomendação é a própria métrica para acompanhar, sem repetir em outro bloco.
+    expect(container.querySelector('[data-testid="intel-recommendations"] .intelActionTracked .intelEvidence')?.textContent).toContain("1.000");
+    expect(container.querySelector(".intelInlineEvidence")).toBeNull();
     const reports = container.querySelector('section[aria-label="Relatórios com IA"]')!;
     expect(reports.textContent).toContain("Relatório Semanal");
     expect(reports.textContent).toContain("Relatório Mensal");

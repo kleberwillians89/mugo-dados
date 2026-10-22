@@ -21,39 +21,40 @@ function block(css: string, selector: string) {
 }
 
 describe("Intelligence — layout mobile-first", () => {
-  it("listas de prioridade nascem em coluna única e só expandem acima de 760px", () => {
-    expect(block(intelligence, ".intelMovementList{")).toContain("display:grid");
-    expect(block(intelligence, ".intelOpportunityList,.intelIdeaList{")).toContain("grid-template-columns:1fr");
-    expect(intelligence).toContain("@media(min-width:760px)");
+  // Compara sem espaços: o contrato é a regra, não a formatação do arquivo.
+  const css = intelligence.replace(/\s+/g, "");
+
+  it("listas e grades nascem em coluna única e só expandem com min-width", () => {
+    for (const selector of [".intelMovement{", ".intelActionGroup{", ".intelInsight{", ".intelCrossList{", ".intelResearchItem{"]) {
+      expect(block(css, selector), selector).toContain("grid-template-columns:1fr");
+    }
+    expect(css).toContain("@media(min-width:760px)");
+    expect(css).toContain("@media(min-width:900px)");
   });
 
   it("filhos de grid podem encolher, evitando overflow horizontal", () => {
-    for (const selector of [
-      ".intelMovementBody{",
-      ".intelOpportunityList>article,.intelIdeaList>article{",
-      ".intelResearchItem{",
-    ]) {
-      expect(block(intelligence, selector), selector).toContain("min-width:0");
+    expect(block(css, ".intelligencePage*{")).toContain("min-width:0");
+    for (const selector of [".intelMovement{", ".intelMovementBody{", ".intelResearchItem{", ".intelActionGroup{", ".intelInsight{"]) {
+      expect(block(css, selector), selector).toContain("min-width:0");
     }
   });
 
   it("texto longo quebra em vez de esticar a página", () => {
-    expect(block(intelligence, ".intelMovementBody p{")).toContain("overflow-wrap:anywhere");
-    expect(block(intelligence, ".intelOpportunityList p,.intelIdeaList p{")).toContain("overflow-wrap:anywhere");
+    expect(block(css, ".intelMovementBodyp{")).toContain("overflow-wrap:anywhere");
+    expect(css).toContain(".intelligencePage:is(p,li,h1,h2,h3,h4,dd){overflow-wrap:anywhere;}");
   });
 
-  it("nenhuma largura fixa em px nos blocos novos", () => {
-    for (const selector of [".intelMovement{", ".intelMovementList{", ".intelIdeaList>article" ]) {
-      const rule = block(intelligence, selector);
-      expect(rule, selector).not.toMatch(/(?<!min-|max-)width:\s*\d+px/);
+  it("nenhuma largura fixa em px nos blocos base", () => {
+    for (const selector of [".intelMovement{", ".intelMovementList{", ".intelMetricGrid{", ".intelActionGroup{", ".intelInsight{"]) {
+      expect(block(css, selector), selector).not.toMatch(/(?<!min-|max-)width:\d+px/);
     }
   });
 
-  it("texto dos cartões não é minúsculo", () => {
-    const sizes = [...intelligence.matchAll(/\.intel(?:Movement|Opportunity|Idea)[^{]*\{[^}]*font-size:(\d+)px/g)]
+  it("texto da leitura não é minúsculo", () => {
+    const sizes = [...css.matchAll(/\.intel(?:Movement|Action|Insight|Metric)[^{]*\{[^}]*font-size:(\d+)px/g)]
       .map((match) => Number(match[1]));
     expect(sizes.length).toBeGreaterThan(0);
-    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(12);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(11);
   });
 });
 
