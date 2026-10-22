@@ -274,6 +274,13 @@ class FbitsClient:
         )
         return payload if isinstance(payload, dict) else {}
 
+    async def get_order(self, order_id: str) -> Dict[str, Any]:
+        """Detalhe de um pedido (GET /pedidos/{pedidoId}). Somente leitura."""
+        payload = await self._get(f"/pedidos/{_safe_str(order_id)}")
+        if isinstance(payload, list):
+            return payload[0] if payload and isinstance(payload[0], dict) else {}
+        return payload if isinstance(payload, dict) else {}
+
     async def iter_order_pages(
         self,
         *,

@@ -93,6 +93,11 @@ async def _run(args: argparse.Namespace) -> Any:
         if not args.orders:
             report.pop("orders", None)
         return report
+    if args.command == "fbits-origin-probe":
+        from services.fbits_origin_probe import probe_fbits_order_origin
+        return await probe_fbits_order_origin(
+            args.client_id, order_id=args.order_id, days=args.days, limit=args.limit, detail_sample=args.detail,
+        )
     if args.command == "attribution-backfill":
         from services.sales_by_origin import backfill_shopify_attribution
         return await backfill_shopify_attribution(args.client_id, dry_run=args.dry_run)
@@ -119,6 +124,16 @@ def _build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--start-date", required=True)
     coverage.add_argument("--end-date", required=True)
     coverage.add_argument("--connection-id", default=None)
+
+    probe = sub.add_parser(
+        "fbits-origin-probe",
+        help="Somente leitura: mostra onde a FBITS/Wake informa a origem (UTM/canal) dos pedidos, sem dados de cliente.",
+    )
+    probe.add_argument("--client-id", required=True)
+    probe.add_argument("--order-id", default=None, help="Um pedido específico (ex.: um que tenha UTM no painel da Wake).")
+    probe.add_argument("--days", type=int, default=7, help="Dias recentes a ler (máx. 30).")
+    probe.add_argument("--limit", type=int, default=20, help="Quantos pedidos recentes mostrar.")
+    probe.add_argument("--detail", type=int, default=5, help="Quantos desses consultar também no detalhe do pedido.")
 
     attribution = sub.add_parser(
         "attribution-backfill",
