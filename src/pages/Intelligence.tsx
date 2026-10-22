@@ -566,6 +566,9 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
       {/* Primeira dobra responde "o que eu preciso saber hoje?": identidade
           curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
       <PeriodSelector />
+      <IntelligenceReports key={clientId} clientId={clientId} clientName={getActiveClientName() || "Empresa ativa"}
+        initialDate={period.start} providerConfigured={providerConfigured} />
+
       {transitioning ? <p role="status">{error ? "Período não atualizado. Exibindo a leitura anterior." : "Atualizando período... Exibindo a leitura anterior até a nova ficar disponível."}</p> : null}
       <header className="intelHeader">
         <div className="intelIdentity">
@@ -916,8 +919,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
       </section>
       ) : null}
 
-      <IntelligenceReports key={clientId} clientId={clientId} clientName={getActiveClientName() || "Empresa ativa"}
-        initialDate={period.start} providerConfigured={providerConfigured} />
+
 
       <section id="intel-conversation" className="intelAssistant">
         <div className="intelAssistantIntro">
