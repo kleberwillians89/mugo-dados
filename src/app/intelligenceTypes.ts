@@ -57,6 +57,7 @@ export type IntelligenceSnapshot = {
     total_sources: number;
     errors: number;
     message: string;
+    report_context?: { client_name: string; timezone: string; crossings: IntelligenceSnapshot["crossings"] };
   };
   last_sync_at: string | null;
   metrics: IntelligenceMetric[];

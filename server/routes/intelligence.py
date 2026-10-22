@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from typing import Any, Dict
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
@@ -316,3 +317,32 @@ async def intelligence_resume_conversation(
         return await resume_conversation(cid, user_id, conversation_id)
     except RuntimeError as exc:
         _raise_service_error(exc)
+
+
+@router.get('/reports/{analysis_id}/pdf')
+async def intelligence_report_pdf(
+    analysis_id: UUID, kind: str = Query(default='monthly', pattern='^(weekly|monthly)$'),
+    client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias='X-Client-Id'),
+    authorization: str | None = Header(default=None),
+):
+    from fastapi.responses import Response
+    from starlette.concurrency import run_in_threadpool
+    from services.intelligence_reports import load_report, render_report
+    from services.memory_budget import operation_memory
+    cid, _ = await _context(client_id, x_client_id, authorization)
+    try:
+        record, company = await load_report(cid, str(analysis_id))
+        async with operation_memory('intelligence_report_pdf', limit=True):
+            data = await run_in_threadpool(render_report, record, company, kind)
+    except RuntimeError as exc:
+        if str(exc) == 'REPORT_NOT_FOUND':
+            raise HTTPException(status_code=404, detail='Relatório não encontrado para esta empresa.') from exc
+        if str(exc) == 'REPORT_PERIOD_INVALID':
+            raise HTTPException(status_code=422, detail='O período salvo não corresponde ao formato escolhido.') from exc
+        if str(exc) == 'REPORT_SIZE_LIMIT':
+            raise HTTPException(status_code=422, detail='Relatório excede o limite seguro de exportação.') from exc
+        raise
+    return Response(data, media_type='application/pdf', headers={
+        'Content-Disposition': f'attachment; filename="mugo-{record["period_start"]}-{record["period_end"]}.pdf"',
+        'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+    })

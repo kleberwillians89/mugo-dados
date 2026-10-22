@@ -3,14 +3,14 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import type { IntelligenceAnalysisRecord } from "../../app/intelligenceTypes";
-import { comparableReportMetric, printIntelligenceReport, reportPeriod, validReport } from "../../app/intelligenceReport";
-import { generateIntelligenceAnalysis, getLatestIntelligenceAnalysis } from "../../app/api";
+import { comparableReportMetric, reportPeriod, validReport, savedReportKind, reportComparisonPeriod } from "../../app/intelligenceReport";
+import { generateIntelligenceAnalysis, getLatestIntelligenceAnalysis, getIntelligenceHistory, downloadIntelligenceReport } from "../../app/api";
 import IntelligenceReports from "./IntelligenceReports";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const active = vi.hoisted(() => ({ id: "tenant-a" }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => active.id }));
-vi.mock("../../app/api", () => ({ generateIntelligenceAnalysis: vi.fn(), getLatestIntelligenceAnalysis: vi.fn() }));
+vi.mock("../../app/api", () => ({ generateIntelligenceAnalysis: vi.fn(), getLatestIntelligenceAnalysis: vi.fn(), getIntelligenceHistory: vi.fn(), downloadIntelligenceReport: vi.fn() }));
 // Vitest stubs CSS imports; export tests need the actual authored print styles.
 vi.mock("../../styles/intelligence-reports.css?raw", async () => {
   const { readFileSync } = await import("node:fs");
@@ -40,6 +40,8 @@ beforeEach(() => {
   active.id = "tenant-a";
   vi.mocked(generateIntelligenceAnalysis).mockReset().mockImplementation(async dates => response(dates, active.id));
   vi.mocked(getLatestIntelligenceAnalysis).mockReset().mockResolvedValue({ ok: true, provider_configured: true, analysis: record() });
+  vi.mocked(getIntelligenceHistory).mockReset().mockResolvedValue({ ok: true, items: [record()] });
+  vi.mocked(downloadIntelligenceReport).mockReset().mockResolvedValue(new Blob(["%PDF-1.4 fixture"], { type: "application/pdf" }));
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
@@ -145,35 +147,60 @@ describe("Relatórios — fluxo autorizado existente e estados", () => {
   });
 });
 
-describe("Relatórios — exportação sem IA e sem HTML injetado", () => {
-  it("exporta somente a prévia com identidade, empresa, período e CSS A4", async () => {
+describe("Relatórios — PDF real e histórico versionado", () => {
+  it("baixa a versão exibida com empresa e período no nome sem chamar IA ou impressão", async () => {
     await render(); await generate();
-    const doc = document.implementation.createHTMLDocument();
-    const popup = { document: doc, opener: window, focus: vi.fn(), print: vi.fn(), close: vi.fn(), addEventListener: vi.fn() };
-    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    const create = vi.fn(() => "blob:fixture"), revoke = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
+    let filename = "";
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function(this: HTMLAnchorElement) { filename = this.download; });
+    const print = vi.spyOn(window, "print");
     const calls = vi.mocked(generateIntelligenceAnalysis).mock.calls.length;
     await act(async () => button("Exportar PDF").click());
-    expect(popup.opener).toBeNull(); expect(popup.print).toHaveBeenCalledTimes(1);
-    expect(doc.body.textContent).toContain("Mugô"); expect(doc.body.textContent).toContain("Empresa exemplo");
-    expect(doc.body.textContent).toContain("01/08/2026 — 31/08/2026"); expect(doc.body.textContent).toContain("Diagnóstico validado");
-    expect(doc.querySelector("style")?.textContent).toContain("size:A4"); expect(doc.querySelector("form,button")).toBeNull();
+    expect(downloadIntelligenceReport).toHaveBeenCalledWith(record().id, "monthly", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(filename).toBe("mugo-Empresa-exemplo-2026-08-01-2026-08-31.pdf");
+    expect(create).toHaveBeenCalledTimes(1); expect(print).not.toHaveBeenCalled();
     expect(generateIntelligenceAnalysis).toHaveBeenCalledTimes(calls);
-    popup.addEventListener.mock.calls[0][1](); expect(popup.close).toHaveBeenCalledTimes(1);
   });
-  it("mantém texto potencialmente malicioso como texto e trata bloqueio de popup", async () => {
-    const node = document.createElement("article"); node.textContent = '<script>alert("fixture")</script>';
-    const doc = document.implementation.createHTMLDocument();
-    const popup = { document: doc, opener: window, focus: vi.fn(), print: vi.fn(), close: vi.fn(), addEventListener: vi.fn() };
-    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
-    printIntelligenceReport(node, '<img src=x onerror="fixture">', "@page{size:A4}");
-    expect(doc.querySelector("script,img")).toBeNull(); expect(doc.body.textContent).toBe(node.textContent);
-    await render(); await generate(); vi.mocked(window.open).mockReturnValue(null);
+  it("preserva o relatório e explica falha de PDF ou tipo inválido", async () => {
+    await render(); await generate();
+    vi.mocked(downloadIntelligenceReport).mockRejectedValueOnce(new Error("private-error"));
     await act(async () => button("Exportar PDF").click());
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Salvar como PDF");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Seu relatório foi preservado");
+    expect(container.textContent).not.toContain("private-error");
+    vi.mocked(downloadIntelligenceReport).mockResolvedValueOnce(new Blob(["invalid"], { type: "text/html" }));
+    await act(async () => button("Exportar PDF").click());
     expect(container.querySelector(".mugoReport")).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível baixar");
+  });
+  it("carrega uma versão histórica sem gerar e sem substituir seus números", async () => {
+    const historic = record(); historic.id = "version-old"; historic.metrics_snapshot[0].value = 321;
+    vi.mocked(getIntelligenceHistory).mockResolvedValueOnce({ ok: true, items: [historic] });
+    await render(); await act(async () => button("Consultar histórico").click());
+    const choose = container.querySelector<HTMLButtonElement>('.mugoReportHistory li button')!;
+    await act(async () => choose.click());
+    expect(container.querySelector(".mugoReportHeader")?.textContent).toContain("version-old");
+    expect(container.querySelector(".mugoReportKpis")?.textContent).toContain("321");
+    expect(generateIntelligenceAnalysis).not.toHaveBeenCalled();
+  });
+  it("rejeita histórico de outro tenant e intervalos que não são relatórios calendário", async () => {
+    await render();
+    vi.mocked(getIntelligenceHistory).mockResolvedValueOnce({ ok: true, items: [record(period, "tenant-b")] });
+    await act(async () => button("Consultar histórico").click());
+    expect(container.querySelector(".mugoReportHistory")).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível consultar");
+    expect(reportComparisonPeriod(record())).toEqual({ start: "2026-07-01", end: "2026-07-31" });
+    expect(savedReportKind(record())).toBe("monthly");
+    expect(savedReportKind(record({ start: "2026-08-03", end: "2026-08-09" }))).toBe("weekly");
+    expect(savedReportKind(record({ start: "2026-08-03", end: "2026-08-25" }))).toBeNull();
+  });
+  it("mostra gráficos somente para pares validados e indicador de acompanhamento", async () => {
+    await render(); await generate();
+    expect(container.querySelectorAll(".mugoReportComparisons figure")).toHaveLength(1);
+    expect(container.querySelector(".mugoReportComparisons")?.textContent).toContain("Anterior");
+    expect(container.querySelector(".mugoReportAction")?.textContent).toContain("Indicador de acompanhamento");
   });
 });
-
 
 describe("Relatórios — insuficiência e prioridades", () => {
   it("não fabrica relatório quando o pipeline recusa dados insuficientes", async () => {

@@ -2541,7 +2541,10 @@ async def generate_analysis(
         "provider": "openai" if provider_configured() else None,
         "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini") if provider_configured() else None,
         "sources": snapshot["sources"],
-        "data_quality": snapshot["quality"],
+        "data_quality": {**snapshot["quality"], "report_context": {
+            "client_name": (snapshot.get("client") or {}).get("name") or client_id, "timezone": "America/Sao_Paulo",
+            "crossings": snapshot.get("crossings") or [],
+        }},
         "metrics_snapshot": snapshot["metrics"],
     }
     if not provider_configured():
