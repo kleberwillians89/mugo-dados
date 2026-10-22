@@ -96,6 +96,7 @@ type RequestSignalOptions = {
   signal?: AbortSignal;
 };
 type HttpRequestInit = RequestInit & {
+  responseType?: "blob";
   timeoutMs?: number;
 };
 type ClientRequestOptions = RequestSignalOptions & {
@@ -385,6 +386,7 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
   try {
     const fetchInit = { ...init };
     delete fetchInit.timeoutMs;
+    delete fetchInit.responseType;
     res = await fetch(`${API_BASE}${path}`, {
       ...fetchInit,
       headers,
@@ -449,6 +451,7 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
     );
   }
 
+  if (init.responseType === "blob") return await res.blob() as T;
   if (res.status === 204) return {} as T;
   return (await res.json()) as T;
 }
@@ -2270,4 +2273,10 @@ export function getClientDataHealth(clientId: string, period: {start: string; en
 export type ProviderRefreshStatus = {client_id: string; provider: "meta" | "google" | "shopify" | "fbits"; authorized: true; running: boolean; cooldown_seconds: number};
 export function getProviderRefreshStatus(clientId: string, provider: ProviderRefreshStatus["provider"], period: {start: string; end: string}): Promise<ProviderRefreshStatus> {
   return http(`/api/clients/${encodeURIComponent(clientId)}/data-refresh/${provider}/status?${new URLSearchParams(period)}`);
+}
+
+export function downloadIntelligenceReport(id: string, kind: "weekly" | "monthly", options?: RequestSignalOptions): Promise<Blob> {
+  return executeHttp(`/api/intelligence/reports/${encodeURIComponent(id)}/pdf?kind=${kind}`, {
+    responseType: "blob", signal: options?.signal,
+  });
 }

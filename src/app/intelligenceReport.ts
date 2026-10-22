@@ -67,21 +67,22 @@ export function formatMetric(metric: IntelligenceMetric) {
 }
 
 
-/** Clone React-rendered text into a standalone print document. Never inject HTML. */
-export function printIntelligenceReport(element: HTMLElement, title: string, stylesheet: string): void {
-  const popup = window.open("about:blank", "_blank");
-  if (!popup) throw new Error("Permita a abertura da janela de impressão para salvar o PDF.");
-  popup.opener = null;
-  try {
-    const doc = popup.document;
-    const heading = doc.createElement("title"); heading.textContent = title;
-    const style = doc.createElement("style"); style.textContent = stylesheet;
-    doc.documentElement.lang = "pt-BR";
-    doc.head.replaceChildren(heading, style);
-    doc.body.replaceChildren(doc.importNode(element, true));
-    popup.addEventListener("afterprint", () => popup.close(), { once: true });
-    popup.focus(); popup.print();
-  } catch (error) {
-    popup.close(); throw error;
+/** Classify only exact calendar reports; arbitrary analysis intervals are not relabeled. */
+export function savedReportKind(record: IntelligenceAnalysisRecord): ReportKind | null {
+  for (const kind of ["monthly", "weekly"] as const) {
+    try {
+      const period = reportPeriod(kind, record.period_start);
+      if (period.start === record.period_start && period.end === record.period_end) return kind;
+    } catch { return null; }
   }
+  return null;
+}
+
+export function reportComparisonPeriod(record: IntelligenceAnalysisRecord): Period {
+  const start = new Date(record.period_start + "T12:00:00Z");
+  const end = new Date(record.period_end + "T12:00:00Z");
+  const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  const previousEnd = new Date(start); previousEnd.setUTCDate(start.getUTCDate() - 1);
+  start.setUTCDate(start.getUTCDate() - days);
+  return { start: start.toISOString().slice(0, 10), end: previousEnd.toISOString().slice(0, 10) };
 }

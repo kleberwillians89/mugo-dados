@@ -775,7 +775,7 @@ describe("Intelligence — analista executivo", () => {
   it("abre com título, contexto discreto e seis sugestões sem gerar IA automaticamente", async () => {
     state.analysis = { ...analysis, status: "pending", analysis: null };
     await renderIntelligence(false);
-    expect(container.querySelector("h1")?.textContent).toBe("Inteligência");
+    expect(container.querySelector("h1")?.textContent).toBe("Inteligência & Relatórios");
     expect(container.textContent).toContain("Entenda o que está acontecendo no seu negócio e onde agir.");
     expect(container.querySelectorAll(".intelQuestionSuggestions button")).toHaveLength(6);
     await act(async () => { container.querySelector<HTMLButtonElement>(".intelQuestionSuggestions button")!.click(); });

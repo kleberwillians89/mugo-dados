@@ -126,6 +126,10 @@ class IntelligenceAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["instructions"], intelligence.ANALYSIS_INSTRUCTIONS)
         self.assertEqual(request["payload"]["analysis_policy"]["material_metric_ids"], ["revenue"])
         self.assertEqual(insert.await_args.args[1]["status"], "completed")
+        frozen = insert.await_args.args[1]["data_quality"]["report_context"]
+        self.assertEqual(frozen["crossings"], snapshot.get("crossings") or [])
+        self.assertEqual(frozen["timezone"], "America/Sao_Paulo")
+        self.assertEqual(frozen["client_name"], (snapshot.get("client") or {}).get("name") or "amalie")
         self.assertEqual(result["analysis"]["analysis"], provider_result)
 
     async def test_conversation_read_filters_client_and_user(self):

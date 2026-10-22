@@ -558,7 +558,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
   }
 
   if (loading && !snapshot && !analysis) {
-    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><PeriodSelector /><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
+    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência &amp; Relatórios</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><PeriodSelector /><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
   }
 
   return (
@@ -570,7 +570,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
       <header className="intelHeader">
         <div className="intelIdentity">
           <span className="intelEyebrow">Mugô / Central de análise</span>
-          <h1>Inteligência</h1>
+          <h1>Inteligência &amp; Relatórios</h1>
           <p>Entenda o que está acontecendo no seu negócio e onde agir.</p>
         </div>
         <div className="intelHeaderMeta">
