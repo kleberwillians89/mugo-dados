@@ -47,6 +47,11 @@ export function sourceLabel(source: string): string {
   return labels[source] || source.replaceAll("_", " ");
 }
 
+/** Só o valor, sem sufixo de status: o status é mostrado à parte. */
+export function formatMetricValue(metric: IntelligenceMetric) {
+  return formatMetric({ ...metric, status: metric.status === "partial" ? "confirmed" : metric.status });
+}
+
 export function formatMetric(metric: IntelligenceMetric) {
   if (metric.value == null) {
     const statusLabel: Partial<Record<IntelligenceMetric["status"], string>> = {

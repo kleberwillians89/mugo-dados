@@ -110,5 +110,18 @@ class HumanizeStructuresTests(unittest.TestCase):
         self.assertEqual(out["metric_ids"], ["orders"])
 
 
+class LegacyFactTests(unittest.TestCase):
+    RAW = ("Investimento Google Ads: 408.255883 (currency; fonte google_ads; 2026-10-01 a 2026-10-21; partial; "
+           "cobertura observada até 2026-10-20). Pedidos: 2.0 (integer; fonte shopify; 2026-10-01 a 2026-10-21; partial; "
+           "cobertura observada até 2026-10-19).")
+
+    def test_old_machine_answer_becomes_readable(self):
+        out = humanize_answer({"direct_answer": self.RAW, "evidence": [self.RAW.split(". ")[0] + "."]}, LABELS)
+        self.assertEqual(out["direct_answer"], "Números consultados: Investimento Google Ads: R$ 408,26 · Google Ads · parcial, "
+                         "dados até 20/10; Pedidos: 2 · Loja virtual · parcial, dados até 19/10.")
+        self.assertEqual(out["evidence"], ["Investimento Google Ads: R$ 408,26 · Google Ads · parcial, dados até 20/10"])
+        self.assertNotIn("currency", str(out))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -394,6 +394,8 @@ Cada insight deve conter metric_ids e sources válidos. Recomendações com baix
 mandar investigar; com evidência moderada, testar; somente evidência forte permite priorizar,
 escalar ou corrigir. Evite recomendações genéricas. Não escreva algarismos nos textos; a interface
 renderiza números canônicos a partir dos metric_ids. Não prometa resultado.
+impact_expected é uma frase curta em português sobre o resultado esperado (hipótese), nunca high, medium ou low.
+Itens de qualidade de dado (dia em formação, cobertura parcial) usam a categoria data_quality, nunca opportunity ou risk.
 Nos textos, cite indicadores e fontes pelo rótulo legível (label), nunca pelo identificador técnico:
 não escreva "metric_ids", "sources" nem nomes com sublinhado como new_customers ou meta_ads.
 """.strip()
@@ -2537,6 +2539,8 @@ async def generate_analysis(
     )
     period = snapshot["period"]
     fingerprint = context_fingerprint(snapshot)
+    # Relatório e PDF levam o nome real da empresa, nunca "Empresa ativa".
+    await _ensure_company_name(snapshot, client_id)
     base_row = {
         "client_id": client_id,
         "requested_by": user_id,
@@ -2867,11 +2871,17 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
                 binding = {"tenant": client_id, "period": period, "metric": metric}
                 reference = "ev_" + hashlib.sha256(json.dumps(binding, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
                 references[reference] = mid
+            # Marcadores curtos ([[F1]]) para o modelo posicionar números no texto.
+            # O valor é sempre o canônico do backend, inserido depois da validação.
+            fact_keys = {ref: f"F{index}" for index, ref in enumerate(references, start=1)}
+            fact_metric = {fact_keys[ref]: mid for ref, mid in references.items()}
             schema = deepcopy(ANSWER_SCHEMA)
             schema.update(name="mugo_investigative_answer_v3", strict=True)
             schema["schema"]["properties"]["direct_answer"] = {
                 "type": "array", "items": {"type": "string", "enum": list(references)}, "minItems": 1, "maxItems": 6,
             }
+            schema["schema"]["properties"]["headline"] = {"type": "string"}
+            schema["schema"]["required"] = [*schema["schema"]["required"], "headline"]
             narrative_fields = ("attention_points", "recommendations", "next_steps")
             for field in narrative_fields:
                 schema["schema"]["properties"][field] = {"type": "array", "maxItems": 6, "items": {
@@ -2882,7 +2892,8 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
                 }}
             policy = _build_analysis_policy(evidence)
             payload = bounded({"question": question, **evidence, "metrics": _metrics_with_source_ids(evidence), "analysis_policy": policy,
-                               "evidence_refs": [{"id": ref, "metric_id": mid} for ref, mid in references.items()]})
+                               "evidence_refs": [{"id": ref, "metric_id": mid, "label": supported[mid].get("label"),
+                                                  "placeholder": f"[[{fact_keys[ref]}]]"} for ref, mid in references.items()]})
             stage = "answer_generation"
             answer = await _call_provider(payload=payload, schema=schema,
                 instructions=ANSWER_INSTRUCTIONS + "\nUse somente as evidências da ferramenta. Cite metric_ids consultados e as limitações. "
@@ -2892,12 +2903,22 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
                     "deve ser um objeto com text e metric_ids que sustentam apenas essa conclusão. Cite somente métricas selecionadas. "
                     "Respeite a cobertura observada de cada métrica e comparable_source_groups; fontes parciais não permitem cruzamentos. "
                     "Prefira conclusões independentes por fonte quando não houver comparação autorizada. "
-                    "Nos textos use somente prosa qualitativa sem numerais; "
-                    "não declare quantidades, valores ou variações por extenso. Sem evidência suficiente, explicite a limitação.",
-                max_output_tokens=900, timeout_seconds=15, request_id=request_id)
+                    "headline é a resposta direta à pergunta, como um analista sênior falaria com o dono da empresa: "
+                    "uma a três frases curtas, em português natural, começando pela conclusão. Para citar um valor, "
+                    "escreva o placeholder da evidência (ex.: [[F1]]) no lugar do número; o backend insere o valor oficial. "
+                    "Use placeholders também nos demais textos quando citar um valor. "
+                    "Fora dos placeholders não escreva algarismos, quantidades, valores nem variações por extenso. "
+                    "Nunca escreva identificadores técnicos, nomes de campo, unidades em inglês ou o formato dos dados. "
+                    "Sem evidência suficiente, diga isso na headline com clareza e proponha o que investigar.",
+                max_output_tokens=1100, timeout_seconds=15, request_id=request_id)
             stage = "answer_validation"
             required = set(ANSWER_SCHEMA["schema"]["required"])
-            if (not isinstance(answer, dict) or set(answer) != required
+            # headline é opcional para compatibilidade: sem ela, a resposta usa os fatos.
+            if isinstance(answer, dict):
+                if not isinstance(answer.get("headline", ""), str):
+                    raise RuntimeError("AI_UNGROUNDED_ANSWER")
+                answer = {**answer, "headline": answer.get("headline", "")}
+            if (not isinstance(answer, dict) or set(answer) - {"headline"} != required
                     or any(not isinstance(answer[key], list) for key in required)
                     or any(any(not isinstance(item, str) for item in answer[key]) for key in required - set(narrative_fields))):
                 raise RuntimeError("AI_UNGROUNDED_ANSWER")
@@ -2911,7 +2932,21 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
             if (not refs or len(refs) > 6 or any(ref not in references for ref in refs)
                     or not ids or len(ids) > 6 or set(ids) != {references[ref] for ref in refs}):
                 raise RuntimeError("AI_UNGROUNDED_ANSWER")
+            def placeholders_in(text: str) -> List[str]:
+                return _FACT_PLACEHOLDER.findall(text or "")
+
+            def strip_placeholders(text: str) -> str:
+                return _FACT_PLACEHOLDER.sub("", text or "")
+
+            for key in ("headline", *narrative_fields):
+                texts = [answer[key]] if key == "headline" else [item["text"] for item in answer[key]]
+                for text in texts:
+                    if any(key_ not in fact_metric for key_ in placeholders_in(text)):
+                        raise RuntimeError("AI_UNGROUNDED_ANSWER")
             prose = {key: value for key, value in answer.items() if key not in {"direct_answer", "metric_ids"}}
+            prose["headline"] = strip_placeholders(prose["headline"])
+            for field in narrative_fields:
+                prose[field] = [{**item, "text": strip_placeholders(item["text"])} for item in prose[field]]
             _assert_no_untrusted_numeric_text(prose, trusted=_trusted_numbers(payload), request_id=request_id)
             # A numeric statement in model prose has no deterministic subject binding.
             # Fail closed, even when its number occurs elsewhere in the payload.
@@ -2920,9 +2955,8 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
             for ref, mid in references.items():
                 metric = supported[mid]
                 coverage = metric.get("data_max_available") or source_by_id[_metric_source_ids(metric, source_index)[0]].get("data_max_available")
-                canonical[ref] = (f"{metric['label']}: {metric['value']} ({metric['format']}; fonte {metric['source']}; "
-                                  f"{period['start']} a {period['end']}; {metric['status']}; "
-                                  f"cobertura observada até {coverage or 'não confirmada'}).")
+                canonical[ref] = human_fact(metric, coverage)
+            fact_values = {fact_keys[ref]: format_metric_value(supported[mid]) for ref, mid in references.items()}
             caveat = "Os dados de hoje ainda estão em formação." if policy["includes_partial_today"] else ""
 
             def validate_claim(text, metric_ids):
@@ -2940,16 +2974,36 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
             for field in narrative_fields:
                 retained[field] = []
                 for item in answer[field]:
+                    cited = [fact_metric[key] for key in placeholders_in(item["text"])]
                     try:
-                        validate_claim(item["text"], item["metric_ids"])
+                        if not set(cited) <= set(item["metric_ids"]):
+                            raise RuntimeError("AI_UNGROUNDED_ANSWER")
+                        validate_claim(strip_placeholders(item["text"]), item["metric_ids"])
                     except RuntimeError as exc:
                         if str(exc) != "AI_TEMPORALLY_INCOMPATIBLE_SOURCES":
                             raise
                         discarded = True
                     else:
-                        retained[field].append(item["text"])
+                        retained[field].append(_fill_fact_placeholders(item["text"], fact_values))
             answer.update(retained)
-            answer["direct_answer"] = " ".join(canonical[ref] for ref in dict.fromkeys(refs))
+            headline = answer.pop("headline", "").strip()
+            headline_ids = [fact_metric[key] for key in placeholders_in(headline)] or list(ids)
+            try:
+                if not set(headline_ids) <= set(ids) or not strip_placeholders(headline).strip():
+                    raise RuntimeError("AI_UNGROUNDED_ANSWER")
+                validate_claim(strip_placeholders(headline), headline_ids)
+            except RuntimeError as exc:
+                if str(exc) not in {"AI_TEMPORALLY_INCOMPATIBLE_SOURCES", "AI_UNGROUNDED_ANSWER"}:
+                    raise
+                discarded = True
+                headline = ""
+            # A resposta é a frase do analista; os fatos ficam como evidência estruturada.
+            if headline:
+                answer["direct_answer"] = _fill_fact_placeholders(headline, fact_values)
+            else:
+                facts = [f"{supported[references[ref]].get('label')} {format_metric_value(supported[references[ref]])}"
+                         for ref in dict.fromkeys(refs)][:4]
+                answer["direct_answer"] = "Números consultados: " + "; ".join(facts) + "."
             answer["evidence"] = [canonical[ref] for ref in dict.fromkeys(refs)]
             selected_sources = {source for mid in ids for source in _metric_source_ids(supported[mid], source_index)}
             separate = len(selected_sources) > 1 and not _cited_sources_comparable(evidence, selected_sources)[0]
@@ -2972,6 +3026,82 @@ async def _investigate_question(*, client_id: str, question: str, period: Dict[s
     except Exception as exc:
         _log_ask_failure(exc=exc, request_id=request_id, stage=stage, started=started)
         raise
+
+
+GENERIC_COMPANY_NAME = "Empresa ativa"
+
+
+async def _company_display_name(client_id: str) -> str:
+    """Nome real da empresa (nome fantasia primeiro). Nunca o rótulo genérico."""
+    try:
+        rows = await sb_select("clients", select="id,name,trade_name", filters={"id": f"eq.{client_id}"}, limit=1)
+    except Exception:
+        return GENERIC_COMPANY_NAME
+    row = next((item for item in rows or [] if _text(item.get("id")) == _text(client_id)), {})
+    return _text(row.get("trade_name")) or _text(row.get("name")) or GENERIC_COMPANY_NAME
+
+
+async def _ensure_company_name(snapshot: Dict[str, Any], client_id: str) -> None:
+    client = snapshot.setdefault("client", {"id": client_id})
+    if _text(client.get("name")) in {"", GENERIC_COMPANY_NAME}:
+        client["name"] = await _company_display_name(client_id)
+
+
+_SOURCE_PUBLIC_LABELS = {
+    "meta": "Meta Ads", "meta_ads": "Meta Ads", "google_ads": "Google Ads", "ga4": "Google Analytics",
+    "instagram": "Instagram", "instagram_content": "Instagram", "shopify": "Loja virtual",
+    "fbits": "Loja virtual", "commerce": "Loja virtual", "paid_media": "Mídia paga",
+}
+_FACT_PLACEHOLDER = re.compile(r"\[\[(F\d{1,2})\]\]")
+
+
+def _br_number(value: float, decimals: int) -> str:
+    text = f"{value:,.{decimals}f}"
+    return text.replace(",", "\u0000").replace(".", ",").replace("\u0000", ".")
+
+
+def format_metric_value(metric: Dict[str, Any]) -> str:
+    """Valor canônico do backend em português: R$ 408,26 · 1.051 · 1,54% · 3,6x."""
+    value = metric.get("value")
+    if value is None:
+        return "indisponível"
+    value = float(value)
+    fmt = metric.get("format")
+    if fmt == "currency":
+        return f"R$ {_br_number(value, 2)}"
+    if fmt == "percent":
+        return f"{_br_number(value, 2 if abs(value) < 10 else 1)}%"
+    if fmt == "decimal":
+        return f"{_br_number(value, 2)}x"
+    return _br_number(round(value), 0)
+
+
+def _source_public_label(metric: Dict[str, Any]) -> str:
+    source = str(metric.get("source") or "")
+    if source.startswith("meta_campaign_"):
+        return "Meta Ads · campanha"
+    parts = [_SOURCE_PUBLIC_LABELS.get(part, part.replace("_", " ")) for part in source.split("+") if part]
+    return " e ".join(dict.fromkeys(parts)) or "fonte não informada"
+
+
+def _br_date(value: Any) -> str:
+    text = str(value or "")[:10]
+    try:
+        return date.fromisoformat(text).strftime("%d/%m")
+    except ValueError:
+        return text
+
+
+def human_fact(metric: Dict[str, Any], coverage: Any = None) -> str:
+    """Fato canônico legível: rótulo, valor, fonte e ressalva de cobertura."""
+    line = f"{metric.get('label')}: {format_metric_value(metric)} · {_source_public_label(metric)}"
+    if metric.get("status") == "partial":
+        line += f" · parcial, dados até {_br_date(coverage)}" if coverage else " · cobertura parcial"
+    return line
+
+
+def _fill_fact_placeholders(text: str, values: Dict[str, str]) -> str:
+    return _FACT_PLACEHOLDER.sub(lambda match: values.get(match.group(1), ""), text)
 
 
 def _investigation_snapshot(client_id: str, evidence: Dict[str, Any]) -> Dict[str, Any]:
@@ -3021,6 +3151,7 @@ async def ask_intelligence(
         answer, snapshot = await _investigate_question(client_id=client_id, question=context.question, period=period)
         answer["attention_points"] = [*answer.get("attention_points", []), *context.limitations]
     answer = humanize_answer(answer, build_labels(snapshot.get("metrics"), snapshot.get("sources")))
+    await _ensure_company_name(snapshot, client_id)
     analysis_rows = await sb_select(
         "ai_analyses",
         filters={

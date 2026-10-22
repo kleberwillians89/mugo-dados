@@ -145,6 +145,9 @@ _ANALYSIS_TEXT_FIELDS = {
     "insights": ("title", "interpretation", "action", "reason", "limitations"),
     "actions": ("recommendation", "justification", "impact_expected"),
 }
+# O modelo às vezes devolve o enum em inglês no lugar da frase de impacto.
+_IMPACT_WORDS = {"high": "Impacto alto", "medium": "Impacto médio", "low": "Impacto baixo",
+                 "alto": "Impacto alto", "médio": "Impacto médio", "medio": "Impacto médio", "baixo": "Impacto baixo"}
 _ANSWER_TEXT_FIELDS = ("direct_answer",)
 _ANSWER_LIST_FIELDS = ("evidence", "attention_points", "recommendations", "next_steps")
 
@@ -164,13 +167,51 @@ def humanize_analysis(analysis: Any, labels: Mapping[str, str]) -> Any:
             for field in fields:
                 if field in item:
                     item[field] = humanize_text(item[field], labels)
+            impact = item.get("impact_expected")
+            if isinstance(impact, str) and impact.strip().lower() in _IMPACT_WORDS:
+                item["impact_expected"] = _IMPACT_WORDS[impact.strip().lower()]
     return analysis
+
+
+# Fato no formato antigo de máquina, gravado em respostas anteriores:
+# "Investimento Meta: 365.38 (currency; fonte meta; 2026-10-01 a 2026-10-21; partial; cobertura observada até 2026-10-20)."
+_LEGACY_FACT = re.compile(
+    r"(?P<label>[^:().;]+?):\s*(?P<value>-?\d+(?:\.\d+)?)\s*\((?P<fmt>currency|integer|decimal|percent);\s*fonte\s+(?P<source>[^;]+);"
+    r"\s*[\d-]+\s+a\s+[\d-]+;\s*(?P<status>\w+);\s*cobertura observada até\s+(?P<coverage>[^)]+)\)\.?"
+)
+
+
+def _legacy_fact_text(match: "re.Match[str]") -> str:
+    from .intelligence import human_fact  # import tardio: evita ciclo de módulos
+
+    coverage = match.group("coverage").strip()
+    return human_fact({
+        "label": match.group("label").strip(), "value": float(match.group("value")), "format": match.group("fmt"),
+        "source": match.group("source").strip(), "status": match.group("status"),
+    }, None if coverage.startswith("não") else coverage)
+
+
+def humanize_legacy_facts(text: Any) -> Any:
+    """Converte fatos no formato de máquina antigo para leitura humana."""
+    if not isinstance(text, str) or "cobertura observada" not in text:
+        return text
+    facts = [_legacy_fact_text(match) for match in _LEGACY_FACT.finditer(text)]
+    if not facts:
+        return text
+    rest = _LEGACY_FACT.sub("", text).strip()
+    if rest:
+        return text if len(facts) == 1 and rest == text else _LEGACY_FACT.sub(lambda m: _legacy_fact_text(m) + ";", text).strip(" ;")
+    return facts[0] if len(facts) == 1 else "Números consultados: " + "; ".join(facts) + "."
 
 
 def humanize_answer(answer: Any, labels: Mapping[str, str]) -> Any:
     """Limpa o texto livre de uma resposta de conversa."""
     if not isinstance(answer, dict):
         return answer
+    if "direct_answer" in answer:
+        answer["direct_answer"] = humanize_legacy_facts(answer["direct_answer"])
+    if isinstance(answer.get("evidence"), list):
+        answer["evidence"] = [humanize_legacy_facts(item) for item in answer["evidence"]]
     for field in _ANSWER_TEXT_FIELDS:
         if field in answer:
             answer[field] = humanize_text(answer[field], labels)
