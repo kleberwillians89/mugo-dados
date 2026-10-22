@@ -7,6 +7,8 @@ import type { MetricId } from "../app/metricGlossary";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import PeriodSelector from "../components/data/PeriodSelector";
+import PageHeader from "../components/data/PageHeader";
+import Delta from "../components/data/Delta";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   askIntelligence,
@@ -25,7 +27,6 @@ import type {
   IntelligenceSnapshot,
 } from "../app/intelligenceTypes";
 import {
-  buildTestIdeas,
   describeSources,
   selectMovements,
   selectOpportunities,
@@ -118,6 +119,9 @@ const PRIORITY_LABELS: Record<IntelligenceAction["priority"], string> = {
   investigate: "Investigar",
 };
 
+const IMPACT_LABELS: Record<IntelligenceInsight["impact"], string> = { high: "alto", medium: "médio", low: "baixo" };
+const CONFIDENCE_LABELS: Record<IntelligenceInsight["confidence"], string> = { high: "alta", medium: "média", low: "baixa" };
+
 type InsightGroup = "positive" | "risk" | "opportunity";
 
 const INSIGHT_GROUPS: { id: InsightGroup; title: string; categories: IntelligenceInsight["category"][] }[] = [
@@ -176,15 +180,15 @@ function Evidence({
   const items = ids.map((id) => metrics.get(id)).filter(Boolean) as IntelligenceMetric[];
   if (!items.length) return <p className="intelMuted">Sem evidência numérica suficiente.</p>;
   return (
-    <div className="intelEvidence">
+    <ul className="intelEvidence">
       {items.map((metric) => (
-        <span key={metric.id}>
+        <li key={metric.id}>
           <small>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></small>
           <strong>{formatMetric(metric)}</strong>
-          {metric.variation_percent != null ? <small>{metric.variation_percent > 0 ? "+" : ""}{metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior</small> : null}
-        </span>
+          {metric.variation_percent != null ? <Delta change={metric.variation_percent} sentiment={/investment|spend|cpa/.test(metric.id) ? "neutral" : "higher-is-better"} /> : null}
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -427,7 +431,6 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
     () => selectOpportunities(content?.insights, metricIndex, movements),
     [content?.insights, metricIndex, movements]
   );
-  const testIdeas = useMemo(() => buildTestIdeas(content, metricIndex), [content, metricIndex]);
   const analysisMatchesContext = !analysis || (
     analysis.period_start === snapshot?.period.start && analysis.period_end === snapshot?.period.end
   );
@@ -557,199 +560,223 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
     }
   }
 
+  const companyName = snapshot?.client.name || getActiveClientName() || "Empresa ativa";
+  const periodLabel = `${formatDate(displayPeriod.start)} — ${formatDate(displayPeriod.end)}`;
+  const shownTitles = new Set(movements.map((insight) => insight.title));
+  // "Outras leituras": só o que ainda não apareceu em "Onde agir".
+  const remainingInsights = (content?.insights || []).filter((insight) => !shownTitles.has(insight.title));
+  const remainingOpportunityTitles = new Set(opportunities.map((insight) => insight.title));
+  const actionPriorities = (["now", "week", "monitor", "investigate"] as const)
+    .filter((priority) => visibleActions.some((action) => action.priority === priority));
+
+  const header = (
+    <div className="intelHeader">
+      <PageHeader
+        company={companyName}
+        title="Inteligência & Relatórios"
+        subnav={<p className="intelLede">Entenda o que está acontecendo no seu negócio e onde agir.</p>}
+        dateline={
+          <span className="intelHeaderMeta">
+            <span>Período exibido {periodLabel}</span>
+            {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
+                aparecem separados: um é sincronização, o outro é a IA. */}
+            {analysis ? <span>Análise gerada em {analysisUpdatedLabel}</span> : null}
+            {!health && dataFreshnessLabel ? <span>Dados atualizados {dataFreshnessLabel}</span> : null}
+          </span>
+        }
+        controls={<PeriodSelector />}
+      />
+      <div className="intelHeaderActions">
+        <button
+          className="ds-button is-primary"
+          onClick={() => void refreshAnalysis()}
+          disabled={refreshing || transitioning || loading}
+          data-testid="intel-generate"
+        >
+          {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
+        </button>
+        <button
+          className="ds-button"
+          type="button"
+          onClick={() => void refreshData()}
+          disabled={revalidating || !refreshCooldown.ready || loading}
+          data-testid="intel-refresh-data"
+          title={cooldownHint(refreshCooldown) || undefined}
+        >
+          {revalidating ? "Atualizando..." : "Atualizar dados"}
+        </button>
+        {cooldownHint(refreshCooldown) ? <p className="intelHeaderHint" role="status">{cooldownHint(refreshCooldown)}</p> : null}
+      </div>
+    </div>
+  );
+
   if (loading && !snapshot && !analysis) {
-    return <main className="intelligencePage"><header className="intelHeader"><div className="intelIdentity"><h1>Inteligência &amp; Relatórios</h1><p>Entenda o que está acontecendo no seu negócio e onde agir.</p></div><small>{getActiveClientName()} · {formatDate(period.start)} — {formatDate(period.end)}</small></header><PeriodSelector /><div className="intelWorkspace"><p role="status">Carregando sua leitura...</p><IntelligenceSkeleton /></div></main>;
+    return (
+      <main className="intelligencePage">
+        {header}
+        <div className="intelWorkspace"><p role="status" className="ds-status">Carregando sua leitura...</p><IntelligenceSkeleton /></div>
+      </main>
+    );
   }
 
   return (
     <main className="intelligencePage">
-      {/* Primeira dobra responde "o que eu preciso saber hoje?": identidade
-          curta, período, frescor e ação. Fontes e cobertura vão para o fim. */}
-      <PeriodSelector />
-      <IntelligenceReports key={clientId} clientId={clientId} clientName={getActiveClientName() || "Empresa ativa"}
-        initialDate={period.start} providerConfigured={providerConfigured} />
-
-      {transitioning ? <p role="status">{error ? "Período não atualizado. Exibindo a leitura anterior." : "Atualizando período... Exibindo a leitura anterior até a nova ficar disponível."}</p> : null}
-      <header className="intelHeader">
-        <div className="intelIdentity">
-          <span className="intelEyebrow">Mugô / Central de análise</span>
-          <h1>Inteligência &amp; Relatórios</h1>
-          <p>Entenda o que está acontecendo no seu negócio e onde agir.</p>
-        </div>
-        <div className="intelHeaderMeta">
-          <span><small>Empresa</small>{snapshot?.client.name || getActiveClientName() || "Empresa ativa"}</span>
-          <span><small>Período exibido</small>{formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}</span>
-          {/* Frescor do DADO e frescor da ANÁLISE são coisas diferentes e
-              aparecem separados: um é sincronização, o outro é a IA. */}
-          {health ? <span><small>Dados das integrações</small>Consulte a saúde por fonte acima</span> : dataFreshnessLabel ? (
-            <span><small>Dados atualizados</small>{dataFreshnessLabel}</span>
-          ) : null}
-          {analysisUpdatedLabel ? (
-            <span><small>Análise gerada em</small>{analysisUpdatedLabel}</span>
-          ) : null}
-          <button
-            className="btn intelHeaderAction"
-            type="button"
-            onClick={() => void refreshData()}
-            disabled={revalidating || !refreshCooldown.ready}
-            data-testid="intel-refresh-data"
-            title={cooldownHint(refreshCooldown) || undefined}
-          >
-            {revalidating ? "Atualizando..." : "Atualizar dados"}
-          </button>
-          <button
-            className="btn btnPrimary intelHeaderAction"
-            onClick={() => void refreshAnalysis()}
-            disabled={refreshing || transitioning}
-            data-testid="intel-generate"
-          >
-            {refreshing ? "Gerando análise..." : content ? "Gerar nova análise" : "Gerar análise"}
-          </button>
-        </div>
-        {cooldownHint(refreshCooldown) ? (
-          <p className="intelHeaderHint" role="status">{cooldownHint(refreshCooldown)}</p>
-        ) : null}
-      </header>
+      {header}
 
       <nav className="intelReadingNav" aria-label="Navegar pelo diagnóstico">
-        {content ? <a href="#intel-executive">Resumo executivo</a> : null}
-        {displayedMetrics.length ? <a href="#intel-indicators">Indicadores</a> : null}
-        {movements.length ? <a href="#intel-priorities">Prioridades</a> : null}
+        {content ? <a href="#intel-executive">Resumo</a> : null}
+        {displayedMetrics.length ? <a href="#intel-indicators">Números</a> : null}
+        {movements.length ? <a href="#intel-priorities">Onde agir</a> : null}
+        {content ? <a href="#intel-next">Próximos passos</a> : null}
         <a href="#intel-conversation">Conversa com IA</a>
+        <a href="#intel-reports">Relatórios</a>
       </nav>
 
-      <div className="intelWorkspace" tabIndex={0} aria-label="Análises e conversa" ref={workspaceView}>
-      {/* Erro nunca destrói a página: com análise anterior válida, ela
-          permanece e o aviso é discreto. */}
+      <div className="intelWorkspace" ref={workspaceView}>
+      {transitioning ? <p role="status" className="ds-status">{error ? "Período não atualizado. Exibindo a leitura anterior." : "Atualizando período... Exibindo a leitura anterior até a nova ficar disponível."}</p> : null}
+
+      {/* Avisos: uma pilha só, no topo, sem cartões. Erro nunca destrói a
+          página: com análise anterior válida, ela permanece. */}
       {error ? (
-        <div className={content ? "intelInlineWarning" : "intelInlineError"} role={content ? "status" : "alert"} data-testid={content ? "intel-stale-warning" : "intel-error"}>
-          <p>Não foi possível concluir esta análise.</p>
-          <p>{failureHint(error)}</p>
-          {content ? <p>A última análise válida continua disponível.</p> : null}
-          <button className="btn" type="button" disabled={refreshing || asking || revalidating || (retryKind.current === "read" && !refreshCooldown.ready)} title={retryKind.current === "read" ? cooldownHint(refreshCooldown) || undefined : undefined} onClick={() => {
-            if (retryKind.current === "question") questionForm.current?.requestSubmit();
-            else if (retryKind.current === "read") void refreshData();
-            else void refreshAnalysis();
-          }}>
-            Tentar novamente
-          </button>
+        <div className={`ds-notice ${content ? "is-warning intelInlineWarning" : "is-negative intelInlineError"}`} role={content ? "status" : "alert"} data-testid={content ? "intel-stale-warning" : "intel-error"}>
+          <p className="ds-noticeTitle">Não foi possível concluir esta análise.</p>
+          <p className="ds-noticeText">{failureHint(error)}{content ? " A última análise válida continua disponível." : ""}</p>
+          <div className="ds-noticeActions">
+            <button className="ds-button" type="button" disabled={refreshing || asking || revalidating || (retryKind.current === "read" && !refreshCooldown.ready)} title={retryKind.current === "read" ? cooldownHint(refreshCooldown) || undefined : undefined} onClick={() => {
+              if (retryKind.current === "question") questionForm.current?.requestSubmit();
+              else if (retryKind.current === "read") void refreshData();
+              else void refreshAnalysis();
+            }}>
+              Tentar novamente
+            </button>
+          </div>
         </div>
       ) : null}
       {analysisPredatesContext ? (
-        <div className="intelInlineWarning" role="status" data-testid="intel-context-updated">
-          <p>O contexto de negócio foi atualizado depois desta análise. Ela ainda não considera essas alterações.</p>
-          <button className="btn" type="button" disabled={refreshing || transitioning || providerConfigured === false}
-            onClick={() => void refreshAnalysis()}>Gerar análise com contexto atualizado</button>
+        <div className="ds-notice is-warning intelInlineWarning" role="status" data-testid="intel-context-updated">
+          <p className="ds-noticeText">O contexto de negócio foi atualizado depois desta análise. Ela ainda não considera essas alterações.</p>
+          <div className="ds-noticeActions">
+            <button className="ds-button" type="button" disabled={refreshing || transitioning || providerConfigured === false}
+              onClick={() => void refreshAnalysis()}>Gerar análise com contexto atualizado</button>
+          </div>
         </div>
       ) : null}
       {fresherDataAvailable && content ? (
-        <p className="intelInlineWarning" role="status" data-testid="intel-fresher-data">
+        <p className="ds-notice intelInlineWarning" role="status" data-testid="intel-fresher-data">
           Há dados mais recentes disponíveis. A análise abaixo é a última gerada.
         </p>
       ) : null}
       {content && analysis?.data_quality.message?.startsWith("Análise parcial:") ? (
-        <p className="intelInlineWarning" role="status" data-testid="intel-partial-analysis">{analysis.data_quality.message}</p>
+        <p className="ds-notice is-warning intelInlineWarning" role="status" data-testid="intel-partial-analysis">{analysis.data_quality.message}</p>
       ) : null}
       {providerConfigured === false || latestAnalysis?.status === "configuration_pending" ? (
-        <p className="intelInlineWarning" role="status">
+        <p className="ds-notice is-warning intelInlineWarning" role="status">
           A geração de novas análises está temporariamente indisponível. Os dados da empresa seguem acessíveis.
         </p>
       ) : null}
 
-      {/* Resumo do momento: duas a quatro linhas, sem hero gigante. */}
+      {/* 1. A leitura do período, em uma frase grande. Fontes e números ficam
+          abaixo, cada um em um lugar só. */}
       {content ? (
         <section id="intel-executive" className="intelMoment" aria-labelledby="intel-moment-title">
-          <h2 id="intel-moment-title">Resumo executivo</h2>
-          <p className="intelSourcesNote" data-testid="intel-diagnosis-period">
-            Período da análise: {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}
-          </p>
-          <p className="intelSourcesNote" data-testid="intel-diagnosis-sources">
-            Fontes da análise: {describeSources(analysis).join(" · ") || "Não informadas na análise salva"}
-          </p>
+          <h2 id="intel-moment-title" className="intelKicker">Resumo executivo</h2>
           <p className="intelMomentLead">{content.executive.overall}</p>
           {content.executive.priority_action ? (
-            <div className="intelMomentAction"><span className="intelEyebrow">Ação prioritária recomendada</span><p>{content.executive.priority_action}</p></div>
+            <div className="intelMomentAction"><span className="intelKicker">Próxima decisão</span><p>{content.executive.priority_action}</p></div>
           ) : null}
           {analysis?.data_quality.message ? (
             <details className="intelDisclosure intelMomentDetails">
               <summary>Cobertura e limitações do diagnóstico</summary>
-              <p className="intelSourcesNote" data-testid="intel-diagnosis-limitations">{analysis.data_quality.message}</p>
+              <p className="ds-footnote" data-testid="intel-diagnosis-limitations">{analysis.data_quality.message}</p>
             </details>
           ) : null}
         </section>
       ) : !error && !messages.length ? (
         <section className="intelMoment intelMomentEmpty" data-testid="intel-empty">
-          <h2>Ainda não há análise válida</h2>
-          <p>Gere uma análise para visualizar o diagnóstico da empresa. Nada é gerado automaticamente ao abrir esta tela.</p>
-          <button
-            className="btn btnPrimary"
-            type="button"
-            disabled={refreshing || transitioning}
-            onClick={() => void refreshAnalysis()}
-            data-testid="intel-generate-empty"
-          >
-            {refreshing ? "Gerando análise..." : "Gerar análise"}
-          </button>
+          <h2 className="ds-headline">Ainda não há análise válida</h2>
+          <p className="ds-emptyLine">Gere uma análise para visualizar o diagnóstico da empresa. Nada é gerado automaticamente ao abrir esta tela.</p>
+          <div>
+            <button
+              className="ds-button is-primary"
+              type="button"
+              disabled={refreshing || transitioning}
+              onClick={() => void refreshAnalysis()}
+              data-testid="intel-generate-empty"
+            >
+              {refreshing ? "Gerando análise..." : "Gerar análise"}
+            </button>
+          </div>
         </section>
       ) : null}
 
-      {/* Contexto da marca: uma linha, nunca um cartão dominante. */}
+      {/* Contexto da marca: convite discreto e único, só para quem pode editar. */}
       {!businessContextAvailable && canEditBusinessContext ? (
         <p className="intelInlineCta" data-testid="intel-context-cta">
-          Melhore esta leitura adicionando contexto estratégico em Administração › Contexto estratégico.
+          Melhore esta leitura adicionando contexto estratégico em Administração › Contexto estratégico: com segmento, público e objetivos, a análise considera a realidade da empresa, não só os números.
         </p>
       ) : null}
 
+      {/* 2. Números do período: o ÚNICO lugar com o quadro completo. Período e
+          fontes aparecem uma vez, no cabeçalho da seção. */}
       {displayedMetrics.length ? (
-      <section id="intel-indicators" className="intelSection intelIndicators">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Evidências</span><h2>Números importantes</h2></div>
-          <p>Ausência, erro e desconexão nunca são apresentados como zero.</p>
-        </div>
-        <div className="intelMetricGrid">
-          {displayedMetrics.map((metric) => (
-            <article className={`intelMetric is-${metric.status}`} key={metric.id}>
-              <div><span>{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span><small>{sourceLabel(metric.source)}</small></div>
-              <span className={`intelMetricStatus is-${metric.status}`}>{METRIC_STATUS_LABELS[metric.status]}</span>
-              <strong>{formatMetric(metric)}</strong>
-              <small className="intelMetricPeriod">{formatDate(analysis?.period_start || displayPeriod.start)} — {formatDate(analysis?.period_end || displayPeriod.end)}</small>
-              <p>
-                {metric.variation_percent == null
-                  ? metric.status === "partial"
-                    ? "Cobertura parcial do período"
-                    : metric.status === "confirmed"
-                      ? "Sem base anterior comparável"
-                      : "Evidência indisponível"
-                  : `${metric.variation_percent > 0 ? "+" : ""}${metric.variation_percent.toLocaleString("pt-BR")}% vs. período anterior`}
+        <section id="intel-indicators" className="ds-section intelBlock">
+          <div className="ds-sectionHead">
+            <div className="ds-sectionHeadText">
+              <h2 className="ds-sectionTitle">Números do período</h2>
+              <p className="ds-caption intelSourceLine" data-testid="intel-source-note">
+                {content ? (
+                  // O período exibido já está no cabeçalho: aqui ele só aparece
+                  // quando a análise salva cobre outro intervalo.
+                  <span data-testid="intel-diagnosis-period" className={analysis?.period_start === displayPeriod.start && analysis?.period_end === displayPeriod.end ? "ds-srOnly" : undefined}>
+                    Análise de {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}
+                  </span>
+                ) : null}
+                {sourceNames.length ? <span data-testid="intel-diagnosis-sources">Fontes: {sourceNames.join(" · ")}</span> : null}
+                {!health && analysisMatchesContext && updatedLabel ? <span>atualizado {updatedLabel}</span> : null}
               </p>
-            </article>
-          ))}
-        </div>
-      </section>
+            </div>
+            <p className="ds-caption">Ausência, erro e desconexão nunca são apresentados como zero.</p>
+          </div>
+          <div className="intelMetricGrid">
+            {displayedMetrics.map((metric) => (
+              <article className={`intelMetric is-${metric.status}`} key={metric.id}>
+                <span className="intelMetricLabel">{metric.label}<MetricHelp label={metric.label} metricId={glossaryMetric(metric)} /></span>
+                <strong className="intelMetricValue">{formatMetric(metric)}</strong>
+                <span className="intelMetricDelta">
+                  {metric.variation_percent == null
+                    ? <span className="ds-delta">{metric.status === "partial" ? "Cobertura parcial" : metric.status === "confirmed" ? "Sem base anterior" : "Evidência indisponível"}</span>
+                    : <Delta change={metric.variation_percent} sentiment={/investment|spend|cpa/.test(metric.id) ? "neutral" : "higher-is-better"} />}
+                </span>
+                <small className="intelMetricSource">
+                  {sourceLabel(metric.source)}
+                  {metric.status !== "confirmed" ? <span className={`intelMetricStatus is-${metric.status}`}> · {METRIC_STATUS_LABELS[metric.status]}</span> : null}
+                </small>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
 
-      {/* O que merece decisão primeiro. No máximo três, sempre com evidência:
-          menos de três é resposta legítima, não falha. */}
+      {/* 3. Onde agir: no máximo três, sempre com evidência. Menos de três é
+          resposta legítima, não falha. */}
       {movements.length ? (
-        <section id="intel-priorities" className="intelSection intelMovements" data-testid="intel-movements">
-          <div className="intelSectionTitle">
-            <div>
-              <span className="intelEyebrow">Prioridade</span>
-              <h2>{movements.length === 1 ? "1 movimento que merece sua atenção" : `${movements.length} movimentos que merecem sua atenção`}</h2>
+        <section id="intel-priorities" className="ds-section intelBlock" data-testid="intel-movements">
+          <div className="ds-sectionHead">
+            <div className="ds-sectionHeadText">
+              <h2 className="ds-sectionTitle">{movements.length === 1 ? "1 movimento que merece sua atenção" : `${movements.length} movimentos que merecem sua atenção`}</h2>
+              <p className="ds-caption">Ordenados por risco, impacto e confiança. Hipóteses a validar, nunca causalidade comprovada.</p>
             </div>
-            {sourceNames.length ? (
-              <p data-testid="intel-source-note">
-                Fontes: {sourceNames.join(" · ")}
-                {!health && analysisMatchesContext && updatedLabel ? ` · atualizado ${updatedLabel}` : ""}
-              </p>
-            ) : null}
           </div>
           <ol className="intelMovementList">
             {movements.map((insight, index) => (
               <li className={`intelMovement is-${insight.category}`} key={`${insight.title}-${index}`}>
-                <span className="intelMovementRank" aria-hidden="true">{index + 1}</span>
-                <div className="intelMovementBody">
+                <span className="intelMovementRank" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                <div className="intelMovementHead">
+                  <span className={`intelCategory is-${insight.category}`}>{CATEGORY_LABELS[insight.category]}</span>
                   <h3>{insight.title}</h3>
+                  <small className="intelMovementMeta">Impacto {IMPACT_LABELS[insight.impact]} · confiança {CONFIDENCE_LABELS[insight.confidence]}{insight.sources.length ? ` · ${insight.sources.map(sourceLabel).join(", ")}` : ""}</small>
+                </div>
+                <div className="intelMovementBody">
                   <div className="intelMovementFact">
                     <span className="intelInsightBadge is-fact">O que aconteceu</span>
                     <Evidence ids={insight.metric_ids} metrics={metricIndex} />
@@ -769,172 +796,159 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
         </section>
       ) : null}
 
+      {/* 4. Próximos passos: recomendações da análise com a métrica que diz se
+          funcionou. Substitui "Ideias para testar", que repetia o mesmo texto. */}
       {content ? (
-      <section className="intelSection" data-testid="intel-recommendations">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Execução</span><h2>Próximos passos</h2></div>
-          <p>Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
-        </div>
-        {visibleActions.length ? (
-          <div className="intelActionColumns">
-            {(["now", "week", "monitor", "investigate"] as const).filter(priority => visibleActions.some(action => action.priority === priority)).map((priority) => (
-              <div key={priority}>
-                <h3>{PRIORITY_LABELS[priority]}</h3>
-                {visibleActions.filter((action) => action.priority === priority).map((action, index) => (
-                  <article key={`${action.recommendation}-${index}`}>
-                    <strong>{action.recommendation}</strong>
-                    <p>{action.justification}</p>
-                    <small>{action.impact_expected} · confiança {({ high: "alta", medium: "média", low: "baixa" })[action.confidence]}</small>
-                    <details className="intelDisclosure intelInlineEvidence">
-                      <summary>Evidência da recomendação</summary>
-                      <Evidence ids={[action.metric_id]} metrics={metricIndex} />
-                      <p className="intelSourcesNote">{action.sources.map(sourceLabel).join(" · ")} · {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}</p>
-                    </details>
-                  </article>
-                ))}
-              </div>
-            ))}
+        <section id="intel-next" className="ds-section intelBlock" data-testid="intel-recommendations">
+          <div className="ds-sectionHead">
+            <div className="ds-sectionHeadText">
+              <h2 className="ds-sectionTitle">Próximos passos</h2>
+              <p className="ds-caption">Recomendações são hipóteses priorizadas, nunca garantias de resultado.</p>
+            </div>
           </div>
-        ) : <div className="intelEmpty">Não há ações com evidências disponíveis nesta análise.</div>}
-      </section>
-      ) : null}
-
-      {/* Oportunidades só entram aterradas em dado; sem candidata, sem seção. */}
-      {opportunities.length ? (
-        <section className="intelSection" data-testid="intel-opportunities">
-          <div className="intelSectionTitle">
-            <div><span className="intelEyebrow">Caminhos</span><h2>Oportunidades</h2></div>
-            <p>Cada uma sai de um número do período, não de boa prática genérica.</p>
-          </div>
-          <div className="intelOpportunityList">
-            {opportunities.map((insight, index) => (
-              <article key={`${insight.title}-${index}`}>
-                <span className="intelEyebrow">Impacto {({ high: "alto", medium: "médio", low: "baixo" })[insight.impact]} · confiança {({ high: "alta", medium: "média", low: "baixa" })[insight.confidence]}</span>
-                <h3>{insight.title}</h3>
-                <span className="intelInsightBadge is-fact">Evidência</span>
-                <Evidence ids={insight.metric_ids} metrics={metricIndex} />
-                <p><span className="intelInsightBadge is-interpretation">Hipótese</span>{insight.interpretation}</p>
-                <div><span className="intelInsightBadge is-recommendation">Ação recomendada</span><p><strong>{insight.action}</strong></p></div>
-              </article>
-            ))}
-          </div>
+          {visibleActions.length ? (
+            <div className="intelActionList">
+              {actionPriorities.map((priority) => (
+                <div className={`intelActionGroup is-${priority}`} key={priority}>
+                  <h3 className="intelActionPriority">{PRIORITY_LABELS[priority]}</h3>
+                  <div>
+                    {visibleActions.filter((action) => action.priority === priority).map((action, index) => {
+                      const tracked = metricIndex.get(action.metric_id);
+                      return (
+                        <article className="intelAction" key={`${action.recommendation}-${index}`}>
+                          <strong className="intelActionTitle">{action.recommendation}</strong>
+                          {action.justification ? <p>{action.justification}</p> : null}
+                          <dl className="intelActionFacts">
+                            {tracked ? <div><dt>Métrica para acompanhar</dt><dd>{tracked.label} · {formatMetric(tracked)}</dd></div> : null}
+                            {action.impact_expected ? <div><dt>Resultado esperado (hipótese)</dt><dd>{action.impact_expected}</dd></div> : null}
+                            <div><dt>Confiança</dt><dd>{CONFIDENCE_LABELS[action.confidence]}</dd></div>
+                          </dl>
+                          <details className="intelDisclosure intelInlineEvidence">
+                            <summary>Evidência da recomendação</summary>
+                            <Evidence ids={[action.metric_id]} metrics={metricIndex} />
+                            <p className="ds-footnote">{action.sources.map(sourceLabel).join(" · ")} · {formatDate(analysis?.period_start)} — {formatDate(analysis?.period_end)}</p>
+                          </details>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="ds-emptyLine">Não há ações com evidências disponíveis nesta análise.</p>}
         </section>
       ) : null}
 
-      {/* Ideias derivadas das recomendações da análise. Ainda não é tarefa,
-          calendário nem publicação. */}
-      {testIdeas.length ? (
-        <section className="intelSection" data-testid="intel-ideas">
-          <div className="intelSectionTitle">
-            <div><span className="intelEyebrow">Experimentos</span><h2>Ideias para testar</h2></div>
-            <p>Hipóteses para avaliar, com a métrica que diz se funcionou.</p>
-          </div>
-          <div className="intelIdeaList">
-            {testIdeas.map((idea) => (
-              <article key={idea.title}>
-                <h3>{idea.title}</h3>
-                {idea.whyNow ? <p><small>Por que agora</small>{idea.whyNow}</p> : null}
-                <p><small>Ação</small>{idea.action}</p>
-                {idea.hypothesis ? <p><small>Hipótese</small>{idea.hypothesis}</p> : null}
-                <p><small>Métrica para acompanhar</small>{idea.metricLabel}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {/* Contexto da marca: convite discreto para quem pode editar, nunca bloqueio. */}
-      {!businessContextAvailable && canEditBusinessContext ? (
-        <section className="intelSection intelContextCta" data-testid="intel-context-cta">
-          <div className="intelSectionTitle">
-            <div><span className="intelEyebrow">Contexto</span><h2>Adicionar contexto da marca</h2></div>
-            <p>
-              Com segmento, público e objetivos preenchidos, a leitura passa a considerar a
-              realidade da empresa, não só os números. Em Administração › Contexto estratégico.
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-
-
-      {content ? (
-      <details className="intelDisclosure intelFullReading" data-testid="intel-full-reading">
-        <summary>Explorar a análise completa <span>Avanços, riscos e oportunidades</span></summary>
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Leitura</span><h2>Avanços, riscos e oportunidades</h2></div>
-          <p>Impacto, confiança, fontes e evidências ficam visíveis em cada conclusão.</p>
-        </div>
-        {content?.insights?.length ? (
+      {/* 5. O restante da leitura, sem repetir o que já está em "Onde agir". */}
+      {content && remainingInsights.length ? (
+        <details className="intelDisclosure intelFullReading" data-testid="intel-full-reading">
+          <summary>Outras leituras do período <span>{remainingInsights.length} {remainingInsights.length === 1 ? "conclusão" : "conclusões"} além das prioridades</span></summary>
           <div className="intelInsightGroups">
             {INSIGHT_GROUPS.map((group) => {
-              const items = content.insights.filter((insight) => group.categories.includes(insight.category));
+              const items = remainingInsights.filter((insight) => group.categories.includes(insight.category));
               if (!items.length) return null;
+              const isOpportunity = group.id === "opportunity" && items.some((insight) => remainingOpportunityTitles.has(insight.title));
               return (
-                <div className="intelInsightGroup" key={group.id}>
+                <div className="intelInsightGroup" key={group.id} data-testid={isOpportunity ? "intel-opportunities" : undefined}>
                   <h3 className={`intelInsightGroupTitle is-${group.id}`}>{group.title}</h3>
-                  <div className="intelInsightGrid">
+                  <ul className="intelInsightRows">
                     {items.map((insight, index) => (
-                      <article className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
+                      <li className={`intelInsight is-${insight.category}`} key={`${insight.title}-${index}`}>
                         <div className="intelInsightTop">
-                          <span>{CATEGORY_LABELS[insight.category]}</span>
-                          <small>Impacto {({ high: "alto", medium: "médio", low: "baixo" })[insight.impact]} · confiança {({ high: "alta", medium: "média", low: "baixa" })[insight.confidence]}</small>
+                          <h4>{insight.title}</h4>
+                          <small>{CATEGORY_LABELS[insight.category]} · impacto {IMPACT_LABELS[insight.impact]} · confiança {CONFIDENCE_LABELS[insight.confidence]}{insight.sources.length ? ` · ${insight.sources.map(sourceLabel).join(", ")}` : ""}</small>
                         </div>
-                        <h4>{insight.title}</h4>
                         <span className="intelInsightBadge is-fact">Fato</span>
                         <Evidence ids={insight.metric_ids} metrics={metrics} />
-                        <span className="intelInsightBadge is-interpretation">Interpretação</span>
-                        <p>{insight.interpretation}</p>
-                        <span className="intelInsightBadge is-recommendation">Recomendação</span>
-                        <div className="intelInsightAction"><strong>{insight.action}</strong><small>{insight.reason}</small></div>
-                        <div className="intelTags">{insight.sources.map((source) => <span key={source}>{sourceLabel(source)}</span>)}</div>
-                      </article>
+                        <p><span className="intelInsightBadge is-interpretation">Interpretação</span>{insight.interpretation}</p>
+                        <p className="intelInsightAction"><span className="intelInsightBadge is-recommendation">Recomendação</span>{insight.action}</p>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               );
             })}
           </div>
-        ) : <div className="intelEmpty">Nenhum insight versionado para este período.</div>}
-      </section>
-      </details>
+        </details>
       ) : null}
 
       {snapshot?.crossings.length ? (
-      <section className="intelSection">
-        <div className="intelSectionTitle">
-          <div><span className="intelEyebrow">Visão integrada</span><h2>Cruzamento de plataformas</h2></div>
-          <p>Relações observadas não são apresentadas como causalidade.</p>
-        </div>
-        <div className="intelCrossGrid">
-          {(snapshot?.crossings || []).map((crossing) => (
-            <article key={crossing.id}>
-              <div><h3>{crossing.label}</h3><span>{crossing.status === "available" ? "Disponível" : "Dados insuficientes"}</span></div>
-              <Evidence ids={crossing.metrics} metrics={metricMap(snapshot?.metrics || [])} />
-              <p>{crossing.note}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+        <section className="ds-section intelBlock">
+          <div className="ds-sectionHead">
+            <div className="ds-sectionHeadText">
+              <h2 className="ds-sectionTitle">Cruzamento de plataformas</h2>
+              <p className="ds-caption">Relações observadas não são apresentadas como causalidade.</p>
+            </div>
+          </div>
+          <ul className="intelCrossList">
+            {(snapshot?.crossings || []).map((crossing) => (
+              <li key={crossing.id}>
+                <div className="intelCrossHead">
+                  <h3>{crossing.label}</h3>
+                  <small>{crossing.status === "available" ? "Disponível" : "Dados insuficientes"}</small>
+                </div>
+                <p>{crossing.note}</p>
+                <Evidence ids={crossing.metrics} metrics={metricMap(snapshot?.metrics || [])} />
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
+      {/* Mercado, referências e creators só existem com pesquisa externa real.
+          Sem provider conectado, estas seções não são renderizadas — nunca um
+          placeholder que pareça funcionalidade. */}
+      {marketSignals.length ? (
+        <section className="ds-section intelBlock" data-testid="intel-market">
+          <div className="ds-sectionHead"><div className="ds-sectionHeadText">
+            <h2 className="ds-sectionTitle">Mercado agora</h2>
+            <p className="ds-caption">Sinais observados fora da operação, com a fonte de cada um.</p>
+          </div></div>
+          <div className="intelHistoryList">
+            {marketSignals.map((item) => (
+              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
+                <span><strong>{item.reason_relevant || item.observed_format || "Sinal observado"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
+                <span><strong>{item.public_signal || "Sinal público"}</strong><small>{formatDate(item.researched_at)}</small></span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {ugcCreators.length || contentReferences.length ? (
+        <section className="ds-section intelBlock" data-testid="intel-creators">
+          <div className="ds-sectionHead"><div className="ds-sectionHeadText">
+            <h2 className="ds-sectionTitle">Creators e UGC</h2>
+            <p className="ds-caption">Evidências para avaliação humana. A escolha de quem contratar é sempre sua.</p>
+          </div></div>
+          <div className="intelHistoryList">
+            {[...ugcCreators, ...contentReferences].map((item) => (
+              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
+                <span><strong>{item.handle || item.observed_format || "Referência"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
+                <span>
+                  <strong>{item.kind === "POTENTIAL_UGC_CREATOR" ? "Creator para avaliar" : "Referência de conteúdo"}</strong>
+                  <small>{item.reason_relevant || "Sem motivo informado"}</small>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-
-      <section id="intel-conversation" className="intelAssistant">
-        <div className="intelAssistantIntro">
-          <span className="intelEyebrow">Seu analista</span>
-          <h2>{messages.length ? "Sua conversa com o negócio" : "Aprofunde o diagnóstico"}</h2>
-          <p>As perguntas usam os dados da empresa no período selecionado: {formatDate(displayPeriod.start)} — {formatDate(displayPeriod.end)}.</p>
-          {!analysisMatchesContext ? <p>A análise salva acima se refere a outro período.</p> : null}
+      {/* 6. Conversa: o composer fica logo abaixo, como continuação natural. */}
+      <section id="intel-conversation" className="ds-section intelBlock intelAssistant">
+        <div className="ds-sectionHead intelAssistantIntro">
+          <div className="ds-sectionHeadText">
+            <h2 className="ds-sectionTitle">{messages.length ? "Sua conversa com o negócio" : "Pergunte aos seus dados"}</h2>
+            <p className="ds-caption">Respostas com os dados de {companyName} em {periodLabel}.{!analysisMatchesContext ? " A análise salva acima se refere a outro período." : ""}</p>
+          </div>
         </div>
         <ConversationHistory key={`${clientId}:${conversationUserId}`} clientId={clientId} userId={conversationUserId}
           activeId={conversationId} revision={answerSnapshotId || ""} busy={asking}
           onRestore={restoreConversation} onLoadingChange={setConversationLoading} />
-        {messages.length && !answerSnapshotId ? <p className="intelInlineWarning" role="status">Conversa restaurada do histórico. As respostas mantêm suas datas originais e não são evidências numéricas atuais. Para consultar outro período, selecione-o antes de perguntar.</p> : null}
-        {messages.at(-1)?.role === "user" && !asking ? <p role="status">A última pergunta não tem resposta salva nesta conversa. Você pode reformulá-la ou enviá-la novamente.</p> : null}
+        {messages.length && !answerSnapshotId ? <p className="ds-notice intelInlineWarning" role="status">Conversa restaurada do histórico. As respostas mantêm suas datas originais e não são evidências numéricas atuais. Para consultar outro período, selecione-o antes de perguntar.</p> : null}
+        {messages.at(-1)?.role === "user" && !asking ? <p role="status" className="ds-status">A última pergunta não tem resposta salva nesta conversa. Você pode reformulá-la ou enviá-la novamente.</p> : null}
         {!messages.length ? (
-        <div className="intelQuestionSuggestions">
+        <div className="intelQuestionSuggestions" aria-label="Sugestões de pergunta">
           {QUESTIONS.map((suggestion) => (
             <button key={suggestion} type="button" disabled={asking || conversationLoading || transitioning || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>
               {suggestion}
@@ -951,7 +965,7 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
               ) : (
                 <>
                   {message.content.attention_points?.some(item => /resposta parcial|análise parcial/i.test(item)) ? <p className="intelAnswerPartial" role="status">Resposta parcial · confira as limitações desta leitura.</p> : null}
-                  <div className="intelAnswerSummary"><span className="intelEyebrow">Resumo</span><h3>{message.content.direct_answer}</h3></div>
+                  <div className="intelAnswerSummary"><span className="intelKicker">Resumo</span><h3>{message.content.direct_answer}</h3></div>
                   {message.id === answerSnapshotId && message.content.metric_ids?.some((id) => conversationMetrics.has(id)) ? (
                     <section className="intelAnswerMetrics"><h4>Números importantes</h4><Evidence ids={message.content.metric_ids} metrics={conversationMetrics} /></section>
                   ) : null}
@@ -975,49 +989,47 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
         </div>
 
         {messages.at(-1)?.role === "assistant" && !asking ? <div className="intelFollowUps" aria-label="Continue a análise">{FOLLOW_UPS.map((suggestion) => <button key={suggestion} type="button" disabled={conversationLoading || providerConfigured === false} onClick={() => chooseQuestion(suggestion)}>{suggestion}</button>)}</div> : null}
-
       </section>
+      </div>
 
-      {/* Mercado, referências e creators só existem com pesquisa externa real.
-          Sem provider conectado, estas seções não são renderizadas — nunca um
-          placeholder que pareça funcionalidade. */}
-      {marketSignals.length ? (
-        <section className="intelSection" data-testid="intel-market">
-          <div className="intelSectionTitle">
-            <div><span className="intelEyebrow">Pesquisa externa</span><h2>Mercado agora</h2></div>
-            <p>Sinais observados fora da operação, com a fonte de cada um.</p>
-          </div>
-          <div className="intelHistoryList">
-            {marketSignals.map((item) => (
-              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
-                <span><strong>{item.reason_relevant || item.observed_format || "Sinal observado"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
-                <span><strong>{item.public_signal || "Sinal público"}</strong><small>{formatDate(item.researched_at)}</small></span>
-              </a>
-            ))}
-          </div>
-        </section>
+      {asking || refreshing ? (
+        <div className="intelProcessing" role="status" aria-live="polite">
+          <span className="intelProcessingDot" aria-hidden="true" />
+          <p>Analisando os dados de {companyName}...</p>
+        </div>
       ) : null}
-      {ugcCreators.length || contentReferences.length ? (
-        <section className="intelSection" data-testid="intel-creators">
-          <div className="intelSectionTitle">
-            <div><span className="intelEyebrow">Pesquisa externa</span><h2>Creators e UGC</h2></div>
-            <p>Evidências para avaliação humana. A escolha de quem contratar é sempre sua.</p>
-          </div>
-          <div className="intelHistoryList">
-            {[...ugcCreators, ...contentReferences].map((item) => (
-              <a className="intelResearchItem" href={item.source_url || undefined} key={item.source_url || item.handle} rel="noreferrer noopener" target="_blank">
-                <span><strong>{item.handle || item.observed_format || "Referência"}</strong><small>{item.platform || "Plataforma não informada"}</small></span>
-                <span>
-                  <strong>{item.kind === "POTENTIAL_UGC_CREATOR" ? "Creator para avaliar" : "Referência de conteúdo"}</strong>
-                  <small>{item.reason_relevant || "Sem motivo informado"}</small>
-                </span>
-              </a>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <form className="intelAskForm" onSubmit={submitQuestion} ref={questionForm}>
+        <label htmlFor="intel-question" className="ds-srOnly">Sua pergunta</label>
+        <div>
+          <textarea
+            id="intel-question"
+            ref={questionInput}
+            rows={2}
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder={`Pergunte sobre os dados de ${companyName}...`}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                if (!asking && !conversationLoading && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            disabled={asking || conversationLoading || transitioning || providerConfigured === false}
+          />
+          <button className="ds-button is-primary" disabled={asking || conversationLoading || transitioning || !question.trim() || providerConfigured === false}>
+            {asking ? "Analisando…" : "Enviar"}
+          </button>
+        </div>
+        <small className="intelAskHint">Enter envia · Shift + Enter quebra a linha</small>
+      </form>
 
-      {/* Fontes são evidência, não produto: ficam no fim, em uma linha. */}
+      {/* 7. Relatórios recorrentes para o cliente: no fim, não antes do título. */}
+      <div id="intel-reports" className="intelReports">
+        <IntelligenceReports key={clientId} clientId={clientId} clientName={companyName}
+          initialDate={period.start} providerConfigured={providerConfigured} />
+      </div>
+
+      {/* Fontes são evidência, não produto: ficam no fim, recolhidas. */}
       {sourceNames.length || commerceContext?.provider_label ? (
         <section ref={detailsDemand.observe} className="intelSources" aria-label="Fontes da análise" data-testid="intel-sources">
           <details className="intelDisclosure"><summary>Fontes e detalhes técnicos da análise</summary>
@@ -1043,38 +1055,6 @@ export default function Intelligence({ canEditBusinessContext = false, conversat
           </details>
         </section>
       ) : null}
-
-
-      </div>
-      {asking || refreshing ? (
-        <div className="intelProcessing" role="status" aria-live="polite">
-          <span className="intelProcessingDot" aria-hidden="true" />
-          <p>Analisando os dados de {snapshot?.client.name || getActiveClientName()}...</p>
-        </div>
-      ) : null}
-        <form className="intelAskForm" onSubmit={submitQuestion} ref={questionForm}>
-          <label htmlFor="intel-question">Sua pergunta</label>
-          <div>
-            <textarea
-              id="intel-question"
-              ref={questionInput}
-              rows={2}
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Pergunte sobre seus dados..."
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  if (!asking && !conversationLoading && providerConfigured !== false) event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              disabled={asking || conversationLoading || transitioning || providerConfigured === false}
-            />
-            <button className="btn btnPrimary" disabled={asking || conversationLoading || transitioning || !question.trim() || providerConfigured === false}>
-              {asking ? "Analisando…" : "Enviar"}
-            </button>
-          </div>
-        </form>
     </main>
   );
 }

@@ -8,20 +8,61 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const timestamp = "2026-10-20T12:42:00Z";
 
 export function reviewIntelligence({clientId, name, start, end}: Options) {
+  // Amostra fictícia com o volume de uma análise real (vários indicadores,
+  // insights e ações), para revisar hierarquia e repetição. Nenhum dado real.
+  const sources: IntelligenceSnapshot["sources"] = [
+    {id: "commerce", label: "Loja virtual", status: "available", connected: true, data_points: 30, covered_days: 30, last_sync_at: timestamp},
+    {id: "meta_ads", label: "Meta Ads", status: "available", connected: true, data_points: 30, covered_days: 30, last_sync_at: timestamp},
+    {id: "ga4", label: "Google Analytics", status: "available", connected: true, data_points: 30, covered_days: 30, last_sync_at: timestamp},
+  ];
+  const metric = (id: string, label: string, value: number, previous: number | null, format: IntelligenceSnapshot["metrics"][number]["format"], source: string) => ({
+    id, label, value, previous_value: previous, format, source, status: "confirmed" as const,
+    variation_percent: previous ? Math.round(((value - previous) / previous) * 1000) / 10 : null,
+  });
   const snapshot: IntelligenceSnapshot = {
     client: {id: clientId, name}, period: {start, end, days: Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1), previous_start: start, previous_end: end},
-    sources: [{id: "meta_ads", label: "Meta Ads", status: "available", connected: true, data_points: 1, covered_days: 1, last_sync_at: timestamp}],
-    quality: {score: 90, status: "good", available_sources: 1, total_sources: 1, errors: 0, message: "Dados fictícios para revisão visual."},
+    sources,
+    quality: {score: 90, status: "good", available_sources: 3, total_sources: 3, errors: 0, message: "Dados fictícios para revisão visual."},
     last_sync_at: timestamp,
-    metrics: [{id: "spend", label: "Investimento", value: 1000, previous_value: 900, variation_percent: null, format: "currency", source: "meta_ads", status: "confirmed"}],
-    crossings: [], top_campaigns: [],
+    metrics: [
+      metric("revenue", "Faturamento", 182450, 158300, "currency", "commerce"),
+      metric("orders", "Pedidos", 742, 701, "integer", "commerce"),
+      metric("average_ticket", "Ticket médio", 245.89, 225.82, "currency", "commerce"),
+      metric("investment", "Investimento", 15300, 12100, "currency", "paid_media"),
+      metric("roas", "ROAS", 11.92, 13.08, "decimal", "commerce+paid_media"),
+      metric("sessions", "Sessões", 48210, 51990, "integer", "ga4"),
+      metric("conversion_rate", "Taxa de conversão", 1.54, 1.35, "percent", "ga4"),
+      metric("new_customers", "Novos clientes", 418, 392, "integer", "commerce"),
+    ],
+    crossings: [
+      {id: "paid_to_revenue", label: "Investimento × faturamento", sources: ["meta_ads", "commerce"], status: "available", note: "O investimento subiu mais que o faturamento no período.", metrics: ["investment", "revenue", "roas"]},
+      {id: "ga4_to_sales", label: "GA4 × vendas", sources: ["ga4", "commerce"], status: "available", note: "Menos sessões, com conversão maior.", metrics: ["sessions", "conversion_rate", "orders"]},
+    ],
+    top_campaigns: [],
   };
   const analysis: IntelligenceAnalysisRecord = {
     id: `review-${clientId}`, client_id: clientId, period_start: start, period_end: end, status: "completed", provider: "visual-mock", model: "fixture",
-    sources: snapshot.sources, data_quality: snapshot.quality, metrics_snapshot: snapshot.metrics,
+    sources: snapshot.sources, data_quality: {...snapshot.quality, message: "Leitura fictícia. Comparações usam o período anterior de mesma duração."}, metrics_snapshot: snapshot.metrics,
     created_at: timestamp, completed_at: timestamp, error_code: null,
-    analysis: {executive: {overall: "Leitura de exemplo do período selecionado.", main_change: "O investimento merece acompanhamento.", opportunity: "Compare os canais antes de decidir.", attention: "Amostra fictícia, sem recomendação real.", priority_action: "Conferir a leitura das campanhas."},
-      insights: [{category: "attention", title: "Acompanhe o investimento", interpretation: "Exemplo de interpretação com evidência visível.", metric_ids: ["spend"], sources: ["meta_ads"], impact: "medium", confidence: "medium", action: "Comparar os períodos.", reason: "Acompanhar a distribuição do investimento."}], actions: []},
+    analysis: {
+      executive: {
+        overall: "O faturamento cresceu com mais pedidos e ticket maior, mas o retorno da mídia caiu porque o investimento subiu mais rápido que as vendas.",
+        main_change: "Ticket médio maior sustentou o crescimento.", opportunity: "Converter melhor o tráfego que já chega.",
+        attention: "Retorno da mídia em queda.", priority_action: "Revisar a distribuição do investimento antes de ampliar orçamento.",
+      },
+      insights: [
+        {category: "risk", title: "Retorno da mídia em queda", interpretation: "O investimento cresceu acima do faturamento; os dados sugerem saturação nas campanhas de maior gasto.", metric_ids: ["investment", "roas"], sources: ["meta_ads", "commerce"], impact: "high", confidence: "medium", action: "Revisar as campanhas de maior gasto antes de ampliar orçamento.", reason: "Evitar escalar onde o retorno marginal caiu."},
+        {category: "positive", title: "Ticket médio sustentou o crescimento", interpretation: "Mais pedidos com ticket maior explicam a maior parte da alta do faturamento.", metric_ids: ["revenue", "average_ticket", "orders"], sources: ["commerce"], impact: "high", confidence: "high", action: "Manter as ofertas de maior valor em destaque.", reason: "Preservar o que está funcionando."},
+        {category: "opportunity", title: "Tráfego converte melhor", interpretation: "Com menos sessões, a conversão subiu: há espaço para atrair mais visitas qualificadas.", metric_ids: ["sessions", "conversion_rate"], sources: ["ga4"], impact: "medium", confidence: "medium", action: "Testar ampliar o alcance das campanhas com melhor conversão.", reason: "Aproveitar a eficiência do site."},
+        {category: "opportunity", title: "Base de novos clientes crescendo", interpretation: "Mais clientes novos no período abrem espaço para recompra.", metric_ids: ["new_customers"], sources: ["commerce"], impact: "medium", confidence: "medium", action: "Criar uma régua de recompra para quem comprou pela primeira vez.", reason: "Transformar aquisição em recorrência."},
+        {category: "data_quality", title: "Comparação com mesma duração", interpretation: "O período anterior tem a mesma quantidade de dias, não o mês calendário completo.", metric_ids: ["revenue"], sources: ["commerce"], impact: "low", confidence: "high", action: "Considerar a sazonalidade ao comparar.", reason: "Evitar leitura distorcida."},
+      ],
+      actions: [
+        {priority: "now", recommendation: "Revisar as campanhas de maior gasto", justification: "O retorno caiu enquanto o investimento subiu.", sources: ["meta_ads"], impact_expected: "Recuperar parte do retorno sem cortar vendas.", confidence: "medium", metric_id: "roas"},
+        {priority: "week", recommendation: "Testar ampliar alcance das campanhas que mais convertem", justification: "A conversão do site subiu com menos sessões.", sources: ["ga4"], impact_expected: "Mais pedidos com o mesmo nível de conversão.", confidence: "medium", metric_id: "sessions"},
+        {priority: "monitor", recommendation: "Acompanhar o ticket médio semanalmente", justification: "Foi o principal motor do crescimento.", sources: ["commerce"], impact_expected: "Detectar cedo uma reversão.", confidence: "high", metric_id: "average_ticket"},
+      ],
+    },
   };
   return {snapshot, analysis};
 }

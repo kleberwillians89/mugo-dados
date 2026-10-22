@@ -39,6 +39,10 @@ export function sourceLabel(source: string): string {
     paid_media: "Mídia paga", ga4: "Google Analytics", shopify: "Loja virtual",
     "shopify+paid_media": "Loja virtual e mídia paga", meta_ads: "Meta Ads",
     google_ads: "Google Ads", instagram: "Instagram", fbits: "FBITS",
+    // O backend agrega a loja como "commerce" (Shopify ou FBITS): nunca mostrar o id.
+    commerce: "Loja virtual", "commerce+paid_media": "Loja virtual e mídia paga",
+    "fbits+paid_media": "Loja virtual e mídia paga", instagram_content: "Instagram · publicações",
+    fbits_official: "FBITS · indicadores oficiais",
   };
   return labels[source] || source.replaceAll("_", " ");
 }

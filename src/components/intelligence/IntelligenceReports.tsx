@@ -166,32 +166,34 @@ export default function IntelligenceReports({ clientId, clientName, initialDate,
       if (request.current === controller) { request.current = null; setPending(null); }
     }
   }
-  return <section className="intelSection mugoReportsWorkspace" aria-label="Relatórios com IA">
-    <div className="intelSectionTitle"><div><span className="intelEyebrow">Relatórios com IA</span><h2>Da leitura à decisão recorrente</h2></div></div>
-    <p className="mugoReportIntro">Relatórios estratégicos com dados validados. Analise resultados, priorize decisões e compartilhe o diagnóstico.</p>
-    <p>Empresa: <strong>{clientName}</strong>. Para trocar, use o seletor de empresa da navegação.</p>
+  return <section className="ds-section intelBlock mugoReportsWorkspace" aria-label="Relatórios com IA">
+    <div className="ds-sectionHead"><div className="ds-sectionHeadText">
+      <h2 className="ds-sectionTitle">Relatórios para o cliente</h2>
+      <p className="ds-caption">Relatório semanal ou mensal com dados validados, pronto para baixar em PDF e compartilhar.</p>
+    </div></div>
     <form onSubmit={submit} className="mugoReportControls">
       <label>Periodicidade<select value={kind} disabled={!!pending} onChange={event => { setKind(event.target.value as ReportKind); setEmpty(false); }}><option value="weekly">Relatório Semanal</option><option value="monthly">Relatório Mensal</option></select></label>
       <label>Data de referência<input type="date" value={reference} disabled={!!pending} onChange={event => { setReference(event.target.value); setEmpty(false); }} required /></label>
-      <p>{selectedPeriod ? `${reportDate(selectedPeriod.start)} — ${reportDate(selectedPeriod.end)}` : "Selecione uma data válida."}<small>Semana de segunda a domingo ou mês calendário completo.</small></p>
-      <button className="btn btnPrimary" disabled={!!pending || !selectedPeriod || providerConfigured === false}>{pending === "generate" ? "Gerando relatório…" : "Gerar relatório com IA"}</button>
-      <button type="button" className="btn" disabled={!!pending || !selectedPeriod} onClick={() => void load("read")}>{pending === "read" ? "Carregando…" : "Ver análise salva deste período"}</button>
+      <p className="mugoReportPeriod">{selectedPeriod ? `${reportDate(selectedPeriod.start)} — ${reportDate(selectedPeriod.end)}` : "Selecione uma data válida."}<small>Semana de segunda a domingo ou mês calendário completo.</small></p>
+      <div className="mugoReportButtons">
+        <button className="ds-button is-primary" disabled={!!pending || !selectedPeriod || providerConfigured === false}>{pending === "generate" ? "Gerando relatório…" : "Gerar relatório com IA"}</button>
+        <button type="button" className="ds-button" disabled={!!pending || !selectedPeriod} onClick={() => void load("read")}>{pending === "read" ? "Carregando…" : "Ver análise salva deste período"}</button>
+      </div>
     </form>
     <div className="mugoReportExport" aria-label="Exportação de relatório">
-      <button className="btn" type="button" disabled={!shown || !!pending} onClick={() => void exportPdf()}>{pending === "export" ? "Preparando PDF…" : "Baixar relatório em PDF"}</button>
-      {!shown ? <small>Para baixar, gere um relatório ou abra uma versão salva do período ou histórico.</small> : <small>PDF A4 do relatório exibido, sem nova chamada de IA.</small>}
+      {shown ? <button className="ds-button" type="button" disabled={!!pending} onClick={() => void exportPdf()}>{pending === "export" ? "Preparando PDF…" : "Exportar PDF"}</button> : null}
+      <button className="ds-link is-quiet" type="button" disabled={!!pending} onClick={() => void loadHistory()}>Consultar histórico</button>
+      <small>{!shown ? "Para exportar, gere um relatório ou abra uma versão salva." : "PDF A4 do relatório exibido, sem nova chamada de IA."} Gerar usa a IA e pode ter custo. Nada é gerado automaticamente. Exportar ou abrir uma análise salva não chama a IA.</small>
     </div>
-    <button className="btn" type="button" disabled={!!pending} onClick={() => void loadHistory()}>Consultar histórico</button>
     {history ? <section className="mugoReportHistory" aria-label="Histórico de relatórios"><h3>Relatórios anteriores</h3><p>Até 25 análises recentes. Cada versão preserva os indicadores e o diagnóstico da geração.</p>{!history.length ? <p>Nenhum relatório validado encontrado.</p> : <ul>{history.map(item => <li key={item.id}><button className="btn" type="button" disabled={!!pending} onClick={() => {
       if (!validReport(item, clientId, { start: item.period_start, end: item.period_end }) || getActiveClientId() !== clientId) return;
       setReport({ kind: savedReportKind(item)!, companyName: item.data_quality.report_context?.client_name || clientName, analysis: item }); setError("");
     }}>{reportDate(item.period_start)} — {reportDate(item.period_end)} · Versão {item.id} · {reportDate(item.created_at)}</button></li>)}</ul>}</section> : null}
-    <p className="intelSourcesNote">Gerar usa o pipeline existente de IA e pode ter custo. Nada é gerado automaticamente. Exportar ou carregar uma análise salva não chama a IA.</p>
     {providerConfigured === false ? <p role="status">A geração está indisponível. Você ainda pode consultar uma análise salva.</p> : null}
     {pending ? <p role="status">{pending === "generate" ? "Gerando a análise e validando as evidências…" : pending === "export" ? "Preparando seu PDF…" : "Consultando a análise salva…"}</p> : null}
-    {error ? <p role="alert" className="intelInlineWarning">{error}</p> : null}
+    {error ? <p role="alert" className="ds-notice is-warning intelInlineWarning">{error}</p> : null}
     {empty ? <p role="status">Não há análise válida salva para o período selecionado.{shown ? " A prévia anterior permanece abaixo, com seu período identificado." : ""}</p> : null}
-    {!shown && !pending && !error && !empty ? <p className="intelEmpty">Escolha um período para gerar ou consultar um relatório. Nenhum conteúdo será inventado na ausência de dados.</p> : null}
-    {shown ? <><div className="mugoReportExport"><p>Relatório exibido: {reportDate(shown.analysis.period_start)} — {reportDate(shown.analysis.period_end)}</p><small>Download A4 da versão exibida, sem nova chamada de IA.</small></div><div><IntelligenceReportDocument report={shown} /></div></> : null}
+
+    {shown ? <><p className="ds-caption">Relatório exibido: {reportDate(shown.analysis.period_start)} — {reportDate(shown.analysis.period_end)}</p><div><IntelligenceReportDocument report={shown} /></div></> : null}
   </section>;
 }

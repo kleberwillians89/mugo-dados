@@ -49,3 +49,21 @@
 .mugoReportDiagnosis dd{margin:8px 0 0;font-family:Georgia,serif;font-size:19px;line-height:1.6}
 .mugoReportHistory ul{list-style:none;padding:0;display:grid;gap:8px}.mugoReportHistory button{white-space:normal;text-align:left;max-width:100%;overflow-wrap:anywhere}
 @media(max-width:600px){.mugoReportComparisons,.mugoReportDiagnosis{grid-template-columns:1fr}.mugoReportHistory button{width:100%}}
+
+/* Bloco de relatórios na linguagem editorial da página de Inteligência. */
+.mugoReportsWorkspace.intelBlock{margin-block:0;display:flex;flex-direction:column;gap:var(--space-4,16px)}
+.mugoReportsWorkspace .mugoReportControls{display:grid;grid-template-columns:minmax(0,200px) minmax(0,200px) minmax(0,1fr);align-items:end;gap:var(--space-3,12px) var(--space-5,24px);margin:0}
+.mugoReportsWorkspace .mugoReportControls label{font-size:12px;font-weight:500;color:var(--text-muted,#687178)}
+.mugoReportsWorkspace .mugoReportControls :is(select,input){min-height:40px;border-color:rgba(21,24,27,.14);border-radius:10px;font-size:14px;color:var(--text-primary,#15181b)}
+.mugoReportsWorkspace .mugoReportPeriod{margin:0;align-self:center;font-size:14px;font-weight:500;line-height:1.5;color:var(--text-primary,#15181b)}
+.mugoReportsWorkspace .mugoReportPeriod small{font-weight:400;color:var(--text-muted,#687178)}
+.mugoReportsWorkspace .mugoReportButtons{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:var(--space-2,8px)}
+.mugoReportsWorkspace .mugoReportExport{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2,8px) var(--space-4,16px);margin:0;padding:var(--space-3,12px) 0 0;border-top:1px solid var(--border-subtle,rgba(21,24,27,.09))}
+.mugoReportsWorkspace .mugoReportExport small{flex-basis:100%;font-size:12px;line-height:1.5;color:var(--text-muted,#687178)}
+.mugoReportsWorkspace>[role=status]{margin:0;font-size:13px;color:var(--text-muted,#687178)}
+.mugoReportHistory ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--border-subtle,rgba(21,24,27,.09))}
+.mugoReportHistory li{border-bottom:1px solid var(--border-subtle,rgba(21,24,27,.09))}
+.mugoReportHistory .btn{height:auto;min-height:40px;width:100%;padding:8px 0;border:0;border-radius:0;background:transparent;text-align:left;font-weight:500;box-shadow:none;transform:none}
+.mugoReportHistory .btn:hover{color:var(--accent,#004f6e)}
+.mugoReportHistory h3{margin:0;font-size:14px}.mugoReportHistory p{margin:4px 0 8px;font-size:13px;color:var(--text-muted,#687178)}
+@media(max-width:700px){.mugoReportsWorkspace .mugoReportControls{grid-template-columns:1fr 1fr}.mugoReportsWorkspace .mugoReportPeriod{grid-column:1/-1}.mugoReportsWorkspace .mugoReportButtons .ds-button{flex:1 1 100%;min-height:44px}}
