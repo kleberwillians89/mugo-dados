@@ -33,6 +33,7 @@ const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
+const SalesByOriginPanel = lazy(() => import("./components/SalesByOriginPanel"));
 const loadCustomers = () => import("./pages/Customers");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
@@ -890,6 +891,7 @@ function PrivateApp() {
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
         <GoalsSummary key={`goals-summary:${activeClientId}`} onOpen={() => openRoute("goals")} />
+        <SalesByOriginPanel key={`sales-origin:${activeClientId}`} />
         </>
       )}
       </>

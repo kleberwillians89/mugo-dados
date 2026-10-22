@@ -36,6 +36,7 @@ from .generic_connections import (
 from .ig_supabase import sb_select, sb_update, sb_upsert
 from .job_runs import finish_job_run, start_job_run
 from .integration_errors import IntegrationError
+from .order_attribution import fbits_order_attribution, fbits_origin_raw, upsert_orders_with_attribution
 from .runtime_cache import invalidate_namespace
 from .sync_locks import guarded_sync
 
@@ -170,7 +171,9 @@ def normalize_order(client_id: str, order: Dict[str, Any], status_names: Dict[st
         "first_purchase": _bool_or_none(order.get("primeiraCompra")),
         "sales_channel": _safe_str(order.get("canalNome")) or None,
         "products_count": sum(max(0, _int(item.get("quantidade"))) for item in raw["itens"]),
-        "raw": raw,
+        "raw": {**raw, **fbits_origin_raw(order)},
+        # Origem da venda (UTM / origem do pedido), do próprio payload.
+        **fbits_order_attribution(order),
     }
 
 
@@ -564,7 +567,7 @@ async def sync_fbits_connection(
                     ]
                     if not order_rows:
                         continue
-                    await sb_upsert("fbits_orders", order_rows, on_conflict="client_id,order_id")
+                    await upsert_orders_with_attribution("fbits_orders", order_rows, on_conflict="client_id,order_id", upsert=sb_upsert)
                     # Identidade do cliente extraída da MESMA página já lida:
                     # nenhuma requisição externa a mais, nenhum N+1.
                     customers_upserted += await _persist_customer_identities(

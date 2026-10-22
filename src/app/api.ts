@@ -43,6 +43,7 @@ import type {
   IntelligenceConversation,
   IntelligenceSnapshot,
 } from "./intelligenceTypes";
+import { buildTechnicalLabels, humanizeAnalysisRecord, humanizeMessage } from "./technicalText";
 import { getSupabaseBootstrapError, isLocalAuthEnabled, supabase } from "./supabase";
 import {
   clearTenantBrowserState,
@@ -665,9 +666,10 @@ export async function getLatestIntelligenceAnalysis(
   provider_configured: boolean;
   analysis: IntelligenceAnalysisRecord | null;
 }> {
-  return http(pathWithPeriod("/api/intelligence/latest", period, 30), {
-    signal: options?.signal,
-  });
+  const result = await http<{ ok: true; provider_configured: boolean; analysis: IntelligenceAnalysisRecord | null }>(
+    pathWithPeriod("/api/intelligence/latest", period, 30), { signal: options?.signal },
+  );
+  return { ...result, analysis: humanizeAnalysisRecord(result.analysis) };
 }
 
 export async function generateIntelligenceAnalysis(
@@ -680,21 +682,25 @@ export async function generateIntelligenceAnalysis(
   snapshot: IntelligenceSnapshot;
   analysis: IntelligenceAnalysisRecord;
 }> {
-  return http("/api/intelligence/analyses", {
+  const result = await http<{
+    ok: true; provider_configured: boolean; status: string; snapshot: IntelligenceSnapshot; analysis: IntelligenceAnalysisRecord;
+  }>("/api/intelligence/analyses", {
     method: "POST",
     body: JSON.stringify(period),
     signal: options?.signal,
     timeoutMs: 100_000,
   });
+  return { ...result, analysis: humanizeAnalysisRecord(result.analysis) };
 }
 
 export async function getIntelligenceHistory(
   limit = 20,
   options?: RequestSignalOptions,
 ): Promise<{ ok: true; items: IntelligenceAnalysisRecord[] }> {
-  return http(`/api/intelligence/history?limit=${Math.max(1, Math.min(limit, 100))}`, {
-    signal: options?.signal,
-  });
+  const result = await http<{ ok: true; items: IntelligenceAnalysisRecord[] }>(
+    `/api/intelligence/history?limit=${Math.max(1, Math.min(limit, 100))}`, { signal: options?.signal },
+  );
+  return { ...result, items: (result.items || []).map((item) => humanizeAnalysisRecord(item)) };
 }
 
 export async function askIntelligence(payload: {
@@ -709,22 +715,27 @@ export async function askIntelligence(payload: {
   assistant_message: IntelligenceMessage;
   snapshot: IntelligenceSnapshot;
 }> {
-  return http("/api/intelligence/ask", {
+  const result = await http<{
+    ok: true; conversation_id: string; user_message: IntelligenceMessage; assistant_message: IntelligenceMessage; snapshot: IntelligenceSnapshot;
+  }>("/api/intelligence/ask", {
     method: "POST",
     body: JSON.stringify(payload),
     signal: options?.signal,
     timeoutMs: 100_000,
   });
+  const labels = buildTechnicalLabels(result.snapshot?.metrics, result.snapshot?.sources);
+  return result?.assistant_message ? { ...result, assistant_message: humanizeMessage(result.assistant_message, labels) } : result;
 }
 
 export async function getIntelligenceMessages(
   conversationId: string,
   options?: RequestSignalOptions,
 ): Promise<{ ok: true; conversation: IntelligenceConversation; messages: IntelligenceMessage[] }> {
-  return executeHttp(
+  const result = await executeHttp<{ ok: true; conversation: IntelligenceConversation; messages: IntelligenceMessage[] }>(
     `/api/intelligence/conversations/${encodeURIComponent(conversationId)}/messages`,
     { signal: options?.signal },
   );
+  return result?.messages ? { ...result, messages: result.messages.map((message) => humanizeMessage(message)) } : result;
 }
 
 // Owner-scoped reads must not share the generic tenant-only in-flight cache.
