@@ -7,12 +7,14 @@ import calendar
 import json
 from xml.sax.saxutils import escape
 from .ig_supabase import sb_select
+from .technical_text import humanize_analysis_row
 
 
 async def load_report(client_id, analysis_id):
     rows = await sb_select('ai_analyses', filters={'client_id': f'eq.{client_id}', 'id': f'eq.{analysis_id}', 'status': 'eq.completed'}, limit=1)
     if not rows or rows[0].get('client_id') != client_id or rows[0].get('id') != analysis_id or rows[0].get('status') != 'completed' or not rows[0].get('analysis'):
         raise RuntimeError('REPORT_NOT_FOUND')
+    humanize_analysis_row(rows[0])  # análises antigas podem ter IDs técnicos no texto
     frozen = (rows[0].get('data_quality') or {}).get('report_context') or {}
     if frozen.get('client_name'):
         return rows[0], frozen['client_name']

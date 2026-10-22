@@ -24,6 +24,7 @@ from .external_research import external_research_context
 from .customers import recurring_customers_in_period
 from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_update
 from .instagram_organic_history import aggregate_instagram_months
+from .technical_text import build_labels, humanize_analysis, humanize_analysis_row, humanize_answer
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +394,8 @@ Cada insight deve conter metric_ids e sources válidos. Recomendações com baix
 mandar investigar; com evidência moderada, testar; somente evidência forte permite priorizar,
 escalar ou corrigir. Evite recomendações genéricas. Não escreva algarismos nos textos; a interface
 renderiza números canônicos a partir dos metric_ids. Não prometa resultado.
+Nos textos, cite indicadores e fontes pelo rótulo legível (label), nunca pelo identificador técnico:
+não escreva "metric_ids", "sources" nem nomes com sublinhado como new_customers ou meta_ads.
 """.strip()
 
 ANSWER_INSTRUCTIONS = """
@@ -404,6 +407,7 @@ Respeite analysis_policy, inclusive temporalidade entre fontes e parcialidade do
 Use apenas metric_ids existentes. Recomendações devem ser específicas e proporcionais à evidência:
 investigar quando limitada, testar quando moderada e priorizar somente quando forte.
 Não escreva algarismos nos textos; os valores são exibidos a partir dos metric_ids.
+Nos textos, use o rótulo legível de cada indicador e fonte, nunca o identificador técnico.
 """.strip()
 
 INTELLIGENCE_NOISE_PERCENT_THRESHOLD = float(os.getenv("INTELLIGENCE_NOISE_PERCENT_THRESHOLD", "5"))
@@ -2305,7 +2309,8 @@ def _sanitize_analysis(analysis: Dict[str, Any], snapshot: Dict[str, Any]) -> Di
         if action.get("metric_id") not in allowed_metrics:
             action["metric_id"] = ""
         action["sources"] = [item for item in action.get("sources") or [] if item in allowed_sources]
-    return analysis
+    # Texto livre nunca leva identificador técnico ao cliente (ex.: "metric_ids: orders").
+    return humanize_analysis(analysis, build_labels(snapshot.get("metrics"), snapshot.get("sources")))
 
 
 ANALYSIS_VERSION = "v3-campaign-context-selective-temporal-recovery"
@@ -2775,7 +2780,7 @@ async def latest_analysis(client_id: str, start: str | None, end: str | None) ->
     return {
         "ok": True,
         "provider_configured": provider_configured(),
-        "analysis": rows[0] if rows else None,
+        "analysis": humanize_analysis_row(rows[0]) if rows else None,
     }
 
 
@@ -2790,7 +2795,7 @@ async def analysis_history(client_id: str, limit: int = 20) -> Dict[str, Any]:
         order="created_at.desc",
         limit=max(1, min(limit, 100)),
     )
-    return {"ok": True, "items": rows}
+    return {"ok": True, "items": [humanize_analysis_row(row) for row in rows]}
 
 
 async def conversation_messages(client_id: str, user_id: str, conversation_id: str) -> Dict[str, Any]:
@@ -2815,6 +2820,9 @@ async def conversation_messages(client_id: str, user_id: str, conversation_id: s
         order="created_at.desc,id.desc",
         limit=100,
     )
+    for message in messages:
+        if message.get("role") == "assistant" and isinstance(message.get("content"), dict):
+            humanize_answer(message["content"], build_labels(sources=message.get("sources")))
     return {"ok": True, "conversation": conversations[0], "messages": list(reversed(messages))}
 
 
@@ -3012,6 +3020,7 @@ async def ask_intelligence(
     else:
         answer, snapshot = await _investigate_question(client_id=client_id, question=context.question, period=period)
         answer["attention_points"] = [*answer.get("attention_points", []), *context.limitations]
+    answer = humanize_answer(answer, build_labels(snapshot.get("metrics"), snapshot.get("sources")))
     analysis_rows = await sb_select(
         "ai_analyses",
         filters={
