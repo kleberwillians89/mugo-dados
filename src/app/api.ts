@@ -511,6 +511,53 @@ export async function createPlatformCompany(payload: {
   return http("/api/platform/companies", { method: "POST", body: JSON.stringify(payload) });
 }
 
+export type FbitsOriginSummary = {
+  pedidos_analisados: number;
+  veredito: string;
+  origem_por_tipo: Record<string, number>;
+  canal_calculado: Record<string, number>;
+  campos_no_topo_encontrados: Record<string, number>;
+  metadados_de_origem_encontrados: Record<string, number>;
+  metadados_outras_chaves: Record<string, number>;
+  outros_campos: Record<string, number>;
+};
+
+export type FbitsOriginOrderView = {
+  pedidoId?: string | number | null;
+  data?: string | null;
+  origem_calculada_pelo_mugo?: {
+    attribution_source?: string | null;
+    origin_channel?: string | null;
+    origin_detail?: string | null;
+    utm_source?: string | null;
+    utm_medium?: string | null;
+    utm_campaign?: string | null;
+  };
+};
+
+export type FbitsOriginProbeResult =
+  | {
+      ok: true;
+      resumo_lista: FbitsOriginSummary | null;
+      resumo_detalhe: FbitsOriginSummary | null;
+      pedidos_lista: FbitsOriginOrderView[];
+      pedidos_detalhe: FbitsOriginOrderView[];
+      requisicoes_feitas?: number;
+      observacao?: string;
+    }
+  | { ok: false; code?: string; message?: string };
+
+/** Diagnóstico somente leitura: onde a FBITS informa a origem de cada pedido. */
+export async function getFbitsOriginProbe(
+  clientId: string,
+  opts: { days?: number; orderId?: string } = {},
+): Promise<FbitsOriginProbeResult> {
+  const params = new URLSearchParams({ days: String(opts.days ?? 14), limit: "40", detail: "10" });
+  const order = (opts.orderId || "").trim();
+  if (order) params.set("order_id", order);
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/fbits-origin-probe?${params.toString()}`);
+}
+
 export async function openPlatformCompany(clientId: string): Promise<{ ok: boolean; company: PlatformCompany }> {
   return http(`/api/platform/companies/${encodeURIComponent(clientId)}/access`, { method: "POST" });
 }
