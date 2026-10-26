@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { StatusTone } from "./StatusBadge";
 import StatusBadge from "./StatusBadge";
 
@@ -40,6 +40,16 @@ export default function AssetCombobox({
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Timer do blur: limpo ao desmontar e ao refocar, para nunca disparar
+  // setState depois que o componente (ou o ambiente de teste) foi encerrado.
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearBlurTimer() {
+    if (blurTimer.current !== null) {
+      clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+  }
+  useEffect(() => clearBlurTimer, []);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -116,7 +126,7 @@ export default function AssetCombobox({
           disabled={disabled}
           placeholder={selected ? selected.label : placeholder}
           value={displayValue}
-          onFocus={openList}
+          onFocus={() => { clearBlurTimer(); openList(); }}
           onClick={openList}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -126,7 +136,11 @@ export default function AssetCombobox({
           onKeyDown={onKeyDown}
           onBlur={() => {
             // Pequeno atraso para permitir o clique numa opção antes de fechar.
-            window.setTimeout(() => closeList(), 120);
+            clearBlurTimer();
+            blurTimer.current = setTimeout(() => {
+              blurTimer.current = null;
+              closeList();
+            }, 120);
           }}
         />
         {loading ? <span className="assetComboboxSpinner" aria-hidden="true" /> : null}

@@ -141,3 +141,24 @@ describe("AssetCombobox", () => {
     expect(container.textContent).toContain("Não foi possível carregar as contas.");
   });
 });
+
+describe("AssetCombobox · timer do blur", () => {
+  it("desmontar logo após o blur cancela o fechamento atrasado", async () => {
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await act(async () => root.render(<AssetCombobox label="Conta" options={OPTIONS} value="" onChange={() => {}} />));
+      const input = getInput();
+      await act(async () => { input.focus(); input.blur(); });
+      const call = setSpy.mock.calls.findIndex((args) => args[1] === 120);
+      expect(call).toBeGreaterThanOrEqual(0);
+      const timerId = setSpy.mock.results[call].value;
+      await act(async () => root.unmount());
+      expect(clearSpy).toHaveBeenCalledWith(timerId);
+      root = createRoot(container);
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+});
