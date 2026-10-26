@@ -1,3 +1,4 @@
+import SalesOrigin from "../pages/SalesOrigin";
 import type { ReactNode } from "react";
 import { DataHealthProvider } from "../app/DataHealthContext";
 import Intelligence from "../pages/Intelligence";
@@ -24,6 +25,7 @@ const ROUTE_TITLE: Record<AppRoute, string> = {
   goals: "Metas",
   meta: "Meta",
   google: "Google",
+  origins: "Origem das vendas",
   intelligence: "Inteligência",
   integrations: "Integrações",
   companies: "Empresas",
@@ -35,6 +37,7 @@ const ROUTE_TO_SCREEN: Partial<Record<AppRoute, string>> = {
   integrations: "integracoes",
   meta: "meta",
   google: "google",
+  origins: "origem-das-vendas",
   intelligence: "inteligencia",
   companies: "empresas",
 };
@@ -155,6 +158,8 @@ export default function ReviewApp({ profile, companies, initialCompanyId, initia
               onOpenDashboard={() => open("meta")}
             />
           </ReviewReadModelState>
+        ) : route === "origins" ? (
+          <SalesOrigin key={`origins:${active.client_id}`} />
         ) : route === "intelligence" ? (
           <Intelligence key={`intelligence:${active.client_id}`} onLogout={noop} canEditBusinessContext={canManage} />
         ) : route === "integrations" && canManage ? (

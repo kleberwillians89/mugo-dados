@@ -22,6 +22,8 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/integracoes")).toBe("integrations");
     expect(getAppRouteFromPath("/inteligencia")).toBe("intelligence");
     expect(getPathForRoute("intelligence")).toBe("/inteligencia");
+    expect(getAppRouteFromPath("/origem-das-vendas")).toBe("origins");
+    expect(getPathForRoute("origins")).toBe("/origem-das-vendas");
     expect(getPathForRoute("ecommerce")).toBe("/ecommerce");
   });
 

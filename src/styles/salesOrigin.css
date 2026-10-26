@@ -1,13 +1,25 @@
-.salesOrigin{padding:24px;max-width:1280px;margin:0 auto}
-.salesOrigin header p{color:var(--text-secondary,#666);margin:4px 0 0}
-.salesOriginCoverage{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:20px 0}
-.salesOriginCoverage div{border:1px solid var(--border,#dedbd4);border-radius:12px;padding:16px;background:var(--surface,#fff)}
-.salesOriginCoverage dt{font-size:13px;color:var(--text-secondary,#666)}
-.salesOriginCoverage dd{margin:6px 0 0;font-size:20px;font-weight:600}
-.salesOriginTable{width:100%;border-collapse:collapse;margin:16px 0;font-variant-numeric:tabular-nums}
-.salesOriginTable caption{text-align:left;font-weight:600;padding-bottom:8px}
-.salesOriginTable th,.salesOriginTable td{padding:10px 8px;border-bottom:1px solid var(--border,#dedbd4);text-align:right}
-.salesOriginTable th[scope=row],.salesOriginTable thead th:first-child,.salesOriginTable td:nth-child(2):not(:last-child){text-align:left}
-.salesOriginTable tr.is-unknown{color:var(--text-secondary,#666)}
-.salesOriginNotes{color:var(--text-secondary,#666);font-size:13px;padding-left:18px}
-@media (max-width:640px){.salesOriginTable{display:block;overflow-x:auto}}
+/* Origem das vendas — página própria, mesma linguagem editorial do painel. */
+.salesOriginPage{display:flex;flex-direction:column;gap:var(--space-6,28px)}
+.salesOriginLoading,.salesOriginEmpty,.salesOriginNote{color:var(--text-secondary,#666)}
+.salesOriginPage .salesOriginKpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 20px;align-items:start;container-type:inline-size}
+@media (min-width:900px){.salesOriginPage .salesOriginKpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.salesOriginKpis .ds-kpi{min-width:0;container-type:inline-size}
+.salesOriginKpis .ds-kpiValue{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:clamp(20px,13cqi,40px)}
+.salesOriginSection{display:flex;flex-direction:column;gap:14px}
+.salesOriginSection h2{margin:0;font-size:18px;letter-spacing:-.01em}
+.salesOriginBars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:18px}
+.salesOriginBarHead{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.salesOriginBarLabel{font-weight:500;min-width:0;overflow-wrap:anywhere}
+.salesOriginBarHead strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.salesOriginBarTrack{height:8px;border-radius:99px;background:var(--surface-muted,#eef1f2);overflow:hidden;margin-top:8px}
+.salesOriginBarTrack span{display:block;height:100%;border-radius:inherit;background:var(--accent,#004f6e);transition:width .4s ease}
+.salesOriginBars li.is-unknown .salesOriginBarTrack span{background:var(--text-tertiary,#a3a6a0)}
+.salesOriginBars li.is-unknown .salesOriginBarLabel{color:var(--text-secondary,#666)}
+.salesOriginBarMeta{margin:6px 0 0;font-size:13px;color:var(--text-secondary,#666);font-variant-numeric:tabular-nums}
+.salesOriginTableWrap{overflow-x:auto}
+.salesOriginTable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.salesOriginTable th,.salesOriginTable td{padding:12px 10px;border-bottom:1px solid var(--border,#dedbd4);text-align:right;white-space:nowrap}
+.salesOriginTable thead th{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary,#666)}
+.salesOriginTable th[scope=row],.salesOriginTable thead th:first-child,.salesOriginTable td:nth-child(2){text-align:left}
+.salesOriginTable th[scope=row]{font-weight:500;white-space:normal;overflow-wrap:anywhere;max-width:320px}
+.salesOriginNotes{color:var(--text-secondary,#666);font-size:13px;padding-left:18px;margin:0}
