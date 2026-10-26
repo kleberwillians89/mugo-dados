@@ -33,7 +33,7 @@ const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
-const SalesByOriginPanel = lazy(() => import("./components/SalesByOriginPanel"));
+const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
 const loadCustomers = () => import("./pages/Customers");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
@@ -852,6 +852,8 @@ function PrivateApp() {
       <>
       {route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+      ) : route === "origins" ? (
+        <SalesOrigin key={`origins:${activeClientId}`} />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${resolvedUserId}:${activeClientId}`}
@@ -891,7 +893,6 @@ function PrivateApp() {
           onOpenGoogleAnalytics={() => openRoute("google")}
         />
         <GoalsSummary key={`goals-summary:${activeClientId}`} onOpen={() => openRoute("goals")} />
-        <SalesByOriginPanel key={`sales-origin:${activeClientId}`} />
         </>
       )}
       </>

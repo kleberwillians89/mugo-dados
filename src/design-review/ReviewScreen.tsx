@@ -29,6 +29,7 @@ const SCREEN_TO_ROUTE: Record<string, AppRoute> = {
   "google-ads": "google",
   ga4: "google",
   inteligencia: "intelligence",
+  "origem-das-vendas": "origins",
   empresas: "companies",
 };
 

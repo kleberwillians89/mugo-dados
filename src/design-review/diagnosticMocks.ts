@@ -96,6 +96,26 @@ export async function diagnosticResponse(url: URL, method: string, options: Opti
     }))};
     return json(response);
   }
+  if (url.pathname.endsWith("/sales-by-origin")) return json({
+    ok: true, status: "available", provider: "shopify", period: {start: "2026-10-01", end: "2026-10-26"},
+    attribution_model: "last_click_utm", attribution_model_label: "Último clique com UTM registrado pela loja",
+    notes: ["Pedidos sem origem aparecem como “Origem não identificada” e nunca são distribuídos entre campanhas."],
+    totals: {orders: 412, revenue: 98234.5, average_ticket: 238.43, orders_with_origin: 301, orders_with_utm: 188, origin_coverage_percent: 73.06, utm_coverage_percent: 45.63},
+    channels: [
+      {channel: "paid_social", label: "Mídia paga · redes sociais", orders: 141, revenue: 36120.4, average_ticket: 256.17, share_of_revenue: 36.77},
+      {channel: "unknown", label: "Origem não identificada", orders: 111, revenue: 24410.9, average_ticket: 219.92, share_of_revenue: 24.85},
+      {channel: "organic_search", label: "Busca orgânica", orders: 64, revenue: 15880.0, average_ticket: 248.13, share_of_revenue: 16.17},
+      {channel: "paid_search", label: "Mídia paga · busca", orders: 47, revenue: 12410.2, average_ticket: 264.05, share_of_revenue: 12.63},
+      {channel: "email", label: "E-mail", orders: 31, revenue: 6213.0, average_ticket: 200.42, share_of_revenue: 6.32},
+      {channel: "direct", label: "Direto", orders: 18, revenue: 3200.0, average_ticket: 177.78, share_of_revenue: 3.26},
+    ],
+    campaigns: [
+      {channel: "paid_social", channel_label: "Mídia paga · redes sociais", source: "facebook", medium: "cpc", campaign: "conversao_colecao_verao_2026", orders: 88, revenue: 23110.4, average_ticket: 262.62, share_of_revenue: 23.53},
+      {channel: "paid_search", channel_label: "Mídia paga · busca", source: "google", medium: "cpc", campaign: "pmax_marca", orders: 47, revenue: 12410.2, average_ticket: 264.05, share_of_revenue: 12.63},
+      {channel: "paid_social", channel_label: "Mídia paga · redes sociais", source: "instagram", medium: "paid", campaign: "remarketing_carrinho", orders: 22, revenue: 5400.0, average_ticket: 245.45, share_of_revenue: 5.5},
+      {channel: "email", channel_label: "E-mail", source: "klaviyo", medium: "email", campaign: "newsletter_outubro", orders: 31, revenue: 6213.0, average_ticket: 200.42, share_of_revenue: 6.32},
+    ],
+  });
   if (url.pathname === "/api/ig/stories") return json({ok: true, stories: [], available: true, message: "Sem stories na amostra fictícia."});
   if (url.pathname === "/api/google/ga4/report") {
     if (scenario === "erro") return json({detail: "Falha simulada na leitura GA4."}, 502);

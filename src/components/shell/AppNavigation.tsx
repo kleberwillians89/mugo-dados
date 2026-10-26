@@ -37,6 +37,7 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "goals", label: "Metas" },
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
+  { route: "origins", label: "Origem das vendas" },
   { route: "intelligence", label: "Inteligência" },
 ];
 
