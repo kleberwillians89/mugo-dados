@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Header, HTTPException
+import time
+
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from services.platform_admin import (
     PlatformCompanyConfirmationError,
@@ -118,3 +120,42 @@ async def platform_open_company(
         {"p_actor_user_id": actor_user_id, "p_client_id": client_id},
     )
     return {"ok": True, "company": rows[0]}
+
+
+# Diagnóstico de origem FBITS: somente leitura, sem dados pessoais. Um
+# intervalo mínimo por empresa evita estourar a cota da API da Wake.
+_FBITS_PROBE_COOLDOWN_SECONDS = 60
+_fbits_probe_last_run: Dict[str, float] = {}
+
+
+@router.get("/companies/{client_id}/fbits-origin-probe")
+async def platform_fbits_origin_probe(
+    client_id: str,
+    days: int = Query(default=14, ge=1, le=30),
+    limit: int = Query(default=40, ge=1, le=100),
+    detail: int = Query(default=10, ge=0, le=20),
+    order_id: str | None = Query(default=None, max_length=40),
+    authorization: str | None = Header(default=None),
+):
+    await require_platform_admin(authorization)
+    from services.fbits_origin_probe import probe_fbits_order_origin
+    from services.integration_errors import IntegrationError
+
+    order = (order_id or "").strip() or None
+    if order is not None and not order.isdigit():
+        raise HTTPException(status_code=422, detail="Informe apenas o número do pedido.")
+    now = time.monotonic()
+    last = _fbits_probe_last_run.get(client_id)
+    if last is not None and now - last < _FBITS_PROBE_COOLDOWN_SECONDS:
+        wait = int(_FBITS_PROBE_COOLDOWN_SECONDS - (now - last)) + 1
+        raise HTTPException(status_code=429, detail=f"Aguarde {wait}s para rodar o diagnóstico de novo.")
+    _fbits_probe_last_run[client_id] = now
+    try:
+        result = await probe_fbits_order_origin(
+            client_id, order_id=order, days=days, limit=limit, detail_sample=detail,
+        )
+    except IntegrationError as exc:
+        # Conexão ausente/sem token vira resposta legível, não 401 (que
+        # derrubaria a sessão do administrador no front).
+        return {"ok": False, "code": exc.code, "message": exc.public_message}
+    return result

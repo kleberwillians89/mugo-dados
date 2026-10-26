@@ -143,7 +143,7 @@ def summarize(views: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     top = Counter(key for view in views for key in view["campos_de_origem_no_topo"])
     with_utm = sources.get("utm", 0)
     if not views:
-        verdict = "Nenhum pedido no intervalo. Aumente --days ou informe --order-id."
+        verdict = "Nenhum pedido no intervalo. Aumente o período ou informe o número de um pedido."
     elif with_utm:
         verdict = f"{with_utm} de {len(views)} pedidos têm UTM em campos que o Mugô Dados já lê. A captura vai funcionar."
     elif extra:
