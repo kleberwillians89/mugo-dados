@@ -1,4 +1,5 @@
 import { DataFreshness } from "../components/data/DataFreshness";
+import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   disconnectClientConnection,
@@ -1702,7 +1703,7 @@ export default function Onboarding({
                 {canonicalEntry ? (
                   <div className="smallMuted" style={{ marginTop: 10 }} data-testid={`integration-account-${definition.id}`}>
                     {canonicalAccountLabel(canonicalEntry) ? <>Conta: {canonicalAccountLabel(canonicalEntry)}<br /></> : null}
-                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} />
+                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} /><NextAutoRefresh provider={definition.id === "meta" ? "meta_ads" : definition.id} />
                     {canonicalEntry.last_error ? <><br />{canonicalEntry.last_error}</> : null}
                     {canonicalIntegrations.isRefreshing ? <><br />Atualizando…</> : null}
                   </div>
@@ -1710,7 +1711,7 @@ export default function Onboarding({
                   <div className="smallMuted" style={{ marginTop: 10 }}>
                     Conta: {definition.id === "meta" ? selectedPaidConnection?.ad_account_name : connection?.account_name}<br />
                     {definition.id === "meta" && selectedPaidConnection?.ad_account_id ? <>{selectedPaidConnection.ad_account_id}<br /></> : null}
-                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} />
+                    <DataFreshness provider={definition.id === "meta" ? "meta_ads" : definition.id} /><NextAutoRefresh provider={definition.id === "meta" ? "meta_ads" : definition.id} />
                   </div>
                 ) : null}
                 {definition.id === "shopify" ? (
