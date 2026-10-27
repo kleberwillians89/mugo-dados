@@ -15,6 +15,7 @@ import BusinessContextPanel from "../components/admin/BusinessContextPanel";
 import ClientAccessPanel from "../components/admin/ClientAccessPanel";
 import FbitsOriginProbePanel from "../components/admin/FbitsOriginProbePanel";
 import HistoryBackfillPanel from "../components/admin/HistoryBackfillPanel";
+import TestOrdersPanel from "../components/admin/TestOrdersPanel";
 import CompanyEditDrawer from "../components/admin/CompanyEditDrawer";
 import CompanyWizard from "../components/admin/CompanyWizard";
 import Modal from "../components/Modal";
@@ -371,7 +372,7 @@ export default function Companies({
       {tab === "acessos" ? <ClientAccessPanel canManage={canEditBusinessContext} /> : null}
 
       {tab === "origem" ? <FbitsOriginProbePanel companies={companies} /> : null}
-      {tab === "historico" ? <HistoryBackfillPanel companies={companies} /> : null}
+      {tab === "historico" ? <><HistoryBackfillPanel companies={companies} /><TestOrdersPanel companies={companies} /></> : null}
 
       {tab === "contexto" ? <BusinessContextPanel canEdit={canEditBusinessContext} /> : null}
 

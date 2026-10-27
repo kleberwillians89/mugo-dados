@@ -501,9 +501,13 @@ async def ingest_fbits_window(
     """
     orders = items = customers = 0
     async for page in client.iter_order_pages(start=start, end=end, date_filter=date_filter):
+        from .test_orders import is_test_fbits_order
+
         order_rows = [
             normalized for order in page
-            for normalized in [normalize_order(client_id, order, status_names)] if normalized
+            for normalized in [normalize_order(client_id, order, status_names)]
+            # Pedido de teste (R$ 0 com cupom de 100%) não é venda: não é gravado.
+            if normalized and not is_test_fbits_order(normalized)
         ]
         if not order_rows:
             continue
