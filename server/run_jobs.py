@@ -102,8 +102,8 @@ async def _run(args: argparse.Namespace) -> Any:
         from services.history_backfill import run_history_worker
         return await run_history_worker(budget_seconds=max(60, args.budget_minutes * 60), client_id=args.client_id)
     if args.command == "attribution-backfill":
-        from services.sales_by_origin import backfill_shopify_attribution
-        return await backfill_shopify_attribution(args.client_id, dry_run=args.dry_run)
+        from services.sales_by_origin import reprocess_unknown_origins
+        return await reprocess_unknown_origins(args.client_id, dry_run=args.dry_run)
     raise RuntimeError(f"Comando não suportado: {args.command}")
 
 

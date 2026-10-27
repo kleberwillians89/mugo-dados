@@ -268,6 +268,23 @@ async def platform_history_run(
 # ---------------------------------------------------------------------------
 # Pedidos de teste: simular (leitura) e remover do banco (só platform_admin).
 
+@router.get("/companies/{client_id}/origins/reprocess")
+async def platform_origins_reprocess_preview(client_id: str, authorization: str | None = Header(default=None)):
+    """Prévia: quantos pedidos sem origem passariam a ter origem (nada é gravado)."""
+    await require_platform_admin(authorization)
+    from services.sales_by_origin import reprocess_unknown_origins
+
+    return await reprocess_unknown_origins(client_id, dry_run=True)
+
+
+@router.post("/companies/{client_id}/origins/reprocess")
+async def platform_origins_reprocess_apply(client_id: str, authorization: str | None = Header(default=None)):
+    await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.sales_by_origin import reprocess_unknown_origins
+
+    return await reprocess_unknown_origins(client_id, dry_run=False)
+
+
 @router.get("/companies/{client_id}/test-orders")
 async def platform_test_orders_preview(client_id: str, authorization: str | None = Header(default=None)):
     await require_platform_admin(authorization)

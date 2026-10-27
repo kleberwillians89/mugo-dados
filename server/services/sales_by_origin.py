@@ -9,7 +9,9 @@ regra de receita de cada plataforma:
   conexão e `valido` não é falso (regra de `_counts_as_revenue`). O total aqui
   é dos pedidos persistidos e pode diferir do indicador oficial da loja.
 
-Atribuição: último clique com UTM registrado pela loja. Pedido sem origem
+Atribuição: último clique com UTM registrado pela loja; sem UTM, o
+identificador de clique do Google Ads (gclid) marca o pedido como Google
+Ads, sem campanha. Pedido sem origem
 fica em "Origem não identificada" e nunca é distribuído entre campanhas.
 """
 
@@ -22,13 +24,16 @@ import httpx
 
 from .commerce_context import FBITS, SHOPIFY, resolve_commerce_provider
 from .ig_supabase import _is_column_compat_error, sb_select, sb_update
-from .order_attribution import ATTRIBUTION_COLUMNS, CHANNEL_LABELS, shopify_order_attribution
+from .order_attribution import (
+    ATTRIBUTION_COLUMNS, CHANNEL_LABELS, fbits_order_attribution, fbits_order_from_raw, shopify_order_attribution,
+)
 from .periods import resolve_period
 
 PAGE_SIZE = 1000
 MAX_ROWS = 20000
 ATTRIBUTION_MODEL = "last_click_utm"
 ATTRIBUTION_MODEL_LABEL = "Último clique com UTM registrado pela loja"
+GOOGLE_ADS_NO_CAMPAIGN = "Google Ads (campanha não informada no pedido)"
 ORIGIN_SELECT = "utm_source,utm_medium,utm_campaign,utm_content,origin_channel,origin_detail,referrer_domain,attribution_source"
 
 
@@ -59,6 +64,10 @@ def _origin_key(row: Dict[str, Any]) -> Dict[str, Any]:
     channel = _text(row.get("origin_channel")) or "unknown"
     if channel not in CHANNEL_LABELS:
         channel = "unknown"
+    if _text(row.get("attribution_source")) == "click_id" and not _text(row.get("utm_campaign")):
+        # Clique do Google Ads sem UTM: aparece como Google Ads, sem inventar campanha.
+        return {"channel": channel, "channel_label": CHANNEL_LABELS[channel], "source": "google", "medium": "cpc",
+                "campaign": GOOGLE_ADS_NO_CAMPAIGN}
     return {
         "channel": channel,
         "channel_label": CHANNEL_LABELS[channel],
@@ -111,6 +120,7 @@ def aggregate_sales_by_origin(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
             "average_ticket": round(total_revenue / total_orders, 2) if total_orders else None,
             "orders_with_origin": identified,
             "orders_with_utm": sources.get("utm", 0),
+            "orders_with_google_click": sources.get("click_id", 0),
             "origin_coverage_percent": round(identified / total_orders * 100, 2) if total_orders else None,
             "utm_coverage_percent": round(sources.get("utm", 0) / total_orders * 100, 2) if total_orders else None,
         },
@@ -224,3 +234,76 @@ async def backfill_shopify_attribution(client_id: str, *, dry_run: bool = False,
     print(f"[attribution][backfill] provider=shopify client_id={client_id} scanned={scanned} updated={updated} dry_run={dry_run}")
     return {"ok": True, "provider": "shopify", "scanned": scanned, "updated": updated, "dry_run": dry_run,
             "channels": dict(sorted(channels.items(), key=lambda item: -item[1]))}
+
+
+_REPROCESS_SOURCES = {
+    "shopify": ("shopify_orders", "id,shop_domain,raw_payload,origin_channel"),
+    "fbits": ("fbits_orders", "id,raw,origin_channel"),
+}
+
+
+def _recompute(provider: str, row: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    if provider == "shopify":
+        return shopify_order_attribution(row.get("raw_payload") or {}, shop_domain=_text(row.get("shop_domain")))
+    return fbits_order_attribution(fbits_order_from_raw(row.get("raw") or {}))
+
+
+async def reprocess_unknown_origins(
+    client_id: str, *, provider: Optional[str] = None, dry_run: bool = True, limit: int = MAX_ROWS,
+) -> Dict[str, Any]:
+    """Recalcula a origem dos pedidos SEM origem, a partir do que já está salvo.
+
+    Nenhuma chamada à loja. Só toca pedidos com origem vazia ou "unknown" e só
+    grava quando a nova regra encontra uma origem (ex.: gclid do Google Ads).
+    Pedido com origem já identificada nunca é alterado. Sem dados pessoais no
+    retorno nem no log: só contagens.
+    """
+    providers = [provider] if provider else list(_REPROCESS_SOURCES)
+    report: Dict[str, Any] = {"ok": True, "client_id": client_id, "dry_run": dry_run, "providers": {}}
+    for name in providers:
+        if name not in _REPROCESS_SOURCES:
+            raise ValueError("provider inválido")
+        table, select = _REPROCESS_SOURCES[name]
+        scanned = changed = 0
+        found: Dict[str, int] = defaultdict(int)
+        last_id = ""
+        while scanned < limit:
+            filters = {"client_id": f"eq.{client_id}", "or": "(origin_channel.is.null,origin_channel.eq.unknown)"}
+            if last_id:
+                filters["id"] = f"gt.{last_id}"
+            try:
+                page = await sb_select(table, select=select, filters=filters, order="id.asc", limit=200)
+            except httpx.HTTPStatusError as exc:
+                if _is_column_compat_error(exc, "origin_channel"):
+                    report["providers"][name] = {"status": "migration_pending"}
+                    break
+                raise
+            if not page:
+                break
+            for row in page:
+                last_id = _text(row.get("id"))
+                scanned += 1
+                attribution = _recompute(name, row)
+                channel = attribution.get("origin_channel") or "unknown"
+                if channel == "unknown":
+                    continue
+                found[f"{channel}:{attribution.get('attribution_source')}"] += 1
+                changed += 1
+                if not dry_run:
+                    await sb_update(
+                        table,
+                        filters={"id": f"eq.{last_id}", "client_id": f"eq.{client_id}"},
+                        patch=attribution,
+                        returning="minimal",
+                    )
+            if len(page) < 200:
+                break
+        report["providers"].setdefault(name, {
+            "scanned_without_origin": scanned,
+            "origin_found": changed,
+            "updated": 0 if dry_run else changed,
+            "by_channel": dict(sorted(found.items(), key=lambda item: -item[1])),
+        })
+        print(f"[attribution][reprocess] provider={name} client_id={client_id} scanned={scanned} "
+              f"found={changed} dry_run={dry_run}")
+    return report
