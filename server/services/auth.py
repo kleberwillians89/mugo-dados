@@ -6,6 +6,55 @@ import json
 import base64
 from .request_performance import measured, transport_started, transport_done
 from datetime import datetime, timezone
+import hashlib
+import time
+
+# Token já validado no Supabase Auth: reaproveitado por até 60 s (nunca além
+# do vencimento do próprio token). Evita uma ida ao Supabase a cada chamada da
+# tela (ex.: status da atualização a cada poucos segundos). Só resultados
+# válidos entram; a chave é o hash do token, nunca o token.
+_TOKEN_CACHE_SECONDS = 60
+_TOKEN_CACHE_MAX = 2000
+_token_cache: Dict[str, tuple] = {}
+
+
+def _token_cache_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _cached_user_id(token: str) -> Optional[str]:
+    hit = _token_cache.get(_token_cache_key(token))
+    if not hit:
+        return None
+    uid, expires_at = hit
+    if time.time() >= expires_at:
+        _token_cache.pop(_token_cache_key(token), None)
+        return None
+    return uid
+
+
+def _remember_user_id(token: str, uid: str) -> None:
+    claims = _decode_jwt_claims_no_verify(token) or {}
+    try:
+        token_exp = float(claims.get("exp") or 0)
+    except (TypeError, ValueError):
+        token_exp = 0
+    expires_at = time.time() + _TOKEN_CACHE_SECONDS
+    if token_exp:
+        expires_at = min(expires_at, token_exp)
+    if expires_at <= time.time():
+        return
+    if len(_token_cache) >= _TOKEN_CACHE_MAX:
+        now = time.time()
+        for key in [k for k, (_, exp) in _token_cache.items() if exp <= now] or list(_token_cache)[: _TOKEN_CACHE_MAX // 4]:
+            _token_cache.pop(key, None)
+    _token_cache[_token_cache_key(token)] = (uid, expires_at)
+
+
+def forget_token(authorization: Optional[str]) -> None:
+    token = _bearer_token(authorization)
+    if token:
+        _token_cache.pop(_token_cache_key(token), None)
 
 def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
@@ -97,6 +146,9 @@ async def get_user_id_from_bearer(authorization: Optional[str]) -> Optional[str]
     token = _bearer_token(authorization)
     if not token:
         return None
+    cached = _cached_user_id(token)
+    if cached:
+        return cached
 
     supabase_url = _env("SUPABASE_URL").rstrip("/")
     anon_key = _env("SUPABASE_ANON_KEY")
@@ -130,6 +182,7 @@ async def get_user_id_from_bearer(authorization: Optional[str]) -> Optional[str]
             data: Dict[str, Any] = r.json()
             uid = (data.get("id") or "").strip()
             if uid:
+                _remember_user_id(token, uid)
                 return uid
 
     # Fallback estritamente local e opt-in. Nunca aceitar JWT sem assinatura

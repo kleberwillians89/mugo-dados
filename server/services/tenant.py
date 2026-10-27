@@ -65,11 +65,13 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
                 status_code=400,
                 detail="Selecione explicitamente uma empresa para o suporte administrativo.",
             )
-        rows = await sb_select(
-            "clients", select="id", filters={"id": f"eq.{explicit_client_id}"}, limit=1
-        )
-        if not rows:
-            raise HTTPException(status_code=404, detail="Empresa selecionada não existe.")
+        if not _client_known(explicit_client_id):
+            rows = await sb_select(
+                "clients", select="id", filters={"id": f"eq.{explicit_client_id}"}, limit=1
+            )
+            if not rows:
+                raise HTTPException(status_code=404, detail="Empresa selecionada não existe.")
+            _remember_client(explicit_client_id)
         print(
             f"[tenant] user_id={user_id} requested_client_id={requested} "
             f"resolved_client_id={explicit_client_id} source=platform_support_explicit"
@@ -86,6 +88,28 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
     except PermissionError as exc:
         print(f"[tenant] denied user_id={user_id} requested_client_id={requested}")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+# Empresa que existe continua existindo: a confirmação vale 60 s no processo
+# (suporte administrativo consultava `clients` a cada chamada da tela).
+_CLIENT_EXISTS_SECONDS = 60
+_known_clients: dict = {}
+
+
+def _client_known(client_id: str) -> bool:
+    import time
+    expires_at = _known_clients.get(client_id)
+    if expires_at and time.monotonic() < expires_at:
+        return True
+    _known_clients.pop(client_id, None)
+    return False
+
+
+def _remember_client(client_id: str) -> None:
+    import time
+    if len(_known_clients) > 5000:
+        _known_clients.clear()
+    _known_clients[client_id] = time.monotonic() + _CLIENT_EXISTS_SECONDS
 
 
 async def require_user_client_access(user_id: str, client_id: str, *, fresh: bool = False) -> str:
