@@ -380,3 +380,52 @@ async def run_ga4_report(
             "time_zone": _safe_str((response_payload.get("metadata") or {}).get("timeZone")) or None,
         },
     }
+
+
+async def check_ga4_compatibility(
+    *,
+    property_id: str,
+    access_token: Optional[str],
+    dimensions: Iterable[str],
+    metrics: Iterable[str],
+    timeout_seconds: int = GA4_TIMEOUT_SECONDS,
+) -> Optional[Dict[str, List[str]]]:
+    """Valida dimensões e métricas na propriedade antes do runReport.
+
+    Usa `properties/{id}:checkCompatibility` da Data API. Devolve
+    {"dimensions": [...incompatíveis], "metrics": [...incompatíveis]} ou
+    None quando a verificação não pôde ser feita (quem chama decide o
+    caminho seguro). Nunca loga token nem corpo de resposta.
+    """
+    resolved_property_id = normalize_ga4_property_id(property_id)
+    if not resolved_property_id:
+        return None
+    body = {
+        "dimensions": [{"name": _safe_str(name)} for name in dimensions if _safe_str(name)],
+        "metrics": [{"name": _safe_str(name)} for name in metrics if _safe_str(name)],
+        "compatibilityFilter": "INCOMPATIBLE",
+    }
+    url = f"{GA4_API_BASE}/properties/{resolved_property_id}:checkCompatibility"
+    try:
+        token = _safe_str(access_token) or _get_access_token()
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.post(url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=body)
+        if response.status_code >= 400:
+            print(f"[ga4_client][compatibility] property_id={resolved_property_id} status=unavailable http_status={response.status_code}")
+            return None
+        payload = response.json() or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ga4_client][compatibility] property_id={resolved_property_id} status=unavailable error={exc.__class__.__name__}")
+        return None
+    def names(key: str, item_key: str) -> List[str]:
+        out: List[str] = []
+        for item in payload.get(key) or []:
+            if isinstance(item, dict) and item.get("compatibility") == "INCOMPATIBLE":
+                name = _safe_str(((item.get(item_key) or {}).get("apiName")))
+                if name:
+                    out.append(name)
+        return out
+    return {
+        "dimensions": names("dimensionCompatibilities", "dimensionMetadata"),
+        "metrics": names("metricCompatibilities", "metricMetadata"),
+    }

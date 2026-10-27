@@ -56,6 +56,7 @@ const report: Ga4ReportResponse = {
     campaign_name: `Campaign ${index + 1}`, source_medium: "google / cpc",
     sessions: 20 - index, active_users: 15 - index, total_users: 18 - index, event_count: 50 - index,
   } as Ga4ReportResponse["campaigns"][number])),
+  acquisition: { channel_groups: [], has_purchases: false, notes: [] },
   events: [],
   meta: { daily_rows: 0, channel_rows: 3, campaign_rows: 2, event_rows: 0 },
 };

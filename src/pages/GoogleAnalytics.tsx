@@ -46,6 +46,8 @@ import {
 import ChannelTodaySummary from "../components/dashboard/ChannelTodaySummary";
 import { coveredShopifyDay } from "../components/dashboard/shopifyCoverage";
 import PaidMediaReport from "../components/dashboard/PaidMediaReport";
+import Ga4CampaignPurchases from "../components/dashboard/Ga4CampaignPurchases";
+import { formatGa4Investment, formatGa4Roas } from "../components/dashboard/ga4CampaignFormat";
 import DataNotice from "../components/data/DataNotice";
 import HeroFigure from "../components/data/HeroFigure";
 import KpiFigure from "../components/data/KpiFigure";
@@ -329,6 +331,8 @@ export default function GoogleAnalytics({
       );
     });
   }, [channelFilter, deviceFilter, ga4Report?.channels, platformFilter, sourceMediumFilter]);
+
+  const hasGa4Purchases = Boolean(ga4Report?.acquisition?.has_purchases);
 
   const filteredCampaigns = useMemo(() => {
     const campaignNeedle = campaignFilter.trim().toLowerCase();
@@ -954,6 +958,7 @@ export default function GoogleAnalytics({
 
                   {detail === "campaigns" ? (
                     <div id="google-campaigns" className="ds-group">
+                      <Ga4CampaignPurchases acquisition={ga4Report.acquisition} />
                       <div className="ds-filters" aria-label="Filtros de campanhas">
                         <label className="ds-field">
                           <span>Campanha</span>
@@ -971,9 +976,20 @@ export default function GoogleAnalytics({
                                 <th scope="col">Campanha</th>
                                 <th scope="col">Canal</th>
                                 <th scope="col" className="is-number">Sessões</th>
-                                <th scope="col" className="is-number">Usuários ativos (soma diária)</th>
-                                <th scope="col" className="is-number">Usuários totais (soma diária)</th>
-                                <th scope="col" className="is-number">Eventos</th>
+                                {hasGa4Purchases ? (
+                                  <>
+                                    <th scope="col" className="is-number">Compras</th>
+                                    <th scope="col" className="is-number">Receita GA4</th>
+                                    <th scope="col" className="is-number">Investimento</th>
+                                    <th scope="col" className="is-number">ROAS (GA4)</th>
+                                  </>
+                                ) : (
+                                  <>
+                                    <th scope="col" className="is-number">Usuários ativos (soma diária)</th>
+                                    <th scope="col" className="is-number">Usuários totais (soma diária)</th>
+                                    <th scope="col" className="is-number">Eventos</th>
+                                  </>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
@@ -983,11 +999,22 @@ export default function GoogleAnalytics({
                                     {getCampaignDisplayName(row.campaign_name, { source: row.source, medium: row.medium })}
                                     <span className="ds-tableSub">{row.source || "—"} / {row.medium || "—"}</span>
                                   </td>
-                                  <td>{getGa4ChannelLabel(row.source_medium) || "—"}</td>
+                                  <td>{row.channel_group_label || getGa4ChannelLabel(row.source_medium) || "—"}</td>
                                   <td className="is-number">{formatInteger(row.sessions)}</td>
-                                  <td className="is-number">{formatInteger(row.active_users)}</td>
-                                  <td className="is-number">{formatInteger(row.total_users)}</td>
-                                  <td className="is-number">{formatInteger(row.event_count)}</td>
+                                  {hasGa4Purchases ? (
+                                    <>
+                                      <td className="is-number">{formatInteger(row.ecommerce_purchases)}</td>
+                                      <td className="is-number">{formatCurrency(row.purchase_revenue)}</td>
+                                      <td className="is-number">{formatGa4Investment(row)}</td>
+                                      <td className="is-number">{formatGa4Roas(row.roas)}</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="is-number">{formatInteger(row.active_users)}</td>
+                                      <td className="is-number">{formatInteger(row.total_users)}</td>
+                                      <td className="is-number">{formatInteger(row.event_count)}</td>
+                                    </>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>
