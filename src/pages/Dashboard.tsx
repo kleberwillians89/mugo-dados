@@ -1,6 +1,7 @@
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { useDataHealth } from "../app/DataHealthContext";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1683,10 +1684,10 @@ export default function Dashboard({
             dateline={
               <>
                 <span>
-                  <span className="ds-datelineSource">Meta Ads</span> — <DataFreshness provider="meta_ads" compact />
+                  <span className="ds-datelineSource">Meta Ads</span> — <DataFreshness provider="meta_ads" compact /><NextAutoRefresh provider="meta_ads" />
                 </span>
                 <span>
-                  <span className="ds-datelineSource">Instagram</span> — <DataFreshness provider="instagram" compact />
+                  <span className="ds-datelineSource">Instagram</span> — <DataFreshness provider="instagram" compact /><NextAutoRefresh provider="instagram" />
                 </span>
                 {isAuthenticated && canSync ? (
                   <span>

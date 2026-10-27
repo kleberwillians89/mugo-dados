@@ -1,5 +1,6 @@
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useState, type ReactNode } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { refreshProviderData } from "../app/api";
@@ -182,7 +183,7 @@ function FbitsCommerce({ isAuthenticated, canSync, connections, onConnectionsCha
                     contraditório: os KPIs oficiais da FBITS não dependem de
                     sync. Sem data e sem dado, o aviso continua. */}
                 <span>
-                  <DataFreshness provider="fbits_official" compact />
+                  <DataFreshness provider="fbits_official" compact /><NextAutoRefresh provider="fbits_official" />
                 </span>
                 {isAuthenticated && canSync ? (
                   <span>

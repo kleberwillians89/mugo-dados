@@ -1,5 +1,6 @@
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
@@ -454,7 +455,7 @@ export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }
           dateline={
             <>
               <span className="ds-datelineSource">Shopify</span>
-              <span><DataFreshness provider="shopify" compact /></span>
+              <span><DataFreshness provider="shopify" compact /><NextAutoRefresh provider="shopify" /></span>
               <span>
                   <button
                     className="btn intelHeaderAction"

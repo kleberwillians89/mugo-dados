@@ -1,6 +1,7 @@
 import { useDataHealth } from "../app/DataHealthContext";
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -535,14 +536,14 @@ export default function GoogleAnalytics({
             dateline={view === "ads" ? (
               <>
                 <span aria-busy={health?.loading}>
-                  <span className="ds-datelineSource">Google Ads</span> — <DataFreshness provider="google_ads" compact />
+                  <span className="ds-datelineSource">Google Ads</span> — <DataFreshness provider="google_ads" compact /><NextAutoRefresh provider="google_ads" />
                 </span>
                 {refreshButton}
               </>
             ) : (
               <>
                 <span aria-busy={health?.loading}>
-                  <span className="ds-datelineSource">Google Analytics 4</span> — <DataFreshness provider="ga4" compact />
+                  <span className="ds-datelineSource">Google Analytics 4</span> — <DataFreshness provider="ga4" compact /><NextAutoRefresh provider="ga4" />
                 </span>
                 {refreshButton}
               </>
