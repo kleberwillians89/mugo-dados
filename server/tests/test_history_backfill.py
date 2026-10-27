@@ -242,3 +242,39 @@ class HistoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryAllCompaniesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_schedules_every_active_company_and_isolates_failures(self):
+        clients = [{"id": "roove", "name": "Roove", "status": "active"},
+                   {"id": "curavino", "name": "Curavino", "status": "active"},
+                   {"id": "velha", "name": "Velha", "status": "deleted"},
+                   {"id": "quebrada", "name": "Quebrada", "status": "active"},
+                   {"id": "completa", "name": "Completa", "status": "active"}]
+
+        async def select(table, **kwargs):
+            self.assertEqual(table, "clients")
+            return clients
+
+        async def request(client_id, start, *, requested_by):
+            if client_id == "quebrada":
+                raise RuntimeError("boom")
+            if client_id == "completa":
+                raise hb.HistoryBackfillError("x", code="HISTORY_NOTHING_TO_DO")
+            return {"providers": [{"blocks_total": 4}, {"blocks_total": 3}]}
+
+        active = AsyncMock(side_effect=lambda cid: {"id": "r"} if cid == "curavino" else None)
+        with patch.object(hb, "sb_select", select), patch.object(hb, "request_history", request), \
+                patch.object(hb, "active_request", active), patch.object(hb, "_today", lambda: TODAY):
+            result = await hb.request_history_all("2026-01-01", requested_by="admin")
+        status = {row["client_id"]: row["status"] for row in result["companies"]}
+        self.assertEqual(status, {"roove": "scheduled", "curavino": "already_scheduled",
+                                  "quebrada": "error", "completa": "nothing_to_do"})
+        self.assertEqual(result["companies"][0]["blocks"], 7)
+
+    async def test_all_requires_platform_admin_only(self):
+        guard = AsyncMock(side_effect=HTTPException(status_code=403, detail="no"))
+        with patch.object(routes, "require_platform_admin", guard):
+            with self.assertRaises(HTTPException):
+                await routes.platform_history_request_all({"start": "2026-01-01"}, authorization="Bearer t")
+        guard.assert_awaited_once_with("Bearer t", allow_agency_admin=False)

@@ -195,6 +195,20 @@ async def platform_history_plan(
         raise _history_http_error(exc) from None
 
 
+@router.post("/history-backfill/all")
+async def platform_history_request_all(
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.history_backfill import request_history_all
+
+    try:
+        return await request_history_all(str((payload or {}).get("start") or ""), requested_by=user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _history_http_error(exc) from None
+
+
 @router.post("/companies/{client_id}/history-backfill")
 async def platform_history_request(
     client_id: str,

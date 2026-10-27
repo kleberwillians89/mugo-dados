@@ -3,7 +3,9 @@ import {
   cancelHistory,
   getHistoryPlan,
   requestHistory,
+  requestHistoryAll,
   runHistoryRound,
+  type HistoryAllResult,
   type HistoryPlan,
   type PlatformCompany,
 } from "../../app/api";
@@ -17,6 +19,13 @@ import {
  */
 
 const DEFAULT_START = "2026-01-01";
+
+const ALL_STATUS: Record<string, string> = {
+  scheduled: "Agendada",
+  already_scheduled: "Já estava agendada",
+  nothing_to_do: "Nada a buscar",
+  error: "Não foi possível agendar",
+};
 
 const STATE_LABEL: Record<string, string> = {
   complete: "Completo",
@@ -49,6 +58,8 @@ export default function HistoryBackfillPanel({ companies }: Props) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [allResult, setAllResult] = useState<HistoryAllResult | null>(null);
 
   const selected = clientId || active[0]?.id || "";
 
@@ -90,6 +101,23 @@ export default function HistoryBackfillPanel({ companies }: Props) {
     }
   }
 
+  async function scheduleAll() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await requestHistoryAll(start);
+      setAllResult(result);
+      setConfirmingAll(false);
+      const count = result.companies.filter((item) => item.status === "scheduled").length;
+      setMessage(`${count} empresa(s) agendada(s). A busca roda de madrugada, uma empresa de cada vez.`);
+    } catch (cause) {
+      setError(errorText(cause, "Não foi possível agendar para todas as empresas."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const scheduled = Boolean(plan?.request);
   const pending = plan?.providers.some((item) => item.state === "pending") ?? false;
 
@@ -123,8 +151,40 @@ export default function HistoryBackfillPanel({ companies }: Props) {
         </button>
       </form>
 
+      <div className="companiesActions">
+        {confirmingAll ? (
+          <>
+            <button className="btn btnPrimary" type="button" disabled={busy} onClick={() => void scheduleAll()}>
+              Confirmar para todas as empresas
+            </button>
+            <button className="btn" type="button" disabled={busy} onClick={() => setConfirmingAll(false)}>Cancelar</button>
+          </>
+        ) : (
+          <button className="btn" type="button" disabled={busy || !start} onClick={() => setConfirmingAll(true)}>
+            Agendar para todas as empresas desde {day(start)}
+          </button>
+        )}
+      </div>
+
       {error ? <p className="companiesError" role="alert">{error}</p> : null}
       {message ? <p className="companiesSuccess" role="status">{message}</p> : null}
+
+      {allResult ? (
+        <div className="companiesTableWrap" data-testid="history-all-result">
+          <table className="companiesTable">
+            <thead><tr><th>Empresa</th><th>Situação</th><th>Blocos</th></tr></thead>
+            <tbody>
+              {allResult.companies.map((item) => (
+                <tr key={item.client_id}>
+                  <td>{item.name}</td>
+                  <td>{ALL_STATUS[item.status] || item.status}</td>
+                  <td>{item.blocks ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       {plan ? (
         <div className="originProbeResult" data-testid="history-plan">

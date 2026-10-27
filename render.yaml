@@ -192,7 +192,7 @@ services:
         value: 3.13.2
 
   # Busca de histórico agendada em Empresas → Histórico. Madrugada (02:10 em
-  # São Paulo), fora do horário de uso; sem pedido ativo, termina na hora.
+  # São Paulo), até 2h30 divididas entre as empresas; sem pedido ativo, termina na hora.
   - type: cron
     name: mugo-dados-history-backfill
     env: python
@@ -200,7 +200,7 @@ services:
     rootDir: server
     schedule: "10 5 * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_jobs.py history-backfill-worker --budget-minutes 40
+    startCommand: python run_jobs.py history-backfill-worker --budget-minutes 150
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.2

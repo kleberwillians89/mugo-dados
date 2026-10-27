@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const api = vi.hoisted(() => ({
-  getHistoryPlan: vi.fn(), requestHistory: vi.fn(), cancelHistory: vi.fn(), runHistoryRound: vi.fn(),
+  getHistoryPlan: vi.fn(), requestHistory: vi.fn(), cancelHistory: vi.fn(), runHistoryRound: vi.fn(), requestHistoryAll: vi.fn(),
 }));
 vi.mock("../../app/api", () => api);
 
@@ -58,5 +58,20 @@ describe("HistoryBackfillPanel", () => {
     await act(async () => button("Confirmar agendamento").click());
     expect(api.requestHistory).toHaveBeenCalledWith("curavino", "2026-01-01");
     expect(container.textContent).toContain("Rodar uma rodada agora");
+  });
+
+  it("agenda para todas as empresas só depois de confirmar e mostra o resultado", async () => {
+    api.requestHistoryAll.mockResolvedValue({ ok: true, start: "2026-01-01", companies: [
+      { client_id: "roove", name: "Roove", status: "scheduled", blocks: 40 },
+      { client_id: "curavino", name: "Curavino", status: "already_scheduled" },
+    ] });
+    act(() => root.render(<HistoryBackfillPanel companies={COMPANIES} />));
+    await act(async () => button("Agendar para todas as empresas desde 01/01/2026").click());
+    expect(api.requestHistoryAll).not.toHaveBeenCalled();
+    await act(async () => button("Confirmar para todas as empresas").click());
+    expect(api.requestHistoryAll).toHaveBeenCalledWith("2026-01-01");
+    const text = container.textContent || "";
+    expect(text).toContain("1 empresa(s) agendada(s)");
+    expect(text).toContain("Já estava agendada");
   });
 });
