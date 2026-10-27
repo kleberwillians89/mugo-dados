@@ -21,7 +21,7 @@ export type SalesByOrigin = {
   notes?: string[];
   totals: null | {
     orders: number; revenue: number; average_ticket: number | null;
-    orders_with_origin: number; orders_with_utm: number; orders_with_google_click?: number;
+    orders_with_origin: number; orders_with_utm: number; orders_with_google_click?: number; orders_with_ga4_origin?: number;
     origin_coverage_percent: number | null; utm_coverage_percent: number | null;
   };
   channels: SalesOriginChannel[];

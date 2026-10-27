@@ -457,6 +457,68 @@ async def _campaign_dimensions(property_id: str, access_token: Optional[str]) ->
     return extended
 
 
+GA4_TRANSACTION_DIMENSIONS = ("date", "transactionId", "sessionSourceMedium", "sessionCampaignName")
+GA4_TRANSACTION_METRICS = ("ecommercePurchases", "purchaseRevenue")
+_NO_TRANSACTION = {"", "(not set)", "(none)", "(other)"}
+
+
+def _transaction_upsert_rows(
+    *, client_id: str, property_id: str, rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Uma linha por transação: origem da sessão de compra registrada pelo GA4.
+
+    Com purchase repetido ou em mais de uma sessão, fica a linha de maior
+    receita (empate: a mais antiga). Só ID da transação, nunca dado pessoal.
+    """
+    now_iso = _utc_now_iso()
+    best: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        values = row.get("values") or {}
+        transaction_id = _safe_str(values.get("transactionId"))[:100]
+        stat_date = _ga4_date_to_iso(values.get("date"))
+        if transaction_id.lower() in _NO_TRANSACTION or not stat_date:
+            continue
+        source_medium = _safe_str(values.get("sessionSourceMedium"))
+        source, medium = _parse_source_medium(source_medium)
+        candidate = {
+            "client_id": client_id,
+            "property_id": property_id,
+            "transaction_id": transaction_id,
+            "stat_date": stat_date,
+            "source_medium": source_medium,
+            "source": source or None,
+            "medium": medium or None,
+            "campaign_name": _safe_str(values.get("sessionCampaignName")) or None,
+            "purchases": _safe_int(values.get("ecommercePurchases")),
+            "purchase_revenue": round(_safe_float(values.get("purchaseRevenue")), 2),
+            "updated_at": now_iso,
+        }
+        current = best.get(transaction_id)
+        if current is None or (candidate["purchase_revenue"], current["stat_date"]) > (current["purchase_revenue"], candidate["stat_date"]):
+            best[transaction_id] = candidate
+    return list(best.values())
+
+
+async def _sync_ga4_transactions(
+    *, client_id: str, property_id: str, access_token: Optional[str], start: str, end: str,
+) -> int:
+    """Origem por transação. Opcional: falha aqui nunca derruba o sync do GA4."""
+    try:
+        report = await _run_named_report(
+            "transactions", property_id=property_id, access_token=access_token,
+            start_date=start, end_date=end,
+            dimensions=GA4_TRANSACTION_DIMENSIONS, metrics=GA4_TRANSACTION_METRICS,
+            order_bys=[{"dimension": {"dimensionName": "date"}}],
+        )
+        rows = _transaction_upsert_rows(client_id=client_id, property_id=property_id, rows=report.get("rows") or [])
+        if rows:
+            await sb_upsert("ga4_transaction_attribution", rows, on_conflict="client_id,property_id,transaction_id")
+        return len(rows)
+    except Exception as exc:  # noqa: BLE001 — só o tipo vai para o log
+        print(f"[ga4_sync][transactions] property_id={property_id} status=skipped error={exc.__class__.__name__}")
+        return 0
+
+
 def _event_upsert_rows(
     *,
     client_id: str,
@@ -675,6 +737,10 @@ async def _sync_ga4_for_period(
                     "source,medium,campaign_name"
                 ),
             )
+        transaction_rows = await _sync_ga4_transactions(
+            client_id=resolved_client_id, property_id=resolved_property_id, access_token=access_token,
+            start=period.start.isoformat(), end=period.end.isoformat(),
+        )
         device_report = await _run_named_report(
             "devices",
             property_id=resolved_property_id,
@@ -748,6 +814,7 @@ async def _sync_ga4_for_period(
                 "campaigns": len(campaign_rows),
                 "events": len(event_rows),
                 "landing_pages": len(landing_rows),
+                "transactions": transaction_rows,
                 "total": rows_upserted,
             },
             "source_row_count": {
