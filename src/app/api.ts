@@ -547,6 +547,48 @@ export type FbitsOriginProbeResult =
     }
   | { ok: false; code?: string; message?: string };
 
+export type HistoryProviderPlan = {
+  provider: "fbits" | "shopify" | "google_ads" | "ga4" | "meta_ads";
+  label: string;
+  connected: boolean;
+  earliest_in_database?: string | null;
+  missing_start?: string | null;
+  missing_end?: string | null;
+  blocks_total: number;
+  blocks_done: number;
+  state: "complete" | "pending" | "not_connected";
+};
+
+export type HistoryPlan = {
+  ok: true;
+  client_id: string;
+  start: string;
+  request: { id: string; requested_at?: string | null } | null;
+  providers: HistoryProviderPlan[];
+  observacao?: string;
+};
+
+function historyPath(clientId: string) {
+  return `/api/platform/companies/${encodeURIComponent(clientId)}/history-backfill`;
+}
+
+/** Simula (sem pedido ativo) ou mostra o progresso da busca de histórico. */
+export async function getHistoryPlan(clientId: string, start: string): Promise<HistoryPlan> {
+  return http(`${historyPath(clientId)}?start=${encodeURIComponent(start)}`);
+}
+
+export async function requestHistory(clientId: string, start: string): Promise<HistoryPlan> {
+  return http(historyPath(clientId), { method: "POST", body: JSON.stringify({ start }) });
+}
+
+export async function cancelHistory(clientId: string): Promise<{ ok: boolean }> {
+  return http(historyPath(clientId), { method: "DELETE" });
+}
+
+export async function runHistoryRound(clientId: string): Promise<{ ok: boolean; message?: string }> {
+  return http(`${historyPath(clientId)}/run`, { method: "POST" });
+}
+
 /** Diagnóstico somente leitura: onde a FBITS informa a origem de cada pedido. */
 export async function getFbitsOriginProbe(
   clientId: string,

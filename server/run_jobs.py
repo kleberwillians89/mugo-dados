@@ -98,6 +98,9 @@ async def _run(args: argparse.Namespace) -> Any:
         return await probe_fbits_order_origin(
             args.client_id, order_id=args.order_id, days=args.days, limit=args.limit, detail_sample=args.detail,
         )
+    if args.command == "history-backfill-worker":
+        from services.history_backfill import run_history_worker
+        return await run_history_worker(budget_seconds=max(60, args.budget_minutes * 60), client_id=args.client_id)
     if args.command == "attribution-backfill":
         from services.sales_by_origin import backfill_shopify_attribution
         return await backfill_shopify_attribution(args.client_id, dry_run=args.dry_run)
@@ -117,6 +120,13 @@ def _build_parser() -> argparse.ArgumentParser:
     history.add_argument("--end-date", required=True)
     history.add_argument("--connection-id", default=None)
     history.add_argument("--resume", action="store_true")
+
+    history_worker = sub.add_parser(
+        "history-backfill-worker",
+        help="Continua as buscas de histórico agendadas em Empresas (blocos pequenos, retomável).",
+    )
+    history_worker.add_argument("--budget-minutes", type=int, default=40)
+    history_worker.add_argument("--client-id", default=None)
 
     coverage = sub.add_parser("provider-coverage", help="Cobertura persistida read-only de UMA empresa.")
     coverage.add_argument("--client-id", required=True)
