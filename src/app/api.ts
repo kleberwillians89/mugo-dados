@@ -581,6 +581,17 @@ export async function requestHistory(clientId: string, start: string): Promise<H
   return http(historyPath(clientId), { method: "POST", body: JSON.stringify({ start }) });
 }
 
+export type HistoryAllResult = {
+  ok: boolean;
+  start: string;
+  companies: Array<{ client_id: string; name: string; status: "scheduled" | "already_scheduled" | "nothing_to_do" | "error"; blocks?: number; code?: string }>;
+};
+
+/** Agenda a busca de histórico para todas as empresas ativas (idempotente). */
+export async function requestHistoryAll(start: string): Promise<HistoryAllResult> {
+  return http("/api/platform/history-backfill/all", { method: "POST", body: JSON.stringify({ start }) });
+}
+
 export async function cancelHistory(clientId: string): Promise<{ ok: boolean }> {
   return http(historyPath(clientId), { method: "DELETE" });
 }

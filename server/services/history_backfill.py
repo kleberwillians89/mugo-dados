@@ -437,14 +437,43 @@ async def run_history_worker(*, budget_seconds: float = 2400, client_id: Optiona
                                order="started_at.asc", limit=50)
     deadline = time.monotonic() + budget_seconds
     results = []
-    for client in dict.fromkeys(str(row.get("client_id")) for row in requests if row.get("client_id")):
+    clients = list(dict.fromkeys(str(row.get("client_id")) for row in requests if row.get("client_id")))
+    for index, client in enumerate(clients):
         remaining = deadline - time.monotonic()
         if remaining < 60:
             break
+        # Fatia justa: com todas as empresas agendadas, nenhuma consome a noite inteira.
+        share = max(300.0, remaining / (len(clients) - index))
         try:
-            result = await run_history_step(client, budget_seconds=remaining)
+            result = await run_history_step(client, budget_seconds=min(share, remaining))
             results.append({"client_id": client, "processed": result["processed"], "state": result["state"],
                             "blocked": result.get("blocked") or {}})
         except Exception as exc:  # noqa: BLE001
             results.append({"client_id": client, "state": "error", "code": _error_code(exc)})
     return {"ok": True, "companies": results}
+
+
+async def request_history_all(start: str, *, requested_by: str) -> Dict[str, Any]:
+    """Agenda a busca para TODAS as empresas ativas. Idempotente por empresa."""
+    start_value = validate_start(start)
+    rows = await sb_select("clients", select="id,name,trade_name,status", order="name.asc", limit=500)
+    results: List[Dict[str, Any]] = []
+    for row in rows:
+        client_id = str(row.get("id") or "").strip()
+        if not client_id or str(row.get("status") or "active").lower() in {"deleted", "inactive", "archived"}:
+            continue
+        name = row.get("trade_name") or row.get("name") or client_id
+        try:
+            if await active_request(client_id):
+                results.append({"client_id": client_id, "name": name, "status": "already_scheduled"})
+                continue
+            plan = await request_history(client_id, start_value.isoformat(), requested_by=requested_by)
+            blocks = sum(item["blocks_total"] for item in plan["providers"])
+            results.append({"client_id": client_id, "name": name, "status": "scheduled", "blocks": blocks})
+        except HistoryBackfillError as exc:
+            status = "nothing_to_do" if exc.code == "HISTORY_NOTHING_TO_DO" else "error"
+            results.append({"client_id": client_id, "name": name, "status": status,
+                            **({"code": exc.code} if status == "error" else {})})
+        except Exception as exc:  # noqa: BLE001 — uma empresa não derruba as outras
+            results.append({"client_id": client_id, "name": name, "status": "error", "code": _error_code(exc)})
+    return {"ok": True, "start": start_value.isoformat(), "companies": results}
