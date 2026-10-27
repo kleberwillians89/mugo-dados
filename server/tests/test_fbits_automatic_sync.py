@@ -46,6 +46,8 @@ def ok(client_id: str, *, orders: int = 5, mode: str = "incremental") -> Dict[st
     }
 
 
+from jobs_schedule import scheduled_commands  # noqa: E402
+
 class CronHarness(unittest.IsolatedAsyncioTestCase):
     async def run_job(self, connections: List[Dict[str, Any]], outcomes: Dict[str, Any], *, window_days: int = 1):
         self.synced: List[Dict[str, Any]] = []
@@ -204,9 +206,8 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('"fbits-sync-all"', self.jobs)
         self.assertIn("run_fbits_sync_all(window_days=args.days)", self.jobs)
 
-    def test_render_declares_the_fbits_cron(self):
-        self.assertIn("name: mugo-dados-fbits-incremental", self.render)
-        self.assertIn("python run_jobs.py fbits-sync-all", self.render)
+    def test_fbits_incremental_is_scheduled(self):
+        self.assertEqual(scheduled_commands()["0,30 * * * *"], "fbits-sync-all")
 
     def test_web_service_name_matches_production(self):
         # Nome divergente faz o Blueprint criar outro serviço em vez de
@@ -220,7 +221,7 @@ class DeploymentContractTests(unittest.TestCase):
             "google-ads-sync", "shopify-reconcile", "fbits-sync-all",
         ):
             with self.subTest(command=command):
-                self.assertIn(f"python run_jobs.py {command}", self.render)
+                self.assertTrue(any(job.split()[0] == command for job in scheduled_commands().values()))
 
 
 if __name__ == "__main__":

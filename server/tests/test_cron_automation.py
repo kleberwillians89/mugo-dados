@@ -12,29 +12,47 @@ if str(SERVER_DIR) not in sys.path:
 
 from services import cron_jobs  # noqa: E402
 from cron_fixtures import active_companies
+from jobs_schedule import scheduled_commands  # noqa: E402
 
 
-class RenderCronScheduleTests(unittest.TestCase):
-    def test_provider_jobs_are_wired_to_real_render_schedules(self):
-        blueprint = (ROOT / "render.yaml").read_text()
+class ScheduledJobsTests(unittest.TestCase):
+    """Render free não tem Cron Job: os jobs rodam no GitHub Actions."""
+
+    def test_provider_jobs_are_wired_to_real_schedules(self):
+        jobs = scheduled_commands()
         contracts = (
-            ("mugo-dados-shopify-incremental", 'schedule: "*/30 * * * *"', "shopify-reconcile --fallback-days 30"),
-            ("mugo-dados-shopify-historical-reconciliation", 'schedule: "25 7 * * *"', "shopify-historical-reconcile --days 14"),
-            ("mugo-dados-meta-ads-sync-hourly", 'schedule: "5 * * * *"', "ads-sync-hourly --days 7"),
-            ("mugo-dados-instagram-organic-sync", 'schedule: "10 6,12,18,23 * * *"', "organic-sync --limit 60"),
-            ("mugo-dados-ga4-sync", 'schedule: "20 */3 * * *"', "ga4-sync-all --days 3"),
-            ("mugo-dados-google-ads-sync", 'schedule: "35 */3 * * *"', "google-ads-sync --days 7"),
-            ("mugo-dados-shopify-wide-reconciliation", 'schedule: "40 8 * * 0"', "shopify-historical-reconcile --days 90"),
-            ("mugo-dados-meta-ads-wide-reconciliation", 'schedule: "45 2 * * *"', "ads-sync-hourly --days 30"),
-            ("mugo-dados-ga4-wide-reconciliation", 'schedule: "15 3 * * *"', "ga4-sync-all --days 30"),
-            ("mugo-dados-google-ads-wide-reconciliation", 'schedule: "45 3 * * *"', "google-ads-sync --days 30"),
-            ("mugo-dados-instagram-wide-reconciliation", 'schedule: "20 9 * * 0"', "organic-sync --limit 250 --skip-thumbnails"),
+            ("15,45 * * * *", "shopify-reconcile --fallback-days 30"),
+            ("25 7 * * *", "shopify-historical-reconcile --days 14"),
+            ("5 * * * *", "ads-sync-hourly --days 7"),
+            ("10 6,12,18,23 * * *", "organic-sync --limit 60"),
+            ("20 */3 * * *", "ga4-sync-all --days 3"),
+            ("35 */3 * * *", "google-ads-sync --days 7"),
+            ("40 8 * * 0", "shopify-historical-reconcile --days 90"),
+            ("45 2 * * *", "ads-sync-hourly --days 30"),
+            ("15 3 * * *", "ga4-sync-all --days 30"),
+            ("45 3 * * *", "google-ads-sync --days 30"),
+            ("20 9 * * 0", "organic-sync --limit 250 --skip-thumbnails"),
+            ("10 5 * * *", "history-backfill-worker --budget-minutes 150"),
+            ("*/10 * * * *", "ads-backfill-worker"),
+            ("15 */6 * * *", "token-refresh"),
         )
-        for name, schedule, command in contracts:
-            with self.subTest(name=name):
-                block = blueprint.split(f"name: {name}", 1)[1].split("\n  - type:", 1)[0]
-                self.assertIn(schedule, block)
-                self.assertIn(command, block)
+        for schedule, command in contracts:
+            with self.subTest(schedule=schedule):
+                self.assertEqual(jobs[schedule], command)
+
+    def test_render_stays_free_without_paid_cron_services(self):
+        blueprint = (ROOT / "render.yaml").read_text()
+        self.assertNotIn("type: cron", blueprint)
+        self.assertIn("plan: free", blueprint)
+        self.assertNotIn("plan: starter", blueprint)
+
+    def test_public_logs_never_carry_job_output(self):
+        runner = (ROOT / ".github" / "scripts" / "run_job.py").read_text()
+        self.assertIn("stdout=subprocess.DEVNULL", runner)
+        self.assertIn("stderr=subprocess.DEVNULL", runner)
+        workflow = (ROOT / ".github" / "workflows" / "sync-jobs.yml").read_text()
+        self.assertIn("secrets.MUGO_JOBS_ENV", workflow)
+        self.assertIn("contents: read", workflow)
 
 
 class MultiTenantGoogleCronTests(unittest.IsolatedAsyncioTestCase):
