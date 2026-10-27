@@ -482,6 +482,9 @@ class PermanentCompanyDeletionMigrationContract(unittest.TestCase):
             "platform_audit_events", "promoted_post_daily_stats", "shopify_customers",
             "shopify_order_items", "shopify_orders", "shopify_refunds", "shopify_stores",
             "shopify_webhook_events", "sync_checkpoints", "user_invitations",
+            # Tabelas criadas depois da 036 (039, 040, 043, 045, 048).
+            "client_business_context", "fbits_customers", "client_goals", "mcp_audit_events",
+            "ga4_transaction_attribution",
         }
         deleted_tables = set(re.findall(r"delete from public\.(\w+)", self.sql))
         self.assertEqual(mapped_tables, deleted_tables)
