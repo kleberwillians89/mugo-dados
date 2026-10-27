@@ -1,0 +1,98 @@
+# Sincronizações recorrentes do Mugô Dados, fora do Render.
+#
+# Por quê: no plano gratuito do Render não existe Cron Job, e o serviço web
+# dorme depois de 15 min sem acesso. Aqui cada job roda num runner do GitHub
+# (gratuito em repositório público), grava direto no Supabase e termina; o
+# Render fica só para servir o painel, a API e o MCP.
+#
+# Horários em UTC (São Paulo = UTC-3). Cada horário abaixo dispara UM comando
+# (o mapeamento está no passo "Escolher comando"). O GitHub pode atrasar
+# disparos agendados em alguns minutos; as janelas dos jobs já cobrem isso.
+#
+# Segurança: o log público mostra só comando, status e duração (ver
+# .github/scripts/run_job.py). Configuração num único segredo: MUGO_JOBS_ENV.
+name: Sincronizações (jobs)
+
+on:
+  schedule:
+    - cron: "15 */6 * * *"     # token Meta
+    - cron: "10 6,12,18,23 * * *"  # Instagram orgânico
+    - cron: "5 * * * *"        # Meta Ads, últimos 7 dias
+    - cron: "20 */3 * * *"     # GA4, últimos 3 dias
+    - cron: "35 */3 * * *"     # Google Ads, últimos 7 dias
+    - cron: "0,30 * * * *"     # FBITS incremental
+    - cron: "15,45 * * * *"    # Shopify incremental
+    - cron: "25 7 * * *"       # Shopify, conferência de 14 dias
+    - cron: "40 8 * * 0"       # Shopify, conferência de 90 dias (domingo)
+    - cron: "45 2 * * *"       # Meta Ads, conferência de 30 dias
+    - cron: "*/10 * * * *"     # Meta Ads, fila de histórico
+    - cron: "15 3 * * *"       # GA4, conferência de 30 dias
+    - cron: "45 3 * * *"       # Google Ads, conferência de 30 dias
+    - cron: "20 9 * * 0"       # Instagram, conferência ampla (domingo)
+    - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico)
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Comando do run_jobs.py (ex.: ga4-sync-all --days 3)"
+        required: true
+        default: "ga4-sync-all --days 3"
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 175
+    concurrency:
+      group: mugo-job-${{ github.event.schedule || inputs.command }}
+      cancel-in-progress: false
+    steps:
+      - name: Escolher comando
+        id: pick
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ inputs.command }}
+        run: |
+          case "$SCHEDULE" in
+            "15 */6 * * *")        cmd="token-refresh" ;;
+            "10 6,12,18,23 * * *") cmd="organic-sync --limit 60" ;;
+            "5 * * * *")           cmd="ads-sync-hourly --days 7" ;;
+            "20 */3 * * *")        cmd="ga4-sync-all --days 3" ;;
+            "35 */3 * * *")        cmd="google-ads-sync --days 7" ;;
+            "0,30 * * * *")        cmd="fbits-sync-all" ;;
+            "15,45 * * * *")       cmd="shopify-reconcile --fallback-days 30" ;;
+            "25 7 * * *")          cmd="shopify-historical-reconcile --days 14" ;;
+            "40 8 * * 0")          cmd="shopify-historical-reconcile --days 90" ;;
+            "45 2 * * *")          cmd="ads-sync-hourly --days 30" ;;
+            "*/10 * * * *")        cmd="ads-backfill-worker" ;;
+            "15 3 * * *")          cmd="ga4-sync-all --days 30" ;;
+            "45 3 * * *")          cmd="google-ads-sync --days 30" ;;
+            "20 9 * * 0")          cmd="organic-sync --limit 250 --skip-thumbnails" ;;
+            "10 5 * * *")          cmd="history-backfill-worker --budget-minutes 150" ;;
+            "")                    cmd="$MANUAL" ;;
+            *) echo "horário sem comando mapeado"; exit 1 ;;
+          esac
+          case "$cmd" in
+            *[!a-z0-9\ -]*|"") echo "comando inválido"; exit 1 ;;
+          esac
+          echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Instalar dependências
+        run: pip install -q -r server/requirements.txt
+
+      - name: Rodar job
+        env:
+          MUGO_JOBS_ENV: ${{ secrets.MUGO_JOBS_ENV }}
+          CMD: ${{ steps.pick.outputs.cmd }}
+        run: |
+          # shellcheck disable=SC2086
+          python .github/scripts/run_job.py $CMD
