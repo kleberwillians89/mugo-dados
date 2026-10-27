@@ -30,22 +30,29 @@ class RequestPerformanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(comparison["low"]["samples"], 1)
         self.assertEqual(comparison["high"]["samples"], 1)
 
-    async def test_same_bearer_is_validated_once_per_request_and_again_next_request(self):
+    async def test_same_bearer_is_validated_once_and_again_after_short_cache(self):
         http = MagicMock()
         http.__aenter__ = AsyncMock(return_value=http)
         http.__aexit__ = AsyncMock(return_value=None)
         http.get = AsyncMock(return_value=MagicMock(status_code=200, json=lambda: {"id": "fixture-user"}))
         env = {"SUPABASE_URL": "https://fixture.invalid", "SUPABASE_ANON_KEY": "x" * 30}
         with patch.object(auth, "_env", side_effect=lambda name: env.get(name, "")), patch.object(auth.httpx, "AsyncClient", return_value=http), redirect_stdout(io.StringIO()):
-            for count in (1, 2):
+            auth._token_cache.clear()
+            # 1ª requisição valida no Supabase; a 2ª, dentro de 60 s, usa o cache;
+            # vencido o cache (3ª), valida de novo.
+            for request, expected_calls in ((1, 1), (2, 1), (3, 2)):
+                if request == 3:
+                    for key, (uid, _exp) in list(auth._token_cache.items()):
+                        auth._token_cache[key] = (uid, 0)
                 state, token = performance.begin("fixture-request")
                 try:
                     result = await asyncio.gather(auth.get_user_id_from_bearer("Bearer fixture-only"), auth.get_user_id_from_bearer("Bearer fixture-only"))
                     self.assertEqual(result, ["fixture-user", "fixture-user"])
-                    self.assertEqual(state.round_trips, 1)
+                    self.assertLessEqual(state.round_trips, 1)
                 finally:
                     performance.end(token)
-                self.assertEqual(http.get.await_count, count)
+                self.assertEqual(http.get.await_count, expected_calls)
+            auth._token_cache.clear()
 
     async def test_role_reads_do_not_hydrate_companies_and_are_memoized_only_in_request(self):
         roles = [{"client_id": str(i), "role": "viewer"} for i in range(20)]
