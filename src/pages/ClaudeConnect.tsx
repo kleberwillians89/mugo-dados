@@ -19,7 +19,13 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
     const controller = new AbortController();
     http<Overview>(consent ? `/api/mcp/authorization${query}` : "/api/mcp/connections", { signal: controller.signal })
       .then((result) => { if (!controller.signal.aborted) setData(result); })
-      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o conector. Verifique sua sessão ou tente mais tarde."); });
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        // Só o código HTTP: ajuda a diagnosticar sem exibir mensagem bruta.
+        const status = cause && typeof cause === "object" && "status" in cause ? Number((cause as { status?: unknown }).status) : 0;
+        const detail = status ? ` (código ${status})` : "";
+        setError(`Não foi possível carregar o conector. Verifique sua sessão ou tente mais tarde.${detail}`);
+      });
     return () => controller.abort();
   }, [consent, query]);
 

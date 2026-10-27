@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from services.auth import get_user_from_bearer
 from services.ig_supabase import sb_insert, sb_select, sb_update, sb_rpc, mcp_safe_errors
-from .tools import dispatch, ToolFailure
+from .tools import authorized_companies, dispatch, ToolFailure
 
 router = APIRouter()
 SCOPE = "mugo:read"
@@ -226,8 +226,9 @@ async def consent(request):
     params = await authorization_parameters(data)
     if data.get("approve") is not True:
         return JSONResponse({"redirect_url": callback(params["redirect_uri"], error="access_denied", state=params["state"])})
-    # Revalida as empresas exibidas; nenhum escopo de tenant é obtido do browser.
-    await dispatch(uid, "list_companies")
+    # Nenhum escopo de tenant vem do browser: o token é do usuário e cada
+    # chamada de ferramenta revalida o acesso à empresa.
+    await authorized_companies(uid)
     code = secrets.token_urlsafe(48)
     await sb_insert("mcp_oauth_codes", {"code_hash": digest(code), "user_id": uid, "oauth_client_id": params["client_id"],
         "redirect_uri": params["redirect_uri"], "resource": params["resource"], "challenge": params["code_challenge"]}, returning="minimal")
@@ -300,9 +301,9 @@ async def connections(request):
         client = await client_row(row["oauth_client_id"])
         output.append({"id": row["id"], "name": (client or {}).get("client_name", "Aplicativo"),
             "created_at": row.get("created_at"), "last_used_at": row.get("last_used_at")})
-    companies = await dispatch(uid, "list_companies")
+    companies = await authorized_companies(uid)
     resource, _, _ = settings()
-    return JSONResponse({"url": resource, "connections": output, "companies": companies["companies"]})
+    return JSONResponse({"url": resource, "connections": output, "companies": companies})
 
 
 @endpoint("/api/mcp/connections/revoke", method="POST")
@@ -321,6 +322,6 @@ async def authorization_preview(request):
     uid = await verified_user(request)
     params = await authorization_parameters(dict(request.query_params))
     client = await client_row(params["client_id"])
-    companies = await dispatch(uid, "list_companies")
+    companies = await authorized_companies(uid)
     resource, _, _ = settings()
-    return JSONResponse({"url": resource, "application": client["client_name"], "companies": companies["companies"], "connections": []})
+    return JSONResponse({"url": resource, "application": client["client_name"], "companies": companies, "connections": []})

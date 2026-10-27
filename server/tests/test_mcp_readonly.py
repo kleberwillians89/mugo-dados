@@ -290,3 +290,37 @@ class StreamableTransportTests(unittest.TestCase):
                 self.assertEqual(client.get("/mcp", headers=headers).status_code, 405)
                 hostile = client.post("/mcp", headers={**headers, "Origin": "https://hostile.example"}, json={})
                 self.assertIn(hostile.status_code, (400, 403))
+
+
+class FastCompanyListingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_list_companies_is_parallel_and_tolerates_slow_company(self):
+        import asyncio as aio
+        clients = {"clients": [{"client_id": f"c{i}", "name": f"Empresa {i}"} for i in range(12)]}
+
+        async def connected(cid, window):
+            if cid == "c3":
+                await aio.sleep(10)  # mais que o limite por empresa
+            await aio.sleep(0.05)
+            return ["shopify"], []
+
+        with patch("services.clients.list_clients_for_user", AsyncMock(return_value=clients)), \
+             patch.object(tools, "connected", connected), \
+             patch.object(tools, "_COMPANY_SOURCES_TIMEOUT", 0.3):
+            started = aio.get_running_loop().time()
+            result = await tools.dispatch("u", "list_companies", **WINDOW)
+            elapsed = aio.get_running_loop().time() - started
+        self.assertEqual(len(result["companies"]), 12)
+        self.assertLess(elapsed, 2)
+        by_id = {row["id"]: row for row in result["companies"]}
+        self.assertIsNone(by_id["c3"]["sources"])
+        self.assertEqual(by_id["c0"]["sources"], ["shopify"])
+
+    async def test_authorized_companies_is_light_and_respects_pilot(self):
+        clients = {"clients": [{"client_id": "roove", "name": "Roove"}, {"client_id": "curavino", "name": "Curavino"}]}
+        with patch("services.clients.list_clients_for_user", AsyncMock(return_value=clients)) as listing, \
+             patch.object(tools, "connected", AsyncMock(side_effect=AssertionError("não deve ler fontes"))):
+            everyone = await tools.authorized_companies("u", set())
+            pilot = await tools.authorized_companies("u", {"roove"})
+        self.assertEqual([c["id"] for c in everyone], ["roove", "curavino"])
+        self.assertEqual(pilot, [{"id": "roove", "name": "Roove"}])
+        self.assertTrue(all(call.kwargs.get("fresh") is True for call in listing.await_args_list))

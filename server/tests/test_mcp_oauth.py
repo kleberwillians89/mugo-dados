@@ -70,7 +70,7 @@ class OAuthEndpointsTests(unittest.TestCase):
             self.assertEqual(self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True}).status_code, 401)
             write.assert_not_awaited()
         with patch.object(oauth, "get_user_from_bearer", AsyncMock(return_value={"id": USER})), \
-             patch.object(oauth, "dispatch", AsyncMock(return_value={"companies": []})), patch.object(oauth, "sb_insert", AsyncMock()) as write:
+             patch.object(oauth, "authorized_companies", AsyncMock(return_value=[])), patch.object(oauth, "sb_insert", AsyncMock()) as write:
             denied = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": False})
             self.assertIn("access_denied", denied.json()["redirect_url"]); write.assert_not_awaited()
             approved = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True})
