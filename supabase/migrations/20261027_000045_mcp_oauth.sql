@@ -41,14 +41,17 @@ create table if not exists public.mcp_audit_events (
 create index if not exists mcp_audit_created_idx on public.mcp_audit_events(created_at);
 
 -- Troca de código e criação dos tokens na MESMA transação; código nunca reutilizável.
+-- Sem "select ... into": o SQL Editor do Supabase interpreta isso como criação
+-- de tabela e corrompe o corpo da função. Usamos atribuição com subconsulta.
 create or replace function public.mcp_exchange_code(
   p_code_hash text, p_client_id uuid, p_redirect_uri text, p_resource text,
   p_challenge text, p_access_hash text, p_refresh_hash text
-) returns boolean language plpgsql security invoker set search_path=public,pg_temp as $$
+) returns boolean language plpgsql security invoker set search_path=public,pg_temp as $fn$
 declare c public.mcp_oauth_codes; f uuid := gen_random_uuid();
 begin
-  select * into c from public.mcp_oauth_codes where code_hash=p_code_hash for update;
-  if not found or c.expires_at<=now() or c.oauth_client_id<>p_client_id
+  perform 1 from public.mcp_oauth_codes where code_hash=p_code_hash for update;
+  c := (select x from public.mcp_oauth_codes x where x.code_hash=p_code_hash);
+  if c.code_hash is null or c.expires_at<=now() or c.oauth_client_id<>p_client_id
      or c.redirect_uri<>p_redirect_uri or c.resource<>p_resource or c.challenge<>p_challenge then
     return false;
   end if;
@@ -56,43 +59,44 @@ begin
   insert into public.mcp_oauth_tokens(id,family_id,user_id,oauth_client_id,resource,access_hash,refresh_hash,access_expires_at,refresh_expires_at)
     values(f,f,c.user_id,p_client_id,p_resource,p_access_hash,p_refresh_hash,now()+interval '1 hour',now()+interval '30 days');
   return true;
-end $$;
+end $fn$;
 
 -- Todas as rotações/revogações de uma família serializam pelo registro raiz.
 -- O registro raiz deve permanecer até o término da família, inclusive após rotação.
 create or replace function public.mcp_rotate_refresh(
   p_refresh_hash text, p_client_id uuid, p_resource text, p_access_hash text, p_new_refresh_hash text
-) returns boolean language plpgsql security invoker set search_path=public,pg_temp as $$
-declare t public.mcp_oauth_tokens; root public.mcp_oauth_tokens;
+) returns boolean language plpgsql security invoker set search_path=public,pg_temp as $fn$
+declare cur public.mcp_oauth_tokens; fam public.mcp_oauth_tokens;
 begin
-  select * into t from public.mcp_oauth_tokens where refresh_hash=p_refresh_hash;
-  if not found then return false; end if;
-  select * into root from public.mcp_oauth_tokens where id=t.family_id for update;
-  if not found or root.refresh_expires_at<=now() or t.oauth_client_id<>p_client_id or t.resource<>p_resource then return false; end if;
-  select * into t from public.mcp_oauth_tokens where refresh_hash=p_refresh_hash;
-  if t.rotated_at is not null then
-    update public.mcp_oauth_tokens set revoked_at=coalesce(revoked_at,now()) where family_id=t.family_id;
+  cur := (select x from public.mcp_oauth_tokens x where x.refresh_hash=p_refresh_hash);
+  if cur.id is null then return false; end if;
+  perform 1 from public.mcp_oauth_tokens where id=cur.family_id for update;
+  fam := (select x from public.mcp_oauth_tokens x where x.id=cur.family_id);
+  if fam.id is null or fam.refresh_expires_at<=now() or cur.oauth_client_id<>p_client_id or cur.resource<>p_resource then return false; end if;
+  cur := (select x from public.mcp_oauth_tokens x where x.refresh_hash=p_refresh_hash);
+  if cur.rotated_at is not null then
+    update public.mcp_oauth_tokens set revoked_at=coalesce(revoked_at,now()) where family_id=cur.family_id;
     return false;
   end if;
-  if t.revoked_at is not null or t.refresh_expires_at<=now() then return false; end if;
-  update public.mcp_oauth_tokens set rotated_at=now(),revoked_at=now() where id=t.id;
+  if cur.revoked_at is not null or cur.refresh_expires_at<=now() then return false; end if;
+  update public.mcp_oauth_tokens set rotated_at=now(),revoked_at=now() where id=cur.id;
   insert into public.mcp_oauth_tokens(id,family_id,user_id,oauth_client_id,resource,access_hash,refresh_hash,access_expires_at,refresh_expires_at)
-    values(gen_random_uuid(),t.family_id,t.user_id,p_client_id,p_resource,p_access_hash,p_new_refresh_hash,
-           least(now()+interval '1 hour',root.refresh_expires_at),root.refresh_expires_at);
+    values(gen_random_uuid(),cur.family_id,cur.user_id,p_client_id,p_resource,p_access_hash,p_new_refresh_hash,
+           least(now()+interval '1 hour',fam.refresh_expires_at),fam.refresh_expires_at);
   return true;
-end $$;
+end $fn$;
 
 create or replace function public.mcp_revoke_family(p_token_hash text, p_client_id uuid)
-returns boolean language plpgsql security invoker set search_path=public,pg_temp as $$
+returns boolean language plpgsql security invoker set search_path=public,pg_temp as $fn$
 declare f uuid;
 begin
-  select family_id into f from public.mcp_oauth_tokens
-    where oauth_client_id=p_client_id and (access_hash=p_token_hash or refresh_hash=p_token_hash) limit 1;
-  if not found then return false; end if;
-  perform id from public.mcp_oauth_tokens where id=f for update;
+  f := (select x.family_id from public.mcp_oauth_tokens x
+        where x.oauth_client_id=p_client_id and (x.access_hash=p_token_hash or x.refresh_hash=p_token_hash) limit 1);
+  if f is null then return false; end if;
+  perform 1 from public.mcp_oauth_tokens where id=f for update;
   update public.mcp_oauth_tokens set revoked_at=coalesce(revoked_at,now()) where family_id=f;
   return true;
-end $$;
+end $fn$;
 
 alter table public.mcp_oauth_clients enable row level security;
 alter table public.mcp_oauth_codes enable row level security;
