@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import asyncio
-from uuid import UUID
+import re
 from typing import Any
 
 from .connection_resolver import resolve_connection_for_scope
@@ -24,12 +24,16 @@ from .meta_backfill import build_slices, enqueue_backfill
 from .sync_locks import guarded_sync
 
 SLICE_TIMEOUT_SECONDS = 240
+_CLIENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 PROVIDERS = {"meta_ads", "google_ads", "ga4", "instagram_content"}
 
 
 def validate_history(client_id: str, provider: str, start_date: str, end_date: str) -> None:
-    UUID(client_id)  # ID obrigatório; não existe modo global/default.
+    # ID obrigatório e explícito; não existe modo global/default. Empresas
+    # antigas usam slug (ex.: "roove"), as novas usam UUID: os dois valem.
+    if not isinstance(client_id, str) or not _CLIENT_ID.fullmatch(client_id):
+        raise ValueError("Informe o ID da empresa.")
     if provider not in PROVIDERS:
         raise ValueError("Provider histórico não suportado; snapshots Instagram não são reconstruíveis.")
     start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)

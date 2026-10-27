@@ -106,7 +106,8 @@ class HistoryOperationTests(unittest.IsolatedAsyncioTestCase):
             await history.backfill_provider_history(client_id=CID,provider="meta_ads",start_date=START,end_date=END)
 
     def test_explicit_tenant_provider_and_maximum_90_are_required(self):
-        for cid, provider, start, end in [("", "ga4",START,END),(CID,"shopify",START,END),(CID,"ga4","2026-07-07",END),(CID,"ga4",END,START)]:
+        history.validate_history("roove", "ga4", START, END)  # slug legado é válido
+        for cid, provider, start, end in [("", "ga4",START,END),("roove,or(1)", "ga4",START,END),(None, "ga4",START,END),(CID,"shopify",START,END),(CID,"ga4","2026-07-07",END),(CID,"ga4",END,START)]:
             with self.subTest(provider=provider,cid=cid), self.assertRaises(ValueError):
                 history.validate_history(cid,provider,start,end)
 
