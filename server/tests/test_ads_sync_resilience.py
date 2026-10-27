@@ -254,6 +254,31 @@ class LockAcquisitionUsesConnectionOnlyIdentityTests(_BaseAdsSyncTest):
         self.assertNotIn("2026-08-01", captured_lock_names[1])
 
 
+class MetaAdsLeaseTests(_BaseAdsSyncTest):
+    async def test_meta_ads_lock_is_short_lease_with_heartbeat(self):
+        ttls = []
+
+        async def capturing_acquire(_client_id, _lock_name, ttl):
+            ttls.append(ttl)
+            return True
+
+        beats = []
+
+        async def fake_heartbeat(client_id, lock_name):
+            beats.append((client_id, lock_name))
+            await asyncio.sleep(3600)
+
+        self._install(ads_sync, "acquire_sync_lock", capturing_acquire)
+        self._install(ads_sync, "_heartbeat", fake_heartbeat)
+        self._install(ads_sync, "fetch_ad_account_insights", AsyncMock(return_value=[]))
+        await ads_sync.sync_ads_for_client_period(
+            client_id="amalie", since="2026-07-01", until="2026-07-31", connection_id="conn-1",
+        )
+        from services import sync_locks
+        self.assertEqual(ttls, [sync_locks.LEASE_SECONDS])
+        self.assertEqual(beats, [("amalie", "sync:meta_ads:conn-1")])
+
+
 class PageCapTests(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_ad_account_insights_stops_at_max_pages(self):
         from services import ads_meta
