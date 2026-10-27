@@ -484,6 +484,44 @@ def require_fbits_not_in_cooldown(row: Dict[str, Any], now: Optional[datetime] =
         )
 
 
+async def ingest_fbits_window(
+    client: FbitsClient,
+    *,
+    client_id: str,
+    start: datetime,
+    end: datetime,
+    date_filter: str,
+    status_names: Dict[str, str],
+    affected_days: set,
+) -> Dict[str, int]:
+    """Lê uma janela de pedidos da FBITS e grava pedidos, itens e identidades.
+
+    Compartilhado pelo sync recorrente e pela busca de histórico: a mesma
+    normalização, a mesma origem do pedido e os mesmos upserts idempotentes.
+    """
+    orders = items = customers = 0
+    async for page in client.iter_order_pages(start=start, end=end, date_filter=date_filter):
+        order_rows = [
+            normalized for order in page
+            for normalized in [normalize_order(client_id, order, status_names)] if normalized
+        ]
+        if not order_rows:
+            continue
+        await upsert_orders_with_attribution("fbits_orders", order_rows, on_conflict="client_id,order_id", upsert=sb_upsert)
+        # Identidade do cliente extraída da MESMA página já lida:
+        # nenhuma requisição externa a mais, nenhum N+1.
+        customers += await _persist_customer_identities(client_id, page)
+        item_rows = [item for order_row in order_rows for item in normalize_items(client_id, order_row)]
+        if item_rows:
+            await sb_upsert("fbits_order_items", item_rows, on_conflict="client_id,order_id,item_id")
+        orders += len(order_rows)
+        items += len(item_rows)
+        affected_days.update(
+            _safe_str(order_row.get("order_date"))[:10] for order_row in order_rows if order_row.get("order_date")
+        )
+    return {"orders": orders, "items": items, "customers": customers}
+
+
 async def sync_fbits_connection(
     *,
     client_id: str,
@@ -560,27 +598,13 @@ async def sync_fbits_connection(
         job_run_id = _safe_str((job_run or {}).get("id"))
         try:
             for window_start, window_end in windows:
-                async for page in client.iter_order_pages(start=window_start, end=window_end, date_filter=date_filter):
-                    order_rows = [
-                        normalized for order in page
-                        for normalized in [normalize_order(client_id, order, status_names)] if normalized
-                    ]
-                    if not order_rows:
-                        continue
-                    await upsert_orders_with_attribution("fbits_orders", order_rows, on_conflict="client_id,order_id", upsert=sb_upsert)
-                    # Identidade do cliente extraída da MESMA página já lida:
-                    # nenhuma requisição externa a mais, nenhum N+1.
-                    customers_upserted += await _persist_customer_identities(
-                        client_id, page,
-                    )
-                    item_rows = [item for order_row in order_rows for item in normalize_items(client_id, order_row)]
-                    if item_rows:
-                        await sb_upsert("fbits_order_items", item_rows, on_conflict="client_id,order_id,item_id")
-                    orders_upserted += len(order_rows)
-                    items_upserted += len(item_rows)
-                    affected_days.update(
-                        _safe_str(order_row.get("order_date"))[:10] for order_row in order_rows if order_row.get("order_date")
-                    )
+                counts = await ingest_fbits_window(
+                    client, client_id=client_id, start=window_start, end=window_end,
+                    date_filter=date_filter, status_names=status_names, affected_days=affected_days,
+                )
+                orders_upserted += counts["orders"]
+                items_upserted += counts["items"]
+                customers_upserted += counts["customers"]
                 if historical:
                     metadata["history_cursor"] = _iso(window_end)
                     await _persist_state(client_id, connection_id, {"metadata": metadata})

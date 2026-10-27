@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import time
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
 
 from services.platform_admin import (
     PlatformCompanyConfirmationError,
@@ -159,3 +159,93 @@ async def platform_fbits_origin_probe(
         # derrubaria a sessão do administrador no front).
         return {"ok": False, "code": exc.code, "message": exc.public_message}
     return result
+
+
+# ---------------------------------------------------------------------------
+# Histórico desde uma data (ex.: 01/01/2026): simular (leitura), agendar,
+# cancelar e rodar uma rodada agora. Agendar/rodar grava no banco: só
+# platform_admin. O cron noturno continua as rodadas sozinho.
+
+_HISTORY_RUN_COOLDOWN_SECONDS = 120
+_history_last_run: Dict[str, float] = {}
+
+
+def _history_http_error(exc: Exception) -> HTTPException:
+    from services.history_backfill import HistoryBackfillError
+
+    if isinstance(exc, HistoryBackfillError):
+        status = 409 if exc.code in {"HISTORY_ALREADY_REQUESTED", "HISTORY_NOTHING_TO_DO"} else (
+            404 if exc.code == "HISTORY_NOT_FOUND" else 422)
+        return HTTPException(status_code=status, detail=exc.public_message)
+    return HTTPException(status_code=500, detail="Não foi possível concluir a operação de histórico.")
+
+
+@router.get("/companies/{client_id}/history-backfill")
+async def platform_history_plan(
+    client_id: str,
+    start: str | None = Query(default=None, max_length=10),
+    authorization: str | None = Header(default=None),
+):
+    await require_platform_admin(authorization)
+    from services.history_backfill import history_plan
+
+    try:
+        return await history_plan(client_id, start)
+    except Exception as exc:  # noqa: BLE001
+        raise _history_http_error(exc) from None
+
+
+@router.post("/companies/{client_id}/history-backfill")
+async def platform_history_request(
+    client_id: str,
+    payload: Dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    user_id = await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.history_backfill import request_history
+
+    try:
+        return await request_history(client_id, str((payload or {}).get("start") or ""), requested_by=user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _history_http_error(exc) from None
+
+
+@router.delete("/companies/{client_id}/history-backfill")
+async def platform_history_cancel(client_id: str, authorization: str | None = Header(default=None)):
+    await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.history_backfill import cancel_history
+
+    try:
+        return await cancel_history(client_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _history_http_error(exc) from None
+
+
+async def _history_round(client_id: str) -> None:
+    from services.history_backfill import run_history_step
+
+    try:
+        await run_history_step(client_id, budget_seconds=240)
+    except Exception as exc:  # noqa: BLE001 — rodada em segundo plano: só o código
+        print(f"[history_backfill] client_id={client_id} background_round=error code={getattr(exc, 'code', 'ERROR')}")
+
+
+@router.post("/companies/{client_id}/history-backfill/run", status_code=202)
+async def platform_history_run(
+    client_id: str,
+    background: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
+    await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.history_backfill import active_request
+
+    if not await active_request(client_id):
+        raise HTTPException(status_code=404, detail="Agende a busca de histórico antes de rodar.")
+    now = time.monotonic()
+    last = _history_last_run.get(client_id)
+    if last is not None and now - last < _HISTORY_RUN_COOLDOWN_SECONDS:
+        wait = int(_HISTORY_RUN_COOLDOWN_SECONDS - (now - last)) + 1
+        raise HTTPException(status_code=429, detail=f"Uma rodada acabou de começar. Aguarde {wait}s.")
+    _history_last_run[client_id] = now
+    background.add_task(_history_round, client_id)
+    return {"ok": True, "started": True, "message": "Rodada iniciada em segundo plano (até 4 minutos)."}
