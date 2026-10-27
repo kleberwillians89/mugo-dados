@@ -48,6 +48,7 @@ const Customers = lazy(loadCustomers);
 const Companies = lazy(loadCompanies);
 const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
+const ClaudeConnect = lazy(() => import("./pages/ClaudeConnect"));
 const AcceptInvitation = lazy(loadAcceptInvitation);
 
 type AppView = "loading" | "login" | "setup" | "dashboard" | "accept-invitation";
@@ -907,6 +908,9 @@ function PrivateApp() {
 }
 
 export default function App() {
+  if (["/conectar-claude", "/conectar-claude/autorizar"].includes(window.location.pathname)) {
+    return <Suspense fallback={<AppLoading />}><ClaudeConnect /></Suspense>;
+  }
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
   if (publicRoute === "privacy") return <PrivacyPage />;
   if (publicRoute === "data_deletion") return <DataDeletionPage />;
