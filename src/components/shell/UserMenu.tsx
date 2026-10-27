@@ -89,6 +89,7 @@ export default function UserMenu({ name, email, roleLabel, onLogout }: Props) {
           >
             Sair
           </button>
+          <a href="/conectar-claude" role="menuitem" className="userMenuItem">Conectar ao Claude</a>
         </div>
       ) : null}
     </div>

@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from services.tenant import require_user_client_access
 from services.ig_supabase import sb_select
 
+authorized_company = ContextVar("mcp_authorized_company", default=None)
 reference_key = ContextVar("mcp_reference_key", default=None)
 
 TOOLS = (
@@ -152,6 +153,7 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
         try:
             async with asyncio.timeout(8):
                 await require_user_client_access(user_id, company_id, fresh=True)
+                authorized_company.set(company_id)
         except Exception:
             # Nenhum detalhe de existência, conexão ou credencial vaza ao solicitante.
             raise ToolFailure("Acesso à empresa não autorizado ou indisponível.") from None
