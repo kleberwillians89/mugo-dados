@@ -1561,3 +1561,7 @@ async def api_ai_summary(
 ):
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
     return await ai_summary(client_id=cid, days=days, month=month, start=start, end=end)
+
+# Adaptador opcional; sem autenticação de produção nesta primeira entrega.
+from mcp_readonly.transport import install as install_mcp
+install_mcp(app)

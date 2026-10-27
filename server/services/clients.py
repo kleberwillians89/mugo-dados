@@ -9,15 +9,16 @@ from .meta_tokens import upsert_meta_connection
 from .client_lifecycle import is_operational
 
 
-async def list_clients_for_user(user_id: str) -> Dict[str, Any]:
+async def list_clients_for_user(user_id: str, *, limit: int | None = None, fresh: bool = False) -> Dict[str, Any]:
     started = time.perf_counter()
+    limit = max(1, min(100, int(limit))) if limit is not None else None
     memberships = await sb_get_client_memberships(user_id, include_clients=False)
 
     is_agency_admin = any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
     from .platform_admin import is_platform_admin
-    platform_admin = await is_platform_admin(user_id) if not is_agency_admin else False
+    platform_admin = (await is_platform_admin(user_id, fresh=True) if fresh else await is_platform_admin(user_id)) if not is_agency_admin else False
     if is_agency_admin or platform_admin:
-        rows = await sb_select("clients", select="id,name,trade_name,created_at,status", order="name.asc")
+        rows = await sb_select("clients", select="id,name,trade_name,created_at,status", order="name.asc", **({"limit": limit} if limit is not None else {}))
         return {
             "ok": True,
             "clients": [
@@ -27,6 +28,8 @@ async def list_clients_for_user(user_id: str) -> Dict[str, Any]:
         }
 
     ids = sorted({str(m.get("client_id") or "").strip() for m in memberships if m.get("client_id")})
+    if limit is not None:
+        ids = ids[:limit]
     by_id = {}
     for offset in range(0, len(ids), 100):
         batch = ids[offset:offset+100]

@@ -29,7 +29,7 @@ class PlatformCompanyConfirmationError(RuntimeError):
     pass
 
 
-async def is_platform_admin(user_id: str) -> bool:
+async def is_platform_admin(user_id: str, *, fresh: bool = False) -> bool:
     async def load():
         return await sb_select(
             "platform_admins",
@@ -37,6 +37,9 @@ async def is_platform_admin(user_id: str) -> bool:
             filters={"user_id": f"eq.{user_id}", "role": "eq.platform_admin"},
             limit=1,
         )
+
+    if fresh:
+        return bool(await load())
 
     rows, _ = await get_cached_or_load(
         namespace="platform_admin",
