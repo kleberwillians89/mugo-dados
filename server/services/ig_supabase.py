@@ -1,4 +1,5 @@
 import asyncio
+from contextvars import ContextVar
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -6,6 +7,10 @@ from typing import Any, Dict, List, Optional
 import httpx
 from .memory_budget import records_processed
 from .request_performance import measured, transport_started, transport_done, request_value
+
+
+# Somente a fronteira MCP/OAuth ativa esta redação; demais endpoints preservados.
+mcp_safe_errors = ContextVar("mcp_safe_errors", default=False)
 
 
 def _env(name: str) -> str:
@@ -107,10 +112,11 @@ async def _request(
                                    status=measurement_status)
             except Exception as exc:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
+                error_detail = exc.__class__.__name__ if mcp_safe_errors.get() else f"{exc.__class__.__name__}: {str(exc)[:260]}"
                 print(
                     "[supabase][request_error] "
                     f"method={method} path={path} timeout={timeout} duration_ms={elapsed_ms} "
-                    f"attempt={attempt}/{attempts} error={exc.__class__.__name__}: {str(exc)[:260]}"
+                    f"attempt={attempt}/{attempts} error={error_detail}"
                 )
                 if _is_retryable_transport_error(exc) and attempt < attempts:
                     backoff_ms = 200 * attempt
@@ -129,7 +135,7 @@ async def _request(
                 f"attempt={attempt}/{attempts}"
             )
             if r.status_code >= 400:
-                body = (r.text or "").strip().replace("\n", " ")
+                body = "[omitido no MCP]" if mcp_safe_errors.get() else (r.text or "").strip().replace("\n", " ")
                 if len(body) > 500:
                     body = f"{body[:500]}..."
                 print(
