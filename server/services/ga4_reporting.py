@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from .ig_supabase import sb_select
+from .ig_supabase import sb_rpc, sb_select
 from .freshness import source_freshness
 from .ga4_attribution import build_channel_group_items, campaign_investments, enrich_campaign_items
 from .periods import resolve_period
@@ -293,6 +293,69 @@ async def _select_ga4_event_rows(*, client_id: str, property_id: str, period: GA
     )
 
 
+GA4_ROLLUP_PARTS = ("channels", "campaigns", "events")
+
+
+async def _select_ga4_rollup(
+    *, client_id: str, property_id: str, period: GA4ReportPeriod, parts: Iterable[str] = GA4_ROLLUP_PARTS,
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """Canais/campanhas/eventos já somados no banco (migração 047).
+
+    Uma chamada em vez de baixar todas as linhas diárias em páginas de 1.000.
+    Devolve None quando a função ainda não existe ou falha: quem chama volta
+    para a leitura linha a linha, com o mesmo resultado.
+    """
+    wanted = [part for part in parts if part]
+    try:
+        payload = await sb_rpc("ga4_report_rollup", {
+            "p_client_id": client_id, "p_property_id": property_id,
+            "p_start": period.start.isoformat(), "p_end": period.end.isoformat(), "p_parts": wanted,
+        })
+    except Exception as exc:  # noqa: BLE001 — só o tipo vai para o log
+        print(f"[ga4_reporting][rollup] status=fallback error={exc.__class__.__name__}")
+        return None
+    if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], dict):
+        payload = payload[0].get("ga4_report_rollup", payload[0])
+    if not isinstance(payload, dict):
+        print("[ga4_reporting][rollup] status=fallback error=unexpected_payload")
+        return None
+    # Isolamento: a resposta tem de ser da empresa e da propriedade pedidas.
+    if _safe_str(payload.get("client_id")) != client_id or _safe_str(payload.get("property_id")) != property_id:
+        print("[ga4_reporting][rollup] status=fallback error=scope_mismatch")
+        return None
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for part in wanted:
+        rows = payload.get(part)
+        if not isinstance(rows, list):
+            print(f"[ga4_reporting][rollup] status=fallback error=missing_{part}")
+            return None
+        out[part] = [row for row in rows if isinstance(row, dict)]
+    return out
+
+
+def _source_row_count(rows: List[Dict[str, Any]]) -> int:
+    """Linhas diárias por trás das somas (row_count no rollup; 1 por linha no caminho antigo)."""
+    return sum(_safe_int(row.get("row_count")) if "row_count" in row else 1 for row in rows)
+
+
+async def _ga4_period_rows(
+    *, client_id: str, property_id: str, period: GA4ReportPeriod, parts: Iterable[str] = GA4_ROLLUP_PARTS,
+) -> Dict[str, List[Dict[str, Any]]]:
+    parts = tuple(parts)
+    rollup = await _select_ga4_rollup(client_id=client_id, property_id=property_id, period=period, parts=parts)
+    if rollup is not None:
+        return rollup
+    readers = {
+        "channels": _select_ga4_channel_rows,
+        "campaigns": _select_ga4_campaign_rows,
+        "events": _select_ga4_event_rows,
+    }
+    results = await asyncio.gather(*(
+        readers[part](client_id=client_id, property_id=property_id, period=period) for part in parts
+    ))
+    return dict(zip(parts, results))
+
+
 def _normalize_period_filters(
     *,
     client_id: str,
@@ -460,17 +523,18 @@ def _build_event_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "user_count_semantics": "sum_of_daily_users",
                 "event_count": 0,
                 "total_users": 0,
-                "first_seen_at": _safe_str(row.get("stat_date")) or None,
-                "last_seen_at": _safe_str(row.get("stat_date")) or None,
+                "first_seen_at": None,
+                "last_seen_at": None,
             },
         )
         bucket["event_count"] = _safe_int(bucket.get("event_count")) + _safe_int(row.get("event_count"))
         bucket["total_users"] = _safe_int(bucket.get("total_users")) + _safe_int(row.get("total_users"))
-        stat_date = _safe_str(row.get("stat_date")) or None
-        if stat_date and (not bucket.get("first_seen_at") or stat_date < _safe_str(bucket.get("first_seen_at"))):
-            bucket["first_seen_at"] = stat_date
-        if stat_date and (not bucket.get("last_seen_at") or stat_date > _safe_str(bucket.get("last_seen_at"))):
-            bucket["last_seen_at"] = stat_date
+        first_seen = _safe_str(row.get("first_seen_at") or row.get("stat_date")) or None
+        last_seen = _safe_str(row.get("last_seen_at") or row.get("stat_date")) or None
+        if first_seen and (not bucket.get("first_seen_at") or first_seen < _safe_str(bucket.get("first_seen_at"))):
+            bucket["first_seen_at"] = first_seen
+        if last_seen and (not bucket.get("last_seen_at") or last_seen > _safe_str(bucket.get("last_seen_at"))):
+            bucket["last_seen_at"] = last_seen
 
     items = list(grouped.values())
     items.sort(
@@ -573,20 +637,17 @@ async def build_ga4_report(
         period=period,
     )
 
-    daily_source_rows, channel_source_rows, campaign_source_rows, event_source_rows = await asyncio.gather(
+    daily_source_rows, period_rows = await asyncio.gather(
         _select_ga4_daily_rows(
             client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
         ),
-        _select_ga4_channel_rows(
-            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
-        ),
-        _select_ga4_campaign_rows(
-            client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
-        ),
-        _select_ga4_event_rows(
+        _ga4_period_rows(
             client_id=resolved_client_id, property_id=resolved_property_id, period=resolved_period,
         ),
     )
+    channel_source_rows = period_rows["channels"]
+    campaign_source_rows = period_rows["campaigns"]
+    event_source_rows = period_rows["events"]
 
     daily_rows = _build_daily_rows(resolved_period, daily_source_rows)
     campaign_items = await _campaign_items_with_investment(
@@ -653,9 +714,9 @@ async def build_ga4_report(
             "stale": freshness["stale"],
             "freshness": freshness,
             "daily_rows": len(daily_source_rows),
-            "channel_rows": len(channel_source_rows),
-            "campaign_rows": len(campaign_source_rows),
-            "event_rows": len(event_source_rows),
+            "channel_rows": _source_row_count(channel_source_rows),
+            "campaign_rows": _source_row_count(campaign_source_rows),
+            "event_rows": _source_row_count(event_source_rows),
         },
     }
 
@@ -671,11 +732,12 @@ async def build_ga4_channels_report(
         property_id=property_id or "",
         period=period,
     )
-    rows = await _select_ga4_channel_rows(
+    rows = (await _ga4_period_rows(
         client_id=resolved_client_id,
         property_id=resolved_property_id,
         period=resolved_period,
-    )
+        parts=("channels",),
+    ))["channels"]
     items = _build_channel_items(rows)
     return {
         "ok": True,
@@ -702,11 +764,12 @@ async def build_ga4_campaigns_report(
         property_id=property_id or "",
         period=period,
     )
-    rows = await _select_ga4_campaign_rows(
+    rows = (await _ga4_period_rows(
         client_id=resolved_client_id,
         property_id=resolved_property_id,
         period=resolved_period,
-    )
+        parts=("campaigns",),
+    ))["campaigns"]
     items = await _campaign_items_with_investment(resolved_client_id, resolved_period, rows)
     return {
         "ok": True,
@@ -733,11 +796,12 @@ async def build_ga4_events_report(
         property_id=property_id or "",
         period=period,
     )
-    rows = await _select_ga4_event_rows(
+    rows = (await _ga4_period_rows(
         client_id=resolved_client_id,
         property_id=resolved_property_id,
         period=resolved_period,
-    )
+        parts=("events",),
+    ))["events"]
     items = _build_event_items(rows)
     return {
         "ok": True,

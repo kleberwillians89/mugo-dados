@@ -185,6 +185,7 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
             return samples[table]
         with patch.object(tools, "require_user_client_access", AsyncMock()), patch.object(tools, "connected", AsyncMock(return_value=(["ga4"], []))), \
              patch("services.ga4_connections.resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(client_id="a", property_id="p"))), \
+             patch("services.ga4_reporting._select_ga4_rollup", AsyncMock(return_value=None)), \
              patch.object(tools, "sb_select", AsyncMock(side_effect=read)):
             result = await tools.dispatch("u", "get_site_traffic", "a", **WINDOW)
             self.assertEqual(result["summary"]["sessions"], 100)
@@ -194,6 +195,40 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(result["channels"][0]["source_medium"])
             self.assertNotIn("comprador@example.test", json.dumps(result))
             self.assertNotIn("123.456.789-00", json.dumps(result))
+
+
+    async def test_ga4_rollup_path_keeps_scope_and_privacy(self):
+        base = {"client_id": "a", "property_id": "p", "stat_date": "2026-10-10"}
+        rollup = {
+            "channels": [{"source_medium": "comprador@example.test", "source": "", "medium": "", "sessions": 25, "row_count": 3},
+                         {"source_medium": "google / cpc", "source": "google", "medium": "cpc", "sessions": 40,
+                          "ecommerce_purchases": 2, "purchase_revenue": 300.5, "row_count": 30}],
+            "landing_pages": [{"landing_page": "/obrigado?email=comprador@example.test", "sessions": 20, "row_count": 2},
+                              {"landing_page": "/obrigado", "sessions": 5, "row_count": 1},
+                              {"landing_page": "/cliente/123.456.789-00", "sessions": 7, "row_count": 1}],
+        }
+        read_tables = []
+
+        async def read(table, **kwargs):
+            read_tables.append(table)
+            self.assertEqual(kwargs["filters"]["client_id"], "eq.a")
+            return [{**base, "sessions": 100}]
+
+        rollup_call = AsyncMock(return_value=rollup)
+        with patch.object(tools, "require_user_client_access", AsyncMock()), patch.object(tools, "connected", AsyncMock(return_value=(["ga4"], []))), \
+             patch("services.ga4_connections.resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(client_id="a", property_id="p"))), \
+             patch("services.ga4_reporting._select_ga4_rollup", rollup_call), \
+             patch.object(tools, "sb_select", AsyncMock(side_effect=read)):
+            result = await tools.dispatch("u", "get_site_traffic", "a", **WINDOW)
+        self.assertEqual(read_tables, ["ga4_daily_stats"])
+        self.assertEqual(rollup_call.await_args.kwargs["client_id"], "a")
+        self.assertEqual(rollup_call.await_args.kwargs["property_id"], "p")
+        self.assertEqual(rollup_call.await_args.kwargs["parts"], ("channels", "landing_pages"))
+        self.assertEqual(result["landing_pages"], [{"path": "/obrigado", "sessions": 25}])
+        self.assertEqual(result["channels"][0]["sessions"], 40)
+        text = json.dumps(result)
+        self.assertNotIn("comprador@example.test", text)
+        self.assertNotIn("123.456.789-00", text)
 
 
 class BusinessTextTests(unittest.IsolatedAsyncioTestCase):

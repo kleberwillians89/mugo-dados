@@ -330,7 +330,7 @@ async def _read(uid, name, cid, window, provider, pilots):
         if "ga4" not in sources:
             return {"summary": {}, "channels": [], "landing_pages": [], "observacoes": ["Integração GA4 indisponível.", *limitations]}
         from services.ga4_connections import resolve_ga4_connection_context
-        from services.ga4_reporting import _build_summary, _build_daily_rows, _build_channel_items, GA4ReportPeriod
+        from services.ga4_reporting import _build_summary, _build_daily_rows, _build_channel_items, _select_ga4_rollup, GA4ReportPeriod
         context = await resolve_ga4_connection_context(cid)
         if context.client_id != cid:
             raise ToolFailure("A conexão não pertence à empresa autorizada.")
@@ -347,21 +347,33 @@ async def _read(uid, name, cid, window, provider, pilots):
             daily = []
             limitations.append("Métricas diárias excedem o limite de leitura e foram omitidas.")
         daily = scoped(daily)
-        channels = await sb_select("ga4_channel_stats", select="client_id,property_id,stat_date,source_medium,source,medium,sessions,active_users,total_users,event_count,ecommerce_purchases,purchase_revenue,total_revenue",
-            filters=filters, order="stat_date.asc", limit=2001)
-        if len(channels) > 2000:
-            channels = []
-            limitations.append("Canais excedem 2.000 registros; detalhamento omitido para não apresentar somas truncadas.")
-        channels = _build_channel_items(scoped(channels))
+        # Somas prontas no banco (migração 047): o ano inteiro cabe numa chamada.
+        rollup = await _select_ga4_rollup(client_id=cid, property_id=context.property_id, period=report_period,
+            parts=("channels", "landing_pages"))
+        if rollup is not None:
+            channels = _build_channel_items(rollup["channels"])
+        else:
+            channels = await sb_select("ga4_channel_stats", select="client_id,property_id,stat_date,source_medium,source,medium,sessions,active_users,total_users,event_count,ecommerce_purchases,purchase_revenue,total_revenue",
+                filters=filters, order="stat_date.asc", limit=2001)
+            if len(channels) > 2000:
+                channels = []
+                limitations.append("Canais excedem 2.000 registros; detalhamento omitido para não apresentar somas truncadas.")
+            channels = _build_channel_items(scoped(channels))
         summary = _build_summary(_build_daily_rows(report_period, daily)) if daily else {}
         dates = {str(r["stat_date"]) for r in daily}
         coverage = {"coverage_start": min(dates, default=None), "coverage_end": max(dates, default=None),
             "distinct_dates": len(dates), "expected_days": report_period.days}
-        pages = await sb_select("ga4_landing_page_stats", select="client_id,property_id,stat_date,landing_page,sessions",
-            filters={"client_id": f"eq.{cid}", "property_id": f"eq.{context.property_id}",
-                "and": f"(stat_date.gte.{window['start']},stat_date.lte.{window['end']})"}, order="stat_date.asc", limit=2001)
+        if rollup is not None:
+            # Já somadas e do escopo pedido; mantêm o formato da leitura diária.
+            pages = [{"client_id": cid, "property_id": context.property_id, "stat_date": window["start"],
+                      "landing_page": row.get("landing_page"), "sessions": row.get("sessions")}
+                     for row in rollup["landing_pages"]]
+        else:
+            pages = await sb_select("ga4_landing_page_stats", select="client_id,property_id,stat_date,landing_page,sessions",
+                filters={"client_id": f"eq.{cid}", "property_id": f"eq.{context.property_id}",
+                    "and": f"(stat_date.gte.{window['start']},stat_date.lte.{window['end']})"}, order="stat_date.asc", limit=2001)
         landing = {}
-        if len(pages) > 2000:
+        if rollup is None and len(pages) > 2000:
             limitations.append("Landing pages excedem 2.000 registros; detalhamento omitido para não apresentar somas truncadas.")
         else:
             for row in pages:

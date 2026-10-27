@@ -35,7 +35,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 46)
+        self.assertEqual(len(names), 47)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
         self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
@@ -51,16 +51,17 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertEqual(names[41], "20261006_000042_ecommerce_browser_lockdown.sql")
 
         self.assertEqual(names[42], "20261007_000043_client_goals.sql")
-        self.assertEqual(names[-3], "20261022_000044_order_attribution.sql")
-        self.assertEqual(names[-2], "20261027_000045_mcp_oauth.sql")
-        self.assertEqual(names[-1], "20261028_000046_ga4_campaign_channel_group.sql")
+        self.assertEqual(names[-4], "20261022_000044_order_attribution.sql")
+        self.assertEqual(names[-3], "20261027_000045_mcp_oauth.sql")
+        self.assertEqual(names[-2], "20261028_000046_ga4_campaign_channel_group.sql")
+        self.assertEqual(names[-1], "20261029_000047_ga4_report_rollup.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 47)))
+        self.assertEqual(logical_numbers, list(range(1, 48)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (

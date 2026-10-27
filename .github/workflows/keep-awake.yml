@@ -1,0 +1,32 @@
+# Mantém a API do Mugô Dados acordada no plano gratuito do Render.
+#
+# O serviço free dorme após 15 min sem acesso e o primeiro cliente espera
+# ~1 min. Um GET leve em /health (sem banco) a cada 10 min evita isso.
+#
+# Atenção às horas grátis: o Render dá 750 h/mês POR CONTA, somando todos os
+# serviços free. Um serviço sempre acordado usa ~744 h. Se houver outro
+# serviço free sempre acordado na mesma conta, as horas acabam e TODOS os
+# serviços free ficam suspensos até o mês seguinte. Para desligar sem mexer
+# no código: Settings → Secrets and variables → Actions → Variables →
+# KEEP_AWAKE = off.
+name: Manter API acordada
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    if: ${{ vars.KEEP_AWAKE != 'off' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: GET /health
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 120 --retry 2 --retry-delay 10 \
+            https://api.dados.mugoagencia.com.br/health || true)
+          echo "health=$code"
+          test "$code" = "200"
