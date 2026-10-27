@@ -189,12 +189,59 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
              patch.object(ga4_reporting, "_select_ga4_channel_rows", empty), \
              patch.object(ga4_reporting, "_select_ga4_event_rows", empty), \
              patch.object(ga4_reporting, "_select_ga4_campaign_rows", AsyncMock(return_value=campaign_rows)), \
+             patch.object(ga4_reporting, "_select_ga4_rollup", AsyncMock(return_value=None)), \
              patch.object(ga4_reporting, "campaign_investments", AsyncMock(return_value={})):
             report = await ga4_reporting.build_ga4_report(client_id="c", property_id="p", period=PERIOD)
         self.assertFalse(report["acquisition"]["has_purchases"])
         self.assertEqual(report["acquisition"]["channel_groups"][0]["channel_group"], "Direct")
         self.assertEqual(report["campaigns"][0]["channel_group_label"], "Direto")
         self.assertIn("não é o faturamento confirmado", report["acquisition"]["notes"][0])
+
+
+class RollupTests(unittest.IsolatedAsyncioTestCase):
+    def payload(self, **over):
+        return {"client_id": "cura", "property_id": "p", "start": "2026-01-01", "end": "2026-10-26",
+                "channels": [{"source_medium": "google / cpc", "source": "google", "medium": "cpc", "sessions": 3208,
+                              "ecommerce_purchases": 125, "purchase_revenue": 54763.12, "total_revenue": 54763.12, "row_count": 83}],
+                "campaigns": [{"campaign_name": "[CURAVINO] [Shopping] [Geral]", "source_medium": "google / cpc", "source": "google",
+                               "medium": "cpc", "channel_group": "Paid Shopping", "sessions": 2000, "ecommerce_purchases": 80,
+                               "purchase_revenue": 35000.0, "total_revenue": 35000.0, "row_count": 83}],
+                "events": [{"event_name": "purchase", "event_count": 230, "total_users": 220,
+                            "first_seen_at": "2026-08-01", "last_seen_at": "2026-10-22", "row_count": 83}],
+                **over}
+
+    async def test_report_uses_one_rollup_call_instead_of_paging(self):
+        rpc = AsyncMock(return_value=self.payload())
+        paged = AsyncMock(side_effect=AssertionError("não deveria paginar canais/campanhas/eventos"))
+        with patch.object(ga4_reporting, "sb_rpc", rpc), \
+             patch.object(ga4_reporting, "_select_ga4_daily_rows", AsyncMock(return_value=[])), \
+             patch.object(ga4_reporting, "_select_ga4_channel_rows", paged), \
+             patch.object(ga4_reporting, "_select_ga4_campaign_rows", paged), \
+             patch.object(ga4_reporting, "_select_ga4_event_rows", paged), \
+             patch.object(ga4_reporting, "campaign_investments", AsyncMock(return_value={"google_ads": {"[CURAVINO] [Shopping] [Geral]": 2720.29}})):
+            report = await ga4_reporting.build_ga4_report(client_id="cura", property_id="p", period=PERIOD)
+        args = rpc.await_args.args
+        self.assertEqual(args[0], "ga4_report_rollup")
+        self.assertEqual((args[1]["p_client_id"], args[1]["p_property_id"]), ("cura", "p"))
+        self.assertEqual((args[1]["p_start"], args[1]["p_end"]), ("2026-07-29", "2026-10-26"))
+        self.assertEqual(report["channels"][0]["ecommerce_purchases"], 125)
+        self.assertEqual(report["campaigns"][0]["roas"], round(35000.0 / 2720.29, 2))
+        self.assertEqual(report["events"][0]["first_seen_at"], "2026-08-01")
+        self.assertEqual(report["events"][0]["last_seen_at"], "2026-10-22")
+        self.assertEqual(report["meta"]["channel_rows"], 83)
+        self.assertNotIn("row_count", report["channels"][0])
+
+    async def test_falls_back_when_function_missing_or_scope_differs(self):
+        for rpc in (AsyncMock(side_effect=RuntimeError("function ga4_report_rollup does not exist")),
+                    AsyncMock(return_value=self.payload(client_id="outra")),
+                    AsyncMock(return_value=self.payload(campaigns=None))):
+            with self.subTest(rpc=rpc), patch.object(ga4_reporting, "sb_rpc", rpc), \
+                 patch.object(ga4_reporting, "_select_ga4_channel_rows", AsyncMock(return_value=[])) as channels, \
+                 patch.object(ga4_reporting, "_select_ga4_campaign_rows", AsyncMock(return_value=[])), \
+                 patch.object(ga4_reporting, "_select_ga4_event_rows", AsyncMock(return_value=[])):
+                rows = await ga4_reporting._ga4_period_rows(client_id="cura", property_id="p", period=PERIOD)
+            self.assertEqual(rows, {"channels": [], "campaigns": [], "events": []})
+            channels.assert_awaited_once()
 
 
 if __name__ == "__main__":
