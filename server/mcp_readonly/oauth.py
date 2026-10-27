@@ -87,8 +87,16 @@ async def client_row(value):
     return next((row for row in rows if row.get("id") == cid), None)
 
 
+def requested_resource(value, resource):
+    """RFC 8707: ausente vale o recurso padrão; barra final é tolerada."""
+    if value is None or value == "":
+        return resource
+    return value.rstrip("/") if isinstance(value, str) else value
+
+
 async def authorization_parameters(data):
     resource, _, _ = settings()
+    data = {**data, "resource": requested_resource(data.get("resource"), resource)}
     row = await client_row(data.get("client_id"))
     redirect = data.get("redirect_uri")
     if (not row or redirect not in allowed_redirects() or redirect not in row.get("redirect_uris", [])
@@ -222,7 +230,7 @@ async def token(request):
     data = await body(request)
     resource, _, _ = settings()
     cid = identifier(data.get("client_id"))
-    if data.get("resource") != resource or not await client_row(cid):
+    if requested_resource(data.get("resource"), resource) != resource or not await client_row(cid):
         raise ToolFailure("Cliente ou recurso inválido.")
     access, refresh = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
     if data.get("grant_type") == "authorization_code":
@@ -266,7 +274,8 @@ async def authenticate(authorization):
     row = rows[0] if rows else None
     if not row or row.get("resource") != resource or row.get("revoked_at") or not valid_at(row.get("access_expires_at")):
         return None
-    await sb_update("mcp_oauth_tokens", {"id": f"eq.{identifier(row['id'])}"}, {"last_used_at": datetime.now(timezone.utc).isoformat()}, returning="minimal")
+    await sb_update("mcp_oauth_tokens", filters={"id": f"eq.{identifier(row['id'])}"},
+                    patch={"last_used_at": datetime.now(timezone.utc).isoformat()}, returning="minimal")
     return identifier(row["user_id"]), digest(parts[1])
 
 

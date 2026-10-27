@@ -275,6 +275,8 @@ def install(app):
 
     @asynccontextmanager
     async def lifespan(application):
+        # Diagnóstico de implantação no boot do servidor, sem valores de configuração.
+        print(f"[mcp] enabled={enabled()} oauth_configured={oauth_configured()} local_access={local_access()}")
         async with previous(application):
             if enabled() and (local_access() or oauth_configured()):
                 gateway.setup()

@@ -151,3 +151,25 @@ class PostgreSQLContractTests(unittest.TestCase):
         process = subprocess.run([executable, "-X", "-h", os.environ["MCP_TEST_PG_SOCKET"], "-p", "55469", "-U", "mcp_test_owner", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-f", str(sql)],
             capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "PGPASSFILE": "/tmp/mugo-mcp-pg/empty-passfile"})
         self.assertEqual(process.returncode, 0, process.stderr)
+
+
+class AuthenticateSignatureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authenticate_calls_real_sb_update_signature(self):
+        # autospec: falha se a chamada não respeitar sb_update(table, *, filters, patch, returning).
+        from datetime import datetime, timedelta, timezone
+        row = {"id": "11111111-1111-1111-1111-111111111111", "user_id": "22222222-2222-2222-2222-222222222222",
+               "resource": "https://api.test/mcp", "revoked_at": None,
+               "access_expires_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()}
+        env = {"MCP_ENABLED": "true", "MCP_PUBLIC_URL": "https://api.test/mcp", "MCP_FRONTEND_URL": "https://app.test"}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(oauth, "sb_select", AsyncMock(return_value=[row])), \
+             patch.object(oauth, "sb_update", autospec=True) as update:
+            result = await oauth.authenticate("Bearer " + "a" * 40)
+        self.assertEqual(result[0], row["user_id"])
+        self.assertEqual(update.await_args.kwargs["filters"], {"id": f"eq.{row['id']}"})
+        self.assertIn("last_used_at", update.await_args.kwargs["patch"])
+
+    def test_resource_absent_or_trailing_slash_is_tolerated(self):
+        self.assertEqual(oauth.requested_resource(None, "https://api.test/mcp"), "https://api.test/mcp")
+        self.assertEqual(oauth.requested_resource("https://api.test/mcp/", "https://api.test/mcp"), "https://api.test/mcp")
+        self.assertEqual(oauth.requested_resource("https://evil.test/mcp", "https://api.test/mcp"), "https://evil.test/mcp")
