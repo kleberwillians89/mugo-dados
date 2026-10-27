@@ -45,7 +45,28 @@ export default function SalesOrigin() {
   const data = current.data;
   const totals = data?.totals;
   const loading = !data && !current.error;
+  // Campanha da UTM da loja ou do GA4 do mesmo pedido; API antiga: só UTM.
+  const campaignCoverage = totals?.campaign_coverage_percent ?? totals?.utm_coverage_percent ?? null;
   const maxShare = Math.max(1, ...(data?.channels || []).map((row) => row.share_of_revenue || 0));
+  const campaignRows = data?.campaigns || [];
+  const campaignOrders = campaignRows.reduce((sum, row) => sum + (row.orders || 0), 0);
+  const campaignRevenue = campaignRows.reduce((sum, row) => sum + (row.revenue || 0), 0);
+  const withoutCampaign = Math.max(0, (data?.totals?.orders || 0) - campaignOrders);
+  const campaignBars = [
+    ...campaignRows.slice(0, 10).map((row, index) => ({
+      key: `${row.campaign}-${row.source}-${row.medium}-${index}`,
+      label: row.campaign || "—",
+      orders: row.orders || 0,
+      revenue: row.revenue || 0,
+      meta: [row.source, row.medium].filter(Boolean).join(" / "),
+      unknown: false,
+    })),
+    ...(withoutCampaign ? [{
+      key: "sem-campanha", label: "Sem campanha identificada", orders: withoutCampaign,
+      revenue: Math.max(0, (data?.totals?.revenue || 0) - campaignRevenue), meta: "", unknown: true,
+    }] : []),
+  ];
+  const maxCampaignOrders = Math.max(1, ...campaignBars.map((row) => row.orders));
 
   return (
     <Shell title="Origem das vendas" variant="editorial">
@@ -83,12 +104,12 @@ export default function SalesOrigin() {
               <KpiFigure label="Receita da loja" value={formatCurrency(totals.revenue)} rawValue={totals.revenue} />
               <KpiFigure label="Pedidos" value={formatInteger(totals.orders)} rawValue={totals.orders} />
               <KpiFigure label="Pedidos com origem identificada" value={percent(totals.origin_coverage_percent)} />
-              <KpiFigure label="Pedidos com campanha (UTM)" value={percent(totals.utm_coverage_percent)} />
+              <KpiFigure label="Pedidos com campanha" value={percent(campaignCoverage)} />
             </section>
 
-            {totals.orders > 0 && (totals.utm_coverage_percent ?? 0) < LOW_UTM_COVERAGE ? (
+            {totals.orders > 0 && (campaignCoverage ?? 0) < LOW_UTM_COVERAGE ? (
               <DataNotice tone="warning" title="Leitura por campanha ainda parcial.">
-                Só {percent(totals.utm_coverage_percent)} dos pedidos do período trazem a campanha registrada pela loja.
+                Só {percent(campaignCoverage)} dos pedidos do período têm campanha identificada (UTM da loja ou GA4 do mesmo pedido).
                 Pedidos sem origem aparecem como “Origem não identificada” e nunca são distribuídos entre campanhas.
               </DataNotice>
             ) : null}
@@ -118,6 +139,24 @@ export default function SalesOrigin() {
 
             <section className="salesOriginSection" aria-labelledby="sales-origin-campaigns">
               <h2 id="sales-origin-campaigns">Por campanha</h2>
+              {data!.campaigns.length ? (
+                <ol className="salesOriginBars salesOriginCampaignBars" aria-label="Vendas por campanha" data-testid="sales-origin-campaign-chart">
+                  {campaignBars.map((row) => (
+                    <li key={row.key} className={row.unknown ? "is-unknown" : undefined}>
+                      <div className="salesOriginBarHead">
+                        <span className="salesOriginBarLabel">{row.label}</span>
+                        <strong>{formatInteger(row.orders)} {row.orders === 1 ? "venda" : "vendas"}</strong>
+                      </div>
+                      <div className="salesOriginBarTrack" aria-hidden="true">
+                        <span style={{ width: `${Math.max(2, (row.orders / maxCampaignOrders) * 100)}%` }} />
+                      </div>
+                      <p className="salesOriginBarMeta">
+                        {formatCurrency(row.revenue)}{row.meta ? ` · ${row.meta}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
               {data!.campaigns.length ? (
                 <div className="salesOriginTableWrap">
                   <table className="salesOriginTable">

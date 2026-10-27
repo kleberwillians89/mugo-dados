@@ -55,6 +55,18 @@ describe("Página Origem das vendas", () => {
     expect(text).toContain("bf_2026");
     expect(text).toContain("facebook / cpc");
     expect(text).not.toContain("Leitura por campanha ainda parcial");
+    const chart = container.querySelector('[data-testid="sales-origin-campaign-chart"]')?.textContent || "";
+    expect(chart).toContain("bf_2026");
+    expect(chart).toContain("2 vendas");
+    expect(chart).toContain("Sem campanha identificada");
+    expect(chart).toContain("1 venda");
+  });
+
+  it("cobertura de campanha conta a origem do GA4", async () => {
+    api.getSalesByOrigin.mockResolvedValue({ ...AVAILABLE, totals: { ...AVAILABLE.totals, utm_coverage_percent: 5, campaign_coverage_percent: 66.67 } });
+    await act(async () => root.render(<SalesOrigin />));
+    await flush();
+    expect(container.textContent).not.toContain("Leitura por campanha ainda parcial");
   });
 
   it("avisa quando poucos pedidos têm campanha", async () => {
