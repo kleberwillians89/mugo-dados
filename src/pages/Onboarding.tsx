@@ -150,7 +150,9 @@ function canonicalStatusLabel(
   if (entry.status === "needs_configuration") return "Configuração necessária";
   if (entry.sync_status === "sync_error") return "Erro de sincronização";
   if (entry.sync_status === "sync_partial") return "Sincronização parcial";
-  if (entry.sync_status === "sync_no_data") return "Última consulta sem dados";
+  // Meta respondeu normalmente, só que a conta de anúncios não veiculou nada no
+  // período. Não é falha: o Instagram orgânico e a conexão seguem funcionando.
+  if (entry.sync_status === "sync_no_data") return "Conectado · sem anúncios no período";
   if (entry.sync_status === "sync_success") return "Sincronizado";
   // Commerce: conexão válida ainda sem nenhuma importação concluída é
   // "conectado", nunca "não conectado" — só a primeira carga está pendente.
@@ -165,7 +167,7 @@ function canonicalStatusTone(entry: ClientIntegrationConnection | undefined): "r
   if (entry.status === "disconnected") return "red";
   if (entry.status === "token_expired" || entry.status === "permission_error") return "red";
   if (entry.status === "needs_configuration") return "yellow";
-  if (["sync_error", "sync_partial", "sync_no_data"].includes(entry.sync_status || "")) return "yellow";
+  if (["sync_error", "sync_partial"].includes(entry.sync_status || "")) return "yellow";
   return "green";
 }
 
@@ -183,7 +185,7 @@ function canonicalStatusBadgeTone(
   if (entry.status === "token_expired" || entry.status === "permission_error") return "error";
   if (entry.status === "needs_configuration") return "warning";
   if (entry.sync_status === "sync_error") return "error";
-  if (["sync_partial", "sync_no_data"].includes(entry.sync_status || "")) return "warning";
+  if (entry.sync_status === "sync_partial") return "warning";
   if (entry.sync_status === "sync_success") return "success";
   return "success";
 }
