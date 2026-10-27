@@ -560,6 +560,14 @@ export type Ga4ChannelRow = {
 
 export type Ga4CampaignRow = {
   campaign_name: string;
+  /** Canal de aquisição: o do GA4 (`ga4`) ou derivado de origem/mídia/campanha (`derivado`). */
+  channel_group?: string | null;
+  channel_group_label?: string | null;
+  channel_group_source?: "ga4" | "derivado" | null;
+  /** Investimento da campanha só quando o vínculo com Google Ads/Meta é inequívoco. */
+  investment?: number | null;
+  investment_source?: "google_ads" | "meta_ads" | null;
+  roas?: number | null;
   source_medium?: string | null;
   source?: string | null;
   medium?: string | null;
@@ -582,6 +590,21 @@ export type Ga4EventRow = {
   last_seen_at?: string | null;
 };
 
+export type Ga4ChannelGroupRow = {
+  channel_group: string;
+  channel_group_label: string;
+  channel_group_source?: "ga4" | "derivado" | null;
+  sessions: number;
+  ecommerce_purchases: number;
+  purchase_revenue: number;
+};
+
+export type Ga4Acquisition = {
+  channel_groups: Ga4ChannelGroupRow[];
+  has_purchases: boolean;
+  notes: string[];
+};
+
 export type Ga4ReportResponse = {
   ok: boolean;
   client_id: string;
@@ -602,6 +625,8 @@ export type Ga4ReportResponse = {
   };
   channels: Ga4ChannelRow[];
   campaigns: Ga4CampaignRow[];
+  /** Compras e receita atribuídas pelo GA4 por canal de aquisição. */
+  acquisition: Ga4Acquisition;
   events: Ga4EventRow[];
   meta: {
     last_synced_at?: string | null;

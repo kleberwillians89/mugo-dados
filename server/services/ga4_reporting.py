@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .ig_supabase import sb_select
 from .freshness import source_freshness
+from .ga4_attribution import build_channel_group_items, campaign_investments, enrich_campaign_items
 from .periods import resolve_period
 
 GA4_EVENT_GROUPS: Dict[str, Dict[str, Any]] = {
@@ -193,6 +194,11 @@ def _group_rollup(
             row.get("purchase_revenue")
         )
         bucket["total_revenue"] = _safe_float(bucket.get("total_revenue")) + _safe_float(row.get("total_revenue"))
+        if "channel_group" in bucket and not bucket["channel_group"] and _safe_str(row.get("channel_group")):
+            bucket["channel_group"] = _safe_str(row.get("channel_group"))
+    for bucket in grouped.values():
+        bucket["purchase_revenue"] = round(_safe_float(bucket.get("purchase_revenue")), 2)
+        bucket["total_revenue"] = round(_safe_float(bucket.get("total_revenue")), 2)
     return list(grouped.values())
 
 
@@ -245,21 +251,32 @@ async def _select_ga4_channel_rows(*, client_id: str, property_id: str, period: 
     )
 
 
+_CAMPAIGN_SELECT = (
+    "id,client_id,property_id,stat_date,campaign_name,source_medium,source,medium,sessions,active_users,"
+    "total_users,event_count,ecommerce_purchases,purchase_revenue,total_revenue,updated_at"
+)
+
+
 async def _select_ga4_campaign_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
-    return await _select_persisted_pages(
-        "ga4_campaign_stats",
-        select=(
-            "id,client_id,property_id,stat_date,campaign_name,source_medium,source,medium,sessions,active_users,"
-            "total_users,event_count,ecommerce_purchases,purchase_revenue,total_revenue,updated_at"
-        ),
-        filters={
-            "client_id": f"eq.{client_id}",
-            "property_id": f"eq.{property_id}",
-            "and": _period_filter(period),
-        },
-        order="stat_date.asc",
-        limit=10000,
-    )
+    filters = {
+        "client_id": f"eq.{client_id}",
+        "property_id": f"eq.{property_id}",
+        "and": _period_filter(period),
+    }
+    try:
+        rows = await _select_persisted_pages(
+            "ga4_campaign_stats", select=_CAMPAIGN_SELECT + ",channel_group",
+            filters=filters, order="stat_date.asc", limit=10000,
+        )
+    except Exception:
+        # Migration 046 (channel_group) ainda não aplicada: mesma leitura de antes.
+        rows = await _select_persisted_pages(
+            "ga4_campaign_stats", select=_CAMPAIGN_SELECT,
+            filters=filters, order="stat_date.asc", limit=10000,
+        )
+    # Isolamento: só linhas da empresa e da propriedade pedidas.
+    return [row for row in rows if _safe_str(row.get("client_id")) == client_id
+            and _safe_str(row.get("property_id")) == property_id]
 
 
 async def _select_ga4_event_rows(*, client_id: str, property_id: str, period: GA4ReportPeriod) -> List[Dict[str, Any]]:
@@ -405,6 +422,7 @@ def _build_campaign_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key_builder=lambda row: f"{_safe_str(row.get('campaign_name'))}||{_safe_str(row.get('source_medium'))}",
         value_builder=lambda row: {
             "campaign_name": _safe_str(row.get("campaign_name")) or "(not set)",
+            "channel_group": _safe_str(row.get("channel_group")) or None,
             "source_medium": _safe_str(row.get("source_medium")),
             "source": _safe_str(row.get("source")),
             "medium": _safe_str(row.get("medium")),
@@ -533,6 +551,16 @@ def _build_commerce_journey(lookup: Dict[str, Dict[str, Any]]) -> Dict[str, Any]
     }
 
 
+async def _campaign_items_with_investment(
+    client_id: str, period: GA4ReportPeriod, rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    items = _build_campaign_items(rows)
+    if not items:
+        return items
+    investments = await campaign_investments(client_id, period.start.isoformat(), period.end.isoformat())
+    return enrich_campaign_items(items, investments)
+
+
 async def build_ga4_report(
     *,
     client_id: str,
@@ -561,6 +589,9 @@ async def build_ga4_report(
     )
 
     daily_rows = _build_daily_rows(resolved_period, daily_source_rows)
+    campaign_items = await _campaign_items_with_investment(
+        resolved_client_id, resolved_period, campaign_source_rows,
+    )
     event_items = _build_event_items(event_source_rows)
     event_lookup = _event_item_lookup(event_items)
     last_synced_at = None
@@ -596,7 +627,17 @@ async def build_ga4_report(
             "daily": daily_rows,
         },
         "channels": _build_channel_items(channel_source_rows),
-        "campaigns": _build_campaign_items(campaign_source_rows),
+        "campaigns": campaign_items,
+        "acquisition": {
+            "channel_groups": build_channel_group_items(campaign_items),
+            "has_purchases": any(_safe_int(item.get("ecommerce_purchases")) > 0 for item in campaign_items),
+            "revenue_source": "ga4_purchase_event",
+            "notes": [
+                "Receita atribuída pelo GA4 (evento purchase): não é o faturamento confirmado do e-commerce.",
+                "Eventos purchase históricos podem conter duplicações.",
+                "Investimento e ROAS só aparecem quando a campanha do GA4 corresponde a uma única campanha do Google Ads ou da Meta com o mesmo nome.",
+            ],
+        },
         "events": event_items,
         "meta": {
             "user_count_semantics": "sum_of_daily_users",
@@ -666,7 +707,7 @@ async def build_ga4_campaigns_report(
         property_id=resolved_property_id,
         period=resolved_period,
     )
-    items = _build_campaign_items(rows)
+    items = await _campaign_items_with_investment(resolved_client_id, resolved_period, rows)
     return {
         "ok": True,
         "client_id": resolved_client_id,

@@ -14,6 +14,7 @@ import type {
   CommentsResponse,
   NotesResponse,
   NoteItem,
+  Ga4Acquisition,
   Ga4CampaignRow,
   Ga4ChannelRow,
   Ga4CommerceJourney,
@@ -1394,6 +1395,12 @@ function normalizeGa4Campaigns(raw: unknown): Ga4CollectionResponse<Ga4CampaignR
       const item = asRecord(row);
       return {
         campaign_name: asString(item.campaign_name, "(not set)"),
+        channel_group: asString(item.channel_group) || null,
+        channel_group_label: asString(item.channel_group_label) || null,
+        channel_group_source: item.channel_group_source === "ga4" || item.channel_group_source === "derivado" ? item.channel_group_source : null,
+        investment: typeof item.investment === "number" && Number.isFinite(item.investment) ? item.investment : null,
+        investment_source: item.investment_source === "google_ads" || item.investment_source === "meta_ads" ? item.investment_source : null,
+        roas: typeof item.roas === "number" && Number.isFinite(item.roas) ? item.roas : null,
         source_medium: asString(item.source_medium) || null,
         source: asString(item.source) || null,
         medium: asString(item.medium) || null,
@@ -1486,6 +1493,27 @@ function normalizeGa4CommerceJourney(raw: unknown): Ga4CommerceJourney {
   };
 }
 
+function normalizeGa4Acquisition(raw: unknown): Ga4Acquisition {
+  const payload = asRecord(raw);
+  const groups = Array.isArray(payload.channel_groups) ? payload.channel_groups : [];
+  return {
+    channel_groups: groups.map((row) => {
+      const item = asRecord(row);
+      const key = asString(item.channel_group, "Unassigned");
+      return {
+        channel_group: key,
+        channel_group_label: asString(item.channel_group_label) || key,
+        channel_group_source: item.channel_group_source === "ga4" || item.channel_group_source === "derivado" ? item.channel_group_source : null,
+        sessions: asNumber(item.sessions),
+        ecommerce_purchases: asNumber(item.ecommerce_purchases),
+        purchase_revenue: asNumber(item.purchase_revenue),
+      };
+    }),
+    has_purchases: Boolean(payload.has_purchases),
+    notes: Array.isArray(payload.notes) ? payload.notes.map((note) => asString(note)).filter(Boolean) : [],
+  };
+}
+
 function normalizeGa4Report(raw: unknown): Ga4ReportResponse {
   const payload = asRecord(raw);
   const period = asRecord(payload.period);
@@ -1567,6 +1595,7 @@ function normalizeGa4Report(raw: unknown): Ga4ReportResponse {
       count: Array.isArray(payload.campaigns) ? payload.campaigns.length : 0,
       items: payload.campaigns,
     }).items,
+    acquisition: normalizeGa4Acquisition(payload.acquisition),
     events: normalizeGa4Events({
       ok: payload.ok,
       client_id: payload.client_id,

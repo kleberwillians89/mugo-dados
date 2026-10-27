@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .ga4_client import normalize_ga4_property_id, run_ga4_report
+from .ga4_client import check_ga4_compatibility, normalize_ga4_property_id, run_ga4_report
 from .integration_errors import IntegrationError
 from .ga4_reporting import GA4ReportPeriod, resolve_ga4_report_period
 from .ig_supabase import sb_delete, sb_insert_many, sb_upsert
@@ -31,7 +31,13 @@ GA4_ATTRIBUTION_METRICS = (
     "sessions", "activeUsers", "totalUsers", "eventCount",
     "ecommercePurchases", "purchaseRevenue", "totalRevenue",
 )
-GA4_OPTIONAL_UPSERT_COLUMNS = ("raw_payload",)
+GA4_OPTIONAL_UPSERT_COLUMNS = ("raw_payload", "channel_group")
+# Campanhas: canal de aquisição do próprio GA4 (Default Channel Group). Só entra
+# na consulta depois de validado com checkCompatibility na propriedade.
+GA4_CAMPAIGN_DIMENSIONS = ("date", "sessionCampaignName", "sessionSourceMedium")
+GA4_CHANNEL_GROUP_DIMENSION = "sessionDefaultChannelGroup"
+_CAMPAIGN_SUM_FIELDS = ("sessions", "active_users", "total_users", "event_count", "ecommerce_purchases")
+_CAMPAIGN_MONEY_FIELDS = ("purchase_revenue", "total_revenue")
 from .sync_locks import guarded_sync
 
 
@@ -400,6 +406,7 @@ def _campaign_upsert_rows(
                 "property_id": property_id,
                 "stat_date": stat_date,
                 "campaign_name": campaign_name,
+                "channel_group": _safe_str(values.get(GA4_CHANNEL_GROUP_DIMENSION)) or None,
                 "source_medium": source_medium,
                 "source": source,
                 "medium": medium,
@@ -413,7 +420,41 @@ def _campaign_upsert_rows(
                 "updated_at": now_iso,
             }
         )
-    return payload_rows
+    # Uma linha por chave única (data, campanha, origem/mídia). O canal do GA4 é
+    # função dessas três, mas se a API devolver mais de um, as métricas somam e
+    # o primeiro canal fica, para o upsert nunca tocar a mesma linha duas vezes.
+    merged: Dict[tuple, Dict[str, Any]] = {}
+    for row in payload_rows:
+        key = (row["stat_date"], row["campaign_name"], row["source_medium"])
+        current = merged.get(key)
+        if current is None:
+            merged[key] = row
+            continue
+        for field in _CAMPAIGN_SUM_FIELDS:
+            current[field] += row[field]
+        for field in _CAMPAIGN_MONEY_FIELDS:
+            current[field] = round(current[field] + row[field], 2)
+        current["channel_group"] = current.get("channel_group") or row.get("channel_group")
+    return list(merged.values())
+
+
+async def _campaign_dimensions(property_id: str, access_token: Optional[str]) -> tuple[str, ...]:
+    """Dimensões da consulta de campanhas, validadas na propriedade.
+
+    Com o canal compatível com as métricas de atribuição, ele entra; se a
+    verificação falhar ou acusar incompatibilidade, a consulta segue como
+    antes (sem canal), sem interromper a sincronização.
+    """
+    extended = (*GA4_CAMPAIGN_DIMENSIONS, GA4_CHANNEL_GROUP_DIMENSION)
+    check = await check_ga4_compatibility(
+        property_id=property_id, access_token=access_token,
+        dimensions=extended, metrics=GA4_ATTRIBUTION_METRICS,
+    )
+    if check is None or check["dimensions"] or check["metrics"]:
+        print(f"[ga4_sync][campaigns] property_id={property_id} channel_group=skipped "
+              f"reason={'check_unavailable' if check is None else 'incompatible'}")
+        return GA4_CAMPAIGN_DIMENSIONS
+    return extended
 
 
 def _event_upsert_rows(
@@ -574,7 +615,7 @@ async def _sync_ga4_for_period(
             access_token=access_token,
             start_date=period.start.isoformat(),
             end_date=period.end.isoformat(),
-            dimensions=("date", "sessionCampaignName", "sessionSourceMedium"),
+            dimensions=await _campaign_dimensions(resolved_property_id, access_token),
             metrics=GA4_ATTRIBUTION_METRICS,
             order_bys=[{"dimension": {"dimensionName": "date"}}],
         )
