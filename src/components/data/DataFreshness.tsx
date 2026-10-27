@@ -16,12 +16,20 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
   const health = useDataHealth();
   const source = health?.data?.sources.find(item => item.provider === provider);
   if (compact) {
-    const stamp = source?.last_successful_sync_at;
-    const at = stamp ? new Date(stamp) : null;
-    if (!at || Number.isNaN(at.getTime())) return <span>Ainda não atualizado</span>;
-    const parts = new Intl.DateTimeFormat("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", hourCycle: "h23"}).formatToParts(at);
-    const part = (name: string) => parts.find(item => item.type === name)?.value;
-    return <span>Atualizado em {part("day")}/{part("month")}/{part("year")} às {part("hour")}</span>;
+    const format = (value: string | null | undefined) => {
+      const at = value ? new Date(value) : null;
+      if (!at || Number.isNaN(at.getTime())) return null;
+      const parts = new Intl.DateTimeFormat("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", hourCycle: "h23"}).formatToParts(at);
+      const part = (name: string) => parts.find(item => item.type === name)?.value;
+      return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}`;
+    };
+    const success = format(source?.last_successful_sync_at);
+    if (success) return <span>Atualizado em {success}</span>;
+    // A plataforma respondeu, mas sem nada no período (ex.: conta Meta sem anúncio
+    // rodando). Não é falha: mostra quando foi consultada.
+    const checked = source?.sync_status === "no_data" ? format(source?.last_attempt_at) : null;
+    if (checked) return <span>Consultado em {checked} · {provider === "meta_ads" ? "sem anúncios no período" : "sem dados no período"}</span>;
+    return <span>Ainda não atualizado</span>;
   }
   if (!source) return <span>{health?.loading ? "Verificando situação dos dados…" : "Situação dos dados não confirmada"}</span>;
   return <span>
