@@ -116,6 +116,7 @@ def aggregate_sales_by_origin(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
         key=lambda r: -r["revenue"],
     )
     identified = total_orders - sources.get("none", 0)
+    with_campaign = sum(row["orders"] for row in campaigns)
     return {
         "totals": {
             "orders": total_orders,
@@ -126,6 +127,9 @@ def aggregate_sales_by_origin(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
             "orders_with_google_click": sources.get("click_id", 0),
             "origin_coverage_percent": round(identified / total_orders * 100, 2) if total_orders else None,
             "utm_coverage_percent": round(sources.get("utm", 0) / total_orders * 100, 2) if total_orders else None,
+            # Campanha vinda da UTM da loja ou do GA4 do mesmo pedido.
+            "orders_with_campaign": with_campaign,
+            "campaign_coverage_percent": round(with_campaign / total_orders * 100, 2) if total_orders else None,
         },
         "channels": channels,
         "campaigns": campaigns[:50],

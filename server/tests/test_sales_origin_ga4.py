@@ -88,6 +88,9 @@ class MergeTests(unittest.TestCase):
         campaigns = {row["campaign"] for row in report["campaigns"]}
         self.assertIn("[CURAVINO] [Shopping] [Curva A]", campaigns)
         self.assertEqual(report["totals"]["orders_with_origin"], 4)
+        # Curva A (GA4) + campanha da UTM: 2 de 6 pedidos com campanha.
+        self.assertEqual(report["totals"]["orders_with_campaign"], 2)
+        self.assertEqual(report["totals"]["campaign_coverage_percent"], 33.33)
 
     def test_shopify_names_match_with_or_without_hash(self):
         orders = [{"shopify_order_id": "5550001", "name": "#1001", "order_number": "1001", "origin_channel": "unknown", "value": 1}]
