@@ -8,11 +8,11 @@
 --   sem e-mail, token ou credencial;
 -- - as RPCs sao exclusivas do service_role e revalidam platform_admin no banco.
 --
--- Duas funcoes curtas e sem `select ... into`: o SQL Editor do Supabase quebra
+-- Funcoes curtas e sem `select ... into`: o SQL Editor do Supabase quebra
 -- corpos longos e `select into` (ver migrations 045 e 047). Inclui as tabelas
 -- criadas depois desta migration (039, 040, 043, 045, 048).
 
-create or replace function public.delete_platform_company_data(p_client_id text)
+create or replace function public.delete_platform_company_metrics(p_client_id text)
 returns void
 language plpgsql
 security definer
@@ -43,6 +43,16 @@ begin
   delete from public.ig_comments where client_id = p_client_id;
   delete from public.ig_media where client_id = p_client_id;
   delete from public.ig_profile_snapshots where client_id = p_client_id;
+end;
+$fn$;
+
+create or replace function public.delete_platform_company_state(p_client_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $fn$
+begin
   delete from public.fbits_order_items where client_id = p_client_id;
   delete from public.fbits_orders where client_id = p_client_id;
   delete from public.fbits_order_daily_stats where client_id = p_client_id;
@@ -66,6 +76,18 @@ begin
   delete from public.client_notes where client_id = p_client_id;
   delete from public.integration_connections where client_id = p_client_id;
   delete from public.meta_connections where client_id = p_client_id;
+end;
+$fn$;
+
+create or replace function public.delete_platform_company_data(p_client_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $fn$
+begin
+  perform public.delete_platform_company_metrics(p_client_id);
+  perform public.delete_platform_company_state(p_client_id);
 end;
 $fn$;
 
@@ -121,6 +143,10 @@ begin
 end;
 $fn$;
 
+revoke all on function public.delete_platform_company_metrics(text) from public, anon, authenticated;
+grant execute on function public.delete_platform_company_metrics(text) to service_role;
+revoke all on function public.delete_platform_company_state(text) from public, anon, authenticated;
+grant execute on function public.delete_platform_company_state(text) to service_role;
 revoke all on function public.delete_platform_company_data(text) from public, anon, authenticated;
 grant execute on function public.delete_platform_company_data(text) to service_role;
 revoke all on function public.delete_platform_company(uuid,text,text) from public, anon, authenticated;
