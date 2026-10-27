@@ -173,3 +173,13 @@ class AuthenticateSignatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(oauth.requested_resource(None, "https://api.test/mcp"), "https://api.test/mcp")
         self.assertEqual(oauth.requested_resource("https://api.test/mcp/", "https://api.test/mcp"), "https://api.test/mcp")
         self.assertEqual(oauth.requested_resource("https://evil.test/mcp", "https://api.test/mcp"), "https://evil.test/mcp")
+
+
+class RegistrationToleranceTests(unittest.TestCase):
+    def test_grant_types_order_free_but_restricted(self):
+        self.assertTrue(oauth.grant_types_ok(None))
+        self.assertTrue(oauth.grant_types_ok(["refresh_token", "authorization_code"]))
+        self.assertTrue(oauth.grant_types_ok(["authorization_code"]))
+        self.assertFalse(oauth.grant_types_ok(["client_credentials", "authorization_code"]))
+        self.assertFalse(oauth.grant_types_ok(["refresh_token"]))
+        self.assertFalse(oauth.grant_types_ok("authorization_code"))

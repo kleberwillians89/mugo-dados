@@ -181,6 +181,14 @@ async def authorization_server(request):
         "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": ["none"], "scopes_supported": [SCOPE]})
 
 
+def grant_types_ok(value):
+    """RFC 7591: ordem livre; authorization_code obrigatório, refresh_token opcional."""
+    if value is None:
+        return True
+    return (isinstance(value, list) and "authorization_code" in value
+            and set(value) <= {"authorization_code", "refresh_token"})
+
+
 @endpoint("/oauth/register", method="POST", public=True)
 async def register(request):
     data = await body(request)
@@ -188,8 +196,9 @@ async def register(request):
     if (not isinstance(redirects, list) or not 1 <= len(redirects) <= 5
             or any(not isinstance(uri, str) or uri not in allowed_redirects() for uri in redirects)
             or data.get("token_endpoint_auth_method", "none") != "none"
-            or data.get("grant_types", ["authorization_code", "refresh_token"]) != ["authorization_code", "refresh_token"]
-            or data.get("response_types", ["code"]) != ["code"]):
+            or not grant_types_ok(data.get("grant_types"))
+            or not isinstance(data.get("response_types", ["code"]), list)
+            or set(data.get("response_types", ["code"])) != {"code"}):
         raise ToolFailure("Registro não autorizado.")
     cid = str(uuid.uuid4())
     # Nome é metadado visível apenas na conta que autorizar; nunca é logado.
