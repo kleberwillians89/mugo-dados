@@ -74,6 +74,41 @@ def _retry_budget(method: str) -> int:
     return 3 if method.upper() in {"GET", "PATCH"} else 1
 
 
+# Conexão reaproveitada com o Supabase: antes, cada consulta abria TCP + TLS
+# do zero (2 a 3 idas e voltas extras), o que pesa muito com o servidor longe
+# do banco. Um cliente por event loop; se httpx.AsyncClient for trocado (testes)
+# ou o loop mudar, cria outro.
+_SHARED: Dict[str, Any] = {}
+
+
+class _ReusedClient:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def __aenter__(self) -> Any:
+        return self._client
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+
+def _supabase_client(timeout: Any) -> Any:
+    factory = httpx.AsyncClient
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return factory(timeout=timeout)
+    current = _SHARED.get("client")
+    if current is not None and _SHARED.get("loop") is loop and _SHARED.get("factory") is factory and not getattr(current, "is_closed", False):
+        return _ReusedClient(current)
+    if not isinstance(factory, type):
+        # httpx.AsyncClient substituído por um mock: comportamento antigo.
+        return factory(timeout=timeout)
+    client = factory(timeout=timeout, limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60))
+    _SHARED.update({"client": client, "loop": loop, "factory": factory})
+    return _ReusedClient(client)
+
+
 async def _request(
     method: str,
     path: str,
@@ -98,14 +133,14 @@ async def _request(
         pool=min(15, timeout),
     )
 
-    async with httpx.AsyncClient(timeout=resolved_timeout) as client:
+    async with _supabase_client(resolved_timeout) as client:
         for attempt in range(1, attempts + 1):
             started = time.perf_counter()
             measurement = transport_started()
             measurement_status = "transport_error"
             try:
                 try:
-                    r = await client.request(method, url, headers=h, params=params, json=json)
+                    r = await client.request(method, url, headers=h, params=params, json=json, timeout=resolved_timeout)
                     measurement_status = str(r.status_code)
                 finally:
                     transport_done(measurement, dependency="supabase_rest", operation=method.upper() + " " + path.split("?", 1)[0],

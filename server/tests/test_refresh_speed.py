@@ -121,3 +121,35 @@ class ClientExistsCacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConnectionReuseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_supabase_requests_reuse_one_connection_pool(self):
+        from services import ig_supabase
+
+        created = []
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                created.append(kwargs)
+                self.is_closed = False
+
+            async def request(self, method, url, **kwargs):
+                response = MagicMock(status_code=200, text="[]")
+                response.json.return_value = []
+                return response
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return None
+
+        ig_supabase._SHARED.clear()
+        env = {"SUPABASE_URL": "https://fixture.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k" * 40}
+        with patch.dict(os.environ, env), patch.object(ig_supabase.httpx, "AsyncClient", FakeClient):
+            for _ in range(3):
+                await ig_supabase._request("GET", "/clients")
+        ig_supabase._SHARED.clear()
+        self.assertEqual(len(created), 1)
+        self.assertIn("limits", created[0])
