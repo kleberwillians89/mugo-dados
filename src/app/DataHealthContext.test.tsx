@@ -119,6 +119,15 @@ it("indicador compacto conserva só o último sucesso em São Paulo durante exec
  }
 });
 
+it("conta consultada sem dados mostra quando foi consultada, sem fingir sucesso", async () => {
+ const value={data:response("tenant-a",[{...source,provider:"meta_ads",last_successful_sync_at:null,sync_status:"no_data",last_attempt_at:"2026-10-27T20:10:00Z"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Consultado em 27/10/2026 às 17 · sem anúncios no período");
+ const failed={data:response("tenant-a",[{...source,provider:"meta_ads",last_successful_sync_at:null,sync_status:"error",last_attempt_at:"2026-10-27T20:10:00Z"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={failed}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Ainda não atualizado");
+});
+
 it("tentativa e parcial sem sucesso anterior não inventam horário no indicador compacto", async () => {
  const value={data:response("tenant-a",[{...source,last_successful_sync_at:null}]),loading:false,error:false,reload:async()=>{}};
  await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="ga4" compact /></DataHealthContext.Provider>));
