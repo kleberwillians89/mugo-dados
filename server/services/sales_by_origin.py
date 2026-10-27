@@ -9,26 +9,34 @@ regra de receita de cada plataforma:
   conexão e `valido` não é falso (regra de `_counts_as_revenue`). O total aqui
   é dos pedidos persistidos e pode diferir do indicador oficial da loja.
 
-Atribuição: último clique com UTM registrado pela loja. Pedido sem origem
+Atribuição: último clique com UTM registrado pela loja; sem UTM, o
+identificador de clique do Google Ads (gclid) marca o pedido como Google
+Ads, sem campanha; sem nenhum dos dois, vale a origem que o GA4 registrou para
+a mesma transação (ID do pedido no evento purchase). Pedido sem origem
 fica em "Origem não identificada" e nunca é distribuído entre campanhas.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from .commerce_context import FBITS, SHOPIFY, resolve_commerce_provider
 from .ig_supabase import _is_column_compat_error, sb_select, sb_update
-from .order_attribution import ATTRIBUTION_COLUMNS, CHANNEL_LABELS, shopify_order_attribution
+from .order_attribution import (
+    ATTRIBUTION_COLUMNS, CHANNEL_LABELS, classify_channel, fbits_order_attribution, fbits_order_from_raw,
+    shopify_order_attribution,
+)
 from .periods import resolve_period
 
 PAGE_SIZE = 1000
 MAX_ROWS = 20000
 ATTRIBUTION_MODEL = "last_click_utm"
-ATTRIBUTION_MODEL_LABEL = "Último clique com UTM registrado pela loja"
+ATTRIBUTION_MODEL_LABEL = "Último clique com UTM registrado pela loja; sem UTM, a origem que o GA4 registrou para o mesmo pedido"
+GOOGLE_ADS_NO_CAMPAIGN = "Google Ads (campanha não informada no pedido)"
 ORIGIN_SELECT = "utm_source,utm_medium,utm_campaign,utm_content,origin_channel,origin_detail,referrer_domain,attribution_source"
 
 
@@ -59,6 +67,10 @@ def _origin_key(row: Dict[str, Any]) -> Dict[str, Any]:
     channel = _text(row.get("origin_channel")) or "unknown"
     if channel not in CHANNEL_LABELS:
         channel = "unknown"
+    if _text(row.get("attribution_source")) == "click_id" and not _text(row.get("utm_campaign")):
+        # Clique do Google Ads sem UTM: aparece como Google Ads, sem inventar campanha.
+        return {"channel": channel, "channel_label": CHANNEL_LABELS[channel], "source": "google", "medium": "cpc",
+                "campaign": GOOGLE_ADS_NO_CAMPAIGN}
     return {
         "channel": channel,
         "channel_label": CHANNEL_LABELS[channel],
@@ -111,6 +123,7 @@ def aggregate_sales_by_origin(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
             "average_ticket": round(total_revenue / total_orders, 2) if total_orders else None,
             "orders_with_origin": identified,
             "orders_with_utm": sources.get("utm", 0),
+            "orders_with_google_click": sources.get("click_id", 0),
             "origin_coverage_percent": round(identified / total_orders * 100, 2) if total_orders else None,
             "utm_coverage_percent": round(sources.get("utm", 0) / total_orders * 100, 2) if total_orders else None,
         },
@@ -122,7 +135,7 @@ def aggregate_sales_by_origin(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
 async def _shopify_orders(client_id: str, start_iso: str, end_iso: str) -> tuple[List[Dict[str, Any]], bool]:
     rows, truncated = await _paged(
         "shopify_orders",
-        select=f"shopify_order_id,total_price,cancelled_at,cancel_reason,created_at_shopify,{ORIGIN_SELECT}",
+        select=f"shopify_order_id,order_number,name,total_price,cancelled_at,cancel_reason,created_at_shopify,{ORIGIN_SELECT}",
         filters={"client_id": f"eq.{client_id}", "and": f"(created_at_shopify.gte.{start_iso},created_at_shopify.lte.{end_iso})"},
         order="created_at_shopify.asc,shopify_order_id.asc",
     )
@@ -151,6 +164,76 @@ async def _fbits_orders(client_id: str, start_iso: str, end_iso: str) -> tuple[L
     return recognized, truncated
 
 
+_GA4_PLACEHOLDER_CAMPAIGNS = {"(organic)", "(direct)", "(referral)", "(not set)", "(none)", "(cross-network)",
+                              "(data not available)", "(not provided)"}
+
+
+def _order_keys(order: Dict[str, Any]) -> List[str]:
+    """IDs com que a loja pode ter enviado a transação ao GA4."""
+    keys: List[str] = []
+    for field in ("order_id", "shopify_order_id", "order_number", "name"):
+        value = _text(order.get(field))
+        for candidate in (value, value.lstrip("#").strip()):
+            if candidate and candidate not in keys:
+                keys.append(candidate)
+    return keys
+
+
+def ga4_origin(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Origem do pedido a partir da linha do GA4 da mesma transação (ou None)."""
+    source, medium = _text(row.get("source")), _text(row.get("medium"))
+    if not source or source.lower() in {"(not set)", "(data not available)"}:
+        return None
+    if source.lower() == "(direct)" and medium.lower() in {"(none)", "(not set)", ""}:
+        channel = "direct"
+    else:
+        channel = classify_channel(utm_source=source, utm_medium=medium)
+    campaign = _text(row.get("campaign_name"))
+    return {
+        "utm_source": source, "utm_medium": medium or None,
+        "utm_campaign": None if campaign.lower() in _GA4_PLACEHOLDER_CAMPAIGNS else (campaign or None),
+        "utm_content": None,
+        "origin_channel": channel, "origin_detail": "GA4", "referrer_domain": None,
+        "attribution_source": "ga4",
+    }
+
+
+async def _ga4_transactions(client_id: str, start: str, end: str) -> Dict[str, Dict[str, Any]]:
+    """Transações do GA4 da empresa, por ID, numa janela com folga de 2 dias.
+
+    Tabela ausente (migração 048 pendente) ou erro: devolve vazio e a tela segue
+    só com a origem registrada pela loja.
+    """
+    try:
+        rows, _truncated = await _paged(
+            "ga4_transaction_attribution",
+            select="client_id,transaction_id,stat_date,source,medium,campaign_name",
+            filters={"client_id": f"eq.{client_id}", "and": f"(stat_date.gte.{start},stat_date.lte.{end})"},
+            order="stat_date.asc,transaction_id.asc",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[sales_by_origin][ga4] client_id={client_id} status=unavailable error={exc.__class__.__name__}")
+        return {}
+    return {_text(row.get("transaction_id")): row for row in rows
+            if _text(row.get("client_id")) == client_id and _text(row.get("transaction_id"))}
+
+
+def merge_ga4_origins(orders: List[Dict[str, Any]], transactions: Dict[str, Dict[str, Any]]) -> int:
+    """Preenche, só nos pedidos SEM origem, a origem do GA4 da mesma transação."""
+    matched = 0
+    if not transactions:
+        return matched
+    for order in orders:
+        if (_text(order.get("origin_channel")) or "unknown") != "unknown":
+            continue
+        row = next((transactions[key] for key in _order_keys(order) if key in transactions), None)
+        origin = ga4_origin(row) if row else None
+        if origin:
+            order.update(origin)
+            matched += 1
+    return matched
+
+
 async def build_sales_by_origin(client_id: str, *, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
     period = resolve_period(start=start, end=end)
     start_utc, end_utc = period.utc_bounds()
@@ -174,11 +257,17 @@ async def build_sales_by_origin(client_id: str, *, start: Optional[str] = None, 
             print(f"[sales_by_origin] client_id={client_id} provider={provider} status=migration_pending")
             return {**base, "status": "migration_pending", "totals": None, "channels": [], "campaigns": []}
         raise
+    window_start = (period.start - timedelta(days=2)).isoformat()
+    window_end = (period.end + timedelta(days=2)).isoformat()
+    matched = merge_ga4_origins(orders, await _ga4_transactions(client_id, window_start, window_end))
     result = aggregate_sales_by_origin(orders)
+    result["totals"]["orders_with_ga4_origin"] = matched
     notes = [
         "Receita da loja por origem do pedido. Não é a receita atribuída pelo Meta ou pelo Google.",
         "Pedidos sem UTM nem referência ficam em \"Origem não identificada\" e não são distribuídos entre campanhas.",
     ]
+    if matched:
+        notes.append(f"{matched} pedido(s) sem UTM receberam a origem e a campanha que o GA4 registrou para a mesma transação.")
     if provider == FBITS:
         notes.append("Total calculado a partir dos pedidos persistidos; pode diferir do indicador oficial da loja.")
     if provider == SHOPIFY:
@@ -224,3 +313,76 @@ async def backfill_shopify_attribution(client_id: str, *, dry_run: bool = False,
     print(f"[attribution][backfill] provider=shopify client_id={client_id} scanned={scanned} updated={updated} dry_run={dry_run}")
     return {"ok": True, "provider": "shopify", "scanned": scanned, "updated": updated, "dry_run": dry_run,
             "channels": dict(sorted(channels.items(), key=lambda item: -item[1]))}
+
+
+_REPROCESS_SOURCES = {
+    "shopify": ("shopify_orders", "id,shop_domain,raw_payload,origin_channel"),
+    "fbits": ("fbits_orders", "id,raw,origin_channel"),
+}
+
+
+def _recompute(provider: str, row: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    if provider == "shopify":
+        return shopify_order_attribution(row.get("raw_payload") or {}, shop_domain=_text(row.get("shop_domain")))
+    return fbits_order_attribution(fbits_order_from_raw(row.get("raw") or {}))
+
+
+async def reprocess_unknown_origins(
+    client_id: str, *, provider: Optional[str] = None, dry_run: bool = True, limit: int = MAX_ROWS,
+) -> Dict[str, Any]:
+    """Recalcula a origem dos pedidos SEM origem, a partir do que já está salvo.
+
+    Nenhuma chamada à loja. Só toca pedidos com origem vazia ou "unknown" e só
+    grava quando a nova regra encontra uma origem (ex.: gclid do Google Ads).
+    Pedido com origem já identificada nunca é alterado. Sem dados pessoais no
+    retorno nem no log: só contagens.
+    """
+    providers = [provider] if provider else list(_REPROCESS_SOURCES)
+    report: Dict[str, Any] = {"ok": True, "client_id": client_id, "dry_run": dry_run, "providers": {}}
+    for name in providers:
+        if name not in _REPROCESS_SOURCES:
+            raise ValueError("provider inválido")
+        table, select = _REPROCESS_SOURCES[name]
+        scanned = changed = 0
+        found: Dict[str, int] = defaultdict(int)
+        last_id = ""
+        while scanned < limit:
+            filters = {"client_id": f"eq.{client_id}", "or": "(origin_channel.is.null,origin_channel.eq.unknown)"}
+            if last_id:
+                filters["id"] = f"gt.{last_id}"
+            try:
+                page = await sb_select(table, select=select, filters=filters, order="id.asc", limit=200)
+            except httpx.HTTPStatusError as exc:
+                if _is_column_compat_error(exc, "origin_channel"):
+                    report["providers"][name] = {"status": "migration_pending"}
+                    break
+                raise
+            if not page:
+                break
+            for row in page:
+                last_id = _text(row.get("id"))
+                scanned += 1
+                attribution = _recompute(name, row)
+                channel = attribution.get("origin_channel") or "unknown"
+                if channel == "unknown":
+                    continue
+                found[f"{channel}:{attribution.get('attribution_source')}"] += 1
+                changed += 1
+                if not dry_run:
+                    await sb_update(
+                        table,
+                        filters={"id": f"eq.{last_id}", "client_id": f"eq.{client_id}"},
+                        patch=attribution,
+                        returning="minimal",
+                    )
+            if len(page) < 200:
+                break
+        report["providers"].setdefault(name, {
+            "scanned_without_origin": scanned,
+            "origin_found": changed,
+            "updated": 0 if dry_run else changed,
+            "by_channel": dict(sorted(found.items(), key=lambda item: -item[1])),
+        })
+        print(f"[attribution][reprocess] provider={name} client_id={client_id} scanned={scanned} "
+              f"found={changed} dry_run={dry_run}")
+    return report

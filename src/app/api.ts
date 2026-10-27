@@ -621,6 +621,29 @@ export async function cleanupTestOrders(clientId: string): Promise<TestOrdersSum
 }
 
 /** Diagnóstico somente leitura: onde a FBITS informa a origem de cada pedido. */
+export type OriginReprocessProvider = {
+  status?: "migration_pending";
+  scanned_without_origin?: number;
+  origin_found?: number;
+  updated?: number;
+  by_channel?: Record<string, number>;
+};
+
+export type OriginReprocessSummary = {
+  ok: boolean;
+  client_id: string;
+  dry_run: boolean;
+  providers: Record<string, OriginReprocessProvider>;
+};
+
+export async function previewOriginReprocess(clientId: string): Promise<OriginReprocessSummary> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/origins/reprocess`);
+}
+
+export async function applyOriginReprocess(clientId: string): Promise<OriginReprocessSummary> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/origins/reprocess`, { method: "POST" });
+}
+
 export async function getFbitsOriginProbe(
   clientId: string,
   opts: { days?: number; orderId?: string } = {},

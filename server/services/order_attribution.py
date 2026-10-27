@@ -8,8 +8,11 @@ Regras:
 - Só registra o que a plataforma informou. Nada é inferido de campanha,
   horário ou valor. Sem UTM e sem referência, o canal é `unknown`.
 - `attribution_source` diz de onde veio a classificação: `utm` (parâmetros
-  de campanha), `referrer` (site de origem), `platform` (origem/canal que a
-  própria loja registrou) ou `none`.
+  de campanha), `click_id` (identificador de clique do Google Ads — gclid,
+  gbraid ou wbraid — que só existe em clique de anúncio com marcação
+  automática), `referrer` (site de origem), `platform` (origem/canal que a
+  própria loja registrou) ou `none`. UTM sempre vence o identificador de
+  clique; o identificador nunca vira nome de campanha.
 - URLs são reduzidas: guardamos só o domínio de referência e os parâmetros
   utm_*. Query strings podem carregar e-mail ou tokens e nunca são gravadas.
 - Modelo de atribuição informado ao cliente: último clique com UTM
@@ -56,6 +59,9 @@ _MESSAGING = ("sms", "whatsapp", "wpp", "zap")
 _AFFILIATE = ("affiliate", "afiliado", "afiliados", "parceiro", "partner", "influencer", "influenciador", "cupom")
 _MARKETPLACE = ("mercadolivre", "mercado_livre", "mercado livre", "amazon", "magalu", "shopee", "americanas",
                 "netshoes", "dafiti", "marketplace", "b2w", "carrefour")
+# Marcação automática do Google Ads: presentes só em clique de anúncio.
+GOOGLE_CLICK_IDS = ("gclid", "gbraid", "wbraid")
+GOOGLE_ADS_DETAIL = "Google Ads (clique de anúncio)"
 _UTM_ALIASES = {
     "utm_source": ("utm_source", "utmsource", "source", "origem_utm"),
     "utm_medium": ("utm_medium", "utmmedium", "medium", "midia"),
@@ -125,6 +131,24 @@ def utms_from_pairs(pairs: Iterable[Mapping[str, Any]], *, key_field: str, value
     return found
 
 
+def google_click_in_url(url: Any) -> bool:
+    raw = _text(url, 2000)
+    if "?" not in raw:
+        return False
+    try:
+        query = parse_qs(urlsplit(raw if "://" in raw else "https://x" + (raw if raw.startswith("/") else "/" + raw)).query)
+    except ValueError:
+        return False
+    return any(_text((query.get(key) or [""])[0]) for key in GOOGLE_CLICK_IDS)
+
+
+def google_click_in_pairs(pairs: Iterable[Mapping[str, Any]], *, key_field: str, value_field: str) -> bool:
+    for pair in pairs or []:
+        if isinstance(pair, Mapping) and _norm_key(pair.get(key_field)) in GOOGLE_CLICK_IDS and _text(pair.get(value_field)):
+            return True
+    return False
+
+
 def classify_channel(
     *,
     utm_source: str = "",
@@ -172,11 +196,23 @@ def classify_channel(
 
 def _result(
     utms: Mapping[str, str], *, referrer_domain: str, origin_detail: str, platform_origin: str, store_domain: str = "",
+    google_click: bool = False,
 ) -> Dict[str, Optional[str]]:
     channel = classify_channel(
         utm_source=utms.get("utm_source", ""), utm_medium=utms.get("utm_medium", ""),
         referrer_domain=referrer_domain, platform_origin=platform_origin, store_domain=store_domain,
     )
+    if not utms and google_click and channel not in {"marketplace"}:
+        # Sem UTM, mas com o clique do Google Ads: é anúncio do Google.
+        # Campanha fica vazia — o gclid não diz qual é.
+        out: Dict[str, Optional[str]] = {key: None for key in UTM_KEYS}
+        out.update({
+            "origin_channel": "paid_search",
+            "origin_detail": GOOGLE_ADS_DETAIL,
+            "referrer_domain": referrer_domain or None,
+            "attribution_source": "click_id",
+        })
+        return out
     if utms:
         source = "utm"
     elif referrer_domain and referrer_domain != store_domain:
@@ -210,10 +246,12 @@ def shopify_order_attribution(payload: Mapping[str, Any], *, shop_domain: str = 
     referrer = _domain(payload.get("referring_site"))
     source_name = _text(payload.get("source_name"), 80)
     store = _domain(shop_domain)
+    google_click = google_click_in_url(payload.get("landing_site")) or google_click_in_pairs(
+        payload.get("note_attributes") or [], key_field="name", value_field="value")
     return _result(
         utms, referrer_domain=referrer, origin_detail=source_name,
         platform_origin="" if source_name in {"web", "shopify_draft_order", ""} else source_name,
-        store_domain=store,
+        store_domain=store, google_click=google_click,
     )
 
 
@@ -247,7 +285,25 @@ def fbits_order_attribution(order: Mapping[str, Any]) -> Dict[str, Optional[str]
     )
     if is_marketplace and "marketplace" not in platform_origin.lower():
         platform_origin = (platform_origin + " marketplace").strip()
-    return _result(utms, referrer_domain="", origin_detail=detail or contact, platform_origin=platform_origin)
+    google_click = google_click_in_pairs(order.get("metadados") or [], key_field="chave", value_field="valor") or any(
+        _text(order.get(key)) for key in GOOGLE_CLICK_IDS)
+    return _result(utms, referrer_domain="", origin_detail=detail or contact, platform_origin=platform_origin,
+                   google_click=google_click)
+
+
+def fbits_order_from_raw(raw: Mapping[str, Any]) -> Dict[str, Any]:
+    """Reconstrói, do `raw` já gravado, só os campos de origem do pedido FBITS."""
+    raw = raw if isinstance(raw, Mapping) else {}
+    order: Dict[str, Any] = {key: raw.get(key) for key in ("canalId", "canalOrigem", "marketPlacePedidoId") if key in raw}
+    if isinstance(raw.get("origemPedido"), Mapping):
+        order["origemPedido"] = raw["origemPedido"]
+    if raw.get("origemContato"):
+        order["usuario"] = {"origemContato": raw.get("origemContato")}
+    if isinstance(raw.get("metadados_origem"), list):
+        order["metadados"] = raw["metadados_origem"]
+    if isinstance(raw.get("itens"), list):
+        order["itens"] = [item for item in raw["itens"] if isinstance(item, Mapping)]
+    return order
 
 
 def fbits_origin_raw(order: Mapping[str, Any]) -> Dict[str, Any]:
@@ -268,7 +324,7 @@ def fbits_origin_raw(order: Mapping[str, Any]) -> Dict[str, Any]:
     if isinstance(user, Mapping) and user.get("origemContato"):
         raw["origemContato"] = user.get("origemContato")
     # Metadados podem ter qualquer coisa: só chaves de origem/campanha entram.
-    keep = {alias for aliases in _UTM_ALIASES.values() for alias in aliases} | {"origem", "canal", "parceiro", "gclid", "fbclid"}
+    keep = {alias for aliases in _UTM_ALIASES.values() for alias in aliases} | {"origem", "canal", "parceiro", "fbclid", *GOOGLE_CLICK_IDS}
     meta = [
         {"chave": _text(pair.get("chave"), 60), "valor": _text(pair.get("valor"), 200)}
         for pair in order.get("metadados") or []
