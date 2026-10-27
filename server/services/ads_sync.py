@@ -30,7 +30,7 @@ from .meta_tokens import (
 )
 from .integration_errors import IntegrationError
 from .memory_budget import measured_operation
-from .sync_locks import acquire_sync_lock, build_sync_lock_name, release_sync_lock
+from .sync_locks import LEASE_SECONDS, _heartbeat, acquire_sync_lock, build_sync_lock_name, release_sync_lock
 from .periods import resolve_period
 from .dashboard_read_model import refresh_dashboard_read_model_safely
 CATALOG_EFFECTIVE_STATUSES = [
@@ -1475,7 +1475,9 @@ async def sync_ads_for_client_period(
         f"since={period_since} until={period_until}"
     )
     try:
-        lock_acquired = await acquire_sync_lock(cid, lock_name, 3600)
+        # Lease curta renovada enquanto roda: processo morto (deploy, memória) não
+        # deixa a Meta travada em "atualizando" por 1 h.
+        lock_acquired = await acquire_sync_lock(cid, lock_name, LEASE_SECONDS)
     except Exception as exc:
         if job_run:
             await _finish_job_run_reliably(
@@ -1500,6 +1502,7 @@ async def sync_ads_for_client_period(
         "[ads_sync][lock_acquired] "
         f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
     )
+    lease_heartbeat = asyncio.create_task(_heartbeat(cid, lock_name))
 
     try:
         @measured_operation("meta_ads", limit=True)
@@ -2110,6 +2113,8 @@ async def sync_ads_for_client_period(
             raise IntegrationError("A Meta limitou as solicitações de Ads. Aguarde antes de atualizar novamente.", status_code=429, code="META_ADS_RATE_LIMITED", provider="meta_ads", diagnostics={"retry_after":60}) from None
         raise
     finally:
+        lease_heartbeat.cancel()
+        await asyncio.gather(lease_heartbeat, return_exceptions=True)
         print(
             "[ads_sync][lock_release_start] "
             f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
