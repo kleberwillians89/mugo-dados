@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import logging
 from typing import Any
 from contextlib import asynccontextmanager
@@ -12,7 +13,7 @@ import time
 from starlette.responses import JSONResponse
 
 from services.ig_supabase import mcp_safe_errors
-from .tools import TOOLS, ToolFailure, dispatch
+from .tools import TOOLS, ToolFailure, dispatch, authorized_company, period
 
 identity: ContextVar[str | None] = ContextVar("mcp_identity", default=None)
 
@@ -30,12 +31,22 @@ def local_access():
             and os.getenv("ALLOW_NO_AUTH", "").lower() in {"true", "1", "yes", "on"})
 
 
+def oauth_configured():
+    try:
+        from .oauth import settings
+        settings()
+        return True
+    except (ToolFailure, ValueError):
+        return False
+
+
 class LocalGateway:
     def __init__(self):
         self.sdk = None
         self.sdk_app = None
         self.buckets = OrderedDict()
         self.active_reads = 0
+        self.active_auth = 0
 
     def setup(self):
         if self.sdk is not None:
@@ -48,6 +59,33 @@ class LocalGateway:
 
         class SafeMCP(FastMCP):
             async def call_tool(self, name, arguments):
+                started = time.monotonic()
+                status = "denied"
+                company_token = authorized_company.set(None)
+                try:
+                    result = await self.validated_call(name, arguments)
+                    status = "ok"
+                    return result
+                finally:
+                    if oauth_configured() and name in TOOLS:
+                        from services.ig_supabase import sb_insert
+                        try:
+                            window = period(arguments.get("start"), arguments.get("end")) if isinstance(arguments, dict) else {}
+                        except ToolFailure:
+                            window = {}
+                        try:
+                            async with asyncio.timeout(3):
+                                await sb_insert("mcp_audit_events", {"user_id": identity.get(), "client_id": authorized_company.get(),
+                                    "tool": name, "period_start": window.get("start"), "period_end": window.get("end"),
+                                    "status": status, "duration_ms": max(0, int((time.monotonic() - started) * 1000))}, returning="minimal")
+                        except Exception:
+                            raise ToolError("Não foi possível registrar a leitura com segurança.") from None
+                        finally:
+                            authorized_company.reset(company_token)
+                    else:
+                        authorized_company.reset(company_token)
+
+            async def validated_call(self, name, arguments):
                 allowed = {"company_id", "start", "end"} | ({"provider"} if name == "get_paid_media" else set())
                 if name not in TOOLS or not isinstance(arguments, dict) or set(arguments) - (set() if name == "list_companies" else allowed):
                     raise ToolError("Ferramenta ou argumentos não autorizados.")
@@ -76,11 +114,19 @@ class LocalGateway:
             sdk_logger.addHandler(handler)
             sdk_logger.propagate = False
 
+        hosts = ["localhost", "127.0.0.1", "[::1]", "localhost:*", "127.0.0.1:*", "[::1]:*"]
+        origins = ["http://localhost", "http://127.0.0.1", "http://localhost:*", "http://127.0.0.1:*"]
+        if oauth_configured():
+            from urllib.parse import urlsplit
+            from .oauth import settings
+            resource, frontend, _ = settings()
+            hosts.append(urlsplit(resource).netloc)
+            origins.extend([frontend, "https://claude.ai"])
         self.sdk = SafeMCP("Mugô Dados", stateless_http=True, json_response=True,
             max_request_body_size=32768, streamable_http_path="/mcp",
             transport_security=TransportSecuritySettings(
-                allowed_hosts=["localhost", "127.0.0.1", "[::1]", "localhost:*", "127.0.0.1:*", "[::1]:*"],
-                allowed_origins=["http://localhost", "http://127.0.0.1", "http://localhost:*", "http://127.0.0.1:*"],
+                allowed_hosts=hosts,
+                allowed_origins=origins,
             ))
 
         async def invoke(name, **kwargs):
@@ -150,22 +196,44 @@ class LocalGateway:
             mcp_safe_errors.reset(privacy_token)
 
     async def handle(self, scope, receive, send):
-        if not enabled() or not local_access():
+        if not enabled() or not (local_access() or oauth_configured()):
             return await JSONResponse({"detail": "Recurso indisponível."}, status_code=404)(scope, receive, send)
+        uid = None
+        bucket_key = None
+        if oauth_configured():
+            from .oauth import authenticate, settings
+            from starlette.datastructures import Headers
+            if self.active_auth >= 4:
+                return await JSONResponse({"detail": "Há verificações em andamento. Tente novamente em instantes."}, 429)(scope, receive, send)
+            self.active_auth += 1
+            try:
+                async with asyncio.timeout(8):
+                    authenticated = await authenticate(Headers(scope=scope).get("authorization"))
+            except Exception:
+                return await JSONResponse({"detail": "Conector temporariamente indisponível."}, 503)(scope, receive, send)
+            finally:
+                self.active_auth -= 1
+            if not authenticated:
+                _, _, issuer = settings()
+                return await JSONResponse({"detail": "Autenticação obrigatória."}, 401,
+                    headers={"WWW-Authenticate": 'Bearer resource_metadata="' + issuer + '/.well-known/oauth-protected-resource"'})(scope, receive, send)
+            uid, bucket_key = authenticated
+        else:
+            peer = (scope.get("client") or (None,))[0]
+            listener = (scope.get("server") or (None,))[0]
+            if peer not in {"127.0.0.1", "::1", "localhost", "testclient"} or listener not in {"127.0.0.1", "::1", "localhost"}:
+                return await JSONResponse({"detail": "Acesso permitido apenas localmente."}, 403)(scope, receive, send)
+            uid = os.getenv("DEV_USER_ID", "").strip() or "local-dev-user"
+            bucket_key = uid
         if scope["method"] != "POST":
             return await JSONResponse({"detail": "Use POST para requisições MCP sem sessão."}, status_code=405, headers={"Allow": "POST"})(scope, receive, send)
-        peer = (scope.get("client") or (None,))[0]
-        listener = (scope.get("server") or (None,))[0]
-        if peer not in {"127.0.0.1", "::1", "localhost", "testclient"} or listener not in {"127.0.0.1", "::1", "localhost"}:
-            return await JSONResponse({"detail": "Acesso permitido apenas localmente."}, status_code=403)(scope, receive, send)
         if self.sdk_app is None:
             return await JSONResponse({"detail": "Transporte não inicializado."}, status_code=503)(scope, receive, send)
-        uid = os.getenv("DEV_USER_ID", "").strip() or "local-dev-user"
         now = time.monotonic()
-        count, started = self.buckets.pop(uid, (0, now))
+        count, started = self.buckets.pop(bucket_key, (0, now))
         if now - started >= 60:
             count, started = 0, now
-        self.buckets[uid] = (count + 1, started)
+        self.buckets[bucket_key] = (count + 1, started)
         while len(self.buckets) > 1024:
             self.buckets.popitem(last=False)
         if count >= 60:
@@ -199,14 +267,18 @@ class LocalGateway:
 
 
 def install(app):
+    from .oauth import router
+    app.include_router(router)
     gateway = LocalGateway()
     app.add_route("/mcp", gateway, methods=["GET", "POST", "DELETE"])
     previous = app.router.lifespan_context
 
     @asynccontextmanager
     async def lifespan(application):
+        # Diagnóstico de implantação no boot do servidor, sem valores de configuração.
+        print(f"[mcp] enabled={enabled()} oauth_configured={oauth_configured()} local_access={local_access()}")
         async with previous(application):
-            if enabled() and local_access():
+            if enabled() and (local_access() or oauth_configured()):
                 gateway.setup()
                 async with gateway.sdk.session_manager.run():
                     yield

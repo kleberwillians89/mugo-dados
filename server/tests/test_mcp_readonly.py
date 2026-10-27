@@ -49,7 +49,7 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
              patch("services.ga4_connections.resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(client_id="company-a", property_id="p"))), \
              patch("services.ga4_reporting.build_ga4_report", AsyncMock(return_value={"summary": PII, "channels": [{"source_medium": "Pessoa Compradora", **PII}]})), \
              patch("services.goals.list_goals", AsyncMock(return_value={"goals": [PII]})), \
-             patch("services.sales_by_origin.build_sales_by_origin", AsyncMock(return_value={"totals": PII, "channels": [{"channel": "direct", **PII}], "campaigns": [{"campaign": "Pessoa Compradora", **PII}]})), \
+             patch("services.sales_by_origin.build_sales_by_origin", AsyncMock(return_value={"totals": PII, "channels": [{"channel": "direct", **PII}], "campaigns": [{"campaign": "Pessoa Compradora comprador@example.test", **PII}]})), \
              patch("services.dashboard_paid.get_paid_dashboard", AsyncMock(return_value={"totals": PII})), \
              patch("services.dashboard_paid.list_campaigns", AsyncMock(return_value={"campaigns": [PII]})), \
              patch("services.ig_supabase.sb_insert", AsyncMock(side_effect=AssertionError("write"))), \
@@ -92,7 +92,7 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_google_campaigns_reject_wrong_company_account_connection_and_date(self):
         context = SimpleNamespace(client_id="a", connection_id="selected", customer_id="selected-account")
-        row = {"client_id": "a", "connection_id": "selected", "customer_id": "selected-account", "campaign_id": "private-campaign",
+        row = {"client_id": "a", "connection_id": "selected", "customer_id": "selected-account", "campaign_id": "private-campaign", "campaign_name": "pmax_marca",
                "stat_date": "2026-10-10", "cost": 100, "conversion_value": 200}
         rows = [row, {**row, "client_id": "b"}, {**row, "connection_id": "other"}, {**row, "customer_id": "other"}, {**row, "stat_date": "2026-09-01"}]
         with patch.object(tools, "require_user_client_access", AsyncMock()), patch.object(tools, "connected", AsyncMock(return_value=(["google_ads"], []))), \
@@ -103,6 +103,7 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["campaigns"][0]["spend"], 100)
             self.assertEqual(result["campaigns"][0]["revenue"], 200)
             self.assertNotIn("private-campaign", json.dumps(result))
+            self.assertEqual(result["campaigns"][0]["name"], "pmax_marca")
             filters = read.await_args.kwargs["filters"]
             self.assertEqual(filters["client_id"], "eq.a")
             self.assertEqual(filters["connection_id"], "eq.selected")
@@ -173,7 +174,8 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
         samples = {
             "ga4_daily_stats": [{**base, "sessions": 100, "transactions": 2}, {**base, "client_id": "b", "sessions": 999}],
             "ga4_channel_stats": [{**base, "source_medium": "comprador@example.test", "sessions": 25}],
-            "ga4_landing_page_stats": [{**base, "landing_page": "/Pessoa Compradora?email=comprador@example.test", "sessions": 20},
+            "ga4_landing_page_stats": [{**base, "landing_page": "/obrigado?email=comprador@example.test", "sessions": 20},
+                {**base, "landing_page": "/cliente/123.456.789-00", "sessions": 7},
                 {**base, "property_id": "other", "landing_page": "/other", "sessions": 500}],
         }
         async def read(table, **kwargs):
@@ -188,11 +190,48 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["summary"]["sessions"], 100)
             self.assertEqual(result["summary"]["transactions"], 2)
             self.assertEqual(result["channels"][0]["sessions"], 25)
-            self.assertEqual(result["landing_pages"][0]["sessions"], 20)
-            other = await tools.dispatch("u", "get_site_traffic", "a", **WINDOW)
-            self.assertNotEqual(result["landing_pages"][0]["reference"], other["landing_pages"][0]["reference"])
+            self.assertEqual(result["landing_pages"], [{"path": "/obrigado", "sessions": 20}])
+            self.assertIsNone(result["channels"][0]["source_medium"])
             self.assertNotIn("comprador@example.test", json.dumps(result))
-            self.assertNotIn("Pessoa Compradora", json.dumps(result))
+            self.assertNotIn("123.456.789-00", json.dumps(result))
+
+
+class BusinessTextTests(unittest.IsolatedAsyncioTestCase):
+    def test_business_text_keeps_company_data_and_drops_buyer_patterns(self):
+        self.assertEqual(tools.business_text("conversao_colecao_verao_2026"), "conversao_colecao_verao_2026")
+        self.assertEqual(tools.business_text("  Black   Friday  "), "Black Friday")
+        for value in ("promo comprador@example.test", "cliente 123.456.789-00", "(11) 98765-4321", "id 12345678901", 42, None):
+            self.assertIsNone(tools.business_text(value))
+        self.assertEqual(tools.page_path("https://loja.test/produto/legging?utm_source=x#top"), "/produto/legging")
+
+    async def test_sales_by_origin_returns_campaign_names(self):
+        data = {"provider": "shopify", "status": "available", "totals": {"orders": 3},
+                "channels": [], "campaigns": [{"campaign": "bf_2026", "source": "facebook", "medium": "cpc", "channel": "paid_social", "orders": 2, "revenue": 150}]}
+        with patch.object(tools, "require_user_client_access", AsyncMock()), \
+             patch("services.sales_by_origin.build_sales_by_origin", AsyncMock(return_value=data)):
+            result = await tools.dispatch("u", "get_sales_by_origin", "a", **WINDOW)
+        self.assertEqual(result["campaigns"][0]["campaign"], "bf_2026")
+        self.assertEqual(result["campaigns"][0]["source"], "facebook")
+        self.assertEqual(result["campaigns"][0]["revenue"], 150)
+
+    async def test_context_and_latest_analysis_return_text_without_buyer_data(self):
+        context = {"available": True, "updated_at": "2026-10-01T00:00:00Z",
+                   "context": {"segment": "Moda fitness", "audience": "Fale com comprador@example.test", "goals": "Crescer 20%"}}
+        analysis = {"client_id": "a", "period_start": "2026-10-01", "period_end": "2026-10-20", "created_at": "2026-10-21T00:00:00Z",
+                    "metrics_snapshot": [{"id": "new_customers", "label": "Novos clientes"}], "sources": [],
+                    "analysis": {"executive": {"overall": "Vendas subiram. metric_ids: new_customers", "priority_action": "Escalar remarketing"},
+                                 "insights": [{"title": "Base nova cresceu", "interpretation": "x", "action": "y", "category": "positive"}],
+                                 "actions": [{"recommendation": "Testar frete grátis", "justification": "ticket", "impact_expected": "high"}]}}
+        with patch.object(tools, "require_user_client_access", AsyncMock()), \
+             patch("services.business_context.load_business_context", AsyncMock(return_value=context)), \
+             patch.object(tools, "sb_select", AsyncMock(return_value=[analysis])):
+            ctx = await tools.dispatch("u", "get_business_context", "a", **WINDOW)
+            latest = await tools.dispatch("u", "get_latest_analysis", "a", **WINDOW)
+        self.assertEqual(ctx["context"], {"segment": "Moda fitness", "goals": "Crescer 20%"})
+        executive = latest["analysis"]["executive"]
+        self.assertEqual(executive["overall"], "Vendas subiram. Novos clientes")
+        self.assertEqual(latest["analysis"]["actions"][0]["impact_expected"], "Impacto alto")
+        self.assertNotIn("comprador@example.test", json.dumps([ctx, latest]))
 
 
 class FreshPermissionsTests(unittest.IsolatedAsyncioTestCase):

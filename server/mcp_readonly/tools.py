@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from services.tenant import require_user_client_access
 from services.ig_supabase import sb_select
 
+authorized_company = ContextVar("mcp_authorized_company", default=None)
 reference_key = ContextVar("mcp_reference_key", default=None)
 
 TOOLS = (
@@ -25,7 +26,34 @@ TOOLS = (
 SOURCES = frozenset({"meta", "meta_ads", "google_ads", "ga4", "shopify", "fbits", "instagram", "commerce", "paid_media", "shopify+paid_media"})
 STATUSES = frozenset({"available", "partial", "unavailable", "no_data", "disconnected", "error", "good", "limited", "ok", "stale", "not_connected", "migration_pending", "connected", "active", "ready", "confirmed", "connected_no_data"})
 NUMERIC = frozenset({"spend", "investment", "revenue", "orders", "average_ticket", "impressions", "clicks", "ctr", "cpc", "conversions", "conversion_value", "roas", "cpa", "sessions", "active_users", "total_users", "event_count", "purchases", "purchase_revenue", "total_revenue", "customers", "new_customers", "repeat_customers", "recurring_customers", "repeat_rate", "target_value", "actual", "progress_percent", "remaining", "share_of_revenue", "orders_with_origin", "orders_with_utm", "origin_coverage_percent", "utm_coverage_percent", "transactions", "key_events", "engaged_sessions", "screen_page_views", "new_users", "ecommerce_purchases", "elapsed_percent", "projected_value", "pace_delta"})
-OMITTED = "Textos livres e identificadores externos foram omitidos por não haver comprovação de origem agregada sem dados pessoais. Referências opacas valem somente nesta resposta e não permitem cruzar identidades entre consultas."
+OMITTED = "Itens de texto que continham padrão de e-mail, CPF/CNPJ ou telefone foram omitidos. Dados de compradores nunca são retornados."
+
+# Dados de NEGÓCIO (nome de campanha, origem/mídia, página, contexto e análise)
+# são da empresa e voltam em texto. O que protegemos é a pessoa compradora:
+# qualquer texto com cara de e-mail, CPF/CNPJ, telefone ou sequência longa de
+# dígitos é descartado inteiro (nunca "mascarado" pela metade).
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_CPF_CNPJ = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
+_PHONE = re.compile(r"\(?\b\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}\b")
+_LONG_DIGITS = re.compile(r"\d{10,}")
+_SPACES = re.compile(r"\s+")
+
+
+def business_text(value, limit=200):
+    if not isinstance(value, str):
+        return None
+    text = _SPACES.sub(" ", value).strip()
+    if not text or any(pattern.search(text) for pattern in (_EMAIL, _CPF_CNPJ, _PHONE, _LONG_DIGITS)):
+        return None
+    return text[:limit]
+
+
+def page_path(value):
+    from urllib.parse import unquote, urlsplit
+    if not isinstance(value, str) or not value.strip():
+        return None
+    # Só o caminho: query string e fragmento podem carregar e-mail ou token.
+    return business_text(unquote(urlsplit(value.strip()).path or "/"), limit=200)
 
 
 class ToolFailure(Exception):
@@ -152,6 +180,7 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
         try:
             async with asyncio.timeout(8):
                 await require_user_client_access(user_id, company_id, fresh=True)
+                authorized_company.set(company_id)
         except Exception:
             # Nenhum detalhe de existência, conexão ou credencial vaza ao solicitante.
             raise ToolFailure("Acesso à empresa não autorizado ou indisponível.") from None
@@ -191,16 +220,35 @@ async def _read(uid, name, cid, window, provider, pilots):
     if name == "get_business_context":
         from services.business_context import load_business_context
         context = await load_business_context(cid)
+        from services.business_context import FIELDS
+        fields = context.get("context") or {}
+        text = {field: business_text(fields.get(field), 1200) for field in FIELDS}
         return {"available": context.get("available") is True, "updated_at": timestamp(context.get("updated_at")),
-                "context": None, "observacoes": [OMITTED]}
+                "context": {key: value for key, value in text.items() if value}, "observacoes": [OMITTED,
+                "Contexto escrito pela própria empresa/agência; use como premissa, não como dado medido."]}
     if name == "get_latest_analysis":
-        rows = await sb_select("ai_analyses", select="client_id,period_start,period_end,status,created_at,completed_at",
+        from services.technical_text import humanize_analysis_row
+        rows = await sb_select("ai_analyses", select="client_id,period_start,period_end,status,created_at,completed_at,analysis,metrics_snapshot,sources",
             filters={"client_id": f"eq.{cid}", "status": "eq.completed"}, order="created_at.desc", limit=1)
         row = next((r for r in rows if r.get("client_id") == cid), None)
-        return {"period": {"start": iso_day(row.get("period_start")), "end": iso_day(row.get("period_end"))} if row else window,
-                "analysis": ({"period_start": iso_day(row.get("period_start")), "period_end": iso_day(row.get("period_end")),
-                "created_at": timestamp(row.get("created_at")), "completed_at": timestamp(row.get("completed_at")), "text": None} if row else None),
-                "observacoes": [OMITTED, "Nenhuma análise foi gerada."]}
+        if not row:
+            return {"analysis": None, "observacoes": ["Nenhuma análise salva para esta empresa. Nenhuma análise foi gerada agora."]}
+        analysis = (humanize_analysis_row(dict(row)).get("analysis") or {}) if isinstance(row.get("analysis"), dict) else {}
+        executive = analysis.get("executive") if isinstance(analysis.get("executive"), dict) else {}
+        insights = [item for item in analysis.get("insights") or [] if isinstance(item, dict)][:8]
+        actions = [item for item in analysis.get("actions") or [] if isinstance(item, dict)][:8]
+        return {"analysis": {
+            "period_start": iso_day(row.get("period_start")), "period_end": iso_day(row.get("period_end")),
+            "created_at": timestamp(row.get("created_at")),
+            "executive": {key: business_text(value, 600) for key, value in executive.items()
+                          if key in {"overall", "main_change", "opportunity", "attention", "priority_action"}},
+            "insights": [{"category": business_text(item.get("category"), 40), "title": business_text(item.get("title"), 200),
+                          "interpretation": business_text(item.get("interpretation"), 600), "action": business_text(item.get("action"), 400)}
+                         for item in insights],
+            "actions": [{"recommendation": business_text(item.get("recommendation"), 400),
+                         "justification": business_text(item.get("justification"), 600),
+                         "impact_expected": business_text(item.get("impact_expected"), 200)} for item in actions],
+        }, "observacoes": [OMITTED, "Análise salva anteriormente; os números podem ter mudado desde então. Confirme com get_business_overview."]}
     if name == "get_goals":
         from services.goals import list_goals, METRICS
         data = await list_goals(cid, **window)
@@ -213,7 +261,9 @@ async def _read(uid, name, cid, window, provider, pilots):
         return {"provider": data.get("provider") if data.get("provider") in {"shopify", "fbits"} else None,
             "status": state(data.get("status")), "totals": numeric_fields(data.get("totals", {})),
             "channels": [{"channel": row.get("channel"), **numeric_fields(row)} for row in data.get("channels", [])[:50] if row.get("channel") in CHANNEL_LABELS],
-            "campaigns": [{"reference": opaque(row.get("campaign")), **numeric_fields(row)} for row in data.get("campaigns", [])[:50]],
+            "campaigns": [{"campaign": business_text(row.get("campaign")), "source": business_text(row.get("source"), 80),
+                "medium": business_text(row.get("medium"), 80), "channel": row.get("channel") if row.get("channel") in CHANNEL_LABELS else None,
+                **numeric_fields(row)} for row in data.get("campaigns", [])[:50]],
             "observacoes": [OMITTED, "Atribuição por origem não comprova causalidade nem equivale à atribuição das plataformas."]}
     if name == "get_paid_media":
         if provider not in {"meta", "google_ads"}:
@@ -226,14 +276,14 @@ async def _read(uid, name, cid, window, provider, pilots):
             data = await get_paid_dashboard(cid, **window)
             campaigns = await list_campaigns(cid, **window, limit=50)
             return {"provider": provider, "totals": numeric_fields(data.get("totals", {})),
-                "campaigns": [{"reference": opaque(row.get("campaign_id") or row.get("id")), **numeric_fields(row)}
+                "campaigns": [{"name": business_text(row.get("campaign_name") or row.get("name")), **numeric_fields(row)}
                     for row in campaigns.get("campaigns", [])[:50]], "observacoes": [OMITTED, *limitations]}
         from services.google_ads import resolve_google_ads_context, build_google_ads_report
         context = await resolve_google_ads_context(cid)
         if context.client_id != cid:
             raise ToolFailure("A conexão não pertence à empresa autorizada.")
         data = await build_google_ads_report(client_id=cid, context=context, **window)
-        rows = await sb_select("google_ads_daily_stats", select="client_id,connection_id,customer_id,stat_date,campaign_id,cost,impressions,clicks,conversions,conversion_value",
+        rows = await sb_select("google_ads_daily_stats", select="client_id,connection_id,customer_id,stat_date,campaign_id,campaign_name,cost,impressions,clicks,conversions,conversion_value",
             filters={"client_id": f"eq.{cid}", "connection_id": f"eq.{context.connection_id}", "customer_id": f"eq.{context.customer_id}",
                 "and": f"(stat_date.gte.{window['start']},stat_date.lte.{window['end']})"}, order="stat_date.asc", limit=2001)
         campaigns = []
@@ -242,7 +292,7 @@ async def _read(uid, name, cid, window, provider, pilots):
             safe = [{**r, "spend": r.get("cost"), "revenue": r.get("conversion_value")} for r in rows
                 if r.get("client_id") == cid and r.get("connection_id") == context.connection_id
                 and r.get("customer_id") == context.customer_id and window["start"] <= str(r.get("stat_date") or "") <= window["end"]]
-            campaigns = [{"reference": opaque(r["campaign_id"]), **numeric_fields(r)}
+            campaigns = [{"name": business_text(r.get("campaign_name")), **numeric_fields(r)}
                 for r in _sum_grouped_rows(safe, "campaign_id", "campaign_name")[:50]]
         else:
             limitations.append("Detalhamento excede 2.000 registros; campanhas omitidas para não publicar totais truncados.")
@@ -294,16 +344,18 @@ async def _read(uid, name, cid, window, provider, pilots):
                         or not window["start"] <= str(row.get("stat_date") or "") <= window["end"]
                         or not row.get("landing_page") or sessions is None):
                     continue
-                ref = opaque(row["landing_page"])
-                landing[ref] = landing.get(ref, 0) + sessions
+                path = page_path(row["landing_page"])
+                if path is None:
+                    continue
+                landing[path] = landing.get(path, 0) + sessions
         return {"source": "ga4", "summary": numeric_fields(summary),
             "user_count_semantics": "sum_of_daily_users",
             "coverage": {"start": iso_day(coverage.get("coverage_start")), "end": iso_day(coverage.get("coverage_end")),
                 "distinct_dates": number(coverage.get("distinct_dates")), "expected_days": number(coverage.get("expected_days"))},
-            "channels": [{"reference": opaque(row.get("source_medium")), **numeric_fields(row)} for row in channels[:50]],
-            "landing_pages": [{"reference": ref, "sessions": value} for ref, value in sorted(landing.items(), key=lambda item: item[1], reverse=True)[:50]],
+            "channels": [{"source_medium": business_text(row.get("source_medium"), 120), **numeric_fields(row)} for row in channels[:50]],
+            "landing_pages": [{"path": path, "sessions": value} for path, value in sorted(landing.items(), key=lambda item: item[1], reverse=True)[:50]],
             "observacoes": [OMITTED, "Usuários seguem a soma diária do relatório existente; não são visitantes únicos deduplicados no período.",
-                "Landing pages expõem somente referências opacas e sessões agregadas, sem URLs.", *limitations]}
+                "Landing pages mostram só o caminho da página, sem parâmetros da URL.", *limitations]}
     data = await snapshot(cid, window)
     sources = source_rows(data.get("sources", []))
     values = metrics(data.get("metrics", []))
