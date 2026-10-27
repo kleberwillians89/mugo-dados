@@ -780,7 +780,8 @@ async def sync_shopify_connection(
                     )
                     items_upserted += int(result.get("items_upserted") or 0)
                     refunds_upserted += int(result.get("refunds_upserted") or 0)
-                    orders_upserted += 1
+                    if not result.get("skipped_test"):
+                        orders_upserted += 1
                 except Exception as exc:
                     orders_failed += 1
                     db_status = getattr(getattr(exc, "response", None), "status_code", None)

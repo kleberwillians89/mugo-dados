@@ -600,6 +600,25 @@ export async function runHistoryRound(clientId: string): Promise<{ ok: boolean; 
   return http(`${historyPath(clientId)}/run`, { method: "POST" });
 }
 
+export type TestOrdersSummary = {
+  ok: boolean;
+  client_id: string;
+  dry_run: boolean;
+  shopify_test_orders: number;
+  fbits_test_orders: number;
+  days: string[];
+};
+
+/** Conta os pedidos de teste já gravados (R$ 0 com cupom de 100%, tag "teste" ou teste da Shopify). */
+export async function previewTestOrders(clientId: string): Promise<TestOrdersSummary> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/test-orders`);
+}
+
+/** Remove esses pedidos do banco e recalcula os dias afetados. Só administrador da plataforma. */
+export async function cleanupTestOrders(clientId: string): Promise<TestOrdersSummary> {
+  return http(`/api/platform/companies/${encodeURIComponent(clientId)}/test-orders/cleanup`, { method: "POST" });
+}
+
 /** Diagnóstico somente leitura: onde a FBITS informa a origem de cada pedido. */
 export async function getFbitsOriginProbe(
   clientId: string,

@@ -263,3 +263,22 @@ async def platform_history_run(
     _history_last_run[client_id] = now
     background.add_task(_history_round, client_id)
     return {"ok": True, "started": True, "message": "Rodada iniciada em segundo plano (até 4 minutos)."}
+
+
+# ---------------------------------------------------------------------------
+# Pedidos de teste: simular (leitura) e remover do banco (só platform_admin).
+
+@router.get("/companies/{client_id}/test-orders")
+async def platform_test_orders_preview(client_id: str, authorization: str | None = Header(default=None)):
+    await require_platform_admin(authorization)
+    from services.test_orders import cleanup_test_orders
+
+    return await cleanup_test_orders(client_id, dry_run=True)
+
+
+@router.post("/companies/{client_id}/test-orders/cleanup")
+async def platform_test_orders_cleanup(client_id: str, authorization: str | None = Header(default=None)):
+    await require_platform_admin(authorization, allow_agency_admin=False)
+    from services.test_orders import cleanup_test_orders
+
+    return await cleanup_test_orders(client_id, dry_run=False)

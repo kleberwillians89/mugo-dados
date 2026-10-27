@@ -695,6 +695,13 @@ async def _handle_order_topic(
     shop_domain: str,
     payload: Dict[str, Any],
 ) -> Dict[str, Any]:
+    from .test_orders import is_test_shopify_order
+
+    if is_test_shopify_order(payload):
+        # Pedido de teste não é venda: não é gravado nem entra em indicador.
+        print(f"[shopify][order] client_id={client_id} skipped=test_order")
+        return {"order_id": _safe_id(payload.get("id")), "customer_id": None,
+                "items_upserted": 0, "refunds_upserted": 0, "skipped_test": True}
     customer_payload = _safe_json(payload.get("customer"))
     customer_id = None
     if customer_payload and _safe_id(customer_payload.get("id")):
