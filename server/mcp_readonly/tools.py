@@ -158,6 +158,31 @@ async def connected(cid, window):
     return discovery["sources"], discovery["limitations"]
 
 
+_SOURCES_LIMIT = asyncio.Semaphore(8)
+_COMPANY_SOURCES_TIMEOUT = 4.0
+
+
+async def authorized_companies(uid, pilots=None):
+    """Empresas que o usuário acessa agora (membership/papéis lidos sem cache).
+
+    `list_clients_for_user(fresh=True)` já aplica as regras de acesso do painel
+    (platform_admin e agency_admin veem todas; os demais, só as memberships).
+    Leve o bastante para a tela de consentimento: só id e nome da empresa.
+    """
+    if pilots is None:
+        pilots = {v.strip() for v in os.getenv("MCP_PILOT_CLIENT_IDS", "").split(",") if v.strip()}
+    from services.clients import list_clients_for_user
+    candidates = (await list_clients_for_user(uid, limit=100, fresh=True))["clients"]
+    companies = []
+    for candidate in candidates[:100]:
+        key = str(candidate.get("client_id") or "")
+        if not key or (pilots and key not in pilots):
+            continue
+        # Nome empresarial cadastrado, não nome de comprador.
+        companies.append({"id": key, "name": candidate.get("name")})
+    return companies
+
+
 async def dispatch(user_id: str, name: str, company_id=None, start=None, end=None, provider=None):
     key_token = reference_key.set(secrets.token_bytes(32))
     try:
@@ -202,21 +227,22 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
 
 async def _read(uid, name, cid, window, provider, pilots):
     if name == "list_companies":
-        from services.clients import list_clients_for_user
-        candidates = (await list_clients_for_user(uid, limit=100, fresh=True))["clients"]
-        companies = []
-        for candidate in candidates[:100]:
-            key = str(candidate.get("client_id") or "")
-            if pilots and key not in pilots:
-                continue
-            try:
-                await require_user_client_access(uid, key, fresh=True)
-            except Exception:
-                continue
-            sources, _ = await connected(key, window)
-            # Nome empresarial cadastrado, não nome de comprador.
-            companies.append({"id": key, "name": candidate.get("name"), "sources": sources})
-        return {"companies": companies, "observacoes": ["Listagem limitada a 100 empresas; acesso revalidado nesta chamada."]}
+        companies = await authorized_companies(uid, pilots)
+
+        async def with_sources(company):
+            # Leitura curta e paralela: uma empresa lenta não trava a lista.
+            async with _SOURCES_LIMIT:
+                try:
+                    async with asyncio.timeout(_COMPANY_SOURCES_TIMEOUT):
+                        sources, _ = await connected(company["id"], window)
+                except Exception:
+                    sources = None
+            return {**company, "sources": sources}
+
+        listed = await asyncio.gather(*(with_sources(company) for company in companies))
+        return {"companies": list(listed), "observacoes": [
+            "Listagem limitada a 100 empresas; acesso revalidado nesta chamada.",
+            "sources nulo = fontes não verificadas a tempo; consulte get_data_freshness da empresa."]}
     if name == "get_business_context":
         from services.business_context import load_business_context
         context = await load_business_context(cid)
