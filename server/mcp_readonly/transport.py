@@ -13,7 +13,7 @@ import time
 from starlette.responses import JSONResponse
 
 from services.ig_supabase import mcp_safe_errors
-from .tools import TOOLS, ToolFailure, dispatch, authorized_company, period
+from .tools import TOOLS, ToolFailure, dispatch, authorized_company, company_scope, period
 
 identity: ContextVar[str | None] = ContextVar("mcp_identity", default=None)
 
@@ -217,7 +217,7 @@ class LocalGateway:
                 _, _, issuer = settings()
                 return await JSONResponse({"detail": "Autenticação obrigatória."}, 401,
                     headers={"WWW-Authenticate": 'Bearer resource_metadata="' + issuer + '/.well-known/oauth-protected-resource"'})(scope, receive, send)
-            uid, bucket_key = authenticated
+            uid, bucket_key, allowed_companies = authenticated
         else:
             peer = (scope.get("client") or (None,))[0]
             listener = (scope.get("server") or (None,))[0]
@@ -225,6 +225,7 @@ class LocalGateway:
                 return await JSONResponse({"detail": "Acesso permitido apenas localmente."}, 403)(scope, receive, send)
             uid = os.getenv("DEV_USER_ID", "").strip() or "local-dev-user"
             bucket_key = uid
+            allowed_companies = None
         if scope["method"] != "POST":
             return await JSONResponse({"detail": "Use POST para requisições MCP sem sessão."}, status_code=405, headers={"Allow": "POST"})(scope, receive, send)
         if self.sdk_app is None:
@@ -239,6 +240,7 @@ class LocalGateway:
         if count >= 60:
             return await JSONResponse({"detail": "Limite de leitura atingido; aguarde um minuto."}, status_code=429)(scope, receive, send)
         token = identity.set(uid)
+        scope_token = company_scope.set(allowed_companies)
         response_start = None
         chunks = bytearray()
         overflow = False
@@ -263,6 +265,7 @@ class LocalGateway:
         try:
             await self.sdk_app(scope, receive, bounded_send)
         finally:
+            company_scope.reset(scope_token)
             identity.reset(token)
 
 

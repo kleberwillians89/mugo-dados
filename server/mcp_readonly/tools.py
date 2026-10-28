@@ -16,6 +16,8 @@ from services.tenant import require_user_client_access
 from services.ig_supabase import sb_select
 
 authorized_company = ContextVar("mcp_authorized_company", default=None)
+# Empresas escolhidas na autorização do conector (None = conexão anterior ao escopo).
+company_scope = ContextVar("mcp_company_scope", default=None)
 reference_key = ContextVar("mcp_reference_key", default=None)
 
 TOOLS = (
@@ -202,6 +204,9 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
             raise ToolFailure("Identificador de empresa inválido.")
         if pilots and company_id not in pilots:
             raise ToolFailure("Empresa não disponível no piloto.")
+        scope = company_scope.get()
+        if scope is not None and company_id not in scope:
+            raise ToolFailure("Empresa fora das autorizadas nesta conexão. Reconecte o conector para incluí-la.")
         try:
             async with asyncio.timeout(8):
                 await require_user_client_access(user_id, company_id, fresh=True)
@@ -228,6 +233,9 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
 async def _read(uid, name, cid, window, provider, pilots):
     if name == "list_companies":
         companies = await authorized_companies(uid, pilots)
+        scope = company_scope.get()
+        if scope is not None:
+            companies = [company for company in companies if company["id"] in scope]
 
         async def with_sources(company):
             # Leitura curta e paralela: uma empresa lenta não trava a lista.

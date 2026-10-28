@@ -5,37 +5,29 @@
 # (gratuito em repositório público), grava direto no Supabase e termina; o
 # Render fica só para servir o painel, a API e o MCP.
 #
-# Horários em UTC (São Paulo = UTC-3). Cada horário abaixo dispara UM comando
-# (o mapeamento está no passo "Escolher comando"). O GitHub pode atrasar
-# disparos agendados em alguns minutos; as janelas dos jobs já cobrem isso.
+# Por que um "tick" a cada 5 min em vez de um horário por job: o GitHub
+# descarta ou atrasa boa parte dos disparos agendados (em out/2026, menos da
+# metade dos horários rodava), e cada disparo perdido era uma atualização
+# perdida. O tick roda todo job cujo horário da agenda ainda não foi atendido
+# (server/services/job_dispatcher.py), então qualquer tick que sobreviva
+# recupera os perdidos. A agenda de cada job (UTC) mora em SCHEDULE, lá, e
+# continua igual à mostrada na tela (src/app/autoRefreshSchedule.ts).
 #
-# Segurança: o log público mostra só comando, status e duração (ver
-# .github/scripts/run_job.py). Configuração num único segredo: MUGO_JOBS_ENV.
+# Segurança: o log público mostra só comando, status, duração e contagem de
+# falhas (ver .github/scripts/run_job.py). Configuração num único segredo:
+# MUGO_JOBS_ENV.
 name: Sincronizações (jobs)
 
 on:
   schedule:
-    - cron: "15 */6 * * *"     # token Meta
-    - cron: "10 6,12,18,23 * * *"  # Instagram orgânico
-    - cron: "5 * * * *"        # Meta Ads, últimos 7 dias
-    - cron: "20 */3 * * *"     # GA4, últimos 3 dias
-    - cron: "35 */3 * * *"     # Google Ads, últimos 7 dias
-    - cron: "0,30 * * * *"     # FBITS incremental
-    - cron: "15,45 * * * *"    # Shopify incremental
-    - cron: "25 7 * * *"       # Shopify, conferência de 14 dias
-    - cron: "40 8 * * 0"       # Shopify, conferência de 90 dias (domingo)
-    - cron: "45 2 * * *"       # Meta Ads, conferência de 30 dias
-    - cron: "*/10 * * * *"     # Meta Ads, fila de histórico
-    - cron: "15 3 * * *"       # GA4, conferência de 30 dias
-    - cron: "45 3 * * *"       # Google Ads, conferência de 30 dias
-    - cron: "20 9 * * 0"       # Instagram, conferência ampla (domingo)
-    - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico)
+    - cron: "*/5 * * * *"      # tick: roda o que estiver pendente na agenda
+    - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico), longo e à parte
   workflow_dispatch:
     inputs:
       command:
-        description: "Comando do run_jobs.py (ex.: ga4-sync-all --days 3)"
+        description: "Comando do run_jobs.py (ex.: tick --budget-minutes 40 ou organic-sync --limit 60)"
         required: true
-        default: "ga4-sync-all --days 3"
+        default: "tick --budget-minutes 40"
 
 permissions:
   contents: read
@@ -45,7 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 175
     concurrency:
-      group: mugo-job-${{ github.event.schedule || inputs.command }}
+      # Um tick por vez; um tick pendente na fila basta (o próximo recupera tudo).
+      group: mugo-job-${{ (github.event.schedule == '*/5 * * * *' || startsWith(inputs.command, 'tick')) && 'tick' || github.event.schedule || inputs.command }}
       cancel-in-progress: false
     steps:
       - name: Escolher comando
@@ -55,20 +48,7 @@ jobs:
           MANUAL: ${{ inputs.command }}
         run: |
           case "$SCHEDULE" in
-            "15 */6 * * *")        cmd="token-refresh" ;;
-            "10 6,12,18,23 * * *") cmd="organic-sync --limit 60" ;;
-            "5 * * * *")           cmd="ads-sync-hourly --days 7" ;;
-            "20 */3 * * *")        cmd="ga4-sync-all --days 3" ;;
-            "35 */3 * * *")        cmd="google-ads-sync --days 7" ;;
-            "0,30 * * * *")        cmd="fbits-sync-all" ;;
-            "15,45 * * * *")       cmd="shopify-reconcile --fallback-days 30" ;;
-            "25 7 * * *")          cmd="shopify-historical-reconcile --days 14" ;;
-            "40 8 * * 0")          cmd="shopify-historical-reconcile --days 90" ;;
-            "45 2 * * *")          cmd="ads-sync-hourly --days 30" ;;
-            "*/10 * * * *")        cmd="ads-backfill-worker" ;;
-            "15 3 * * *")          cmd="ga4-sync-all --days 30" ;;
-            "45 3 * * *")          cmd="google-ads-sync --days 30" ;;
-            "20 9 * * 0")          cmd="organic-sync --limit 250 --skip-thumbnails" ;;
+            "*/5 * * * *")         cmd="tick --budget-minutes 40" ;;
             "10 5 * * *")          cmd="history-backfill-worker --budget-minutes 150" ;;
             "")                    cmd="$MANUAL" ;;
             *) echo "horário sem comando mapeado"; exit 1 ;;
@@ -77,6 +57,12 @@ jobs:
             *[!a-z0-9\ -]*|"") echo "comando inválido"; exit 1 ;;
           esac
           echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
+
+      - name: Acordar a API (Render free)
+        # O keep-awake próprio também perde disparos; o tick ajuda a manter o
+        # painel e o MCP acordados. Em segundo plano, nunca falha o job.
+        if: ${{ vars.KEEP_AWAKE != 'off' }}
+        run: (curl -s -o /dev/null --max-time 90 https://api.dados.mugoagencia.com.br/health || true) &
 
       - uses: actions/checkout@v4
 

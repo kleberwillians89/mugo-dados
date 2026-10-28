@@ -4,8 +4,9 @@ import { http, setApiAccessToken } from "../app/api";
 import { supabase } from "../app/supabase";
 import Login from "./Login";
 
-const NOTICE = "O Claude só lê dados agregados das empresas que você já acessa. Nenhum dado pessoal de comprador é compartilhado.";
-type Connection = { id: string; name: string; created_at: string; last_used_at: string | null };
+const NOTICE = "O Claude só lê dados agregados das empresas que você escolher, entre as que você já acessa. Nenhum dado pessoal de comprador é compartilhado.";
+// companies nulo = conexão criada antes da escolha por empresa (lê todas da conta).
+type Connection = { id: string; name: string; created_at: string; last_used_at: string | null; companies?: string[] | null };
 type Overview = { url: string; application?: string; companies: { id: string; name: string }[]; connections: Connection[] };
 
 export function ClaudeConnectContent({ consent = false }: { consent?: boolean }) {
@@ -13,12 +14,18 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
   const query = window.location.search;
 
   useEffect(() => {
     const controller = new AbortController();
     http<Overview>(consent ? `/api/mcp/authorization${query}` : "/api/mcp/connections", { signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) setData(result); })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setData(result);
+        // Uma empresa só: já vem marcada. Várias: a pessoa escolhe explicitamente.
+        setSelected(result.companies.length === 1 ? [result.companies[0].id] : []);
+      })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         // Só o código HTTP: ajuda a diagnosticar sem exibir mensagem bruta.
@@ -29,12 +36,17 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
     return () => controller.abort();
   }, [consent, query]);
 
+  function toggle(id: string) {
+    setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  }
+
   async function decide(approve: boolean) {
     if (busy || !data) return;
+    if (approve && !selected.length) { setError("Selecione ao menos uma empresa para autorizar."); return; }
     setBusy(true); setError("");
     try {
       const params = Object.fromEntries(new URLSearchParams(query));
-      const result = await http<{ redirect_url: string }>("/api/mcp/consent", { method: "POST", body: JSON.stringify({ ...params, approve }) });
+      const result = await http<{ redirect_url: string }>("/api/mcp/consent", { method: "POST", body: JSON.stringify({ ...params, approve, ...(approve ? { company_ids: selected } : {}) }) });
       // O backend valida o callback exato contra registro e allowlist.
       window.location.assign(result.redirect_url);
     } catch {
@@ -62,11 +74,16 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
     {data && <>
       {consent ? <>
         <h2>Aplicativo: {data.application}</h2>
-        <p>Você autoriza a leitura das empresas às quais sua conta tem acesso. O acesso é conferido novamente a cada consulta.</p>
-        <h3>Empresas disponíveis</h3>
-        {data.companies.length ? <ul>{data.companies.map((company) => <li key={company.id}>{company.name}</li>)}</ul> : <p>Nenhuma empresa disponível no momento.</p>}
+        <p>Escolha quais empresas este conector poderá ler. Só as marcadas ficam visíveis no Claude, e o acesso é conferido novamente a cada consulta.</p>
+        <fieldset style={{ border: 0, padding: 0, margin: "0 0 16px" }}>
+          <legend><h3 style={{ margin: "0 0 8px" }}>Empresas</h3></legend>
+          {data.companies.length ? data.companies.map((company) => <label key={company.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0" }}>
+            <input type="checkbox" checked={selected.includes(company.id)} disabled={busy} onChange={() => toggle(company.id)} />
+            {company.name}
+          </label>) : <p>Nenhuma empresa disponível no momento.</p>}
+        </fieldset>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-          <button className="ds-button is-primary" disabled={busy} onClick={() => void decide(true)}>{busy ? "Processando..." : "Autorizar"}</button>
+          <button className="ds-button is-primary" disabled={busy || !selected.length} onClick={() => void decide(true)}>{busy ? "Processando..." : selected.length > 1 ? `Autorizar ${selected.length} empresas` : "Autorizar"}</button>
           <button className="ds-button" disabled={busy} onClick={() => void decide(false)}>Cancelar</button>
         </div>
       </> : <>
@@ -75,7 +92,9 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
         <ol><li>No Claude, abra Configurações → Conectores.</li><li>Adicione um conector personalizado com a URL acima.</li><li>Entre com sua conta Mugô Dados e revise a autorização.</li></ol>
         <h2>Conexões ativas</h2>
         {data.connections.length ? <ul>{data.connections.map((connection) => <li key={connection.id} style={{ marginBottom: 16 }}>
-          <strong>{connection.name}</strong><p>Criada em {new Date(connection.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Último uso: {connection.last_used_at ? new Date(connection.last_used_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "ainda não utilizada"}.</p>
+          <strong>{connection.name}</strong>
+          <p>Empresas: {connection.companies ? (connection.companies.length ? connection.companies.join(", ") : "nenhuma acessível no momento") : "todas as que sua conta acessa (conexão antiga; revogue e reconecte para escolher)"}.</p>
+          <p>Criada em {new Date(connection.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Último uso: {connection.last_used_at ? new Date(connection.last_used_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "ainda não utilizada"}.</p>
           <button className="ds-button" disabled={busy} onClick={() => void revoke(connection.id)}>Revogar</button>
         </li>)}</ul> : <p>Nenhuma conexão ativa.</p>}
       </>}

@@ -48,8 +48,15 @@ class ScheduledJobsTests(unittest.TestCase):
 
     def test_public_logs_never_carry_job_output(self):
         runner = (ROOT / ".github" / "scripts" / "run_job.py").read_text()
-        self.assertIn("stdout=subprocess.DEVNULL", runner)
         self.assertIn("stderr=subprocess.DEVNULL", runner)
+        self.assertIn("SAFE_LINE.fullmatch", runner)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("run_job", ROOT / ".github" / "scripts" / "run_job.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        self.assertTrue(module.SAFE_LINE.fullmatch("[tick] job=organic-sync status=parcial duracao_s=42 falhas=1/5"))
+        for leaked in ("[tick] job=organic-sync status=ok duracao_s=1 token=abc", "connection_id=123 error=Invalid OAuth",
+                       '{"client_id": "239dfdd2"}', "[tick] job=Curavino status=ok duracao_s=1"):
+            self.assertIsNone(module.SAFE_LINE.fullmatch(leaked))
         workflow = (ROOT / ".github" / "workflows" / "sync-jobs.yml").read_text()
         self.assertIn("secrets.MUGO_JOBS_ENV", workflow)
         self.assertIn("contents: read", workflow)

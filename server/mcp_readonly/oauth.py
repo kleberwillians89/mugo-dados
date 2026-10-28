@@ -219,6 +219,15 @@ async def authorize(request):
     return RedirectResponse(frontend + "/conectar-claude/autorizar?" + urlencode(params), 303)
 
 
+def selected_companies(value, companies):
+    """Empresas escolhidas na autorização: ao menos uma, todas acessíveis pela conta."""
+    available = {company["id"] for company in companies}
+    if (not isinstance(value, list) or not 1 <= len(value) <= 100
+            or any(not isinstance(item, str) or item not in available for item in value)):
+        raise ToolFailure("Selecione ao menos uma empresa autorizada.")
+    return sorted(set(value))
+
+
 @endpoint("/api/mcp/consent", method="POST")
 async def consent(request):
     uid = await verified_user(request)
@@ -226,12 +235,13 @@ async def consent(request):
     params = await authorization_parameters(data)
     if data.get("approve") is not True:
         return JSONResponse({"redirect_url": callback(params["redirect_uri"], error="access_denied", state=params["state"])})
-    # Nenhum escopo de tenant vem do browser: o token é do usuário e cada
-    # chamada de ferramenta revalida o acesso à empresa.
-    await authorized_companies(uid)
+    # O browser só ESCOLHE entre as empresas que a conta já acessa; nunca amplia.
+    # Cada chamada de ferramenta ainda revalida o acesso atual à empresa.
+    company_ids = selected_companies(data.get("company_ids"), await authorized_companies(uid))
     code = secrets.token_urlsafe(48)
     await sb_insert("mcp_oauth_codes", {"code_hash": digest(code), "user_id": uid, "oauth_client_id": params["client_id"],
-        "redirect_uri": params["redirect_uri"], "resource": params["resource"], "challenge": params["code_challenge"]}, returning="minimal")
+        "redirect_uri": params["redirect_uri"], "resource": params["resource"], "challenge": params["code_challenge"],
+        "company_ids": company_ids}, returning="minimal")
     return JSONResponse({"redirect_url": callback(params["redirect_uri"], code=code, state=params["state"])})
 
 
@@ -279,29 +289,34 @@ async def authenticate(authorization):
     parts = (authorization or "").split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer" or not 20 <= len(parts[1]) <= 256:
         return None
-    rows = await sb_select("mcp_oauth_tokens", select="id,user_id,resource,revoked_at,access_expires_at",
+    rows = await sb_select("mcp_oauth_tokens", select="id,user_id,resource,revoked_at,access_expires_at,company_ids",
         filters={"access_hash": f"eq.{digest(parts[1])}"}, limit=1)
     row = rows[0] if rows else None
     if not row or row.get("resource") != resource or row.get("revoked_at") or not valid_at(row.get("access_expires_at")):
         return None
     await sb_update("mcp_oauth_tokens", filters={"id": f"eq.{identifier(row['id'])}"},
                     patch={"last_used_at": datetime.now(timezone.utc).isoformat()}, returning="minimal")
-    return identifier(row["user_id"]), digest(parts[1])
+    scope = row.get("company_ids")
+    return identifier(row["user_id"]), digest(parts[1]), (frozenset(scope) if isinstance(scope, list) else None)
 
 
 @endpoint("/api/mcp/connections")
 async def connections(request):
     uid = await verified_user(request)
-    rows = await sb_select("mcp_oauth_tokens", select="id,oauth_client_id,created_at,last_used_at,refresh_expires_at,revoked_at,rotated_at",
+    rows = await sb_select("mcp_oauth_tokens", select="id,oauth_client_id,created_at,last_used_at,refresh_expires_at,revoked_at,rotated_at,company_ids",
         filters={"user_id": f"eq.{uid}", "revoked_at": "is.null", "rotated_at": "is.null"}, order="created_at.desc", limit=100)
+    companies = await authorized_companies(uid)
+    names = {company["id"]: company.get("name") for company in companies}
     output = []
     for row in rows:
         if row.get("revoked_at") or row.get("rotated_at") or not valid_at(row.get("refresh_expires_at")):
             continue
         client = await client_row(row["oauth_client_id"])
+        scope = row.get("company_ids")
         output.append({"id": row["id"], "name": (client or {}).get("client_name", "Aplicativo"),
-            "created_at": row.get("created_at"), "last_used_at": row.get("last_used_at")})
-    companies = await authorized_companies(uid)
+            "created_at": row.get("created_at"), "last_used_at": row.get("last_used_at"),
+            # None = conexão anterior ao escopo por empresa (lê todas as empresas da conta).
+            "companies": None if not isinstance(scope, list) else [names[cid] for cid in scope if names.get(cid)]})
     resource, _, _ = settings()
     return JSONResponse({"url": resource, "connections": output, "companies": companies})
 

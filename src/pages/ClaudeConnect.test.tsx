@@ -59,9 +59,26 @@ describe("Conexão MCP com o Claude", () => {
     expect(container.textContent).toContain("Empresa A");
     api.http.mockRejectedValueOnce(new Error("falha"));
     await click("Autorizar");
-    expect(api.http.mock.calls[1]).toEqual(["/api/mcp/consent", { method: "POST", body: JSON.stringify({ client_id: "oauth-a", state: "opaque-state", approve: true }) }]);
+    expect(api.http.mock.calls[1]).toEqual(["/api/mcp/consent", { method: "POST", body: JSON.stringify({ client_id: "oauth-a", state: "opaque-state", approve: true, company_ids: ["company-a"] }) }]);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível concluir");
     expect(container.textContent).toContain("Empresa A");
+  });
+  it("com várias empresas, autoriza somente as marcadas", async () => {
+    api.http.mockResolvedValueOnce({ ...overview, companies: [{ id: "company-a", name: "Empresa A" }, { id: "company-b", name: "Empresa B" }] });
+    await render(true);
+    const authorize = Array.from(container.querySelectorAll("button")).find((element) => element.textContent === "Autorizar");
+    expect(authorize?.disabled).toBe(true);
+    const boxes = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(boxes.map((box) => box.checked)).toEqual([false, false]);
+    await act(async () => boxes[1].click());
+    api.http.mockRejectedValueOnce(new Error("falha"));
+    await click("Autorizar");
+    expect(JSON.parse(api.http.mock.calls[1][1].body).company_ids).toEqual(["company-b"]);
+  });
+  it("mostra as empresas de cada conexão ativa", async () => {
+    api.http.mockResolvedValueOnce({ ...overview, connections: [{ ...overview.connections[0], companies: ["Empresa A"] }] });
+    await render();
+    expect(container.textContent).toContain("Empresas: Empresa A");
   });
   it("cancela explicitamente sem aprovar", async () => {
     await render(true);

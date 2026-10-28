@@ -43,6 +43,14 @@ async def _run(args: argparse.Namespace) -> Any:
         except Exception as exc:
             return {"ok": False, "provider": args.provider, "code": getattr(exc, "code", "PROVIDER_HISTORY_FAILED"),
                     "message": "Operação não concluída. Nenhuma completude certificada; verifique os checkpoints e tente retomar."}
+    if args.command == "tick":
+        from services.job_dispatcher import run_tick
+        parser = _build_parser()
+
+        async def run_command(command: str) -> Any:
+            return await _run(parser.parse_args(command.split()))
+
+        return await run_tick(run_command, budget_seconds=max(60, args.budget_minutes * 60))
     if args.command == "token-refresh":
         return await run_token_refresh_job()
     if args.command == "organic-sync":
@@ -152,6 +160,12 @@ def _build_parser() -> argparse.ArgumentParser:
     attribution.add_argument("--client-id", required=True)
     attribution.add_argument("--dry-run", action="store_true")
 
+    tick = sub.add_parser(
+        "tick",
+        help="Roda todo job recorrente cujo horário da agenda ainda não foi atendido (recupera disparos perdidos).",
+    )
+    tick.add_argument("--budget-minutes", type=int, default=40, help="Não inicia novos jobs depois deste tempo.")
+
     sub.add_parser("token-refresh", help="Renova/valida tokens Meta ativos.")
 
     organic_sync = sub.add_parser("organic-sync", help="Roda sync recorrente do Instagram orgânico.")
@@ -230,7 +244,7 @@ def main() -> None:
     args = parser.parse_args()
     result = asyncio.run(_run(args))
     _print_json(result)
-    if args.command in {"provider-history", "provider-coverage"} and result.get("ok") is False:
+    if args.command in {"provider-history", "provider-coverage", "tick"} and result.get("ok") is False:
         raise SystemExit(1)
 
 

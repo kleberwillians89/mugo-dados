@@ -22,9 +22,9 @@ describe("agenda das atualizações automáticas", () => {
     expect(nextAutoRefreshLabel("desconhecida")).toBeNull();
   });
 
-  it("segue exatamente os horários do workflow", () => {
-    const workflow = readFileSync(new URL("../../.github/workflows/sync-jobs.yml", import.meta.url), "utf8");
-    const crons = [...workflow.matchAll(/- cron: "([^"]+)"/g)].map((m) => m[1]);
+  it("segue exatamente os horários da agenda do despachante", () => {
+    const dispatcher = readFileSync(new URL("../../server/services/job_dispatcher.py", import.meta.url), "utf8");
+    const crons = [...dispatcher.matchAll(/ScheduledJob\("([^"]+)"/g)].map((m) => m[1]);
     for (const expected of ["5 * * * *", "10 6,12,18,23 * * *", "20 */3 * * *", "35 */3 * * *", "0,30 * * * *", "15,45 * * * *"]) {
       expect(crons).toContain(expected);
     }

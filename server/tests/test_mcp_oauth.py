@@ -22,6 +22,7 @@ ENV = {"MCP_ENABLED": "true", "MCP_PUBLIC_URL": "https://api.test/mcp", "MCP_FRO
 VERIFIER = "v" * 43
 PARAMS = {"client_id": CLIENT, "redirect_uri": CALLBACK, "response_type": "code", "code_challenge_method": "S256",
           "code_challenge": oauth.challenge(VERIFIER), "state": "opaque-state", "resource": ENV["MCP_PUBLIC_URL"]}
+COMPANIES = [{"id": "roove", "name": "Roove"}, {"id": "curavino", "name": "Curavino"}]
 ROW = {"id": CLIENT, "client_name": "Aplicativo de teste", "redirect_uris": [CALLBACK]}
 
 
@@ -70,15 +71,47 @@ class OAuthEndpointsTests(unittest.TestCase):
             self.assertEqual(self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True}).status_code, 401)
             write.assert_not_awaited()
         with patch.object(oauth, "get_user_from_bearer", AsyncMock(return_value={"id": USER})), \
-             patch.object(oauth, "authorized_companies", AsyncMock(return_value=[])), patch.object(oauth, "sb_insert", AsyncMock()) as write:
+             patch.object(oauth, "authorized_companies", AsyncMock(return_value=COMPANIES)), patch.object(oauth, "sb_insert", AsyncMock()) as write:
             denied = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": False})
             self.assertIn("access_denied", denied.json()["redirect_url"]); write.assert_not_awaited()
-            approved = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True})
+            approved = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True, "company_ids": ["curavino"]})
             stored = write.await_args.args[1]
             self.assertEqual(len(stored["code_hash"]), 64)
             self.assertNotIn("code", stored)
             self.assertEqual(stored["user_id"], USER)
+            self.assertEqual(stored["company_ids"], ["curavino"])
             self.assertIn("code=", approved.json()["redirect_url"])
+
+    def test_consent_scope_must_be_chosen_among_accessible_companies(self):
+        with patch.object(oauth, "get_user_from_bearer", AsyncMock(return_value={"id": USER})), \
+             patch.object(oauth, "authorized_companies", AsyncMock(return_value=COMPANIES)), patch.object(oauth, "sb_insert", AsyncMock()) as write:
+            for chosen in (None, [], ["outra-empresa"], ["curavino", "outra-empresa"], "curavino", [1]):
+                with self.subTest(chosen=chosen):
+                    response = self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True, "company_ids": chosen})
+                    self.assertEqual(response.status_code, 400)
+            write.assert_not_awaited()
+            self.client.post("/api/mcp/consent", json={**PARAMS, "approve": True, "company_ids": ["roove", "curavino", "roove"]})
+            self.assertEqual(write.await_args.args[1]["company_ids"], ["curavino", "roove"])
+
+    def test_scoped_token_lists_and_reads_only_chosen_companies(self):
+        clients = {"clients": [{"client_id": "roove", "name": "Roove"}, {"client_id": "curavino", "name": "Curavino"}]}
+        from mcp_readonly import tools
+        with patch.object(oauth, "authenticate", AsyncMock(return_value=(USER, "hash-only", frozenset({"curavino"})))), \
+             patch("services.clients.list_clients_for_user", AsyncMock(return_value=clients)), \
+             patch.object(tools, "connected", AsyncMock(return_value=(["fbits"], None))), \
+             patch.object(tools, "require_user_client_access", AsyncMock()) as access, \
+             patch.object(tools, "_read", wraps=tools._read) as read, \
+             patch("services.ig_supabase.sb_insert", AsyncMock()):
+            def call(name, arguments):
+                return self.client.post("/mcp", headers={"Accept": "application/json, text/event-stream"}, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}).json()["result"]
+            listed = call("list_companies", {})
+            self.assertFalse(listed.get("isError"), listed)
+            self.assertEqual([c["id"] for c in listed["structuredContent"]["companies"]], ["curavino"])
+            denied = call("get_goals", {"company_id": "roove"})
+            self.assertTrue(denied.get("isError"))
+            access.assert_not_awaited()
+            self.assertEqual(read.await_count, 1)
 
     def test_token_exchange_uses_hashes_and_correct_pkce_without_retry(self):
         with patch.object(oauth, "sb_rpc", AsyncMock(return_value=True)) as rpc:
@@ -113,7 +146,7 @@ class OAuthEndpointsTests(unittest.TestCase):
 
     def test_sdk_tool_audits_once_without_free_arguments(self):
         with patch("mcp_readonly.transport.dispatch", AsyncMock(return_value={"metrics": [], "observacoes": []})), \
-             patch.object(oauth, "authenticate", AsyncMock(return_value=(USER, "hash-only"))), \
+             patch.object(oauth, "authenticate", AsyncMock(return_value=(USER, "hash-only", None))), \
              patch("services.ig_supabase.sb_insert", AsyncMock()) as audit:
             response = self.client.post("/mcp", headers={"Accept": "application/json, text/event-stream"}, json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_goals", "arguments": {"company_id": "company-a"}}})
@@ -166,6 +199,7 @@ class AuthenticateSignatureTests(unittest.IsolatedAsyncioTestCase):
              patch.object(oauth, "sb_update", autospec=True) as update:
             result = await oauth.authenticate("Bearer " + "a" * 40)
         self.assertEqual(result[0], row["user_id"])
+        self.assertIsNone(result[2])  # conexão anterior ao escopo por empresa
         self.assertEqual(update.await_args.kwargs["filters"], {"id": f"eq.{row['id']}"})
         self.assertIn("last_used_at", update.await_args.kwargs["patch"])
 
