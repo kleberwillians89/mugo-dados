@@ -1,6 +1,8 @@
 export type DataHealthSource = {
   provider: string; dataset: string; connected: boolean;
   last_attempt_at: string | null; last_successful_sync_at: string | null;
+  /** Última gravação de dados novos, inclusive coleta parcial. */
+  last_updated_at?: string | null;
   last_data_at: string | null; last_data_semantics: string;
   coverage_end: string | null; sync_status: string; error_code: string | null;
   state: "synced" | "updating" | "stale" | "attention" | "reauth_required" | "no_data";

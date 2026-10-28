@@ -79,6 +79,12 @@ def compose_source(provider, connection, jobs, locks, daily, start, end, *, now,
         success = latest([success, metadata.get("last_success_at"), row.get("last_sync_at")])
     elif provider == "instagram" and row.get("last_sync_status") == "success":
         success = latest([success, row.get("last_synced_at")])
+    # Última vez que dados novos foram gravados, inclusive em coleta parcial (o que
+    # faltou manteve o valor anterior). É o que a tela mostra como "Atualizado em";
+    # last_successful_sync_at continua sendo só a coleta completa.
+    updated = latest([success] + [j.get("finished_at") for j in selected if j.get("status") in {"success", "partial"}])
+    if provider == "instagram" and row.get("last_sync_status") in {"success", "partial"}:
+        updated = latest([updated, row.get("last_sync_at"), row.get("last_synced_at")])
     attempt = latest([j.get("started_at") for j in selected] + [metadata.get("last_attempt_at")])
     dates = sorted({str(d.get("metric_date")) for d in daily if d.get(FIELDS.get(provider, "")) is not None})
     data_at = dates[-1] if dates else None
@@ -131,7 +137,7 @@ def compose_source(provider, connection, jobs, locks, daily, start, end, *, now,
     elif not coverage_end or coverage_end < end: state = "attention"
     else: state = "synced"
     return {"provider": provider, "dataset": provider, "connected": bool(connection) and not row.get("disconnected_at") and row.get("status") != "disconnected",
-            "last_attempt_at": attempt, "last_successful_sync_at": success, "last_data_at": data_at,
+            "last_attempt_at": attempt, "last_successful_sync_at": success, "last_updated_at": updated, "last_data_at": data_at,
             "last_data_semantics": "latest_persisted_metric_day_in_selected_period",
             "coverage_end": coverage_end, "sync_status": status, "error_code": code, "state": state,
             "expected_interval_seconds": cadence, "stale_after_seconds": stale_after,

@@ -521,7 +521,11 @@ async def sb_get_active_meta_connections(
     connection_type: Optional[str] = None,
     client_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    filters: Dict[str, str] = {"status": "eq.active"}
+    # "error" entra: um erro passageiro da Meta (timeout, instabilidade) marca a
+    # conexão como error, e só "active" deixava a conta fora do cron para sempre
+    # (Curavino ficou 6 dias sem Instagram assim). Quem precisa reconectar
+    # (requires_reauth) continua de fora: tentar de novo não resolve.
+    filters: Dict[str, str] = {"status": "in.(active,error)", "requires_reauth": "not.is.true"}
     if platform:
         filters["platform"] = f"eq.{platform}"
     if connection_type:

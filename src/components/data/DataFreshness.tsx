@@ -23,12 +23,16 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
       const part = (name: string) => parts.find(item => item.type === name)?.value;
       return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}`;
     };
-    const success = format(source?.last_successful_sync_at);
-    if (success) return <span>Atualizado em {success}</span>;
+    if (source?.state === "reauth_required") return <span>Reconexão necessária · dados anteriores mantidos</span>;
+    // Coleta parcial também grava dados novos (o que faltou manteve o valor anterior).
+    const updated = format(source?.last_successful_sync_at) || format(source?.last_updated_at);
+    const failedAttempt = source?.sync_status === "error" ? format(source?.last_attempt_at) : null;
+    if (updated) return <span>Atualizado em {updated}{failedAttempt && failedAttempt !== updated ? ` · nova tentativa em ${failedAttempt} falhou` : ""}</span>;
     // A plataforma respondeu, mas sem nada no período (ex.: conta Meta sem anúncio
     // rodando). Não é falha: mostra quando foi consultada.
     const checked = source?.sync_status === "no_data" ? format(source?.last_attempt_at) : null;
     if (checked) return <span>Consultado em {checked} · {provider === "meta_ads" ? "sem anúncios no período" : "sem dados no período"}</span>;
+    if (failedAttempt) return <span>Última tentativa em {failedAttempt} falhou · nova tentativa automática</span>;
     return <span>Ainda não atualizado</span>;
   }
   if (!source) return <span>{health?.loading ? "Verificando situação dos dados…" : "Situação dos dados não confirmada"}</span>;

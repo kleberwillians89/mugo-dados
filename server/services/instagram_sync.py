@@ -26,6 +26,22 @@ from .sync_locks import guarded_sync
 from .dashboard_read_model import refresh_dashboard_read_model_safely
 
 
+# Lacunas por item que a Meta gera rotineiramente (métrica que não existe para
+# carrossel/Reels antigo, story expirado, comentários de um post): os dados da
+# conta foram gravados e o que faltou manteve o valor anterior. Não tornam o
+# sync "parcial" — senão quase todo sync seria parcial e a tela nunca diria
+# que atualizou. Parcial é só falha de bloco (perfil, listagem, gravação).
+MEDIA_INSIGHTS_NOTE = "Insights de uma mídia indisponíveis; dados anteriores preservados."
+STORY_INSIGHTS_NOTE = "Insights de um story indisponíveis; dados anteriores preservados."
+COMMENTS_NOTE = "Comentários indisponíveis; dados anteriores preservados."
+STORIES_NOTE = "Stories não ficaram disponíveis nesta atualização."
+ITEM_LEVEL_NOTES = frozenset({MEDIA_INSIGHTS_NOTE, STORY_INSIGHTS_NOTE, COMMENTS_NOTE, STORIES_NOTE})
+
+
+def blocking_warnings(warnings: List[str]) -> List[str]:
+    return [warning for warning in warnings or [] if warning not in ITEM_LEVEL_NOTES]
+
+
 def _utc_date_str() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
@@ -325,12 +341,12 @@ async def _run_sync_for_client_and_ig(
         try:
             insights = await fetch_media_insights(media_id, access_token, product_type)
         except Exception:
-            warnings.append("Insights de uma mídia indisponíveis; dados anteriores preservados.")
+            warnings.append(MEDIA_INSIGHTS_NOTE)
             continue
         unavailable = insights.get("unavailable_metrics") or []
         if unavailable:
             if not insights.get("available_metrics"):
-                warnings.append("Insights de uma mídia indisponíveis; dados anteriores preservados.")
+                warnings.append(MEDIA_INSIGHTS_NOTE)
                 continue
             previous = await sb_get_one("ig_media", f"client_id=eq.{client_id}&media_id=eq.{media_id}")
             previous_insights = (previous or {}).get("insights_json") or {}
@@ -366,7 +382,7 @@ async def _run_sync_for_client_and_ig(
                         }
                     )
             except Exception:
-                warnings.append("Comentários indisponíveis; dados anteriores preservados.")
+                warnings.append(COMMENTS_NOTE)
                 print(
                     "[ig_sync][meta_error] "
                     f"block=comments client_id={client_id} media_id={media_id} error=fetch_comments_failed"
@@ -446,7 +462,7 @@ async def _run_sync_for_client_and_ig(
                     "[ig_sync][meta_warning] "
                     f"block=story_insights client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
                 )
-                warnings.append("Insights de um story indisponíveis; dados anteriores preservados.")
+                warnings.append(STORY_INSIGHTS_NOTE)
                 continue
             story_thumb_source = story.get("thumbnail_url") or story.get("media_url")
             if story_thumb_source:
@@ -482,7 +498,7 @@ async def _run_sync_for_client_and_ig(
             "[ig_sync][meta_warning] "
             f"block=stories client_id={client_id} ig_user_id={ig_user_id} error={str(exc)[:280]}"
         )
-        warnings.append("Stories não ficaram disponíveis nesta atualização.")
+        warnings.append(STORIES_NOTE)
 
     print(f"[meta][provider_done] client_id={client_id} media={len(media_rows)} comments={fetched_comments}")
     block_status["comments"] = {
@@ -674,8 +690,7 @@ async def _sync_instagram_connection(
             if not res["read_model_refreshed"]:
                 raise RuntimeError("Instagram persistido, mas o read model não foi atualizado.")
         print(f"[meta][freshness_updated] client_id={client_id} provider=instagram snapshot_date={_utc_date_str()}")
-        partial = bool(res.get("warnings") or (res.get("kpis") or {}).get("unavailable_metrics") or
-                       any((item.get("insights") or {}).get("unavailable_metrics") for item in res.get("media") or []))
+        partial = bool(blocking_warnings(res.get("warnings")))
         res["partial"] = partial
         if partial:
             await _mark_connection_success(connection_id, partial=True)

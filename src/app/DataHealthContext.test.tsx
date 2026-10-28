@@ -111,12 +111,23 @@ it("desabilitar e reabilitar não reutiliza GET invalidado nem prende loading", 
  expect(host.textContent).not.toContain("16/10/2026");
 });
 
-it("indicador compacto conserva só o último sucesso em São Paulo durante execução e parcial", async () => {
+it("indicador compacto conserva o último sucesso em São Paulo durante execução e parcial, e avisa tentativa que falhou", async () => {
  for (const sync_status of ["success", "partial", "running", "error"]) {
   const value={data:response("tenant-a",[{...source,sync_status,last_attempt_at:"2026-10-20T15:00:00Z"}]),loading:false,error:false,reload:async()=>{}};
   await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="ga4" compact /></DataHealthContext.Provider>));
-  expect(host.textContent).toBe("Atualizado em 19/10/2026 às 09");
+  expect(host.textContent).toBe(sync_status === "error"
+   ? "Atualizado em 19/10/2026 às 09 · nova tentativa em 20/10/2026 às 12 falhou"
+   : "Atualizado em 19/10/2026 às 09");
  }
+});
+
+it("coleta parcial que gravou dados aparece como atualizada; reconexão é dita com clareza", async () => {
+ const partial={data:response("tenant-a",[{...source,provider:"instagram",last_successful_sync_at:null,last_updated_at:"2026-10-28T12:47:10Z",sync_status:"partial"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={partial}><DataFreshness provider="instagram" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Atualizado em 28/10/2026 às 09");
+ const reauth={data:response("tenant-a",[{...source,provider:"instagram",state:"reauth_required"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={reauth}><DataFreshness provider="instagram" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Reconexão necessária · dados anteriores mantidos");
 });
 
 it("conta consultada sem dados mostra quando foi consultada, sem fingir sucesso", async () => {
@@ -125,7 +136,7 @@ it("conta consultada sem dados mostra quando foi consultada, sem fingir sucesso"
  expect(host.textContent).toBe("Consultado em 27/10/2026 às 17 · sem anúncios no período");
  const failed={data:response("tenant-a",[{...source,provider:"meta_ads",last_successful_sync_at:null,sync_status:"error",last_attempt_at:"2026-10-27T20:10:00Z"}]),loading:false,error:false,reload:async()=>{}};
  await act(async()=>root.render(<DataHealthContext.Provider value={failed}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
- expect(host.textContent).toBe("Ainda não atualizado");
+ expect(host.textContent).toBe("Última tentativa em 27/10/2026 às 17 falhou · nova tentativa automática");
 });
 
 it("tentativa e parcial sem sucesso anterior não inventam horário no indicador compacto", async () => {
