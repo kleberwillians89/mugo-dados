@@ -431,6 +431,13 @@ async def _run_sync_for_client_and_ig(
             }
         )
 
+    # Persistir as mídias do feed antes de iniciar a coleta de Stories.
+    # Caso uma etapa posterior seja interrompida, as métricas já coletadas
+    # permanecem no banco (upsert idempotente por cliente e mídia).
+    if media_rows:
+        await sb_upsert("ig_media", media_rows, on_conflict="client_id,media_id")
+        persisted_media = len(media_rows)
+
     stories: List[Dict[str, Any]] = []
     try:
         stories = await fetch_stories(ig_user_id, access_token, limit=min(limit, 50))
