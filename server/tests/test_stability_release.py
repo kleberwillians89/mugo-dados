@@ -135,3 +135,24 @@ class CompanyBatchingTests(unittest.IsolatedAsyncioTestCase):
         members.assert_awaited_once_with('user',include_clients=False)
         self.assertEqual(len(result['clients']),250)
         self.assertEqual(query.await_count,3)
+
+
+class CronFailureRecordingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ga4_token_failure_is_recorded_with_code_only(self):
+        from services import cron_jobs
+        from services.integration_errors import IntegrationError
+        conn = {'id': 'ga4-conn', 'client_id': 'roove', 'metadata': {'ga4_property_id': '123'}}
+        err = IntegrationError('token https://secret?x=y revogado', status_code=409,
+                               code='GOOGLE_REAUTH_REQUIRED_INVALID_GRANT', provider='google')
+        with patch.object(cron_jobs, 'sb_select', AsyncMock(return_value=[conn])), \
+             patch.object(cron_jobs, 'operational_connections', AsyncMock(return_value=[conn])), \
+             patch('services.google_oauth.get_google_access_token', AsyncMock(side_effect=err)), \
+             patch.object(cron_jobs, 'start_job_run', AsyncMock(return_value={'id': 'run-1'})) as start, \
+             patch.object(cron_jobs, 'finish_job_run', AsyncMock()) as finish:
+            result = await cron_jobs.run_ga4_sync_all(window_days=3)
+        self.assertFalse(result['ok'])
+        self.assertEqual(start.await_args.kwargs['job_name'], 'ga4_sync_cron')
+        self.assertIsNone(start.await_args.kwargs['connection_id'])
+        kwargs = finish.await_args.kwargs
+        self.assertEqual((kwargs['status'], kwargs['error']), ('error', 'GOOGLE_REAUTH_REQUIRED_INVALID_GRANT'))
+        self.assertNotIn('secret', str(kwargs))
