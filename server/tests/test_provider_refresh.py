@@ -144,6 +144,41 @@ class ProviderRefreshTests(unittest.IsolatedAsyncioTestCase):
             paid.assert_awaited_once_with(client_id=CID, connection_id="paid", since=PERIOD["start"], until=PERIOD["end"], persisted_only=True)
             shopify.assert_not_awaited()
 
+    async def test_meta_partial_organic_does_not_become_global_502_when_ads_empty(self):
+        async def connection(**kwargs):
+            if kwargs["platform"] == "instagram":
+                return {"connection_id": "ig", "row": {"ig_user_id": "ig-id"}}
+            return {"connection_id": "ads", "row": {}}
+
+        with patch.object(refresh, "resolve_connection_for_scope", AsyncMock(side_effect=connection)), \
+             patch.object(refresh, "sync_instagram_for_client", AsyncMock(return_value={"ok": True, "partial": True})), \
+             patch.object(refresh, "sync_ads_for_client_period", AsyncMock(return_value={"ok": True, "sync_outcome": "no_data"})), \
+             patch.object(refresh, "invalidate_namespace", AsyncMock()):
+            result = await self.run_refresh("meta")
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["sources"], {
+            "Instagram": {"status": "partial"},
+            "Meta Ads": {"status": "no_data"},
+        })
+
+    async def test_meta_no_ads_connection_still_syncs_instagram(self):
+        async def connection(**kwargs):
+            if kwargs["platform"] == "instagram":
+                return {"connection_id": "ig", "row": {"ig_user_id": "ig-id"}}
+            return {"connection_id": None, "row": None}
+
+        with patch.object(refresh, "resolve_connection_for_scope", AsyncMock(side_effect=connection)), \
+             patch.object(refresh, "sync_instagram_for_client", AsyncMock(return_value={"ok": True})) as organic, \
+             patch.object(refresh, "sync_ads_for_client_period", AsyncMock()) as paid, \
+             patch.object(refresh, "invalidate_namespace", AsyncMock()):
+            result = await self.run_refresh("meta")
+
+        organic.assert_awaited_once()
+        paid.assert_not_awaited()
+        self.assertEqual(result["sources"], {"Instagram": {"status": "success"}})
+
     async def test_google_uses_persisted_property_and_ads_with_independent_syncs(self):
         with patch.object(refresh, "list_generic_connections", AsyncMock(return_value=[{"provider": "ga4"}, {"provider": "google_ads"}])), patch.object(refresh, "resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(connection_id="ga4", property_id="persisted-property"))), patch.object(refresh, "resolve_google_ads_context", AsyncMock(return_value=SimpleNamespace(connection_id="ads"))), patch.object(refresh, "get_google_access_token", AsyncMock(return_value="secret")), patch.object(refresh, "sync_ga4_for_period", AsyncMock(side_effect=RuntimeError("secret"))) as ga4, patch.object(refresh, "sync_google_ads", AsyncMock(return_value={"ok": True})) as ads:
             with self.assertRaises(HTTPException) as error:
