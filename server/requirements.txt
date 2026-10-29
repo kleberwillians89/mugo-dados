@@ -8,6 +8,8 @@ google-auth
 requests
 
 reportlab==4.5.1
+# Leitura do guia da marca (PDF) no Brand Manager do Studio.
+pypdf==6.21.2
 
 # SDK oficial, linha v1 com correções de segurança; transporte stateless.
 mcp==1.30.0

@@ -125,6 +125,22 @@ async def storage_read_head(path: str, length: int = 32) -> bytes:
     return r.content[:length]
 
 
+async def storage_download(path: str, *, max_bytes: int) -> bytes:
+    """Baixa um objeto pequeno (ex.: guia em PDF) sem passar do teto de memória."""
+    base = _storage_base()
+    chunks, total = [], 0
+    async with httpx.AsyncClient(timeout=60) as client:
+        async with client.stream("GET", f"{base}/object/{_bucket()}/{_object_url(path)}", headers=_storage_headers()) as r:
+            if r.status_code >= 400:
+                raise StudioError("STORAGE_ERROR")
+            async for chunk in r.aiter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise StudioError("GUIDE_TOO_LARGE")
+                chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def storage_sign_urls(paths: List[str], expires_in: int = SIGNED_URL_SECONDS) -> Dict[str, str]:
     """URLs assinadas de leitura, em uma chamada. Caminho sem URL fica de fora."""
     wanted = sorted({p for p in paths if p})

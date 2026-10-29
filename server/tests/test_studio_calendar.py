@@ -140,6 +140,7 @@ class GenerateMonthTests(unittest.IsolatedAsyncioTestCase):
             patch.object(sc, "call_llm", llm),
             patch.object(sc, "sb_delete", AsyncMock()),
             patch.object(sc, "sb_insert_many", AsyncMock()),
+            patch.object(sc, "content_signals", AsyncMock(return_value={"aprendizados": {"aprovados": [{"pauta": "Pauta aprovada X"}]}})),
         ]
 
     async def run_with(self, patches, month="2026-11"):
@@ -180,6 +181,7 @@ class GenerateMonthTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("2026-11-05", days)  # dia de item aprovado
         self.assertTrue(all(r["status"] == "rascunho" and r["origin"] == "ia" and r["client_id"] == "roove" for r in rows))
         self.assertEqual(result["kept"], 2)
+        self.assertIn("Pauta aprovada X", llm.await_args.args[0])  # aprendizado do cliente vai para o prompt
 
     async def test_cooldown_and_range(self):
         with self.assertRaises(sc.StudioError) as err:
