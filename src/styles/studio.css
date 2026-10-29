@@ -47,3 +47,11 @@
 .studioRow.is-top{align-items:start}
 .studioForm fieldset>.ds-button{justify-self:start}
 @media (max-width:640px){.studioPillarRow{grid-template-columns:minmax(0,1fr) 72px;}.studioPillarRow>input:nth-child(3){grid-column:1/-1}}
+.approvalPage{max-width:760px;margin:0 auto;padding:32px 16px 48px;font-family:inherit}
+.approvalBrand{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#5f5b53)}
+.approvalPage h1{font-size:28px;margin:4px 0 8px}
+.approvalName{display:grid;gap:6px;max-width:360px;margin:16px 0}
+.approvalName input{padding:10px;border:1px solid #ccc;border-radius:6px;font:inherit}
+.approvalList{display:grid;gap:14px;margin-top:16px}
+.approvalList .studioCard footer button{padding:10px 16px;font-size:15px}
+.approvalFoot{font-size:13px;color:var(--text-secondary,#5f5b53);margin-top:24px}

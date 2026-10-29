@@ -2446,6 +2446,14 @@ export async function refreshProviderData(
 // Transporte existente reutilizado pela feature isolada de Metas.
 export { http, clientClientPath };
 
+/** Chamada sem sessão (páginas públicas, ex.: aprovação do cliente por link). */
+export async function publicHttp<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(String((body as { message?: string; detail?: string }).message || (body as { detail?: string }).detail || "Não foi possível concluir agora."));
+  return body as T;
+}
+
 
 export function getClientDataHealth(clientId: string, period: {start: string; end: string}): Promise<DataHealthResponse> {
   const query = new URLSearchParams(period);

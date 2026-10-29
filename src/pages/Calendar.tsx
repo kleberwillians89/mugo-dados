@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
-  getCalendar, listToText, localParts, nextMonth, saveBrandProfile, textToList, toSaoPauloIso, updateCalendarItem,
+  getCalendar, listToText, localParts, nextMonth, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
+  type ApprovalCreated,
   type BrandProfile, type CalendarItem, type StudioFormat, type StudioStatus,
 } from "../app/studio";
 import Shell from "../components/Shell";
@@ -39,6 +40,21 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
   const [copied, setCopied] = useState<string | null>(null);
+  const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string } | null>(null);
+  const [sent, setSent] = useState<ApprovalCreated | null>(null);
+
+  function openSend() {
+    setError(null); setSent(null);
+    setSending({ selected: items.filter((i) => i.status !== "rejeitado").map((i) => i.id), contact_name: "", contact_phone: "", message: "" });
+  }
+
+  async function submitSend(event: FormEvent) {
+    event.preventDefault();
+    if (!sending) return;
+    const result = await run("send", () => sendForApproval({ month, item_ids: sending.selected, contact_name: sending.contact_name || undefined,
+      contact_phone: sending.contact_phone || undefined, message: sending.message || undefined }), "Não foi possível gerar o link de aprovação.");
+    if (result) { setSent(result); setSending(null); await load(); }
+  }
 
   async function copyCaption(item: CalendarItem) {
     const text = [item.hook, item.caption_draft].filter(Boolean).join("\n\n") || item.title;
@@ -129,6 +145,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     <PageHeader company={getActiveClientName()} title="Calendário editorial" controls={canManage ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => void openProfile()} disabled={Boolean(busy)}>Perfil da marca</button>
       <button type="button" className="ds-button" onClick={() => openEdit()} disabled={Boolean(busy)}>+ Pauta</button>
+      <button type="button" className="ds-button" onClick={openSend} disabled={Boolean(busy) || !items.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
       <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : "Gerar mês com IA"}</button>
     </div> : undefined} />
     <p className="studioIntro">Dias e horários vêm do desempenho real dos posts; a IA sugere pauta, gancho e legenda. Nada é publicado sem aprovação.</p>
@@ -202,6 +219,35 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
         {error ? <p role="alert">{error}</p> : null}
         <div className="studioActions"><button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => setEditing(null)}>Cancelar</button><button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "edit" ? "Salvando…" : "Salvar"}</button></div>
       </form> : null}
+    </Drawer>
+
+    <Drawer open={Boolean(sending)} title="Enviar ao cliente" description="Gera um link sem login para o cliente aprovar ou pedir ajuste. Válido por 14 dias." width="lg" onClose={() => { if (!busy) setSending(null); }}>
+      {sending ? <form className="studioForm" onSubmit={submitSend}>
+        <fieldset><legend>Pautas ({sending.selected.length})</legend>
+          {items.filter((i) => i.status !== "rejeitado").map((i) => <label key={i.id} className="studioCheck">
+            <input type="checkbox" checked={sending.selected.includes(i.id)} onChange={(e) => setSending({ ...sending, selected: e.target.checked ? [...sending.selected, i.id] : sending.selected.filter((x) => x !== i.id) })} />
+            {localParts(i.scheduled_at).label} · {i.title}</label>)}
+        </fieldset>
+        <div className="studioRow">
+          <label>Nome do contato<input maxLength={120} value={sending.contact_name} onChange={(e) => setSending({ ...sending, contact_name: e.target.value })} placeholder="Ana" /></label>
+          <label>WhatsApp<input inputMode="tel" maxLength={30} value={sending.contact_phone} onChange={(e) => setSending({ ...sending, contact_phone: e.target.value })} placeholder="(11) 98888-7777" /></label>
+        </div>
+        <label>Mensagem (opcional; sem ela usamos uma padrão)<textarea rows={3} maxLength={1000} value={sending.message} onChange={(e) => setSending({ ...sending, message: e.target.value })} /></label>
+        {error ? <p role="alert">{error}</p> : null}
+        <div className="studioActions"><button type="button" className="ds-button" onClick={() => setSending(null)}>Cancelar</button>
+          <button className="ds-button is-primary" disabled={Boolean(busy) || !sending.selected.length}>{busy === "send" ? "Gerando…" : "Gerar link"}</button></div>
+      </form> : null}
+    </Drawer>
+
+    <Drawer open={Boolean(sent)} title="Link de aprovação pronto" onClose={() => setSent(null)}>
+      {sent ? <div className="studioForm">
+        <p>As pautas foram para <b>Em revisão</b> e voltam aprovadas ou com o pedido de ajuste do cliente.</p>
+        <label>Link<input readOnly value={sent.link} onFocus={(e) => e.currentTarget.select()} /></label>
+        <div className="studioActions">
+          <a className="ds-button is-primary" href={sent.whatsapp_url} target="_blank" rel="noreferrer noopener">Abrir no WhatsApp</a>
+          <button type="button" className="ds-button" onClick={() => void navigator.clipboard.writeText(sent.whatsapp_text).then(() => setCopied("link"), () => undefined)}>{copied === "link" ? "Mensagem copiada ✓" : "Copiar mensagem"}</button>
+        </div>
+      </div> : null}
     </Drawer>
 
     <Drawer open={Boolean(rejecting)} title="Rejeitar pauta" onClose={() => { if (!busy) setRejecting(null); }}>

@@ -6,6 +6,7 @@ membership resolvida no backend; o client_id da URL é só um pedido.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from services.studio_calendar import (
     StudioError, create_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
+from services.studio_approvals import cancel_request, create_request, list_requests, public_decide, public_view
 from services.tenant import require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
@@ -170,3 +172,90 @@ async def remove_item(client_id: str, item_id: UUID, authorization: str | None =
     except StudioError as exc:
         raise _http(exc) from None
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- aprovação do cliente
+
+
+ERRORS.update({
+    "NO_ITEMS": (422, "Selecione ao menos uma pauta."),
+    "ITEMS_INVALID": (422, "Alguma pauta não existe nesta empresa ou está rejeitada."),
+    "PHONE_INVALID": (422, "Telefone inválido. Use DDD + número."),
+    "REQUEST_NOT_FOUND": (404, "Pedido de aprovação não encontrado ou já encerrado."),
+    "LINK_UNAVAILABLE": (404, "Este link de aprovação expirou ou não está mais disponível. Peça um novo à equipe Mugô."),
+    "ACTION_INVALID": (422, "Ação inválida."),
+    "COMMENT_REQUIRED": (422, "Conte o que precisa mudar."),
+})
+
+
+def _frontend_base_url() -> str:
+    explicit = (os.getenv("FRONTEND_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    origins = [o.strip() for o in (os.getenv("ALLOW_ORIGIN") or "").split(",") if o.strip() and o.strip() != "*"]
+    return (origins[0] if origins else "http://localhost:5173").rstrip("/")
+
+
+class ApprovalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    item_ids: List[UUID] = Field(min_length=1, max_length=200)
+    contact_name: Optional[str] = Field(default=None, max_length=120)
+    contact_phone: Optional[str] = Field(default=None, max_length=30)
+    message: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.get("/approvals")
+async def read_approvals(client_id: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    return {"requests": await list_requests(cid)}
+
+
+@router.post("/approvals", status_code=201)
+async def send_for_approval(client_id: str, body: ApprovalInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        return await create_request(cid, month=body.month, item_ids=[str(i) for i in body.item_ids],
+                                    contact_name=body.contact_name, contact_phone=body.contact_phone,
+                                    message=body.message, user_id=uid, app_origin=_frontend_base_url())
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/approvals/{request_id}")
+async def cancel_approval(client_id: str, request_id: UUID, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await cancel_request(cid, str(request_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True}
+
+
+# Rotas públicas: o token do link é a credencial. Sem sessão, sem client_id na URL.
+public_router = APIRouter(prefix="/api/public/approvals", tags=["studio-public"])
+
+
+class DecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    action: Literal["aprovado", "ajuste_solicitado"]
+    comment: Optional[str] = Field(default=None, max_length=1000)
+    reviewer_name: Optional[str] = Field(default=None, max_length=120)
+
+
+@public_router.get("/{token}")
+async def public_approval(token: str):
+    try:
+        return await public_view(token)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@public_router.post("/{token}/items/{item_id}")
+async def public_approval_decide(token: str, item_id: UUID, body: DecisionInput):
+    try:
+        return await public_decide(token, str(item_id), action=body.action, comment=body.comment,
+                                   reviewer_name=body.reviewer_name)
+    except StudioError as exc:
+        raise _http(exc) from None

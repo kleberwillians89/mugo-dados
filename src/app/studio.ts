@@ -1,4 +1,4 @@
-import { http, clientClientPath } from "./api";
+import { http, clientClientPath, publicHttp } from "./api";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
@@ -73,3 +73,19 @@ export function nextMonth(): string {
 }
 export const listToText = (values: string[]) => values.join(", ");
 export const textToList = (value: string) => value.split(/[,\n]/).map((v) => v.trim()).filter(Boolean);
+
+// ------------------------------------------------------------ aprovação do cliente
+export type ApprovalRequest = { id: string; month: string; items: number; contact_name: string | null; status: "aberto" | "concluido" | "cancelado" | "expirado"; expires_at: string; created_at: string; completed_at: string | null };
+export type ApprovalCreated = { request_id: string; link: string; expires_at: string; whatsapp_text: string; whatsapp_url: string };
+export function listApprovals(): Promise<{ requests: ApprovalRequest[] }> { return http(base("/approvals")); }
+export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string }) {
+  return http<ApprovalCreated>(base("/approvals"), { method: "POST", body: JSON.stringify(input) });
+}
+export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
+
+export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
+export type PublicApproval = { client_name: string; month: string; contact_name: string | null; status: string; expires_at: string; items: PublicApprovalItem[] };
+export function getPublicApproval(token: string) { return publicHttp<PublicApproval>(`/api/public/approvals/${encodeURIComponent(token)}`); }
+export function decidePublicApproval(token: string, itemId: string, body: { action: "aprovado" | "ajuste_solicitado"; comment?: string; reviewer_name?: string }) {
+  return publicHttp<{ ok: boolean }>(`/api/public/approvals/${encodeURIComponent(token)}/items/${encodeURIComponent(itemId)}`, { method: "POST", body: JSON.stringify(body) });
+}

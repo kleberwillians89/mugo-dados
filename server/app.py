@@ -54,7 +54,7 @@ from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
 from routes.goals import router as goals_router
-from routes.studio import router as studio_router
+from routes.studio import public_router as studio_public_router, router as studio_router
 from routes.sales_origin import router as sales_origin_router
 from routes.customers import router as customers_router
 from routes.intelligence import router as intelligence_router
@@ -331,6 +331,7 @@ app.include_router(client_access_router)
 app.include_router(customers_router)
 app.include_router(goals_router)
 app.include_router(studio_router)
+app.include_router(studio_public_router)
 app.include_router(sales_origin_router)
 app.include_router(connections_router)
 app.include_router(integrations_router)
