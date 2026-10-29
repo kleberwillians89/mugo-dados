@@ -29,7 +29,12 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
     // rodando). Não é falha: mostra quando foi consultada.
     const checked = source?.sync_status === "no_data" ? format(source?.last_attempt_at) : null;
     if (checked) return <span>Consultado em {checked} · {provider === "meta_ads" ? "sem anúncios no período" : "sem dados no período"}</span>;
-    return <span>Ainda não atualizado</span>;
+    const attempted = format(source?.last_attempt_at);
+    const dataDay = source?.last_data_at ? day(source.last_data_at) : null;
+    if (attempted && dataDay) return <span>Última tentativa em {attempted} · dados até {dataDay} · atualização não confirmada</span>;
+    if (attempted) return <span>Última tentativa em {attempted} · atualização não confirmada</span>;
+    if (dataDay) return <span>Dados até {dataDay} · sem atualização confirmada</span>;
+    return <span>Sem atualização confirmada</span>;
   }
   if (!source) return <span>{health?.loading ? "Verificando situação dos dados…" : "Situação dos dados não confirmada"}</span>;
   return <span>
