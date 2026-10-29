@@ -44,6 +44,14 @@ class CompanyLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(read.await_args.kwargs['select'],'id,status')
         self.assertEqual(read.await_args.kwargs['limit'],3)
 
+    async def test_pending_invitation_company_keeps_syncing_but_archived_and_blank_do_not(self):
+        from services import client_lifecycle as lifecycle
+        rows = [{'id':'curavino','status':'invitation_pending'}, {'id':'old','status':'archived'}, {'id':'blank','status':None}]
+        conns = [{'client_id': cid, 'id': cid+'-conn'} for cid in ['curavino','old','blank']]
+        with patch.object(lifecycle,'sb_select',AsyncMock(return_value=rows)):
+            result = await lifecycle.operational_connections(conns)
+        self.assertEqual(result,[conns[0]])
+
     async def test_company_read_failure_fails_closed_before_any_provider(self):
         from services import cron_jobs, client_lifecycle
         with patch.object(cron_jobs,'sb_get_active_meta_connections',AsyncMock(return_value=[{'client_id':'roove','id':'c'}])), patch.object(client_lifecycle,'sb_select',AsyncMock(side_effect=RuntimeError('offline'))), patch.object(cron_jobs,'sync_instagram_connection',AsyncMock()) as sync:

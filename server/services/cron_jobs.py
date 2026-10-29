@@ -182,6 +182,11 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
                     "process_thumbnails": process_thumbnails,
                     "media_count": len(res.get("media") or []),
                     "comments_saved": res.get("comments_saved", 0),
+                    # Só status/contagem: nada de token, id externo ou texto da Meta.
+                    "online_followers": {
+                        "status": str((res.get("online_followers") or {}).get("status") or "not_run")[:40],
+                        "days": int((res.get("online_followers") or {}).get("days") or 0),
+                    },
                 },
             )
             results.append(
