@@ -53,6 +53,8 @@ describe("AppNavigation — sidebar global", () => {
     expect(container.querySelector(".appSidebar .clientSwitcherStatic")).toBeTruthy();
     expect(link("Ecommerce")?.getAttribute("aria-current")).toBe("page");
     expect(link("Meta")?.getAttribute("href")).toBe("/meta");
+    expect(link("Metas")).toBeUndefined();
+    expect(link("Inteligência")).toBeUndefined();
     expect(link("Integrações")?.getAttribute("href")).toBe("/integracoes");
     expect(link("Empresas")).toBeUndefined();
   });
