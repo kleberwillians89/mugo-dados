@@ -186,14 +186,14 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         from routes import (
             admin_health, client_access, connections, customers as customers_mod,
             fbits, google, google_oauth, integrations, intelligence, invitations,
-            meta_legacy, platform_admin, shopify, shopify_oauth,
+            meta_legacy, platform_admin, shopify, shopify_oauth, studio,
         )
         return {
             module.__name__.rsplit(".", 1)[-1]: module
             for module in (
                 admin_health, client_access, connections, customers_mod, fbits,
                 google, google_oauth, integrations, intelligence, invitations,
-                meta_legacy, platform_admin, shopify, shopify_oauth,
+                meta_legacy, platform_admin, shopify, shopify_oauth, studio,
             )
         }
 

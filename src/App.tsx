@@ -32,6 +32,8 @@ const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
+const Calendar = lazy(() => import("./pages/Calendar"));
+const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
 const loadCustomers = () => import("./pages/Customers");
@@ -853,6 +855,8 @@ function PrivateApp() {
       <>
       {route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+      ) : route === "calendar" ? (
+        <Calendar key={`calendar:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />
       ) : route === "intelligence" ? (
@@ -910,6 +914,10 @@ function PrivateApp() {
 export default function App() {
   if (["/conectar-claude", "/conectar-claude/autorizar"].includes(window.location.pathname)) {
     return <Suspense fallback={<AppLoading />}><ClaudeConnect /></Suspense>;
+  }
+  const approvalMatch = window.location.pathname.match(/^\/aprovar\/([A-Za-z0-9_-]{30,64})\/?$/);
+  if (approvalMatch) {
+    return <Suspense fallback={<AppLoading />}><ClientApproval token={approvalMatch[1]} /></Suspense>;
   }
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
   if (publicRoute === "privacy") return <PrivacyPage />;

@@ -107,6 +107,7 @@ def score_posts(rows: Iterable[Dict[str, Any]], *, start: date, end: date) -> Li
             "hour": local.hour,
             "reach": reach,
             "interactions": _interactions_of(insights),
+            "caption": row.get("caption"),  # só presente quando o select pediu
         })
     medians: Dict[str, float] = {}
     by_format: Dict[str, List[int]] = defaultdict(list)
@@ -223,6 +224,9 @@ async def build_posting_times(client_id: str, *, start: str, end: str) -> Dict[s
     return {
         "posts_analyzed": len(posts),
         "posts_by_format": {fmt: len(items) for fmt, items in sorted(formats.items())},
+        # Alcance bruto mediano por formato: compara formatos entre si (o
+        # índice de alcance não serve para isso, ele é relativo ao formato).
+        "format_median_reach": {fmt: int(median(p["reach"] for p in items)) for fmt, items in sorted(formats.items())},
         "best_slots": rank_slots(posts),
         "best_slots_by_format": {fmt: rank_slots(items, limit=3) for fmt, items in sorted(formats.items())
                                  if len(items) >= MIN_POSTS_SLOT * 2},
