@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +13,7 @@ from .ig_meta import (
     fetch_media_comments,
     fetch_media_insights,
     fetch_media_list,
+    fetch_online_followers,
     fetch_profile,
     fetch_stories,
     fetch_story_insights,
@@ -249,6 +250,55 @@ async def discover_instagram_identity_for_connection(
         "instagram_accounts": candidates,
         "selected": selected,
     }
+
+
+ONLINE_FOLLOWERS_MIN_FOLLOWERS = 100
+
+
+async def _persist_online_followers(
+    *, client_id: str, connection_id: str, ig_user_id: str, access_token: str, followers_count: int,
+) -> Dict[str, Any]:
+    """Grava seguidores online por hora. Best-effort: nunca derruba o sync orgânico."""
+    if followers_count < ONLINE_FOLLOWERS_MIN_FOLLOWERS:
+        return {"ok": False, "status": "below_min_followers", "days": 0}
+    try:
+        days = await fetch_online_followers(ig_user_id, access_token, days=7)
+    except Exception as exc:
+        print(
+            "[ig_sync][meta_error] "
+            f"block=online_followers client_id={client_id} ig_user_id={ig_user_id} error={str(exc)[:280]}"
+        )
+        return {"ok": False, "status": _classify_meta_error(exc), "days": 0}
+    rows: List[Dict[str, Any]] = []
+    for day in days:
+        end_time = _normalize_meta_ts(day.get("end_time"))
+        if not end_time:
+            continue
+        # end_time marca o fim da janela; o dia medido é o anterior a ele.
+        try:
+            metric_date = (datetime.fromisoformat(end_time).astimezone(timezone.utc).date()
+                           - timedelta(days=1)).isoformat()
+        except ValueError:
+            continue
+        for hour, total in (day.get("values") or {}).items():
+            rows.append({
+                "client_id": client_id,
+                "connection_id": connection_id,
+                "metric_date": metric_date,
+                "end_time": end_time,
+                "hour_key": int(hour),
+                "followers_online": int(total),
+            })
+    if not rows:
+        return {"ok": True, "status": "no_data", "days": 0}
+    try:
+        await sb_upsert("ig_online_followers", rows, on_conflict="client_id,metric_date,hour_key")
+    except httpx.HTTPStatusError as exc:
+        if exc.response is None or exc.response.status_code not in {400, 404, 409}:
+            raise
+        _schema_warning("online_followers", client_id, connection_id, exc)
+        return {"ok": False, "status": "schema_pending", "days": 0}
+    return {"ok": True, "status": "ok", "days": len({r["metric_date"] for r in rows})}
 
 
 async def _run_sync_for_client_and_ig(
@@ -584,10 +634,19 @@ async def _run_sync_for_client_and_ig(
             _schema_warning("snapshot", client_id, connection_id, exc)
             warnings.append("Snapshot diário não foi persistido por incompatibilidade de schema.")
 
+    online_followers = await _persist_online_followers(
+        client_id=client_id,
+        connection_id=connection_id,
+        ig_user_id=ig_user_id,
+        access_token=access_token,
+        followers_count=int(profile.get("followers_count") or 0),
+    )
+
     return {
         "ok": True,
         "client_id": client_id,
         "profile": profile,
+        "online_followers": online_followers,
         "kpis": {
             "impressions": impressions_or_views,
             "reach": int(kpis.get("reach") or 0),

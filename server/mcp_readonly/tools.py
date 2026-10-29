@@ -21,7 +21,7 @@ reference_key = ContextVar("mcp_reference_key", default=None)
 TOOLS = (
     "list_companies", "get_data_freshness", "get_business_overview", "get_paid_media",
     "get_site_traffic", "get_sales_by_origin", "get_customer_summary", "get_goals",
-    "get_business_context", "get_latest_analysis",
+    "get_business_context", "get_latest_analysis", "get_best_posting_times",
 )
 SOURCES = frozenset({"meta", "meta_ads", "google_ads", "ga4", "shopify", "fbits", "instagram", "commerce", "paid_media", "shopify+paid_media"})
 STATUSES = frozenset({"available", "partial", "unavailable", "no_data", "disconnected", "error", "good", "limited", "ok", "stale", "not_connected", "migration_pending", "connected", "active", "ready", "confirmed", "connected_no_data"})
@@ -194,7 +194,12 @@ async def dispatch(user_id: str, name: str, company_id=None, start=None, end=Non
 async def _dispatch(user_id, name, company_id, start, end, provider):
     if name not in TOOLS or not user_id:
         raise ToolFailure("Ferramenta ou usuário não autorizado.")
-    window = period(start, end)
+    if name == "get_best_posting_times" and start is None and end is None:
+        # Melhor horário precisa de amostra: sem datas, olha os últimos 180 dias.
+        today = datetime.now(timezone.utc).date()
+        window = period((today - timedelta(days=179)).isoformat(), today.isoformat())
+    else:
+        window = period(start, end)
     pilots = {v.strip() for v in os.getenv("MCP_PILOT_CLIENT_IDS", "").split(",") if v.strip()}
     if name != "list_companies":
         # IDs não são expressões PostgREST. Falha antes de consultar qualquer dado.
@@ -397,6 +402,29 @@ async def _read(uid, name, cid, window, provider, pilots):
     data = await snapshot(cid, window)
     sources = source_rows(data.get("sources", []))
     values = metrics(data.get("metrics", []))
+    if name == "get_best_posting_times":
+        from services.posting_times import WEEKDAYS, build_posting_times
+        data = await build_posting_times(cid, **window)
+        hours_ok = re.compile(r"\d{2}h(-\d{2}h)?")
+
+        def slot(row):
+            return {"weekday": row.get("weekday") if row.get("weekday") in WEEKDAYS else None,
+                "hours": row.get("hours") if hours_ok.fullmatch(str(row.get("hours") or "")) else None,
+                "confidence": row.get("confidence") if row.get("confidence") in {"boa", "baixa"} else None,
+                "posts": number(row.get("posts")), "reach_index": number(row.get("reach_index")),
+                "engagement_rate": number(row.get("engagement_rate"))}
+        formats = {"reels", "carrossel", "video", "imagem"}
+        online = data.get("online_followers") or {}
+        return {"posts_analyzed": number(data.get("posts_analyzed")),
+            "posts_by_format": {k: number(v) for k, v in (data.get("posts_by_format") or {}).items() if k in formats},
+            "best_slots": [slot(r) for r in data.get("best_slots", [])[:10]],
+            "best_slots_by_format": {k: [slot(r) for r in v[:5]] for k, v in (data.get("best_slots_by_format") or {}).items() if k in formats},
+            "by_weekday": [slot(r) for r in data.get("by_weekday", [])[:7]],
+            "by_hours": [slot(r) for r in data.get("by_hours", [])[:8]],
+            "online_followers": {"days": number(online.get("days")),
+                "peak_hours": [h for h in online.get("peak_hours", [])[:3] if hours_ok.fullmatch(str(h))],
+                "by_hour": [{"hour": h.get("hour"), "followers_online": number(h.get("followers_online"))} for h in online.get("by_hour", [])[:24] if hours_ok.fullmatch(str(h.get("hour")))]},
+            "observacoes": [str(n)[:200] for n in data.get("observacoes", [])[:6]]}
     if name == "get_data_freshness":
         from services.freshness import source_freshness
         by_id = {r["id"]: r for r in sources}
