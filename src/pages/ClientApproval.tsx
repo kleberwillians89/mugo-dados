@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { STUDIO_FORMATS, decidePublicApproval, getPublicApproval, localParts, type PublicApproval, type PublicApprovalItem } from "../app/studio";
+import ArtViewer from "../components/studio/ArtViewer";
 import "../styles/studio.css";
 
 /** Página pública: o cliente aprova ou pede ajuste nas pautas, sem login. O token do link é a credencial. */
@@ -40,6 +41,8 @@ export default function ClientApproval({ token }: { token: string }) {
         <header><div><strong className="studioDate">{when.weekday.charAt(0).toUpperCase() + when.weekday.slice(1)}, {when.label} · {when.time}</strong>
           <span className="studioChip">{STUDIO_FORMATS[item.format]}</span>{item.pillar ? <span className="studioChip is-pillar">{item.pillar}</span> : null}</div>
           {item.decision ? <span className={`studioStatus ${item.decision === "aprovado" ? "is-aprovado" : "is-rejeitado"}`}>{item.decision === "aprovado" ? "Aprovado" : "Ajuste pedido"}</span> : null}</header>
+        {item.assets?.length ? <div className={`approvalArt ${["reels", "stories", "video"].includes(item.format) ? "is-vertical" : ""}`}>
+          <ArtViewer assets={item.assets} label={`Arte: ${item.title}`} /></div> : null}
         <h3>{item.title}</h3>
         {item.hook ? <p className="studioHook">“{item.hook}”</p> : null}
         {item.caption_draft ? <p className="studioCaption">{item.caption_draft}</p> : null}

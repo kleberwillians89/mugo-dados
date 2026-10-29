@@ -5,7 +5,7 @@ aleatório (só o hash fica no banco) → a equipe manda o link pelo WhatsApp �
 o cliente aprova ou pede ajuste em cada pauta → o calendário reflete na hora.
 
 O link expõe apenas os campos editoriais das pautas do pedido (data, formato,
-pauta, gancho, legenda). Nada de métricas, outras pautas, outras empresas ou
+pauta, gancho, legenda) e a arte anexada, por URL assinada de curta duração. Nada de métricas, outras pautas, outras empresas ou
 dados de quem criou. Token inválido, expirado ou cancelado responde igual
 ("link indisponível"), sem revelar se ele existiu.
 """
@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from .ig_supabase import sb_insert, sb_select, sb_update
+from .studio_assets import attach_assets
 from .studio_calendar import ITEMS_TABLE, StudioError, parse_month
 
 REQUESTS = "studio_approval_requests"
@@ -142,13 +143,14 @@ async def public_view(token: str) -> Dict[str, Any]:
     latest: Dict[str, Dict[str, Any]] = {}
     for event in events:
         latest.setdefault(str(event["item_id"]), event)
+    items = await attach_assets(request["client_id"], items, public=True)
     return {
         "client_name": await _client_name(request["client_id"]),
         "month": request["month"],
         "contact_name": request.get("contact_name"),
         "status": request["status"],
         "expires_at": request["expires_at"],
-        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft")},
+        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "assets")},
                    "decision": (latest.get(str(item["id"])) or {}).get("action"),
                    "comment": (latest.get(str(item["id"])) or {}).get("comment")} for item in items],
     }

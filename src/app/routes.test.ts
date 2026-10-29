@@ -27,6 +27,12 @@ describe("platform routes", () => {
     expect(getPathForRoute("ecommerce")).toBe("/ecommerce");
   });
 
+  it("maps the Studio library route", () => {
+    expect(getAppRouteFromPath("/biblioteca")).toBe("library");
+    expect(getPathForRoute("library")).toBe("/biblioteca");
+    expect(getAppRouteFromPath("/calendario")).toBe("calendar");
+  });
+
   it("distinguishes an unknown URL from the dashboard", () => {
     expect(getAppRouteFromPath("/rota-inexistente")).toBe("not_found");
   });
