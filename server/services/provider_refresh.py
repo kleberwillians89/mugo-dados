@@ -144,11 +144,13 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
             busy = next((result for result in results if isinstance(result, IntegrationError) and result.code == "PROCESS_MEMORY_BUSY"), None)
             if busy is not None:
                 raise busy
-            # Nunca devolver payloads dos providers ou texto de exceções cruas.
-            if any(isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False)) for result in results):
+            # Uma fonte parcial não cancela dados válidos das outras fontes.
+            # Falhas efetivas permanecem erros; o estado parcial é explícito
+            # e nunca é anunciado como sucesso completo.
+            if any(isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("read_model_refreshed") is False)) for result in results):
                 if provider == "meta":
                     print(f"[meta][manual_refresh_error] request_id={current_request().get('request_id') or '-'} client_id={client_id} stage=sync_or_projection status=502")
-                failed = [name for name, result in zip(meta_sources, results) if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False))] if provider == "meta" else []
+                failed = [name for name, result in zip(meta_sources, results) if isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("read_model_refreshed") is False))] if provider == "meta" else []
                 label = ", ".join(failed) or "Uma fonte"
                 raise HTTPException(502, f"{label} não pôde ser atualizada. Mantendo a última leitura disponível.")
         await invalidate_namespace("integration_connections")
@@ -157,5 +159,17 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
             print(f"[{provider}][manual_refresh_done] client_id={client_id} status=success")
         response = {"ok": True, "client_id": client_id, "provider": provider}
         if provider == "meta":
-            response["sources"] = {name: {"status": "no_data" if isinstance(result, dict) and result.get("sync_outcome") == "no_data" else "success"} for name, result in zip(meta_sources, results)}
+            response["sources"] = {
+                name: {
+                    "status": (
+                        "no_data" if isinstance(result, dict) and result.get("sync_outcome") == "no_data"
+                        else "partial" if isinstance(result, dict) and (
+                            result.get("partial") is True or result.get("sync_outcome") == "partial"
+                        )
+                        else "success"
+                    )
+                }
+                for name, result in zip(meta_sources, results)
+            }
+            response["partial"] = any(source["status"] == "partial" for source in response["sources"].values())
         return response
