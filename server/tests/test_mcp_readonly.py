@@ -48,6 +48,7 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
              patch("services.business_context.load_business_context", AsyncMock(return_value={"available": True, "context": PII})), \
              patch("services.ga4_connections.resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(client_id="company-a", property_id="p"))), \
              patch("services.ga4_reporting.build_ga4_report", AsyncMock(return_value={"summary": PII, "channels": [{"source_medium": "Pessoa Compradora", **PII}]})), \
+             patch("services.posting_times.sb_select", AsyncMock(return_value=[{"client_id": "company-a", "timestamp": "2026-10-05T15:00:00+0000", "insights_json": {"reach": 10, **PII}, **PII}])), \
              patch("services.goals.list_goals", AsyncMock(return_value={"goals": [PII]})), \
              patch("services.sales_by_origin.build_sales_by_origin", AsyncMock(return_value={"totals": PII, "channels": [{"channel": "direct", **PII}], "campaigns": [{"campaign": "Pessoa Compradora comprador@example.test", **PII}]})), \
              patch("services.dashboard_paid.get_paid_dashboard", AsyncMock(return_value={"totals": PII})), \

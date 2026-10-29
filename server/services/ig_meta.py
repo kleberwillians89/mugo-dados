@@ -63,6 +63,47 @@ async def _fetch_total_value_metrics(
     return out
 
 
+async def fetch_online_followers(ig_user_id: str, access_token: str, *, days: int = 7) -> List[Dict[str, Any]]:
+    """Seguidores online por hora, um item por dia: [{"end_time", "values": {hora: total}}].
+
+    A Meta guarda só os últimos 30 dias e não entrega para contas com menos de
+    100 seguidores. Dias sem dado (valor vazio) são descartados.
+    """
+    trace_live_call("online_followers")
+    days = max(1, min(int(days), 29))
+    until = int(time.time())
+    since = until - days * 86400
+    data = await meta_get_json(
+        f"/{ig_user_id}/insights",
+        {
+            "metric": "online_followers",
+            "period": "lifetime",
+            "since": since,
+            "until": until,
+            "access_token": _clean_token(access_token),
+        },
+    )
+    out: List[Dict[str, Any]] = []
+    for item in data.get("data", []):
+        if item.get("name") != "online_followers":
+            continue
+        for entry in item.get("values") or []:
+            raw = entry.get("value")
+            if not isinstance(raw, dict) or not raw:
+                continue
+            values: Dict[int, int] = {}
+            for hour, total in raw.items():
+                try:
+                    h = int(hour)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= h <= 23:
+                    values[h] = max(0, int(total or 0))
+            if values:
+                out.append({"end_time": entry.get("end_time"), "values": values})
+    return out
+
+
 async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str, Any]:
     """
     KPIs do PERFIL (snapshot do dia).
