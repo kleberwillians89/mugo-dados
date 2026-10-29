@@ -84,7 +84,7 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                 raise HTTPException(409, "Selecione a conta Instagram antes de atualizar os dados.")
             if organic["connection_id"]:
                 meta_sources.append("Instagram")
-                tasks.append(sync_instagram_for_client(client_id, limit=200, preferred_connection_id=organic["connection_id"], persisted_only=True))
+                tasks.append(sync_instagram_for_client(client_id, limit=40, preferred_connection_id=organic["connection_id"], persisted_only=True))
             if paid["connection_id"]:
                 meta_sources.append("Meta Ads")
                 tasks.append(sync_ads_for_client_period(client_id=client_id, connection_id=paid["connection_id"], since=start, until=end, persisted_only=True, **({"request_id": current_request()["request_id"]} if current_request().get("request_id") else {})))
