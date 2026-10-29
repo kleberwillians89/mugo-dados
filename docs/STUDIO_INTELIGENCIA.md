@@ -1,0 +1,79 @@
+# Mugô Studio — inteligência, motores, aprovação, WhatsApp e Mídia On
+
+## 1. Inteligência de dados (base de tudo)
+
+`server/services/studio_intelligence.py` monta, para cada empresa, um pacote com o que o Dados **já tem**:
+
+| Fonte | O que entra |
+|---|---|
+| Perfil da marca e contexto do negócio | tom, público, pilares, palavras proibidas, restrições, segmento, diferenciais |
+| Snapshot da Inteligência (90 dias) | KPIs (faturamento, pedidos, ticket, investimento, ROAS real, CPA, sessões, conversão…), campanhas que mais investiram com receita e ROAS, funil do site |
+| Instagram | posts que mais e menos alcançaram em relação ao próprio formato (com trecho da legenda) |
+| Melhores horários | dias e faixas de maior alcance |
+| Metas e última análise | metas do mês com progresso; mudança principal, oportunidade e ação prioritária |
+| **Aprendizado com o cliente** | pautas que o cliente aprovou (referência de tom) e os ajustes que ele pediu (o que evitar) |
+
+- Cada fonte tem limite de 12 s; a que falhar vira **lacuna** e o resto segue.
+- Texto com cara de e-mail, CPF/CNPJ ou telefone é descartado (mesmo filtro do MCP).
+- Cache de 10 min por empresa. Toda resposta de IA volta com `based_on` ("com base em 42 posts, 4 aprovações…").
+
+## 2. Motores de conteúdo (trazidos do iAgência)
+
+| Motor no iAgência | Onde está no Dados |
+|---|---|
+| `creative_guidance.py` + regras de ouro | `studio_llm.CREATIVE_GUIDANCE`, aplicado a **todo** texto gerado, inclusive o calendário |
+| `feedback.py` (exemplos aprovados) | `approval_learnings` → entra no calendário e em todos os motores |
+| `copywriting_logic.py` (Redator) | Modal da pauta → **Legenda final** e **Revisar** |
+| `social_agent.py` / `video_logic.py` | **3 variações**, **5 ganchos**, **Hashtags**, **Roteiro de Reels** |
+| `planning_agent.py` (Head de Estratégia) | Calendário → **Estratégia (IA)**: chat com o mês e os dados |
+| Brand Manager + `reference_files.py` | Perfil da marca → **Sugerir perfil com IA** (lê o guia em PDF da Biblioteca) |
+
+- Nada é salvo sem a pessoa clicar em "Usar" ou "Salvar".
+- Clichês e palavras proibidas do perfil aparecem como alerta.
+- Teto de 20 chamadas de IA por minuto por empresa.
+- Mesma chave e mesmo modelo da Inteligência (`OPENAI_API_KEY`, `OPENAI_MODEL`).
+- `pypdf` passou para o `requirements.txt` (é usado em produção para ler o guia).
+
+## 3. Menu Aprovação (`/aprovacao`)
+
+O menu Comercial do CRM virou a área de aprovação de conteúdo:
+
+- **Funil:** Rascunho → Revisão interna → Com o cliente → Ajuste pedido → Aprovado → **Publicado**.
+  Arrastar a pauta muda o status. "Com o cliente" só acontece quando o link é enviado.
+- **Pedidos:** links enviados, prazo, último lembrete; lembrete pelo WhatsApp reenvia o **mesmo** link.
+- **Contatos:** quem aprova e o que recebe (conteúdo, tráfego, resultados), com um contato principal.
+- **Mensagens:** agenda da semana, relatório de tráfego (7 dias) e resultados do mês, com prévia e histórico.
+
+## 4. WhatsApp da Mugô (MugôZap)
+
+O envio continua no CRM. O Dados chama o `mugozap-api` pelo caminho interno que já existe
+(`X-Task-Command-Worker-Key` + membro da equipe). Os textos dos templates e o passo a passo de
+cadastro estão em **`docs/WHATSAPP_TEMPLATES.md`**.
+
+- **Números:** sempre do painel.
+- **IA:** escreve só a frase de destaque ou atenção, a partir desses números; a equipe pode editar antes de enviar.
+- **Sem as variáveis `MUGOZAP_*`:** o Dados gera o link `wa.me` com o mesmo texto.
+- **Idempotência:** a mesma mensagem não sai duas vezes no mesmo dia (o CRM também confere).
+
+## 5. Mídia On (`/midia`)
+
+- **Desempenho real por canal (90 dias):** CPM, CPC, CTR, conversão, CPA e ROAS de Meta Ads e Google Ads,
+  com o nível de confiança dos dados.
+- **Plano do mês:** objetivo, verba, % por canal e premissas (iniciadas com os números reais, editáveis).
+- **Projeção:** cenários conservador, esperado e otimista. Há retorno decrescente quando a verba passa de
+  1,5x o investimento mensal habitual do canal. Canal sem dados não recebe número inventado.
+- **Sugerir divisão com IA:** usa o desempenho real e o contexto da marca; percentuais normalizados para 100%.
+- **Planejado x realizado:** quanto foi investido até ontem, a projeção do mês e o ritmo de cada canal.
+
+## Para ligar em produção (Kleber)
+
+1. Aplicar, nesta ordem, no SQL Editor:
+   - `20261104_000053_studio_approval_flow.sql` (status publicado, contatos, mensagens, lembrete)
+   - `20261105_000054_media_plans.sql` (planos do Mídia On)
+
+   O backend tolera a 053 ainda não aplicada no envio de links, mas contatos, mensagens e o status
+   "publicado" só funcionam depois dela.
+2. Deploy no Render (o `pypdf` será instalado pelo `requirements.txt`).
+3. WhatsApp: seguir `docs/WHATSAPP_TEMPLATES.md` (templates na Meta, variáveis `MUGOZAP_*` e `FRONTEND_URL`).
+4. Para o lembrete reenviar o link, o backend precisa de `TOKEN_ENCRYPTION_KEY` (já usada para os
+   tokens da Meta). Pedidos criados antes deste deploy não têm o link guardado e pedem um link novo.

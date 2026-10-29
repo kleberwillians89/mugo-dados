@@ -3,7 +3,7 @@ import type { StudioAsset } from "./studioAssets";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
-export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Rejeitado" } as const;
+export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Rejeitado", publicado: "Publicado" } as const;
 export type StudioStatus = keyof typeof STUDIO_STATUS;
 
 export type BrandPillar = { name: string; weight: number; description: string };
@@ -78,10 +78,10 @@ export const listToText = (values: string[] | undefined) => (values || []).join(
 export const textToList = (value: string) => value.split(/[,\n]/).map((v) => v.trim()).filter(Boolean);
 
 // ------------------------------------------------------------ aprovação do cliente
-export type ApprovalRequest = { id: string; month: string; items: number; contact_name: string | null; status: "aberto" | "concluido" | "cancelado" | "expirado"; expires_at: string; created_at: string; completed_at: string | null };
-export type ApprovalCreated = { request_id: string; link: string; expires_at: string; whatsapp_text: string; whatsapp_url: string };
+export type ApprovalRequest = { id: string; month: string; items: number; contact_name: string | null; status: "aberto" | "concluido" | "cancelado" | "expirado"; expires_at: string; created_at: string; completed_at: string | null; last_reminded_at?: string | null };
+export type ApprovalCreated = { request_id: string; link: string; expires_at: string; whatsapp_text: string; whatsapp_url: string; whatsapp?: MessageResult | { status: "falhou"; detail: string } };
 export function listApprovals(): Promise<{ requests: ApprovalRequest[] }> { return http(base("/approvals")); }
-export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string }) {
+export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string; contact_id?: string; send_whatsapp?: boolean }) {
   return http<ApprovalCreated>(base("/approvals"), { method: "POST", body: JSON.stringify(input) });
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
@@ -92,3 +92,72 @@ export function getPublicApproval(token: string) { return publicHttp<PublicAppro
 export function decidePublicApproval(token: string, itemId: string, body: { action: "aprovado" | "ajuste_solicitado"; comment?: string; reviewer_name?: string }) {
   return publicHttp<{ ok: boolean }>(`/api/public/approvals/${encodeURIComponent(token)}/items/${encodeURIComponent(itemId)}`, { method: "POST", body: JSON.stringify(body) });
 }
+
+// ------------------------------------------------------------ inteligência e motores de conteúdo
+export type BasedOn = { kpis: number; campanhas: number; posts_analisados: number; metas: number; aprovados: number; ajustes: number; lacunas: string[] };
+export const GAP_LABELS: Record<string, string> = {
+  perfil_da_marca_vazio: "perfil da marca vazio", contexto_do_negocio_vazio: "contexto do negócio vazio", sem_kpis_no_periodo: "sem KPIs no período",
+  sem_historico_de_posts: "sem histórico de posts", sem_metas_no_mes: "sem metas no mês", kpis_e_campanhas: "KPIs indisponíveis agora",
+  posts_instagram: "posts indisponíveis agora", melhores_horarios: "horários indisponíveis agora", metas: "metas indisponíveis agora",
+  ultima_analise: "análise indisponível agora", aprendizados_de_aprovacao: "aprendizados indisponíveis agora",
+  perfil_da_marca: "perfil indisponível agora", contexto_do_negocio: "contexto indisponível agora",
+};
+export function basedOnText(b?: BasedOn | null): string {
+  if (!b) return "";
+  const parts = [b.posts_analisados ? `${b.posts_analisados} posts analisados` : "", b.aprovados ? `${b.aprovados} pauta(s) aprovada(s)` : "",
+    b.ajustes ? `${b.ajustes} ajuste(s) pedido(s)` : "", b.campanhas ? `${b.campanhas} campanha(s)` : "", b.kpis ? `${b.kpis} KPI(s)` : "",
+    b.metas ? `${b.metas} meta(s)` : ""].filter(Boolean);
+  return parts.length ? `Com base em ${parts.join(", ")}.` : "Sem dados suficientes da conta: a IA usou só o perfil e a pauta.";
+}
+
+export const ASSIST_ACTIONS = { legenda: "Legenda final", variacoes: "3 variações", ganchos: "5 ganchos", hashtags: "Hashtags", roteiro_reels: "Roteiro de Reels", revisar: "Revisar" } as const;
+export type AssistAction = keyof typeof ASSIST_ACTIONS;
+export type AssistResult =
+  | { action: "legenda"; result: { caption: string; cta: string; why: string } }
+  | { action: "variacoes"; result: { variations: { angle: string; caption: string }[]; recommended_index: number; why: string } }
+  | { action: "ganchos"; result: { hooks: { hook: string; angle: string }[] } }
+  | { action: "hashtags"; result: { hashtags: string[]; why: string } }
+  | { action: "roteiro_reels"; result: { duration_seconds: number; cover_text: string; audio_suggestion: string; scenes: { seconds: string; visual: string; text_on_screen: string; voiceover: string }[] } }
+  | { action: "revisar"; result: { issues: { problem: string; fix: string }[]; improved_caption: string } };
+export type AssistResponse = AssistResult & { flags: string[]; based_on: BasedOn };
+export function runAssist(action: AssistAction, item: { format: StudioFormat; title: string; pillar?: string; hook?: string; caption_draft?: string; scheduled_at?: string }, instruction?: string) {
+  return http<AssistResponse>(base("/assist"), { method: "POST", body: JSON.stringify({ action, item, instruction: instruction || undefined }), timeoutMs: 100_000 });
+}
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+export function strategyChat(month: string, messages: ChatTurn[]) {
+  return http<{ reply: string; suggested_actions: string[]; based_on: BasedOn }>(base("/strategy/chat"), { method: "POST", body: JSON.stringify({ month, messages }), timeoutMs: 100_000 });
+}
+export function suggestBrandProfile(guideAssetId?: string) {
+  return http<{ profile: BrandProfile; notes: string[]; used_guide: boolean; based_on: BasedOn }>(base("/brand-profile/suggest"), { method: "POST", body: JSON.stringify({ guide_asset_id: guideAssetId || undefined }), timeoutMs: 120_000 });
+}
+
+// ------------------------------------------------------------ aprovação: funil, contatos e mensagens
+export const STAGES = { rascunho: "Rascunho", revisao_interna: "Revisão interna", com_cliente: "Com o cliente", ajuste: "Ajuste pedido", aprovado: "Aprovado", publicado: "Publicado" } as const;
+export type Stage = keyof typeof STAGES;
+/** Status gravado quando a pauta é arrastada para a coluna; "com o cliente" só via envio do link. */
+export const STAGE_STATUS: Partial<Record<Stage, StudioStatus>> = { rascunho: "rascunho", revisao_interna: "em_revisao", ajuste: "rejeitado", aprovado: "aprovado", publicado: "publicado" };
+export type PipelineItem = CalendarItem & { stage: Stage; request: { request_id: string; sent_at: string; contact_name: string | null; expires_at: string; last_reminded_at: string | null } | null;
+  client_feedback: { action: "aprovado" | "ajuste_solicitado"; comment: string | null; reviewer_name: string | null; created_at: string } | null };
+export function getPipeline(month: string) {
+  return http<{ month: string; stages: Stage[]; counts: Record<Stage, number>; items: PipelineItem[] }>(base(`/approvals/pipeline?month=${encodeURIComponent(month)}`));
+}
+
+export const RECEIVES = { conteudo: "Conteúdo", trafego: "Tráfego pago", resultados: "Resultados do mês" } as const;
+export type Receives = keyof typeof RECEIVES;
+export type ClientContact = { id: string; name: string; phone: string; role: string | null; receives: Receives[]; is_primary: boolean };
+export type ContactInput = { name: string; phone: string; role?: string; receives: Receives[]; is_primary: boolean };
+export function listContacts() { return http<{ contacts: ClientContact[]; whatsapp_channel: "mugozap" | "wa_link" }>(base("/contacts")); }
+export function createContact(input: ContactInput) { return http<{ contact: ClientContact }>(base("/contacts"), { method: "POST", body: JSON.stringify(input) }); }
+export function updateContact(id: string, input: ContactInput) { return http<{ contact: ClientContact }>(base(`/contacts/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(input) }); }
+export function deleteContact(id: string) { return http(base(`/contacts/${encodeURIComponent(id)}`), { method: "DELETE" }); }
+
+export const MESSAGE_KINDS = { aprovacao: "Pautas para aprovar", lembrete: "Lembrete de aprovação", agenda: "Agenda da semana", trafego: "Relatório de tráfego (7 dias)", resultados: "Resultados do mês" } as const;
+export type MessageKind = keyof typeof MESSAGE_KINDS;
+export type MessagePreview = { kind: MessageKind; template_name: string; params: Record<string, string>; text: string; editable: string[];
+  contact: { id: string; name: string; role: string | null }; phone_masked: string; header_image: string | null; channel: "mugozap" | "wa_link" };
+export type MessageResult = { status: "enviado" | "link_gerado"; channel: "mugozap" | "wa_link"; whatsapp_url?: string; text: string; already_sent?: boolean };
+export type MessageLog = { id: string; contact_name: string | null; phone_masked: string | null; kind: MessageKind; template_name: string | null; channel: string; status: string; error_code: string | null; preview: { text?: string }; created_at: string };
+type MessageInput = { kind: MessageKind; contact_id?: string; request_id?: string; overrides?: Record<string, string> };
+export function previewMessage(input: MessageInput) { return http<MessagePreview>(base("/messages/preview"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
+export function sendMessage(input: MessageInput) { return http<MessageResult>(base("/messages/send"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
+export function listMessages() { return http<{ messages: MessageLog[]; templates: string[]; whatsapp_channel: "mugozap" | "wa_link" }>(base("/messages")); }

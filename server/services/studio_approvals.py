@@ -12,13 +12,16 @@ dados de quem criou. Token inválido, expirado ou cancelado responde igual
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from .ig_supabase import sb_insert, sb_select, sb_update
+import httpx
+
+from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_update
 from .studio_assets import attach_assets
 from .studio_calendar import ITEMS_TABLE, StudioError, parse_month
 
@@ -26,6 +29,14 @@ REQUESTS = "studio_approval_requests"
 EVENTS = "studio_approval_events"
 LINK_DAYS = 14
 PUBLIC_FIELDS = "id,scheduled_at,format,pillar,title,hook,caption_draft,status"
+
+
+def frontend_base_url() -> str:
+    explicit = (os.getenv("FRONTEND_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    origins = [o.strip() for o in (os.getenv("ALLOW_ORIGIN") or "").split(",") if o.strip() and o.strip() != "*"]
+    return (origins[0] if origins else "http://localhost:5173").rstrip("/")
 
 
 def hash_token(token: str) -> str:
@@ -63,7 +74,7 @@ async def _client_name(client_id: str) -> str:
 
 async def create_request(
     client_id: str, *, month: str, item_ids: List[str], contact_name: Optional[str], contact_phone: Optional[str],
-    message: Optional[str], user_id: str, app_origin: str,
+    message: Optional[str], user_id: str, app_origin: str, contact_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     target = parse_month(month)
     wanted = sorted({str(i) for i in item_ids})
@@ -77,11 +88,18 @@ async def create_request(
     phone = normalize_phone(contact_phone)
     token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(days=LINK_DAYS)
-    request = await sb_insert(REQUESTS, {
+    row = {
         "client_id": client_id, "month": target.isoformat(), "token_hash": hash_token(token), "item_ids": wanted,
         "contact_name": (contact_name or "").strip()[:120] or None, "contact_phone": phone,
         "message": (message or "").strip()[:1000] or None, "expires_at": expires.isoformat(), "created_by": user_id,
-    })
+    }
+    try:
+        request = await sb_insert(REQUESTS, {**row, "token_ciphertext": _cipher(token), "contact_id": contact_id})
+    except httpx.HTTPStatusError as exc:
+        # Migration 053 ainda não aplicada: o link funciona, só o lembrete fica indisponível.
+        if not _is_column_compat_error(exc, "token_ciphertext"):
+            raise
+        request = await sb_insert(REQUESTS, row)
     if not request:
         raise StudioError("CREATE_FAILED")
     # Pautas enviadas ficam "em revisão" até o cliente responder (aprovadas continuam aprovadas).
@@ -99,8 +117,17 @@ async def create_request(
             "whatsapp_text": text, "whatsapp_url": whatsapp_url(phone, text)}
 
 
+def _cipher(token: str) -> Optional[str]:
+    """Token cifrado para reenviar o MESMO link no lembrete. Sem chave de cifra, o lembrete fica indisponível."""
+    from .crypto import encrypt_secret
+    try:
+        return encrypt_secret(token)
+    except Exception:
+        return None
+
+
 async def list_requests(client_id: str) -> List[Dict[str, Any]]:
-    rows = await sb_select(REQUESTS, select="id,month,item_ids,contact_name,status,expires_at,created_at,completed_at",
+    rows = await sb_select(REQUESTS, select="id,month,item_ids,contact_name,status,expires_at,created_at,completed_at,last_reminded_at",
                            filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=50)
     now = datetime.now(timezone.utc)
     for row in rows:
@@ -180,3 +207,46 @@ async def public_decide(token: str, item_id: str, *, action: str, comment: Optio
         await sb_update(REQUESTS, filters={"id": f"eq.{request['id']}"},
                         patch={"status": "concluido", "completed_at": datetime.now(timezone.utc).isoformat()})
     return {"ok": True, "item_id": str(item_id), "decision": action}
+
+
+# ------------------------------------------------------------------ funil
+
+STAGES = ("rascunho", "revisao_interna", "com_cliente", "ajuste", "aprovado", "publicado")
+
+
+def stage_of(item: Dict[str, Any], open_items: Dict[str, Any]) -> str:
+    status = item.get("status")
+    if status in ("publicado", "aprovado"):
+        return status
+    if status == "rejeitado":
+        return "ajuste"
+    if status == "em_revisao":
+        return "com_cliente" if str(item.get("id")) in open_items else "revisao_interna"
+    return "rascunho"
+
+
+async def pipeline(client_id: str, month: str) -> Dict[str, Any]:
+    """Pautas do mês por etapa, com o pedido aberto e a última resposta do cliente de cada uma."""
+    from .studio_calendar import list_items
+    target = parse_month(month)
+    items = await list_items(client_id, target)
+    now = datetime.now(timezone.utc)
+    requests = [r for r in await sb_select(REQUESTS, select="id,item_ids,contact_name,status,expires_at,created_at,last_reminded_at",
+                                           filters={"client_id": f"eq.{client_id}", "status": "eq.aberto"}, order="created_at.desc", limit=50)
+                if datetime.fromisoformat(str(r["expires_at"]).replace("Z", "+00:00")) >= now]
+    open_items: Dict[str, Any] = {}
+    for request in requests:
+        for item_id in request.get("item_ids") or []:
+            open_items.setdefault(str(item_id), {"request_id": request["id"], "sent_at": request["created_at"],
+                                                 "contact_name": request.get("contact_name"), "expires_at": request["expires_at"],
+                                                 "last_reminded_at": request.get("last_reminded_at")})
+    latest: Dict[str, Dict[str, Any]] = {}
+    if items:
+        ids = ",".join(str(i["id"]) for i in items)
+        for event in await sb_select(EVENTS, select="item_id,action,comment,reviewer_name,created_at",
+                                     filters={"client_id": f"eq.{client_id}", "item_id": f"in.({ids})"}, order="created_at.desc", limit=1000):
+            latest.setdefault(str(event["item_id"]), event)
+    out = [{**item, "stage": stage_of(item, open_items), "request": open_items.get(str(item["id"])),
+            "client_feedback": latest.get(str(item["id"]))} for item in items]
+    counts = {stage: sum(1 for i in out if i["stage"] == stage) for stage in STAGES}
+    return {"month": target.isoformat(), "stages": list(STAGES), "counts": counts, "items": out}

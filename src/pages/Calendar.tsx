@@ -3,7 +3,8 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  type ApprovalCreated,
+  basedOnText, listContacts, strategyChat, suggestBrandProfile,
+  type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type StudioFormat, type StudioStatus,
 } from "../app/studio";
 import Shell from "../components/Shell";
@@ -12,7 +13,7 @@ import Drawer from "../components/Drawer";
 import PostModal from "../components/studio/PostModal";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
-import { setItemAssets, type StudioAsset } from "../app/studioAssets";
+import { listAssets, setItemAssets, type StudioAsset } from "../app/studioAssets";
 import "../styles/studio.css";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -45,7 +46,12 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
   const [copied, setCopied] = useState<string | null>(null);
-  const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string } | null>(null);
+  const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean } | null>(null);
+  const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: "mugozap" | "wa_link" }>({ list: [], channel: "wa_link" });
+  const [guides, setGuides] = useState<StudioAsset[]>([]);
+  const [guideId, setGuideId] = useState("");
+  const [suggestion, setSuggestion] = useState<{ notes: string[]; used_guide: boolean; based_on: BasedOn } | null>(null);
+  const [chat, setChat] = useState<{ open: boolean; turns: ChatTurn[]; input: string; actions: string[]; basis: BasedOn | null }>({ open: false, turns: [], input: "", actions: [], basis: null });
   const [sent, setSent] = useState<ApprovalCreated | null>(null);
 
   // Meses que a visão atual toca (a semana pode atravessar dois meses).
@@ -146,21 +152,45 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
 
   function openSend() {
     setError(null); setSent(null);
-    setSending({ selected: monthItems.filter((i) => i.status !== "rejeitado").map((i) => i.id), contact_name: "", contact_phone: "", message: "" });
+    const selected = monthItems.filter((i) => i.status !== "rejeitado" && i.status !== "publicado").map((i) => i.id);
+    setSending({ selected, contact_name: "", contact_phone: "", message: "", contact_id: "", send_whatsapp: false });
+    listContacts().then((d) => {
+      setContacts({ list: d.contacts, channel: d.whatsapp_channel });
+      const main = d.contacts.find((c) => c.is_primary && c.receives.includes("conteudo")) || d.contacts.find((c) => c.receives.includes("conteudo"));
+      if (main) setSending((cur) => cur && { ...cur, contact_id: main.id, send_whatsapp: d.whatsapp_channel === "mugozap" });
+    }).catch(() => undefined);
   }
 
   async function submitSend(event: FormEvent) {
     event.preventDefault();
     if (!sending) return;
-    const result = await run("send", () => sendForApproval({ month, item_ids: sending.selected, contact_name: sending.contact_name || undefined,
-      contact_phone: sending.contact_phone || undefined, message: sending.message || undefined }), "Não foi possível gerar o link de aprovação.");
+    const result = await run("send", () => sendForApproval({ month, item_ids: sending.selected, message: sending.message || undefined,
+      ...(sending.contact_id ? { contact_id: sending.contact_id, send_whatsapp: sending.send_whatsapp }
+        : { contact_name: sending.contact_name || undefined, contact_phone: sending.contact_phone || undefined }) }), "Não foi possível gerar o link de aprovação.");
     if (result) { setSent(result); setSending(null); await load(); }
   }
 
   async function openProfile() {
     setError(null);
     const data = await run("profile", () => getBrandProfile(), "Não foi possível carregar o perfil da marca.");
-    if (data) { setProfile(data.profile); setProfileOpen(true); }
+    if (data) { setProfile(data.profile); setProfileOpen(true); setSuggestion(null); }
+    listAssets({ kind: "pdf" }).then((d) => setGuides(d.assets)).catch(() => setGuides([]));
+  }
+
+  async function suggestProfile() {
+    const result = await run("suggest", () => suggestBrandProfile(guideId || undefined), "Não foi possível sugerir o perfil.");
+    if (result) { setProfile(result.profile); setSuggestion({ notes: result.notes, used_guide: result.used_guide, based_on: result.based_on }); }
+  }
+
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    const question = chat.input.trim();
+    if (!question) return;
+    const turns: ChatTurn[] = [...chat.turns, { role: "user", content: question }];
+    setChat({ ...chat, turns, input: "" });
+    const result = await run("chat", () => strategyChat(month, turns), "O Head de Estratégia não respondeu agora.");
+    setChat((c) => ({ ...c, turns: result ? [...turns, { role: "assistant", content: result.reply }] : turns,
+      actions: result?.suggested_actions || c.actions, basis: result?.based_on || c.basis }));
   }
 
   async function submitProfile(event: FormEvent) {
@@ -175,6 +205,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   return <Shell title="Calendário" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Calendário editorial" controls={canManage ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => void openProfile()} disabled={Boolean(busy)}>Perfil da marca</button>
+      <button type="button" className="ds-button" onClick={() => { setError(null); setChat((c) => ({ ...c, open: true })); }} disabled={Boolean(busy)}>Estratégia (IA)</button>
       <button type="button" className="ds-button" onClick={() => openNew(view === "dia" ? cursor : `${month}-01`)} disabled={Boolean(busy)}>+ Pauta</button>
       <button type="button" className="ds-button" onClick={openSend} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
       <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : `Gerar ${MONTH_NAMES[Number(month.slice(5)) - 1]} com IA`}</button>
@@ -191,7 +222,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
       </div>
     </div>
     <div className="studioTabs calStatus" role="tablist" aria-label="Filtrar por status">
-      {(["todos", "rascunho", "em_revisao", "aprovado", "rejeitado"] as const).map((key) => (
+      {(["todos", "rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"] as const).map((key) => (
         <button key={key} role="tab" aria-selected={filter === key} className={`${filter === key ? "is-active" : ""} is-${key}`} onClick={() => setFilter(key)}>
           {key === "todos" ? "Todos" : STUDIO_STATUS[key]} <span>{counts[key] || 0}</span>
         </button>
@@ -216,10 +247,15 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
             <input type="checkbox" checked={sending.selected.includes(i.id)} onChange={(e) => setSending({ ...sending, selected: e.target.checked ? [...sending.selected, i.id] : sending.selected.filter((x) => x !== i.id) })} />
             {localParts(i.scheduled_at).label} · {i.title}</label>)}
         </fieldset>
-        <div className="studioRow">
+        {contacts.list.length ? <label>Quem aprova<select value={sending.contact_id} onChange={(e) => setSending({ ...sending, contact_id: e.target.value })}>
+          {contacts.list.map((c) => <option key={c.id} value={c.id}>{c.name}{c.role ? ` · ${c.role}` : ""}{c.is_primary ? " (principal)" : ""}</option>)}
+          <option value="">Outra pessoa…</option></select></label> : <p className="postArtHint">Dica: cadastre quem aprova em <b>Aprovação → Contatos</b> para enviar pelo WhatsApp da Mugô.</p>}
+        {!sending.contact_id ? <div className="studioRow">
           <label>Nome do contato<input maxLength={120} value={sending.contact_name} onChange={(e) => setSending({ ...sending, contact_name: e.target.value })} placeholder="Ana" /></label>
           <label>WhatsApp<input inputMode="tel" maxLength={30} value={sending.contact_phone} onChange={(e) => setSending({ ...sending, contact_phone: e.target.value })} placeholder="(11) 98888-7777" /></label>
-        </div>
+        </div> : null}
+        {sending.contact_id && contacts.channel === "mugozap" ? <label className="studioCheck"><input type="checkbox" checked={sending.send_whatsapp}
+          onChange={(e) => setSending({ ...sending, send_whatsapp: e.target.checked })} />Enviar agora pelo WhatsApp oficial da Mugô (template com a arte)</label> : null}
         <label>Mensagem (opcional; sem ela usamos uma padrão)<textarea rows={3} maxLength={1000} value={sending.message} onChange={(e) => setSending({ ...sending, message: e.target.value })} /></label>
         {error ? <p role="alert">{error}</p> : null}
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setSending(null)}>Cancelar</button>
@@ -230,6 +266,8 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     <Drawer open={Boolean(sent)} title="Link de aprovação pronto" onClose={() => setSent(null)}>
       {sent ? <div className="studioForm">
         <p>As pautas foram para <b>Em revisão</b> e voltam aprovadas ou com o pedido de ajuste do cliente.</p>
+        {sent.whatsapp?.status === "enviado" ? <p className="studioOk">✓ Enviado pelo WhatsApp da Mugô.</p> : null}
+        {sent.whatsapp?.status === "falhou" ? <p role="alert" className="studioError">WhatsApp da Mugô: {"detail" in sent.whatsapp ? sent.whatsapp.detail : ""} Use os botões abaixo.</p> : null}
         <label>Link<input readOnly value={sent.link} onFocus={(e) => e.currentTarget.select()} /></label>
         <div className="studioActions">
           <a className="ds-button is-primary" href={sent.whatsapp_url} target="_blank" rel="noreferrer noopener">Abrir no WhatsApp</a>
@@ -238,8 +276,37 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
       </div> : null}
     </Drawer>
 
+    <Drawer open={chat.open} title="Head de Estratégia" description={`Converse sobre ${MONTH_NAMES[Number(month.slice(5)) - 1]} com o calendário e os dados da conta.`} width="lg" onClose={() => { if (busy !== "chat") setChat((c) => ({ ...c, open: false })); }}>
+      <div className="aiChat">
+        {!chat.turns.length ? <div className="aiChatEmpty"><p>Exemplos:</p>
+          {["O que está faltando no calendário deste mês?", "Quais pautas puxam as vendas das campanhas que mais venderam?", "Como equilibrar os pilares nas próximas semanas?"].map((q) =>
+            <button key={q} type="button" className="studioLink" onClick={() => setChat((c) => ({ ...c, input: q }))}>{q}</button>)}</div> : null}
+        {chat.turns.map((t, n) => <div key={n} className={`aiTurn is-${t.role}`}>{t.content}</div>)}
+        {busy === "chat" ? <div className="aiTurn is-assistant">Pensando…</div> : null}
+        {chat.basis ? <p className="aiBasis">{basedOnText(chat.basis)}</p> : null}
+        {chat.actions.length ? <ul className="aiList">{chat.actions.map((a) => <li key={a}>→ {a}</li>)}</ul> : null}
+        {error && chat.open ? <p role="alert" className="studioError">{error}</p> : null}
+        <form className="aiChatForm" onSubmit={ask}>
+          <textarea rows={2} maxLength={2000} value={chat.input} placeholder="Pergunte sobre o mês, pilares, datas, campanhas…" onChange={(e) => setChat({ ...chat, input: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit(); } }} />
+          <button className="ds-button is-primary" disabled={busy === "chat" || !chat.input.trim()}>Enviar</button>
+        </form>
+      </div>
+    </Drawer>
+
     <Drawer open={profileOpen} title="Perfil da marca" description="Base para a IA escrever no jeito da marca." width="lg" onClose={() => { if (!busy) setProfileOpen(false); }}>
       {profile ? <form className="studioForm" onSubmit={submitProfile}>
+        <div className="aiBrand">
+          <strong>✦ Brand Manager (IA)</strong>
+          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações){guides.length ? " e do guia da marca em PDF" : ""}. Nada é salvo antes de você revisar.</p>
+          <div className="studioRow">
+            {guides.length ? <label>Guia da marca<select value={guideId} onChange={(e) => setGuideId(e.target.value)}>
+              <option value="">Sem guia</option>{guides.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label> : null}
+            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggestProfile()}>{busy === "suggest" ? "Analisando… (até 1 min)" : "Sugerir perfil com IA"}</button>
+          </div>
+          {suggestion ? <div className="aiResult"><p className="aiBasis">{basedOnText(suggestion.based_on)}{suggestion.used_guide ? " Guia da marca lido." : ""}</p>
+            <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul><p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
+        </div>
         <label>Tom de voz<textarea rows={3} maxLength={1000} value={profile.tone_of_voice} onChange={(e) => setProfile({ ...profile, tone_of_voice: e.target.value })} /></label>
         <label>Personalidade<input maxLength={500} value={profile.personality} onChange={(e) => setProfile({ ...profile, personality: e.target.value })} /></label>
         <label>Público<textarea rows={2} maxLength={1000} value={profile.audience} onChange={(e) => setProfile({ ...profile, audience: e.target.value })} /></label>

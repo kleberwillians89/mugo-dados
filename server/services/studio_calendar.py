@@ -31,11 +31,12 @@ from .ig_supabase import sb_delete, sb_insert_many, sb_select, sb_update, sb_ups
 from .posting_times import WEEKDAYS, build_posting_times
 from .studio_dates import COMMERCIAL, CUSTOM, dates_for_month
 from .studio_trends import fetch_trends_br
+from .studio_llm import CREATIVE_GUIDANCE
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 FORMATS = ("reels", "carrossel", "imagem", "stories", "video")
 DEFAULT_FORMATS = ("reels", "carrossel", "imagem")
-STATUSES = ("rascunho", "em_revisao", "aprovado", "rejeitado")
+STATUSES = ("rascunho", "em_revisao", "aprovado", "rejeitado", "publicado")
 DEFAULT_WEEKDAY_ORDER = (1, 3, 2, 0, 4, 5, 6)  # ter, qui, qua, seg, sex, sáb, dom
 DEFAULT_BLOCK = "18h-21h"
 GENERATION_COOLDOWN_SECONDS = 90
@@ -316,9 +317,22 @@ async def top_posts(client_id: str, *, days: int = 90) -> List[Dict[str, Any]]:
     return out[:MAX_TOP_POSTS]
 
 
+async def content_signals(client_id: str) -> Dict[str, Any]:
+    """Aprendizados e números da conta para a geração do mês; vazio se a leitura falhar."""
+    from .studio_intelligence import build_content_intelligence
+    try:
+        intel = await build_content_intelligence(client_id)
+    except Exception as exc:
+        print(f"[studio][calendar] inteligencia_indisponivel erro={exc.__class__.__name__}")
+        return {}
+    keys = ("aprendizados", "campanhas_que_mais_venderam", "kpis", "metas_do_mes", "ultima_analise")
+    return {k: intel[k] for k in keys if intel.get(k)}
+
+
 def build_prompt(
     *, slots: List[Dict[str, Any]], profile: Dict[str, Any], business: Dict[str, Any],
     top: List[Dict[str, Any]], trends: List[Dict[str, Any]], seasonal: List[Dict[str, Any]], month: date,
+    signals: Optional[Dict[str, Any]] = None,
 ) -> str:
     payload = {
         "mes": month.strftime("%Y-%m"),
@@ -332,6 +346,8 @@ def build_prompt(
                                    for t in trends[:MAX_TRENDS_IN_PROMPT]],
         "slots": [{k: s[k] for k in ("slot_id", "date", "weekday", "time", "format", "seasonal")} for s in slots],
     }
+    if signals:
+        payload["inteligencia_da_conta"] = signals
     return (
         "Monte o calendário editorial de Instagram do mês para a marca abaixo.\n"
         "Preencha UMA pauta para CADA slot (mesmo slot_id). Não mude data, horário nem formato.\n"
@@ -345,6 +361,8 @@ def build_prompt(
         "- trend_id: só use um assunto em alta se ele combinar de verdade com a marca; senão null. No máximo 2 no mês.\n"
         "- Nunca use palavras de keywords_avoid nem desrespeite restrictions.\n"
         "- Não invente números, resultados, depoimentos, preços nem promoções que não estejam nos dados.\n"
+        "- inteligencia_da_conta (se houver): siga o tom do que o cliente aprovou, evite o que ele pediu para ajustar, "
+        "puxe pautas para os produtos/ofertas das campanhas que mais venderam e para as metas do mês.\n"
         "- Português do Brasil.\n\n"
         f"DADOS:\n{json.dumps(payload, ensure_ascii=False)}"
     )
@@ -358,7 +376,7 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
         raise StudioError("AI_PROVIDER_NOT_CONFIGURED")
     payload = {
         "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip(),
-        "instructions": "Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.",
+        "instructions": "Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.\n\n" + CREATIVE_GUIDANCE,
         "input": prompt,
         "temperature": 0.5,
         "text": {"format": {"type": "json_schema", "name": LLM_SCHEMA["name"], "schema": LLM_SCHEMA["schema"], "strict": True}},
@@ -473,8 +491,9 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
     business = (await load_business_context(client_id)).get("context") or {}
     top = await top_posts(client_id)
     trends = (await fetch_trends_br()).get("items") or []
+    signals = await content_signals(client_id)
     prompt = build_prompt(slots=slots, profile=profile, business=business, top=top,
-                          trends=trends, seasonal=seasonal, month=month)
+                          trends=trends, seasonal=seasonal, month=month, signals=signals)
     raw = await call_llm(prompt)
     items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends)
     if not items:
@@ -515,6 +534,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         if clean["status"] in {"aprovado", "rejeitado"}:
             clean["reviewed_by"] = user_id
             clean["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        if clean["status"] == "publicado":
+            clean["published_at"] = datetime.now(timezone.utc).isoformat()
     if "format" in clean and clean["format"] not in FORMATS:
         raise StudioError("FORMAT_INVALID")
     if "scheduled_at" in clean:

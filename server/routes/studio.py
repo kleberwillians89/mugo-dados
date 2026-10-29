@@ -6,9 +6,8 @@ membership resolvida no backend; o client_id da URL é só um pedido.
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
@@ -18,7 +17,16 @@ from services.studio_calendar import (
     StudioError, create_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
-from services.studio_approvals import cancel_request, create_request, list_requests, public_decide, public_view
+from services.studio_approvals import (
+    cancel_request, create_request, frontend_base_url, list_requests, pipeline, public_decide, public_view,
+)
+from services.studio_engines import ASSIST_ACTIONS, assist, strategy_chat, suggest_profile
+from services.studio_intelligence import build_content_intelligence, coverage
+from services.media_plan import baseline as media_baseline, default_assumptions, plan_vs_actual, recommend, save_plan, simulate
+from services.studio_messages import (
+    TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
+    save_contact, send_message,
+)
 from services.studio_assets import (
     attach_assets, confirm_upload, delete_asset, list_assets, request_upload, set_item_assets, update_asset,
 )
@@ -27,7 +35,7 @@ from services.tenant import require_client_read, require_client_role, require_us
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
 
 Format = Literal["reels", "carrossel", "imagem", "stories", "video"]
-Status = Literal["rascunho", "em_revisao", "aprovado", "rejeitado"]
+Status = Literal["rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"]
 
 ERRORS = {
     "MONTH_INVALID": (422, "Use o mês no formato AAAA-MM."),
@@ -296,6 +304,88 @@ async def write_item_assets(client_id: str, item_id: UUID, body: ItemAssetsInput
     return {"ok": True, "item_id": str(item_id), "assets": assets}
 
 
+# ---------------------------------------------------------------- motores de conteúdo
+
+
+ERRORS.update({
+    "ITEM_TITLE_REQUIRED": (422, "Dê um título à pauta antes de pedir ajuda à IA."),
+    "CHAT_EMPTY": (422, "Escreva uma pergunta."),
+    "AI_RATE_LIMIT": (429, "Muitos pedidos à IA em sequência. Aguarde um minuto."),
+    "GUIDE_NOT_FOUND": (404, "Guia da marca não encontrado na Biblioteca (precisa ser um PDF)."),
+    "GUIDE_TOO_LARGE": (413, "Guia grande demais para leitura (máx. 12 MB)."),
+    "GUIDE_UNREADABLE": (422, "Não consegui ler o texto desse PDF (pode ser só imagem)."),
+})
+
+AssistAction = Literal["legenda", "variacoes", "ganchos", "hashtags", "roteiro_reels", "revisar"]
+
+
+class AssistItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    format: Format = "imagem"
+    title: str = Field(min_length=1, max_length=200)
+    pillar: Optional[str] = Field(default=None, max_length=120)
+    hook: Optional[str] = Field(default=None, max_length=400)
+    caption_draft: Optional[str] = Field(default=None, max_length=4000)
+    scheduled_at: Optional[str] = Field(default=None, max_length=40)
+
+
+class AssistInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    action: AssistAction
+    item: AssistItem
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    messages: List[ChatMessage] = Field(min_length=1, max_length=30)
+
+
+class SuggestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    guide_asset_id: Optional[UUID] = None
+
+
+@router.get("/intelligence")
+async def read_intelligence(client_id: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    return {"based_on": coverage(await build_content_intelligence(cid)), "actions": list(ASSIST_ACTIONS)}
+
+
+@router.post("/assist")
+async def run_assist(client_id: str, body: AssistInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await assist(cid, body.action, body.item.model_dump(), instruction=body.instruction)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/strategy/chat")
+async def run_strategy_chat(client_id: str, body: ChatInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await strategy_chat(cid, body.month, [m.model_dump() for m in body.messages])
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/brand-profile/suggest")
+async def run_profile_suggestion(client_id: str, body: SuggestInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await suggest_profile(cid, guide_asset_id=str(body.guide_asset_id) if body.guide_asset_id else None)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 # ---------------------------------------------------------------- aprovação do cliente
 
 
@@ -311,11 +401,7 @@ ERRORS.update({
 
 
 def _frontend_base_url() -> str:
-    explicit = (os.getenv("FRONTEND_URL") or "").strip()
-    if explicit:
-        return explicit.rstrip("/")
-    origins = [o.strip() for o in (os.getenv("ALLOW_ORIGIN") or "").split(",") if o.strip() and o.strip() != "*"]
-    return (origins[0] if origins else "http://localhost:5173").rstrip("/")
+    return frontend_base_url()
 
 
 class ApprovalInput(BaseModel):
@@ -325,6 +411,8 @@ class ApprovalInput(BaseModel):
     contact_name: Optional[str] = Field(default=None, max_length=120)
     contact_phone: Optional[str] = Field(default=None, max_length=30)
     message: Optional[str] = Field(default=None, max_length=1000)
+    contact_id: Optional[UUID] = None
+    send_whatsapp: bool = False
 
 
 @router.get("/approvals")
@@ -337,12 +425,26 @@ async def read_approvals(client_id: str, authorization: str | None = Header(defa
 async def send_for_approval(client_id: str, body: ApprovalInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
+    name, phone = body.contact_name, body.contact_phone
     try:
-        return await create_request(cid, month=body.month, item_ids=[str(i) for i in body.item_ids],
-                                    contact_name=body.contact_name, contact_phone=body.contact_phone,
-                                    message=body.message, user_id=uid, app_origin=_frontend_base_url())
+        if body.contact_id:
+            contact = next((c for c in await list_contacts(cid) if str(c["id"]) == str(body.contact_id)), None)
+            if not contact:
+                raise StudioError("CONTACT_NOT_FOUND")
+            name, phone = contact["name"], contact["phone"]
+        created = await create_request(cid, month=body.month, item_ids=[str(i) for i in body.item_ids],
+                                       contact_name=name, contact_phone=phone, message=body.message, user_id=uid,
+                                       app_origin=_frontend_base_url(), contact_id=str(body.contact_id) if body.contact_id else None)
     except StudioError as exc:
         raise _http(exc) from None
+    if body.send_whatsapp and body.contact_id:
+        # O link já existe; falha no WhatsApp não desfaz o pedido, só volta como aviso.
+        try:
+            created["whatsapp"] = await send_message(cid, "aprovacao", user_id=uid, contact_id=str(body.contact_id),
+                                                     request_id=str(created["request_id"]))
+        except StudioError as exc:
+            created["whatsapp"] = {"status": "falhou", "detail": ERRORS.get(exc.code, (0, "Não foi possível enviar agora."))[1]}
+    return created
 
 
 @router.delete("/approvals/{request_id}")
@@ -353,6 +455,223 @@ async def cancel_approval(client_id: str, request_id: UUID, authorization: str |
     except StudioError as exc:
         raise _http(exc) from None
     return {"ok": True}
+
+
+@router.get("/approvals/pipeline")
+async def read_pipeline(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        data = await pipeline(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {**data, "items": await attach_assets(cid, data["items"])}
+
+
+# ---------------------------------------------------------------- contatos e mensagens (MugôZap)
+
+
+ERRORS.update({
+    "CONTACT_NOT_FOUND": (404, "Contato não encontrado nesta empresa."),
+    "CONTACT_REQUIRED": (422, "Cadastre um contato que receba esse tipo de mensagem (aba Contatos)."),
+    "LINK_NOT_RESENDABLE": (409, "Este pedido foi criado antes do lembrete existir. Gere um novo link para reenviar."),
+    "NOTHING_PENDING": (409, "O cliente já respondeu todas as pautas deste pedido."),
+    "NOTHING_SCHEDULED": (409, "Nenhuma pauta aprovada para esta semana."),
+    "NO_PAID_DATA": (409, "Sem investimento em mídia nos últimos 7 dias."),
+    "NO_RESULTS_DATA": (409, "Sem faturamento do mês anterior para montar o resumo."),
+    "HEADER_IMAGE_REQUIRED": (422, "O template com arte precisa de uma imagem anexada à pauta."),
+    "BUTTON_PARAM_REQUIRED": (422, "O template precisa do link de aprovação."),
+    "TEMPLATE_NOT_APPROVED": (409, "O template ainda não está aprovado pela Meta no MugôZap."),
+    "RECIPIENT_NOT_IN_CRM": (409, "Esse telefone não está cadastrado no CRM. Cadastre o contato no CRM e tente de novo."),
+    "SEND_OUTCOME_UNKNOWN": (409, "Um envio anterior ainda não foi confirmado. Confira o histórico no CRM antes de reenviar."),
+    "MUGOZAP_UNAVAILABLE": (502, "O MugôZap não respondeu. Tente novamente."),
+    "SEND_FAILED": (502, "O MugôZap não conseguiu enviar a mensagem."),
+})
+
+MessageKind = Literal["aprovacao", "lembrete", "agenda", "trafego", "resultados"]
+Receives = Literal["conteudo", "trafego", "resultados"]
+
+
+class ContactInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=8, max_length=30)
+    role: Optional[str] = Field(default=None, max_length=80)
+    receives: List[Receives] = Field(default_factory=lambda: ["conteudo"], min_length=1, max_length=3)
+    is_primary: bool = False
+
+
+class MessageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    kind: MessageKind
+    contact_id: Optional[UUID] = None
+    request_id: Optional[UUID] = None
+    overrides: Dict[str, str] = Field(default_factory=dict, max_length=4)
+
+
+def _message_args(body: MessageInput) -> Dict[str, Any]:
+    return {"contact_id": str(body.contact_id) if body.contact_id else None,
+            "request_id": str(body.request_id) if body.request_id else None,
+            "overrides": {k: v[:300] for k, v in body.overrides.items()}}
+
+
+@router.get("/contacts")
+async def read_contacts(client_id: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    return {"contacts": await list_contacts(cid), "whatsapp_channel": "mugozap" if mugozap_config() else "wa_link"}
+
+
+@router.post("/contacts", status_code=201)
+async def add_contact(client_id: str, body: ContactInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        return {"ok": True, "contact": await save_contact(cid, body.model_dump(), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.put("/contacts/{contact_id}")
+async def edit_contact(client_id: str, contact_id: UUID, body: ContactInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        return {"ok": True, "contact": await save_contact(cid, body.model_dump(), user_id=uid, contact_id=str(contact_id))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/contacts/{contact_id}")
+async def remove_contact(client_id: str, contact_id: UUID, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await delete_contact(cid, str(contact_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True}
+
+
+@router.get("/messages")
+async def read_messages(client_id: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    return {"messages": await list_messages(cid), "templates": sorted(TEMPLATES),
+            "whatsapp_channel": "mugozap" if mugozap_config() else "wa_link"}
+
+
+@router.post("/messages/preview")
+async def preview_message(client_id: str, body: MessageInput, authorization: str | None = Header(default=None)):
+    # Prévia chama a IA para a frase de destaque: mesma permissão de quem envia.
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return public_preview(await build_message(cid, body.kind, **_message_args(body)))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/messages/send")
+async def send_studio_message(client_id: str, body: MessageInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        return {"ok": True, **await send_message(cid, body.kind, user_id=uid, **_message_args(body))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+# ---------------------------------------------------------------- Mídia On
+
+
+ERRORS.update({
+    "BUDGET_INVALID": (422, "Informe uma verba maior que zero."),
+    "ALLOCATION_INVALID": (422, "A divisão por canal precisa somar 100%."),
+    "OBJECTIVE_INVALID": (422, "Objetivo inválido."),
+})
+
+Objective = Literal["vendas", "leads", "trafego", "alcance"]
+Channel = Literal["meta", "google_ads"]
+
+
+class Assumption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cpm: Optional[float] = Field(default=None, ge=0, le=100000)
+    cpc: Optional[float] = Field(default=None, ge=0, le=100000)
+    conversion_rate: Optional[float] = Field(default=None, ge=0, le=1)
+    value_per_conversion: Optional[float] = Field(default=None, ge=0, le=10000000)
+    monthly_spend: Optional[float] = Field(default=None, ge=0, le=100000000)
+
+
+class SimulationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    budget: float = Field(gt=0, le=100000000)
+    allocation: Dict[Channel, float]
+    assumptions: Optional[Dict[Channel, Assumption]] = None
+
+
+class PlanInput(SimulationInput):
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    objective: Objective
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    status: Literal["rascunho", "aprovado"] = "rascunho"
+
+
+class RecommendInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    budget: float = Field(gt=0, le=100000000)
+    objective: Objective
+
+
+def _assumptions(body: SimulationInput, base: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    merged = default_assumptions(base["channels"])
+    for channel, values in (body.assumptions or {}).items():
+        merged[channel] = {**merged.get(channel, {}), **{k: v for k, v in values.model_dump().items() if v is not None}}
+    return merged
+
+
+@router.get("/media/baseline")
+async def read_media_baseline(client_id: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    base = await media_baseline(cid)
+    return {**base, "assumptions": default_assumptions(base["channels"])}
+
+
+@router.post("/media/simulate")
+async def run_media_simulation(client_id: str, body: SimulationInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        assumptions = _assumptions(body, await media_baseline(cid))
+        return {**simulate(budget=body.budget, allocation=dict(body.allocation), assumptions=assumptions), "assumptions": assumptions}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/media/plan")
+async def read_media_plan(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return await plan_vs_actual(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.put("/media/plan")
+async def write_media_plan(client_id: str, body: PlanInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        data = body.model_dump(mode="json")
+        data["assumptions"] = _assumptions(body, await media_baseline(cid))
+        return {"ok": True, "plan": await save_plan(cid, body.month, data, user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/media/recommend")
+async def run_media_recommendation(client_id: str, body: RecommendInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await recommend(cid, month=body.month, budget=body.budget, objective=body.objective)
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 # Rotas públicas: o token do link é a credencial. Sem sessão, sem client_id na URL.
