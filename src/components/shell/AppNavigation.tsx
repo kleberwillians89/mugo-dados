@@ -30,15 +30,13 @@ type Props = {
 type NavItem = { route: AppRoute; label: string };
 
 // Produto: o que a empresa analisa. A ordem segue a leitura comercial
-// (resultado de vendas → mídia → site → leitura assistida).
+// (resultado de vendas → mídia → site).
 const PRODUCT_ITEMS: NavItem[] = [
   { route: "ecommerce", label: "Ecommerce" },
   { route: "customers", label: "Clientes" },
-  { route: "goals", label: "Metas" },
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
   { route: "origins", label: "Origem das vendas" },
-  { route: "intelligence", label: "Inteligência" },
 ];
 
 /**
