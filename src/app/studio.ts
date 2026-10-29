@@ -23,7 +23,7 @@ export type CalendarItem = {
   id: string; client_id: string; month: string; scheduled_at: string; format: StudioFormat;
   pillar: string | null; title: string; hook: string | null; caption_draft: string | null; rationale: string | null;
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual";
-  reviewed_by: string | null; reviewed_at: string | null;
+  reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
 };
 
 export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note">>;
@@ -71,7 +71,7 @@ export function nextMonth(): string {
   const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-export const listToText = (values: string[]) => values.join(", ");
+export const listToText = (values: string[] | undefined) => (values || []).join(", ");
 export const textToList = (value: string) => value.split(/[,\n]/).map((v) => v.trim()).filter(Boolean);
 
 // ------------------------------------------------------------ aprovação do cliente
