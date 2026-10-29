@@ -42,5 +42,5 @@ export function nextAutoRefreshLabel(provider: string, now: Date = new Date()): 
   if (!next) return null;
   const time = new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(next);
   const tomorrow = dayKey(next) !== dayKey(now);
-  return `próxima atualização automática ${tomorrow ? "amanhã " : ""}por volta das ${time}`;
+  return `próxima execução automática prevista ${tomorrow ? "amanhã " : ""}por volta das ${time}`;
 }
