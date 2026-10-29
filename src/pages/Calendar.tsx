@@ -12,6 +12,7 @@ import Drawer from "../components/Drawer";
 import PostModal from "../components/studio/PostModal";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
+import { setItemAssets, type StudioAsset } from "../app/studioAssets";
 import "../styles/studio.css";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -122,6 +123,15 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     if (result) { replace(result.item); setModal({ item: result.item, draft: draftFrom(result.item) }); }
   }
 
+  async function saveAssets(assets: StudioAsset[]) {
+    const current = modal?.item; if (!current) return false;
+    const result = await run("assets", () => setItemAssets(current.id, assets.map((a) => a.id)), "Não foi possível salvar a arte da pauta.");
+    if (!result) return false;
+    const item = { ...current, assets: result.assets };
+    replace(item); setModal((m) => (m && m.item?.id === item.id ? { ...m, item } : m));
+    return true;
+  }
+
   async function removeCurrent() {
     const current = modal?.item; if (!current || !window.confirm(`Excluir a pauta “${current.title}”?`)) return;
     const ok = await run("delete", () => deleteCalendarItem(current.id), "Não foi possível excluir a pauta.");
@@ -197,7 +207,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     {view === "dia" ? <DayView day={cursor} {...common} /> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
-      canManage={canManage} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} /> : null}
+      canManage={canManage} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} onAssets={saveAssets} /> : null}
 
     <Drawer open={Boolean(sending)} title="Enviar ao cliente" description="Gera um link sem login para o cliente aprovar ou pedir ajuste. Válido por 14 dias." width="lg" onClose={() => { if (!busy) setSending(null); }}>
       {sending ? <form className="studioForm" onSubmit={submitSend}>

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
 import type { PostDraft } from "../../app/studioCalendar";
+import type { StudioAsset } from "../../app/studioAssets";
+import ArtViewer from "./ArtViewer";
+import ArtPicker from "./ArtPicker";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
+const MAX_ART = 20;
 
 type Props = {
   item: CalendarItem | null;          // null = nova pauta
@@ -17,29 +21,37 @@ type Props = {
   onSave: (draft: PostDraft) => Promise<boolean>;
   onStatus: (status: StudioStatus, note?: string) => Promise<void>;
   onDelete: () => Promise<void>;
+  /** Troca a arte da pauta (ordem = slides). */
+  onAssets: (assets: StudioAsset[]) => Promise<boolean>;
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, onAssets }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [picking, setPicking] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy && !picking) onClose(); };
     window.addEventListener("keydown", onKey);
     dialogRef.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  }, [busy, onClose, picking]);
 
   const vertical = VERTICAL.includes(draft.format);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
   const signals = item?.signals;
+  const art = item?.assets || [];
+  const move = (index: number, delta: number) => {
+    const next = [...art]; const [moved] = next.splice(index, 1); next.splice(index + delta, 0, moved);
+    void onAssets(next);
+  };
   const set = (patch: Partial<PostDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   async function submit(e: FormEvent) {
@@ -59,11 +71,13 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
           <div><strong>{handle.slice(1)}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
-        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}`}>
+        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format} ${art.length ? "has-art" : ""}`}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
-          <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>
-          {draft.format === "carrossel" ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
-          <span className="igArtNote">Arte ainda não anexada</span>
+          {art.length ? <ArtViewer assets={art} label="Arte do post" /> : <>
+            <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>
+            {draft.format === "carrossel" ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
+            <span className="igArtNote">Arte ainda não anexada</span>
+          </>}
         </div>
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -94,6 +108,21 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+
+        {canManage ? <fieldset className="postArt"><legend>Arte {art.length ? `(${art.length})` : ""}</legend>
+          {!item ? <p className="postArtHint">Crie a pauta para anexar a arte.</p> : <>
+            {art.length ? <ol className="postArtList">{art.map((a, index) => <li key={a.id}>
+              <span className="libThumb">{a.thumb_url ? <img src={a.thumb_url} alt="" /> : <b>{a.kind === "video" ? "▶" : "▢"}</b>}</span>
+              <span className="postArtName">{index + 1}. {a.name || (a.kind === "video" ? "Vídeo" : "Imagem")}</span>
+              <span className="postArtTools">
+                <button type="button" aria-label="Mover para antes" disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button>
+                <button type="button" aria-label="Mover para depois" disabled={busy || index === art.length - 1} onClick={() => move(index, 1)}>↓</button>
+                <button type="button" aria-label="Remover da pauta" disabled={busy} onClick={() => void onAssets(art.filter((x) => x.id !== a.id))}>×</button>
+              </span>
+            </li>)}</ol> : <p className="postArtHint">{draft.format === "carrossel" ? "Escolha os slides na ordem do carrossel." : VERTICAL.includes(draft.format) ? "Anexe o vídeo vertical (1080×1920)." : "Anexe a imagem do post (1080×1350)."}</p>}
+            <button type="button" className="ds-button" disabled={busy} onClick={() => setPicking(true)}>{art.length ? "Trocar ou adicionar" : "+ Da Biblioteca"}</button>
+          </>}
+        </fieldset> : null}
 
         {item && (item.rationale || signals) ? <details className="postWhy" open>
           <summary>Por que esta pauta, neste dia</summary>
@@ -132,5 +161,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         </div> : null}
       </form>
     </div>
+    {picking ? <ArtPicker initial={art} max={MAX_ART} onClose={() => setPicking(false)}
+      onConfirm={async (assets) => { if (await onAssets(assets)) setPicking(false); }} /> : null}
   </div>;
 }

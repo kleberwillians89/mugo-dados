@@ -1,4 +1,5 @@
 import { http, clientClientPath, publicHttp } from "./api";
+import type { StudioAsset } from "./studioAssets";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
@@ -24,6 +25,8 @@ export type CalendarItem = {
   pillar: string | null; title: string; hook: string | null; caption_draft: string | null; rationale: string | null;
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual";
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
+  /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
+  assets?: StudioAsset[];
 };
 
 export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note">>;
@@ -83,7 +86,7 @@ export function sendForApproval(input: { month: string; item_ids: string[]; cont
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
-export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
+export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "assets"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
 export type PublicApproval = { client_name: string; month: string; contact_name: string | null; status: string; expires_at: string; items: PublicApprovalItem[] };
 export function getPublicApproval(token: string) { return publicHttp<PublicApproval>(`/api/public/approvals/${encodeURIComponent(token)}`); }
 export function decidePublicApproval(token: string, itemId: string, body: { action: "aprovado" | "ajuste_solicitado"; comment?: string; reviewer_name?: string }) {
