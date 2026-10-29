@@ -4,6 +4,7 @@ import type { PostDraft } from "../../app/studioCalendar";
 import type { StudioAsset } from "../../app/studioAssets";
 import ArtViewer from "./ArtViewer";
 import ArtPicker from "./ArtPicker";
+import AiAssist from "./AiAssist";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
@@ -109,6 +110,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
 
+        {canManage ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
+
         {canManage ? <fieldset className="postArt"><legend>Arte {art.length ? `(${art.length})` : ""}</legend>
           {!item ? <p className="postArtHint">Crie a pauta para anexar a arte.</p> : <>
             {art.length ? <ol className="postArtList">{art.map((a, index) => <li key={a.id}>
@@ -137,7 +140,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {item?.review_note ? <p className="studioReview">Nota da revisão: {item.review_note}</p> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}
 
-        {item?.status === "aprovado" ? <div className="studioPublish">
+        {item?.status === "aprovado" || item?.status === "publicado" ? <div className="studioPublish">
           <button type="button" onClick={() => void copyCaption()}>{copied ? "Legenda copiada ✓" : "Copiar legenda"}</button>
           <a href={PUBLISHER_URL} target="_blank" rel="noreferrer noopener">Abrir no Meta Business Suite ↗</a>
         </div> : null}
@@ -151,10 +154,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {canManage ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
-            {item.status !== "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
+            {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
+            {item.status === "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("publicado")}>Marcar como publicado</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
-            {item.status !== "rejeitado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}
-            {item.status === "aprovado" || item.status === "rejeitado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("rascunho")}>Reabrir</button> : null}
+            {item.status !== "rejeitado" && item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}
+            {item.status === "aprovado" || item.status === "rejeitado" || item.status === "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("rascunho")}>Reabrir</button> : null}
             <button type="button" className="studioLink" disabled={busy} onClick={() => void onDelete()}>Excluir</button>
           </> : null}
           {dirty && item ? <button type="button" className="ds-button" disabled={busy} onClick={() => setDraft(initial)}>Descartar</button> : null}

@@ -349,9 +349,9 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
     elif kind == "agenda":
         params = await _agenda_params(client_id, contact, brand)
     elif kind == "trafego":
-        params = await _traffic_params(client_id, contact, brand)
+        params = await _traffic_params(client_id, contact, brand, preset=(overrides or {}).get("destaque"))
     else:
-        params = await _results_params(client_id, contact, brand)
+        params = await _results_params(client_id, contact, brand, preset=(overrides or {}).get("atencao"))
     for key, value in (overrides or {}).items():
         if key in EDITABLE_PARAMS and key in params and str(value or "").strip():
             params[key] = param(value, 300)
@@ -456,9 +456,13 @@ def _value(metrics: Dict[str, Any], key: str) -> Optional[float]:
         return None
 
 
-async def _sentence(task: str, data: Dict[str, Any], fallback: str) -> str:
-    """Frase curta escrita pela IA a partir dos números; sem IA, a frase determinística."""
+async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Optional[str] = None) -> str:
+    """Frase curta escrita pela IA a partir dos números; sem IA, a frase determinística.
+
+    Se a equipe já escolheu/editou a frase (preset), ela vale e a IA não é chamada de novo."""
     from .studio_llm import STR, llm_json, obj
+    if preset and preset.strip():
+        return param(preset, 300)
     try:
         out = await llm_json(
             instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji) para uma "
@@ -471,7 +475,7 @@ async def _sentence(task: str, data: Dict[str, Any], fallback: str) -> str:
         return fallback
 
 
-async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str) -> Dict[str, str]:
+async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
     today = datetime.now(SAO_PAULO).date()
     end = today - timedelta(days=1)
     start = end - timedelta(days=6)
@@ -486,7 +490,7 @@ async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str) -
     fallback = f"melhor retorno em {best['campanha']}" if best and best.get("campanha") else "veja as campanhas no painel"
     highlight = await _sentence("Diga o principal destaque da semana do tráfego pago (melhor campanha ou variação relevante).",
                                 {"investimento": spend, "receita": revenue, "roas": roas, "campanhas": campaigns,
-                                 "variacao_investimento_pct": (snap["metrics"].get("investment") or {}).get("variation_percent")}, fallback)
+                                 "variacao_investimento_pct": (snap["metrics"].get("investment") or {}).get("variation_percent")}, fallback, preset)
     return {"_template": "mugo_relatorio_trafego", "nome": first_name(contact.get("name")), "marca": brand,
             "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
             "receita": brl(revenue) if revenue is not None else "—",
@@ -494,7 +498,7 @@ async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str) -
             "destaque": highlight}
 
 
-async def _results_params(client_id: str, contact: Dict[str, Any], brand: str) -> Dict[str, str]:
+async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
     today = datetime.now(SAO_PAULO).date()
     end = today.replace(day=1) - timedelta(days=1)
     start = end.replace(day=1)
@@ -507,7 +511,7 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str) -
     data = {k: {"valor": _value(metrics, k), "variacao_pct": (metrics.get(k) or {}).get("variation_percent")}
             for k in ("revenue", "orders", "average_ticket", "investment", "roas", "sessions", "conversion_rate") if k in metrics}
     attention = await _sentence("Aponte o principal ponto de atenção do mês (a métrica que mais piorou ou o risco mais claro).",
-                                data, "vamos revisar juntos os canais no painel")
+                                data, "vamos revisar juntos os canais no painel", preset)
     return {"_template": "mugo_resultados_mes", "nome": first_name(contact.get("name")), "mes": MONTHS[start.month - 1],
             "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation),
             "pedidos": str(int(_value(metrics, "orders") or 0)), "investimento": brl(_value(metrics, "investment") or 0),

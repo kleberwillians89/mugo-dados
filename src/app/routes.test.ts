@@ -31,6 +31,10 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/biblioteca")).toBe("library");
     expect(getPathForRoute("library")).toBe("/biblioteca");
     expect(getAppRouteFromPath("/calendario")).toBe("calendar");
+    expect(getAppRouteFromPath("/aprovacao")).toBe("approval");
+    expect(getPathForRoute("approval")).toBe("/aprovacao");
+    expect(getAppRouteFromPath("/midia")).toBe("media");
+    expect(getPathForRoute("media")).toBe("/midia");
   });
 
   it("distinguishes an unknown URL from the dashboard", () => {
