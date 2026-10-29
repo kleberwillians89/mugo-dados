@@ -85,3 +85,24 @@ it("cooldown tem mensagem explícita e sucesso depende da tarefa concluída",asy
  await render();vi.mocked(getProviderRefreshStatus).mockResolvedValueOnce(ready).mockResolvedValue({...ready,cooldown_seconds:60});
  await act(async()=>button().click());expect(node.textContent).toContain("Seus dados foram atualizados.");expect(node.textContent).toContain("Você poderá atualizar novamente");expect(button().disabled).toBe(true);
 });
+
+
+it("não continua consultando o Supabase quando o refresh já está pronto", async () => {
+ await render();
+ vi.mocked(getProviderRefreshStatus).mockClear();
+ await act(async()=>vi.advanceTimersByTimeAsync(120_000));
+ expect(getProviderRefreshStatus).not.toHaveBeenCalled();
+ await act(async()=>window.dispatchEvent(new Event("focus")));
+ expect(getProviderRefreshStatus).toHaveBeenCalledTimes(1);
+});
+
+it("reduz polling durante cooldown longo sem liberar atualização antecipadamente", async () => {
+ vi.mocked(getProviderRefreshStatus).mockResolvedValue({...ready,cooldown_seconds:60});
+ await render();
+ vi.mocked(getProviderRefreshStatus).mockClear();
+ await act(async()=>vi.advanceTimersByTimeAsync(5_000));
+ expect(getProviderRefreshStatus).not.toHaveBeenCalled();
+ await act(async()=>vi.advanceTimersByTimeAsync(10_000));
+ expect(getProviderRefreshStatus).toHaveBeenCalledTimes(1);
+ expect(button().disabled).toBe(true);
+});
