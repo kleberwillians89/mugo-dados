@@ -66,10 +66,10 @@
 .appProductMark img{ display: block; width: 46px; height: 22px; object-fit: contain; }
 .appProductName{
   font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
   line-height: 1;
-  letter-spacing: -.01em;
+  letter-spacing: .06em;
 }
 .appSidebarClose{ display: none; }
 

@@ -53,7 +53,7 @@
   color: var(--text-primary);
 }
 .loginStatementSecond{ color: var(--text-muted); }
-.loginProductName{ letter-spacing: .08em; }
+.loginProductName{ font-size: clamp(24px, 2.4vw, 34px); font-weight: 700; letter-spacing: .1em; line-height: 1; }
 
 /* Logo 3D girando acima da frase. O fundo do vídeo é branco puro: "multiply" faz ele sumir na página. */
 .loginStage{ display: flex; flex-direction: column; gap: clamp(8px, 2vh, 24px); }
