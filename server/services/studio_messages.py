@@ -3,8 +3,9 @@
 O envio NÃO é duplicado aqui: o Dados chama o ``mugozap-api`` do CRM pelo
 caminho interno já existente (``X-Task-Command-Worker-Key`` + membro da equipe),
 e o CRM valida template aprovado, destinatário cadastrado, idempotência e
-grava o histórico canônico. Sem essa configuração, o Dados gera o link wa.me
-com o mesmo texto (como já fazia na aprovação).
+grava o histórico canônico. O número da Mugô é só API (sem app de WhatsApp): sem essa
+configuração o envio é recusado com a lista do que falta. O link wa.me só existe se
+MUGOZAP_ALLOW_WA_LINK=true (envio manual por outro número).
 
 Todo conteúdo nasce dos dados: números vêm do read model (nunca da IA) e a IA
 só escreve a frase curta de destaque/atenção a partir desses números. A equipe
@@ -231,6 +232,26 @@ async def list_messages(client_id: str) -> List[Dict[str, Any]]:
 # MugôZap (CRM)
 # --------------------------------------------------------------------------
 
+MUGOZAP_ENV = ("MUGOZAP_FUNCTION_URL", "MUGOZAP_ANON_KEY", "MUGOZAP_WORKER_KEY", "MUGOZAP_TEAM_MEMBER_ID")
+
+
+def mugozap_missing() -> List[str]:
+    """Nomes (nunca valores) das variáveis que faltam para enviar pelo número oficial."""
+    missing = [name for name in MUGOZAP_ENV if not (os.getenv(name) or "").strip()]
+    url = (os.getenv("MUGOZAP_FUNCTION_URL") or "").strip()
+    if url and not url.startswith("https://") and "MUGOZAP_FUNCTION_URL" not in missing:
+        missing.append("MUGOZAP_FUNCTION_URL")
+    return missing
+
+
+def wa_link_allowed() -> bool:
+    return (os.getenv("MUGOZAP_ALLOW_WA_LINK") or "").strip().lower() == "true"
+
+
+def whatsapp_channel() -> str:
+    return "mugozap" if mugozap_config() else ("wa_link" if wa_link_allowed() else "nao_configurado")
+
+
 def mugozap_config() -> Optional[Dict[str, str]]:
     cfg = {k: (os.getenv(env) or "").strip() for k, env in (
         ("url", "MUGOZAP_FUNCTION_URL"), ("anon", "MUGOZAP_ANON_KEY"),
@@ -311,6 +332,9 @@ async def deliver(client_id: str, *, contact: Dict[str, Any], template_name: str
         if not prior:
             await _log({**base, "channel": "mugozap", "status": "aguardando", "error_code": "MUGOZAP_NOT_CONFIGURED"})
         return {"status": "aguardando", "channel": "mugozap", "text": text}
+    if not cfg and not wa_link_allowed():
+        # Número da Mugô é só API: abrir wa.me não envia nada. Melhor recusar e dizer o que falta.
+        raise StudioError("MUGOZAP_NOT_CONFIGURED")
     if not cfg:
         link_text = text + (f"\n{button_link(button_suffix)}" if template["button"] and button_suffix else "")
         url = f"https://wa.me/{contact['phone']}?text={quote(link_text)}"
@@ -395,7 +419,7 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
     return {"kind": kind, "template_name": template_name, "params": clean, "text": render(template_name, clean),
             "editable": [k for k in clean if k in EDITABLE_PARAMS], "contact": {k: contact.get(k) for k in ("id", "name", "role")},
             "phone_masked": mask_phone(contact["phone"]), "header_image": extra.get("header_image"),
-            "channel": "mugozap" if mugozap_config() else "wa_link", "_contact": contact, "_extra": extra}
+            "channel": whatsapp_channel(), "_contact": contact, "_extra": extra}
 
 
 async def send_message(client_id: str, kind: str, *, user_id: str, contact_id: Optional[str] = None,

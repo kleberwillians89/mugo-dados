@@ -54,9 +54,22 @@ class TemplateContractTests(unittest.TestCase):
 
 
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_without_mugozap_it_generates_wa_link_and_logs(self):
+    async def test_without_mugozap_it_refuses_instead_of_opening_wa_link(self):
+        # Número da Mugô é só API: sem MugôZap configurado, recusa e diz o que falta (nada é registrado como enviado).
         params = {"nome": "Ana", "marca": "Ruah", "semana": "10/11 a 16/11", "quantidade": "4", "destaque": "Reels"}
-        with patch.dict("os.environ", {k: "" for k in MUGOZAP_ENV}), patch.object(sm, "sb_insert", AsyncMock()) as insert:
+        with patch.dict("os.environ", {**{k: "" for k in MUGOZAP_ENV}, "MUGOZAP_ALLOW_WA_LINK": ""}), patch.object(sm, "sb_insert", AsyncMock()) as insert:
+            with self.assertRaises(sm.StudioError) as err:
+                await sm.deliver("roove", contact=CONTACT, template_name="mugo_agenda_semana", params=params, button_suffix=None,
+                                 header_image=None, request_id=None, user_id="u1", key="dados-" + "a" * 40)
+        self.assertEqual(err.exception.code, "MUGOZAP_NOT_CONFIGURED")
+        insert.assert_not_awaited()
+        with patch.dict("os.environ", {k: "" for k in MUGOZAP_ENV}):
+            self.assertEqual(sm.mugozap_missing(), list(sm.MUGOZAP_ENV))
+            self.assertEqual(sm.whatsapp_channel(), "nao_configurado")
+
+    async def test_wa_link_only_when_explicitly_allowed(self):
+        params = {"nome": "Ana", "marca": "Ruah", "semana": "10/11 a 16/11", "quantidade": "4", "destaque": "Reels"}
+        with patch.dict("os.environ", {**{k: "" for k in MUGOZAP_ENV}, "MUGOZAP_ALLOW_WA_LINK": "true"}), patch.object(sm, "sb_insert", AsyncMock()) as insert:
             out = await sm.deliver("roove", contact=CONTACT, template_name="mugo_agenda_semana", params=params, button_suffix=None,
                                    header_image=None, request_id=None, user_id="u1", key="dados-" + "a" * 40)
         self.assertEqual(out["status"], "link_gerado")
