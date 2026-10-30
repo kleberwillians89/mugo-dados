@@ -47,6 +47,7 @@ const AGENCY_ITEMS: NavItem[] = [
   { route: "tasks", label: "Tarefas" },
   { route: "campaigns", label: "Redação" },
   { route: "clipping", label: "Clipping" },
+  { route: "creators", label: "Criadores" },
 ];
 
 /**

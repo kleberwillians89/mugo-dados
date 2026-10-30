@@ -36,6 +36,11 @@ describe("platform routes", () => {
     expect(getPathForRoute("media")).toBe("/midia");
   });
 
+  it("maps the creators module both ways", () => {
+    expect(getAppRouteFromPath("/criadores")).toBe("creators");
+    expect(getPathForRoute("creators")).toBe("/criadores");
+  });
+
   it("distinguishes an unknown URL from the dashboard", () => {
     expect(getAppRouteFromPath("/rota-inexistente")).toBe("not_found");
   });
