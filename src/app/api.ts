@@ -203,6 +203,16 @@ function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" ? (value as JsonRecord) : {};
 }
 
+/** Erro de validação do FastAPI (422): lista de campos. Vira uma frase legível em vez da mensagem genérica. */
+function validationMessage(detail: unknown): string {
+  if (!Array.isArray(detail) || !detail.length) return "";
+  const fields = detail.map((item) => {
+    const loc = Array.isArray(asRecord(item).loc) ? (asRecord(item).loc as unknown[]).filter((p) => p !== "body").join(".") : "";
+    return loc || asString(asRecord(item).msg);
+  }).filter(Boolean);
+  return fields.length ? `Dados inválidos no pedido (${fields.slice(0, 3).join(", ")}). Atualize a página e tente de novo.` : "";
+}
+
 export function normalizeApiErrorPayload(payload: unknown, headerRequestId = "") {
   const root = asRecord(payload);
   const detail = asRecord(root.detail);
@@ -211,6 +221,7 @@ export function normalizeApiErrorPayload(payload: unknown, headerRequestId = "")
     message:
       asString(detail.message) ||
       (typeof root.detail === "string" ? root.detail : "") ||
+      validationMessage(root.detail) ||
       asString(root.message) ||
       asString(error.message),
     code: asString(detail.code) || asString(root.code) || asString(error.code),

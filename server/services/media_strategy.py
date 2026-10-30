@@ -235,9 +235,11 @@ def project(curve: Dict[str, Any], monthly_spend: float, days: int) -> float:
     return curve["a"] * (monthly_spend / weeks) ** curve["b"] * weeks
 
 
-def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, days: int) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
-    """Curva para canal sem histórico: conversão e ticket da loja + CPM/CTR de referência de mercado."""
-    ref = REFERENCE[channel]
+def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, days: int,
+                     cpm: Optional[float] = None, ctr: Optional[float] = None) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    """Curva para canal sem histórico (ou com conversões não confiáveis): conversão e ticket da loja +
+    CPM/CTR da própria conta quando existem, senão de referência de mercado."""
+    ref = {**REFERENCE[channel], **({"cpm": cpm} if cpm else {}), **({"ctr": ctr} if ctr else {})}
     orders, sessions, revenue = _f(store.get("orders")), _f(store.get("sessions")), _f(store.get("revenue"))
     ticket = round(revenue / orders, 2) if orders > 0 and revenue > 0 else None
     store_cvr = orders / sessions if sessions > 0 and orders > 0 else None
@@ -253,6 +255,7 @@ def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, day
         y = point[metric]
         curves[metric] = {"a": y / (weekly_spend ** b) if y > 0 else 0.0, "b": b, "fit": "referencia", "r2": None, "points": 0}
     inputs = {"cpm": ref["cpm"], "ctr": ref["ctr"], "cvr": cvr, "ticket": ticket,
+              "cpm_source": "conta (últimos 30 dias)" if cpm else "referência de mercado",
               "cvr_source": "loja (sessões → pedidos)" if store_cvr else "referência de mercado",
               "ticket_source": "loja (faturamento ÷ pedidos)" if ticket else None}
     return curves, inputs
@@ -433,7 +436,18 @@ def plan_campaign_budgets(campaigns: List[Dict[str, Any]], allocation: Dict[str,
     out = [dict(r, planned_budget=0.0) for r in campaigns]
     for channel, channel_budget in allocation.items():
         budget = channel_budget - (boost_pool if channel == "meta" else 0.0)
-        rows = [r for r in out if r["channel"] == channel and ACTION_WEIGHT.get(r["action"], 0) > 0]
+        new_rows = [r for r in out if r["channel"] == channel and r.get("briefing_new")]
+        if new_rows:
+            from .media_briefing import NEW_CAMPAIGN_SHARE
+            share = budget * NEW_CAMPAIGN_SHARE if len(new_rows) < len([r for r in out if r["channel"] == channel]) else budget
+            for r in new_rows:
+                r["planned_budget"] = round(share / len(new_rows), 2)
+            budget -= share
+        rows = [r for r in out if r["channel"] == channel and ACTION_WEIGHT.get(r["action"], 0) > 0 and not r.get("briefing_new")]
+        if not rows and new_rows:
+            for r in new_rows:  # só campanhas novas no canal: ficam com toda a verba
+                r["planned_budget"] = round((budget + share) / len(new_rows), 2)
+            continue
         if not rows:
             for name, share, why in SUGGESTED_CAMPAIGNS[channel][objective]:
                 out.append({"channel": channel, "campaign": name, "action": "testar", "why": why, "spend": 0.0, "conversions": 0.0,
@@ -772,11 +786,19 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
             if c not in with_data:
                 curves[c], reference_inputs[c] = reference_curves(c, store, test_budget, days)
                 diag[c] = {**diag[c], "confidence": "referencia", "reference": reference_inputs[c]}
+    unreliable = bool(directives.get("conversions_unreliable"))
+    if unreliable:
+        # Briefing: as conversões registradas não são reais. Custos (CPM/CTR) são reais; conversão e ticket vêm da loja.
+        for c in with_data:
+            fake, inputs = reference_curves(c, store, max(with_data[c]["recent"]["spend"], MIN_DAILY * days), days,
+                                            cpm=with_data[c]["recent"].get("cpm"), ctr=with_data[c]["recent"].get("ctr"))
+            curves[c] = {**curves[c], "conversions": fake["conversions"], "revenue": fake["revenue"]}
+            reference_inputs.setdefault(c, {**inputs, "unreliable_conversions": True})
     usable = {c: diag[c] for c in curves}
     attributed = sum(d["window"]["revenue"] for d in with_data.values())
     spent = sum(d["window"]["spend"] for d in with_data.values())
-    no_value = (with_data and (attributed <= 0 or attributed / max(spent, 1) < MIN_ATTRIBUTED_ROAS)) or \
-        (not with_data and not any(i.get("ticket") for i in reference_inputs.values()))
+    no_value = (not unreliable and with_data and (attributed <= 0 or attributed / max(spent, 1) < MIN_ATTRIBUTED_ROAS)) or \
+        ((unreliable or not with_data) and not any(i.get("ticket") for i in reference_inputs.values()))
     if metric == "revenue" and no_value:
         metric = "conversions"  # receita atribuída irrisória: otimiza por conversões e avisa
     b_mix = sum(curves[c]["revenue"]["b"] * with_data[c]["recent"]["spend"] for c in with_data) / max(sum(d["recent"]["spend"] for d in with_data.values()), 1)
@@ -818,15 +840,32 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     chosen = next(s for s in scenarios if s["key"] == (("personalizado" if custom_budget else recommended)))
 
     campaigns = [row for c in with_data for row in classify_campaigns(c, data[c]["campaigns"], with_data[c]["recent"], metric)]
-    learned = learn_from_history(campaigns, await campaign_memory(client_id, target), metric)
+    if unreliable:
+        # Sem conversão confiável não dá para julgar campanha por ROAS/CPA: tudo vira aprendizado até haver venda real.
+        for r in campaigns:
+            r["action"], r["why"] = "aprender", "conversões registradas eram testes (briefing): reavaliar com vendas reais"
+        learned = 0
+    else:
+        learned = learn_from_history(campaigns, await campaign_memory(client_id, target), metric)
     from .campaign_learning import campaign_history
-    learned += apply_trends(campaigns, await campaign_history(client_id), metric, today)
+    if not unreliable:
+        learned += apply_trends(campaigns, await campaign_history(client_id), metric, today)
+    for new in directives.get("new_campaigns") or []:
+        if new["channel"] in chosen["allocation"]:
+            campaigns.append({"channel": new["channel"], "campaign": new["name"], "action": "testar", "why": f"pedida no briefing: {new['purpose'] or 'nova campanha'}",
+                              "spend": 0.0, "conversions": 0.0, "revenue": 0.0, "roas": None, "cpa": None, "share": None,
+                              "suggested": True, "briefing_new": True})
     campaign_changes = apply_to_campaigns(campaigns, directives)  # por último: o pedido da equipe tem a palavra final
     waste = round(sum(r["spend"] for r in campaigns if r["action"] == "pausar"), 2)
     findings = [f for d in with_data.values() for f in d["findings"]]
     if learned:
         findings.insert(0, {"level": "info", "text": f"Aprendizado: {learned} campanha(s) comparadas com as decisões dos planos anteriores; recomendações ajustadas."})
+    if unreliable:
+        findings.insert(0, {"level": "alerta", "text": "Briefing: as conversões registradas nas plataformas eram testes. ROAS e CPA das plataformas foram "
+                                                        "desconsiderados; a projeção usa o CPM e o CTR reais da conta e a conversão e o ticket da loja."})
     for c, inputs in reference_inputs.items():
+        if inputs.get("unreliable_conversions"):
+            continue
         parts = [f"CPM R$ {inputs['cpm']:.0f} e CTR {inputs['ctr'] * 100:.1f}% de referência de mercado",
                  f"conversão de {inputs['cvr'] * 100:.1f}% ({inputs['cvr_source']})"]
         if inputs.get("ticket"):

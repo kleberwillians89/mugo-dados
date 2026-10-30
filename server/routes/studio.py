@@ -635,6 +635,11 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
                                         distribution=body.distribution, briefing=body.briefing)
     except StudioError as exc:
         raise _http(exc) from None
+    except Exception as exc:  # erro inesperado: registra no log do Render e devolve mensagem clara (nunca a genérica)
+        import traceback
+        print(f"[media][strategy] erro_inesperado client={cid} tipo={exc.__class__.__name__}\n{traceback.format_exc()[-2000:]}")
+        raise HTTPException(status_code=500, detail="Não foi possível calcular a estratégia agora (erro interno, já registrado no log). "
+                                                    "Tente de novo em instantes; se repetir, avise com o horário.") from None
     strategy["narrative"] = None
     if body.with_narrative:
         try:

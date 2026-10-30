@@ -88,3 +88,48 @@ class AppliedToNumbersTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSalesAndNewCampaignTests(unittest.IsolatedAsyncioTestCase):
+    """Briefing real da Roove: 'gastei com mídia e não tive vendas, as vendas registradas foram teste, preciso de uma
+    campanha agressiva para vender bem na Black Friday'."""
+
+    def test_validate_new_fields(self):
+        out = mb.validate({"conversions_unreliable": True,
+                           "new_campaigns": [{"channel": "meta", "name": "Black Friday agressiva", "purpose": "vender na BF"},
+                                             {"channel": "meta", "name": "black friday agressiva", "purpose": "dup"},
+                                             {"channel": "tiktok", "name": "x", "purpose": "x"}]},
+                          month=NOV, campaigns=[], channels=CHANNELS)
+        self.assertTrue(out["conversions_unreliable"])
+        self.assertEqual([c["name"] for c in out["new_campaigns"]], ["Black Friday agressiva"])
+        self.assertFalse(mb.validate({}, month=NOV, campaigns=[], channels=CHANNELS)["conversions_unreliable"])
+
+    async def test_fake_conversions_are_ignored_and_bf_campaign_gets_budget(self):
+        meta = {"daily": daily([700] * 13, roas=9.0), "campaigns": [{"campaign_name": "Conversão site", "spend": 2000, "conversions": 40, "revenue": 18000},
+                                                                     {"campaign_name": "Tráfego", "spend": 900, "conversions": 0, "revenue": 0}]}
+        google = {"daily": daily([300] * 13, roas=8.0), "campaigns": [{"campaign_name": "PMax", "spend": 1200, "conversions": 30, "revenue": 9000}]}
+        directives = {**mb.empty(), "conversions_unreliable": True, "summary": "Sem vendas reais; campanha agressiva para BF",
+                      "new_campaigns": [{"channel": "meta", "name": "Black Friday agressiva", "purpose": "vender bem na Black Friday"}]}
+        store = {"revenue": 40000, "orders": 200, "sessions": 16000, "investment": 3000}
+        with patch.object(ms, "read_window", AsyncMock(return_value={"meta": meta, "google_ads": google})), \
+             patch.object(ms, "_store_and_goal", AsyncMock(return_value=(store, None, []))), \
+             patch.object(ms, "_calendar_context", AsyncMock(return_value=([], {}))), \
+             patch.object(ms, "campaign_memory", AsyncMock(return_value={"Conversão site": {"month": "2026-10-01", "action": "escalar", "roas": 20}})), \
+             patch("services.media_briefing.parse_briefing", AsyncMock(return_value=directives)):
+            s = await ms.build_strategy("roove", month="2026-11", objective="vendas", today=date(2026, 10, 29),
+                                        distribution="hiperfoco", custom_budget=2500, briefing="texto")
+        chosen = next(sc for sc in s["scenarios"] if sc["key"] == s["selected"])
+        self.assertEqual(chosen["budget"], 2500)
+        # ROAS projetado vem da loja (ticket R$ 200, conversão do site), não do ROAS 9 inventado pelas vendas de teste
+        self.assertLess(chosen["result"]["totals"]["roas"], 9.0)
+        self.assertTrue(any(f["text"].startswith("Briefing: as conversões registradas") for f in s["findings"]))
+        old = [c for c in s["campaigns"] if not c.get("briefing_new") and not c.get("boost")]
+        self.assertTrue(all(c["action"] == "aprender" for c in old))        # não julga campanha por conversão falsa
+        self.assertFalse(any(c.get("learning") for c in old))               # nem aprende com ela
+        bf = next(c for c in s["campaigns"] if c["campaign"] == "Black Friday agressiva")
+        meta_budget = chosen["allocation"]["meta"]
+        self.assertAlmostEqual(bf["planned_budget"], meta_budget * mb.NEW_CAMPAIGN_SHARE, delta=2)
+        self.assertAlmostEqual(sum(c["planned_budget"] for c in s["campaigns"] if c["channel"] == "meta"), meta_budget, delta=2)
+        bf_week = next(w for w in s["weeks"] if "Black Friday" in w["dates"])
+        self.assertEqual(bf_week["phase"], "pico")
+        self.assertTrue(any("desconsideradas" in a for a in s["briefing"]["applied"]))

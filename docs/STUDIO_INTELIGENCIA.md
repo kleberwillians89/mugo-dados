@@ -96,6 +96,10 @@ validadas que mudam os números:
   aparece como "Pedido no briefing".
 - **Ênfase por canal:** "mais" garante 45% da verba; "menos" limita a 20%.
 - **Teto de verba:** vira a verba do mês quando nenhuma outra foi informada.
+- **"As vendas registradas foram teste" (pixel errado, duplicadas…):** ROAS e CPA das plataformas são desconsiderados. A
+  projeção usa o CPM e o CTR reais da conta e a conversão e o ticket da loja. As campanhas viram "aprender" e o
+  aprendizado não usa esses números.
+- **Campanha nova pedida no texto** (ex.: "campanha agressiva para a Black Friday"): entra no plano com 35% da verba do canal.
 
 O texto também orienta a tese e os próximos passos da IA. A tela mostra "como o briefing virou número", e o briefing fica
 salvo com a estratégia (histórico e plano), voltando preenchido ao abrir o mês. Se a interpretação falhar, ele orienta só a

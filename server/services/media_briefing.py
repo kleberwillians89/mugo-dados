@@ -24,6 +24,7 @@ from .studio_calendar import StudioError
 MAX_CHARS = 2000
 CAMPAIGN_ACTIONS = ("escalar", "manter", "otimizar", "pausar")
 EMPHASIS_SHARE = {"mais": 0.45, "menos": 0.20}  # "mais": ao menos 45% da verba · "menos": no máximo 20%
+NEW_CAMPAIGN_SHARE = 0.35  # campanha nova pedida no briefing recebe 35% da verba do canal (dividido entre as novas)
 
 
 def clean(text: Optional[str]) -> str:
@@ -46,6 +47,8 @@ async def parse_briefing(client_id: str, text: str, *, month: date, campaigns: L
         "campaigns": arr(obj({"campaign": {"type": "string", "enum": names or ["-"]}, "action": {"type": "string", "enum": list(CAMPAIGN_ACTIONS)}, "reason": STR})),
         "dates": arr(obj({"day": INT, "label": STR})),
         "budget_cap": INT,
+        "conversions_unreliable": {"type": "boolean"},
+        "new_campaigns": arr(obj({"channel": {"type": "string", "enum": list(channels)}, "name": STR, "purpose": STR})),
     })
     last = calendar.monthrange(month.year, month.month)[1]
     data = await llm_json(
@@ -55,13 +58,17 @@ async def parse_briefing(client_id: str, text: str, *, month: date, campaigns: L
                 f"BRIEFING:\n{text}\n\n"
                 "Extraia: summary (1 frase do que a equipe precisa); channel_emphasis (só se o texto pedir mais ou menos de um canal); "
                 "campaigns (só campanhas da lista citadas no texto, com a ação pedida e o motivo); dates (dias do mês citados, com o rótulo, "
-                "ex.: lançamento, promoção, evento); budget_cap (verba máxima do mês em reais se o texto disser; senão 0)."),
+                "ex.: lançamento, promoção, evento); budget_cap (verba máxima do mês em reais se o texto disser; senão 0); "
+                "conversions_unreliable (true só se o texto disser que as vendas/conversões registradas não são reais, ex.: foram testes, "
+                "pixel errado, duplicadas); new_campaigns (campanhas NOVAS que o texto pede para criar, com canal, nome curto e objetivo; "
+                "se o canal não for dito, use meta)."),
         schema_name="media_briefing", schema=schema, temperature=0.1, timeout=45)
     return validate(data, month=month, campaigns=names, channels=channels)
 
 
 def empty() -> Dict[str, Any]:
-    return {"summary": "", "channel_emphasis": {}, "campaigns": {}, "dates": [], "budget_cap": None}
+    return {"summary": "", "channel_emphasis": {}, "campaigns": {}, "dates": [], "budget_cap": None,
+            "conversions_unreliable": False, "new_campaigns": []}
 
 
 def validate(data: Dict[str, Any], *, month: date, campaigns: List[str], channels: Dict[str, str]) -> Dict[str, Any]:
@@ -91,6 +98,13 @@ def validate(data: Dict[str, Any], *, month: date, campaigns: List[str], channel
     except (TypeError, ValueError):
         cap = 0
     out["budget_cap"] = round(cap, 2) if 0 < cap <= 100_000_000 else None
+    out["conversions_unreliable"] = data.get("conversions_unreliable") is True
+    names = set()
+    for row in data.get("new_campaigns") or []:
+        name = str(row.get("name") or "").strip()[:120]
+        if row.get("channel") in channels and name and name.lower() not in names and len(out["new_campaigns"]) < 3:
+            names.add(name.lower())
+            out["new_campaigns"].append({"channel": row["channel"], "name": name, "purpose": str(row.get("purpose") or "")[:200]})
     return out
 
 
@@ -120,6 +134,10 @@ def describe(directives: Dict[str, Any], channels: Dict[str, str], campaign_chan
     out += [f"Campanha {c}." for c in campaign_changes]
     if used_cap:
         out.append(f"Verba do mês limitada a R$ {directives['budget_cap']:,.0f} (teto do briefing).".replace(",", "."))
+    if directives.get("conversions_unreliable"):
+        out.append("Conversões das plataformas desconsideradas (eram testes): projeção com CPM e CTR reais da conta e conversão e ticket da loja.")
+    for c in directives.get("new_campaigns") or []:
+        out.append(f"Campanha nova no {channels[c['channel']]}: {c['name']} ({int(NEW_CAMPAIGN_SHARE * 100)}% da verba do canal).")
     return out
 
 
