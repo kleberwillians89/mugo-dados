@@ -151,26 +151,6 @@ class StrategyAndBrandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["profile"]["posts_per_week"], 14)  # normalizado
         self.assertEqual(out["profile"]["custom_dates"], [{"date": "03-15", "label": "Aniversário"}])
         self.assertEqual(out["notes"], ["n1"])
-        self.assertFalse(out["used_guide"])
-
-    async def test_guide_must_be_a_ready_pdf_of_the_company(self):
-        with patch("services.ig_supabase.sb_select", AsyncMock(return_value=[{"kind": "imagem", "storage_path": "p", "size_bytes": 1}])):
-            with self.assertRaises(StudioError) as err:
-                await se._guide_text("roove", "a1")
-        self.assertEqual(err.exception.code, "GUIDE_NOT_FOUND")
-
-    def test_pdf_text_extraction(self):
-        from reportlab.pdfgen import canvas
-        buffer = io.BytesIO()
-        pdf = canvas.Canvas(buffer)
-        pdf.drawString(72, 720, "Guia da marca Ruah: tom elegante, nunca falar de desconto, publico feminino 30+.")
-        pdf.drawString(72, 700, "Pilares: produto, ritual, bastidores. Cores: dourado e preto.")
-        pdf.save()
-        text = se.extract_pdf_text(buffer.getvalue())
-        self.assertIn("tom elegante", text)
-        with self.assertRaises(StudioError):
-            se.extract_pdf_text(b"nao e pdf")
-
 
 class LlmTests(unittest.IsolatedAsyncioTestCase):
     async def test_guidance_and_strict_schema_are_sent(self):

@@ -11,7 +11,6 @@ palavras proibidas encontradas), para a equipe revisar antes de usar.
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 import time
@@ -25,9 +24,6 @@ from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
 
 ASSIST_ACTIONS = ("legenda", "variacoes", "ganchos", "hashtags", "roteiro_reels", "revisar")
 MAX_CHAT_MESSAGES = 12
-GUIDE_MAX_BYTES = 12 * 1024 * 1024
-GUIDE_MAX_PAGES = 40
-GUIDE_MAX_CHARS = 18000
 
 AI_CALLS_PER_MINUTE = 20
 _calls: Dict[str, deque] = {}
@@ -189,53 +185,20 @@ PROFILE_SCHEMA = obj({
 })
 
 
-def extract_pdf_text(data: bytes) -> str:
-    from pypdf import PdfReader
-
-    try:
-        reader = PdfReader(io.BytesIO(data))
-        parts = []
-        for page in reader.pages[:GUIDE_MAX_PAGES]:
-            parts.append(page.extract_text() or "")
-            if sum(len(p) for p in parts) > GUIDE_MAX_CHARS:
-                break
-    except Exception:
-        raise StudioError("GUIDE_UNREADABLE") from None
-    text = re.sub(r"[ \t]+", " ", "\n".join(parts)).strip()
-    if len(text) < 80:
-        raise StudioError("GUIDE_UNREADABLE")
-    return text[:GUIDE_MAX_CHARS]
-
-
-async def _guide_text(client_id: str, asset_id: str) -> str:
-    from .studio_assets import ASSETS_TABLE, storage_download
-    from .ig_supabase import sb_select
-
-    rows = await sb_select(ASSETS_TABLE, select="storage_path,kind,size_bytes,status", limit=1,
-                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{asset_id}", "status": "eq.pronto"})
-    if not rows or rows[0].get("kind") != "pdf":
-        raise StudioError("GUIDE_NOT_FOUND")
-    if int(rows[0].get("size_bytes") or 0) > GUIDE_MAX_BYTES:
-        raise StudioError("GUIDE_TOO_LARGE")
-    return extract_pdf_text(await storage_download(str(rows[0]["storage_path"]), max_bytes=GUIDE_MAX_BYTES))
-
-
-async def suggest_profile(client_id: str, *, guide_asset_id: Optional[str] = None) -> Dict[str, Any]:
+async def suggest_profile(client_id: str) -> Dict[str, Any]:
     throttle(client_id)
     intel = await build_content_intelligence(client_id, use_cache=False)
-    guide = await _guide_text(client_id, guide_asset_id) if guide_asset_id else ""
     prompt = (
         "Monte o PERFIL DA MARCA para o Studio a partir dos dados abaixo. Mantenha o que o perfil atual já tem de bom; "
         "complete o que falta. Pilares: 3 a 6, pesos somando 100, cada um com descrição de 1 frase. "
         "Formatos: só os que a conta usa ou que fazem sentido para ela. posts_per_week entre 2 e 7. "
         "Em notes, liste de 2 a 5 observações sobre o que nos dados sustentou as escolhas e o que ainda falta.\n\n"
         f"PERFIL ATUAL E DADOS:\n{to_prompt(intel)}\n"
-        + (f"\nGUIA DA MARCA (texto extraído do PDF):\n{guide}\n" if guide else "\nSem guia da marca anexado.\n")
     )
-    data = await llm_json(instructions="Você é o Brand Manager da agência: transforma dados e o guia da marca em um perfil objetivo e utilizável.",
+    data = await llm_json(instructions="Você é o Brand Manager da agência: transforma os dados da marca em um perfil objetivo e utilizável.",
                           prompt=prompt, schema_name="studio_brand_profile", schema=PROFILE_SCHEMA, temperature=0.4)
     notes = [str(n)[:300] for n in (data.pop("notes", None) or [])[:5]]
     # Datas próprias não fazem parte da sugestão: ficam as que a equipe cadastrou.
     profile = normalize_profile({**data, "custom_dates": (intel.get("marca") or {}).get("custom_dates") or []})
-    return {"profile": profile, "notes": notes, "used_guide": bool(guide), "based_on": coverage(intel)}
+    return {"profile": profile, "notes": notes, "based_on": coverage(intel)}
 

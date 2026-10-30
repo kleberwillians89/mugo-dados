@@ -42,7 +42,7 @@ function Chip({ item, canManage, onOpen, compact }: { item: CalendarItem; canMan
   return <button type="button" className={`calChip is-${item.status}`} draggable={canManage}
     onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}
     onClick={() => onOpen(item)} title={`${when.time} · ${STUDIO_FORMATS[item.format]} · ${item.title}`}>
-    <span className="calChipMeta">{when.time} <span aria-label={STUDIO_FORMATS[item.format]}>{FORMAT_ICON[item.format]}</span>{item.signals?.seasonal ? " 📅" : ""}{item.boost ? <span className="calChipBoost" aria-label={`Impulsionar a partir de ${item.boost.start.slice(8, 10)}/${item.boost.start.slice(5, 7)}`}> ⚡</span> : null}{item.assets?.length ? <span className="calChipArt" aria-label={`${item.assets.length} mídia(s) anexada(s)`}> 🖼{item.assets.length > 1 ? item.assets.length : ""}</span> : null}</span>
+    <span className="calChipMeta">{when.time} <span aria-label={STUDIO_FORMATS[item.format]}>{FORMAT_ICON[item.format]}</span>{item.signals?.seasonal ? " 📅" : ""}{item.boost ? <span className="calChipBoost" aria-label={`Impulsionar a partir de ${item.boost.start.slice(8, 10)}/${item.boost.start.slice(5, 7)}`}> ⚡</span> : null}</span>
     <span className="calChipTitle">{item.title}</span>
     {!compact && item.pillar ? <span className="calChipPillar">{item.pillar}</span> : null}
   </button>;

@@ -30,7 +30,6 @@ on:
     - cron: "45 3 * * *"       # Google Ads, conferência de 30 dias
     - cron: "20 9 * * 0"       # Instagram, conferência ampla (domingo)
     - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico)
-    - cron: "50 4 * * *"       # Studio: limpa uploads não confirmados (> 24 h)
     - cron: "15 13 * * 5"      # Sexta 10h15 (SP): aprendizado por campanha + resumo semanal no WhatsApp
   workflow_dispatch:
     inputs:
@@ -72,7 +71,6 @@ jobs:
             "45 3 * * *")          cmd="google-ads-sync --days 30" ;;
             "20 9 * * 0")          cmd="organic-sync --limit 250 --skip-thumbnails" ;;
             "10 5 * * *")          cmd="history-backfill-worker --budget-minutes 150" ;;
-            "50 4 * * *")          cmd="studio-assets-cleanup" ;;
             "15 13 * * 5")         cmd="studio-weekly-digest" ;;
             "")                    cmd="$MANUAL" ;;
             *) echo "horário sem comando mapeado"; exit 1 ;;

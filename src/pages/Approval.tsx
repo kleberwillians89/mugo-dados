@@ -134,10 +134,8 @@ export default function Approval({ canManage }: { canManage: boolean }) {
         <header><strong>{STAGES[stage]}</strong><span>{byStage(stage).length}</span></header>
         {byStage(stage).map((item) => {
           const when = localParts(item.scheduled_at);
-          const thumb = item.assets?.[0]?.thumb_url;
           return <article key={item.id} className="kanbanCard" draggable={canManage}
             onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}>
-            {thumb ? <img src={thumb} alt="" loading="lazy" /> : null}
             <small>{when.label} · {when.time} · {STUDIO_FORMATS[item.format]}</small>
             <b>{item.title}</b>
             {item.client_feedback?.comment ? <p className="kanbanNote">“{item.client_feedback.comment}” — {item.client_feedback.reviewer_name || "cliente"}</p> : null}
