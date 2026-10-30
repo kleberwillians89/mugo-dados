@@ -84,10 +84,32 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(err.exception.code, "CRM_UNREACHABLE")
 
 
+class ClientAudienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_client_view_strips_anything_internal_even_if_the_crm_sent_it(self):
+        crm = {"ok": True, "data": {"tasks": [
+            {"id": "t1", "title": "Gravar reels", "status": "pending", "due_date": "2026-11-05", "updated_at": "x",
+             "notes": "interno", "assignee": {"name": "Julia"}, "tags": ["cliente"]},
+            {"id": "t2", "title": "Cancelada", "status": "cancelled", "due_date": None, "updated_at": "x"},
+        ]}}
+        seen: list = []
+        with patch.dict(os.environ, ENV), patch.object(cb.httpx, "AsyncClient", fake_crm(200, crm, seen)), redirect_stdout(io.StringIO()):
+            result = await cb.list_client_tasks("roove-test")
+        self.assertEqual(seen[0].url.params["audience"], "client")
+        self.assertEqual(result, {"available": True, "tasks": [
+            {"id": "t1", "title": "Gravar reels", "status": "pending", "due_date": "2026-11-05", "updated_at": "x"}]})
+
+    async def test_missing_function_is_a_clear_state(self):
+        seen: list = []
+        with patch.dict(os.environ, ENV), patch.object(cb.httpx, "AsyncClient", fake_crm(404, {"code": "NOT_FOUND", "message": "Requested function was not found"}, seen)), \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(await cb.list_client_tasks("roove-test"), {"available": False, "reason": "function_missing"})
+
+
 class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
-    async def test_every_crm_route_is_agency_only(self):
+    async def test_every_agency_crm_route_is_agency_only(self):
         guard = AsyncMock(return_value="roove-test")
         with patch.object(crm_routes, "require_client_role", guard), \
+             patch.object(crm_routes, "list_contacts", AsyncMock(return_value=[])), \
              patch.object(crm_routes, "list_tasks", AsyncMock(return_value={})), \
              patch.object(crm_routes, "list_conversations", AsyncMock(return_value={})), \
              patch.object(crm_routes, "list_messages", AsyncMock(return_value={})):
@@ -97,6 +119,27 @@ class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guard.await_count, 3)
         for call in guard.await_args_list:
             self.assertEqual(call.kwargs["allowed_roles"], ("agency_admin",))
+
+    async def test_conversation_phones_come_from_the_server_side_contacts(self):
+        convs = AsyncMock(return_value={"available": True, "conversations": []})
+        with patch.object(crm_routes, "require_client_role", AsyncMock(return_value="roove-test")), \
+             patch.object(crm_routes, "list_contacts", AsyncMock(return_value=[{"phone": "5511999990000"}, {"phone": "34600000000"}])) as contacts, \
+             patch.object(crm_routes, "list_conversations", convs):
+            await crm_routes.crm_conversations("roove-test", authorization="Bearer x")
+        contacts.assert_awaited_once_with("roove-test")
+        self.assertEqual(convs.await_args.kwargs["phones"], ["5511999990000", "34600000000"])
+
+    async def test_client_tasks_accept_any_member_and_never_use_the_agency_reader(self):
+        read = AsyncMock(return_value="roove-test")
+        role = AsyncMock()
+        agency = AsyncMock()
+        with patch.object(crm_routes, "require_client_read", read), patch.object(crm_routes, "require_client_role", role), \
+             patch.object(crm_routes, "list_tasks", agency), \
+             patch.object(crm_routes, "list_client_tasks", AsyncMock(return_value={"available": True, "tasks": []})):
+            await crm_routes.crm_client_tasks("roove-test", authorization="Bearer viewer")
+        read.assert_awaited_once()
+        role.assert_not_awaited()
+        agency.assert_not_awaited()
 
     async def test_client_viewer_is_denied_before_any_crm_call(self):
         denied = HTTPException(status_code=403, detail="Papel sem permissão para esta ação.")

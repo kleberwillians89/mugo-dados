@@ -316,10 +316,6 @@
 .crmTaskSide{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;font-size:13px}
 .crmDue.is-late{color:#a33;font-weight:600}
 .crmWho{display:flex;align-items:center;gap:6px}.crmWho i{width:10px;height:10px;border-radius:50%;display:inline-block}.crmWho.is-none{opacity:.55}
-.crmInbox{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;min-height:420px}
-.crmConvList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:70vh;overflow:auto}
-.crmConvList button{position:relative;width:100%;text-align:left;font:inherit;border:1px solid var(--border,#dedbd4);background:var(--surface,#fff);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
-.crmConvList button.is-active{border-color:#004f6e;box-shadow:inset 3px 0 0 #004f6e}
 .crmConvTop{display:flex;justify-content:space-between;gap:8px}.crmConvTop small{opacity:.6;white-space:nowrap}
 .crmConvPreview{font-size:13px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:24px}
 .crmUnread{position:absolute;right:10px;bottom:10px;background:#26734d;color:#fff;border-radius:999px;font-size:11px;padding:1px 7px}
@@ -327,7 +323,6 @@
 .crmThread>.studioEmpty{margin:16px}
 .crmThreadHead{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border,#dedbd4)}
 .crmThreadHead div{display:flex;flex-direction:column;flex:1;min-width:0}.crmThreadHead small{opacity:.6}
-.crmBack{display:none}
 .crmWindow{font-size:12px;opacity:.7}.crmWindow.is-open{color:#26734d;opacity:1}
 .crmMessages{list-style:none;margin:0;padding:14px;display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:62vh}
 .crmMsg{max-width:78%;padding:8px 12px;border-radius:12px;background:#f1efea;align-self:flex-start}
@@ -337,9 +332,15 @@
 .crmMsg small{display:block;margin-top:4px;font-size:11px;opacity:.6}
 @media (max-width:760px){
   .crmTask{flex-direction:column}.crmTaskSide{align-items:flex-start;flex-direction:row;flex-wrap:wrap}
-  .crmInbox{grid-template-columns:1fr}
-  .crmInbox.has-thread .crmConvList{display:none}
-  .crmInbox:not(.has-thread) .crmThread{display:none}
-  .crmBack{display:inline-flex}
   .crmMsg{max-width:90%}
 }
+.clientTasks{display:flex;flex-direction:column;gap:8px;margin:4px 0 12px}
+.crmConversations{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.crmSectionHead{display:flex;justify-content:space-between;align-items:center;gap:8px}.crmSectionHead h3{margin:0}
+.crmSubhead{margin:10px 0 0;font-size:14px;opacity:.75}
+.crmContactList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.crmContactRow{position:relative;width:100%;text-align:left;font:inherit;border:1px solid var(--border,#dedbd4);background:var(--surface,#fff);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
+.crmContactRow:disabled{cursor:default;opacity:.7}
+.crmContactList li.is-open .crmContactRow{border-color:#004f6e;box-shadow:inset 3px 0 0 #004f6e}
+.crmThread.is-inline{margin-top:6px}
+.crmThreadNote{margin:12px 14px;opacity:.7}

@@ -1,12 +1,13 @@
 import { http, clientClientPath } from "./api";
 
 /** Leitura do CRM Mugô (fonte da verdade) — só agência. Nada é copiado para o Dados. */
-export type CrmUnavailable = { available: false; reason: "not_configured" | "not_linked" | "auth_failed" };
+export type CrmUnavailable = { available: false; reason: "not_configured" | "not_linked" | "auth_failed" | "function_missing" };
 
 export const CRM_UNAVAILABLE_TEXT: Record<CrmUnavailable["reason"], string> = {
   not_configured: "A ligação com o CRM ainda não foi configurada no servidor do Dados.",
   not_linked: "Esta empresa ainda não está ligada a um cliente do CRM.",
   auth_failed: "O CRM recusou a chave de acesso. Confira a chave nos dois lados.",
+  function_missing: "A ponte do CRM ainda não foi publicada (ou está desatualizada). Rode o deploy da dados-ops-api no CRM.",
 };
 
 export const TASK_STATUS = { pending: "Pendente", in_progress: "Em andamento", completed: "Concluída", cancelled: "Cancelada" } as const;
@@ -20,7 +21,7 @@ export type CrmTask = {
 };
 export type CrmConversation = {
   id: string; status: string | null; attendance_mode: string | null; unread_count: number | null; last_message_at: string | null;
-  service_window_expires_at: string | null; contact: { name: string | null; phone_masked: string };
+  service_window_expires_at: string | null; contact: { name: string | null; phone_masked: string; matched_phone: string | null };
   last_message: { direction: "inbound" | "outbound"; at: string; text: string } | null;
 };
 export type CrmMessage = {
@@ -33,6 +34,11 @@ const base = (path: string) => clientClientPath(`/crm${path}`);
 
 export function listCrmTasks(status?: TaskStatus) {
   return http<Result<{ tasks: CrmTask[] }>>(base(`/tasks${status ? `?status=${status}` : ""}`));
+}
+/** Tarefas que a Mugô marcou com a etiqueta "cliente" no CRM — visíveis a qualquer membro da empresa. */
+export type ClientTask = { id: string; title: string; status: "pending" | "in_progress" | "completed"; due_date: string | null; updated_at: string | null };
+export function listClientTasks() {
+  return http<Result<{ tasks: ClientTask[] }>>(base("/client-tasks"));
 }
 export function listCrmConversations() {
   return http<Result<{ conversations: CrmConversation[] }>>(base("/conversations"));
@@ -51,6 +57,15 @@ export function dueInfo(due: string | null, today = new Date()): { label: string
   const label = diff === 0 ? "Hoje" : diff === 1 ? "Amanhã" : diff === -1 ? "Ontem"
     : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   return { label, late: diff < 0 };
+}
+
+/** Mesma pessoa com ou sem o 9º dígito do celular BR. */
+export function samePhone(a: string | null | undefined, b: string | null | undefined) {
+  const norm = (v: string | null | undefined) => {
+    const d = String(v || "").replace(/\D/g, "");
+    return d.startsWith("55") && d.length === 13 && d[4] === "9" ? d.slice(0, 4) + d.slice(5) : d;
+  };
+  return !!a && !!b && norm(a) === norm(b);
 }
 
 export function windowOpen(expiresAt: string | null, now = new Date()) {
