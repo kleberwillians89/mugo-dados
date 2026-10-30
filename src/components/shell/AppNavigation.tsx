@@ -42,13 +42,14 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "media", label: "Mídia On" },
 ];
 
-// Operação da agência, lida do CRM Mugô: só agência/plataforma vê (o backend também recusa os demais).
-const AGENCY_ITEMS: NavItem[] = [
+// Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
+// Redação continua só da agência/plataforma (o backend também recusa os demais).
+const OPERATION_ITEMS: NavItem[] = [
   { route: "tasks", label: "Tarefas" },
-  { route: "campaigns", label: "Redação" },
   { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
 ];
+const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "campaigns", label: "Redação" }];
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);
@@ -188,12 +189,12 @@ export default function AppNavigation({
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
           <ul className="appNavList">{PRODUCT_ITEMS.map(renderItem)}</ul>
-          {platformAdmin || agencyAdmin ? (
-            <div className="appNavGroup">
-              <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
-              <ul className="appNavList" aria-labelledby="app-nav-agency">{AGENCY_ITEMS.map(renderItem)}</ul>
-            </div>
-          ) : null}
+          <div className="appNavGroup">
+            <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
+            <ul className="appNavList" aria-labelledby="app-nav-agency">
+              {(platformAdmin || agencyAdmin ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).map(renderItem)}
+            </ul>
+          </div>
           {adminItems.length ? (
             <div className="appNavGroup">
               <p className="appNavGroupLabel" id="app-nav-admin">Administração</p>

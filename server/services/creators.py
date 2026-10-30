@@ -209,13 +209,32 @@ async def _tiktok_profile(client_id: str, handle: str) -> Dict[str, Any]:
     return found[0]
 
 
+async def link_creators(client_id: str, creator_ids: List[str]) -> None:
+    """Registra que a empresa consultou esses criadores (é o que o cliente enxerga)."""
+    rows = [{"client_id": client_id, "creator_id": cid} for cid in dict.fromkeys(creator_ids) if cid]
+    if not rows:
+        return
+    try:
+        await sb_upsert("creator_client_links", rows, on_conflict="client_id,creator_id")
+    except Exception as exc:  # sem a migração 000061 o vínculo falha, mas a consulta segue
+        print(f"[creators][link_failed] client_id={client_id} error={str(exc)[:200]}")
+
+
+async def linked_ids(client_id: str) -> set[str]:
+    rows = await sb_select("creator_client_links", select="creator_id", filters={"client_id": f"eq.{client_id}"}, limit=5000)
+    return {str(r["creator_id"]) for r in rows if r.get("creator_id")}
+
+
 async def lookup(client_id: str, network: str, raw_handle: str, *, force: bool = False) -> Dict[str, Any]:
     handle = providers.normalize_handle(network, raw_handle)
     cached = await get_by_handle(network, handle)
     if not force and is_fresh(cached) and cached.get("followers") is not None:
-        return {**cached, "cached": True}
-    fetcher = {"instagram": _meta_profile, "youtube": _youtube_profile, "tiktok": _tiktok_profile}[network]
-    return {**await save_profile(await fetcher(client_id, handle)), "cached": False}
+        result = {**cached, "cached": True}
+    else:
+        fetcher = {"instagram": _meta_profile, "youtube": _youtube_profile, "tiktok": _tiktok_profile}[network]
+        result = {**await save_profile(await fetcher(client_id, handle)), "cached": False}
+    await link_creators(client_id, [result.get("id")])
+    return result
 
 
 async def search(client_id: str, network: str, query: str, limit: int) -> Dict[str, Any]:
@@ -247,14 +266,27 @@ async def search(client_id: str, network: str, query: str, limit: int) -> Dict[s
         if len(profiles) > enriched:
             notes.append("Perfis sem seguidores não são contas profissionais ou não foram enriquecidos pela Meta.")
     saved = [await save_profile(p) for p in profiles]
+    await link_creators(client_id, [c.get("id") for c in saved])
     return {"network": network, "query": term, "creators": saved, "notes": notes}
 
 
 # ---------------------------------------------------------------- leitura
 
 
-async def list_creators(*, network: Optional[str], q: Optional[str], min_followers: Optional[int], limit: int, offset: int) -> List[Dict[str, Any]]:
+# only_ids: None = agência (banco inteiro); conjunto = cliente (só os criadores da empresa).
+Visible = Optional[set]
+
+
+def _visible(creator_id: str, only_ids: Visible) -> bool:
+    return only_ids is None or creator_id in only_ids
+
+
+async def list_creators(*, network: Optional[str], q: Optional[str], min_followers: Optional[int], limit: int, offset: int, only_ids: Visible = None) -> List[Dict[str, Any]]:
     filters: Dict[str, str] = {}
+    if only_ids is not None:
+        if not only_ids:
+            return []
+        filters["id"] = f"in.({','.join(sorted(only_ids))})"
     if network:
         filters["network"] = f"eq.{network}"
     if min_followers:
@@ -266,7 +298,9 @@ async def list_creators(*, network: Optional[str], q: Optional[str], min_followe
     return await sb_select("creators", filters=filters, order="followers.desc.nullslast", limit=limit, offset=offset)
 
 
-async def get_creator(creator_id: str) -> Optional[Dict[str, Any]]:
+async def get_creator(creator_id: str, only_ids: Visible = None) -> Optional[Dict[str, Any]]:
+    if not _visible(creator_id, only_ids):
+        return None
     creator = await sb_get_one_by("creators", filters={"id": f"eq.{creator_id}"})
     if not creator:
         return None
@@ -275,15 +309,15 @@ async def get_creator(creator_id: str) -> Optional[Dict[str, Any]]:
             "history": [{k: h.get(k) for k in ("collected_at", "source", "followers", "engagement_rate")} for h in history]}
 
 
-async def refresh(client_id: str, creator_id: str) -> Dict[str, Any]:
-    creator = await sb_get_one_by("creators", filters={"id": f"eq.{creator_id}"})
+async def refresh(client_id: str, creator_id: str, only_ids: Visible = None) -> Dict[str, Any]:
+    creator = await sb_get_one_by("creators", filters={"id": f"eq.{creator_id}"}) if _visible(creator_id, only_ids) else None
     if not creator:
         raise IntegrationError("Criador não encontrado.", status_code=404, code="CREATOR_NOT_FOUND", provider="creators")
     return await lookup(client_id, creator["network"], creator["handle"], force=True)
 
 
-async def compare(creator_ids: List[str]) -> List[Dict[str, Any]]:
-    ids = list(dict.fromkeys(creator_ids))
+async def compare(creator_ids: List[str], only_ids: Visible = None) -> List[Dict[str, Any]]:
+    ids = [i for i in dict.fromkeys(creator_ids) if _visible(i, only_ids)]
     if not 2 <= len(ids) <= MAX_COMPARE:
         raise ValueError(f"Compare de 2 a {MAX_COMPARE} criadores.")
     rows = await sb_select("creators", filters={"id": f"in.({','.join(ids)})"}, limit=MAX_COMPARE)

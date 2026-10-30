@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services import studio_campaigns as campaigns
 from services import studio_clipping as clipping
 from services.studio_calendar import StudioError
-from services.tenant import require_client_role, require_user_id
+from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio-content-ops"])
 AGENCY_ONLY = ("agency_admin",)
@@ -95,8 +95,17 @@ class CampaignStatusInput(BaseModel):
 @router.get("/clipping")
 async def read_clipping(client_id: str, kind: Optional[str] = None, sentiment: Optional[str] = None,
                         authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
-    return await clipping.list_clippings(cid, kind=kind, sentiment=sentiment)
+    # Cliente lê o clipping da própria empresa; configurar, buscar e tratar notícias é da agência.
+    cid = await require_client_read(client_id, authorization)
+    view = await clipping.list_clippings(cid, kind=kind, sentiment=sentiment)
+    if await is_agency_user(authorization):
+        return view
+    settings = view.get("settings") or {}
+    return {
+        "items": [item for item in view.get("items") or [] if item.get("relevant") is not False],
+        "week": view.get("week"),
+        "settings": {"saved": settings.get("saved"), "last_run_at": settings.get("last_run_at")},
+    }
 
 
 @router.put("/clipping/settings")

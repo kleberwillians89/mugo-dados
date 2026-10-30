@@ -16,6 +16,8 @@ const MISSING_LABEL: Record<string, string> = {
   followers: "seguidores", avg_likes: "curtidas", avg_comments: "comentários", avg_views: "visualizações", engagement_rate: "engajamento",
 };
 const NETWORK_OPTIONS = Object.entries(CREATOR_NETWORKS).map(([id, label]) => ({ id, label }));
+// TikTok e descoberta usam créditos Apify da Mugô: só a agência.
+const CLIENT_NETWORK_OPTIONS = NETWORK_OPTIONS.filter((o) => o.id !== "tiktok");
 const CAMPAIGN_OPTIONS = [{ id: "influencer", label: "Influência" }, { id: "ugc", label: "UGC" }];
 type Busy = null | "lookup" | "search" | "suggest" | "other";
 type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean };
@@ -47,7 +49,11 @@ function Identity({ creator }: { creator: Creator }) {
   </div>;
 }
 
-export default function Creators() {
+/**
+ * isAgency: banco inteiro, descoberta paga e custos. Cliente vê só os criadores e shortlists da empresa.
+ * canAct: agência ou client_admin analisam @, pedem sugestões e mexem nas shortlists; viewer só lê.
+ */
+export default function Creators({ isAgency = false, canAct = false }: { isAgency?: boolean; canAct?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName();
   const [network, setNetwork] = useState<CreatorNetwork>("instagram");
@@ -126,29 +132,30 @@ export default function Creators() {
     <div className="creatorIntro">
       <PageHeader company={clientName} title="Criadores" />
       <p>Descubra, analise e selecione criadores UGC e influenciadores. Métricas públicas com fonte e data; campos ausentes são sinalizados, nunca estimados.</p>
-      {usage ? <ul className="creatorChips" aria-label="Consumo das fontes">
-        <li className={usage.apify.blocked ? "is-warning" : ""}>Apify US$ {usage.apify.month_spent_usd.toFixed(2)} / {usage.apify.month_budget_usd.toFixed(2)} no mês</li>
-        <li>YouTube {usage.youtube.today_units.toLocaleString("pt-BR")} / {usage.youtube.daily_units_limit.toLocaleString("pt-BR")} unidades hoje</li>
+      {usage && isAgency ? <ul className="creatorChips" aria-label="Consumo das fontes">
+        {usage.apify ? <li className={usage.apify.blocked ? "is-warning" : ""}>Apify US$ {usage.apify.month_spent_usd.toFixed(2)} / {usage.apify.month_budget_usd.toFixed(2)} no mês</li> : null}
+        {usage.youtube ? <li>YouTube {usage.youtube.today_units.toLocaleString("pt-BR")} / {usage.youtube.daily_units_limit.toLocaleString("pt-BR")} unidades hoje</li> : null}
         <li>Meta: {usage.meta.month_calls_this_client} consultas no mês · grátis</li>
       </ul> : null}
     </div>
 
     <div className="creatorWork">
-      <div className="creatorPanels">
+      {canAct ? <div className="creatorPanels">
         <section className="creatorCard" aria-labelledby="creator-find">
           <header><h2 id="creator-find">Encontrar criadores</h2>
-            <SegmentedControl ariaLabel="Rede" options={NETWORK_OPTIONS} value={network} onSelect={(id) => setNetwork(id as CreatorNetwork)} /></header>
+            <SegmentedControl ariaLabel="Rede" options={isAgency ? NETWORK_OPTIONS : CLIENT_NETWORK_OPTIONS} value={network} onSelect={(id) => setNetwork(id as CreatorNetwork)} /></header>
           <form onSubmit={onLookup} className="creatorRow">
             <label className="ds-field">Analisar perfil
               <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@criador ou link do perfil" /></label>
             <button className="ds-button is-primary" disabled={Boolean(busy)}>Analisar</button>
           </form>
-          <form onSubmit={onSearch} className="creatorRow">
+          {isAgency ? <form onSubmit={onSearch} className="creatorRow">
             <label className="ds-field">Descobrir por {network === "youtube" ? "palavra-chave" : "hashtag"}
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={network === "youtube" ? "vinhos, harmonização" : "#vinhonacional"} /></label>
             <button className="ds-button" disabled={Boolean(busy)}>Descobrir</button>
-          </form>
-          <small>{network === "instagram" ? "Analisar um @ usa a Meta, sem custo. Descobrir por hashtag usa créditos Apify (teto mensal)."
+          </form> : null}
+          <small>{!isAgency ? "Analise o @ de um criador do Instagram ou do YouTube para ver as métricas oficiais."
+            : network === "instagram" ? "Analisar um @ usa a Meta, sem custo. Descobrir por hashtag usa créditos Apify (teto mensal)."
             : network === "youtube" ? "YouTube oficial: analisar custa 3 unidades e buscar, 101, da cota diária grátis."
               : "TikTok usa créditos Apify (teto mensal)."}</small>
         </section>
@@ -163,7 +170,7 @@ export default function Creators() {
           </form>
           <small>A IA usa o contexto de negócio da empresa. Cada @ é conferido na Meta: só aparecem contas reais e profissionais, com métricas oficiais.</small>
         </section>
-      </div>
+      </div> : null}
 
       {progress ? <p className="creatorProgress" role="status"><span className="creatorSpinner" aria-hidden="true" />{progress}</p> : null}
       {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
@@ -178,7 +185,7 @@ export default function Creators() {
             <Identity creator={creator} />
             <dl><div><dt>Seguidores</dt><dd>{creatorCompact(creator.followers)}</dd></div><div><dt>Engajamento</dt><dd><Engagement value={creator.engagement_rate} /></dd></div></dl>
             <p>{reason}</p>
-            {activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ {activeListName}</button>
+            {!canAct ? null : activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ {activeListName}</button>
               : <small className="creatorMuted">Escolha uma shortlist para adicionar.</small>}
           </article>)}</div>}
         {aiResult.discarded.length ? <p className="creatorMuted">Descartados (não encontrados ou não profissionais na Meta): {aiResult.discarded.map((h) => `@${h}`).join(", ")}</p> : null}
@@ -193,10 +200,10 @@ export default function Creators() {
           <option value="">Shortlist ativa…</option>
           {shortlists.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.campaign_type === "ugc" ? "UGC" : "Influência"})</option>)}
         </select>
-        <form onSubmit={(e) => { e.preventDefault(); if (!newList.trim()) return; run("other", async () => { const created = await createShortlist(newList, aiType); setShortlists((c) => [created, ...c]); setActiveList(created.id); setListItems([]); setNewList(""); }, "Não foi possível criar a shortlist."); }}>
+        {canAct ? <form onSubmit={(e) => { e.preventDefault(); if (!newList.trim()) return; run("other", async () => { const created = await createShortlist(newList, aiType); setShortlists((c) => [created, ...c]); setActiveList(created.id); setListItems([]); setNewList(""); }, "Não foi possível criar a shortlist."); }}>
           <input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="Nova shortlist" aria-label="Nome da nova shortlist" />
           <button className="ds-button" disabled={Boolean(busy)}>Criar</button>
-        </form>
+        </form> : null}
       </div>
 
       {comparison ? <section className="creatorCard" aria-labelledby="creator-compare">
@@ -220,16 +227,17 @@ export default function Creators() {
             {item.creators ? <Identity creator={item.creators} /> : null}
             <span>{creatorCompact(item.creators?.followers)} seguidores</span>
             <Engagement value={item.creators?.engagement_rate ?? null} />
-            <select value={item.status} aria-label="Status" onChange={(e) => run("other", async () => { await updateShortlistItem(activeList, item.id, e.target.value as ItemStatus); await loadList(activeList); }, "Não foi possível atualizar.")}>
+            {canAct ? <><select value={item.status} aria-label="Status" onChange={(e) => run("other", async () => { await updateShortlistItem(activeList, item.id, e.target.value as ItemStatus); await loadList(activeList); }, "Não foi possível atualizar.")}>
               {Object.entries(ITEM_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-            <button type="button" className="ds-button" onClick={() => run("other", async () => { await removeFromShortlist(activeList, item.id); await loadList(activeList); }, "Não foi possível remover.")}>Remover</button>
+            <button type="button" className="ds-button" onClick={() => run("other", async () => { await removeFromShortlist(activeList, item.id); await loadList(activeList); }, "Não foi possível remover.")}>Remover</button></> : <span className="creatorMuted">{ITEM_STATUS[item.status]}</span>}
           </li>)}</ul>}
       </section> : null}
 
       <section className="creatorCard" aria-labelledby="creator-bank">
         <header><h2 id="creator-bank">Banco de criadores · {creators.length}</h2></header>
-        {!creators.length ? <p className="creatorMuted">Nenhum criador no banco ainda. Analise um @, descubra por hashtag ou peça sugestões à IA.</p> :
+        {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador no banco ainda. Analise um @, descubra por hashtag ou peça sugestões à IA."
+          : canAct ? "Nenhum criador da sua empresa ainda. Analise um @ ou peça sugestões à IA." : "A Mugô ainda não selecionou criadores para a sua empresa."}</p> :
           <div className="creatorScroll"><table className="ds-table creatorTable">
             <thead><tr><th aria-label="Comparar" /><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>
             <tbody>{creators.map((creator) => <tr key={creator.id}>
@@ -243,10 +251,10 @@ export default function Creators() {
                 <small>{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
                 {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
               </td>
-              <td><div className="creatorActions">
+              <td>{canAct ? <div className="creatorActions">
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
                 {activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ Shortlist</button> : null}
-              </div></td>
+              </div> : null}</td>
             </tr>)}</tbody>
           </table></div>}
       </section>

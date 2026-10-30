@@ -59,6 +59,16 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Empresas")).toBeUndefined();
   });
 
+  it("cliente vê Tarefas, Clipping e Criadores; Redação fica só com a agência", async () => {
+    await render();
+    expect(link("Tarefas")?.getAttribute("href")).toBe("/tarefas");
+    expect(link("Clipping")?.getAttribute("href")).toBe("/clipping");
+    expect(link("Criadores")?.getAttribute("href")).toBe("/criadores");
+    expect(link("Redação")).toBeUndefined();
+    await render({ agencyAdmin: true });
+    expect(link("Redação")?.getAttribute("href")).toBe("/redacao");
+  });
+
   it("links reais: clique simples navega no app; Ctrl/Cmd+clique fica com o navegador", async () => {
     const { onOpen } = await render();
     const meta = link("Meta")!;

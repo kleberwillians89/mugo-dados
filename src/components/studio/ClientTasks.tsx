@@ -5,7 +5,7 @@ import { CRM_UNAVAILABLE_TEXT, TASK_STATUS, dueInfo, listClientTasks, type Clien
  * "Em andamento com a Mugô": tarefas que a Mugô marcou com a etiqueta "cliente" no CRM.
  * O cliente vê só isso; a agência vê o mesmo bloco (para conferir o que o cliente enxerga).
  */
-export default function ClientTasks({ isAgency, clientId }: { isAgency: boolean; clientId: string }) {
+export default function ClientTasks({ isAgency, clientId, standalone = false }: { isAgency: boolean; clientId: string; standalone?: boolean }) {
   const [tasks, setTasks] = useState<ClientTask[] | null>(null);
   const [unavailable, setUnavailable] = useState<CrmUnavailable["reason"] | null>(null);
 
@@ -23,8 +23,8 @@ export default function ClientTasks({ isAgency, clientId }: { isAgency: boolean;
   if (tasks === null) return null;
   const open = tasks.filter((t) => t.status !== "completed");
   const done = tasks.filter((t) => t.status === "completed").slice(0, 3);
-  // Para o cliente, sem tarefas (ou sem ligação com o CRM) o bloco simplesmente não aparece.
-  if (!isAgency && !tasks.length) return null;
+  // Na Aprovação, sem tarefas (ou sem ligação com o CRM) o bloco some; na página própria, avisa.
+  if (!isAgency && !tasks.length) return standalone ? <p className="studioEmpty">Nenhuma tarefa em andamento com a Mugô no momento.</p> : null;
 
   return <section className="clientTasks" aria-label="Em andamento com a Mugô">
     <h2 className="crmGroupTitle">Em andamento com a Mugô {open.length ? <span>{open.length}</span> : null}</h2>

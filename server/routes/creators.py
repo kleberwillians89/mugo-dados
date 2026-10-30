@@ -7,10 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from services import creators
 from services.ig_supabase import sb_delete, sb_get_one_by, sb_insert, sb_update
 from services.studio_calendar import StudioError
-from services.tenant import require_client_role, require_user_id
+from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
-# Creator Intelligence é operação da agência: cliente final não pesquisa nem gasta créditos.
+# Agência vê o banco inteiro e usa todas as fontes. O cliente vê só os criadores e shortlists da
+# própria empresa; client_admin também analisa @ (Meta/YouTube, grátis) e pede sugestões à IA.
+# Descoberta paga (Apify) e TikTok ficam só com a agência.
 AGENCY_ONLY = ("agency_admin",)
+CLIENT_ACTORS = ("agency_admin", "client_admin")
 router = APIRouter(prefix="/api/clients/{client_id}/creators", tags=["creators"])
 Network = Literal["instagram", "youtube", "tiktok"]
 ItemStatus = Literal["candidate", "contacted", "approved", "rejected"]
@@ -62,6 +65,23 @@ async def agency(client_id: str, authorization: Optional[str]) -> str:
     return await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
 
 
+async def _scope(cid: str, authorization: Optional[str]) -> tuple[str, Optional[set]]:
+    return cid, None if await is_agency_user(authorization) else await creators.linked_ids(cid)
+
+
+async def reader(client_id: str, authorization: Optional[str]) -> tuple[str, Optional[set]]:
+    return await _scope(await require_client_read(client_id, authorization), authorization)
+
+
+async def actor(client_id: str, authorization: Optional[str]) -> tuple[str, Optional[set]]:
+    return await _scope(await require_client_role(client_id, authorization, allowed_roles=CLIENT_ACTORS), authorization)
+
+
+def _agency_network(network: str, only: Optional[set]) -> None:
+    if only is not None and network == "tiktok":
+        raise HTTPException(403, "TikTok usa créditos pagos e fica com a equipe Mugô.")
+
+
 def _invalid(exc: ValueError) -> HTTPException:
     return HTTPException(422, str(exc))
 
@@ -76,13 +96,14 @@ async def read_creators(
     offset: int = Query(default=0, ge=0),
     authorization: Optional[str] = Header(default=None),
 ):
-    await agency(client_id, authorization)
-    return {"creators": await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset)}
+    _, only = await reader(client_id, authorization)
+    return {"creators": await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset, only_ids=only)}
 
 
 @router.post("/lookup")
 async def lookup_creator(client_id: str, body: LookupInput, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, only = await actor(client_id, authorization)
+    _agency_network(body.network, only)
     try:
         return await creators.lookup(cid, body.network, body.handle, force=body.force)
     except ValueError as exc:
@@ -106,7 +127,7 @@ AI_ERRORS = {
 
 @router.post("/suggest")
 async def suggest_creators(client_id: str, body: SuggestInput, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await actor(client_id, authorization)
     try:
         return await creators.suggest(cid, body.campaign_type, body.brief, body.count)
     except StudioError as exc:
@@ -116,35 +137,37 @@ async def suggest_creators(client_id: str, body: SuggestInput, authorization: Op
 
 @router.post("/compare")
 async def compare_creators(client_id: str, body: CompareInput, authorization: Optional[str] = Header(default=None)):
-    await agency(client_id, authorization)
+    _, only = await reader(client_id, authorization)
     try:
-        return {"creators": await creators.compare([str(i) for i in body.creator_ids])}
+        return {"creators": await creators.compare([str(i) for i in body.creator_ids], only_ids=only)}
     except ValueError as exc:
         raise _invalid(exc) from None
 
 
 @router.get("/usage")
 async def read_usage(client_id: str, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
-    return await creators.usage_summary(cid)
+    cid, only = await reader(client_id, authorization)
+    summary = await creators.usage_summary(cid)
+    # Custo da Apify e cota do YouTube são da conta Mugô: o cliente vê só o próprio consumo Meta.
+    return summary if only is None else {"meta": summary["meta"]}
 
 
 @router.get("/shortlists")
 async def read_shortlists(client_id: str, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await reader(client_id, authorization)
     return {"shortlists": await creators.list_shortlists(cid)}
 
 
 @router.post("/shortlists", status_code=201)
 async def create_shortlist(client_id: str, body: ShortlistInput, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await actor(client_id, authorization)
     uid = await require_user_id(authorization)
     return await sb_insert("creator_shortlists", {**body.model_dump(), "client_id": cid, "created_by": uid})
 
 
 @router.get("/shortlists/{shortlist_id}")
 async def read_shortlist(client_id: str, shortlist_id: UUID, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await reader(client_id, authorization)
     shortlist = await creators.get_shortlist(cid, str(shortlist_id))
     if not shortlist:
         raise HTTPException(404, "Shortlist não encontrada.")
@@ -153,7 +176,7 @@ async def read_shortlist(client_id: str, shortlist_id: UUID, authorization: Opti
 
 @router.delete("/shortlists/{shortlist_id}", status_code=204)
 async def delete_shortlist(client_id: str, shortlist_id: UUID, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await actor(client_id, authorization)
     deleted = await sb_delete("creator_shortlists", filters={"id": f"eq.{shortlist_id}", "client_id": f"eq.{cid}"})
     if not deleted:
         raise HTTPException(404, "Shortlist não encontrada.")
@@ -161,12 +184,13 @@ async def delete_shortlist(client_id: str, shortlist_id: UUID, authorization: Op
 
 @router.post("/shortlists/{shortlist_id}/items", status_code=201)
 async def add_shortlist_item(client_id: str, shortlist_id: UUID, body: ShortlistItemInput, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, only = await actor(client_id, authorization)
     uid = await require_user_id(authorization)
     if not await creators.get_shortlist(cid, str(shortlist_id)):
         raise HTTPException(404, "Shortlist não encontrada.")
-    if not await sb_get_one_by("creators", filters={"id": f"eq.{body.creator_id}"}, select="id"):
+    if (only is not None and str(body.creator_id) not in only) or not await sb_get_one_by("creators", filters={"id": f"eq.{body.creator_id}"}, select="id"):
         raise HTTPException(404, "Criador não encontrado.")
+    await creators.link_creators(cid, [str(body.creator_id)])
     existing = await sb_get_one_by("creator_shortlist_items", filters={"shortlist_id": f"eq.{shortlist_id}", "creator_id": f"eq.{body.creator_id}", "client_id": f"eq.{cid}"})
     if existing:
         return existing
@@ -178,7 +202,7 @@ async def add_shortlist_item(client_id: str, shortlist_id: UUID, body: Shortlist
 
 @router.patch("/shortlists/{shortlist_id}/items/{item_id}")
 async def update_shortlist_item(client_id: str, shortlist_id: UUID, item_id: UUID, body: ShortlistItemPatch, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await actor(client_id, authorization)
     patch = body.model_dump(exclude_unset=True)
     if not patch:
         raise HTTPException(422, "Nada para atualizar.")
@@ -190,7 +214,7 @@ async def update_shortlist_item(client_id: str, shortlist_id: UUID, item_id: UUI
 
 @router.delete("/shortlists/{shortlist_id}/items/{item_id}", status_code=204)
 async def delete_shortlist_item(client_id: str, shortlist_id: UUID, item_id: UUID, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
+    cid, _ = await actor(client_id, authorization)
     deleted = await sb_delete("creator_shortlist_items", filters={"id": f"eq.{item_id}", "shortlist_id": f"eq.{shortlist_id}", "client_id": f"eq.{cid}"})
     if not deleted:
         raise HTTPException(404, "Item não encontrado.")
@@ -199,8 +223,8 @@ async def delete_shortlist_item(client_id: str, shortlist_id: UUID, item_id: UUI
 # Rotas com parâmetro por último: /usage e /shortlists não podem cair aqui.
 @router.get("/{creator_id}")
 async def read_creator(client_id: str, creator_id: UUID, authorization: Optional[str] = Header(default=None)):
-    await agency(client_id, authorization)
-    creator = await creators.get_creator(str(creator_id))
+    _, only = await reader(client_id, authorization)
+    creator = await creators.get_creator(str(creator_id), only_ids=only)
     if not creator:
         raise HTTPException(404, "Criador não encontrado.")
     return creator
@@ -208,5 +232,9 @@ async def read_creator(client_id: str, creator_id: UUID, authorization: Optional
 
 @router.post("/{creator_id}/refresh")
 async def refresh_creator(client_id: str, creator_id: UUID, authorization: Optional[str] = Header(default=None)):
-    cid = await agency(client_id, authorization)
-    return await creators.refresh(cid, str(creator_id))
+    cid, only = await actor(client_id, authorization)
+    creator = await creators.get_creator(str(creator_id), only_ids=only)
+    if not creator:
+        raise HTTPException(404, "Criador não encontrado.")
+    _agency_network(creator["network"], only)
+    return await creators.refresh(cid, str(creator_id), only_ids=only)
