@@ -36,6 +36,11 @@ describe("platform routes", () => {
     expect(getPathForRoute("media")).toBe("/midia");
   });
 
+  it("maps the automations center both ways", () => {
+    expect(getAppRouteFromPath("/automacoes")).toBe("automations");
+    expect(getPathForRoute("automations")).toBe("/automacoes");
+  });
+
   it("maps the creators module both ways", () => {
     expect(getAppRouteFromPath("/criadores")).toBe("creators");
     expect(getPathForRoute("creators")).toBe("/criadores");

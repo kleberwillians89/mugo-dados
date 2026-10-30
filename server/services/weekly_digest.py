@@ -51,6 +51,10 @@ async def run_client(client_id: str) -> Dict[str, Any]:
     if not summary["channels"]:
         result.update(ok=True, message="sem_investimento_na_semana")
         return result
+    from .automations import is_enabled
+    if not await is_enabled("convite_resumo"):
+        result.update(ok=True, message="automacao_desativada")  # aprendizado gravado; convite desligado na central
+        return result
     contacts = [c for c in await list_contacts(client_id) if "trafego" in (c.get("receives") or [])]
     if not contacts:
         result.update(ok=True, message="sem_contato")  # aprendizado gravado; mensagem sai quando houver número

@@ -80,6 +80,8 @@ export default function AppNavigation({
   const adminItems: NavItem[] = [];
   if (showIntegrations) adminItems.push({ route: "integrations", label: "Integrações" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
+  // Configurações → WhatsApp → Automações: central da equipe Mugô.
+  if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
   const roleLabel = activeClient?.role ? ACCOUNT_ROLE_LABELS[activeClient.role] || null : null;
