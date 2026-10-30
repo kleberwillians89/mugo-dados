@@ -77,16 +77,11 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
         item = {"id": I1, "scheduled_at": "2026-11-03T22:00:00+00:00", "format": "reels", "pillar": "P", "title": "T",
                 "hook": "H", "caption_draft": "C", "status": "em_revisao"}
         reads = AsyncMock(side_effect=[[request_row()], [item], [{"item_id": I1, "action": "aprovado", "comment": None}], [{"name": "Roove"}]])
-        art = [{"id": "a1", "kind": "imagem", "url": "https://sb/signed"}]
-        attach = AsyncMock(side_effect=lambda cid, items, public: [{**i, "assets": art} for i in items])
-        with patch.object(sa, "sb_select", reads), patch.object(sa, "attach_assets", attach):
+        with patch.object(sa, "sb_select", reads):
             view = await sa.public_view(TOKEN)
         self.assertEqual(reads.await_args_list[0].kwargs["filters"], {"token_hash": f"eq.{sa.hash_token(TOKEN)}"})
         self.assertEqual(reads.await_args_list[1].kwargs["filters"]["client_id"], "eq.roove")
-        self.assertEqual(attach.await_args.args[0], "roove")
-        self.assertTrue(attach.await_args.kwargs["public"])  # arte com campos mínimos e URL assinada curta
-        self.assertEqual(set(view["items"][0]), {"id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "assets", "decision", "comment"})
-        self.assertEqual(view["items"][0]["assets"], art)
+        self.assertEqual(set(view["items"][0]), {"id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "decision", "comment"})
         self.assertEqual(view["items"][0]["decision"], "aprovado")
         self.assertEqual(view["client_name"], "Roove")
 

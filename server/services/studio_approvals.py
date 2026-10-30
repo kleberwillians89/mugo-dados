@@ -22,7 +22,6 @@ from urllib.parse import quote
 import httpx
 
 from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_update
-from .studio_assets import attach_assets
 from .studio_calendar import ITEMS_TABLE, StudioError, parse_month
 
 REQUESTS = "studio_approval_requests"
@@ -170,14 +169,13 @@ async def public_view(token: str) -> Dict[str, Any]:
     latest: Dict[str, Dict[str, Any]] = {}
     for event in events:
         latest.setdefault(str(event["item_id"]), event)
-    items = await attach_assets(request["client_id"], items, public=True)
     return {
         "client_name": await _client_name(request["client_id"]),
         "month": request["month"],
         "contact_name": request.get("contact_name"),
         "status": request["status"],
         "expires_at": request["expires_at"],
-        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "assets")},
+        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft")},
                    "decision": (latest.get(str(item["id"])) or {}).get("action"),
                    "comment": (latest.get(str(item["id"])) or {}).get("comment")} for item in items],
     }

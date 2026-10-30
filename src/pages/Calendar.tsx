@@ -13,7 +13,6 @@ import Drawer from "../components/Drawer";
 import PostModal from "../components/studio/PostModal";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
-import { listAssets, setItemAssets, uploadAsset, type StudioAsset } from "../app/studioAssets";
 import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
 import "../styles/studio.css";
 
@@ -49,9 +48,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean } | null>(null);
   const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: "mugozap" | "wa_link" }>({ list: [], channel: "wa_link" });
-  const [guides, setGuides] = useState<StudioAsset[]>([]);
-  const [guideId, setGuideId] = useState("");
-  const [suggestion, setSuggestion] = useState<{ notes: string[]; used_guide: boolean; based_on: BasedOn } | null>(null);
+  const [suggestion, setSuggestion] = useState<{ notes: string[]; based_on: BasedOn } | null>(null);
   const [chat, setChat] = useState<{ open: boolean; turns: ChatTurn[]; input: string; actions: string[]; basis: BasedOn | null }>({ open: false, turns: [], input: "", actions: [], basis: null });
   const [sent, setSent] = useState<ApprovalCreated | null>(null);
 
@@ -146,15 +143,6 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     if (result) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); }
   }
 
-  async function saveAssets(assets: StudioAsset[]) {
-    const current = modal?.item; if (!current) return false;
-    const result = await run("assets", () => setItemAssets(current.id, assets.map((a) => a.id)), "Não foi possível salvar a arte da pauta.");
-    if (!result) return false;
-    const item = { ...current, assets: result.assets };
-    replace(item); setModal((m) => (m && m.item?.id === item.id ? { ...m, item } : m));
-    return true;
-  }
-
   async function removeCurrent() {
     const current = modal?.item; if (!current || !window.confirm(`Excluir a pauta “${current.title}”?`)) return;
     const ok = await run("delete", () => deleteCalendarItem(current.id), "Não foi possível excluir a pauta.");
@@ -191,17 +179,11 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     setError(null);
     const data = await run("profile", () => getBrandProfile(), "Não foi possível carregar o perfil da marca.");
     if (data) { setProfile(data.profile); setProfileOpen(true); setSuggestion(null); }
-    listAssets({ kind: "pdf" }).then((d) => setGuides(d.assets)).catch(() => setGuides([]));
-  }
-
-  async function sendGuide(file: File) {
-    const asset = await run("guide", () => uploadAsset(file, { folder: "Guia da marca" }), "Não foi possível enviar o guia.");
-    if (asset) { setGuides((all) => [asset, ...all.filter((g) => g.id !== asset.id)]); setGuideId(asset.id); }
   }
 
   async function suggestProfile() {
-    const result = await run("suggest", () => suggestBrandProfile(guideId || undefined), "Não foi possível sugerir o perfil.");
-    if (result) { setProfile(result.profile); setSuggestion({ notes: result.notes, used_guide: result.used_guide, based_on: result.based_on }); }
+    const result = await run("suggest", () => suggestBrandProfile(), "Não foi possível sugerir o perfil.");
+    if (result) { setProfile(result.profile); setSuggestion({ notes: result.notes, based_on: result.based_on }); }
   }
 
   async function ask(event: FormEvent) {
@@ -260,7 +242,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     {view === "dia" ? <DayView day={cursor} {...common} /> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
-      canManage={canManage} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} onAssets={saveAssets} /> : null}
+      canManage={canManage} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} /> : null}
 
     <Drawer open={Boolean(sending)} title="Enviar ao cliente" description="Gera um link sem login para o cliente aprovar ou pedir ajuste. Válido por 14 dias." width="lg" onClose={() => { if (!busy) setSending(null); }}>
       {sending ? <form className="studioForm" onSubmit={submitSend}>
@@ -320,15 +302,11 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
       {profile ? <form className="studioForm" onSubmit={submitProfile}>
         <div className="aiBrand">
           <strong>✦ Brand Manager (IA)</strong>
-          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações) e do guia da marca em PDF, se enviado. Nada é salvo antes de você revisar.</p>
+          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações). Nada é salvo antes de você revisar.</p>
           <div className="studioRow">
-            {guides.length ? <label>Guia da marca<select value={guideId} onChange={(e) => setGuideId(e.target.value)}>
-              <option value="">Sem guia</option>{guides.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label> : null}
-            <label className="ds-button">{busy === "guide" ? "Enviando guia…" : guides.length ? "Enviar outro PDF" : "Enviar guia em PDF"}
-              <input type="file" accept="application/pdf" hidden disabled={Boolean(busy)} onChange={(e) => { const file = e.target.files?.[0]; e.currentTarget.value = ""; if (file) void sendGuide(file); }} /></label>
             <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggestProfile()}>{busy === "suggest" ? "Analisando… (até 1 min)" : "Sugerir perfil com IA"}</button>
           </div>
-          {suggestion ? <div className="aiResult"><p className="aiBasis">{basedOnText(suggestion.based_on)}{suggestion.used_guide ? " Guia da marca lido." : ""}</p>
+          {suggestion ? <div className="aiResult"><p className="aiBasis">{basedOnText(suggestion.based_on)}</p>
             <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul><p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
         </div>
         <label>Tom de voz<textarea rows={3} maxLength={1000} value={profile.tone_of_voice} onChange={(e) => setProfile({ ...profile, tone_of_voice: e.target.value })} /></label>

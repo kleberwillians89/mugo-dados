@@ -428,14 +428,6 @@ async def _approval_params(client_id: str, kind: str, request_id: Optional[str],
     template = "mugo_lembrete_aprovacao"
     if kind == "aprovacao":
         template = "mugo_conteudo_aprovacao"
-        from .studio_assets import item_assets
-        try:
-            arts = await item_assets(client_id, ids[:20], public=True)
-        except StudioError:
-            arts = {}
-        cover = next((a for i in ids for a in arts.get(i, []) if a.get("kind") == "imagem" and a.get("url")), None)
-        if cover:
-            template, header_image = "mugo_conteudo_aprovacao_arte", cover["url"]
     params = {"_template": template, "nome": first_name(contact.get("name")), "marca": brand,
               "quantidade": str(len(ids)), "pendentes": str(len(pending)), "mes": MONTHS[month.month - 1],
               "validade": br_date(request["expires_at"])}

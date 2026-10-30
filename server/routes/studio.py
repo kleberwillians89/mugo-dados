@@ -28,9 +28,6 @@ from services.studio_messages import (
     TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
     save_contact, send_message,
 )
-from services.studio_assets import (
-    attach_assets, confirm_upload, delete_asset, list_assets, request_upload, set_item_assets, update_asset,
-)
 from services.tenant import require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
@@ -142,7 +139,7 @@ async def read_calendar(client_id: str, month: str, authorization: str | None = 
         target = parse_month(month)
     except StudioError as exc:
         raise _http(exc) from None
-    return {"month": target.isoformat(), "items": await attach_assets(cid, await list_items(cid, target))}
+    return {"month": target.isoformat(), "items": await list_items(cid, target)}
 
 
 @router.post("/calendar/generate")
@@ -150,10 +147,9 @@ async def generate_calendar(client_id: str, body: GenerateInput, authorization: 
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     try:
-        result = await generate_month(cid, body.month, user_id=uid)
+        return await generate_month(cid, body.month, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
-    return {**result, "items": await attach_assets(cid, result.get("items") or [])}
 
 
 @router.post("/calendar/items", status_code=201)
@@ -174,7 +170,7 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
         item = await update_item(cid, str(item_id), body.model_dump(mode="json", exclude_none=True), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
-    return {"ok": True, "item": (await attach_assets(cid, [item]))[0]}
+    return {"ok": True, "item": item}
 
 
 @router.delete("/calendar/items/{item_id}")
@@ -187,124 +183,6 @@ async def remove_item(client_id: str, item_id: UUID, authorization: str | None =
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- biblioteca e arte na pauta
-
-
-ERRORS.update({
-    "STORAGE_NOT_CONFIGURED": (503, "O armazenamento de arquivos ainda não está configurado no backend."),
-    "STORAGE_ERROR": (502, "O armazenamento de arquivos não respondeu. Tente novamente."),
-    "TYPE_NOT_ALLOWED": (422, "Tipo de arquivo não aceito. Use JPG, PNG, WEBP, MP4, MOV ou PDF."),
-    "SIZE_INVALID": (422, "Tamanho de arquivo inválido."),
-    "FILE_TOO_LARGE": (413, "Arquivo grande demais. Limites: imagem 15 MB, vídeo 200 MB, PDF 30 MB."),
-    "NAME_INVALID": (422, "Dê um nome ao arquivo."),
-    "KIND_INVALID": (422, "Tipo inválido."),
-    "TOO_MANY_PENDING": (429, "Muitos envios em andamento. Aguarde alguns minutos."),
-    "ASSET_NOT_FOUND": (404, "Arquivo não encontrado nesta empresa."),
-    "ASSET_NOT_UPLOADED": (409, "O arquivo ainda não chegou ao armazenamento. Envie de novo."),
-    "TYPE_MISMATCH": (422, "O conteúdo do arquivo não corresponde ao tipo informado. Ele foi descartado."),
-    "ASSETS_DUPLICATED": (422, "A mesma mídia aparece duas vezes."),
-    "TOO_MANY_ASSETS": (422, "Uma pauta aceita no máximo 20 mídias."),
-    "ASSETS_INVALID": (422, "Alguma mídia não existe nesta empresa ou ainda não terminou de subir."),
-    "ASSET_KIND_INVALID": (422, "Na pauta entram só imagens e vídeos. PDFs ficam na Biblioteca."),
-})
-
-AssetKind = Literal["imagem", "video", "pdf"]
-
-
-class UploadRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    file_name: str = Field(min_length=1, max_length=255)
-    mime_type: str = Field(min_length=3, max_length=100)
-    size_bytes: int = Field(gt=0)
-    folder: Optional[str] = Field(default=None, max_length=80)
-    tags: List[str] = Field(default_factory=list, max_length=20)
-    with_thumb: bool = False
-
-
-class UploadConfirm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    width: Optional[int] = Field(default=None, ge=1, le=20000)
-    height: Optional[int] = Field(default=None, ge=1, le=20000)
-    duration_seconds: Optional[float] = Field(default=None, ge=0, le=86400)
-
-
-class AssetPatch(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
-    folder: Optional[str] = Field(default=None, max_length=80)
-    tags: Optional[List[str]] = Field(default=None, max_length=20)
-
-
-class ItemAssetsInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    asset_ids: List[UUID] = Field(default_factory=list, max_length=20)
-
-
-@router.get("/assets")
-async def read_assets(client_id: str, folder: Optional[str] = None, tag: Optional[str] = None,
-                      kind: Optional[AssetKind] = None, q: Optional[str] = None,
-                      authorization: str | None = Header(default=None)):
-    cid = await require_client_read(client_id, authorization)
-    try:
-        return await list_assets(cid, folder=folder, tag=tag, kind=kind, q=q)
-    except StudioError as exc:
-        raise _http(exc) from None
-
-
-@router.post("/assets/upload-url", status_code=201)
-async def new_asset_upload(client_id: str, body: UploadRequest, authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    uid = await require_user_id(authorization)
-    try:
-        return await request_upload(cid, file_name=body.file_name, mime_type=body.mime_type, size_bytes=body.size_bytes,
-                                    folder=body.folder, tags=body.tags, with_thumb=body.with_thumb, user_id=uid)
-    except StudioError as exc:
-        raise _http(exc) from None
-
-
-@router.post("/assets/{asset_id}/confirm")
-async def confirm_asset_upload(client_id: str, asset_id: UUID, body: UploadConfirm,
-                               authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    try:
-        asset = await confirm_upload(cid, str(asset_id), width=body.width, height=body.height,
-                                     duration_seconds=body.duration_seconds)
-    except StudioError as exc:
-        raise _http(exc) from None
-    return {"ok": True, "asset": asset}
-
-
-@router.patch("/assets/{asset_id}")
-async def edit_asset(client_id: str, asset_id: UUID, body: AssetPatch, authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    try:
-        asset = await update_asset(cid, str(asset_id), body.model_dump(mode="json", exclude_unset=True))
-    except StudioError as exc:
-        raise _http(exc) from None
-    return {"ok": True, "asset": asset}
-
-
-@router.delete("/assets/{asset_id}")
-async def remove_asset(client_id: str, asset_id: UUID, authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    try:
-        await delete_asset(cid, str(asset_id))
-    except StudioError as exc:
-        raise _http(exc) from None
-    return {"ok": True}
-
-
-@router.put("/calendar/items/{item_id}/assets")
-async def write_item_assets(client_id: str, item_id: UUID, body: ItemAssetsInput,
-                            authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    try:
-        assets = await set_item_assets(cid, str(item_id), [str(a) for a in body.asset_ids])
-    except StudioError as exc:
-        raise _http(exc) from None
-    return {"ok": True, "item_id": str(item_id), "assets": assets}
-
-
 # ---------------------------------------------------------------- motores de conteúdo
 
 
@@ -312,9 +190,6 @@ ERRORS.update({
     "ITEM_TITLE_REQUIRED": (422, "Dê um título à pauta antes de pedir ajuda à IA."),
     "CHAT_EMPTY": (422, "Escreva uma pergunta."),
     "AI_RATE_LIMIT": (429, "Muitos pedidos à IA em sequência. Aguarde um minuto."),
-    "GUIDE_NOT_FOUND": (404, "Guia da marca não encontrado na Biblioteca (precisa ser um PDF)."),
-    "GUIDE_TOO_LARGE": (413, "Guia grande demais para leitura (máx. 12 MB)."),
-    "GUIDE_UNREADABLE": (422, "Não consegui ler o texto desse PDF (pode ser só imagem)."),
 })
 
 AssistAction = Literal["legenda", "variacoes", "ganchos", "hashtags", "roteiro_reels", "revisar"]
@@ -350,8 +225,9 @@ class ChatInput(BaseModel):
 
 
 class SuggestInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    guide_asset_id: Optional[UUID] = None
+    # Sem campos desde a remoção da Biblioteca (o guia em PDF saiu junto).
+    # "ignore" mantém compatível um navegador com a versão anterior em cache.
+    model_config = ConfigDict(extra="ignore")
 
 
 @router.get("/intelligence")
@@ -382,7 +258,7 @@ async def run_strategy_chat(client_id: str, body: ChatInput, authorization: str 
 async def run_profile_suggestion(client_id: str, body: SuggestInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     try:
-        return await suggest_profile(cid, guide_asset_id=str(body.guide_asset_id) if body.guide_asset_id else None)
+        return await suggest_profile(cid)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -462,10 +338,9 @@ async def cancel_approval(client_id: str, request_id: UUID, authorization: str |
 async def read_pipeline(client_id: str, month: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
     try:
-        data = await pipeline(cid, month)
+        return await pipeline(cid, month)
     except StudioError as exc:
         raise _http(exc) from None
-    return {**data, "items": await attach_assets(cid, data["items"])}
 
 
 # ---------------------------------------------------------------- contatos e mensagens (MugôZap)

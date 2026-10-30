@@ -104,9 +104,6 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-weekly-digest":
         from services.weekly_digest import run_weekly_digest
         return await run_weekly_digest(args.client_id)
-    if args.command == "studio-assets-cleanup":
-        from services.studio_assets import cleanup_pending
-        return await cleanup_pending(older_than_hours=args.hours)
     if args.command == "attribution-backfill":
         from services.sales_by_origin import reprocess_unknown_origins
         return await reprocess_unknown_origins(args.client_id, dry_run=args.dry_run)
@@ -225,11 +222,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
 
-    studio_cleanup = sub.add_parser(
-        "studio-assets-cleanup",
-        help="Apaga uploads da Biblioteca do Studio que nunca foram confirmados (arquivo e linha 'pendente').",
-    )
-    studio_cleanup.add_argument("--hours", type=int, default=24, help="Idade mínima do pendente, em horas.")
 
     fbits_reconcile = sub.add_parser(
         "fbits-reconcile",

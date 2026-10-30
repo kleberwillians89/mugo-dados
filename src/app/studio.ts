@@ -1,5 +1,4 @@
 import { http, clientClientPath, publicHttp } from "./api";
-import type { StudioAsset } from "./studioAssets";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
@@ -26,7 +25,6 @@ export type CalendarItem = {
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual";
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
-  assets?: StudioAsset[];
   /** Impulsionamento previsto no plano do Mídia On salvo para o mês (só na tela). */
   boost?: { start: string; end: string; budget: number; why: string };
 };
@@ -88,7 +86,7 @@ export function sendForApproval(input: { month: string; item_ids: string[]; cont
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
-export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "assets"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
+export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
 export type PublicApproval = { client_name: string; month: string; contact_name: string | null; status: string; expires_at: string; items: PublicApprovalItem[] };
 export function getPublicApproval(token: string) { return publicHttp<PublicApproval>(`/api/public/approvals/${encodeURIComponent(token)}`); }
 export function decidePublicApproval(token: string, itemId: string, body: { action: "aprovado" | "ajuste_solicitado"; comment?: string; reviewer_name?: string }) {
@@ -129,8 +127,8 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 export function strategyChat(month: string, messages: ChatTurn[]) {
   return http<{ reply: string; suggested_actions: string[]; based_on: BasedOn }>(base("/strategy/chat"), { method: "POST", body: JSON.stringify({ month, messages }), timeoutMs: 100_000 });
 }
-export function suggestBrandProfile(guideAssetId?: string) {
-  return http<{ profile: BrandProfile; notes: string[]; used_guide: boolean; based_on: BasedOn }>(base("/brand-profile/suggest"), { method: "POST", body: JSON.stringify({ guide_asset_id: guideAssetId || undefined }), timeoutMs: 120_000 });
+export function suggestBrandProfile() {
+  return http<{ profile: BrandProfile; notes: string[]; based_on: BasedOn }>(base("/brand-profile/suggest"), { method: "POST", body: JSON.stringify({}), timeoutMs: 120_000 });
 }
 
 // ------------------------------------------------------------ aprovação: funil, contatos e mensagens
