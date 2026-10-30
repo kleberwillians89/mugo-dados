@@ -86,7 +86,7 @@ vi.mock("./app/api", () => ({
 // (mesma causa dos testes de baseline já vermelhos). Store em memória.
 const activeClientStore = vi.hoisted(() => ({ current: null as { id: string; name: string; role: string | null } | null }));
 vi.mock("./app/activeClient", () => ({
-  MUGO_APP_NAME: "Mugô Dados",
+  MUGO_APP_NAME: "MUGOVERSO",
   canonicalizeClientId: (value: string | null | undefined) => String(value || "").trim(),
   getActiveClient: () => activeClientStore.current,
   getActiveClientName: () => activeClientStore.current?.name || "Cliente",
@@ -571,8 +571,8 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
     expect(container.textContent).not.toMatch(/Curavino|Roove|Ruah|Rüah|Latina/);
     expect(clientLogos().length).toBeGreaterThan(0);
     expect(clientLogos().every((src) => src === "/clients/origami.png")).toBe(true);
-    // "Mugô Dados" é o produto; a Mugô como empresa analisada não aparece.
-    expect(container.querySelector(".appSidebar")?.textContent).toContain("Mugô Dados");
+    // "Mugoverso" é o produto; a Mugô como empresa analisada não aparece.
+    expect(container.querySelector(".appSidebar")?.textContent).toContain("MUGOVERSO");
     expect(company?.textContent).not.toContain("Mugô");
     expect(container.querySelector('img[src="/clients/mugo.png"]')).toBeNull();
   });

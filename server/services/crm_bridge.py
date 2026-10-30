@@ -1,5 +1,5 @@
 """
-Ponte somente leitura Mugô Dados -> CRM Mugô (tarefas e atendimento WhatsApp).
+Ponte somente leituro Mugoverso -> CRM Mugô (tarefas e atendimento WhatsApp).
 
 O CRM continua sendo a fonte da verdade: nada é copiado nem guardado aqui. Cada chamada vai à
 função `dados-ops-api` do CRM, que resolve organização + cliente a partir do id da empresa no Dados

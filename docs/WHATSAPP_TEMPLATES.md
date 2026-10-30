@@ -1,6 +1,6 @@
 # Templates de WhatsApp do Studio (MugôZap)
 
-Mensagens enviadas pelo Mugô Dados através do WhatsApp oficial da Mugô (MugôZap, no CRM).
+Mensagens enviadas pelo Mugoverso através do WhatsApp oficial da Mugô (MugôZap, no CRM).
 O Dados **não envia sozinho**: ele chama o `mugozap-api` do CRM, que confere se o template está
 aprovado, se o telefone está cadastrado no CRM, aplica a idempotência e grava o histórico.
 
@@ -19,7 +19,7 @@ Se a Meta pedir mudança no texto, altere nos dois lugares.
    - `MUGOZAP_ANON_KEY` = a anon key do projeto Supabase do CRM
    - `MUGOZAP_WORKER_KEY` = o mesmo valor de `TASK_COMMAND_WORKER_KEY` da função no CRM
    - `MUGOZAP_TEAM_MEMBER_ID` = o id de um membro ativo da equipe no CRM, vinculado a um perfil
-     **admin ou manager** (crie um membro "Mugô Dados" para o histórico ficar claro)
+     **admin ou manager** (crie um membro "Mugoverso" para o histórico ficar claro)
    - `FRONTEND_URL` = o endereço do painel (usado no botão "Ver e aprovar")
 5. Cadastre os contatos do cliente **também no CRM** (cliente ou contato de WhatsApp). O CRM recusa
    telefone que não conhece; no Dados aparece "Esse telefone não está cadastrado no CRM".
@@ -91,7 +91,7 @@ painel (soma de Meta Ads e Google Ads; faturamento da loja; retorno = faturament
 
 **Corpo**
 ```
-Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, faturamento da loja de {{5}} no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no painel Mugô Dados.
+Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, faturamento da loja de {{5}} no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no Mugoverso.
 ```
 **Exemplos:** Ana · Ruah Parfums · 03/11 a 09/11 · R$ 2.350,00 · R$ 14.820,00 · R$ 6,31 · a campanha Remarketing Oud teve o melhor retorno da semana
 

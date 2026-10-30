@@ -68,7 +68,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "kind": "trafego", "header": None,
         "params": ["nome", "marca", "periodo", "investimento", "receita", "roas", "destaque"],
         "body": "Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, faturamento da loja de {{5}} "
-                "no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no painel Mugô Dados.",
+                "no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no Mugoverso.",
         "button": None,
     },
     "mugo_resumo_semanal": {

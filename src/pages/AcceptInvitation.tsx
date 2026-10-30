@@ -141,12 +141,12 @@ export default function AcceptInvitation({ invitations, onAccepted, onSkip, onLo
             )}
           </h1>
           <InviteDetails invitation={single} />
-          <p className="loginLead">Ao aceitar, a empresa passa a aparecer na sua conta do Mugô Dados.</p>
+          <p className="loginLead">Ao aceitar, a empresa passa a aparecer na sua conta do Mugoverso.</p>
         </>
       ) : (
         <>
           <h1 id="invite-title" className="loginTitle">Você foi convidado para {pending.length} empresas</h1>
-          <p className="loginLead">Aceite cada convite para a empresa aparecer na sua conta do Mugô Dados.</p>
+          <p className="loginLead">Aceite cada convite para a empresa aparecer na sua conta do Mugoverso.</p>
         </>
       )}
 

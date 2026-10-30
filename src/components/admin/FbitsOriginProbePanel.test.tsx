@@ -17,7 +17,7 @@ const COMPANIES = [
 
 const SUMMARY = {
   pedidos_analisados: 3,
-  veredito: "2 de 3 pedidos têm UTM em campos que o Mugô Dados já lê. A captura vai funcionar.",
+  veredito: "2 de 3 pedidos têm UTM em campos que o Mugoverso já lê. A captura vai funcionar.",
   origem_por_tipo: { utm: 2, none: 1 },
   canal_calculado: { paid_social: 2, unknown: 1 },
   campos_no_topo_encontrados: { origem: 3 },

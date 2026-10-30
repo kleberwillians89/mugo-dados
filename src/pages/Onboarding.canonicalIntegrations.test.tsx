@@ -18,7 +18,7 @@ vi.mock("../app/activeClient", () => ({
   getActiveClientId: () => mocks.activeClientId,
   getActiveClientName: () => "Amalie",
   getActiveClientConfigurationWarning: () => null,
-  MUGO_APP_NAME: "Mugô Dados",
+  MUGO_APP_NAME: "Mugoverso",
 }));
 
 vi.mock("../app/connectionState", () => ({

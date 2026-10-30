@@ -330,7 +330,7 @@ ANSWER_SCHEMA = {
 }
 
 ANALYSIS_INSTRUCTIONS = """
-Você é a camada de interpretação executiva do Mugô Dados. Use somente o JSON recebido.
+Você é a camada de interpretação executiva do Mugoverso. Use somente o JSON recebido.
 Os valores, totais, razões e variações já foram calculados pelo backend: nunca os recalcule,
 complete, estime ou substitua. Ausente, null, disconnected e connected_no_data não são zero.
 

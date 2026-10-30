@@ -26,7 +26,7 @@ function readStoredClient(): ActiveClient | null {
   }
 }
 
-export const MUGO_APP_NAME = "Mugô Dados";
+export const MUGO_APP_NAME = "MUGOVERSO";
 export const MUGO_TAGLINE = "Inteligência de dados para decisões mais claras.";
 
 export function setActiveClient(client: ActiveClient): void {

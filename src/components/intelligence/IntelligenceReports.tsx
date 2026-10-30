@@ -80,7 +80,7 @@ export function IntelligenceReportDocument({ report }: { report: IntelligenceRep
       <p>Evidência: {metrics.get(action.metric_id)!.label}: {formatMetric(metrics.get(action.metric_id)!)}</p><p>Indicador de acompanhamento: {metrics.get(action.metric_id)!.label} · {sourceLabel(metrics.get(action.metric_id)!.source)}. Base: {reportDate(record.period_start)} — {reportDate(record.period_end)}.</p>
       {action.impact_expected ? <p>Impacto esperado (hipótese): {action.impact_expected}</p> : null}
     </li>)}</ol> : <p>Não há ações prioritárias com evidências suficientes. Nenhuma ação foi inventada para completar a lista.</p>}</section>
-    <footer>Mugô Dados · Relatório baseado na análise validada e nos dados persistidos da empresa. Recomendações são hipóteses, não garantias de resultado.</footer>
+    <footer>Mugoverso · Relatório baseado na análise validada e nos dados persistidos da empresa. Recomendações são hipóteses, não garantias de resultado.</footer>
   </article>;
 }
 

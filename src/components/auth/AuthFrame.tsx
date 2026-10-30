@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { LEGAL_CONTACT } from "../../app/legalContact";
-import { MUGO_LOGO_ASSETS } from "../MugoLogo";
+import { MUGO_LOGO_ASSETS, MUGO_LOGO_VIDEO, PRODUCT_WORDMARK } from "../MugoLogo";
 import "../../styles/Login.css";
 
 type Props = {
@@ -18,17 +18,21 @@ export default function AuthFrame({ labelledBy, children }: Props) {
   return (
     <div className="loginPage">
       <main className="loginLayout">
-        <section className="loginIntro" aria-label="Mugô Dados">
+        <section className="loginIntro" aria-label="Mugoverso">
           <p className="loginProduct">
-            <span className="loginProductMark" aria-hidden="true">
-              <img src={MUGO_LOGO_ASSETS.symbol} alt="" />
-            </span>
-            <span className="loginProductName">Mugô Dados</span>
+            <span className="loginProductName">{PRODUCT_WORDMARK}</span>
           </p>
+          <div className="loginStage">
+            {/* Logo girando acima da frase. Sem som, em loop; quem prefere menos movimento vê o logo parado. */}
+            <video className="loginLogoVideo" autoPlay muted loop playsInline preload="auto" poster={MUGO_LOGO_VIDEO.poster} aria-hidden="true">
+              <source src={MUGO_LOGO_VIDEO.mp4} type="video/mp4" />
+            </video>
+            <img className="loginLogoStill" src={MUGO_LOGO_ASSETS.mark3d} alt="" aria-hidden="true" />
           <p className="loginStatement">
             <span>Dados claros.</span>
             <span className="loginStatementSecond">Decisões melhores.</span>
           </p>
+          </div>
         </section>
 
         <section className="loginPanel" aria-labelledby={labelledBy}>

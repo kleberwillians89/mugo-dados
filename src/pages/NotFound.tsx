@@ -8,7 +8,7 @@ export default function NotFound({ onGoHome }: Props) {
       <section className="routeStateCard">
         <span className="routeStateCode">404</span>
         <h1>Página não encontrada</h1>
-        <p>O endereço informado não existe no Mugô Dados.</p>
+        <p>O endereço informado não existe no Mugoverso.</p>
         <button className="btn btnPrimary" type="button" onClick={onGoHome}>
           Voltar ao dashboard
         </button>

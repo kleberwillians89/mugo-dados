@@ -7,7 +7,7 @@ const LAST_UPDATED = "29 de setembro de 2026";
 /*
  * REVISÃO JURÍDICA PENDENTE — marcada em data-legal-status em cada página:
  * - "review-pending": documento já publicado e preservado como está. O texto
- *   foi escrito para a integração Meta e não cobre todo o Mugô Dados
+ *   foi escrito para a integração Meta e não cobre todo o Mugoverso
  *   (Google/GA4/Google Ads, Shopify, FBITS, IA, contas de usuário). Validar
  *   juridicamente antes da abertura definitiva para clientes.
  * - "pending": documento que ainda não existe (Termos de Uso). Nenhum texto
@@ -19,7 +19,7 @@ function LegalHeader({ title, summary, updated = LAST_UPDATED }: { title: string
   return (
     <>
       <header className="legalHeader">
-        <a className="legalBrand" href="/" aria-label="Mugô Dados — página inicial">
+        <a className="legalBrand" href="/" aria-label="Mugoverso — página inicial">
           <MugoLogo variant="responsive" />
         </a>
         <nav aria-label="Documentos legais">
@@ -30,7 +30,7 @@ function LegalHeader({ title, summary, updated = LAST_UPDATED }: { title: string
         </nav>
       </header>
       <section className="legalHero">
-        <p className="legalEyebrow">Mugô Dados</p>
+        <p className="legalEyebrow">Mugoverso</p>
         <h1>{title}</h1>
         <p>{summary}</p>
         {updated ? <small>Última atualização: {updated}</small> : null}
@@ -42,7 +42,7 @@ function LegalHeader({ title, summary, updated = LAST_UPDATED }: { title: string
 function LegalFooter() {
   return (
     <footer className="legalFooter">
-      <strong>Mugô Dados</strong>
+      <strong>Mugoverso</strong>
       <span>Plataforma de dados e inteligência da Mugô.</span>
       <nav aria-label="Links legais do rodapé">
         <a href="/privacidade">Privacidade</a>
@@ -50,7 +50,7 @@ function LegalFooter() {
         <a href="/protecao-de-dados">Proteção de dados</a>
         <a href="/exclusao-de-dados">Exclusão de dados</a>
       </nav>
-      <a href="/">Voltar ao acesso do Mugô Dados</a>
+      <a href="/">Voltar ao acesso do Mugoverso</a>
     </footer>
   );
 }
@@ -60,13 +60,13 @@ export function PrivacyPage() {
     <main className="legalPage" data-public-route="privacy" data-legal-status="review-pending">
       <LegalHeader
         title="Política de Privacidade"
-        summary="Esta política explica como o Mugô Dados trata informações autorizadas pelas empresas que conectam seus ativos da Meta à plataforma."
+        summary="Esta política explica como o Mugoverso trata informações autorizadas pelas empresas que conectam seus ativos da Meta à plataforma."
       />
       <article className="legalContent">
         <section>
-          <h2>1. Sobre o Mugô Dados</h2>
+          <h2>1. Sobre o Mugoverso</h2>
           <p>
-            O Mugô Dados é uma plataforma analítica utilizada por empresas atendidas pela Mugô para
+            O Mugoverso é uma plataforma analítica utilizada por empresas atendidas pela Mugô para
             consolidar indicadores de marketing, conteúdo e mídia paga. Cada empresa acessa seu próprio
             ambiente e escolhe quais ativos deseja conectar.
           </p>
@@ -74,7 +74,7 @@ export function PrivacyPage() {
 
         <section>
           <h2>2. Dados acessados na integração com a Meta</h2>
-          <p>Quando uma pessoa autorizada conecta a Meta, o Mugô Dados pode acessar:</p>
+          <p>Quando uma pessoa autorizada conecta a Meta, o Mugoverso pode acessar:</p>
           <ul>
             <li>identificação básica da conta Meta que realizou a autorização;</li>
             <li>Páginas do Facebook disponíveis para essa conta;</li>
@@ -84,7 +84,7 @@ export function PrivacyPage() {
             <li>Business Managers disponíveis, para apoiar a identificação dos ativos no onboarding.</li>
           </ul>
           <p>
-            O Mugô Dados utiliza somente os ativos escolhidos durante a configuração. A integração não é
+            O Mugoverso utiliza somente os ativos escolhidos durante a configuração. A integração não é
             destinada a contas pessoais do Instagram que não estejam disponíveis como conta profissional.
           </p>
         </section>
@@ -117,9 +117,9 @@ export function PrivacyPage() {
         <section>
           <h2>5. Compartilhamento e acesso</h2>
           <p>
-            As informações ficam disponíveis no Mugô Dados para as pessoas autorizadas da empresa e para a
+            As informações ficam disponíveis no Mugoverso para as pessoas autorizadas da empresa e para a
             equipe responsável pela operação e suporte da plataforma, conforme as permissões de acesso. O
-            Mugô Dados não publica tokens de acesso nem os disponibiliza como parte dos relatórios.
+            Mugoverso não publica tokens de acesso nem os disponibiliza como parte dos relatórios.
           </p>
         </section>
 
@@ -148,7 +148,7 @@ export function PrivacyPage() {
           <p>
             Para questões de privacidade, utilize o canal de atendimento da Mugô informado no contrato,
             proposta ou onboarding da sua empresa. Informe o nome da empresa e indique que o assunto é
-            “Privacidade — Mugô Dados”.
+            “Privacidade — Mugoverso”.
           </p>
           <p data-legal-contact="privacy">
             Contato de privacidade: <strong>{LEGAL_CONTACT}</strong>
@@ -172,7 +172,7 @@ export function DataDeletionPage() {
           <h2>Como solicitar</h2>
           <p>
             Envie a solicitação pelo canal de atendimento da Mugô informado no contrato, proposta ou
-            onboarding da sua empresa. Use o assunto “Exclusão de dados — Mugô Dados”. A exclusão não é
+            onboarding da sua empresa. Use o assunto “Exclusão de dados — Mugoverso”. A exclusão não é
             automática: a equipe verifica a identidade e o vínculo da pessoa solicitante antes de executar
             a remoção aplicável.
           </p>
@@ -185,7 +185,7 @@ export function DataDeletionPage() {
           <h2>Informações necessárias</h2>
           <p>Inclua na solicitação:</p>
           <ul>
-            <li>nome da empresa conectada ao Mugô Dados;</li>
+            <li>nome da empresa conectada ao Mugoverso;</li>
             <li>nome e e-mail profissional da pessoa solicitante;</li>
             <li>nome da conta Meta que realizou a autorização, quando disponível;</li>
             <li>Página, Instagram profissional ou conta de anúncios envolvidos;</li>
@@ -203,7 +203,7 @@ export function DataDeletionPage() {
             Além de solicitar a exclusão à Mugô, a pessoa administradora pode revogar a autorização do
             aplicativo nas configurações de integrações empresariais da Meta. A revogação impede novas
             consultas com aquela autorização, mas não substitui o pedido de exclusão do histórico já
-            importado no Mugô Dados.
+            importado no Mugoverso.
           </p>
         </section>
 
@@ -219,7 +219,7 @@ export function DataDeletionPage() {
         <section>
           <h2>Dúvidas</h2>
           <p>
-            Use o canal de atendimento já fornecido à sua empresa e mencione “Mugô Dados” para que a
+            Use o canal de atendimento já fornecido à sua empresa e mencione “Mugoverso” para que a
             solicitação seja encaminhada à equipe responsável.
           </p>
         </section>
@@ -234,13 +234,13 @@ export function DataProtectionPage() {
     <main className="legalPage" data-public-route="data-protection" data-legal-status="review-pending">
       <LegalHeader
         title="Proteção de dados"
-        summary="Conheça as práticas aplicadas pelo Mugô Dados para limitar acessos e proteger informações das empresas usuárias."
+        summary="Conheça as práticas aplicadas pelo Mugoverso para limitar acessos e proteger informações das empresas usuárias."
       />
       <article className="legalContent">
         <section>
           <h2>Controles de acesso</h2>
           <p>
-            O acesso ao Mugô Dados exige autenticação. As permissões são definidas por papéis, e cada pessoa
+            O acesso ao Mugoverso exige autenticação. As permissões são definidas por papéis, e cada pessoa
             acessa somente as funções e empresas para as quais possui autorização. Operações administrativas
             sensíveis possuem verificações adicionais no backend.
           </p>
@@ -278,7 +278,7 @@ export function DataProtectionPage() {
           <p>
             Para comunicar uma preocupação de segurança ou fazer uma solicitação sobre dados, utilize o canal
             de atendimento informado no contrato, proposta ou onboarding da sua empresa. Informe o nome da
-            empresa e mencione “Proteção de dados — Mugô Dados”.
+            empresa e mencione “Proteção de dados — Mugoverso”.
           </p>
           <p>
             Consulte também a <a href="/privacidade">Política de Privacidade</a> e as instruções de
@@ -302,13 +302,13 @@ export function TermsPage() {
     <main className="legalPage" data-public-route="terms" data-legal-status="pending">
       <LegalHeader
         title="Termos de Uso"
-        summary="Documento em elaboração. O texto dos Termos de Uso do Mugô Dados ainda não foi publicado."
+        summary="Documento em elaboração. O texto dos Termos de Uso do Mugoverso ainda não foi publicado."
         updated={null}
       />
       <article className="legalContent">
         <section>
           <h2>Documento pendente</h2>
-          <p>Esta página receberá os Termos de Uso oficiais do Mugô Dados.</p>
+          <p>Esta página receberá os Termos de Uso oficiais do Mugoverso.</p>
           <p data-legal-contact="terms">
             Dúvidas sobre o uso da plataforma ou sobre privacidade: <strong>{LEGAL_CONTACT}</strong>
           </p>

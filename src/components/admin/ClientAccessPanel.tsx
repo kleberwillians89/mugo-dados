@@ -154,7 +154,7 @@ export default function ClientAccessPanel({ canManage = false }: Props) {
         <div>
           <h2>Acessos</h2>
           <p className="companiesCardNote">
-            Quem entra no Mugô Dados por {company}. Perfis da equipe Mugô são administrados
+            Quem entra no Mugoverso por {company}. Perfis da equipe Mugô são administrados
             em Equipe Mugô.
           </p>
         </div>

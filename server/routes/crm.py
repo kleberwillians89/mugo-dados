@@ -1,5 +1,5 @@
 """
-Tarefas e Atendimento do CRM Mugô dentro do Mugô Dados — somente leitura, só para a agência.
+Tarefas e Atendimento do CRM Mugô dentro do Mugoverso — somente leitura, só para a agência.
 
 Agência vê tudo (tarefas completas e conversas). O cliente (client_admin/viewer) só vê, na
 Aprovação, as tarefas que a Mugô marcou com a etiqueta "cliente" no CRM — sem nada interno.

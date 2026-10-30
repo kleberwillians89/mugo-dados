@@ -162,7 +162,7 @@ class MetaOAuthConfigurationTests(unittest.TestCase):
         """Analytics V1 não usa `email` da Meta (autenticação é via Supabase).
 
         Pedir um scope sem uso — e ausente da Login Configuration
-        "Mugô Dados Production" — só amplia a superfície de App Review.
+        "Mugoverso Production" — só amplia a superfície de App Review.
         """
         query = parse_qs(urlparse(self._build_url()["url"]).query)
         scopes = query["scope"][0].split(",")
