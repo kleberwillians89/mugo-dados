@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
-  getClipping: vi.fn(), refreshClipping: vi.fn(), saveClippingSettings: vi.fn(), setClippingStatus: vi.fn(), clippingToCalendar: vi.fn(),
+  getClipping: vi.fn(), getClippingInsights: vi.fn(), getClippingReport: vi.fn(), exportClipping: vi.fn(), refreshClipping: vi.fn(), saveClippingSettings: vi.fn(), setClippingStatus: vi.fn(), clippingToCalendar: vi.fn(),
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), regeneratePiece: vi.fn(), editPiece: vi.fn(), setCampaignStatus: vi.fn(), campaignToCalendar: vi.fn(),
 }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
@@ -16,7 +16,7 @@ import { pieceText } from "../app/contentOps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement; let root: Root;
-beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
+beforeEach(() => { api.getClippingInsights?.mockResolvedValue(null); host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
@@ -46,6 +46,21 @@ describe("Clipping", () => {
     await show(<Clipping />);
     expect(host.textContent).toContain("Curavino lança linha natural");
     for (const action of ["Virar pauta", "Arquivar", "Termos", "Atualizar agora"]) expect(host.textContent).not.toContain(action);
+  });
+
+  it("painel mostra alerta crítico, marca x concorrentes e relatório só para a agência", async () => {
+    api.getClipping.mockResolvedValue({ items: [], week, settings: { brand_terms: ["Curavino"], competitor_terms: ["Evino"], exclude_terms: [], active: true, last_run_at: null, saved: true } });
+    api.getClippingInsights.mockResolvedValue({ total: 3, analyzed: 3, sentiment: [{ key: "negativo", count: 2 }], themes: [{ key: "varejo", count: 2 }],
+      sources: [{ key: "G1", count: 2 }], mentions: [{ key: "marca:Curavino", count: 2 }, { key: "concorrente:Evino", count: 1 }],
+      timeline: [{ day: "2026-10-29", count: 1 }, { day: "2026-10-30", count: 2 }],
+      critical: [{ id: "c1", title: "Recall de vinho", url: "https://g1/x", source: "G1", published_at: null, criticality: "critica", relevance: 90, sentiment: "negativo", risks: [] }] });
+    await show(<Clipping canManage />);
+    expect(host.textContent).toContain("1 matéria(s) crítica(s) aguardando revisão");
+    expect(host.textContent).toContain("Evino (Concorrente)");
+    expect(host.textContent).toContain("Gerar relatório");
+    await act(async () => { root.render(<Clipping />); }); await act(async () => {});
+    expect(host.textContent).not.toContain("Gerar relatório");
+    expect(host.textContent).not.toContain("Exportar CSV");
   });
 
   it("cliente sem clipping ativo não vê convite para configurar", async () => {

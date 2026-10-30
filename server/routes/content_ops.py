@@ -7,7 +7,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from services import studio_campaigns as campaigns
@@ -47,7 +48,20 @@ class ClippingSettingsInput(BaseModel):
     brand_terms: List[str] = Field(default_factory=list, max_length=6)
     competitor_terms: List[str] = Field(default_factory=list, max_length=6)
     exclude_terms: List[str] = Field(default_factory=list, max_length=6)
+    people: Optional[List[str]] = Field(default=None, max_length=6)
+    keywords: Optional[List[str]] = Field(default=None, max_length=6)
+    themes: Optional[List[str]] = Field(default=None, max_length=6)
+    feeds: Optional[List[str]] = Field(default=None, max_length=10)
+    region: Optional[str] = Field(default=None, max_length=120)
+    relevance_criteria: Optional[str] = Field(default=None, max_length=1000)
+    min_relevance: Optional[int] = Field(default=None, ge=0, le=100)
     active: bool = True
+
+
+class ClippingReportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    period: Literal["diario", "semanal", "mensal"] = "semanal"
+    focus: Literal["cobertura", "concorrentes", "setor", "riscos"] = "cobertura"
 
 
 class ClippingStatusInput(BaseModel):
@@ -92,20 +106,58 @@ class CampaignStatusInput(BaseModel):
 
 # ---------------------------------------------------------------- clipping
 
+def _client_visible(item: Dict[str, Any]) -> bool:
+    """Cliente vê só o relevante; crise/negativa crítica só depois que a equipe revisou (status ≠ novo)."""
+    return item.get("relevant") is not False and not (clipping.needs_alert(item) and item.get("status") == "novo")
+
+
+CLIENT_HIDDEN = {"justification", "evidence", "alert_status", "url_hash"}
+
+
 @router.get("/clipping")
 async def read_clipping(client_id: str, kind: Optional[str] = None, sentiment: Optional[str] = None,
+                        q: Optional[str] = Query(default=None, max_length=60), theme: Optional[str] = Query(default=None, max_length=60),
+                        min_relevance: Optional[int] = Query(default=None, ge=0, le=100), criticality: Optional[str] = None,
                         authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     # Cliente lê o clipping da própria empresa; configurar, buscar e tratar notícias é da agência.
     cid = await require_client_read(client_id, authorization)
-    view = await clipping.list_clippings(cid, kind=kind, sentiment=sentiment)
+    view = await clipping.list_clippings(cid, kind=kind, sentiment=sentiment, q=q, theme=theme,
+                                         min_relevance=min_relevance, criticality=criticality)
     if await is_agency_user(authorization):
         return view
     settings = view.get("settings") or {}
     return {
-        "items": [item for item in view.get("items") or [] if item.get("relevant") is not False],
+        "items": [{k: v for k, v in item.items() if k not in CLIENT_HIDDEN} for item in view.get("items") or [] if _client_visible(item)],
         "week": view.get("week"),
         "settings": {"saved": settings.get("saved"), "last_run_at": settings.get("last_run_at")},
     }
+
+
+@router.get("/clipping/insights")
+async def clipping_insights(client_id: str, days: int = Query(default=30, ge=1, le=90), authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    agency = await is_agency_user(authorization)
+    rows = await clipping.period_rows(cid, days, relevant_only=not agency)
+    if not agency:
+        rows = [r for r in rows if _client_visible(r)]
+    return clipping.insights_from(rows, days)
+
+
+@router.post("/clipping/report")
+async def clipping_report(client_id: str, body: ClippingReportInput, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    try:
+        return await clipping.build_report(cid, body.period, body.focus)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/clipping/export")
+async def clipping_export(client_id: str, days: int = Query(default=30, ge=1, le=90), authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    rows = await clipping.period_rows(cid, days)
+    return Response(clipping.export_csv(rows), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="clipping-{cid}-{days}d.csv"'})
 
 
 @router.put("/clipping/settings")
@@ -113,7 +165,7 @@ async def write_clipping_settings(client_id: str, body: ClippingSettingsInput, a
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
     uid = await require_user_id(authorization)
     try:
-        return await clipping.save_settings(cid, body.model_dump(), user_id=uid)
+        return await clipping.save_settings(cid, body.model_dump(exclude_none=True), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
 
