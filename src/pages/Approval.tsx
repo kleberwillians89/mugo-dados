@@ -191,7 +191,7 @@ export default function Approval({ canManage }: { canManage: boolean }) {
     <Drawer open={Boolean(editing)} title={editing?.id ? "Editar contato" : "Novo contato"} onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form className="studioForm" onSubmit={saveContact}>
         <label>Nome<input required maxLength={120} value={editing.data.name} onChange={(e) => setEditing({ ...editing, data: { ...editing.data, name: e.target.value } })} /></label>
-        <label>WhatsApp (com DDD)<input required inputMode="tel" maxLength={30} value={editing.data.phone} onChange={(e) => setEditing({ ...editing, data: { ...editing.data, phone: e.target.value } })} placeholder="(11) 98888-7777" /></label>
+        <label>WhatsApp (com DDD; fora do Brasil, comece com + e o código do país)<input required inputMode="tel" maxLength={30} value={editing.data.phone} onChange={(e) => setEditing({ ...editing, data: { ...editing.data, phone: e.target.value } })} placeholder="(11) 98888-7777" /></label>
         <label>Função<input maxLength={80} value={editing.data.role || ""} onChange={(e) => setEditing({ ...editing, data: { ...editing.data, role: e.target.value } })} placeholder="Marketing, sócio…" /></label>
         <fieldset><legend>Recebe</legend>{(Object.keys(RECEIVES) as Receives[]).map((r) => <label key={r} className="studioCheck">
           <input type="checkbox" checked={editing.data.receives.includes(r)} onChange={(e) => setEditing({ ...editing, data: { ...editing.data, receives: e.target.checked ? [...editing.data.receives, r] : editing.data.receives.filter((x) => x !== r) } })} />{RECEIVES[r]}</label>)}</fieldset>
