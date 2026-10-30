@@ -184,14 +184,14 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
 
     def modules(self) -> Dict[str, Any]:
         from routes import (
-            admin_health, client_access, connections, customers as customers_mod,
+            admin_health, client_access, connections, crm, customers as customers_mod,
             fbits, google, google_oauth, integrations, intelligence, invitations,
             meta_legacy, platform_admin, shopify, shopify_oauth, studio,
         )
         return {
             module.__name__.rsplit(".", 1)[-1]: module
             for module in (
-                admin_health, client_access, connections, customers_mod, fbits,
+                admin_health, client_access, connections, crm, customers_mod, fbits,
                 google, google_oauth, integrations, intelligence, invitations,
                 meta_legacy, platform_admin, shopify, shopify_oauth, studio,
             )

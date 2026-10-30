@@ -301,3 +301,45 @@
 .mediaBriefing textarea{padding:10px 12px;border:1px solid var(--border,#d5d2cb);border-radius:8px;font:inherit;font-size:14px;line-height:1.45;color:var(--text-primary,#15181b);resize:vertical}
 .mediaBriefingCount{justify-self:end;color:var(--text-tertiary,#687178)}
 .mediaBriefingApplied blockquote{margin:0;padding:10px 14px;border-left:3px solid var(--accent,#004f6e);background:var(--surface-muted,#f3f1ec);border-radius:0 8px 8px 0;font-size:14px;line-height:1.5;white-space:pre-wrap}
+
+/* CRM: tarefas e atendimento (somente leitura) */
+.crmGroup{display:flex;flex-direction:column;gap:8px}
+.crmGroupTitle{font-size:15px;margin:8px 0 0;display:flex;gap:6px;align-items:center}
+.crmGroupTitle span{opacity:.6;font-weight:400}
+.crmTaskList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.crmTask{display:flex;justify-content:space-between;gap:12px;border:1px solid var(--border,#dedbd4);border-left:4px solid #c98a00;border-radius:10px;padding:12px 14px;background:var(--surface,#fff)}
+.crmTask.is-in_progress{border-left-color:#004f6e}.crmTask.is-completed{border-left-color:#26734d;opacity:.75}.crmTask.is-cancelled{border-left-color:#9aa3ad;opacity:.6}
+.crmTask.is-late{border-left-color:#a33}
+.crmTaskMain{display:flex;flex-direction:column;gap:4px;min-width:0}
+.crmTaskMain p{margin:0;font-size:14px;opacity:.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.crmTaskMain small{opacity:.65}
+.crmTaskSide{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;font-size:13px}
+.crmDue.is-late{color:#a33;font-weight:600}
+.crmWho{display:flex;align-items:center;gap:6px}.crmWho i{width:10px;height:10px;border-radius:50%;display:inline-block}.crmWho.is-none{opacity:.55}
+.crmInbox{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;min-height:420px}
+.crmConvList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:70vh;overflow:auto}
+.crmConvList button{position:relative;width:100%;text-align:left;font:inherit;border:1px solid var(--border,#dedbd4);background:var(--surface,#fff);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
+.crmConvList button.is-active{border-color:#004f6e;box-shadow:inset 3px 0 0 #004f6e}
+.crmConvTop{display:flex;justify-content:space-between;gap:8px}.crmConvTop small{opacity:.6;white-space:nowrap}
+.crmConvPreview{font-size:13px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:24px}
+.crmUnread{position:absolute;right:10px;bottom:10px;background:#26734d;color:#fff;border-radius:999px;font-size:11px;padding:1px 7px}
+.crmThread{border:1px solid var(--border,#dedbd4);border-radius:12px;background:var(--surface,#fff);display:flex;flex-direction:column;min-width:0}
+.crmThread>.studioEmpty{margin:16px}
+.crmThreadHead{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border,#dedbd4)}
+.crmThreadHead div{display:flex;flex-direction:column;flex:1;min-width:0}.crmThreadHead small{opacity:.6}
+.crmBack{display:none}
+.crmWindow{font-size:12px;opacity:.7}.crmWindow.is-open{color:#26734d;opacity:1}
+.crmMessages{list-style:none;margin:0;padding:14px;display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:62vh}
+.crmMsg{max-width:78%;padding:8px 12px;border-radius:12px;background:#f1efea;align-self:flex-start}
+.crmMsg.is-outbound{align-self:flex-end;background:#dcecf2}
+.crmMsg.is-failed{outline:1px solid #a33}
+.crmMsg p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.crmMsg small{display:block;margin-top:4px;font-size:11px;opacity:.6}
+@media (max-width:760px){
+  .crmTask{flex-direction:column}.crmTaskSide{align-items:flex-start;flex-direction:row;flex-wrap:wrap}
+  .crmInbox{grid-template-columns:1fr}
+  .crmInbox.has-thread .crmConvList{display:none}
+  .crmInbox:not(.has-thread) .crmThread{display:none}
+  .crmBack{display:inline-flex}
+  .crmMsg{max-width:90%}
+}

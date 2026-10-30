@@ -42,6 +42,12 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "media", label: "Mídia On" },
 ];
 
+// Operação da agência, lida do CRM Mugô: só agência/plataforma vê (o backend também recusa os demais).
+const AGENCY_ITEMS: NavItem[] = [
+  { route: "tasks", label: "Tarefas" },
+  { route: "inbox", label: "Atendimento" },
+];
+
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);
  * cada página diz "onde estou". No mobile a mesma sidebar vira gaveta.
@@ -180,6 +186,12 @@ export default function AppNavigation({
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
           <ul className="appNavList">{PRODUCT_ITEMS.map(renderItem)}</ul>
+          {platformAdmin || agencyAdmin ? (
+            <div className="appNavGroup">
+              <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
+              <ul className="appNavList" aria-labelledby="app-nav-agency">{AGENCY_ITEMS.map(renderItem)}</ul>
+            </div>
+          ) : null}
           {adminItems.length ? (
             <div className="appNavGroup">
               <p className="appNavGroupLabel" id="app-nav-admin">Administração</p>
