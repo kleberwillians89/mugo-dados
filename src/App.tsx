@@ -36,6 +36,8 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const Clipping = lazy(() => import("./pages/Clipping"));
+const Campaigns = lazy(() => import("./pages/Campaigns"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -866,7 +868,11 @@ function PrivateApp() {
         <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "tasks" && (platformAdmin || agencyAdmin) ? (
         <Tasks key={`tasks:${activeClientId}`} />
-      ) : route === "tasks" ? (
+      ) : route === "clipping" && (platformAdmin || agencyAdmin) ? (
+        <Clipping key={`clipping:${activeClientId}`} />
+      ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
+        <Campaigns key={`campaigns:${activeClientId}`} />
+      ) : route === "tasks" || route === "clipping" || route === "campaigns" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />

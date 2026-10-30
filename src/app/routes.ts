@@ -8,6 +8,8 @@ export type AppRoute =
   | "approval"
   | "media"
   | "tasks"
+  | "clipping"
+  | "campaigns"
   | "integrations"
   | "origins"
   | "intelligence"
@@ -33,6 +35,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
+  if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
+  if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   // Atendimento agora mora na aba Mensagens da Aprovação; o endereço antigo continua funcionando.
   if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "approval";
   if (normalized.startsWith("/meta")) return "meta";
@@ -69,6 +73,8 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "approval") return "/aprovacao";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
+  if (route === "clipping") return "/clipping";
+  if (route === "campaigns") return "/redacao";
   if (route === "customers") return "/clientes";
   if (route === "not_found") return "/404";
   return "/meta";

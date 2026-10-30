@@ -347,3 +347,35 @@
 .waButtons{display:flex;flex-direction:column;gap:4px;margin-top:8px}
 .waButtons span{display:block;text-align:center;padding:8px;border-radius:8px;background:var(--surface,#fff);color:#004f6e;font-weight:600;font-size:14px}
 .postEdited{font-size:13px;color:#8a5a00;background:#fff6e0;border-radius:8px;padding:8px 10px;margin:0}
+
+/* Clipping */
+.clipWeek{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:4px 0 12px}
+.clipWeek div{border:1px solid var(--border,#dedbd4);border-radius:12px;padding:12px 14px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:2px}
+.clipWeek b{font-size:26px;line-height:1.1}.clipWeek span{font-size:13px;opacity:.75}.clipWeek small{font-size:12px;opacity:.7}
+.clipWeek .is-up{color:#26734d;opacity:1}.clipWeek .is-down{color:#a33;opacity:1}
+.clipWeek b.is-positivo{color:#26734d}.clipWeek b.is-negativo{color:#a33}
+.clipList{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.clipItem{border:1px solid var(--border,#dedbd4);border-left:4px solid #9aa3ad;border-radius:12px;padding:12px 14px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:6px}
+.clipItem.is-positivo{border-left-color:#26734d}.clipItem.is-negativo{border-left-color:#a33}.clipItem.is-neutro{border-left-color:#c98a00}
+.clipItem.is-irrelevant{opacity:.65}.clipItem.is-read .clipTitle{font-weight:500}
+.clipMeta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.clipMeta small{opacity:.65;font-size:12px}
+.clipTitle{font-weight:600;color:inherit;text-decoration:none;overflow-wrap:anywhere}.clipTitle:hover{text-decoration:underline}
+.clipItem p{margin:0;font-size:14px;opacity:.85}
+.clipSentiment.is-positivo{background:#e3f1e8;color:#1d5a3b}.clipSentiment.is-negativo{background:#f8e3e3;color:#7a2222}.clipSentiment.is-neutro{background:#fbf1dc;color:#7a5600}
+.clipWarn{font-size:13px;color:#8a5a00;margin:0}
+
+/* Redação de campanha */
+.campaignList{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.campaignList button{width:100%;text-align:left;font:inherit;border:1px solid var(--border,#dedbd4);background:var(--surface,#fff);border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.campaignList b{flex:1 1 100%}.campaignList small{flex:1 1 100%;opacity:.7}
+.campaignConcept{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:16px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.campaignConcept h2{margin:0;font-size:22px}.campaignConcept p{margin:0}
+.campaignTitles{margin:0;padding-left:18px;display:grid;gap:2px;font-weight:600}
+.pieceCard{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:14px 16px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.pieceCard>header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.pieceCard h3{margin:0;font-size:17px;display:flex;gap:6px;align-items:center}
+.pieceObject{display:grid;gap:10px}.pieceField{display:grid;gap:4px}
+.pieceList{margin:0;padding-left:20px;display:grid;gap:8px}
+.pieceInput{display:grid;gap:4px}.pieceInput input,.pieceInput textarea{padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit;min-width:0;width:100%;box-sizing:border-box}
+.pieceLabel{font-size:12px;font-weight:600;opacity:.75;display:flex;justify-content:space-between;gap:8px}
+.pieceLabel em{font-style:normal;font-weight:500;opacity:.8}.pieceLabel em.is-over{color:#a33;opacity:1;font-weight:700}
+.pieceAsk{display:flex;gap:8px;flex-wrap:wrap}.pieceAsk input{flex:1 1 240px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit}
