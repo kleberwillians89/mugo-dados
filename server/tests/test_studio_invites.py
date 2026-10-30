@@ -56,6 +56,7 @@ class SendInviteTests(unittest.IsolatedAsyncioTestCase):
             await sm.send_invite("cura", contact_id="k1", user_id="u1")
         self.assertEqual(insert.await_args.args[1]["provider_message_id"], "wamid.CONVITE")
         self.assertEqual(insert.await_args.args[1]["report_kind"], "trafego")
+        self.assertEqual(insert.await_args.args[1]["sent_by"], None)  # "u1" não é uuid: não quebra o registro do convite
 
 
 class ReplyTests(unittest.IsolatedAsyncioTestCase):

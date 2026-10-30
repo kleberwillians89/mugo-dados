@@ -1,4 +1,4 @@
-"""Job de sexta: aprendizado por campanha + resumo semanal no WhatsApp de cada cliente.
+"""Job de sexta: aprendizado por campanha + convite "quer ver o resumo?" (e o resumo, se o cliente tocar em Sim).
 
 Para cada empresa com Meta Ads ou Google Ads conectado:
 
@@ -39,7 +39,7 @@ async def paid_clients() -> List[str]:
 
 async def run_client(client_id: str) -> Dict[str, Any]:
     from .campaign_learning import snapshot_week
-    from .studio_messages import list_contacts, send_message
+    from .studio_messages import list_contacts, mugozap_config, send_invite, send_message
 
     result: Dict[str, Any] = {"client_id": client_id}
     try:
@@ -58,8 +58,13 @@ async def run_client(client_id: str) -> Dict[str, Any]:
     sent = []
     for contact in contacts:
         try:
-            out = await send_message(client_id, "semanal", user_id=JOB_USER, contact_id=str(contact["id"]), automatic=True)
-            sent.append(out["status"])
+            if mugozap_config():
+                # Sexta: primeiro o convite "quer ver o resumo?"; o resumo só sai se o cliente tocar em "Sim".
+                out = await send_invite(client_id, contact_id=str(contact["id"]), user_id=JOB_USER, report_kind="semanal")
+                sent.append("convite" if out.get("status") == "enviado" else out.get("status", "aguardando"))
+            else:
+                out = await send_message(client_id, "semanal", user_id=JOB_USER, contact_id=str(contact["id"]), automatic=True)
+                sent.append(out["status"])
         except StudioError as exc:
             sent.append(f"erro:{exc.code}")
     result.update(ok=all(not s.startswith("erro") for s in sent), message=sent)
@@ -72,6 +77,6 @@ async def run_weekly_digest(client_id: str | None = None) -> Dict[str, Any]:
     statuses = [s for r in results if isinstance(r.get("message"), list) for s in r["message"]]
     # Log público do Actions: só contagens, sem id de empresa (o detalhe fica em studio_messages).
     return {"ok": all(r.get("ok", True) for r in results), "clients": len(clients),
-            "sent": statuses.count("enviado"), "waiting": statuses.count("aguardando"),
+            "sent": statuses.count("enviado"), "invites": statuses.count("convite"), "waiting": statuses.count("aguardando"),
             "errors": sum(1 for s in statuses if s.startswith("erro")) + sum(1 for r in results if r.get("ok") is False and r.get("stage")),
             "learned_campaigns": sum(r.get("campaigns", 0) for r in results)}

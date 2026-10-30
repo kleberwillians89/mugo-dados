@@ -116,12 +116,26 @@ class DigestJobTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wd, "paid_clients", AsyncMock(return_value=["a", "b", "c"])), \
              patch("services.campaign_learning.snapshot_week", AsyncMock(side_effect=lambda cid: summaries[cid])), \
              patch("services.studio_messages.list_contacts", AsyncMock(side_effect=lambda cid: contacts[cid])), \
+             patch("services.studio_messages.mugozap_config", lambda: None), \
              patch("services.studio_messages.send_message", AsyncMock(return_value={"status": "aguardando"})) as send:
             out = await wd.run_weekly_digest()
         self.assertEqual(send.await_count, 1)                 # só "a" tem contato de tráfego e investimento na semana
         self.assertTrue(send.await_args.kwargs["automatic"])
         self.assertEqual((out["clients"], out["waiting"], out["sent"], out["learned_campaigns"]), (3, 1, 0, 3))
-        self.assertEqual(set(out), {"ok", "clients", "sent", "waiting", "errors", "learned_campaigns"})  # log público: só contagens
+        self.assertEqual(set(out), {"ok", "clients", "sent", "invites", "waiting", "errors", "learned_campaigns"})  # log público: só contagens
+
+    async def test_with_official_whatsapp_friday_sends_the_invite_not_the_report(self):
+        summary = {"channels": {"meta": {}}, "campaigns": [{}], "notes": [], "new": []}
+        with patch.object(wd, "paid_clients", AsyncMock(return_value=["a"])), \
+             patch("services.campaign_learning.snapshot_week", AsyncMock(return_value=summary)), \
+             patch("services.studio_messages.list_contacts", AsyncMock(return_value=[CONTACT])), \
+             patch("services.studio_messages.mugozap_config", lambda: {"url": "x"}), \
+             patch("services.studio_messages.send_invite", AsyncMock(return_value={"status": "enviado"})) as invite, \
+             patch("services.studio_messages.send_message", AsyncMock()) as report:
+            out = await wd.run_weekly_digest()
+        report.assert_not_awaited()                           # o resumo só sai se o cliente tocar em "Sim"
+        self.assertEqual(invite.await_args.kwargs["report_kind"], "semanal")
+        self.assertEqual(out["invites"], 1)
 
     async def test_single_client_failure_does_not_stop_the_others(self):
         async def snap(cid):

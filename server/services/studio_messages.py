@@ -663,23 +663,36 @@ def _invite_params(contact: Dict[str, Any], brand: str) -> Dict[str, str]:
             "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}"}
 
 
-async def send_invite(client_id: str, *, contact_id: Optional[str], user_id: str) -> Dict[str, Any]:
-    """Pergunta ao cliente se quer o resumo. Só pelo WhatsApp oficial: o clique no botão precisa voltar para cá."""
+def _uuid_or_none(value: Any) -> Optional[str]:
+    return str(value) if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", str(value or ""), re.I) else None
+
+
+async def send_invite(client_id: str, *, contact_id: Optional[str], user_id: str, report_kind: str = INVITE_REPORT) -> Dict[str, Any]:
+    """Pergunta ao cliente se quer o resumo. Só pelo WhatsApp oficial: o clique no botão precisa voltar para cá.
+
+    report_kind: "trafego" (últimos 7 dias, botão da equipe) ou "semanal" (sexta: com o que aprendemos e o próximo passo)."""
+    if report_kind not in ("trafego", "semanal", "resultados"):
+        raise StudioError("KIND_INVALID")
     if not mugozap_config():
         raise StudioError("MUGOZAP_REQUIRED")
     # O relatório é montado ANTES de perguntar: se faltar dado, a equipe fica sabendo agora, e o "Sim" do cliente nunca dá erro.
-    await build_message(client_id, INVITE_REPORT, contact_id=contact_id)
+    await build_message(client_id, report_kind, contact_id=contact_id)
     built = await build_message(client_id, "convite", contact_id=contact_id)
+    if report_kind == "semanal":
+        from .campaign_learning import week_bounds
+        start, end = week_bounds()
+        built["params"]["periodo"] = f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}"
     contact = built["_contact"]
     today = datetime.now(SAO_PAULO).date().isoformat()
-    key = idempotency(client_id, "convite", contact["phone"], today)
+    key = idempotency(client_id, "convite", report_kind, contact["phone"], today)
     result = await deliver(client_id, contact=contact, template_name="mugo_convite_resumo", params=built["params"],
                            button_suffix=None, header_image=None, request_id=None, user_id=user_id, key=key)
     if result.get("already_sent"):
         return result
     try:
-        await sb_insert(INVITES, {"client_id": client_id, "contact_id": contact.get("id"), "report_kind": INVITE_REPORT,
-                                  "provider_message_id": result.get("provider_message_id"), "status": "aguardando", "sent_by": user_id})
+        await sb_insert(INVITES, {"client_id": client_id, "contact_id": contact.get("id"), "report_kind": report_kind,
+                                  "provider_message_id": result.get("provider_message_id"), "status": "aguardando",
+                                  "sent_by": _uuid_or_none(user_id)})
     except Exception as exc:  # noqa: BLE001
         print(f"[studio][invite] client_id={client_id} registro_falhou={type(exc).__name__}")
     return result
