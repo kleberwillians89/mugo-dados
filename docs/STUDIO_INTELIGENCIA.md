@@ -95,6 +95,29 @@ mas abaixo de R$ 10 a entrega não aprende.
 - **Impulsionamentos:** sai o post de menor nota até a conta fechar. Com um post só, a duração encurta (mínimo de 3 dias).
 - **Ajuste manual:** a tela avisa e bloqueia a gravação se algum canal ficar abaixo do mínimo.
 
+**Canal sem histórico (ex.: Meta da Curavino começando, Origami sem mídia paga):**
+- **Equilibrado (padrão):** o canal entra como **teste estimado**. Conversão e ticket médio vêm da loja (sessões → pedidos;
+  faturamento ÷ pedidos); CPM e CTR vêm de referência de mercado, sinalizada na tela. Recebe 20% a 40% da verba.
+- **Recomendação:** enquanto houver canal em teste, fica no ritmo atual (ou na meta) e não sobe a verba em cima de estimativa.
+  O limite de eficiência é calculado só com canais medidos.
+- **Sem nenhum histórico:** informe a verba do mês; o plano sai com os dois canais estimados e campanhas sugeridas.
+- **Hiperfoco:** a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora.
+- **Receita atribuída irrisória** (ROAS atribuído abaixo de 0,2): a estratégia otimiza por conversões e avisa.
+
+**Verba por campanha e aprendizado:**
+- **Distribuição:** a verba de cada canal é dividida entre as campanhas pela ação (escalar 1,3 · manter 1 · otimizar 0,7 ·
+  aprender 0,6 · pausar 0). Campanha abaixo de R$ 10/dia sai, e a verba vai para as demais.
+- **Canal sem campanhas:** recebe campanhas sugeridas de teste conforme o objetivo.
+- **Impulsionamento:** fica reservado como uma linha própria na verba do Meta.
+- **Edição:** a equipe pode mudar a ação e a verba de cada campanha; as demais se ajustam para a soma fechar com o canal.
+- **Aprendizado:** no plano seguinte, cada campanha é comparada com a decisão salva. Exemplos:
+  - escalada que derrubou o ROAS → manter;
+  - otimização que funcionou → manter;
+  - indicada para pausar que seguiu gastando → alerta;
+  - teste que passou de 3 conversões → saiu do teste.
+
+  A edição feita pela equipe entra como contexto ("A equipe definiu escalar com R$ 3.200 em out").
+
 **Histórico:** toda estratégia gerada é gravada na hora (`studio_media_strategies`). A página abre na mais recente
 (ou no plano, se ele foi salvo depois) e o seletor "Histórico" reabre as anteriores. Se uma migration estiver
 faltando, a tela diz qual.
