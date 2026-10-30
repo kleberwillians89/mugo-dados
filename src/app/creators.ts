@@ -25,7 +25,9 @@ export type CreatorUsage = {
 };
 
 const path = (suffix = "") => clientClientPath(`/creators${suffix}`);
-const post = (body: unknown) => ({ method: "POST", body: JSON.stringify(body) });
+const post = (body: unknown, timeoutMs?: number) => ({ method: "POST", body: JSON.stringify(body), timeoutMs });
+// IA + conferência na Meta e execuções Apify passam do timeout padrão de 25 s.
+const SLOW_MS = 150_000;
 
 export const listCreators = (network?: CreatorNetwork, q?: string) => {
   const query = new URLSearchParams(); if (network) query.set("network", network); if (q) query.set("q", q);
@@ -33,10 +35,10 @@ export const listCreators = (network?: CreatorNetwork, q?: string) => {
 };
 export const lookupCreator = (network: CreatorNetwork, handle: string, force = false) => http<Creator>(path("/lookup"), post({ network, handle, force }));
 export const searchCreators = (network: CreatorNetwork, query: string, limit = 10) =>
-  http<{ creators: Creator[]; notes: string[] }>(path("/search"), post({ network, query, limit }));
+  http<{ creators: Creator[]; notes: string[] }>(path("/search"), post({ network, query, limit }, 240_000));
 export type CreatorSuggestion = { creator: Creator; reason: string };
-export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 8) =>
-  http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }));
+export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 6) =>
+  http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }, SLOW_MS));
 export const refreshCreator = (id: string) => http<Creator>(path(`/${encodeURIComponent(id)}/refresh`), { method: "POST" });
 export const compareCreators = (ids: string[]) => http<{ creators: Creator[] }>(path("/compare"), post({ creator_ids: ids }));
 export const getCreatorUsage = () => http<CreatorUsage>(path("/usage"));
@@ -48,6 +50,11 @@ export const updateShortlistItem = (id: string, itemId: string, status: ItemStat
   http(path(`/shortlists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`), { method: "PATCH", body: JSON.stringify({ status }) });
 export const removeFromShortlist = (id: string, itemId: string) =>
   http(path(`/shortlists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`), { method: "DELETE" });
+
+const compact = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+export function creatorCompact(value: number | null | undefined) {
+  return value == null ? "—" : compact.format(value);
+}
 
 export function creatorNumber(value: number | null | undefined, suffix = "") {
   return value == null ? "—" : value.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + suffix;

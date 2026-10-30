@@ -35,7 +35,7 @@ class SearchInput(Strict):
 class SuggestInput(Strict):
     campaign_type: Literal["ugc", "influencer"] = "influencer"
     brief: Optional[str] = Field(default=None, max_length=1000)
-    count: int = Field(default=8, ge=1, le=15)
+    count: int = Field(default=6, ge=1, le=12)
 
 
 class CompareInput(Strict):

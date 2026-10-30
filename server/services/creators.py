@@ -3,6 +3,7 @@
 O banco de criadores (creators/creator_metrics) guarda só dados públicos e é
 reaproveitado entre empresas. Shortlists são sempre filtradas por client_id.
 """
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -343,7 +344,7 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
     lines.append(f"Tipo de campanha: {'UGC (conteúdo para a marca usar)' if campaign_type == 'ugc' else 'influência (alcance na audiência do criador)'}")
     lines.append(f"Indique {count * 2} perfis do Instagram.")
     data = await llm_json(instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
-                          schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.3)
+                          schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.3, timeout=60)
 
     connection = await get_active_connection_for_client(client_id) or {}
     own = str(connection.get("username") or "").lstrip("@").lower()
@@ -356,19 +357,22 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
         if handle != own and handle not in candidates:
             candidates[handle] = str(item.get("reason") or "")[:300]
 
-    verified: List[Dict[str, Any]] = []
-    discarded: List[str] = []
-    for handle, reason in list(candidates.items())[: count * 2]:
-        if len(verified) >= count:
-            break
-        try:
-            creator = await lookup(client_id, "instagram", handle)
-        except IntegrationError as exc:
-            if exc.code in {"META_CONNECTION_REQUIRED", "META_REAUTH_REQUIRED", "META_RATE_LIMITED", "META_PERMISSION_MISSING"}:
-                raise
-            discarded.append(handle)
-            continue
-        verified.append({"creator": creator, "reason": reason})
+    # Conferência na Meta em paralelo (poucas por vez): sequencial estourava o tempo da requisição.
+    gate = asyncio.Semaphore(4)
+
+    async def verify(handle: str) -> Optional[Dict[str, Any]]:
+        async with gate:
+            try:
+                return await lookup(client_id, "instagram", handle)
+            except IntegrationError as exc:
+                if exc.code in {"META_CONNECTION_REQUIRED", "META_REAUTH_REQUIRED", "META_RATE_LIMITED", "META_PERMISSION_MISSING"}:
+                    raise
+                return None
+
+    handles = list(candidates)[: count * 2]
+    results = await asyncio.gather(*(verify(h) for h in handles))
+    verified = [{"creator": c, "reason": candidates[h]} for h, c in zip(handles, results) if c][:count]
+    discarded = [h for h, c in zip(handles, results) if not c]
     return {
         "suggestions": verified,
         "discarded": discarded,
