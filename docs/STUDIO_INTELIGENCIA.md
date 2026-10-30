@@ -89,6 +89,18 @@ cadastro estão em **`docs/WHATSAPP_TEMPLATES.md`**.
 
 A equipe pode ajustar a divisão: a projeção é recalculada na hora pelas mesmas curvas.
 
+**Briefing do mês ("O que precisamos neste mês"):** texto livre antes de gerar. A IA transforma o texto em instruções
+validadas que mudam os números:
+- **Datas do mês:** lançamento, promoção ou evento reforçam a verba nos dias anteriores.
+- **Campanhas existentes:** escalar, manter, otimizar ou pausar. O pedido da equipe tem a palavra final sobre a análise e
+  aparece como "Pedido no briefing".
+- **Ênfase por canal:** "mais" garante 45% da verba; "menos" limita a 20%.
+- **Teto de verba:** vira a verba do mês quando nenhuma outra foi informada.
+
+O texto também orienta a tese e os próximos passos da IA. A tela mostra "como o briefing virou número", e o briefing fica
+salvo com a estratégia (histórico e plano), voltando preenchido ao abrir o mês. Se a interpretação falhar, ele orienta só a
+leitura da IA.
+
 **Verba diária mínima de R$ 10:** vale por canal e por impulsionamento. A Meta aceita a partir de cerca de R$ 6/dia,
 mas abaixo de R$ 10 a entrega não aprende.
 - **Canais:** se a verba não paga R$ 10/dia em todos, fica só o de maior retorno recente.
