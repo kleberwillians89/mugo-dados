@@ -379,3 +379,9 @@
 .pieceLabel{font-size:12px;font-weight:600;opacity:.75;display:flex;justify-content:space-between;gap:8px}
 .pieceLabel em{font-style:normal;font-weight:500;opacity:.8}.pieceLabel em.is-over{color:#a33;opacity:1;font-weight:700}
 .pieceAsk{display:flex;gap:8px;flex-wrap:wrap}.pieceAsk input{flex:1 1 240px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit}
+/* Contexto da marca compartilhado (Calendário, Redação, Mídia On, Clipping) */
+.brandContext{border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface);padding:var(--space-3) var(--space-4);font-size:14px}
+.brandContext summary{cursor:pointer;font-weight:600;display:flex;gap:8px;align-items:center}
+.brandContext summary span{font-weight:400;font-size:12px;color:var(--text-muted)}
+.brandContext dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:var(--space-2) var(--space-4);margin:var(--space-3) 0 0}
+.brandContext dt{font-size:12px;color:var(--text-muted)}.brandContext dd{margin:2px 0 0;color:var(--text-primary)}.brandContext em{color:var(--text-muted)}

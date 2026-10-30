@@ -9,6 +9,7 @@ import {
 import { navigateToAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
+import BrandContextPanel from "../components/studio/BrandContextPanel";
 import HeroFigure from "../components/data/HeroFigure";
 import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
@@ -170,6 +171,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
+    {canManage ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
     {canManage ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
     {canManage ? <section className="mediaControls" aria-label="Parâmetros da estratégia">

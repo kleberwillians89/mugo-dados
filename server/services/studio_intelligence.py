@@ -172,6 +172,59 @@ async def approval_learnings(client_id: str, *, days: int = 180) -> Dict[str, An
     }
 
 
+async def _redacao(client_id: str) -> List[Dict[str, Any]]:
+    """Campanhas da Redação em andamento: o calendário e a mídia falam a mesma língua delas."""
+    rows = await sb_select("studio_campaigns", select="name,briefing,status,updated_at", order="updated_at.desc", limit=5,
+                           filters={"client_id": f"eq.{client_id}", "status": "in.(rascunho,pronta)"})
+    out = []
+    for r in rows:
+        brief = r.get("briefing") or {}
+        out.append({"campanha": clean_text(r.get("name"), 120), "status": r.get("status"), "objetivo": clean_text(brief.get("objective"), 300),
+                    "mensagem": clean_text(brief.get("key_message") or brief.get("message"), 300), "canais": brief.get("channels") or [],
+                    "inicio": brief.get("start"), "fim": brief.get("end")})
+    return out
+
+
+async def _midia(client_id: str) -> Dict[str, Any]:
+    """Plano do Mídia On do mês e o que a memória semanal de cada campanha recomenda."""
+    month = datetime.now(SAO_PAULO).date().replace(day=1).isoformat()
+    plans = await sb_select("studio_media_plans", select="month,objective,budget,allocation,notes,status", limit=1,
+                            filters={"client_id": f"eq.{client_id}", "month": f"eq.{month}"})
+    learnings = await sb_select("studio_campaign_learnings", select="campaign_name,channel,week_end,roas,recommended_action,note",
+                                filters={"client_id": f"eq.{client_id}"}, order="week_end.desc", limit=12)
+    latest: Dict[str, Dict[str, Any]] = {}
+    for row in learnings:
+        latest.setdefault(str(row.get("campaign_name")), row)
+    plan = plans[0] if plans else {}
+    return {k: v for k, v in {
+        "plano_do_mes": {"objetivo": plan.get("objective"), "verba": _num(plan.get("budget")), "notas": clean_text(plan.get("notes"), 400),
+                         "status": plan.get("status")} if plan else None,
+        "campanhas_em_veiculacao": [{"campanha": clean_text(r.get("campaign_name"), 120), "canal": r.get("channel"), "roas": _num(r.get("roas")),
+                                     "recomendacao": r.get("recommended_action"), "nota": clean_text(r.get("note"), 200)} for r in list(latest.values())[:6]],
+    }.items() if v}
+
+
+async def _clipping(client_id: str) -> List[Dict[str, Any]]:
+    """Notícias relevantes recentes da marca: pauta possível e assunto a evitar."""
+    since = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    rows = await sb_select("studio_clippings", select="title,source,kind,sentiment,summary,relevant,published_at", limit=12,
+                           filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}", "status": "neq.arquivado"},
+                           order="published_at.desc.nullslast")
+    return [{"manchete": clean_text(r.get("title"), 200), "veiculo": r.get("source"), "tipo": r.get("kind"), "sentimento": r.get("sentiment"),
+             "resumo": clean_text(r.get("summary"), 200)} for r in rows if r.get("relevant") is not False][:6]
+
+
+async def _agenda(client_id: str) -> List[Dict[str, Any]]:
+    """O que já está no calendário: evita pauta repetida e mantém a sequência das campanhas."""
+    from .studio_calendar import ITEMS_TABLE
+    now = datetime.now(SAO_PAULO)
+    rows = await sb_select(ITEMS_TABLE, select="scheduled_at,format,pillar,title,status", order="scheduled_at.asc", limit=12,
+                           filters={"client_id": f"eq.{client_id}", "status": "neq.rejeitado",
+                                    "scheduled_at": f"gte.{now.isoformat()}", "and": f"(scheduled_at.lte.{(now + timedelta(days=21)).isoformat()})"})
+    return [{"data": str(r.get("scheduled_at") or "")[:10], "formato": r.get("format"), "pilar": clean_text(r.get("pillar"), 80),
+             "pauta": clean_text(r.get("title"), 160), "status": r.get("status")} for r in rows]
+
+
 # --------------------------------------------------------------------------
 # Pacote
 # --------------------------------------------------------------------------
@@ -184,7 +237,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     today = datetime.now(SAO_PAULO).date()
     start, end = (today - timedelta(days=days - 1)).isoformat(), today.isoformat()
     gaps: List[str] = []
-    profile, business, snap, posts, timing, goals, analysis, learnings = await asyncio.gather(
+    profile, business, snap, posts, timing, goals, analysis, learnings, redacao, midia, clipping, agenda = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -193,6 +246,10 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("metas", gaps, lambda: _goals(client_id), []),
         _safe("ultima_analise", gaps, lambda: _analysis(client_id), {}),
         _safe("aprendizados_de_aprovacao", gaps, lambda: approval_learnings(client_id), {}),
+        _safe("redacao", gaps, lambda: _redacao(client_id), []),
+        _safe("midia_on", gaps, lambda: _midia(client_id), {}),
+        _safe("clipping", gaps, lambda: _clipping(client_id), []),
+        _safe("agenda", gaps, lambda: _agenda(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -207,6 +264,11 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "metas_do_mes": goals,
         "ultima_analise": analysis,
         "aprendizados": learnings,
+        # Módulos conversando: Redação, Mídia On, Clipping e Calendário entram no mesmo pacote.
+        "redacao": redacao,
+        "midia": midia,
+        "clipping": clipping,
+        "agenda": agenda,
         "lacunas": sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
     }
     _CACHE[key] = (time.monotonic(), package)
@@ -248,8 +310,8 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, limit: int = MAX_PROMPT_CHARS) -> str:
     """JSON compacto para o prompt; corta as seções menos importantes se passar do limite."""
-    order = sections or ["marca", "negocio", "aprendizados", "posts", "kpis", "campanhas_que_mais_venderam",
-                         "metas_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+    order = sections or ["marca", "negocio", "aprendizados", "redacao", "midia", "agenda", "clipping", "posts", "kpis",
+                         "campanhas_que_mais_venderam", "metas_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
     data = {k: package.get(k) for k in order if package.get(k)}
     text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     while len(text) > limit and len(data) > 1:
