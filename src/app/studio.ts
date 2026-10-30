@@ -24,6 +24,8 @@ export type CalendarItem = {
   pillar: string | null; title: string; hook: string | null; caption_draft: string | null; rationale: string | null;
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual";
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
+  /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
+  client_edited_at?: string | null; client_edited_fields?: string[];
   /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
   /** Impulsionamento previsto no plano do Mídia On salvo para o mês (só na tela). */
   boost?: { start: string; end: string; budget: number; why: string };
@@ -151,7 +153,7 @@ export function createContact(input: ContactInput) { return http<{ contact: Clie
 export function updateContact(id: string, input: ContactInput) { return http<{ contact: ClientContact }>(base(`/contacts/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(input) }); }
 export function deleteContact(id: string) { return http(base(`/contacts/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
-export const MESSAGE_KINDS = { aprovacao: "Pautas para aprovar", lembrete: "Lembrete de aprovação", agenda: "Agenda da semana", trafego: "Relatório de tráfego (7 dias)", resultados: "Resultados do mês", semanal: "Resumo semanal (sexta)" } as const;
+export const MESSAGE_KINDS = { aprovacao: "Pautas para aprovar", lembrete: "Lembrete de aprovação", agenda: "Agenda da semana", trafego: "Relatório de tráfego (7 dias)", resultados: "Resultados do mês", semanal: "Resumo semanal (sexta)", convite: "Perguntar se quer o resumo" } as const;
 export type MessageKind = keyof typeof MESSAGE_KINDS;
 export type MessagePreview = { kind: MessageKind; template_name: string; params: Record<string, string>; text: string; editable: string[];
   contact: { id: string; name: string; role: string | null }; phone_masked: string; header_image: string | null; channel: "mugozap" | "wa_link" };

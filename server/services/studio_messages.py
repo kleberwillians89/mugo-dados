@@ -79,6 +79,17 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "Qualquer dúvida, é só responder esta mensagem.",
         "button": None,
     },
+    # Convite com botões de resposta rápida (cadastrados no próprio template na Meta, sem variável):
+    # "Sim, quero ver" -> o Dados manda o relatório de tráfego dos últimos 7 dias em texto livre
+    # (a resposta do cliente abre a janela de 24h); "Agora não" -> só um "combinado".
+    "mugo_convite_resumo": {
+        "kind": "convite", "header": None,
+        "params": ["nome", "marca", "periodo"],
+        "body": "Olá, {{1}}! O resumo da {{2}} de {{3}} está pronto, com investimento em mídia, vendas da loja e o destaque "
+                "da semana. Quer receber aqui no WhatsApp?",
+        "button": None,
+        "quick_replies": ["Sim, quero ver", "Agora não"],
+    },
     "mugo_resultados_mes": {
         "kind": "resultados", "header": None,
         "params": ["nome", "mes", "marca", "faturamento", "variacao", "pedidos", "investimento", "atencao"],
@@ -88,7 +99,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
 }
 KIND_RECEIVES = {"aprovacao": "conteudo", "lembrete": "conteudo", "agenda": "conteudo",
-                 "trafego": "trafego", "resultados": "resultados", "semanal": "trafego"}
+                 "trafego": "trafego", "resultados": "resultados", "semanal": "trafego", "convite": "trafego"}
 EDITABLE_PARAMS = {"destaque", "atencao", "proximo"}
 
 
@@ -319,7 +330,7 @@ async def deliver(client_id: str, *, contact: Dict[str, Any], template_name: str
         await _log(row)
     if not result["ok"]:
         raise StudioError(result["code"] if result["code"] in SEND_ERRORS else "SEND_FAILED")
-    return {"status": "enviado", "channel": "mugozap", "text": text}
+    return {"status": "enviado", "channel": "mugozap", "text": text, "provider_message_id": result.get("provider_message_id")}
 
 
 SEND_ERRORS = {"TEMPLATE_NOT_APPROVED", "RECIPIENT_NOT_IN_CRM", "PHONE_INVALID", "SEND_OUTCOME_UNKNOWN", "MUGOZAP_UNAVAILABLE"}
@@ -366,6 +377,8 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
         params = await _traffic_params(client_id, contact, brand, preset=(overrides or {}).get("destaque"))
     elif kind == "semanal":
         params, extra = await _weekly_params(client_id, contact, brand, overrides or {})
+    elif kind == "convite":
+        params = _invite_params(contact, brand)
     else:
         params = await _results_params(client_id, contact, brand, preset=(overrides or {}).get("atencao"))
     for key, value in (overrides or {}).items():
@@ -373,6 +386,12 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
             params[key] = param(value, 300)
     template_name = params.pop("_template")
     clean = {k: param(params.get(k), 300 if k in EDITABLE_PARAMS else 160) for k in TEMPLATES[template_name]["params"]}
+    if any(value == "—" for value in clean.values()):
+        # "—" é o marcador de dado vazio: melhor não mandar do que mandar número faltando para o cliente.
+        raise StudioError("DATA_MISSING")
+    for key, value in clean.items():
+        # Sem travessão em nenhuma variável (título de pauta incluído); frases editáveis também sem ponto final.
+        clean[key] = (clean_sentence(value) if key in EDITABLE_PARAMS else re.sub(r"\s*[—–]\s*", ", ", value)) or value
     return {"kind": kind, "template_name": template_name, "params": clean, "text": render(template_name, clean),
             "editable": [k for k in clean if k in EDITABLE_PARAMS], "contact": {k: contact.get(k) for k in ("id", "name", "role")},
             "phone_masked": mask_phone(contact["phone"]), "header_image": extra.get("header_image"),
@@ -382,6 +401,8 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
 async def send_message(client_id: str, kind: str, *, user_id: str, contact_id: Optional[str] = None,
                        request_id: Optional[str] = None, overrides: Optional[Dict[str, str]] = None,
                        automatic: bool = False) -> Dict[str, Any]:
+    if kind == "convite":
+        return await send_invite(client_id, contact_id=contact_id, user_id=user_id)
     built = await build_message(client_id, kind, contact_id=contact_id, request_id=request_id, overrides=overrides)
     extra, contact = built["_extra"], built["_contact"]
     today = datetime.now(SAO_PAULO).date().isoformat()
@@ -466,23 +487,75 @@ def _value(metrics: Dict[str, Any], key: str) -> Optional[float]:
         return None
 
 
+def clean_sentence(value: Any, limit: int = 300) -> str:
+    """Frase que entra no meio do template: sem travessão, sem ponto final (o template já põe) e sem sobra."""
+    text = re.sub(r"\s*[—–]\s*", ", ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip(" ,;:")
+    text = re.sub(r"[.!…]+$", "", text).strip()
+    return text[:limit]
+
+
 async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Optional[str] = None) -> str:
     """Frase curta escrita pela IA a partir dos números; sem IA, a frase determinística.
 
     Se a equipe já escolheu/editou a frase (preset), ela vale e a IA não é chamada de novo."""
     from .studio_llm import STR, llm_json, obj
     if preset and preset.strip():
-        return param(preset, 300)
+        return clean_sentence(preset) or clean_sentence(fallback)
     try:
         out = await llm_json(
-            instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji) para uma "
-                          "mensagem de WhatsApp a um cliente de agência. Use só os números dados; não invente nada."),
+            instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji, sem travessão, "
+                          "sem ponto final) para uma mensagem de WhatsApp a um cliente de agência. Ela precisa citar pelo "
+                          "menos um número ou nome de campanha dos DADOS, de preferência vendas ou pedidos. Use só o que está "
+                          "nos DADOS; não invente nada e não repita o valor investido, que já aparece na mensagem."),
             prompt=f"{task}\nDADOS: {json.dumps(data, ensure_ascii=False, default=str)}",
             schema_name="studio_message_sentence", schema=obj({"sentence": STR}), temperature=0.3, timeout=30)
-        sentence = param(out.get("sentence"), 160)
-        return sentence if sentence != "—" else fallback
+        sentence = clean_sentence(out.get("sentence"), 160)
+        return sentence if sentence and re.search(r"\d", sentence) else clean_sentence(fallback)
     except StudioError:
-        return fallback
+        return clean_sentence(fallback)
+
+
+PAID_CHANNELS = {"paid_search", "paid_social", "paid_other", "display", "paid_video", "paid_shopping"}
+
+
+async def _store_sales(client_id: str, start: date, end: date, metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Faturamento da loja no período: o KPI oficial quando existe; senão, os pedidos da página Origem das vendas.
+
+    Também devolve o que veio de mídia paga (pedidos com origem paga) e a melhor campanha, para a frase de destaque
+    falar de venda de verdade, e não só de investimento."""
+    from .sales_by_origin import build_sales_by_origin
+    revenue, orders = _value(metrics, "revenue"), _value(metrics, "orders")
+    origin: Dict[str, Any] = {}
+    try:
+        origin = await build_sales_by_origin(client_id, start=start.isoformat(), end=end.isoformat())
+    except Exception as exc:  # noqa: BLE001 — a página de origem é complemento; o KPI oficial continua valendo
+        print(f"[studio_messages] client_id={client_id} sales_origin_failed={type(exc).__name__}")
+    totals = (origin or {}).get("totals") or {}
+    if revenue is None and origin.get("status") in ("available", "partial") and totals.get("revenue") is not None:
+        revenue, orders = _f(totals.get("revenue")), _f(totals.get("orders"))
+    paid = [c for c in (origin or {}).get("channels") or [] if c.get("channel") in PAID_CHANNELS]
+    campaigns = sorted(((origin or {}).get("campaigns") or []), key=lambda c: _f(c.get("revenue")), reverse=True)
+    return {
+        "revenue": revenue, "orders": orders,
+        "paid_revenue": sum(_f(c.get("revenue")) for c in paid) if paid else None,
+        "paid_orders": int(sum(_f(c.get("orders")) for c in paid)) if paid else None,
+        "top_campaign": ({"campanha": campaigns[0].get("campaign"), "pedidos": int(_f(campaigns[0].get("orders"))),
+                          "vendas": _f(campaigns[0].get("revenue"))} if campaigns and _f(campaigns[0].get("revenue")) > 0 else None),
+        "channels": [{"origem": c.get("channel"), "pedidos": c.get("orders"), "vendas": c.get("revenue")}
+                     for c in (origin or {}).get("channels") or []][:6],
+    }
+
+
+def _sales_fallback(sales: Dict[str, Any], default: str) -> str:
+    top = sales.get("top_campaign")
+    if top:
+        return f"a campanha {top['campanha']} trouxe {top['pedidos']} pedido(s) e {brl(top['vendas'])} em vendas"
+    if sales.get("paid_orders"):
+        return f"a mídia paga trouxe {sales['paid_orders']} pedido(s) e {brl(sales['paid_revenue'])} em vendas na loja"
+    if sales.get("orders"):
+        return f"a loja fechou {int(sales['orders'])} pedido(s) no período"
+    return default
 
 
 async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
@@ -490,22 +563,23 @@ async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, p
     end = today - timedelta(days=1)
     start = end - timedelta(days=6)
     snap = await _snapshot(client_id, start, end)
-    spend, revenue = _value(snap["metrics"], "investment"), _value(snap["metrics"], "revenue")
-    roas = _value(snap["metrics"], "roas")
+    spend = _value(snap["metrics"], "investment")
     if not spend:
         raise StudioError("NO_PAID_DATA")
-    campaigns = [{"campanha": c.get("name"), "investimento": c.get("spend"), "receita": c.get("revenue"),
-                  "conversoes": c.get("conversions")} for c in snap["campaigns"][:5]]
-    best = max(campaigns, key=lambda c: (float(c["receita"] or 0) / float(c["investimento"] or 1)), default=None)
-    fallback = f"melhor retorno em {best['campanha']}" if best and best.get("campanha") else "veja as campanhas no painel"
-    highlight = await _sentence("Diga o principal destaque da semana do tráfego pago (melhor campanha ou variação relevante).",
-                                {"investimento": spend, "receita": revenue, "roas": roas, "campanhas": campaigns,
-                                 "variacao_investimento_pct": (snap["metrics"].get("investment") or {}).get("variation_percent")}, fallback, preset)
+    sales = await _store_sales(client_id, start, end, snap["metrics"])
+    if sales["revenue"] is None:
+        raise StudioError("NO_STORE_DATA")
+    campaigns = [{"campanha": c.get("name"), "investimento": c.get("spend"), "conversoes": c.get("conversions")}
+                 for c in snap["campaigns"][:5]]
+    highlight = await _sentence(
+        "Diga o principal destaque da semana do tráfego pago: qual campanha ou origem trouxe vendas para a loja.",
+        {"vendas_da_loja": sales["revenue"], "pedidos": sales["orders"], "vendas_vindas_de_midia_paga": sales["paid_revenue"],
+         "pedidos_de_midia_paga": sales["paid_orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
+         "vendas_por_origem": sales["channels"], "campanhas_nas_plataformas": campaigns},
+        _sales_fallback(sales, "acompanhamos as campanhas para aumentar as vendas"), preset)
     return {"_template": "mugo_relatorio_trafego", "nome": first_name(contact.get("name")), "marca": brand,
             "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
-            "receita": brl(revenue) if revenue is not None else "—",
-            "roas": brl(roas if roas is not None else (revenue or 0) / spend),
-            "destaque": highlight}
+            "receita": brl(sales["revenue"]), "roas": brl(sales["revenue"] / spend), "destaque": highlight}
 
 
 async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
@@ -514,7 +588,8 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
     start = end.replace(day=1)
     snap = await _snapshot(client_id, start, end)
     metrics = snap["metrics"]
-    revenue = _value(metrics, "revenue")
+    sales = await _store_sales(client_id, start, end, metrics)
+    revenue = sales["revenue"]
     if revenue is None:
         raise StudioError("NO_RESULTS_DATA")
     variation = (metrics.get("revenue") or {}).get("variation_percent")
@@ -523,8 +598,8 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
     attention = await _sentence("Aponte o principal ponto de atenção do mês (a métrica que mais piorou ou o risco mais claro).",
                                 data, "vamos revisar juntos os canais no painel", preset)
     return {"_template": "mugo_resultados_mes", "nome": first_name(contact.get("name")), "mes": MONTHS[start.month - 1],
-            "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation),
-            "pedidos": str(int(_value(metrics, "orders") or 0)), "investimento": brl(_value(metrics, "investment") or 0),
+            "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation) if variation is not None else "sem base de comparação",
+            "pedidos": str(int(sales["orders"] or 0)), "investimento": brl(_value(metrics, "investment") or 0),
             "atencao": attention}
 
 
@@ -534,27 +609,33 @@ async def _weekly_params(client_id: str, contact: Dict[str, Any], brand: str, ov
     from .campaign_learning import week_bounds
     start, end = week_bounds()
     snap = await _snapshot(client_id, start, end)
-    spend, revenue, roas = _value(snap["metrics"], "investment"), _value(snap["metrics"], "revenue"), _value(snap["metrics"], "roas")
+    spend = _value(snap["metrics"], "investment")
     if not spend:
         raise StudioError("NO_PAID_DATA")
+    sales = await _store_sales(client_id, start, end, snap["metrics"])
+    revenue = sales["revenue"]
+    if revenue is None:
+        raise StudioError("NO_STORE_DATA")
+    roas = revenue / spend
     rows = await sb_select("studio_campaign_learnings", select="channel,campaign_name,spend,conversions,roas,cpa,note,recommended_action,planned_action",
                            filters={"client_id": f"eq.{client_id}", "week_start": f"eq.{start.isoformat()}"}, order="spend.desc", limit=100)
     notes = [f"{r['campaign_name']}: {r['note']}" for r in rows if r.get("note")]
     best = max((r for r in rows if r.get("roas") is not None and _f(r.get("conversions")) >= 3), key=lambda r: _f(r["roas"]), default=None)
     actions = [r for r in rows if r.get("recommended_action") in ("escalar", "pausar")]
-    learned_fallback = notes[0] if notes else (f"{best['campaign_name']} teve o melhor retorno" if best else "semana estável nas campanhas")
+    learned_fallback = notes[0] if notes else _sales_fallback(sales, f"{best['campaign_name']} teve o melhor retorno" if best else "semana estável nas campanhas")
     next_fallback = (f"{'escalar' if actions[0]['recommended_action'] == 'escalar' else 'pausar'} {actions[0]['campaign_name']}"
                      if actions else "manter as campanhas e acompanhar o custo por conversão")
     learned = await _sentence("Diga em 1 frase o principal aprendizado da semana nas campanhas (campanha nova, saturação, melhora, queda).",
-                              {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "investimento": spend, "roas": roas},
+                              {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "vendas_da_loja": revenue,
+                               "pedidos": sales["orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
+                               "vendas_por_origem": sales["channels"]},
                               learned_fallback, overrides.get("destaque"))
     nxt = await _sentence("Diga em 1 frase curta o próximo passo da agência para a semana (ação concreta numa campanha).",
                           {"acoes_recomendadas": [{"campanha": a["campaign_name"], "acao": a["recommended_action"]} for a in actions[:5]],
                            "anotacoes": notes[:5]}, next_fallback, overrides.get("proximo"))
     params = {"_template": "mugo_resumo_semanal", "nome": first_name(contact.get("name")), "marca": brand,
               "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
-              "receita": brl(revenue) if revenue is not None else "—",
-              "roas": brl(roas if roas is not None else (revenue or 0) / spend), "destaque": learned, "proximo": nxt}
+              "receita": brl(revenue), "roas": brl(roas), "destaque": learned, "proximo": nxt}
     return params, {"button_suffix": None, "header_image": None, "request_id": None, "key_parts": [start.isoformat()]}
 
 
@@ -563,3 +644,136 @@ def _f(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+# --------------------------------------------------------------------------
+# Convite "quer ver o resumo?" (Sim/Não) e resposta em texto livre
+# --------------------------------------------------------------------------
+
+INVITES = "studio_invites"
+INVITE_REPORT = "trafego"
+INVITE_VALID_HOURS = 72
+
+
+def _invite_params(contact: Dict[str, Any], brand: str) -> Dict[str, str]:
+    today = datetime.now(SAO_PAULO).date()
+    end = today - timedelta(days=1)
+    start = end - timedelta(days=6)
+    return {"_template": "mugo_convite_resumo", "nome": first_name(contact.get("name")), "marca": brand,
+            "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}"}
+
+
+async def send_invite(client_id: str, *, contact_id: Optional[str], user_id: str) -> Dict[str, Any]:
+    """Pergunta ao cliente se quer o resumo. Só pelo WhatsApp oficial: o clique no botão precisa voltar para cá."""
+    if not mugozap_config():
+        raise StudioError("MUGOZAP_REQUIRED")
+    # O relatório é montado ANTES de perguntar: se faltar dado, a equipe fica sabendo agora, e o "Sim" do cliente nunca dá erro.
+    await build_message(client_id, INVITE_REPORT, contact_id=contact_id)
+    built = await build_message(client_id, "convite", contact_id=contact_id)
+    contact = built["_contact"]
+    today = datetime.now(SAO_PAULO).date().isoformat()
+    key = idempotency(client_id, "convite", contact["phone"], today)
+    result = await deliver(client_id, contact=contact, template_name="mugo_convite_resumo", params=built["params"],
+                           button_suffix=None, header_image=None, request_id=None, user_id=user_id, key=key)
+    if result.get("already_sent"):
+        return result
+    try:
+        await sb_insert(INVITES, {"client_id": client_id, "contact_id": contact.get("id"), "report_kind": INVITE_REPORT,
+                                  "provider_message_id": result.get("provider_message_id"), "status": "aguardando", "sent_by": user_id})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio][invite] client_id={client_id} registro_falhou={type(exc).__name__}")
+    return result
+
+
+def _fold(text: Any) -> str:
+    import unicodedata
+    raw = unicodedata.normalize("NFD", str(text or "").lower())
+    return re.sub(r"[^a-z ]", "", "".join(ch for ch in raw if unicodedata.category(ch) != "Mn")).strip()
+
+
+def invite_answer(text: Any) -> Optional[str]:
+    folded = _fold(text)
+    if not folded:
+        return None
+    if folded.startswith("sim") or folded in {"quero", "quero ver", "pode mandar", "manda"}:
+        return "sim"
+    if folded.startswith("agora nao") or folded.startswith("nao"):
+        return "nao"
+    return None
+
+
+def _same_phone(a: Any, b: Any) -> bool:
+    def norm(value: Any) -> str:
+        d = re.sub(r"\D", "", str(value or ""))
+        return d[:4] + d[5:] if d.startswith("55") and len(d) == 13 and d[4] == "9" else d
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
+async def mugozap_text(cfg: Dict[str, str], *, wa_id: str, text: str, idempotency_key: str) -> Dict[str, Any]:
+    body = {"operation": "send_manual_message", "payload": {
+        "waId": wa_id, "text": text[:4000], "idempotencyKey": idempotency_key, "team_member_id": cfg["team_member_id"]}}
+    headers = {"Authorization": f"Bearer {cfg['anon']}", "apikey": cfg["anon"], "Content-Type": "application/json",
+               "X-Task-Command-Worker-Key": cfg["worker_key"]}
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            response = await client.post(cfg["url"], headers=headers, json=body)
+        data = response.json() if response.content else {}
+    except (httpx.HTTPError, ValueError):
+        return {"ok": False, "code": "MUGOZAP_UNAVAILABLE"}
+    if response.status_code < 400 and data.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "code": str(data.get("code") or f"HTTP_{response.status_code}")[:80]}
+
+
+async def handle_invite_reply(reply: Dict[str, Any]) -> Dict[str, Any]:
+    """Clique no convite, repassado pelo CRM. Idempotente: o mesmo clique nunca manda o resumo duas vezes."""
+    context_id = str(reply.get("context_message_id") or "")[:200]
+    answer_id = str(reply.get("provider_message_id") or "")[:200]
+    if not context_id or not answer_id:
+        return {"ok": True, "ignored": "missing_ids"}
+    rows = await sb_select(INVITES, select="*", filters={"provider_message_id": f"eq.{context_id}"}, limit=1)
+    if not rows:
+        return {"ok": True, "ignored": "unknown_invite"}
+    invite = rows[0]
+    if invite.get("answer_message_id"):
+        return {"ok": True, "ignored": "already_answered", "status": invite.get("status")}
+    created = datetime.fromisoformat(str(invite["created_at"]).replace("Z", "+00:00"))
+    expired = datetime.now(timezone.utc) - created > timedelta(hours=INVITE_VALID_HOURS)
+    answer = invite_answer(reply.get("answer"))
+    contacts = await list_contacts(invite["client_id"])
+    contact = next((c for c in contacts if str(c["id"]) == str(invite.get("contact_id"))), None)
+    if not contact or not _same_phone(contact.get("phone"), reply.get("wa_id")):
+        print(f"[studio][invite] invite_id={invite['id']} phone_mismatch")
+        return {"ok": True, "ignored": "phone_mismatch"}
+    # Trava o convite nesta resposta antes de enviar (índice único em answer_message_id).
+    claimed = await sb_update(INVITES, filters={"id": f"eq.{invite['id']}", "answer_message_id": "is.null"},
+                              patch={"answer_message_id": answer_id, "answered_at": datetime.now(timezone.utc).isoformat(),
+                                     "status": "expirado" if expired else (answer or "nao")})
+    if not claimed:
+        return {"ok": True, "ignored": "already_answered"}
+    cfg = mugozap_config()
+    if not cfg:
+        await sb_update(INVITES, filters={"id": f"eq.{invite['id']}"}, patch={"status": "falhou", "error_code": "MUGOZAP_NOT_CONFIGURED"})
+        return {"ok": False, "code": "MUGOZAP_NOT_CONFIGURED"}
+    name = first_name(contact.get("name"))
+    if answer != "sim" or expired:
+        text = (f"Combinado, {name}! Quando quiser o resumo, é só pedir para a equipe Mugô." if not expired
+                else f"Oi, {name}! Esse convite já passou do prazo. Vamos te mandar um resumo novo em breve.")
+        result = await mugozap_text(cfg, wa_id=str(reply.get("wa_id")), text=text, idempotency_key=f"dados-invite-ack-{invite['id']}")
+        return {"ok": True, "answer": "expirado" if expired else "nao", "sent": result["ok"]}
+    try:
+        built = await build_message(invite["client_id"], invite["report_kind"], contact_id=str(contact["id"]))
+        text = built["text"]
+        result = await mugozap_text(cfg, wa_id=str(reply.get("wa_id")), text=text, idempotency_key=f"dados-invite-{invite['id']}")
+    except StudioError as exc:
+        result = {"ok": False, "code": exc.code}
+        text = ""
+    await sb_update(INVITES, filters={"id": f"eq.{invite['id']}"},
+                    patch={"status": "enviado" if result["ok"] else "falhou", "error_code": None if result["ok"] else result["code"],
+                           "delivered_at": datetime.now(timezone.utc).isoformat() if result["ok"] else None})
+    await _log({"client_id": invite["client_id"], "contact_id": contact.get("id"), "contact_name": param(contact.get("name"), 120),
+                "phone_masked": mask_phone(contact["phone"]), "kind": invite["report_kind"], "template_name": None,
+                "request_id": None, "idempotency_key": f"dados-invite-{invite['id']}", "sent_by": invite.get("sent_by"),
+                "channel": "mugozap", "status": "enviado" if result["ok"] else "falhou", "error_code": None if result["ok"] else result["code"],
+                "preview": {"text": text, "params": {}, "has_image": False, "via": "convite"}})
+    return {"ok": result["ok"], "answer": "sim", **({} if result["ok"] else {"code": result["code"]})}

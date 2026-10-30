@@ -21,6 +21,8 @@ type Common = {
   onOpen: (item: CalendarItem) => void;
   onMove: (item: CalendarItem, dayKey: string) => void;
   onCreate: (dayKey: string) => void;
+  /** Criar pauta é da equipe Mugô; o cliente só arrasta (muda a data) e abre para editar/aprovar. */
+  canCreate?: boolean;
 };
 
 function useDrop(canManage: boolean, items: CalendarItem[], onMove: Common["onMove"]) {
@@ -64,7 +66,7 @@ export function MonthView({ month, ...p }: Common & { month: string; onPickDay: 
       return <div key={day} role="gridcell" className={`calCell ${outside ? "is-outside" : ""} ${day === today ? "is-today" : ""} ${over === day ? "is-over" : ""}`} {...bind(day)}>
         <div className="calCellHead">
           <button type="button" className="calDayNum" onClick={() => p.onPickDay(day)} aria-label={`Abrir dia ${day}`}>{Number(day.slice(8))}</button>
-          {p.canManage && !outside ? <button type="button" className="calAdd" aria-label="Nova pauta neste dia" onClick={() => p.onCreate(day)}>+</button> : null}
+          {(p.canCreate ?? p.canManage) && !outside ? <button type="button" className="calAdd" aria-label="Nova pauta neste dia" onClick={() => p.onCreate(day)}>+</button> : null}
         </div>
         <div className="calChips">
           {list.slice(0, 3).map((item) => <Chip key={item.id} item={item} canManage={p.canManage} onOpen={p.onOpen} compact />)}
@@ -86,7 +88,7 @@ export function WeekView({ weekStart, ...p }: Common & { weekStart: string; onPi
       const list = map.get(day) || [];
       return <section key={day} className={`calWeekCol ${day === today ? "is-today" : ""} ${over === day ? "is-over" : ""}`} {...bind(day)}>
         <header><button type="button" className="calWeekDay" onClick={() => p.onPickDay(day)}><span>{WEEKDAYS[idx]}</span><b>{fromKey(day).getDate()}</b></button>
-          {p.canManage ? <button type="button" className="calAdd" aria-label="Nova pauta neste dia" onClick={() => p.onCreate(day)}>+</button> : null}</header>
+          {(p.canCreate ?? p.canManage) ? <button type="button" className="calAdd" aria-label="Nova pauta neste dia" onClick={() => p.onCreate(day)}>+</button> : null}</header>
         <div className="calChips">{list.length ? list.map((item) => <Chip key={item.id} item={item} canManage={p.canManage} onOpen={p.onOpen} />) : <p className="calEmpty">—</p>}</div>
       </section>;
     })}
@@ -111,7 +113,7 @@ export function DayView({ day, ...p }: Common & { day: string }) {
         <h3>{item.title}</h3>
         {item.hook ? <p className="studioHook">“{item.hook}”</p> : null}
       </article>)}
-      {p.canManage && !(byHour.get(h) || []).length ? <button type="button" className="calHourAdd" onClick={() => p.onCreate(`${day}T${String(h).padStart(2, "0")}:00`)} aria-label={`Nova pauta às ${h}h`}>+</button> : null}
+      {(p.canCreate ?? p.canManage) && !(byHour.get(h) || []).length ? <button type="button" className="calHourAdd" onClick={() => p.onCreate(`${day}T${String(h).padStart(2, "0")}:00`)} aria-label={`Nova pauta às ${h}h`}>+</button> : null}
       </div>
     </div>)}
   </div>;

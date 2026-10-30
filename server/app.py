@@ -65,6 +65,7 @@ from routes.admin_health import router as admin_health_router
 from routes.shopify import router as shopify_router
 from routes.shopify_oauth import router as shopify_oauth_router
 from routes.crm import router as crm_router
+from routes.hooks import router as hooks_router
 
 from services.ai_summary import ai_summary
 from services.ads_sync import sync_ads_for_client_period
@@ -334,6 +335,7 @@ app.include_router(goals_router)
 app.include_router(studio_router)
 app.include_router(studio_public_router)
 app.include_router(crm_router)
+app.include_router(hooks_router)
 app.include_router(sales_origin_router)
 app.include_router(connections_router)
 app.include_router(integrations_router)

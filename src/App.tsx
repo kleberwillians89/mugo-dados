@@ -859,7 +859,7 @@ function PrivateApp() {
       {route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "calendar" ? (
-        <Calendar key={`calendar:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Calendar key={`calendar:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "approval" ? (
         <Approval key={`approval:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (

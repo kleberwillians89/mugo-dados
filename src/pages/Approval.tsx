@@ -43,6 +43,8 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
   const [editing, setEditing] = useState<{ id: string | null; data: ContactInput } | null>(null);
   const [compose, setCompose] = useState<{ kind: MessageKind; contact_id: string; request_id?: string; preview: MessagePreview | null; overrides: Record<string, string> } | null>(null);
   const [result, setResult] = useState<MessageResult | null>(null);
+  // Mover no funil, mandar mensagem e cuidar dos links é da equipe Mugô; o cliente aprova/ajusta no Calendário.
+  const team = canManage && isAgency;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -63,7 +65,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
   }
 
   async function moveTo(item: PipelineItem, stage: Stage) {
-    if (stage === item.stage || !canManage) return;
+    if (stage === item.stage || !team) return;
     if (stage === "com_cliente") { setError("Para mandar ao cliente, use “Enviar ao cliente” no Calendário: o link vai junto."); return; }
     const status = STAGE_STATUS[stage]!;
     const note = status === "rejeitado" ? window.prompt("O que precisa mudar?") : undefined;
@@ -110,19 +112,19 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
   const pendingClient = items.filter((i) => i.stage === "com_cliente").length;
 
   return <Shell title="Aprovação" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Aprovação de conteúdo" controls={canManage ? <div className="studioControls">
+    <PageHeader company={clientName} title="Aprovação de conteúdo" controls={team ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => navigateToAppRoute("calendar")}>Calendário</button>
       <button type="button" className="ds-button is-primary" onClick={() => { setTab("mensagens"); void openCompose("agenda"); }} disabled={!contacts.length}>Nova mensagem</button>
     </div> : undefined} />
-    <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo canal oficial da Mugô (MugôZap)." : "MugôZap ainda não configurado no Dados; as mensagens abrem no WhatsApp para envio manual."}</p>
+    {team ? <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo canal oficial da Mugô (MugôZap)." : "MugôZap ainda não configurado no Dados; as mensagens abrem no WhatsApp para envio manual."}</p> : <p className="libHint">Para aprovar, pedir ajuste ou editar um post, abra o Calendário. A equipe Mugô é avisada na hora.</p>}
 
     <ClientTasks isAgency={isAgency} clientId={clientId} />
     <div className="studioTabs" role="tablist" aria-label="Seções">
-      {(Object.keys(TABS) as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "is-active" : ""} onClick={() => setTab(t)}>
+      {(Object.keys(TABS) as Tab[]).filter((t) => team || t !== "mensagens").map((t) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "is-active" : ""} onClick={() => setTab(t)}>
         {TABS[t]}{t === "funil" && pendingClient ? <span>{pendingClient}</span> : null}{t === "pedidos" ? <span>{requests.filter((r) => r.status === "aberto").length}</span> : null}</button>)}
     </div>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {result ? <p className="studioOk">{result.status === "aguardando" ? "Registrada: sai sozinha quando o WhatsApp da Mugô for ligado." : result.status === "enviado" ? (result.already_sent ? "Essa mensagem já tinha sido enviada." : "✓ Mensagem enviada pelo WhatsApp da Mugô.") : "Mensagem aberta no WhatsApp para envio."}</p> : null}
+    {result ? <p className="studioOk">{result.status === "aguardando" ? "Registrada: sai sozinha quando o WhatsApp da Mugô for ligado." : result.status === "enviado" ? (result.already_sent ? "Essa mensagem já tinha sido enviada." : (result.text.includes("Quer receber aqui no WhatsApp?") ? "✓ Convite enviado. Quando o cliente tocar em Sim, o resumo sai sozinho." : "✓ Mensagem enviada pelo WhatsApp da Mugô.")) : "Mensagem aberta no WhatsApp para envio."}</p> : null}
     {loading && !items.length ? <p>Carregando…</p> : null}
 
     {tab === "funil" ? <>
@@ -132,19 +134,19 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
         <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
       </div>
       <div className="kanban">{(Object.keys(STAGES) as Stage[]).map((stage) => <section key={stage} className={`kanbanCol is-${stage} ${over === stage ? "is-over" : ""}`}
-        onDragOver={canManage ? (e) => { e.preventDefault(); setOver(stage); } : undefined} onDragLeave={() => setOver((o) => (o === stage ? null : o))}
-        onDrop={canManage ? (e) => onDrop(e, stage) : undefined}>
+        onDragOver={team ? (e) => { e.preventDefault(); setOver(stage); } : undefined} onDragLeave={() => setOver((o) => (o === stage ? null : o))}
+        onDrop={team ? (e) => onDrop(e, stage) : undefined}>
         <header><strong>{STAGES[stage]}</strong><span>{byStage(stage).length}</span></header>
         {byStage(stage).map((item) => {
           const when = localParts(item.scheduled_at);
-          return <article key={item.id} className="kanbanCard" draggable={canManage}
+          return <article key={item.id} className="kanbanCard" draggable={team}
             onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}>
             <small>{when.label} · {when.time} · {STUDIO_FORMATS[item.format]}</small>
             <b>{item.title}</b>
             {item.client_feedback?.comment ? <p className="kanbanNote">“{item.client_feedback.comment}” — {item.client_feedback.reviewer_name || "cliente"}</p> : null}
             {item.stage === "ajuste" && !item.client_feedback?.comment && item.review_note ? <p className="kanbanNote">{item.review_note}</p> : null}
             {item.request ? <small>Enviado {dateTime(item.request.sent_at)}{item.request.contact_name ? ` para ${item.request.contact_name}` : ""}</small> : null}
-            {canManage ? <select aria-label="Mover para" value={item.stage} onChange={(e) => void moveTo(item, e.target.value as Stage)}>
+            {team ? <select aria-label="Mover para" value={item.stage} onChange={(e) => void moveTo(item, e.target.value as Stage)}>
               {(Object.keys(STAGES) as Stage[]).map((s) => <option key={s} value={s} disabled={s === "com_cliente" && item.stage !== "com_cliente"}>{STAGES[s]}</option>)}</select> : null}
           </article>;
         })}
@@ -157,7 +159,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
         <div><b>{MONTH_NAMES[Number(r.month.slice(5, 7)) - 1]}</b> · {r.items} pauta(s){r.contact_name ? ` · ${r.contact_name}` : ""}
           <small>Criado {dateTime(r.created_at)} · vale até {new Date(r.expires_at).toLocaleDateString("pt-BR")}{r.last_reminded_at ? ` · lembrete ${dateTime(r.last_reminded_at)}` : ""}</small></div>
         <span className={`studioStatus is-${r.status === "aberto" ? "em_revisao" : r.status === "concluido" ? "aprovado" : "rejeitado"}`}>{REQUEST_STATUS[r.status]}</span>
-        {canManage && r.status === "aberto" ? <div className="studioActions">
+        {team && r.status === "aberto" ? <div className="studioActions">
           <button type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => { setTab("mensagens"); void openCompose("lembrete", r.id); }}>Lembrar no WhatsApp</button>
           <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Cancelar este link? O cliente não conseguirá mais abrir.")) void run("cancel", () => cancelApproval(r.id), "Não foi possível cancelar.").then((ok) => ok && load()); }}>Cancelar link</button>
         </div> : null}
@@ -179,7 +181,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
 
     {tab === "mensagens" ? <div className="messagePanel">
       {isAgency ? <CrmConversations contacts={contacts} clientId={clientId} /> : null}
-      {canManage ? <div className="studioActions">{(["semanal", "agenda", "trafego", "resultados"] as MessageKind[]).map((k) => <button key={k} type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => void openCompose(k)}>{MESSAGE_KINDS[k]}</button>)}</div> : null}
+      {team ? <div className="studioActions">{(["convite", "semanal", "agenda", "trafego", "resultados"] as MessageKind[]).map((k) => <button key={k} type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => void openCompose(k)}>{MESSAGE_KINDS[k]}</button>)}</div> : null}
       {!contacts.length ? <p className="studioEmpty">Cadastre um contato na aba Contatos para enviar mensagens.</p> : null}
       <h3>Envios pelo Dados</h3>
       <ul className="messageLog">{messages.map((m) => <li key={m.id} className={`is-${m.status}`}>
@@ -214,7 +216,9 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
             {compose.preview.header_image ? <img src={compose.preview.header_image} alt="Arte enviada no cabeçalho" /> : null}
             <p>{compose.preview.editable.reduce((text, k) => text.replace(compose.preview!.params[k], compose.overrides[k] || compose.preview!.params[k]), compose.preview.text)}</p>
             <small>Template {compose.preview.template_name} · {compose.preview.phone_masked}</small>
+            {compose.kind === "convite" ? <div className="waButtons" aria-label="Botões da mensagem"><span>Sim, quero ver</span><span>Agora não</span></div> : null}
           </div>
+          {compose.kind === "convite" ? <p className="libHint">Se o cliente tocar em <b>Sim</b>, o relatório de tráfego dos últimos 7 dias sai na hora, com os números já conferidos agora. Se tocar em <b>Agora não</b>, recebe só um “combinado”.</p> : null}
           {compose.preview.editable.length ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void refreshPreview({ ...compose, overrides: {} })}>Gerar outra frase</button> : null}
         </> : null}
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setCompose(null)}>Cancelar</button>

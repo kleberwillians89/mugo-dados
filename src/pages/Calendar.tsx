@@ -27,7 +27,9 @@ function firstOfNextMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-export default function Calendar({ canManage }: { canManage: boolean }) {
+export default function Calendar({ canManage, isAgency = false }: { canManage: boolean; isAgency?: boolean }) {
+  // Equipe Mugô: tudo. Cliente: vê o que está com ele/aprovado/publicado, edita texto e data, aprova ou pede ajuste.
+  const team = canManage && isAgency;
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const handle = "@" + clientName.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
@@ -130,8 +132,10 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   async function saveDraft(draft: PostDraft) {
     const body = { scheduled_at: toSaoPauloIso(draft.date, draft.time), format: draft.format, pillar: draft.pillar || undefined,
       title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined };
+    // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
+    const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;
-    const result = await run("save", () => (current ? updateCalendarItem(current.id, body) : createCalendarItem(body)), "Não foi possível salvar a pauta.");
+    const result = await run("save", () => (current ? updateCalendarItem(current.id, team ? body : clientBody) : createCalendarItem(body)), "Não foi possível salvar a pauta.");
     if (!result) return false;
     if (current) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); } else await load();
     return true;
@@ -204,10 +208,10 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     if (result) { setProfile(result.profile); setProfileOpen(false); }
   }
 
-  const common = { items: visible, canManage, onOpen: openItem, onMove: (i: CalendarItem, d: string) => void move(i, d), onCreate: openNew };
+  const common = { items: visible, canManage, canCreate: team, onOpen: openItem, onMove: (i: CalendarItem, d: string) => void move(i, d), onCreate: openNew };
 
   return <Shell title="Calendário" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Calendário editorial" controls={canManage ? <div className="studioControls">
+    <PageHeader company={clientName} title="Calendário editorial" controls={team ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => void openProfile()} disabled={Boolean(busy)}>Perfil da marca</button>
       <button type="button" className="ds-button" onClick={() => { setError(null); setChat((c) => ({ ...c, open: true })); }} disabled={Boolean(busy)}>Estratégia (IA)</button>
       <button type="button" className="ds-button" onClick={() => openNew(view === "dia" ? cursor : `${month}-01`)} disabled={Boolean(busy)}>+ Pauta</button>
@@ -226,7 +230,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
       </div>
     </div>
     <div className="studioTabs calStatus" role="tablist" aria-label="Filtrar por status">
-      {(["todos", "rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"] as const).map((key) => (
+      {(["todos", "rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"] as const).filter((key) => isAgency || key !== "rascunho").map((key) => (
         <button key={key} role="tab" aria-selected={filter === key} className={`${filter === key ? "is-active" : ""} is-${key}`} onClick={() => setFilter(key)}>
           {key === "todos" ? "Todos" : STUDIO_STATUS[key]} <span>{counts[key] || 0}</span>
         </button>
@@ -235,14 +239,14 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     {error && !modal ? <p role="alert" className="studioError">{error}</p> : null}
     {notes.length ? <ul className="studioNotes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
     {loading && !items.length ? <p>Carregando calendário…</p> : null}
-    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty"><p>Nenhuma pauta neste mês.</p>{canManage ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
+    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
 
     {view === "mes" ? <MonthView month={month} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
     {view === "semana" ? <WeekView weekStart={mondayOf(cursor)} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
     {view === "dia" ? <DayView day={cursor} {...common} /> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
-      canManage={canManage} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} /> : null}
+      canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} /> : null}
 
     <Drawer open={Boolean(sending)} title="Enviar ao cliente" description="Gera um link sem login para o cliente aprovar ou pedir ajuste. Válido por 14 dias." width="lg" onClose={() => { if (!busy) setSending(null); }}>
       {sending ? <form className="studioForm" onSubmit={submitSend}>
