@@ -373,6 +373,12 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
             params[key] = param(value, 300)
     template_name = params.pop("_template")
     clean = {k: param(params.get(k), 300 if k in EDITABLE_PARAMS else 160) for k in TEMPLATES[template_name]["params"]}
+    if any(value == "—" for value in clean.values()):
+        # "—" é o marcador de dado vazio: melhor não mandar do que mandar número faltando para o cliente.
+        raise StudioError("DATA_MISSING")
+    for key, value in clean.items():
+        # Sem travessão em nenhuma variável (título de pauta incluído); frases editáveis também sem ponto final.
+        clean[key] = (clean_sentence(value) if key in EDITABLE_PARAMS else re.sub(r"\s*[—–]\s*", ", ", value)) or value
     return {"kind": kind, "template_name": template_name, "params": clean, "text": render(template_name, clean),
             "editable": [k for k in clean if k in EDITABLE_PARAMS], "contact": {k: contact.get(k) for k in ("id", "name", "role")},
             "phone_masked": mask_phone(contact["phone"]), "header_image": extra.get("header_image"),
@@ -466,23 +472,75 @@ def _value(metrics: Dict[str, Any], key: str) -> Optional[float]:
         return None
 
 
+def clean_sentence(value: Any, limit: int = 300) -> str:
+    """Frase que entra no meio do template: sem travessão, sem ponto final (o template já põe) e sem sobra."""
+    text = re.sub(r"\s*[—–]\s*", ", ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip(" ,;:")
+    text = re.sub(r"[.!…]+$", "", text).strip()
+    return text[:limit]
+
+
 async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Optional[str] = None) -> str:
     """Frase curta escrita pela IA a partir dos números; sem IA, a frase determinística.
 
     Se a equipe já escolheu/editou a frase (preset), ela vale e a IA não é chamada de novo."""
     from .studio_llm import STR, llm_json, obj
     if preset and preset.strip():
-        return param(preset, 300)
+        return clean_sentence(preset) or clean_sentence(fallback)
     try:
         out = await llm_json(
-            instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji) para uma "
-                          "mensagem de WhatsApp a um cliente de agência. Use só os números dados; não invente nada."),
+            instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji, sem travessão, "
+                          "sem ponto final) para uma mensagem de WhatsApp a um cliente de agência. Ela precisa citar pelo "
+                          "menos um número ou nome de campanha dos DADOS, de preferência vendas ou pedidos. Use só o que está "
+                          "nos DADOS; não invente nada e não repita o valor investido, que já aparece na mensagem."),
             prompt=f"{task}\nDADOS: {json.dumps(data, ensure_ascii=False, default=str)}",
             schema_name="studio_message_sentence", schema=obj({"sentence": STR}), temperature=0.3, timeout=30)
-        sentence = param(out.get("sentence"), 160)
-        return sentence if sentence != "—" else fallback
+        sentence = clean_sentence(out.get("sentence"), 160)
+        return sentence if sentence and re.search(r"\d", sentence) else clean_sentence(fallback)
     except StudioError:
-        return fallback
+        return clean_sentence(fallback)
+
+
+PAID_CHANNELS = {"paid_search", "paid_social", "paid_other", "display", "paid_video", "paid_shopping"}
+
+
+async def _store_sales(client_id: str, start: date, end: date, metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Faturamento da loja no período: o KPI oficial quando existe; senão, os pedidos da página Origem das vendas.
+
+    Também devolve o que veio de mídia paga (pedidos com origem paga) e a melhor campanha, para a frase de destaque
+    falar de venda de verdade, e não só de investimento."""
+    from .sales_by_origin import build_sales_by_origin
+    revenue, orders = _value(metrics, "revenue"), _value(metrics, "orders")
+    origin: Dict[str, Any] = {}
+    try:
+        origin = await build_sales_by_origin(client_id, start=start.isoformat(), end=end.isoformat())
+    except Exception as exc:  # noqa: BLE001 — a página de origem é complemento; o KPI oficial continua valendo
+        print(f"[studio_messages] client_id={client_id} sales_origin_failed={type(exc).__name__}")
+    totals = (origin or {}).get("totals") or {}
+    if revenue is None and origin.get("status") in ("available", "partial") and totals.get("revenue") is not None:
+        revenue, orders = _f(totals.get("revenue")), _f(totals.get("orders"))
+    paid = [c for c in (origin or {}).get("channels") or [] if c.get("channel") in PAID_CHANNELS]
+    campaigns = sorted(((origin or {}).get("campaigns") or []), key=lambda c: _f(c.get("revenue")), reverse=True)
+    return {
+        "revenue": revenue, "orders": orders,
+        "paid_revenue": sum(_f(c.get("revenue")) for c in paid) if paid else None,
+        "paid_orders": int(sum(_f(c.get("orders")) for c in paid)) if paid else None,
+        "top_campaign": ({"campanha": campaigns[0].get("campaign"), "pedidos": int(_f(campaigns[0].get("orders"))),
+                          "vendas": _f(campaigns[0].get("revenue"))} if campaigns and _f(campaigns[0].get("revenue")) > 0 else None),
+        "channels": [{"origem": c.get("channel"), "pedidos": c.get("orders"), "vendas": c.get("revenue")}
+                     for c in (origin or {}).get("channels") or []][:6],
+    }
+
+
+def _sales_fallback(sales: Dict[str, Any], default: str) -> str:
+    top = sales.get("top_campaign")
+    if top:
+        return f"a campanha {top['campanha']} trouxe {top['pedidos']} pedido(s) e {brl(top['vendas'])} em vendas"
+    if sales.get("paid_orders"):
+        return f"a mídia paga trouxe {sales['paid_orders']} pedido(s) e {brl(sales['paid_revenue'])} em vendas na loja"
+    if sales.get("orders"):
+        return f"a loja fechou {int(sales['orders'])} pedido(s) no período"
+    return default
 
 
 async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
@@ -490,22 +548,23 @@ async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, p
     end = today - timedelta(days=1)
     start = end - timedelta(days=6)
     snap = await _snapshot(client_id, start, end)
-    spend, revenue = _value(snap["metrics"], "investment"), _value(snap["metrics"], "revenue")
-    roas = _value(snap["metrics"], "roas")
+    spend = _value(snap["metrics"], "investment")
     if not spend:
         raise StudioError("NO_PAID_DATA")
-    campaigns = [{"campanha": c.get("name"), "investimento": c.get("spend"), "receita": c.get("revenue"),
-                  "conversoes": c.get("conversions")} for c in snap["campaigns"][:5]]
-    best = max(campaigns, key=lambda c: (float(c["receita"] or 0) / float(c["investimento"] or 1)), default=None)
-    fallback = f"melhor retorno em {best['campanha']}" if best and best.get("campanha") else "veja as campanhas no painel"
-    highlight = await _sentence("Diga o principal destaque da semana do tráfego pago (melhor campanha ou variação relevante).",
-                                {"investimento": spend, "receita": revenue, "roas": roas, "campanhas": campaigns,
-                                 "variacao_investimento_pct": (snap["metrics"].get("investment") or {}).get("variation_percent")}, fallback, preset)
+    sales = await _store_sales(client_id, start, end, snap["metrics"])
+    if sales["revenue"] is None:
+        raise StudioError("NO_STORE_DATA")
+    campaigns = [{"campanha": c.get("name"), "investimento": c.get("spend"), "conversoes": c.get("conversions")}
+                 for c in snap["campaigns"][:5]]
+    highlight = await _sentence(
+        "Diga o principal destaque da semana do tráfego pago: qual campanha ou origem trouxe vendas para a loja.",
+        {"vendas_da_loja": sales["revenue"], "pedidos": sales["orders"], "vendas_vindas_de_midia_paga": sales["paid_revenue"],
+         "pedidos_de_midia_paga": sales["paid_orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
+         "vendas_por_origem": sales["channels"], "campanhas_nas_plataformas": campaigns},
+        _sales_fallback(sales, "acompanhamos as campanhas para aumentar as vendas"), preset)
     return {"_template": "mugo_relatorio_trafego", "nome": first_name(contact.get("name")), "marca": brand,
             "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
-            "receita": brl(revenue) if revenue is not None else "—",
-            "roas": brl(roas if roas is not None else (revenue or 0) / spend),
-            "destaque": highlight}
+            "receita": brl(sales["revenue"]), "roas": brl(sales["revenue"] / spend), "destaque": highlight}
 
 
 async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, preset: Optional[str] = None) -> Dict[str, str]:
@@ -514,7 +573,8 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
     start = end.replace(day=1)
     snap = await _snapshot(client_id, start, end)
     metrics = snap["metrics"]
-    revenue = _value(metrics, "revenue")
+    sales = await _store_sales(client_id, start, end, metrics)
+    revenue = sales["revenue"]
     if revenue is None:
         raise StudioError("NO_RESULTS_DATA")
     variation = (metrics.get("revenue") or {}).get("variation_percent")
@@ -523,8 +583,8 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
     attention = await _sentence("Aponte o principal ponto de atenção do mês (a métrica que mais piorou ou o risco mais claro).",
                                 data, "vamos revisar juntos os canais no painel", preset)
     return {"_template": "mugo_resultados_mes", "nome": first_name(contact.get("name")), "mes": MONTHS[start.month - 1],
-            "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation),
-            "pedidos": str(int(_value(metrics, "orders") or 0)), "investimento": brl(_value(metrics, "investment") or 0),
+            "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation) if variation is not None else "sem base de comparação",
+            "pedidos": str(int(sales["orders"] or 0)), "investimento": brl(_value(metrics, "investment") or 0),
             "atencao": attention}
 
 
@@ -534,27 +594,33 @@ async def _weekly_params(client_id: str, contact: Dict[str, Any], brand: str, ov
     from .campaign_learning import week_bounds
     start, end = week_bounds()
     snap = await _snapshot(client_id, start, end)
-    spend, revenue, roas = _value(snap["metrics"], "investment"), _value(snap["metrics"], "revenue"), _value(snap["metrics"], "roas")
+    spend = _value(snap["metrics"], "investment")
     if not spend:
         raise StudioError("NO_PAID_DATA")
+    sales = await _store_sales(client_id, start, end, snap["metrics"])
+    revenue = sales["revenue"]
+    if revenue is None:
+        raise StudioError("NO_STORE_DATA")
+    roas = revenue / spend
     rows = await sb_select("studio_campaign_learnings", select="channel,campaign_name,spend,conversions,roas,cpa,note,recommended_action,planned_action",
                            filters={"client_id": f"eq.{client_id}", "week_start": f"eq.{start.isoformat()}"}, order="spend.desc", limit=100)
     notes = [f"{r['campaign_name']}: {r['note']}" for r in rows if r.get("note")]
     best = max((r for r in rows if r.get("roas") is not None and _f(r.get("conversions")) >= 3), key=lambda r: _f(r["roas"]), default=None)
     actions = [r for r in rows if r.get("recommended_action") in ("escalar", "pausar")]
-    learned_fallback = notes[0] if notes else (f"{best['campaign_name']} teve o melhor retorno" if best else "semana estável nas campanhas")
+    learned_fallback = notes[0] if notes else _sales_fallback(sales, f"{best['campaign_name']} teve o melhor retorno" if best else "semana estável nas campanhas")
     next_fallback = (f"{'escalar' if actions[0]['recommended_action'] == 'escalar' else 'pausar'} {actions[0]['campaign_name']}"
                      if actions else "manter as campanhas e acompanhar o custo por conversão")
     learned = await _sentence("Diga em 1 frase o principal aprendizado da semana nas campanhas (campanha nova, saturação, melhora, queda).",
-                              {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "investimento": spend, "roas": roas},
+                              {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "vendas_da_loja": revenue,
+                               "pedidos": sales["orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
+                               "vendas_por_origem": sales["channels"]},
                               learned_fallback, overrides.get("destaque"))
     nxt = await _sentence("Diga em 1 frase curta o próximo passo da agência para a semana (ação concreta numa campanha).",
                           {"acoes_recomendadas": [{"campanha": a["campaign_name"], "acao": a["recommended_action"]} for a in actions[:5]],
                            "anotacoes": notes[:5]}, next_fallback, overrides.get("proximo"))
     params = {"_template": "mugo_resumo_semanal", "nome": first_name(contact.get("name")), "marca": brand,
               "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
-              "receita": brl(revenue) if revenue is not None else "—",
-              "roas": brl(roas if roas is not None else (revenue or 0) / spend), "destaque": learned, "proximo": nxt}
+              "receita": brl(revenue), "roas": brl(roas), "destaque": learned, "proximo": nxt}
     return params, {"button_suffix": None, "header_image": None, "request_id": None, "key_parts": [start.isoformat()]}
 
 

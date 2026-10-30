@@ -354,6 +354,8 @@ ERRORS.update({
     "NOTHING_SCHEDULED": (409, "Nenhuma pauta aprovada para esta semana."),
     "NO_PAID_DATA": (409, "Sem investimento em mídia nos últimos 7 dias."),
     "NO_RESULTS_DATA": (409, "Sem faturamento do mês anterior para montar o resumo."),
+    "NO_STORE_DATA": (409, "Sem faturamento da loja nesse período (nem no indicador oficial, nem na Origem das vendas). A mensagem não sai com número faltando."),
+    "DATA_MISSING": (409, "Falta um dado para montar essa mensagem. Confira as integrações antes de enviar."),
     "HEADER_IMAGE_REQUIRED": (422, "O template com arte precisa de uma imagem anexada à pauta."),
     "BUTTON_PARAM_REQUIRED": (422, "O template precisa do link de aprovação."),
     "TEMPLATE_NOT_APPROVED": (409, "O template ainda não está aprovado pela Meta no MugôZap."),

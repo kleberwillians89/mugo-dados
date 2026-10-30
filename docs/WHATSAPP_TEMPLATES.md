@@ -27,6 +27,11 @@ Se a Meta pedir mudança no texto, altere nos dois lugares.
 Sem as variáveis do passo 4, o Dados continua funcionando: gera o link `wa.me` com o mesmo texto
 para a equipe enviar manualmente.
 
+> **Dados sempre reais:** o faturamento vem do indicador oficial da loja; quando ele não existe (ex.: Fbits sem
+> KPI oficial), vem dos pedidos da página **Origem das vendas**. Sem faturamento em nenhuma das duas, a mensagem
+> **não é montada** (nunca sai "—" ou retorno R$ 0,00). A frase de destaque cita venda ou pedido de verdade, sem
+> travessão e sem ponto final duplicado.
+
 > Regras da Meta já respeitadas: nenhuma variável no começo ou no fim do texto, nenhuma variável
 > encostada em outra, sem quebra de linha dentro de variável. As frases de destaque e atenção são
 > geradas a partir dos números da conta (até 140 caracteres) e podem ser editadas antes do envio.
