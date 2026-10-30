@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from services import creators
 from services.ig_supabase import sb_delete, sb_get_one_by, sb_insert, sb_update
+from services.studio_calendar import StudioError
 from services.tenant import require_client_role, require_user_id
 
 # Creator Intelligence é operação da agência: cliente final não pesquisa nem gasta créditos.
@@ -29,6 +30,12 @@ class SearchInput(Strict):
     network: Network
     query: str = Field(min_length=1, max_length=80)
     limit: int = Field(default=10, ge=1, le=25)
+
+
+class SuggestInput(Strict):
+    campaign_type: Literal["ugc", "influencer"] = "influencer"
+    brief: Optional[str] = Field(default=None, max_length=1000)
+    count: int = Field(default=8, ge=1, le=15)
 
 
 class CompareInput(Strict):
@@ -89,6 +96,22 @@ async def search_creators(client_id: str, body: SearchInput, authorization: Opti
         return await creators.search(cid, body.network, body.query, body.limit)
     except ValueError as exc:
         raise _invalid(exc) from None
+
+
+AI_ERRORS = {
+    "AI_PROVIDER_NOT_CONFIGURED": (503, "IA não configurada no servidor."),
+    "AI_PROVIDER_TIMEOUT": (504, "A IA demorou para responder. Tente novamente."),
+}
+
+
+@router.post("/suggest")
+async def suggest_creators(client_id: str, body: SuggestInput, authorization: Optional[str] = Header(default=None)):
+    cid = await agency(client_id, authorization)
+    try:
+        return await creators.suggest(cid, body.campaign_type, body.brief, body.count)
+    except StudioError as exc:
+        status, detail = AI_ERRORS.get(exc.code, (502, "A IA não conseguiu gerar sugestões agora."))
+        raise HTTPException(status, detail) from None
 
 
 @router.post("/compare")

@@ -196,5 +196,33 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 422)
 
 
+class SuggestTests(unittest.IsolatedAsyncioTestCase):
+    async def run_suggest(self, llm_items, lookup_side_effect, count=2):
+        lookup = AsyncMock(side_effect=lookup_side_effect)
+        with patch.object(creators, "load_business_context", AsyncMock(return_value={"available": True, "context": {"segment": "perfumaria"}})), \
+             patch.object(creators, "sb_get_one", AsyncMock(return_value={"name": "Ruah"})), \
+             patch.object(creators, "get_active_connection_for_client", AsyncMock(return_value={"username": "ruahparfums"})), \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={"suggestions": llm_items})), \
+             patch.object(creators, "lookup", lookup):
+            return await creators.suggest(CID, "influencer", None, count), lookup
+
+    async def test_only_meta_verified_handles_are_returned(self):
+        def fake_lookup(cid, network, handle):
+            if handle == "inexistente":
+                raise IntegrationError("x", status_code=404, code="CREATOR_NOT_FOUND", provider="meta")
+            return {"handle": handle, "followers": 1000}
+        items = [{"handle": "@Inexistente", "reason": "a"}, {"handle": "ruahparfums", "reason": "própria marca"},
+                 {"handle": "nome inválido", "reason": "b"}, {"handle": "boa.criadora", "reason": "afinidade"}]
+        result, lookup = await self.run_suggest(items, fake_lookup)
+        self.assertEqual([s["creator"]["handle"] for s in result["suggestions"]], ["boa.criadora"])
+        self.assertEqual(result["discarded"], ["inexistente"])
+        self.assertNotIn("ruahparfums", [c.args[2] for c in lookup.await_args_list])
+
+    async def test_connection_problems_stop_instead_of_discarding(self):
+        err = IntegrationError("x", status_code=401, code="META_REAUTH_REQUIRED", provider="meta")
+        with self.assertRaises(IntegrationError):
+            await self.run_suggest([{"handle": "alguem", "reason": "a"}], err)
+
+
 if __name__ == "__main__":
     unittest.main()

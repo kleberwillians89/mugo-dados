@@ -3,8 +3,8 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorNumber,
   getCreatorUsage, getShortlist, listCreators, listShortlists, lookupCreator, refreshCreator, removeFromShortlist,
-  searchCreators, updateShortlistItem,
-  type Creator, type CreatorNetwork, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
+  searchCreators, suggestCreators, updateShortlistItem,
+  type Creator, type CreatorSuggestion, type CreatorNetwork, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
 } from "../app/creators";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -58,6 +58,9 @@ export default function Creators() {
   const [listItems, setListItems] = useState<ShortlistItem[]>([]);
   const [newList, setNewList] = useState("");
   const [usage, setUsage] = useState<CreatorUsage | null>(null);
+  const [aiType, setAiType] = useState<Shortlist["campaign_type"]>("influencer");
+  const [aiBrief, setAiBrief] = useState("");
+  const [aiResult, setAiResult] = useState<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +100,11 @@ export default function Creators() {
     run(async () => { const result = await searchCreators(network, query); upsertLocal(result.creators); setNotes(result.notes); }, "Não foi possível pesquisar.");
   }
 
+  function onSuggest(event: FormEvent) {
+    event.preventDefault();
+    run(async () => { const result = await suggestCreators(aiType, aiBrief); setAiResult(result); upsertLocal(result.suggestions.map((s) => s.creator)); }, "Não foi possível gerar sugestões.");
+  }
+
   const toggle = (id: string) => setSelected((current) =>
     current.includes(id) ? current.filter((i) => i !== id) : current.length >= MAX_COMPARE ? current : [...current, id]);
 
@@ -126,6 +134,28 @@ export default function Creators() {
       </form>
     </div>
     {network !== "youtube" ? <small>Descoberta no {CREATOR_NETWORKS[network]} usa créditos Apify (com teto mensal). Analisar um @ do Instagram usa a Meta, sem custo.</small> : <small>Busca no YouTube consome 101 unidades da cota diária gratuita.</small>}
+
+    <form className="creatorAi" onSubmit={onSuggest}>
+      <strong>Sugerir com IA para {getActiveClientName()}</strong>
+      <label>Campanha
+        <select value={aiType} onChange={(e) => setAiType(e.target.value as Shortlist["campaign_type"])}>
+          <option value="influencer">Influência</option><option value="ugc">UGC</option>
+        </select>
+      </label>
+      <label>Briefing (opcional) <input value={aiBrief} maxLength={1000} onChange={(e) => setAiBrief(e.target.value)} placeholder="ex.: lançamento de perfume amadeirado, público 25-40" /></label>
+      <button className="ds-button" disabled={busy}>Sugerir @</button>
+      <small>A IA indica perfis do Instagram com base no contexto de negócio da empresa; cada @ é conferido na Meta e só aparecem contas reais e profissionais, com métricas oficiais.</small>
+    </form>
+    {aiResult ? <section className="creatorShortlist">
+      <h2>Sugestões da IA <button type="button" className="ds-button ds-button--ghost" onClick={() => setAiResult(null)}>Fechar</button></h2>
+      {!aiResult.context_available ? <p className="creatorNote">Contexto de negócio desta empresa não preenchido (Empresas → editar): as sugestões ficam mais genéricas.</p> : null}
+      {!aiResult.suggestions.length ? <p>Nenhuma indicação foi confirmada na Meta. Tente detalhar o briefing.</p> : <ul>{aiResult.suggestions.map(({ creator, reason }) => <li key={creator.id}>
+        <a href={creator.profile_url || undefined} target="_blank" rel="noreferrer"><strong>@{creator.handle}</strong></a>
+        · {creatorNumber(creator.followers)} seguidores · {creatorNumber(creator.engagement_rate, "%")} · <span>{reason}</span>
+        {activeList ? <button type="button" className="ds-button ds-button--ghost" onClick={() => run(async () => { await addToShortlist(activeList, creator.id); await loadList(activeList); }, "Não foi possível adicionar.")}>+ Shortlist</button> : null}
+      </li>)}</ul>}
+      {aiResult.discarded.length ? <p className="creatorNote">Descartados (não encontrados ou não profissionais na Meta): {aiResult.discarded.map((h) => `@${h}`).join(", ")}</p> : null}
+    </section> : null}
 
     {error ? <p role="alert">{error}</p> : null}
     {busy ? <p>Consultando…</p> : null}

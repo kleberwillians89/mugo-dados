@@ -14,6 +14,13 @@ Menu **Operação → Criadores** (`/criadores`), só para agência/plataforma.
 Contas pessoais do Instagram não aparecem na Business Discovery: ficam sem seguidores
 e são sinalizadas em `missing_fields`.
 
+## Sugestões com IA
+
+`POST /suggest` usa o contexto de negócio da empresa (Empresas → editar) e o briefing opcional
+para a IA (mesma `OPENAI_API_KEY`/`OPENAI_MODEL` da Inteligência) indicar @ do Instagram.
+Cada @ é conferido na Meta Business Discovery: só volta conta real e profissional, com métricas
+oficiais; o resto aparece em `discarded`. A IA nunca fornece números.
+
 ## Variáveis (server/.env)
 
 - `YOUTUBE_API_KEY`
@@ -40,7 +47,7 @@ Migração `20261111_000060_creator_intelligence.sql` (aplicação manual, aditi
 ## Endpoints (`/api/clients/{client_id}/creators`)
 
 `GET /` catálogo · `POST /lookup` · `POST /search` · `GET /{id}` · `POST /{id}/refresh` ·
-`POST /compare` · `GET /usage` · `GET|POST /shortlists` · `GET|DELETE /shortlists/{id}` ·
+`POST /compare` · `POST /suggest` · `GET /usage` · `GET|POST /shortlists` · `GET|DELETE /shortlists/{id}` ·
 `POST /shortlists/{id}/items` · `PATCH|DELETE /shortlists/{id}/items/{item_id}`
 
 ## Próximas etapas (fora deste MVP)

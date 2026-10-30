@@ -34,6 +34,9 @@ export const listCreators = (network?: CreatorNetwork, q?: string) => {
 export const lookupCreator = (network: CreatorNetwork, handle: string, force = false) => http<Creator>(path("/lookup"), post({ network, handle, force }));
 export const searchCreators = (network: CreatorNetwork, query: string, limit = 10) =>
   http<{ creators: Creator[]; notes: string[] }>(path("/search"), post({ network, query, limit }));
+export type CreatorSuggestion = { creator: Creator; reason: string };
+export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 8) =>
+  http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }));
 export const refreshCreator = (id: string) => http<Creator>(path(`/${encodeURIComponent(id)}/refresh`), { method: "POST" });
 export const compareCreators = (ids: string[]) => http<{ creators: Creator[] }>(path("/compare"), post({ creator_ids: ids }));
 export const getCreatorUsage = () => http<CreatorUsage>(path("/usage"));

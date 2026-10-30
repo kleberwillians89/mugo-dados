@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from . import creators_providers as providers
+from .business_context import load_business_context
 from .ig_supabase import sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upsert
 from .integration_errors import IntegrationError
 from .meta_tokens import ensure_valid_meta_token, get_active_connection_for_client
@@ -308,3 +309,68 @@ async def get_shortlist(client_id: str, shortlist_id: str) -> Optional[Dict[str,
         order="created_at.asc", limit=500,
     )
     return {**shortlist, "items": items}
+
+
+# ---------------------------------------------------------------- sugestões com IA
+
+SUGGEST_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["suggestions"],
+    "properties": {"suggestions": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["handle", "reason"],
+        "properties": {"handle": {"type": "string"}, "reason": {"type": "string"}},
+    }}},
+}
+SUGGEST_INSTRUCTIONS = (
+    "Você é estrategista de marketing de influência no Brasil. Indique perfis REAIS do Instagram "
+    "que existam hoje e combinem com a marca. Só @ que você tem alta confiança de que existem; "
+    "prefira contas profissionais (Business/Criador) e criadores brasileiros. Misture portes "
+    "(micro, médio, grande) conforme o tipo de campanha. Nunca indique a própria marca nem concorrentes diretos. "
+    "Em reason, uma frase objetiva sobre a afinidade com a marca, sem números de seguidores ou engajamento: "
+    "as métricas serão conferidas depois na Meta."
+)
+
+
+async def suggest(client_id: str, campaign_type: str, brief: Optional[str], count: int) -> Dict[str, Any]:
+    """IA indica, Meta confirma: só volta @ que existe e é conta profissional, com métricas reais."""
+    from .studio_llm import llm_json
+
+    context = await load_business_context(client_id)
+    client = await sb_get_one("clients", f"id=eq.{client_id}") or {}
+    lines = [f"Marca: {client.get('name') or client_id}"]
+    lines += [f"{field}: {value}" for field, value in context["context"].items() if value]
+    if brief:
+        lines.append(f"Briefing da campanha: {brief[:1000]}")
+    lines.append(f"Tipo de campanha: {'UGC (conteúdo para a marca usar)' if campaign_type == 'ugc' else 'influência (alcance na audiência do criador)'}")
+    lines.append(f"Indique {count * 2} perfis do Instagram.")
+    data = await llm_json(instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
+                          schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.3)
+
+    connection = await get_active_connection_for_client(client_id) or {}
+    own = str(connection.get("username") or "").lstrip("@").lower()
+    candidates: Dict[str, str] = {}
+    for item in data.get("suggestions") or []:
+        try:
+            handle = providers.normalize_handle("instagram", item.get("handle") or "")
+        except ValueError:
+            continue
+        if handle != own and handle not in candidates:
+            candidates[handle] = str(item.get("reason") or "")[:300]
+
+    verified: List[Dict[str, Any]] = []
+    discarded: List[str] = []
+    for handle, reason in list(candidates.items())[: count * 2]:
+        if len(verified) >= count:
+            break
+        try:
+            creator = await lookup(client_id, "instagram", handle)
+        except IntegrationError as exc:
+            if exc.code in {"META_CONNECTION_REQUIRED", "META_REAUTH_REQUIRED", "META_RATE_LIMITED", "META_PERMISSION_MISSING"}:
+                raise
+            discarded.append(handle)
+            continue
+        verified.append({"creator": creator, "reason": reason})
+    return {
+        "suggestions": verified,
+        "discarded": discarded,
+        "context_available": context["available"],
+    }
