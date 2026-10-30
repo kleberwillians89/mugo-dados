@@ -18,11 +18,13 @@ type Props = {
   onSave: (draft: PostDraft) => Promise<boolean>;
   onStatus: (status: StudioStatus, note?: string) => Promise<void>;
   onDelete: () => Promise<void>;
+  /** Cliente: edita texto e data, aprova ou pede ajuste; formato, pilar, IA, publicar e excluir ficam com a Mugô. */
+  clientMode?: boolean;
   /** Troca a arte da pauta (ordem = slides). */
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
@@ -88,15 +90,16 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         <div className="studioRow">
           <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
           <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
-          <label>Formato<select value={draft.format} disabled={!canManage} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
+          <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
             {Object.entries(STUDIO_FORMATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         </div>
-        <label>Pilar<input list="studio-pillars" maxLength={120} value={draft.pillar} disabled={!canManage} onChange={(e) => set({ pillar: e.target.value })} />
+        <label>Pilar<input list="studio-pillars" maxLength={120} value={draft.pillar} disabled={!canManage || clientMode} onChange={(e) => set({ pillar: e.target.value })} />
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
 
-        {canManage ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
+        {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
+        {item?.client_edited_at ? <p className="postEdited">Editado pelo cliente em {new Date(item.client_edited_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{item.client_edited_fields?.length ? ` (${item.client_edited_fields.map((f) => ({ title: "título", hook: "gancho", caption_draft: "legenda", scheduled_at: "data" } as Record<string, string>)[f] || f).join(", ")})` : ""}. {clientMode ? "A equipe Mugô já foi avisada." : "Confira antes de publicar."}</p> : null}
 
 
         {item && (item.rationale || signals) ? <details className="postWhy" open>
@@ -121,10 +124,17 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {rejectNote !== null ? <div className="postReject">
           <label>O que precisa mudar?<textarea rows={3} maxLength={1000} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} /></label>
           <div className="studioActions"><button type="button" className="ds-button" onClick={() => setRejectNote(null)}>Cancelar</button>
-            <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("rejeitado", rejectNote).then(() => setRejectNote(null))}>Rejeitar</button></div>
+            <button type="button" className="ds-button is-primary" disabled={busy || (clientMode && !rejectNote.trim())} onClick={() => void onStatus("rejeitado", rejectNote).then(() => setRejectNote(null))}>{clientMode ? "Enviar pedido de ajuste" : "Rejeitar"}</button></div>
         </div> : null}
 
-        {canManage ? <div className="postActions">
+        {canManage && clientMode && item ? <div className="postActions">
+          {dirty ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : "Salvar alterações"}</button> : <>
+            {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
+            {item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote("")}>Pedir ajuste</button> : null}
+          </>}
+          {dirty ? <button type="button" className="ds-button" disabled={busy} onClick={() => setDraft(initial)}>Descartar</button> : null}
+        </div> : null}
+        {canManage && !clientMode ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}

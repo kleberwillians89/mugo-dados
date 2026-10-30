@@ -94,3 +94,33 @@ async def list_messages(client_id: str, conversation_id: str, limit: int = 100) 
     if not _UUID.match(conversation_id or ""):
         raise StudioError("CONVERSATION_NOT_FOUND")
     return await _call("messages", client_id, {"conversation_id": conversation_id, "limit": max(1, min(int(limit), 200))})
+
+
+def _events_url(api_url: str) -> str:
+    # Mesmo projeto e mesma chave: dados-ops-api (leitura) e dados-ops-events (escrita) ficam lado a lado.
+    return api_url[: -len("dados-ops-api")] + "dados-ops-events" if api_url.endswith("dados-ops-api") else ""
+
+
+async def post_event(client_id: str, event_type: str, event: Dict[str, Any]) -> Dict[str, Any]:
+    """Manda um evento ao CRM (tarefa + aviso ao time). Nunca levanta: devolve ok/código para quem guarda o resultado."""
+    cfg = _config()
+    if not cfg:
+        return {"ok": False, "code": "not_configured"}
+    url = _events_url(cfg[0])
+    if not url:
+        return {"ok": False, "code": "not_configured"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(url, headers={"X-Dados-Ops-Key": cfg[1]},
+                                     json={"type": event_type, "external_client_id": client_id, "event": event})
+        body = resp.json() if resp.content else {}
+    except (httpx.HTTPError, ValueError):
+        print(f"[crm_bridge] event={event_type} client_id={client_id} status=network_error")
+        return {"ok": False, "code": "network"}
+    print(f"[crm_bridge] event={event_type} client_id={client_id} status={resp.status_code}")
+    if resp.status_code == 200 and isinstance(body, dict) and body.get("ok"):
+        return {"ok": True, "task_id": str((body.get("data") or {}).get("task_id") or "")[:80] or None}
+    code = str((body or {}).get("code") or f"HTTP_{resp.status_code}")[:80]
+    if resp.status_code == 404 and code == "NOT_FOUND":
+        code = "function_missing"
+    return {"ok": False, "code": code}

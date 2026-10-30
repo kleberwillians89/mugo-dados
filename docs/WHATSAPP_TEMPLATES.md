@@ -4,7 +4,7 @@ Mensagens enviadas pelo Mugô Dados através do WhatsApp oficial da Mugô (Mugô
 O Dados **não envia sozinho**: ele chama o `mugozap-api` do CRM, que confere se o template está
 aprovado, se o telefone está cadastrado no CRM, aplica a idempotência e grava o histórico.
 
-São 7 templates. Os textos abaixo são **exatamente** os que o código usa (`server/services/studio_messages.py`).
+São 8 templates. Os textos abaixo são **exatamente** os que o código usa (`server/services/studio_messages.py`).
 Se a Meta pedir mudança no texto, altere nos dois lugares.
 
 ## Como cadastrar (Kleber)
@@ -121,6 +121,25 @@ Fechamento do mês anterior.
 Olá, {{1}}! Fechamos {{2}} da {{3}}: faturamento de {{4}} ({{5}} em relação ao mês anterior), {{6}} pedidos e {{7}} investidos em mídia. Ponto de atenção: {{8}}. Vamos conversar sobre os próximos passos?
 ```
 **Exemplos:** Ana · outubro · Ruah Parfums · R$ 58.400,00 · +12,4% · 312 · R$ 9.800,00 · a taxa de conversão do site caiu 0,4 ponto
+
+## 8. `mugo_convite_resumo` — Utilidade
+
+Pergunta se o cliente quer receber o resumo. **Botões de resposta rápida** (cadastrados no template, sem variável):
+`Sim, quero ver` e `Agora não`. Quando o cliente toca em **Sim**, o CRM avisa o Dados e o relatório de tráfego dos
+últimos 7 dias sai na hora, em texto livre (o clique abre a janela de 24h, então não precisa de outro template).
+**Agora não** recebe só um "combinado". Antes de perguntar, o Dados monta o relatório: se faltar dado, a equipe fica
+sabendo na hora e o cliente nunca recebe um "sim" sem resposta.
+
+**Corpo**
+```
+Olá, {{1}}! O resumo da {{2}} de {{3}} está pronto, com investimento em mídia, vendas da loja e o destaque da semana. Quer receber aqui no WhatsApp?
+```
+**Botões** (resposta rápida): `Sim, quero ver` · `Agora não`
+
+**Exemplos:** Nasser · Curavino · 23/10 a 29/10
+
+> Precisa: `DADOS_HOOK_URL` = `https://mugo-dados.onrender.com/api/hooks/crm` nos segredos do CRM e a mesma
+> `DADOS_OPS_API_KEY`/`CRM_OPS_API_KEY` nos dois lados.
 
 ---
 

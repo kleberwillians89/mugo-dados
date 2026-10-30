@@ -344,3 +344,6 @@
 .crmContactList li.is-open .crmContactRow{border-color:#004f6e;box-shadow:inset 3px 0 0 #004f6e}
 .crmThread.is-inline{margin-top:6px}
 .crmThreadNote{margin:12px 14px;opacity:.7}
+.waButtons{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.waButtons span{display:block;text-align:center;padding:8px;border-radius:8px;background:var(--surface,#fff);color:#004f6e;font-weight:600;font-size:14px}
+.postEdited{font-size:13px;color:#8a5a00;background:#fff6e0;border-radius:8px;padding:8px 10px;margin:0}

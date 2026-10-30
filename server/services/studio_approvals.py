@@ -204,6 +204,10 @@ async def public_decide(token: str, item_id: str, *, action: str, comment: Optio
              "reviewed_by": f"cliente:{reviewer}", "reviewed_at": datetime.now(timezone.utc).isoformat(),
              "review_note": f"Cliente ({reviewer}): {comment}" if comment else None}
     await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}"}, patch=patch)
+    from .studio_team import notify_team
+    item = (await sb_select(ITEMS_TABLE, select="id,title,scheduled_at", limit=1,
+                            filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}"}) or [{"id": item_id}])[0]
+    await notify_team(request["client_id"], item, action, actor_name=reviewer, comment=comment)
     decided = {str(e["item_id"]) for e in await sb_select(EVENTS, select="item_id",
                                                            filters={"request_id": f"eq.{request['id']}"}, limit=500)}
     if ids <= decided and request["status"] == "aberto":

@@ -136,6 +136,13 @@ async def require_user_client_access(user_id: str, client_id: str, *, fresh: boo
 
 
 @measured("authorization")
+async def is_agency_user(authorization: Optional[str]) -> bool:
+    """Equipe Mugô (platform_admin ou agency_admin). Decide o que só a agência vê/faz no Studio."""
+    user_id = await require_user_id(authorization)
+    from .platform_admin import is_platform_admin
+    return bool(await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id))
+
+
 async def require_client_role(
     client_id: Optional[str],
     authorization: Optional[str],

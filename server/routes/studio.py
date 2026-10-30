@@ -28,7 +28,8 @@ from services.studio_messages import (
     TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
     save_contact, send_message,
 )
-from services.tenant import require_client_read, require_client_role, require_user_id
+from services.studio_client import CLIENT_STAGES, client_edit, client_items
+from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
 
@@ -60,6 +61,12 @@ def _http(exc: StudioError) -> HTTPException:
 
 
 WRITERS = ("agency_admin", "client_admin")
+
+
+async def _agency_only(authorization: str | None) -> None:
+    """Gerar, criar e excluir pautas é da equipe Mugô; o cliente aprova, pede ajuste e edita o que vê."""
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô pode fazer isso. Você pode editar, aprovar ou pedir ajuste nos posts.")
 
 
 class Pillar(BaseModel):
@@ -139,12 +146,17 @@ async def read_calendar(client_id: str, month: str, authorization: str | None = 
         target = parse_month(month)
     except StudioError as exc:
         raise _http(exc) from None
-    return {"month": target.isoformat(), "items": await list_items(cid, target)}
+    items = await list_items(cid, target)
+    if not await is_agency_user(authorization):
+        # Cliente vê o que está com ele, o ajuste que pediu, o aprovado e o publicado; rascunho fica com a Mugô.
+        items = await client_items(cid, items)
+    return {"month": target.isoformat(), "items": items}
 
 
 @router.post("/calendar/generate")
 async def generate_calendar(client_id: str, body: GenerateInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
         return await generate_month(cid, body.month, user_id=uid)
@@ -155,6 +167,7 @@ async def generate_calendar(client_id: str, body: GenerateInput, authorization: 
 @router.post("/calendar/items", status_code=201)
 async def add_item(client_id: str, body: ItemCreate, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
         return {"ok": True, "item": await create_item(cid, body.model_dump(mode="json"), user_id=uid)}
@@ -166,8 +179,13 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
 async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
+    patch = body.model_dump(mode="json", exclude_none=True)
     try:
-        item = await update_item(cid, str(item_id), body.model_dump(mode="json", exclude_none=True), user_id=uid)
+        if not await is_agency_user(authorization):
+            # Cliente: edita texto/data, aprova ou pede ajuste; o time é avisado (tarefa + WhatsApp).
+            item = await client_edit(cid, str(item_id), patch, user_id=uid, actor_name="O cliente pelo painel")
+            return {"ok": True, "item": item}
+        item = await update_item(cid, str(item_id), patch, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
     return {"ok": True, "item": item}
@@ -176,6 +194,7 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
 @router.delete("/calendar/items/{item_id}")
 async def remove_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
     try:
         await delete_item(cid, str(item_id))
     except StudioError as exc:
@@ -338,9 +357,13 @@ async def cancel_approval(client_id: str, request_id: UUID, authorization: str |
 async def read_pipeline(client_id: str, month: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
     try:
-        return await pipeline(cid, month)
+        result = await pipeline(cid, month)
     except StudioError as exc:
         raise _http(exc) from None
+    if not await is_agency_user(authorization):
+        result["items"] = [i for i in result["items"] if i.get("stage") in CLIENT_STAGES]
+        result["counts"] = {stage: (n if stage in CLIENT_STAGES else 0) for stage, n in result["counts"].items()}
+    return result
 
 
 # ---------------------------------------------------------------- contatos e mensagens (MugôZap)
@@ -354,6 +377,9 @@ ERRORS.update({
     "NOTHING_SCHEDULED": (409, "Nenhuma pauta aprovada para esta semana."),
     "NO_PAID_DATA": (409, "Sem investimento em mídia nos últimos 7 dias."),
     "NO_RESULTS_DATA": (409, "Sem faturamento do mês anterior para montar o resumo."),
+    "MUGOZAP_REQUIRED": (409, "O convite com botões só funciona pelo WhatsApp oficial da Mugô (MugôZap). Configure as variáveis MUGOZAP_* no Render."),
+    "CLIENT_FIELD_NOT_ALLOWED": (403, "Você pode editar título, gancho, legenda e data; o resto fica com a equipe Mugô."),
+    "CLIENT_STATUS_NOT_ALLOWED": (403, "Você pode aprovar ou pedir ajuste neste post."),
     "NO_STORE_DATA": (409, "Sem faturamento da loja nesse período (nem no indicador oficial, nem na Origem das vendas). A mensagem não sai com número faltando."),
     "DATA_MISSING": (409, "Falta um dado para montar essa mensagem. Confira as integrações antes de enviar."),
     "HEADER_IMAGE_REQUIRED": (422, "O template com arte precisa de uma imagem anexada à pauta."),
@@ -365,7 +391,7 @@ ERRORS.update({
     "SEND_FAILED": (502, "O MugôZap não conseguiu enviar a mensagem."),
 })
 
-MessageKind = Literal["aprovacao", "lembrete", "agenda", "trafego", "resultados", "semanal"]
+MessageKind = Literal["aprovacao", "lembrete", "agenda", "trafego", "resultados", "semanal", "convite"]
 Receives = Literal["conteudo", "trafego", "resultados"]
 
 
@@ -439,6 +465,7 @@ async def read_messages(client_id: str, authorization: str | None = Header(defau
 async def preview_message(client_id: str, body: MessageInput, authorization: str | None = Header(default=None)):
     # Prévia chama a IA para a frase de destaque: mesma permissão de quem envia.
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
     try:
         return public_preview(await build_message(cid, body.kind, **_message_args(body)))
     except StudioError as exc:
@@ -448,6 +475,7 @@ async def preview_message(client_id: str, body: MessageInput, authorization: str
 @router.post("/messages/send")
 async def send_studio_message(client_id: str, body: MessageInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
         return {"ok": True, **await send_message(cid, body.kind, user_id=uid, **_message_args(body))}

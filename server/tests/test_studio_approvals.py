@@ -90,10 +90,13 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(view["client_name"], "Roove")
 
     async def test_decision_updates_item_and_closes_request_when_all_decided(self):
-        reads = AsyncMock(side_effect=[[request_row()], [{"item_id": I1}, {"item_id": I2}]])
+        reads = AsyncMock(side_effect=[[request_row()], [{"id": I2, "title": "Reels", "scheduled_at": FUTURE}], [{"item_id": I1}, {"item_id": I2}]])
         with patch.object(sa, "sb_select", reads), patch.object(sa, "sb_insert", AsyncMock()) as insert, \
-             patch.object(sa, "sb_update", AsyncMock()) as update:
+             patch.object(sa, "sb_update", AsyncMock()) as update, patch("services.studio_team.notify_team", AsyncMock()) as notify:
             await sa.public_decide(TOKEN, I2, action="ajuste_solicitado", comment="Trocar a foto", reviewer_name=None)
+        # O time é avisado do pedido de ajuste, com o comentário e quem pediu.
+        self.assertEqual(notify.await_args.args[:3], ("roove", {"id": I2, "title": "Reels", "scheduled_at": FUTURE}, "ajuste_solicitado"))
+        self.assertEqual(notify.await_args.kwargs, {"actor_name": "Ana Souza", "comment": "Trocar a foto"})
         self.assertEqual(insert.await_args.args[1]["reviewer_name"], "Ana Souza")
         item_patch = update.await_args_list[0].kwargs
         self.assertEqual(item_patch["filters"], {"client_id": "eq.roove", "id": f"eq.{I2}"})
