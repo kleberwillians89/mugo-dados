@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+import math
+import sys
+import unittest
+from datetime import date, timedelta
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from services import media_plan as mp
+from services import media_strategy as ms
+from services.studio_calendar import StudioError
+
+END = date(2026, 10, 28)
+
+
+def daily(spend_by_week, roas=5.0, b=0.7, cpm=10.0, ctr=0.02, cr=0.02, days_active=7):
+    """90 dias sintéticos em que receita = k·gasto^b por semana (b conhecido para o ajuste recuperar)."""
+    rows = []
+    for w, weekly_spend in enumerate(spend_by_week):
+        weekly_rev = roas * 1000 * (weekly_spend / 1000) ** b if weekly_spend else 0
+        for d in range(7):
+            day = END - timedelta(days=(len(spend_by_week) - 1 - w) * 7 + (6 - d))
+            s = weekly_spend / days_active if d < days_active else 0
+            impressions = s / cpm * 1000 if s else 0
+            clicks = impressions * ctr
+            rows.append({"date": day.isoformat(), "spend": s, "impressions": impressions, "clicks": clicks,
+                         "conversions": clicks * cr, "revenue": weekly_rev / days_active if d < days_active else 0})
+    return rows
+
+
+class CurveTests(unittest.TestCase):
+    def test_fit_recovers_measured_elasticity_when_budget_varies(self):
+        rows = daily([600, 800, 1000, 1400, 1800, 2400, 3000, 1200, 900, 2000, 2600, 1600, 1100], b=0.6)
+        curve = ms.curves_for(ms.weekly(rows, END))["revenue"]
+        self.assertEqual(curve["fit"], "medida")
+        self.assertAlmostEqual(curve["b"], 0.6, delta=0.05)
+
+    def test_flat_budget_falls_back_to_conservative_reference(self):
+        curve = ms.curves_for(ms.weekly(daily([1000] * 13), END))["revenue"]
+        self.assertEqual((curve["fit"], curve["b"]), ("estimada", ms.DEFAULT_B["revenue"]))
+        # calibrada no resultado médio real: 1000/semana → ~5000/semana
+        self.assertAlmostEqual(ms.project(curve, 1000 * 30 / 7, 30), 5000 * 30 / 7, delta=5)
+
+    def test_diminishing_returns(self):
+        curve = {"a": 10.0, "b": 0.7}
+        self.assertLess(ms.project(curve, 20000, 30) / 20000, ms.project(curve, 10000, 30) / 10000)
+        self.assertEqual(ms.project(curve, 0, 30), 0.0)
+
+
+def diag(conf="boa", monthly=3000):
+    return {"confidence": conf, "monthly_spend": monthly}
+
+
+class OptimizerTests(unittest.TestCase):
+    CURVES = {"meta": {m: {"a": 50.0, "b": 0.6} for m in ms.DEFAULT_B}, "google_ads": {m: {"a": 20.0, "b": 0.8} for m in ms.DEFAULT_B}}
+
+    def test_allocation_sums_budget_and_respects_limits(self):
+        alloc = ms.optimize(self.CURVES, {"meta": diag(), "google_ads": diag("baixa", 500)}, 6000, "revenue", 30)
+        self.assertAlmostEqual(sum(alloc.values()), 6000, delta=1)
+        self.assertGreaterEqual(alloc["google_ads"], 6000 * ms.MIN_ACTIVE_SHARE - 1)
+        self.assertLessEqual(alloc["google_ads"], min(6000 * ms.LOW_CONFIDENCE_CAP, 500 * ms.MAX_GROWTH) + 1)
+
+    def test_optimal_beats_even_split(self):
+        d = {"meta": diag(monthly=4000), "google_ads": diag(monthly=4000)}
+        alloc = ms.optimize(self.CURVES, d, 6000, "revenue", 30)
+        best = ms.outcome(self.CURVES, alloc, 30)["totals"]["revenue"]
+        even = ms.outcome(self.CURVES, {"meta": 3000, "google_ads": 3000}, 30)["totals"]["revenue"]
+        self.assertGreaterEqual(best, even)
+
+    def test_estimated_curve_grows_less(self):
+        curves = {c: {m: {**v, "fit": "estimada" if c == "google_ads" else "medida"} for m, v in s.items()} for c, s in self.CURVES.items()}
+        curves["google_ads"] = {m: {"a": 200.0, "b": 0.9, "fit": "estimada"} for m in ms.DEFAULT_B}  # google "parece" muito melhor
+        alloc = ms.optimize(curves, {"meta": diag(monthly=3000), "google_ads": diag(monthly=1000)}, 6000, "revenue", 30)
+        self.assertLessEqual(alloc["google_ads"], 1000 * ms.MAX_GROWTH_ESTIMATED + 1)
+
+    def test_single_channel_takes_everything(self):
+        alloc = ms.optimize(self.CURVES, {"meta": diag()}, 5000, "revenue", 30)
+        self.assertEqual(alloc, {"meta": 5000.0})
+
+    def test_efficiency_budget_stops_where_marginal_roas_drops(self):
+        d = {"meta": diag(monthly=3000)}
+        eff = ms.efficiency_budget(self.CURVES, d, 30, "revenue", 1.0, 3000)
+        alloc = ms.optimize(self.CURVES, d, eff, "revenue", 30)
+        self.assertGreaterEqual(ms.marginal_roas(self.CURVES, alloc, 30), 1.0)
+
+    def test_goal_budget_uses_elasticity_and_caps_at_3x(self):
+        store = {"revenue": 100000, "investment": 10000}
+        g = ms.goal_budget(120000, store, 0.7)
+        self.assertAlmostEqual(g["budget"], round(10000 * (1.2 ** (1 / 0.7)), -1), delta=10)
+        self.assertFalse(g["capped"])
+        self.assertTrue(ms.goal_budget(1000000, store, 0.7)["capped"])
+        self.assertIsNone(ms.goal_budget(None, store, 0.7))
+
+
+class CampaignAndCalendarTests(unittest.TestCase):
+    def test_campaign_actions(self):
+        channel = {"spend": 10000, "roas": 4.0, "cpa": 50.0}
+        rows = [
+            {"campaign_name": "Remarketing", "spend": 2000, "conversions": 60, "revenue": 12000},   # ROAS 6
+            {"campaign_name": "Prospecção", "spend": 3000, "conversions": 50, "revenue": 9000},     # ROAS 3
+            {"campaign_name": "Teste novo", "spend": 600, "conversions": 0, "revenue": 0},
+            {"campaign_name": "Amostra", "spend": 300, "conversions": 2, "revenue": 900},
+            {"campaign_name": "Média", "spend": 2500, "conversions": 50, "revenue": 10000},       # ROAS 4
+            {"campaign_name": "Troco", "spend": 10, "conversions": 0, "revenue": 0},
+        ]
+        out = {r["campaign"]: r["action"] for r in ms.classify_campaigns("meta", rows, channel, "revenue")}
+        self.assertEqual(out, {"Remarketing": "escalar", "Prospecção": "otimizar", "Teste novo": "pausar",
+                               "Amostra": "aprender", "Média": "manter"})
+
+    def test_weeks_weight_commercial_dates_and_sum_budget(self):
+        weeks = ms.month_weeks(date(2026, 11, 1), 10000)
+        self.assertAlmostEqual(sum(w["budget"] for w in weeks), 10000, delta=1)
+        self.assertEqual((weeks[0]["start"], weeks[0]["end"]), ("2026-11-01", "2026-11-08"))  # domingo 1º junta com a semana seguinte
+        self.assertEqual(weeks[-1]["end"], "2026-11-30")
+        self.assertTrue(all((date.fromisoformat(w["end"]) - date.fromisoformat(w["start"])).days >= 2 for w in weeks))
+        bf = next(w for w in weeks if "Black Friday" in w["dates"])
+        before = weeks[weeks.index(bf) - 1]
+        self.assertIn("Black Friday", before["prepares"])
+        base = min(weeks, key=lambda w: w["daily"])
+        self.assertEqual(bf["phase"], "pico")
+        self.assertGreater(bf["daily"], base["daily"] * 1.4)
+
+    def test_guardrails_respect_margin(self):
+        result = {"channels": {"meta": {"spend": 3000, "cpa": 40.0, "roas": 3.0}}}
+        g = ms.guardrails(result, 30, 0.4)[0]
+        self.assertEqual((g["daily_budget"], g["max_cpa"], g["breakeven_roas"], g["min_roas"]), (100.0, 52.0, 2.5, 2.5))
+
+
+class BoostPlanTests(unittest.TestCase):
+    WEEKS = ms.month_weeks(date(2026, 11, 1), 10000)
+
+    def item(self, i, day, fmt="reels", status="aprovado", seasonal=None):
+        return {"id": i, "title": f"Post {i}", "format": fmt, "status": status, "signals": {"seasonal": seasonal} if seasonal else {},
+                "scheduled_at": f"2026-11-{day:02d}T22:00:00+00:00"}
+
+    def test_boosts_follow_calendar_dates_and_split_meta_pool(self):
+        items = [self.item("a", 5, "imagem"), self.item("b", 24, "reels", seasonal="Black Friday"), self.item("c", 10, "carrossel"),
+                 self.item("d", 12, "reels", status="rejeitado"), self.item("e", 3, "stories")]
+        plan = ms.boost_plan(items, self.WEEKS, meta_budget=5000, meta_cpm=10.0,
+                             format_reach={"reels": 3000, "carrossel": 2000, "imagem": 900}, today=date(2026, 11, 1))
+        self.assertEqual(plan["pool"], 1000.0)
+        ids = [p["item_id"] for p in plan["posts"]]
+        self.assertNotIn("d", ids)   # rejeitada
+        self.assertNotIn("e", ids)   # stories
+        bf = next(p for p in plan["posts"] if p["item_id"] == "b")
+        self.assertEqual(bf["start"], "2026-11-24")                 # semana de pico: começa no dia de publicar
+        normal = next(p for p in plan["posts"] if p["item_id"] == "c")
+        self.assertEqual(normal["start"], "2026-11-11")             # 24 h depois de publicar
+        self.assertEqual(normal["end"], "2026-11-17")
+        self.assertGreater(bf["budget"], normal["budget"])
+        self.assertAlmostEqual(sum(p["budget"] for p in plan["posts"]), 1000, delta=1)
+        self.assertEqual(bf["impressions"], int(bf["budget"] / 10 * 1000))
+
+    def test_past_posts_and_empty_calendar(self):
+        plan = ms.boost_plan([self.item("a", 2)], self.WEEKS, meta_budget=5000, meta_cpm=10, format_reach={}, today=date(2026, 11, 20))
+        self.assertEqual(plan["posts"], [])
+        empty = ms.boost_plan([], self.WEEKS, meta_budget=5000, meta_cpm=10, format_reach={}, today=date(2026, 11, 1))
+        self.assertIn("Gere o calendário", empty["note"])
+
+
+class BuildStrategyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_end_to_end_with_real_shaped_data(self):
+        meta = {"daily": daily([1500, 1800, 2000, 2400, 2800, 3200, 2600, 2200, 1900, 2500, 3000, 2700, 2300], b=0.65),
+                "campaigns": [{"campaign_name": "Remarketing", "spend": 3000, "conversions": 80, "revenue": 24000},
+                              {"campaign_name": "Sem venda", "spend": 900, "conversions": 0, "revenue": 0}]}
+        google = {"daily": [], "campaigns": [], "disconnected": True}
+        items = [{"id": "x", "title": "Black Friday Oud", "format": "reels", "status": "aprovado", "signals": {"seasonal": "Black Friday"},
+                  "scheduled_at": "2026-11-25T22:00:00+00:00"}]
+        with patch.object(ms, "read_window", AsyncMock(return_value={"meta": meta, "google_ads": google})), \
+             patch.object(ms, "_store_and_goal", AsyncMock(return_value=({"revenue": 90000, "investment": 9000}, 120000, []))), \
+             patch.object(ms, "_calendar_context", AsyncMock(return_value=(items, {"reels": 3000}))):
+            s = await ms.build_strategy("ruah", month="2026-11", objective="vendas", margin=0.4, today=date(2026, 10, 29))
+        keys = [sc["key"] for sc in s["scenarios"]]
+        self.assertIn("ritmo_atual", keys)
+        self.assertIn("meta", keys)
+        for sc in s["scenarios"]:
+            self.assertAlmostEqual(sum(sc["allocation"].values()), sc["budget"], delta=1)
+            self.assertEqual(list(sc["allocation"]), ["meta"])  # canal desconectado não recebe verba
+        self.assertEqual(s["selected"], s["recommended"])
+        self.assertTrue(any("sem conversão" in f["text"] for f in s["findings"]))
+        self.assertEqual(s["campaigns"][0]["action"], "escalar")
+        self.assertEqual(s["boosts"]["posts"][0]["item_id"], "x")
+        self.assertAlmostEqual(sum(w["budget"] for w in s["weeks"]),
+                               next(sc for sc in s["scenarios"] if sc["key"] == s["selected"])["budget"], delta=1)
+
+    async def test_no_paid_data_and_validation(self):
+        empty = {"daily": [], "campaigns": []}
+        with patch.object(ms, "read_window", AsyncMock(return_value={"meta": empty, "google_ads": empty})):
+            with self.assertRaises(StudioError) as err:
+                await ms.build_strategy("ruah", month="2026-11", objective="vendas", today=date(2026, 10, 29))
+        self.assertEqual(err.exception.code, "NO_PAID_DATA")
+        with self.assertRaises(StudioError):
+            await ms.build_strategy("ruah", month="2026-11", objective="vendas", margin=0.99)
+
+    async def test_narrative_only_cites_listed_campaigns(self):
+        strategy = {"objective": "vendas", "metric_label": "receita", "selected": "ritmo_atual", "findings": [], "weeks": [],
+                    "diagnosis": [], "goal_revenue": None, "store": {}, "boosts": {"posts": []},
+                    "campaigns": [{"channel": "meta", "campaign": "Remarketing", "action": "escalar", "why": "x", "spend": 1, "roas": 5, "cpa": 2}],
+                    "scenarios": [{"key": "ritmo_atual", "label": "Ritmo atual", "budget": 1000, "allocation": {"meta": 1000},
+                                   "result": {"totals": {}}, "marginal_roas": 2.0}]}
+        llm = AsyncMock(return_value={"headline": "h", "thesis": "t", "channel_roles": [{"channel": "meta", "role": "r", "rationale": "x"}],
+                                      "campaign_notes": [{"campaign": "Remarketing", "note": "escalar"}, {"campaign": "Inventada", "note": "x"}],
+                                      "creative_guidance": [], "risks": [], "next_7_days": ["a"]})
+        with patch("services.studio_engines.throttle"), patch("services.studio_intelligence.build_content_intelligence", AsyncMock(return_value={})), \
+             patch("services.studio_llm.llm_json", llm):
+            out = await ms.narrative("ruah", strategy)
+        self.assertEqual([n["campaign"] for n in out["campaign_notes"]], ["Remarketing"])
+        enum = llm.await_args.kwargs["schema"]["properties"]["campaign_notes"]["items"]["properties"]["campaign"]["enum"]
+        self.assertEqual(enum, ["Remarketing"])
+
+
+class PlanTests(unittest.IsolatedAsyncioTestCase):
+    def test_allocation_must_match_budget(self):
+        self.assertEqual(mp.clean_allocation({"meta": 600, "google_ads": 400, "x": 9}, 1000), {"meta": 600.0, "google_ads": 400.0})
+        with self.assertRaises(StudioError):
+            mp.clean_allocation({"meta": 500}, 1000)
+
+    async def test_plan_vs_actual_uses_frozen_strategy_targets(self):
+        plan = {"budget": 3000, "allocation": {"meta": 3000},
+                "strategy": {"scenario": {"result": {"channels": {"meta": {"cpa": 40.0, "roas": 4.0}}}}}}
+        actual = {"meta": {"spend": 1000, "conversions": 20, "revenue": 5000, "cpa": 50.0, "roas": 5.0},
+                  "google_ads": {"spend": 0}}
+        with patch.object(mp, "get_plan", AsyncMock(return_value=plan)), patch.object(mp, "_actual", AsyncMock(return_value=actual)), \
+             patch.object(mp, "datetime") as dt:
+            dt.now.return_value.date.return_value = date(2026, 11, 11)
+            out = await mp.plan_vs_actual("ruah", "2026-11")
+        row = out["channels"][0]
+        self.assertEqual((out["elapsed_days"], row["expected_to_date"], row["projected_spend"]), (10, 1000.0, 3000.0))
+        self.assertEqual((row["pace"], row["target_cpa"]), (1.0, 40.0))
+        self.assertEqual(len(out["channels"]), 1)  # canal sem plano e sem gasto fica de fora
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -22,7 +22,8 @@ from services.studio_approvals import (
 )
 from services.studio_engines import ASSIST_ACTIONS, assist, strategy_chat, suggest_profile
 from services.studio_intelligence import build_content_intelligence, coverage
-from services.media_plan import baseline as media_baseline, default_assumptions, plan_vs_actual, recommend, save_plan, simulate
+from services.media_plan import plan_vs_actual, save_plan
+from services.media_strategy import build_strategy, narrative as media_narrative
 from services.studio_messages import (
     TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
     save_contact, send_message,
@@ -582,66 +583,54 @@ async def send_studio_message(client_id: str, body: MessageInput, authorization:
 
 ERRORS.update({
     "BUDGET_INVALID": (422, "Informe uma verba maior que zero."),
-    "ALLOCATION_INVALID": (422, "A divisão por canal precisa somar 100%."),
+    "ALLOCATION_INVALID": (422, "A divisão por canal precisa somar a verba do mês."),
     "OBJECTIVE_INVALID": (422, "Objetivo inválido."),
+    "SCENARIO_INVALID": (422, "Cenário inválido."),
+    "MARGIN_INVALID": (422, "A margem precisa estar entre 2% e 95%."),
+    "STRATEGY_TOO_LARGE": (413, "Estratégia grande demais para salvar."),
 })
 
 Objective = Literal["vendas", "leads", "trafego", "alcance"]
 Channel = Literal["meta", "google_ads"]
 
 
-class Assumption(BaseModel):
+class StrategyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    cpm: Optional[float] = Field(default=None, ge=0, le=100000)
-    cpc: Optional[float] = Field(default=None, ge=0, le=100000)
-    conversion_rate: Optional[float] = Field(default=None, ge=0, le=1)
-    value_per_conversion: Optional[float] = Field(default=None, ge=0, le=10000000)
-    monthly_spend: Optional[float] = Field(default=None, ge=0, le=100000000)
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    objective: Objective = "vendas"
+    margin: Optional[float] = Field(default=None, gt=0, lt=1)
+    budget: Optional[float] = Field(default=None, gt=0, le=100000000)
+    with_narrative: bool = True
 
 
-class SimulationInput(BaseModel):
+class PlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    budget: float = Field(gt=0, le=100000000)
-    allocation: Dict[Channel, float]
-    assumptions: Optional[Dict[Channel, Assumption]] = None
-
-
-class PlanInput(SimulationInput):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     objective: Objective
+    scenario: Literal["ritmo_atual", "meta", "eficiencia", "personalizado"]
+    budget: float = Field(gt=0, le=100000000)
+    allocation: Dict[Channel, float]
+    margin: Optional[float] = Field(default=None, gt=0, lt=1)
+    strategy: Dict[str, Any] = Field(default_factory=dict)
     notes: Optional[str] = Field(default=None, max_length=2000)
     status: Literal["rascunho", "aprovado"] = "rascunho"
 
 
-class RecommendInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    month: str = Field(pattern=r"^\d{4}-\d{2}$")
-    budget: float = Field(gt=0, le=100000000)
-    objective: Objective
-
-
-def _assumptions(body: SimulationInput, base: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    merged = default_assumptions(base["channels"])
-    for channel, values in (body.assumptions or {}).items():
-        merged[channel] = {**merged.get(channel, {}), **{k: v for k, v in values.model_dump().items() if v is not None}}
-    return merged
-
-
-@router.get("/media/baseline")
-async def read_media_baseline(client_id: str, authorization: str | None = Header(default=None)):
-    cid = await require_client_read(client_id, authorization)
-    base = await media_baseline(cid)
-    return {**base, "assumptions": default_assumptions(base["channels"])}
-
-
-@router.post("/media/simulate")
-async def run_media_simulation(client_id: str, body: SimulationInput, authorization: str | None = Header(default=None)):
+@router.post("/media/strategy")
+async def run_media_strategy(client_id: str, body: StrategyInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     try:
-        assumptions = _assumptions(body, await media_baseline(cid))
-        return {**simulate(budget=body.budget, allocation=dict(body.allocation), assumptions=assumptions), "assumptions": assumptions}
+        strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget)
     except StudioError as exc:
         raise _http(exc) from None
+    strategy["narrative"] = None
+    if body.with_narrative:
+        try:
+            strategy["narrative"] = await media_narrative(cid, strategy)
+        except StudioError as exc:
+            # Os números valem sem a leitura da IA; a tela avisa e oferece tentar de novo.
+            strategy["narrative_error"] = ERRORS.get(exc.code, (0, "A leitura da IA não veio agora."))[1]
+    return strategy
 
 
 @router.get("/media/plan")
@@ -658,18 +647,7 @@ async def write_media_plan(client_id: str, body: PlanInput, authorization: str |
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     try:
-        data = body.model_dump(mode="json")
-        data["assumptions"] = _assumptions(body, await media_baseline(cid))
-        return {"ok": True, "plan": await save_plan(cid, body.month, data, user_id=uid)}
-    except StudioError as exc:
-        raise _http(exc) from None
-
-
-@router.post("/media/recommend")
-async def run_media_recommendation(client_id: str, body: RecommendInput, authorization: str | None = Header(default=None)):
-    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    try:
-        return await recommend(cid, month=body.month, budget=body.budget, objective=body.objective)
+        return {"ok": True, "plan": await save_plan(cid, body.month, body.model_dump(mode="json"), user_id=uid)}
     except StudioError as exc:
         raise _http(exc) from None
 

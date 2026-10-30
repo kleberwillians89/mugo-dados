@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { STAGES, STAGE_STATUS, STUDIO_STATUS, basedOnText } from "./studio";
-import { allocationTotal, money, percent } from "./media";
+import { curvePoints, money, outcomeFor, percent, project } from "./media";
 import AiAssist from "../components/studio/AiAssist";
 
 describe("inteligência de conteúdo", () => {
@@ -32,11 +32,28 @@ describe("funil de aprovação", () => {
 });
 
 describe("Mídia On", () => {
-  it("soma a divisão e formata valores", () => {
-    expect(allocationTotal({ meta: 60, google_ads: 40 })).toBe(100);
-    expect(allocationTotal({ meta: 33.33, google_ads: 33.33 })).toBe(66.7);
+  it("projeta com a mesma fórmula do backend (y = a·gasto_semanal^b × semanas)", () => {
+    const curve = { a: 10, b: 0.7, fit: "medida" as const, r2: 0.8, points: 13 };
+    const weeks = 30 / 7;
+    expect(project(curve, 3000, 30)).toBeCloseTo(10 * (3000 / weeks) ** 0.7 * weeks, 6);
+    expect(project(curve, 0, 30)).toBe(0);
+    // retorno decrescente: dobrar a verba não dobra o resultado
+    expect(project(curve, 6000, 30)).toBeLessThan(2 * project(curve, 3000, 30));
+  });
+
+  it("recalcula a divisão ajustada pela equipe e soma os canais", () => {
+    const c = (a: number) => ({ a, b: 0.7, fit: "medida" as const, r2: 0.8, points: 13 });
+    const curves = { meta: { revenue: c(50), conversions: c(1), clicks: c(20), impressions: c(900) }, google_ads: { revenue: c(30), conversions: c(0.6), clicks: c(10), impressions: c(400) } };
+    const out = outcomeFor(curves, { meta: 2000, google_ads: 1000 }, 30);
+    expect(out.totals.spend).toBe(3000);
+    expect(out.totals.revenue).toBeCloseTo((out.channels.meta?.revenue || 0) + (out.channels.google_ads?.revenue || 0), 6);
+    expect(out.totals.roas).toBeCloseTo(out.totals.revenue / 3000, 6);
+    expect(curvePoints(curves.meta.revenue, 2000, 30, 10)).toHaveLength(11);
+  });
+
+  it("formata valores", () => {
     expect(money(null)).toBe("—");
     expect(money(1500)).toMatch(/R\$\s?1\.500/);
-    expect(percent(0.0123)).toBe("1,23%");
+    expect(percent(0.0123, 2)).toBe("1,23%");
   });
 });

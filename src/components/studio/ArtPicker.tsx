@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ACCEPT, formatDuration, listAssets, uploadAsset, type StudioAsset } from "../../app/studioAssets";
+import { MEDIA_ACCEPT, formatDuration, listAssets, uploadAsset, type StudioAsset } from "../../app/studioAssets";
 
 type Props = {
   initial: StudioAsset[];
@@ -8,7 +8,7 @@ type Props = {
   onConfirm: (assets: StudioAsset[]) => Promise<void> | void;
 };
 
-/** Escolhe imagens/vídeos da Biblioteca na ordem dos slides; também envia arquivo novo. */
+/** Escolhe imagens/vídeos já enviados, na ordem dos slides; também envia arquivo novo. */
 export default function ArtPicker({ initial, max, onClose, onConfirm }: Props) {
   const [library, setLibrary] = useState<StudioAsset[] | null>(null);
   const [selected, setSelected] = useState<StudioAsset[]>(initial);
@@ -18,7 +18,7 @@ export default function ArtPicker({ initial, max, onClose, onConfirm }: Props) {
 
   useEffect(() => {
     listAssets().then((d) => setLibrary(d.assets.filter((a) => a.kind !== "pdf")))
-      .catch((e) => setError(e instanceof Error ? e.message : "Não foi possível abrir a Biblioteca."));
+      .catch((e) => setError(e instanceof Error ? e.message : "Não foi possível carregar as artes."));
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !saving) { e.stopPropagation(); onClose(); } };
@@ -39,7 +39,7 @@ export default function ArtPicker({ initial, max, onClose, onConfirm }: Props) {
       setUploading({ name: file.name, progress: 0 }); setError(null);
       try {
         const asset = await uploadAsset(file, {}, (progress) => setUploading({ name: file.name, progress }));
-        if (asset.kind === "pdf") { setError("PDF foi para a Biblioteca, mas não entra na pauta."); continue; }
+        if (asset.kind === "pdf") { setError("PDF não entra na pauta: use imagem ou vídeo."); continue; }
         setLibrary((all) => [asset, ...(all || [])]);
         setSelected((all) => (all.length < max ? [...all, asset] : all));
       } catch (e) { setError(e instanceof Error ? e.message : "O envio falhou."); }
@@ -53,14 +53,14 @@ export default function ArtPicker({ initial, max, onClose, onConfirm }: Props) {
   }
 
   return <div className="artPickerBackdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
-    <div className="artPicker" role="dialog" aria-modal="true" aria-label="Escolher arte da Biblioteca">
+    <div className="artPicker" role="dialog" aria-modal="true" aria-label="Escolher arte da pauta">
       <header><h3>Arte da pauta</h3><p>Clique na ordem dos slides. {selected.length}/{max}</p></header>
       <div className="artPickerUpload">
-        <label className="ds-button">Enviar arquivo<input type="file" accept={ACCEPT} multiple hidden disabled={Boolean(uploading)} onChange={(e) => { void upload(e.target.files); e.currentTarget.value = ""; }} /></label>
+        <label className="ds-button">Enviar arquivo<input type="file" accept={MEDIA_ACCEPT} multiple hidden disabled={Boolean(uploading)} onChange={(e) => { void upload(e.target.files); e.currentTarget.value = ""; }} /></label>
         {uploading ? <span className="libProgress"><span style={{ width: `${Math.round(uploading.progress * 100)}%` }} /><em>{uploading.name} · {Math.round(uploading.progress * 100)}%</em></span> : null}
       </div>
       {error ? <p role="alert" className="studioError">{error}</p> : null}
-      {!library ? <p>Carregando Biblioteca…</p> : !library.length ? <p className="studioEmpty">A Biblioteca ainda está vazia. Envie a primeira arte.</p> :
+      {!library ? <p>Carregando artes…</p> : !library.length ? <p className="studioEmpty">Nenhuma arte enviada ainda. Envie a primeira.</p> :
         <ul className="libGrid is-picker">{library.map((asset) => {
           const n = order(asset.id);
           return <li key={asset.id}><button type="button" className={`libCard ${n >= 0 ? "is-selected" : ""}`} aria-pressed={n >= 0} onClick={() => toggle(asset)}>

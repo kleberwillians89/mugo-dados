@@ -28,6 +28,8 @@ const KIND_BY_MIME: Record<string, AssetKind> = {
   "video/mp4": "video", "video/quicktime": "video", "application/pdf": "pdf",
 };
 export const ACCEPT = Object.keys(KIND_BY_MIME).join(",") + ",.mov";
+/** Só o que entra em post: imagem e vídeo. */
+export const MEDIA_ACCEPT = Object.keys(KIND_BY_MIME).filter((m) => !m.endsWith("pdf")).join(",") + ",.mov";
 
 /** Tipo aceito pelo bucket; alguns navegadores mandam .mov sem tipo. */
 export function mimeOf(file: Pick<File, "name" | "type">): string | null {

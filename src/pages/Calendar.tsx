@@ -13,7 +13,8 @@ import Drawer from "../components/Drawer";
 import PostModal from "../components/studio/PostModal";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
-import { listAssets, setItemAssets, type StudioAsset } from "../app/studioAssets";
+import { listAssets, setItemAssets, uploadAsset, type StudioAsset } from "../app/studioAssets";
+import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
 import "../styles/studio.css";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -71,7 +72,23 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
 
-  const visible = useMemo(() => items.filter((i) => filter === "todos" || i.status === filter), [items, filter]);
+  // Plano do Mídia On salvo: as pautas escolhidas para impulsionar ganham data de início no calendário.
+  const [boosts, setBoosts] = useState<Record<string, BoostPost>>({});
+  useEffect(() => {
+    let alive = true;
+    Promise.all(months.map((m) => getMediaPlan(m).catch(() => null))).then((plans) => {
+      if (!alive) return;
+      const map: Record<string, BoostPost> = {};
+      for (const p of plans) {
+        const strategy = p?.plan?.strategy as { boosts?: { posts?: BoostPost[] } } | undefined;
+        for (const b of strategy?.boosts?.posts || []) map[b.item_id] = b;
+      }
+      setBoosts(map);
+    });
+    return () => { alive = false; };
+  }, [months, clientId]);
+  const withBoost = useCallback((i: CalendarItem): CalendarItem => (boosts[i.id] ? { ...i, boost: { start: boosts[i.id].start, end: boosts[i.id].end, budget: boosts[i.id].budget, why: boosts[i.id].why } } : i), [boosts]);
+  const visible = useMemo(() => items.filter((i) => filter === "todos" || i.status === filter).map(withBoost), [items, filter, withBoost]);
   const monthItems = useMemo(() => items.filter((i) => i.month.startsWith(month)), [items, month]);
   const counts = useMemo(() => {
     const c: Record<string, number> = { todos: monthItems.length };
@@ -106,7 +123,7 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     if (result) { setNotes(result.observacoes || []); await load(); }
   }
 
-  function openItem(item: CalendarItem) { setError(null); setModal({ item, draft: draftFrom(item) }); }
+  function openItem(item: CalendarItem) { setError(null); setModal({ item: withBoost(item), draft: draftFrom(item) }); }
   function openNew(at: string) {
     setError(null);
     const [date, time] = at.includes("T") ? at.split("T") : [at, "19:00"];
@@ -119,14 +136,14 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     const current = modal?.item;
     const result = await run("save", () => (current ? updateCalendarItem(current.id, body) : createCalendarItem(body)), "Não foi possível salvar a pauta.");
     if (!result) return false;
-    if (current) { replace(result.item); setModal({ item: result.item, draft: draftFrom(result.item) }); } else await load();
+    if (current) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); } else await load();
     return true;
   }
 
   async function setStatus(status: StudioStatus, review_note?: string) {
     const current = modal?.item; if (!current) return;
     const result = await run("status", () => updateCalendarItem(current.id, { status, ...(review_note !== undefined ? { review_note } : {}) }), "Não foi possível atualizar a pauta.");
-    if (result) { replace(result.item); setModal({ item: result.item, draft: draftFrom(result.item) }); }
+    if (result) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); }
   }
 
   async function saveAssets(assets: StudioAsset[]) {
@@ -175,6 +192,11 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
     const data = await run("profile", () => getBrandProfile(), "Não foi possível carregar o perfil da marca.");
     if (data) { setProfile(data.profile); setProfileOpen(true); setSuggestion(null); }
     listAssets({ kind: "pdf" }).then((d) => setGuides(d.assets)).catch(() => setGuides([]));
+  }
+
+  async function sendGuide(file: File) {
+    const asset = await run("guide", () => uploadAsset(file, { folder: "Guia da marca" }), "Não foi possível enviar o guia.");
+    if (asset) { setGuides((all) => [asset, ...all.filter((g) => g.id !== asset.id)]); setGuideId(asset.id); }
   }
 
   async function suggestProfile() {
@@ -298,10 +320,12 @@ export default function Calendar({ canManage }: { canManage: boolean }) {
       {profile ? <form className="studioForm" onSubmit={submitProfile}>
         <div className="aiBrand">
           <strong>✦ Brand Manager (IA)</strong>
-          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações){guides.length ? " e do guia da marca em PDF" : ""}. Nada é salvo antes de você revisar.</p>
+          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações) e do guia da marca em PDF, se enviado. Nada é salvo antes de você revisar.</p>
           <div className="studioRow">
             {guides.length ? <label>Guia da marca<select value={guideId} onChange={(e) => setGuideId(e.target.value)}>
               <option value="">Sem guia</option>{guides.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label> : null}
+            <label className="ds-button">{busy === "guide" ? "Enviando guia…" : guides.length ? "Enviar outro PDF" : "Enviar guia em PDF"}
+              <input type="file" accept="application/pdf" hidden disabled={Boolean(busy)} onChange={(e) => { const file = e.target.files?.[0]; e.currentTarget.value = ""; if (file) void sendGuide(file); }} /></label>
             <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggestProfile()}>{busy === "suggest" ? "Analisando… (até 1 min)" : "Sugerir perfil com IA"}</button>
           </div>
           {suggestion ? <div className="aiResult"><p className="aiBasis">{basedOnText(suggestion.based_on)}{suggestion.used_guide ? " Guia da marca lido." : ""}</p>

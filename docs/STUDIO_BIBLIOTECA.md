@@ -1,4 +1,7 @@
-# Mugô Studio — Biblioteca e arte na pauta
+# Mugô Studio — arte na pauta (armazenamento)
+
+> A página Biblioteca saiu do menu. O armazenamento continua: é ele que guarda a arte das pautas
+> (enviada pelo modal da pauta) e o guia da marca em PDF (enviado no Brand Manager).
 
 ## Como o arquivo chega ao Storage
 
