@@ -609,6 +609,7 @@ class StrategyInput(BaseModel):
     margin: Optional[float] = Field(default=None, gt=0, lt=1)
     budget: Optional[float] = Field(default=None, gt=0, le=100000000)
     distribution: Literal["equilibrado", "hiperfoco"] = "equilibrado"
+    briefing: Optional[str] = Field(default=None, max_length=2000)
     with_narrative: bool = True
 
 
@@ -631,7 +632,7 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
     uid = await require_user_id(authorization)
     try:
         strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget,
-                                        distribution=body.distribution)
+                                        distribution=body.distribution, briefing=body.briefing)
     except StudioError as exc:
         raise _http(exc) from None
     strategy["narrative"] = None

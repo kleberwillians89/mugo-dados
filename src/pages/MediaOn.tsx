@@ -44,6 +44,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const [saved, setSaved] = useState<string | null>(null);
   const [history, setHistory] = useState<StrategySummary[]>([]);
   const [distribution, setDistribution] = useState<Distribution>("equilibrado");
+  const [briefing, setBriefing] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignAction[]>([]);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
@@ -54,10 +55,11 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     const chosen = s.scenarios.find((x) => x.key === s.selected) || s.scenarios[0];
     setSelected(chosen.key); setAllocation(chosen.allocation); setCampaigns(s.campaigns || []);
     if (s.distribution) setDistribution(s.distribution);
+    setBriefing(s.briefing?.text || "");
   }
 
   const loadPlan = useCallback(async () => {
-    setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]);
+    setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]); setBriefing("");
     try {
       const [data, list] = await Promise.all([getPlan(month), listStrategies(month).catch(() => ({ strategies: [] as StrategySummary[] }))]);
       if (getActiveClientId() !== clientId) return;
@@ -73,6 +75,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         setView({ strategy, scenarios: strategy.scenarios?.length ? strategy.scenarios : [strategy.scenario], saved: true, source: "plan" });
         setSelected(strategy.scenario.key); setAllocation(plan.allocation); setCampaigns(strategy.campaigns || []);
         if (strategy.distribution) setDistribution(strategy.distribution);
+        setBriefing(strategy.briefing?.text || "");
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar o plano.")); }
   }, [month, clientId]);
@@ -90,7 +93,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     const b = customBudget ? Number(customBudget) : undefined;
     setBusy("generate"); setError(null); setSaved(null);
     try {
-      const s = await generateStrategy({ month, objective, margin: m, budget: b, distribution });
+      const s = await generateStrategy({ month, objective, margin: m, budget: b, distribution, briefing: briefing.trim() || undefined });
       showGenerated(s, "new");
       if (s.strategy_id) setHistory((h) => [{ id: s.strategy_id!, month: s.month, objective: s.objective, margin: s.margin, custom_budget: b ?? null, selected: s.selected,
         budget: s.scenarios.find((x) => x.key === s.selected)?.budget ?? null, headline: s.narrative?.headline ?? null, created_at: s.generated_at || new Date().toISOString() }, ...h]);
@@ -176,6 +179,10 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         <SegmentedControl ariaLabel="Distribuição" value={distribution} onSelect={(id) => setDistribution(id as Distribution)} options={(Object.keys(DISTRIBUTIONS) as Distribution[]).map((d) => ({ id: d, label: DISTRIBUTIONS[d] }))} /></div>
       <label>Margem de contribuição <small>(opcional, %)</small><input type="number" min={2} max={95} step={1} value={margin} placeholder="ex.: 40" onChange={(e) => setMargin(e.target.value)} /></label>
       <label>Verba definida <small>(opcional, R$)</small><input type="number" min={0} step={100} value={customBudget} placeholder="deixe vazio para recomendar" onChange={(e) => setCustomBudget(e.target.value)} /></label>
+      <label className="mediaBriefing">O que precisamos neste mês <small>(briefing da conta: lançamentos, promoções, foco, campanhas, teto de verba)</small>
+        <textarea rows={3} maxLength={2000} value={briefing} onChange={(e) => setBriefing(e.target.value)}
+          placeholder="Ex.: lançamento da linha Âmbar dia 10; foco em Google para captar demanda; pausar a Prospecção até trocar o criativo; no máximo R$ 8 mil no mês." />
+        <small className="mediaBriefingCount">{briefing.length}/2000</small></label>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void generate()}>{busy === "generate" ? "Calculando estratégia… (até 1 min)" : strategy ? "Recalcular estratégia" : "Gerar estratégia"}</button>
     </section> : null}
 
@@ -193,6 +200,14 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
 
     {strategy && scenario && result ? <>
+      {strategy.briefing?.text ? <section className="ds-section mediaBriefingApplied" aria-labelledby="media-briefing">
+        <h2 id="media-briefing" className="ds-sectionTitle">Briefing do mês</h2>
+        <blockquote>{strategy.briefing.text}</blockquote>
+        {strategy.briefing.applied.length ? <><p className="ds-caption">Como o briefing virou número:</p>
+          <ul className="mediaList">{strategy.briefing.applied.map((a) => <li key={a}>{a}</li>)}</ul></>
+          : <p className="ds-caption">{strategy.briefing.error ? "Não consegui interpretar o briefing agora; ele orientou só a leitura estratégica." : "O briefing orientou a leitura estratégica; nenhuma instrução numérica (data, campanha, canal ou teto) foi identificada."}</p>}
+      </section> : null}
+
       {narrative ? <section className="ds-section mediaThesis">
         <p className="ds-headline">{narrative.headline}</p>
         <p>{narrative.thesis}</p>
