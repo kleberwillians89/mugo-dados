@@ -97,6 +97,11 @@ Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, f
 
 ## 6. `mugo_resumo_semanal` — Utilidade
 
+> **Desde que o WhatsApp oficial (MUGOZAP_*) está ligado, a sexta manda primeiro o `mugo_convite_resumo`**
+> ("Quer receber aqui?"). Se o cliente tocar em "Sim, quero ver", este resumo sai na hora como **texto livre**
+> (a resposta do cliente abre a janela de 24h). Este template continua cadastrado para o envio direto pela tela
+> (Aprovação → Mensagens → Resumo semanal).
+
 Enviado **toda sexta às 10h15** (job `studio-weekly-digest` no GitHub Actions) para cada contato do cliente que
 recebe "tráfego pago". Os números vêm do painel (últimos 7 dias fechados). O "aprendizado" e o "próximo passo" saem da memória
 semanal de cada campanha (`studio_campaign_learnings`): campanha nova, saturação, melhora, escala que funcionou.
