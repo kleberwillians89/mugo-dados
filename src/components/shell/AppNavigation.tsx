@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Menu, X } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
-import { MUGO_LOGO_ASSETS } from "../MugoLogo";
+import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
 import { ACCOUNT_ROLE_LABELS } from "../../app/roles";
 import { getPathForRoute, type AppRoute } from "../../app/routes";
 import ClientBrand from "../ClientBrand";
@@ -155,7 +155,7 @@ export default function AppNavigation({
             <ClientBrand inline size="compact" titleAs="span" clientId={activeClientId} clientName={activeClient?.name} />
           </span>
         ) : (
-          <span className="appTopbarProductName">Mugô Dados</span>
+          <span className="appTopbarProductName">{PRODUCT_WORDMARK}</span>
         )}
       </header>
 
@@ -163,14 +163,14 @@ export default function AppNavigation({
         ref={sidebarRef}
         id="app-sidebar"
         className={`appSidebar${drawerOpen ? " is-open" : ""}`}
-        aria-label="Mugô Dados"
+        aria-label="Mugoverso"
       >
         <div className="appSidebarHead">
           <a className="appProduct" href={getPathForRoute("meta")} onClick={(event) => go(event, "meta")}>
             <span className="appProductMark" aria-hidden="true">
-              <img src={MUGO_LOGO_ASSETS.symbol} alt="" />
+              <img src={MUGO_LOGO_ASSETS.mark3d} alt="" />
             </span>
-            <span className="appProductName">Mugô Dados</span>
+            <span className="appProductName">{PRODUCT_WORDMARK}</span>
           </a>
           <button type="button" className="appSidebarClose" aria-label="Fechar navegação" onClick={() => closeDrawer(true)}>
             <X size={20} aria-hidden="true" />

@@ -1,6 +1,6 @@
 /* src/styles/shell.css
    ============================================================
-   ESTRUTURA GLOBAL — Mugô Dados (produto) × empresa analisada (tenant).
+   ESTRUTURA GLOBAL — Mugoverso (produto) × empresa analisada (tenant).
 
    Sidebar = onde posso ir (produto, empresa, navegação, conta).
    Página  = onde estou e o que preciso entender.
@@ -61,9 +61,9 @@
   color: var(--text-primary);
   text-decoration: none;
 }
-.appProductMark{ display: block; flex: 0 0 auto; width: 18px; height: 22px; overflow: hidden; }
-/* Símbolo com margem no arquivo (1080 × 1350): recorte por escala uniforme. */
-.appProductMark img{ display: block; width: 24px; height: 30px; max-width: none; margin: -3px 0 0 -2px; }
+/* Logo 3D da Mugô (360 × 172, fundo transparente). */
+.appProductMark{ display: block; flex: 0 0 auto; width: 46px; height: 22px; }
+.appProductMark img{ display: block; width: 46px; height: 22px; object-fit: contain; }
 .appProductName{
   font-family: var(--font-display);
   font-size: 15px;

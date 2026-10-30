@@ -28,7 +28,7 @@ import { LEGAL_CONTACT } from "../app/legalContact";
 describe("Login — produto, frase e formulário", () => {
   it("não mostra clientes nem logos de terceiros", () => {
     const markup = renderToStaticMarkup(<Login />);
-    expect(markup).toContain("Mugô Dados");
+    expect(markup).toContain("Mugoverso");
     expect(markup).toContain("Dados claros.");
     expect(markup).toContain("Decisões melhores.");
     expect(markup).toContain("Acesse sua conta");

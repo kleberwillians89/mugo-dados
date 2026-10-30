@@ -21,7 +21,7 @@ vi.mock("../app/activeClient", () => ({
   getActiveClientId: () => mocks.tenant,
   getActiveClientName: () => mocks.tenant,
   getActiveClientConfigurationWarning: () => null,
-  MUGO_APP_NAME: "Mugô Dados",
+  MUGO_APP_NAME: "Mugoverso",
 }));
 
 vi.mock("../app/connectionState", () => ({

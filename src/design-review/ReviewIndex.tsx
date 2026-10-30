@@ -115,7 +115,7 @@ const GROUPS: Group[] = [
 export default function ReviewIndex() {
   return (
     <main className="reviewIndex">
-      <p className="reviewIndexEyebrow">Mugô Dados · revisão visual</p>
+      <p className="reviewIndexEyebrow">Mugoverso · revisão visual</p>
       <h1>Telas para revisão</h1>
       <p className="reviewIndexLead">
         Dados, empresas e pessoas de exemplo — nada aqui vem de clientes reais. Para mobile,

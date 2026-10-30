@@ -15,7 +15,7 @@ O que faz:
 - Nunca mostra nome, e-mail, CPF, telefone, endereço ou pagamento do cliente.
 - Não grava nada no banco e não altera o estado da conexão.
 
-Saída: por pedido, os campos encontrados e a origem que o Mugô Dados
+Saída: por pedido, os campos encontrados e a origem que o Mugoverso
 calcularia; no fim, um resumo de quantos pedidos têm UTM e em qual campo.
 """
 
@@ -145,7 +145,7 @@ def summarize(views: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     if not views:
         verdict = "Nenhum pedido no intervalo. Aumente o período ou informe o número de um pedido."
     elif with_utm:
-        verdict = f"{with_utm} de {len(views)} pedidos têm UTM em campos que o Mugô Dados já lê. A captura vai funcionar."
+        verdict = f"{with_utm} de {len(views)} pedidos têm UTM em campos que o Mugoverso já lê. A captura vai funcionar."
     elif extra:
         verdict = ("Nenhum pedido com UTM nos campos lidos hoje, mas há outros campos com cara de origem "
                    "(ver 'outros_campos'). Envie este resumo para ajustar a leitura.")

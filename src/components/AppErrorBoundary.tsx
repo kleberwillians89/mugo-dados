@@ -52,7 +52,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
           }}
         >
           <div className="pill pillDanger" style={{ marginBottom: 12 }}>
-            Erro ao iniciar a Mugô Dados
+            Erro ao iniciar o Mugoverso
           </div>
           <h1 style={{ margin: "0 0 10px" }}>A aplicacao encontrou um erro em runtime</h1>
           <p style={{ margin: 0, color: "rgba(15, 23, 42, .74)" }}>

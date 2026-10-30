@@ -4,7 +4,15 @@ export const MUGO_LOGO_ASSETS = {
   wordmark: "/brand/mugo.png",
   wordmarkInverse: whiteWordmark,
   symbol: "/brand/mugo-symbol.png",
+  /** Logo 3D (quadro de frente do vídeo), fundo transparente. */
+  mark3d: "/brand/mugo-3d-mark.png",
 } as const;
+
+/** Logo 3D girando (vídeo leve, sem som, em loop). Pôster = mesmo quadro do logo parado. */
+export const MUGO_LOGO_VIDEO = { mp4: "/brand/mugo-3d.mp4", poster: "/brand/mugo-3d-poster.jpg" } as const;
+
+/** Nome do produto como aparece na marca. */
+export const PRODUCT_WORDMARK = "MUGOVERSO";
 
 type MugoLogoVariant = keyof typeof MUGO_LOGO_ASSETS | "responsive";
 

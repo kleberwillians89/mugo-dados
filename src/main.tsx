@@ -28,7 +28,7 @@ function renderBootstrapFallback(message: string) {
   card.style.boxShadow = "0 18px 52px rgba(15, 23, 42, .10)";
 
   const title = document.createElement("h1");
-  title.textContent = "Mugô Dados";
+  title.textContent = "MUGOVERSO";
   title.style.margin = "0 0 10px";
 
   const text = document.createElement("p");

@@ -1,5 +1,5 @@
 /* src/styles/Login.css
-   Acesso ao Mugô Dados: o produto, uma frase e o formulário.
+   Acesso ao Mugoverso: o produto, uma frase e o formulário.
    Sem cartões flutuantes, gradientes, ilustrações ou logos de clientes. */
 
 .loginPage{
@@ -53,6 +53,28 @@
   color: var(--text-primary);
 }
 .loginStatementSecond{ color: var(--text-muted); }
+.loginProductName{ letter-spacing: .08em; }
+
+/* Logo 3D girando acima da frase. O fundo do vídeo é branco puro: "multiply" faz ele sumir na página. */
+.loginStage{ display: flex; flex-direction: column; gap: clamp(8px, 2vh, 24px); }
+.loginLogoVideo, .loginLogoStill{
+  display: block;
+  width: clamp(220px, 30vw, 440px);
+  height: auto;
+  aspect-ratio: 720 / 384;
+  object-fit: contain;
+  margin-left: -2%;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  /* Bordas esfumadas: nenhum retângulo do vídeo aparece sobre o fundo da página. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 80%, transparent 100%);
+}
+.loginLogoStill{ display: none; aspect-ratio: auto; mix-blend-mode: normal; width: clamp(180px, 22vw, 320px); }
+@media (prefers-reduced-motion: reduce){
+  .loginLogoVideo{ display: none; }
+  .loginLogoStill{ display: block; }
+}
 
 /* ---- Formulário ---- */
 .loginPanel{
@@ -220,6 +242,7 @@
   .loginLayout{ grid-template-columns: minmax(0, 1fr); align-content: start; }
   .loginIntro{ gap: var(--space-6); padding: 28px 24px 8px; }
   .loginStatement{ margin: 0; font-size: clamp(36px, 9vw, 56px); }
+  .loginLogoVideo{ width: min(280px, 64vw); }
   .loginPanel{ justify-content: flex-start; padding: 32px 24px 40px; border-left: 0; background: transparent; }
   .loginPanelInner{ width: min(440px, 100%); }
 }

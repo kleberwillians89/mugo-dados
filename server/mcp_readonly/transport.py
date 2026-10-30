@@ -122,7 +122,7 @@ class LocalGateway:
             resource, frontend, _ = settings()
             hosts.append(urlsplit(resource).netloc)
             origins.extend([frontend, "https://claude.ai"])
-        self.sdk = SafeMCP("Mugô Dados", stateless_http=True, json_response=True,
+        self.sdk = SafeMCP("Mugoverso", stateless_http=True, json_response=True,
             max_request_body_size=32768, streamable_http_path="/mcp",
             transport_security=TransportSecuritySettings(
                 allowed_hosts=hosts,

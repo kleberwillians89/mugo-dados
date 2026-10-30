@@ -49,7 +49,7 @@ describe("AppNavigation — sidebar global", () => {
 
   it("separa produto, empresa, navegação e conta; o ativo é marcado com aria-current", async () => {
     await render();
-    expect(container.querySelector(".appProductName")?.textContent).toBe("Mugô Dados");
+    expect(container.querySelector(".appProductName")?.textContent).toBe("MUGOVERSO");
     expect(container.querySelector(".appSidebar .clientSwitcherStatic")).toBeTruthy();
     expect(link("Ecommerce")?.getAttribute("aria-current")).toBe("page");
     expect(link("Meta")?.getAttribute("href")).toBe("/meta");

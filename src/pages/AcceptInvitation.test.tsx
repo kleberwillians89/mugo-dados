@@ -81,7 +81,7 @@ describe("AcceptInvitation — convite válido", () => {
     expect(container.textContent).toContain("12/10/2026");
     expect(button("Aceitar convite")).toBeTruthy();
     // Mesma moldura do acesso: produto, sem outras empresas, links legais.
-    expect(container.textContent).toContain("Mugô Dados");
+    expect(container.textContent).toContain("Mugoverso");
     expect(container.textContent).not.toMatch(/Curavino|Roove|Ruah|Latina/);
     expect(container.querySelector('a[href="/privacidade"]')).toBeTruthy();
     expect(container.querySelector('a[href="/termos-de-uso"]')).toBeTruthy();

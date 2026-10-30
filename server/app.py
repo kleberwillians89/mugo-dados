@@ -83,7 +83,7 @@ from services.runtime_cache import get_cached_or_load, invalidate_namespace
 from services.tenant import require_client_role, require_user_id, resolve_client_id
 from services.integration_errors import IntegrationError
 
-app = FastAPI(title="Mugô Dados API")
+app = FastAPI(title="Mugoverso API")
 
 
 def _version_payload() -> Dict[str, str]:

@@ -54,7 +54,7 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
   }
 
   return <main className="ds-page" style={{ maxWidth: 800, margin: "0 auto", padding: "clamp(16px, 4vw, 40px)", overflowWrap: "anywhere" }}>
-    <a className="ds-button" href="/">Voltar ao Mugô Dados</a>
+    <a className="ds-button" href="/">Voltar ao Mugoverso</a>
     <h1>{consent ? "Autorizar leitura pelo Claude" : "Conectar ao Claude"}</h1>
     <p>{NOTICE}</p>
     {error && <p role="alert">{error}</p>}
@@ -72,7 +72,7 @@ export function ClaudeConnectContent({ consent = false }: { consent?: boolean })
       </> : <>
         <h2>URL do conector</h2><p><code>{data.url}</code></p>
         <button className="ds-button" onClick={() => void navigator.clipboard.writeText(data.url).then(() => setCopied(true)).catch(() => setError("Copie a URL exibida acima manualmente."))}>{copied ? "URL copiada" : "Copiar URL"}</button>
-        <ol><li>No Claude, abra Configurações → Conectores.</li><li>Adicione um conector personalizado com a URL acima.</li><li>Entre com sua conta Mugô Dados e revise a autorização.</li></ol>
+        <ol><li>No Claude, abra Configurações → Conectores.</li><li>Adicione um conector personalizado com a URL acima.</li><li>Entre com sua conto Mugoverso e revise a autorização.</li></ol>
         <h2>Conexões ativas</h2>
         {data.connections.length ? <ul>{data.connections.map((connection) => <li key={connection.id} style={{ marginBottom: 16 }}>
           <strong>{connection.name}</strong><p>Criada em {new Date(connection.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Último uso: {connection.last_used_at ? new Date(connection.last_used_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "ainda não utilizada"}.</p>

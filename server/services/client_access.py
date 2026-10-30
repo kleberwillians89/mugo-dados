@@ -1,4 +1,4 @@
-"""Acessos de usuário por empresa, administrados dentro do Mugô Dados.
+"""Acessos de usuário por empresa, administrados dentro do Mugoverso.
 
 Reaproveita a autenticação que já existe: Supabase Auth como dono da conta e
 `client_memberships` como vínculo com a empresa. Não há segundo sistema de

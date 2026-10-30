@@ -79,7 +79,7 @@ def render_report(record, company, kind):
     def section(title):
         story.append(p(title, 'Heading2'))
     period = f"{display_date(record['period_start'])} a {display_date(record['period_end'])}"
-    story += [Spacer(1, 26*mm), p('Mugô Dados', 'MugoTitle'), p('INTELIGÊNCIA & RELATÓRIOS', 'Heading2'),
+    story += [Spacer(1, 26*mm), p('Mugoverso', 'MugoTitle'), p('INTELIGÊNCIA & RELATÓRIOS', 'Heading2'),
               p('Relatório semanal' if kind == 'weekly' else 'Relatório mensal', 'Heading1'), p(company, 'MugoTitle'), p(period),
               p('Análise estratégica de marketing e negócios. Evidências, hipóteses e decisões.'),
               p(f"Versão: {record['id']}\nGerado em: {display_date(record.get('completed_at') or record.get('created_at'))}\nDatas de referência: America/Sao_Paulo."), PageBreak()]
@@ -150,9 +150,9 @@ def render_report(record, company, kind):
     output = BytesIO()
     def footer(canvas, doc):
         canvas.saveState(); canvas.setFont('Helvetica',8); canvas.setFillColor(colors.HexColor('#52625a'))
-        canvas.drawString(18*mm,12*mm,'Mugô Dados | '+record['period_start']+' - '+record['period_end'])
+        canvas.drawString(18*mm,12*mm,'Mugoverso | '+record['period_start']+' - '+record['period_end'])
         canvas.drawRightString(A4[0]-18*mm,12*mm,f'Página {doc.page}'); canvas.restoreState()
-    SimpleDocTemplate(output,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=18*mm,bottomMargin=22*mm,title=f'Mugô - {company} - {period}',author='Mugô Dados').build(story,onFirstPage=footer,onLaterPages=footer)
+    SimpleDocTemplate(output,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=18*mm,bottomMargin=22*mm,title=f'Mugô - {company} - {period}',author='Mugoverso').build(story,onFirstPage=footer,onLaterPages=footer)
     data = output.getvalue()
     if len(data) > 2_000_000: raise RuntimeError('REPORT_SIZE_LIMIT')
     return data

@@ -161,7 +161,7 @@ def _order_total_price(order: Dict[str, Any]) -> float:
 def compute_shopify_revenue(
     orders: List[Dict[str, Any]], refunds: List[Dict[str, Any]]
 ) -> Dict[str, float]:
-    """Regra de receita do Mugô Dados — única fonte de verdade, nunca
+    """Regra de receita do Mugoverso — única fonte de verdade, nunca
     recalcular em outro lugar:
 
       faturamento bruto (revenue_total) = soma de total_price dos pedidos
