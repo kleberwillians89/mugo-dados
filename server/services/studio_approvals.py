@@ -43,13 +43,18 @@ def hash_token(token: str) -> str:
 
 
 def normalize_phone(raw: Optional[str]) -> Optional[str]:
-    digits = re.sub(r"\D", "", raw or "")
+    text = (raw or "").strip()
+    digits = re.sub(r"\D", "", text)
     if not digits:
         return None
-    if len(digits) in (10, 11):  # número brasileiro sem DDI
+    # "+" ou "00" na frente = número já com DDI (ex.: +34 632 881 089, Espanha): não mexe.
+    international = text.startswith("+") or text.startswith("00")
+    if text.startswith("00"):
+        digits = digits[2:]
+    if not international and len(digits) in (10, 11):  # número brasileiro sem DDI
         digits = "55" + digits
     if not 10 <= len(digits) <= 15:
-        raise StudioError("PHONE_INVALID", "Telefone inválido. Use DDD + número.")
+        raise StudioError("PHONE_INVALID", "Telefone inválido. Use DDD + número (fora do Brasil, comece com + e o código do país).")
     return digits
 
 

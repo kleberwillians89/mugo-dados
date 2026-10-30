@@ -269,7 +269,7 @@ async def run_profile_suggestion(client_id: str, body: SuggestInput, authorizati
 ERRORS.update({
     "NO_ITEMS": (422, "Selecione ao menos uma pauta."),
     "ITEMS_INVALID": (422, "Alguma pauta não existe nesta empresa ou está rejeitada."),
-    "PHONE_INVALID": (422, "Telefone inválido. Use DDD + número."),
+    "PHONE_INVALID": (422, "Telefone inválido. Use DDD + número (fora do Brasil, comece com + e o código do país)."),
     "REQUEST_NOT_FOUND": (404, "Pedido de aprovação não encontrado ou já encerrado."),
     "LINK_UNAVAILABLE": (404, "Este link de aprovação expirou ou não está mais disponível. Peça um novo à equipe Mugô."),
     "ACTION_INVALID": (422, "Ação inválida."),

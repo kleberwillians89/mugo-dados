@@ -26,6 +26,10 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(sa.normalize_phone("(11) 98888-7777"), "5511988887777")
         self.assertEqual(sa.normalize_phone("+55 11 98888-7777"), "5511988887777")
         self.assertIsNone(sa.normalize_phone(""))
+        # Número estrangeiro com DDI explícito não ganha 55 (Espanha tem 11 dígitos com o 34).
+        self.assertEqual(sa.normalize_phone("+34 632 881 089"), "34632881089")
+        self.assertEqual(sa.normalize_phone("0034632881089"), "34632881089")
+        self.assertEqual(sa.normalize_phone("34632881089"), "5534632881089")  # sem "+", segue como Brasil
         with self.assertRaises(StudioError):
             sa.normalize_phone("123")
 
