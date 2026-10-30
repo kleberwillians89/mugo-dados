@@ -18,9 +18,10 @@ export type Creator = {
 };
 export type Shortlist = { id: string; name: string; campaign_type: "ugc" | "influencer"; notes: string | null; created_at: string };
 export type ShortlistItem = { id: string; status: ItemStatus; notes: string | null; creator_id: string; creators: Creator | null };
+// apify/youtube só vêm para a agência (custos da conta Mugô).
 export type CreatorUsage = {
-  apify: { month_spent_usd: number; month_budget_usd: number; blocked: boolean };
-  youtube: { today_units: number; daily_units_limit: number };
+  apify?: { month_spent_usd: number; month_budget_usd: number; blocked: boolean };
+  youtube?: { today_units: number; daily_units_limit: number };
   meta: { month_calls_this_client: number };
 };
 

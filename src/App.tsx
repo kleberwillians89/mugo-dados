@@ -38,6 +38,7 @@ const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const Creators = lazy(() => import("./pages/Creators"));
+const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
@@ -867,15 +868,15 @@ function PrivateApp() {
         <Approval key={`approval:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
-      ) : route === "tasks" && (platformAdmin || agencyAdmin) ? (
-        <Tasks key={`tasks:${activeClientId}`} />
-      ) : route === "clipping" && (platformAdmin || agencyAdmin) ? (
-        <Clipping key={`clipping:${activeClientId}`} />
+      ) : route === "tasks" ? (
+        platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
+      ) : route === "clipping" ? (
+        <Clipping key={`clipping:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
       ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
-      ) : route === "creators" && (platformAdmin || agencyAdmin) ? (
-        <Creators key={`creators:${activeClientId}`} />
-      ) : route === "tasks" || route === "clipping" || route === "campaigns" || route === "creators" ? (
+      ) : route === "creators" ? (
+        <Creators key={`creators:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canAct={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+      ) : route === "campaigns" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />

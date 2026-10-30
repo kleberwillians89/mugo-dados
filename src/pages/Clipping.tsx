@@ -14,8 +14,8 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "");
 const toList = (text: string) => text.split(/[\n,]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
 
-/** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. Só a equipe Mugô. */
-export default function Clipping() {
+/** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. O cliente só lê; a equipe Mugô configura e trata. */
+export default function Clipping({ canManage = false }: { canManage?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
   const [view, setView] = useState<ClippingView | null>(null);
@@ -70,17 +70,18 @@ export default function Clipping() {
   const openSettings = () => setEditing({ brand: (settings?.brand_terms || []).join(", "), competitors: (settings?.competitor_terms || []).join(", "), exclude: (settings?.exclude_terms || []).join(", ") });
 
   return <Shell title="Clipping" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Clipping da marca" controls={<div className="studioControls">
+    <PageHeader company={clientName} title="Clipping da marca" controls={canManage ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={openSettings}>Termos</button>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !settings?.saved} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Atualizar agora"}</button>
-    </div>} />
-    <p className="libHint">Notícias do Google Notícias sobre a marca e os concorrentes, buscadas todo dia às 7h40. A IA lê só a manchete e a fonte. Só a equipe Mugô vê esta tela.{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
+    </div> : undefined} />
+    <p className="libHint">Notícias do Google Notícias sobre a marca e os concorrentes, buscadas todo dia às 7h40. A IA lê só a manchete e a fonte.{canManage ? " O cliente vê só as notícias relevantes, sem os termos nem as ações." : ""}{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioOk">{notice}</p> : null}
 
     {view && !settings?.saved ? <div className="studioEmpty">
-      <p>Configure os termos para começar: o nome da marca, produtos e os concorrentes.</p>
-      <button type="button" className="ds-button is-primary" onClick={openSettings}>Configurar termos</button>
+      {canManage ? <><p>Configure os termos para começar: o nome da marca, produtos e os concorrentes.</p>
+        <button type="button" className="ds-button is-primary" onClick={openSettings}>Configurar termos</button></>
+        : <p>O clipping da sua marca ainda não foi ativado pela Mugô.</p>}
     </div> : null}
 
     {week && settings?.saved ? <section className="clipWeek" aria-label="Resumo da semana">
@@ -101,7 +102,7 @@ export default function Clipping() {
     </div> : null}
 
     {loading && !view ? <p>Carregando…</p> : null}
-    {view && settings?.saved && !view.items.length ? <div className="studioEmpty"><p>Nenhuma notícia com esse filtro ainda. Clique em <b>Atualizar agora</b> para buscar.</p></div> : null}
+    {view && settings?.saved && !view.items.length ? <div className="studioEmpty"><p>Nenhuma notícia com esse filtro ainda.{canManage ? <> Clique em <b>Atualizar agora</b> para buscar.</> : null}</p></div> : null}
 
     <ul className="clipList">{(view?.items || []).map((item) => <li key={item.id} className={`clipItem is-${item.sentiment || "sem"}${item.relevant === false ? " is-irrelevant" : ""}${item.status === "lido" ? " is-read" : ""}`}>
       <div className="clipMeta">
@@ -112,12 +113,12 @@ export default function Clipping() {
       <a className="clipTitle" href={item.url} target="_blank" rel="noreferrer noopener">{item.title} ↗</a>
       {item.summary ? <p>{item.summary}</p> : null}
       {item.relevant === false ? <p className="clipWarn">A IA acha que não é sobre a marca (homônimo ou citação de passagem).</p> : null}
-      <div className="studioActions">
+      {canManage ? <div className="studioActions">
         {item.status === "pauta" ? <span className="studioOk">Virou pauta no Calendário</span>
           : <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void toCalendar(item)}>{busy === `c:${item.id}` ? "Criando…" : "Virar pauta"}</button>}
         {item.status === "novo" ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "lido")}>Marcar como lida</button> : null}
         <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "arquivado")}>Arquivar</button>
-      </div>
+      </div> : null}
     </li>)}</ul>
 
     <Drawer open={Boolean(editing)} title="Termos do clipping" description="Até 6 termos em cada campo, separados por vírgula. Use o nome exato (ex.: Curavino, vinho natural Curavino)." onClose={() => { if (!busy) setEditing(null); }}>

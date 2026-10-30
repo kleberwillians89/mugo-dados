@@ -1,7 +1,18 @@
 # Creator Intelligence (MVP 1)
 
 Descoberta, análise, comparação e shortlists de criadores UGC e influenciadores.
-Menu **Operação → Criadores** (`/criadores`), só para agência/plataforma.
+Menu **Operação → Criadores** (`/criadores`).
+
+## Quem vê o quê
+
+| Perfil | Vê | Pode |
+|---|---|---|
+| Agência/plataforma | Banco inteiro, custos Apify/YouTube | Tudo, inclusive descoberta por hashtag e TikTok (Apify) |
+| client_admin | Só criadores e shortlists da própria empresa | Analisar @ (Instagram/YouTube), sugestões com IA, shortlists |
+| viewer | Só criadores e shortlists da própria empresa | Somente leitura |
+
+"Criadores da empresa" são os consultados para ela (`creator_client_links`, migração 000061):
+análise de @, descoberta, sugestão da IA ou inclusão em shortlist.
 
 ## Fontes
 

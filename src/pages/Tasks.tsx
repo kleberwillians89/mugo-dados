@@ -3,6 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_PRIORITY, TASK_STATUS, dueInfo, listCrmTasks, type CrmTask, type CrmUnavailable, type TaskStatus } from "../app/crm";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
+import ClientTasks from "../components/studio/ClientTasks";
 import "../styles/studio.css";
 
 type Filter = "abertas" | TaskStatus;
@@ -69,5 +70,15 @@ export default function Tasks() {
         </li>;
       })}</ul>
     </section> : null)}
+  </div></Shell>;
+}
+
+/** Tarefas para o cliente: só o que a Mugô marcou com a etiqueta "cliente" no CRM, sem nada interno. */
+export function ClientTasksPage() {
+  const clientId = getActiveClientId();
+  return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" />
+    <p className="libHint">O que está em andamento com a Mugô para a sua empresa.</p>
+    <ClientTasks isAgency={false} clientId={clientId} standalone />
   </div></Shell>;
 }

@@ -136,10 +136,13 @@ class LookupTests(unittest.IsolatedAsyncioTestCase):
     async def test_fresh_cache_skips_provider(self):
         cached = {"id": "c1", "followers": 10, "collected_at": creators._now().isoformat()}
         meta = AsyncMock()
-        with patch.object(creators, "get_by_handle", AsyncMock(return_value=cached)), patch.object(creators, "_meta_profile", meta):
+        link = AsyncMock()
+        with patch.object(creators, "get_by_handle", AsyncMock(return_value=cached)), patch.object(creators, "_meta_profile", meta), \
+             patch.object(creators, "link_creators", link):
             result = await creators.lookup(CID, "instagram", "@x")
         self.assertTrue(result["cached"])
         meta.assert_not_awaited()
+        link.assert_awaited_once_with(CID, ["c1"])
 
     async def test_partial_profile_never_overwrites_complete_one(self):
         existing = {"id": "c1", "network": "instagram", "handle": "criadora", "followers": 5000}
@@ -171,23 +174,79 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.aclose()
 
-    async def test_routes_are_agency_only(self):
+    def as_client(self, linked=("c1",)):
+        """Membro da empresa (não agência), com os criadores já ligados a ela."""
+        return [
+            patch.object(routes, "require_client_read", AsyncMock(return_value=CID)),
+            patch.object(routes, "require_client_role", AsyncMock(return_value=CID)),
+            patch.object(routes, "is_agency_user", AsyncMock(return_value=False)),
+            patch.object(creators, "linked_ids", AsyncMock(return_value=set(linked))),
+        ]
+
+    def as_agency(self):
+        return [
+            patch.object(routes, "require_client_read", AsyncMock(return_value=CID)),
+            patch.object(routes, "require_client_role", AsyncMock(return_value=CID)),
+            patch.object(routes, "is_agency_user", AsyncMock(return_value=True)),
+        ]
+
+    async def request(self, patches, method, url, **kwargs):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            mocks = [stack.enter_context(p) for p in patches]
+            return await self.client.request(method, f"/api/clients/{CID}/creators{url}", **kwargs), mocks
+
+    async def test_search_stays_agency_only(self):
         role = AsyncMock(return_value=CID)
-        with patch.object(routes, "require_client_role", role), patch.object(creators, "usage_summary", AsyncMock(return_value={})):
-            response = await self.client.get(f"/api/clients/{CID}/creators/usage")
+        with patch.object(routes, "require_client_role", role), patch.object(creators, "search", AsyncMock(return_value={})):
+            response = await self.client.post(f"/api/clients/{CID}/creators/search", json={"network": "instagram", "query": "vinho"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(role.await_args.kwargs["allowed_roles"], ("agency_admin",))
 
+    async def test_client_admin_can_lookup_and_suggest(self):
+        lookup = AsyncMock(return_value={"id": "c1"})
+        response, mocks = await self.request(self.as_client() + [patch.object(creators, "lookup", lookup)], "POST", "/lookup", json={"network": "instagram", "handle": "alguem"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mocks[1].await_args.kwargs["allowed_roles"], ("agency_admin", "client_admin"))
+
+    async def test_client_cannot_use_tiktok(self):
+        response, _ = await self.request(self.as_client(), "POST", "/lookup", json={"network": "tiktok", "handle": "alguem"})
+        self.assertEqual(response.status_code, 403)
+
+    async def test_client_lists_only_own_creators(self):
+        select = AsyncMock(return_value=[])
+        response, _ = await self.request(self.as_client(linked=("c1", "c2")) + [patch.object(creators, "sb_select", select)], "GET", "")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(select.await_args.kwargs["filters"]["id"], "in.(c1,c2)")
+
+    async def test_client_without_creators_gets_empty_list_without_query(self):
+        select = AsyncMock(return_value=[{"id": "outro"}])
+        response, _ = await self.request(self.as_client(linked=()) + [patch.object(creators, "sb_select", select)], "GET", "")
+        self.assertEqual(response.json(), {"creators": []})
+        select.assert_not_awaited()
+
+    async def test_agency_lists_whole_bank(self):
+        select = AsyncMock(return_value=[])
+        await self.request(self.as_agency() + [patch.object(creators, "sb_select", select)], "GET", "")
+        self.assertNotIn("id", select.await_args.kwargs["filters"])
+
+    async def test_client_cannot_open_other_company_creator(self):
+        response, _ = await self.request(self.as_client(linked=("c1",)), "GET", "/00000000-0000-0000-0000-000000000009")
+        self.assertEqual(response.status_code, 404)
+
+    async def test_client_usage_hides_mugo_costs(self):
+        summary = {"apify": {"month_spent_usd": 1}, "youtube": {}, "meta": {"month_calls_this_client": 2}}
+        response, _ = await self.request(self.as_client() + [patch.object(creators, "usage_summary", AsyncMock(return_value=summary))], "GET", "/usage")
+        self.assertEqual(response.json(), {"meta": {"month_calls_this_client": 2}})
+
     async def test_shortlist_items_are_tenant_filtered(self):
         delete = AsyncMock(return_value=[])
-        with patch.object(routes, "require_client_role", AsyncMock(return_value=CID)), patch.object(routes, "sb_delete", delete):
-            response = await self.client.delete(f"/api/clients/{CID}/creators/shortlists/00000000-0000-0000-0000-000000000001/items/00000000-0000-0000-0000-000000000002")
+        response, _ = await self.request(self.as_agency() + [patch.object(routes, "sb_delete", delete)], "DELETE", "/shortlists/00000000-0000-0000-0000-000000000001/items/00000000-0000-0000-0000-000000000002")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(delete.await_args.kwargs["filters"]["client_id"], f"eq.{CID}")
 
     async def test_invalid_handle_is_422(self):
-        with patch.object(routes, "require_client_role", AsyncMock(return_value=CID)):
-            response = await self.client.post(f"/api/clients/{CID}/creators/lookup", json={"network": "instagram", "handle": "nome inválido"})
+        response, _ = await self.request(self.as_agency(), "POST", "/lookup", json={"network": "instagram", "handle": "nome inválido"})
         self.assertEqual(response.status_code, 422)
 
     async def test_input_rejects_extra_fields(self):

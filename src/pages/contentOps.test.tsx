@@ -25,19 +25,34 @@ const week = { current: { total: 5, marca: 4, concorrente: 1, positivo: 2, neutr
 describe("Clipping", () => {
   it("sem termos, pede a configuração", async () => {
     api.getClipping.mockResolvedValue({ items: [], week, settings: { brand_terms: [], competitor_terms: [], exclude_terms: [], active: true, last_run_at: null, saved: false } });
-    await show(<Clipping />);
+    await show(<Clipping canManage />);
     expect(host.textContent).toContain("Configure os termos");
   });
 
   it("mostra o resumo da semana e cada notícia com fonte e leitura da IA", async () => {
     api.getClipping.mockResolvedValue({ week, settings: { brand_terms: ["Curavino"], competitor_terms: [], exclude_terms: [], active: true, last_run_at: null, saved: true },
       items: [{ id: "n1", url: "https://news/1", title: "Curavino lança linha natural", source: "Revista Adega", published_at: "2026-10-28T12:00:00Z", kind: "marca", term: "Curavino", sentiment: "positivo", summary: "Lançamento bem recebido", relevant: true, status: "novo", calendar_item_id: null, created_at: "2026-10-28T12:00:00Z" }] });
-    await show(<Clipping />);
+    await show(<Clipping canManage />);
     expect(host.textContent).toContain("menções da marca em 7 dias");
     expect(host.textContent).toContain("+2 vs. semana anterior");
     expect(host.querySelector('a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
     expect(host.textContent).toContain("Positiva");
     expect(host.textContent).toContain("Virar pauta");
+  });
+
+  it("cliente lê as notícias sem termos nem ações", async () => {
+    api.getClipping.mockResolvedValue({ week, settings: { saved: true, last_run_at: null },
+      items: [{ id: "n1", url: "https://news/1", title: "Curavino lança linha natural", source: "Revista Adega", published_at: "2026-10-28T12:00:00Z", kind: "marca", term: "Curavino", sentiment: "positivo", summary: null, relevant: true, status: "novo", calendar_item_id: null, created_at: "2026-10-28T12:00:00Z" }] });
+    await show(<Clipping />);
+    expect(host.textContent).toContain("Curavino lança linha natural");
+    for (const action of ["Virar pauta", "Arquivar", "Termos", "Atualizar agora"]) expect(host.textContent).not.toContain(action);
+  });
+
+  it("cliente sem clipping ativo não vê convite para configurar", async () => {
+    api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: false, last_run_at: null } });
+    await show(<Clipping />);
+    expect(host.textContent).toContain("ainda não foi ativado pela Mugô");
+    expect(host.textContent).not.toContain("Configure os termos");
   });
 });
 

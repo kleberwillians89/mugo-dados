@@ -136,10 +136,16 @@ class CampaignFlowTests(unittest.IsolatedAsyncioTestCase):
 
 class AgencyOnlyTests(unittest.TestCase):
     def test_every_route_is_agency_only(self):
+        # Exceção única: a leitura do clipping é aberta ao cliente (versão filtrada, ver
+        # test_clipping_client_view). Toda escrita e o restante continuam só da agência.
         source = Path(content_ops.__file__).read_text(encoding="utf-8")
         routes = source.split("\n@router.")[1:]
         self.assertGreaterEqual(len(routes), 12)
         for route in routes:
+            if route.startswith('get("/clipping")'):
+                self.assertIn("require_client_read", route)
+                self.assertIn("is_agency_user", route)
+                continue
             self.assertIn("allowed_roles=AGENCY_ONLY", route, route.splitlines()[0])
         self.assertEqual(content_ops.AGENCY_ONLY, ("agency_admin",))
 
