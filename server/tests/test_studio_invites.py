@@ -65,10 +65,13 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
         text = AsyncMock(return_value={"ok": text_ok} if text_ok else {"ok": False, "code": "HTTP_400"})
         with patch.dict(os.environ, CFG), patch.object(sm, "sb_select", AsyncMock(return_value=[invite] if invite else [])), \
              patch.object(sm, "list_contacts", AsyncMock(return_value=[CONTACT])), patch.object(sm, "sb_update", update), \
-             patch.object(sm, "build_message", AsyncMock(return_value={"text": "Olá, Nasser! Resumo do tráfego pago..."})), \
+             patch("services.automation_reports.report_text", self.report), patch.object(sm, "_record_response", AsyncMock()), \
              patch.object(sm, "mugozap_text", text), patch.object(sm, "_log", AsyncMock()), redirect_stdout(io.StringIO()):
             result = await sm.handle_invite_reply(reply)
         return result, update, text
+
+    def setUp(self):
+        self.report = AsyncMock(return_value="Olá, Nasser! Resumo da Curavino...")
 
     async def test_yes_sends_the_report_as_free_text_to_the_same_number(self):
         result, update, text = await self.run_reply()
@@ -76,6 +79,16 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text.await_args.kwargs["wa_id"], "551171201557")  # sem o 9º dígito: mesmo contato
         self.assertTrue(text.await_args.kwargs["text"].startswith("Olá, Nasser! Resumo"))
         self.assertEqual(update.await_args_list[0].kwargs["filters"]["answer_message_id"], "is.null")  # trava antes de enviar
+
+    async def test_weekly_and_full_period_buttons(self):
+        result, _, _ = await self.run_reply(reply={**REPLY, "answer": "Resumo semanal"})
+        self.assertEqual(result["answer"], "sim")
+        self.assertFalse(self.report.await_args.kwargs["full"])
+        self.assertEqual(self.report.await_args.args[0], INVITE["client_id"])  # dados só da empresa do convite
+        result, update, _ = await self.run_reply(reply={**REPLY, "answer": "Período completo"})
+        self.assertEqual(result["answer"], "completo")
+        self.assertTrue(self.report.await_args.kwargs["full"])
+        self.assertEqual(update.await_args_list[0].kwargs["patch"]["status"], "sim")  # constraint do convite continua válida
 
     async def test_same_click_twice_never_sends_twice(self):
         result, _, text = await self.run_reply(invite={**INVITE, "answer_message_id": "wamid.RESPOSTA", "status": "enviado"})

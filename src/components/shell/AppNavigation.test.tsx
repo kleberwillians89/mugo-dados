@@ -65,8 +65,10 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Clipping")?.getAttribute("href")).toBe("/clipping");
     expect(link("Criadores")?.getAttribute("href")).toBe("/criadores");
     expect(link("Redação")).toBeUndefined();
+    expect(link("Automações")).toBeUndefined();
     await render({ agencyAdmin: true });
     expect(link("Redação")?.getAttribute("href")).toBe("/redacao");
+    expect(link("Automações")?.getAttribute("href")).toBe("/automacoes");
   });
 
   it("links reais: clique simples navega no app; Ctrl/Cmd+clique fica com o navegador", async () => {

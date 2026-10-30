@@ -110,6 +110,21 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-team-retry":
         from services.studio_team import retry_pending
         return await retry_pending()
+    if args.command == "automations-process":
+        from services.automations import process_due
+        return await process_due(limit=args.limit)
+    if args.command == "automations-catalog-sync":
+        from services.automations import sync_catalog
+        return await sync_catalog()
+    if args.command == "automations-approval-reminders":
+        from services.automation_triggers import approval_reminders
+        return await approval_reminders()
+    if args.command == "automations-publish-check":
+        from services.automation_triggers import confirm_publications
+        return await confirm_publications()
+    if args.command == "calendar-sync":
+        from services.google_calendar import renew_watch_if_needed, sync
+        return {"sync": await sync(full=args.full), "watch": await renew_watch_if_needed()}
     if args.command == "attribution-backfill":
         from services.sales_by_origin import reprocess_unknown_origins
         return await reprocess_unknown_origins(args.client_id, dry_run=args.dry_run)
@@ -232,6 +247,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "studio-team-retry",
         help="Reenvia ao CRM os avisos ao time (cliente aprovou/pediu ajuste/editou) que ficaram pendentes.",
     )
+    process = sub.add_parser(
+        "automations-process",
+        help="Processa a fila da Central de Automações (sem AUTOMATIONS_SEND_ENABLED=true, só simula).",
+    )
+    process.add_argument("--limit", type=int, default=50)
+    sub.add_parser("automations-catalog-sync", help="Lê os templates do WhatsApp Business na Meta (somente leitura).")
+    sub.add_parser("automations-approval-reminders", help="Enfileira lembretes de conteúdos aguardando aprovação.")
+    sub.add_parser("automations-publish-check", help="Confirma no Instagram as publicações e enfileira o aviso ao cliente.")
+    calendar = sub.add_parser("calendar-sync", help="Sincroniza o Google Calendar da Mugô e renova o webhook.")
+    calendar.add_argument("--full", action="store_true", help="Ressincroniza do zero (30 dias para trás).")
 
 
     fbits_reconcile = sub.add_parser(

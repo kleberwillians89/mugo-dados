@@ -35,7 +35,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 61)
+        self.assertEqual(len(names), 62)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
         self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
@@ -51,31 +51,32 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertEqual(names[41], "20261006_000042_ecommerce_browser_lockdown.sql")
 
         self.assertEqual(names[42], "20261007_000043_client_goals.sql")
-        self.assertEqual(names[-18], "20261022_000044_order_attribution.sql")
-        self.assertEqual(names[-17], "20261027_000045_mcp_oauth.sql")
-        self.assertEqual(names[-16], "20261028_000046_ga4_campaign_channel_group.sql")
-        self.assertEqual(names[-15], "20261029_000047_ga4_report_rollup.sql")
-        self.assertEqual(names[-14], "20261030_000048_ga4_transaction_attribution.sql")
-        self.assertEqual(names[-13], "20261031_000049_ig_online_followers.sql")
-        self.assertEqual(names[-12], "20261101_000050_studio_calendar.sql")
-        self.assertEqual(names[-11], "20261102_000051_studio_client_approvals.sql")
-        self.assertEqual(names[-10], "20261103_000052_studio_assets.sql")
-        self.assertEqual(names[-9], "20261104_000053_studio_approval_flow.sql")
-        self.assertEqual(names[-8], "20261105_000054_media_plans.sql")
-        self.assertEqual(names[-7], "20261106_000055_media_plan_strategy.sql")
-        self.assertEqual(names[-6], "20261107_000056_media_strategy_history.sql")
-        self.assertEqual(names[-5], "20261108_000057_campaign_learning_weekly_digest.sql")
-        self.assertEqual(names[-4], "20261109_000058_studio_client_calendar_invites.sql")
-        self.assertEqual(names[-3], "20261110_000059_studio_clipping_campaigns.sql")
-        self.assertEqual(names[-2], "20261111_000060_creator_intelligence.sql")
-        self.assertEqual(names[-1], "20261112_000061_creator_client_links.sql")
+        self.assertEqual(names[-19], "20261022_000044_order_attribution.sql")
+        self.assertEqual(names[-18], "20261027_000045_mcp_oauth.sql")
+        self.assertEqual(names[-17], "20261028_000046_ga4_campaign_channel_group.sql")
+        self.assertEqual(names[-16], "20261029_000047_ga4_report_rollup.sql")
+        self.assertEqual(names[-15], "20261030_000048_ga4_transaction_attribution.sql")
+        self.assertEqual(names[-14], "20261031_000049_ig_online_followers.sql")
+        self.assertEqual(names[-13], "20261101_000050_studio_calendar.sql")
+        self.assertEqual(names[-12], "20261102_000051_studio_client_approvals.sql")
+        self.assertEqual(names[-11], "20261103_000052_studio_assets.sql")
+        self.assertEqual(names[-10], "20261104_000053_studio_approval_flow.sql")
+        self.assertEqual(names[-9], "20261105_000054_media_plans.sql")
+        self.assertEqual(names[-8], "20261106_000055_media_plan_strategy.sql")
+        self.assertEqual(names[-7], "20261107_000056_media_strategy_history.sql")
+        self.assertEqual(names[-6], "20261108_000057_campaign_learning_weekly_digest.sql")
+        self.assertEqual(names[-5], "20261109_000058_studio_client_calendar_invites.sql")
+        self.assertEqual(names[-4], "20261110_000059_studio_clipping_campaigns.sql")
+        self.assertEqual(names[-3], "20261111_000060_creator_intelligence.sql")
+        self.assertEqual(names[-2], "20261112_000061_creator_client_links.sql")
+        self.assertEqual(names[-1], "20261113_000062_automation_center.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 62)))
+        self.assertEqual(logical_numbers, list(range(1, 63)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (

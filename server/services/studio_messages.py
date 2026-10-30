@@ -708,7 +708,10 @@ def invite_answer(text: Any) -> Optional[str]:
     folded = _fold(text)
     if not folded:
         return None
-    if folded.startswith("sim") or folded in {"quero", "quero ver", "pode mandar", "manda"}:
+    # Botões do convite: "Resumo semanal" / "Período completo" / "Agora não" (e o antigo "Sim, quero ver").
+    if folded.startswith("periodo completo") or folded.startswith("completo") or folded.startswith("historico"):
+        return "completo"
+    if folded.startswith("resumo semanal") or folded.startswith("sim") or folded in {"quero", "quero ver", "pode mandar", "manda"}:
         return "sim"
     if folded.startswith("agora nao") or folded.startswith("nao"):
         return "nao"
@@ -761,22 +764,24 @@ async def handle_invite_reply(reply: Dict[str, Any]) -> Dict[str, Any]:
     # Trava o convite nesta resposta antes de enviar (índice único em answer_message_id).
     claimed = await sb_update(INVITES, filters={"id": f"eq.{invite['id']}", "answer_message_id": "is.null"},
                               patch={"answer_message_id": answer_id, "answered_at": datetime.now(timezone.utc).isoformat(),
-                                     "status": "expirado" if expired else (answer or "nao")})
+                                     "status": "expirado" if expired else ("sim" if answer in ("sim", "completo") else "nao")})
     if not claimed:
         return {"ok": True, "ignored": "already_answered"}
+    await _record_response(invite, answer_id, context_id, contact, reply.get("answer"), "expirado" if expired else (answer or "nao"))
     cfg = mugozap_config()
     if not cfg:
         await sb_update(INVITES, filters={"id": f"eq.{invite['id']}"}, patch={"status": "falhou", "error_code": "MUGOZAP_NOT_CONFIGURED"})
         return {"ok": False, "code": "MUGOZAP_NOT_CONFIGURED"}
     name = first_name(contact.get("name"))
-    if answer != "sim" or expired:
+    if answer not in ("sim", "completo") or expired:
         text = (f"Combinado, {name}! Quando quiser o resumo, é só pedir para a equipe Mugô." if not expired
                 else f"Oi, {name}! Esse convite já passou do prazo. Vamos te mandar um resumo novo em breve.")
         result = await mugozap_text(cfg, wa_id=str(reply.get("wa_id")), text=text, idempotency_key=f"dados-invite-ack-{invite['id']}")
         return {"ok": True, "answer": "expirado" if expired else "nao", "sent": result["ok"]}
     try:
-        built = await build_message(invite["client_id"], invite["report_kind"], contact_id=str(contact["id"]))
-        text = built["text"]
+        # Dados SÓ da empresa do convite; faturamento total separado da receita atribuída às campanhas.
+        from .automation_reports import report_text
+        text = await report_text(invite["client_id"], contact, full=answer == "completo")
         result = await mugozap_text(cfg, wa_id=str(reply.get("wa_id")), text=text, idempotency_key=f"dados-invite-{invite['id']}")
     except StudioError as exc:
         result = {"ok": False, "code": exc.code}
@@ -789,4 +794,16 @@ async def handle_invite_reply(reply: Dict[str, Any]) -> Dict[str, Any]:
                 "request_id": None, "idempotency_key": f"dados-invite-{invite['id']}", "sent_by": invite.get("sent_by"),
                 "channel": "mugozap", "status": "enviado" if result["ok"] else "falhou", "error_code": None if result["ok"] else result["code"],
                 "preview": {"text": text, "params": {}, "has_image": False, "via": "convite"}})
-    return {"ok": result["ok"], "answer": "sim", **({} if result["ok"] else {"code": result["code"]})}
+    return {"ok": result["ok"], "answer": answer, **({} if result["ok"] else {"code": result["code"]})}
+
+
+async def _record_response(invite: Dict[str, Any], answer_id: str, context_id: str, contact: Dict[str, Any],
+                           raw: Any, answer_key: str) -> None:
+    """Histórico de respostas da Central de Automações. Complemento: nunca derruba o tratamento da resposta."""
+    try:
+        await sb_insert("automation_responses", {"provider_message_id": answer_id, "context_message_id": context_id,
+                                                 "client_id": invite["client_id"], "phone_masked": mask_phone(contact.get("phone") or ""),
+                                                 "answer_raw": str(raw or "")[:200], "answer_key": answer_key,
+                                                 "result": f"convite {invite['report_kind']}"})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio][invite] resposta_nao_registrada erro={type(exc).__name__}")

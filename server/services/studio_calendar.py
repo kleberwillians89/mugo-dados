@@ -546,9 +546,21 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         clean["month"] = when.astimezone(SAO_PAULO).date().replace(day=1).isoformat()
     if not clean:
         raise StudioError("EMPTY_PATCH")
+    before = None
+    if "status" in clean:
+        # Estado anterior só serve para o aviso de "ajuste concluído"; falhar aqui nunca bloqueia a edição.
+        try:
+            found = await sb_select(ITEMS_TABLE, select="id,title,status,reviewed_by,reviewed_at", limit=1,
+                                    filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+            before = found[0] if found else None
+        except Exception as exc:  # noqa: BLE001
+            print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
     rows = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, patch=clean)
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
+    if before:
+        from .automation_triggers import on_item_status_change
+        await on_item_status_change(client_id, before, rows[0])
     return rows[0]
 
 

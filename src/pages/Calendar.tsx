@@ -11,6 +11,7 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import PostModal from "../components/studio/PostModal";
+import MeetingsStrip from "../components/studio/MeetingsStrip";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
 import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
@@ -243,6 +244,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
 
     {view === "mes" ? <MonthView month={month} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
     {view === "semana" ? <WeekView weekStart={mondayOf(cursor)} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
+    <MeetingsStrip month={month} clientId={clientId} />
     {view === "dia" ? <DayView day={cursor} {...common} /> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
