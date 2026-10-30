@@ -122,6 +122,29 @@ mas abaixo de R$ 10 a entrega não aprende.
 (ou no plano, se ele foi salvo depois) e o seletor "Histórico" reabre as anteriores. Se uma migration estiver
 faltando, a tela diz qual.
 
+## 6. Aprendizado contínuo por campanha + resumo de sexta no WhatsApp
+
+Job `studio-weekly-digest` (GitHub Actions, **sexta às 10h15**, horário de São Paulo), para cada empresa com Meta Ads
+ou Google Ads conectado:
+
+1. **Memória da semana** (`studio_campaign_learnings`): grava uma linha por campanha com desempenho, média do canal,
+   o que o Mídia On recomenda, o que a equipe planejou (ação e verba do plano do mês), quando a campanha apareceu e o
+   que mudou desde a semana anterior (campanha nova, saturação, melhora, queda, parou).
+2. **O Mídia On aprende com essa linha do tempo**:
+   - campanha nova (até 21 dias) não é pausada antes de sair do aprendizado;
+   - ROAS caindo há 3 semanas não é escalado;
+   - alta consistente fica registrada.
+
+   Isso soma com a comparação contra as decisões dos planos anteriores.
+3. **Resumo semanal** (`mugo_resumo_semanal`) para cada contato que recebe "tráfego pago": números do painel, o que foi
+   aprendido e o próximo passo.
+   - **Uma mensagem por contato por semana**, mesmo que o job rode de novo.
+   - **Sem MugôZap ou sem número cadastrado:** nada é enviado. O aprendizado é gravado e a mensagem fica registrada como
+     **aguardando** (aba Aprovação → Mensagens). Ligou o WhatsApp e cadastrou os números? Sai sozinha na sexta seguinte.
+   - **Teste para uma empresa:** pelo GitHub Actions (workflow_dispatch) com
+     `studio-weekly-digest --client-id <id>`.
+   - **Envio manual:** dá para mandar o mesmo resumo pela aba Mensagens ("Resumo semanal (sexta)").
+
 ## Para ligar em produção (Kleber)
 
 1. Aplicar, nesta ordem, no SQL Editor:
@@ -129,10 +152,12 @@ faltando, a tela diz qual.
    - `20261105_000054_media_plans.sql` (planos do Mídia On)
    - `20261106_000055_media_plan_strategy.sql` (estratégia congelada no plano)
    - `20261107_000056_media_strategy_history.sql` (histórico das estratégias geradas)
+   - `20261108_000057_campaign_learning_weekly_digest.sql` (memória semanal por campanha + resumo de sexta)
 
    O backend tolera a 053 ainda não aplicada no envio de links, mas contatos, mensagens e o status
    "publicado" só funcionam depois dela.
 2. Deploy no Render (o `pypdf` será instalado pelo `requirements.txt`).
 3. WhatsApp: seguir `docs/WHATSAPP_TEMPLATES.md` (templates na Meta, variáveis `MUGOZAP_*` e `FRONTEND_URL`).
+   Para o resumo de sexta sair, as variáveis `MUGOZAP_*` precisam estar **também** no segredo `MUGO_JOBS_ENV` do GitHub.
 4. Para o lembrete reenviar o link, o backend precisa de `TOKEN_ENCRYPTION_KEY` (já usada para os
    tokens da Meta). Pedidos criados antes deste deploy não têm o link guardado e pedem um link novo.

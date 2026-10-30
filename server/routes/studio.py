@@ -488,7 +488,7 @@ ERRORS.update({
     "SEND_FAILED": (502, "O MugôZap não conseguiu enviar a mensagem."),
 })
 
-MessageKind = Literal["aprovacao", "lembrete", "agenda", "trafego", "resultados"]
+MessageKind = Literal["aprovacao", "lembrete", "agenda", "trafego", "resultados", "semanal"]
 Receives = Literal["conteudo", "trafego", "resultados"]
 
 

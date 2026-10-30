@@ -4,7 +4,7 @@ Mensagens enviadas pelo Mugô Dados através do WhatsApp oficial da Mugô (Mugô
 O Dados **não envia sozinho**: ele chama o `mugozap-api` do CRM, que confere se o template está
 aprovado, se o telefone está cadastrado no CRM, aplica a idempotência e grava o histórico.
 
-Os textos abaixo são **exatamente** os que o código usa (`server/services/studio_messages.py`).
+São 7 templates. Os textos abaixo são **exatamente** os que o código usa (`server/services/studio_messages.py`).
 Se a Meta pedir mudança no texto, altere nos dois lugares.
 
 ## Como cadastrar (Kleber)
@@ -90,7 +90,24 @@ Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, f
 ```
 **Exemplos:** Ana · Ruah Parfums · 03/11 a 09/11 · R$ 2.350,00 · R$ 14.820,00 · R$ 6,31 · a campanha Remarketing Oud teve o melhor retorno da semana
 
-## 6. `mugo_resultados_mes` — Utilidade
+## 6. `mugo_resumo_semanal` — Utilidade
+
+Enviado **toda sexta às 10h15** (job `studio-weekly-digest` no GitHub Actions) para cada contato do cliente que
+recebe "tráfego pago". Os números vêm do painel (últimos 7 dias fechados). O "aprendizado" e o "próximo passo" saem da memória
+semanal de cada campanha (`studio_campaign_learnings`): campanha nova, saturação, melhora, escala que funcionou.
+
+**Corpo**
+```
+Olá, {{1}}! Resumo da semana da {{2}} ({{3}}): investimento de {{4}} em mídia, faturamento da loja de {{5}} e retorno de {{6}} para cada R$ 1 investido. O que aprendemos: {{7}}. Próximo passo: {{8}}. Qualquer dúvida, é só responder esta mensagem.
+```
+**Exemplos:** Ana · Curavino · 23/10 a 29/10 · R$ 1.250,00 · R$ 9.800,00 · R$ 7,84 · a campanha nova de catálogo no Meta trouxe 12 vendas na primeira semana · subir 20% a verba do Search Marca
+
+> Enquanto o MugôZap não estiver configurado (ou o cliente não tiver contato cadastrado), o job grava o aprendizado e
+> registra a mensagem como **aguardando**, sem enviar nada. Quando o WhatsApp for ligado e os números cadastrados,
+> a mensagem passa a sair sozinha na sexta seguinte. Para o job enviar, as variáveis `MUGOZAP_*` precisam estar também
+> no segredo `MUGO_JOBS_ENV` do GitHub (além do Render).
+
+## 7. `mugo_resultados_mes` — Utilidade
 
 Fechamento do mês anterior.
 

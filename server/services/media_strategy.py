@@ -492,6 +492,25 @@ def learn_from_history(rows: List[Dict[str, Any]], memory: Dict[str, Dict[str, A
     return learned
 
 
+def apply_trends(rows: List[Dict[str, Any]], history: Dict[str, List[Dict[str, Any]]], metric: str, today: date) -> int:
+    """Linha do tempo semanal de cada campanha (studio_campaign_learnings) ajustando a recomendação."""
+    from .campaign_learning import trend_note
+    learned = 0
+    for r in rows:
+        if r.get("suggested") or r.get("boost"):
+            continue
+        t = trend_note(history.get(r["campaign"]) or [], metric, today)
+        if not t:
+            continue
+        if t["kind"] == "nova" and r["action"] in ("pausar", "otimizar"):
+            r["action"] = "aprender"  # não corta campanha nova antes de sair do aprendizado
+        elif t["kind"] == "queda" and r["action"] == "escalar":
+            r["action"] = "manter"
+        r["learning"] = f"{r['learning']} {t['text']}" if r.get("learning") else t["text"]
+        learned += 1
+    return learned
+
+
 def month_weeks(month: date, budget: float, custom: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     from .studio_dates import COMMERCIAL, dates_for_month
     last = month.replace(day=calendar.monthrange(month.year, month.month)[1])
@@ -780,6 +799,8 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
 
     campaigns = [row for c in with_data for row in classify_campaigns(c, data[c]["campaigns"], with_data[c]["recent"], metric)]
     learned = learn_from_history(campaigns, await campaign_memory(client_id, target), metric)
+    from .campaign_learning import campaign_history
+    learned += apply_trends(campaigns, await campaign_history(client_id), metric, today)
     waste = round(sum(r["spend"] for r in campaigns if r["action"] == "pausar"), 2)
     findings = [f for d in with_data.values() for f in d["findings"]]
     if learned:
@@ -825,7 +846,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
                    "atual de cada canal (1,5x quando a curva é estimada). Nenhum canal, campanha ou impulsionamento fica abaixo de R$ 10 por dia. "
                    "Modo equilibrado: todo canal recebe ao menos 20%; canal sem histórico entra como teste estimado (conversão e ticket da "
                    "loja, CPM e CTR de referência de mercado) com teto de 40%. Hiperfoco: a verba vai para onde a curva rende mais. "
-                   "Cada campanha é comparada com a decisão do plano anterior (aprendizado). Receita e conversões são as atribuídas pelas plataformas."),
+                   "Cada campanha é comparada com a decisão do plano anterior e com a própria linha do tempo semanal (aprendizado). Receita e conversões são as atribuídas pelas plataformas."),
     }
 
 
