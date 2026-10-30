@@ -101,6 +101,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "history-backfill-worker":
         from services.history_backfill import run_history_worker
         return await run_history_worker(budget_seconds=max(60, args.budget_minutes * 60), client_id=args.client_id)
+    if args.command == "studio-weekly-digest":
+        from services.weekly_digest import run_weekly_digest
+        return await run_weekly_digest(args.client_id)
     if args.command == "studio-assets-cleanup":
         from services.studio_assets import cleanup_pending
         return await cleanup_pending(older_than_hours=args.hours)
@@ -215,6 +218,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--days", type=int, default=1,
         help="Janela nominal; o incremental real usa o marcador persistido da conexão.",
     )
+
+    weekly = sub.add_parser(
+        "studio-weekly-digest",
+        help="Sexta: grava o aprendizado semanal de cada campanha e envia o resumo no WhatsApp (MugôZap) de cada cliente.",
+    )
+    weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
 
     studio_cleanup = sub.add_parser(
         "studio-assets-cleanup",

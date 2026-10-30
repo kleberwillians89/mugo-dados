@@ -71,6 +71,14 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no painel Mugô Dados.",
         "button": None,
     },
+    "mugo_resumo_semanal": {
+        "kind": "semanal", "header": None,
+        "params": ["nome", "marca", "periodo", "investimento", "receita", "roas", "destaque", "proximo"],
+        "body": "Olá, {{1}}! Resumo da semana da {{2}} ({{3}}): investimento de {{4}} em mídia, faturamento da loja de {{5}} "
+                "e retorno de {{6}} para cada R$ 1 investido. O que aprendemos: {{7}}. Próximo passo: {{8}}. "
+                "Qualquer dúvida, é só responder esta mensagem.",
+        "button": None,
+    },
     "mugo_resultados_mes": {
         "kind": "resultados", "header": None,
         "params": ["nome", "mes", "marca", "faturamento", "variacao", "pedidos", "investimento", "atencao"],
@@ -80,8 +88,8 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
 }
 KIND_RECEIVES = {"aprovacao": "conteudo", "lembrete": "conteudo", "agenda": "conteudo",
-                 "trafego": "trafego", "resultados": "resultados"}
-EDITABLE_PARAMS = {"destaque", "atencao"}
+                 "trafego": "trafego", "resultados": "resultados", "semanal": "trafego"}
+EDITABLE_PARAMS = {"destaque", "atencao", "proximo"}
 
 
 # --------------------------------------------------------------------------
@@ -276,7 +284,7 @@ def idempotency(*parts: Any) -> str:
 
 async def deliver(client_id: str, *, contact: Dict[str, Any], template_name: str, params: Dict[str, str],
                   button_suffix: Optional[str], header_image: Optional[str], request_id: Optional[str],
-                  user_id: str, key: str) -> Dict[str, Any]:
+                  user_id: str, key: str, automatic: bool = False) -> Dict[str, Any]:
     """Envia pelo MugôZap (ou gera wa.me) e registra no histórico."""
     template = TEMPLATES[template_name]
     params = {k: param(params.get(k), 300 if k in EDITABLE_PARAMS else 160) for k in template["params"]}
@@ -286,6 +294,12 @@ async def deliver(client_id: str, *, contact: Dict[str, Any], template_name: str
             "request_id": request_id, "idempotency_key": key, "sent_by": user_id,
             "preview": {"text": text, "params": params, "has_image": bool(header_image)}}
     cfg = mugozap_config()
+    if not cfg and automatic:
+        # Job sem WhatsApp ligado: registra uma vez por semana e não envia nada. Sai sozinho quando o MugôZap for configurado.
+        prior = await sb_select(MESSAGES, select="status", filters={"idempotency_key": f"eq.{key}"}, limit=1)
+        if not prior:
+            await _log({**base, "channel": "mugozap", "status": "aguardando", "error_code": "MUGOZAP_NOT_CONFIGURED"})
+        return {"status": "aguardando", "channel": "mugozap", "text": text}
     if not cfg:
         link_text = text + (f"\n{button_link(button_suffix)}" if template["button"] and button_suffix else "")
         url = f"https://wa.me/{contact['phone']}?text={quote(link_text)}"
@@ -350,6 +364,8 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
         params = await _agenda_params(client_id, contact, brand)
     elif kind == "trafego":
         params = await _traffic_params(client_id, contact, brand, preset=(overrides or {}).get("destaque"))
+    elif kind == "semanal":
+        params, extra = await _weekly_params(client_id, contact, brand, overrides or {})
     else:
         params = await _results_params(client_id, contact, brand, preset=(overrides or {}).get("atencao"))
     for key, value in (overrides or {}).items():
@@ -364,15 +380,17 @@ async def build_message(client_id: str, kind: str, *, contact_id: Optional[str] 
 
 
 async def send_message(client_id: str, kind: str, *, user_id: str, contact_id: Optional[str] = None,
-                       request_id: Optional[str] = None, overrides: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                       request_id: Optional[str] = None, overrides: Optional[Dict[str, str]] = None,
+                       automatic: bool = False) -> Dict[str, Any]:
     built = await build_message(client_id, kind, contact_id=contact_id, request_id=request_id, overrides=overrides)
     extra, contact = built["_extra"], built["_contact"]
     today = datetime.now(SAO_PAULO).date().isoformat()
-    key = idempotency(client_id, kind, built["template_name"], contact["phone"], *(extra.get("key_parts") or [today]),
-                      json.dumps(built["params"], sort_keys=True, ensure_ascii=False))
+    # Resumo semanal: uma mensagem por contato e semana, mesmo que as frases da IA mudem entre execuções.
+    content = "" if kind == "semanal" else json.dumps(built["params"], sort_keys=True, ensure_ascii=False)
+    key = idempotency(client_id, kind, built["template_name"], contact["phone"], *(extra.get("key_parts") or [today]), content)
     result = await deliver(client_id, contact=contact, template_name=built["template_name"], params=built["params"],
                            button_suffix=extra.get("button_suffix"), header_image=extra.get("header_image"),
-                           request_id=extra.get("request_id"), user_id=user_id, key=key)
+                           request_id=extra.get("request_id"), user_id=user_id, key=key, automatic=automatic)
     if kind == "lembrete" and extra.get("request_id"):
         await sb_update("studio_approval_requests", filters={"id": f"eq.{extra['request_id']}"},
                         patch={"last_reminded_at": datetime.now(timezone.utc).isoformat()})
@@ -516,3 +534,40 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
             "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation),
             "pedidos": str(int(_value(metrics, "orders") or 0)), "investimento": brl(_value(metrics, "investment") or 0),
             "atencao": attention}
+
+
+
+async def _weekly_params(client_id: str, contact: Dict[str, Any], brand: str, overrides: Dict[str, str]):
+    """Resumo de sexta: números do painel + o que a memória de campanhas aprendeu na semana + próximo passo."""
+    from .campaign_learning import week_bounds
+    start, end = week_bounds()
+    snap = await _snapshot(client_id, start, end)
+    spend, revenue, roas = _value(snap["metrics"], "investment"), _value(snap["metrics"], "revenue"), _value(snap["metrics"], "roas")
+    if not spend:
+        raise StudioError("NO_PAID_DATA")
+    rows = await sb_select("studio_campaign_learnings", select="channel,campaign_name,spend,conversions,roas,cpa,note,recommended_action,planned_action",
+                           filters={"client_id": f"eq.{client_id}", "week_start": f"eq.{start.isoformat()}"}, order="spend.desc", limit=100)
+    notes = [f"{r['campaign_name']}: {r['note']}" for r in rows if r.get("note")]
+    best = max((r for r in rows if r.get("roas") is not None and _f(r.get("conversions")) >= 3), key=lambda r: _f(r["roas"]), default=None)
+    actions = [r for r in rows if r.get("recommended_action") in ("escalar", "pausar")]
+    learned_fallback = notes[0] if notes else (f"{best['campaign_name']} teve o melhor retorno" if best else "semana estável nas campanhas")
+    next_fallback = (f"{'escalar' if actions[0]['recommended_action'] == 'escalar' else 'pausar'} {actions[0]['campaign_name']}"
+                     if actions else "manter as campanhas e acompanhar o custo por conversão")
+    learned = await _sentence("Diga em 1 frase o principal aprendizado da semana nas campanhas (campanha nova, saturação, melhora, queda).",
+                              {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "investimento": spend, "roas": roas},
+                              learned_fallback, overrides.get("destaque"))
+    nxt = await _sentence("Diga em 1 frase curta o próximo passo da agência para a semana (ação concreta numa campanha).",
+                          {"acoes_recomendadas": [{"campanha": a["campaign_name"], "acao": a["recommended_action"]} for a in actions[:5]],
+                           "anotacoes": notes[:5]}, next_fallback, overrides.get("proximo"))
+    params = {"_template": "mugo_resumo_semanal", "nome": first_name(contact.get("name")), "marca": brand,
+              "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
+              "receita": brl(revenue) if revenue is not None else "—",
+              "roas": brl(roas if roas is not None else (revenue or 0) / spend), "destaque": learned, "proximo": nxt}
+    return params, {"button_suffix": None, "header_image": None, "request_id": None, "key_parts": [start.isoformat()]}
+
+
+def _f(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0

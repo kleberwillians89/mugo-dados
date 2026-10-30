@@ -153,11 +153,11 @@ export function createContact(input: ContactInput) { return http<{ contact: Clie
 export function updateContact(id: string, input: ContactInput) { return http<{ contact: ClientContact }>(base(`/contacts/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(input) }); }
 export function deleteContact(id: string) { return http(base(`/contacts/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
-export const MESSAGE_KINDS = { aprovacao: "Pautas para aprovar", lembrete: "Lembrete de aprovação", agenda: "Agenda da semana", trafego: "Relatório de tráfego (7 dias)", resultados: "Resultados do mês" } as const;
+export const MESSAGE_KINDS = { aprovacao: "Pautas para aprovar", lembrete: "Lembrete de aprovação", agenda: "Agenda da semana", trafego: "Relatório de tráfego (7 dias)", resultados: "Resultados do mês", semanal: "Resumo semanal (sexta)" } as const;
 export type MessageKind = keyof typeof MESSAGE_KINDS;
 export type MessagePreview = { kind: MessageKind; template_name: string; params: Record<string, string>; text: string; editable: string[];
   contact: { id: string; name: string; role: string | null }; phone_masked: string; header_image: string | null; channel: "mugozap" | "wa_link" };
-export type MessageResult = { status: "enviado" | "link_gerado"; channel: "mugozap" | "wa_link"; whatsapp_url?: string; text: string; already_sent?: boolean };
+export type MessageResult = { status: "enviado" | "link_gerado" | "aguardando"; channel: "mugozap" | "wa_link"; whatsapp_url?: string; text: string; already_sent?: boolean };
 export type MessageLog = { id: string; contact_name: string | null; phone_masked: string | null; kind: MessageKind; template_name: string | null; channel: string; status: string; error_code: string | null; preview: { text?: string }; created_at: string };
 type MessageInput = { kind: MessageKind; contact_id?: string; request_id?: string; overrides?: Record<string, string> };
 export function previewMessage(input: MessageInput) { return http<MessagePreview>(base("/messages/preview"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }

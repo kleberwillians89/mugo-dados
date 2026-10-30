@@ -16,7 +16,7 @@ type Tab = "funil" | "pedidos" | "contatos" | "mensagens";
 const TABS: Record<Tab, string> = { funil: "Funil", pedidos: "Pedidos", contatos: "Contatos", mensagens: "Mensagens" };
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const REQUEST_STATUS: Record<ApprovalRequest["status"], string> = { aberto: "Aguardando cliente", concluido: "Respondido", cancelado: "Cancelado", expirado: "Expirado" };
-const EDITABLE_LABEL: Record<string, string> = { destaque: "Destaque", atencao: "Ponto de atenção" };
+const EDITABLE_LABEL: Record<string, string> = { destaque: "Destaque / aprendizado", atencao: "Ponto de atenção", proximo: "Próximo passo" };
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
@@ -78,7 +78,7 @@ export default function Approval({ canManage }: { canManage: boolean }) {
 
   async function openCompose(kind: MessageKind, request_id?: string) {
     setResult(null); setError(null);
-    const wants: Receives = kind === "trafego" ? "trafego" : kind === "resultados" ? "resultados" : "conteudo";
+    const wants: Receives = kind === "trafego" || kind === "semanal" ? "trafego" : kind === "resultados" ? "resultados" : "conteudo";
     const contact = contacts.find((c) => c.is_primary && c.receives.includes(wants)) || contacts.find((c) => c.receives.includes(wants));
     const draft = { kind, contact_id: contact?.id || "", request_id, preview: null, overrides: {} };
     setCompose(draft);
@@ -119,7 +119,7 @@ export default function Approval({ canManage }: { canManage: boolean }) {
         {TABS[t]}{t === "funil" && pendingClient ? <span>{pendingClient}</span> : null}{t === "pedidos" ? <span>{requests.filter((r) => r.status === "aberto").length}</span> : null}</button>)}
     </div>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {result ? <p className="studioOk">{result.status === "enviado" ? (result.already_sent ? "Essa mensagem já tinha sido enviada." : "✓ Mensagem enviada pelo WhatsApp da Mugô.") : "Mensagem aberta no WhatsApp para envio."}</p> : null}
+    {result ? <p className="studioOk">{result.status === "aguardando" ? "Registrada: sai sozinha quando o WhatsApp da Mugô for ligado." : result.status === "enviado" ? (result.already_sent ? "Essa mensagem já tinha sido enviada." : "✓ Mensagem enviada pelo WhatsApp da Mugô.") : "Mensagem aberta no WhatsApp para envio."}</p> : null}
     {loading && !items.length ? <p>Carregando…</p> : null}
 
     {tab === "funil" ? <>
@@ -177,7 +177,7 @@ export default function Approval({ canManage }: { canManage: boolean }) {
     </div> : null}
 
     {tab === "mensagens" ? <div className="messagePanel">
-      {canManage ? <div className="studioActions">{(["agenda", "trafego", "resultados"] as MessageKind[]).map((k) => <button key={k} type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => void openCompose(k)}>{MESSAGE_KINDS[k]}</button>)}</div> : null}
+      {canManage ? <div className="studioActions">{(["semanal", "agenda", "trafego", "resultados"] as MessageKind[]).map((k) => <button key={k} type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => void openCompose(k)}>{MESSAGE_KINDS[k]}</button>)}</div> : null}
       {!contacts.length ? <p className="studioEmpty">Cadastre um contato na aba Contatos para enviar mensagens.</p> : null}
       <h3>Histórico</h3>
       <ul className="messageLog">{messages.map((m) => <li key={m.id} className={`is-${m.status}`}>
