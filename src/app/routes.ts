@@ -7,6 +7,8 @@ export type AppRoute =
   | "calendar"
   | "approval"
   | "media"
+  | "tasks"
+  | "inbox"
   | "integrations"
   | "origins"
   | "intelligence"
@@ -31,6 +33,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
+  if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
+  if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "inbox";
   if (normalized.startsWith("/meta")) return "meta";
   if (
     normalized === "/" ||
@@ -64,6 +68,8 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "calendar") return "/calendario";
   if (route === "approval") return "/aprovacao";
   if (route === "media") return "/midia";
+  if (route === "tasks") return "/tarefas";
+  if (route === "inbox") return "/atendimento";
   if (route === "customers") return "/clientes";
   if (route === "not_found") return "/404";
   return "/meta";
