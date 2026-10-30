@@ -123,7 +123,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
                 <button type="button" aria-label="Remover da pauta" disabled={busy} onClick={() => void onAssets(art.filter((x) => x.id !== a.id))}>×</button>
               </span>
             </li>)}</ol> : <p className="postArtHint">{draft.format === "carrossel" ? "Escolha os slides na ordem do carrossel." : VERTICAL.includes(draft.format) ? "Anexe o vídeo vertical (1080×1920)." : "Anexe a imagem do post (1080×1350)."}</p>}
-            <button type="button" className="ds-button" disabled={busy} onClick={() => setPicking(true)}>{art.length ? "Trocar ou adicionar" : "+ Da Biblioteca"}</button>
+            <button type="button" className="ds-button" disabled={busy} onClick={() => setPicking(true)}>{art.length ? "Trocar ou adicionar" : "+ Arte (enviar ou escolher)"}</button>
           </>}
         </fieldset> : null}
 
@@ -137,6 +137,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {signals?.palavras_evitar_encontradas?.length ? <li className="is-warning">⚠ Palavra a evitar: {signals.palavras_evitar_encontradas.join(", ")}</li> : null}
           </ul>
         </details> : null}
+        {item?.boost ? <p className="postBoost">⚡ Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}
         {item?.review_note ? <p className="studioReview">Nota da revisão: {item.review_note}</p> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}
 

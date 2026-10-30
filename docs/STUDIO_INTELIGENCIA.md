@@ -55,21 +55,46 @@ cadastro estão em **`docs/WHATSAPP_TEMPLATES.md`**.
 - **Sem as variáveis `MUGOZAP_*`:** o Dados gera o link `wa.me` com o mesmo texto.
 - **Idempotência:** a mesma mensagem não sai duas vezes no mesmo dia (o CRM também confere).
 
-## 5. Mídia On (`/midia`)
+## 5. Mídia On (`/midia`): estratégia calculada com os dados
 
-- **Desempenho real por canal (90 dias):** CPM, CPC, CTR, conversão, CPA e ROAS de Meta Ads e Google Ads,
-  com o nível de confiança dos dados.
-- **Plano do mês:** objetivo, verba, % por canal e premissas (iniciadas com os números reais, editáveis).
-- **Projeção:** cenários conservador, esperado e otimista. Há retorno decrescente quando a verba passa de
-  1,5x o investimento mensal habitual do canal. Canal sem dados não recebe número inventado.
-- **Sugerir divisão com IA:** usa o desempenho real e o contexto da marca; percentuais normalizados para 100%.
-- **Planejado x realizado:** quanto foi investido até ontem, a projeção do mês e o ritmo de cada canal.
+`server/services/media_strategy.py` monta a estratégia do mês e a IA só escreve a leitura em cima dos números:
+
+1. **Diagnóstico por canal:** Meta Ads e Google Ads, últimos 30 dias vs os 30 anteriores, com achados objetivos:
+   fadiga de criativo (CPM sobe e CTR cai), limite de escala (verba sobe e ROAS cai), verba sem conversão,
+   oportunidade de escalar.
+2. **Curva de retorno de cada canal:** y = a·gasto^b, ajustada nas 13 semanas mais recentes. O b é **medido** quando a
+   verba variou e o ajuste explica pelo menos 30% da variação; senão, usa uma referência conservadora e a curva aparece
+   como "estimada".
+3. **Divisão ótima da verba:** maximiza o resultado do objetivo (receita, conversões, cliques ou impressões). Limites:
+   - mínimo de 5% para canal ativo;
+   - teto de 40% para canal com poucos dados;
+   - no máximo 2,5x o investimento atual do canal, ou 1,5x quando a curva é estimada.
+4. **Cenários de verba:**
+   - **Ritmo atual.**
+   - **Bater a meta:** usa a meta de faturamento do mês e a elasticidade medida; teto de 3x.
+   - **Limite de eficiência:** onde o próximo R$ 1 deixa de devolver o mínimo; usa a margem de contribuição, se informada.
+   - **Verba definida pela equipe.**
+5. **O que fazer em cada campanha:** escalar, manter, otimizar, pausar ou aprender, com o motivo em números.
+6. **Calendário de investimento:** semanas com peso maior antes das datas comerciais (Black Friday, Natal, Dia das
+   Mães…) e das datas da marca.
+7. **Impulsionamento cruzado com o calendário editorial:**
+   - **Verba:** 20% da verba de Meta é reservada para impulsionar as pautas com mais chance de resultado.
+   - **Escolha das pautas:** formato que mais alcança na conta, semanas de pico ou aquecimento, pauta de data sazonal e status.
+   - **Início:** 24 h depois de publicar; no dia da publicação em semana de pico. Duração de 7 dias.
+   - **No Calendário:** com o plano salvo, essas pautas ganham ⚡ e o modal mostra as datas e a verba.
+8. **Limites para a operação:** verba diária, CPA alvo e máximo, ROAS alvo e mínimo (equilíbrio pela margem).
+9. **Leitura da IA:** tese, papel de cada canal, notas por campanha (só campanhas da lista), criativos, riscos e
+   próximos 7 dias.
+10. **Plano salvo:** guarda a estratégia congelada. O planejado x realizado compara o ritmo e o CPA/ROAS com os alvos.
+
+A equipe pode ajustar a divisão: a projeção é recalculada na hora pelas mesmas curvas.
 
 ## Para ligar em produção (Kleber)
 
 1. Aplicar, nesta ordem, no SQL Editor:
    - `20261104_000053_studio_approval_flow.sql` (status publicado, contatos, mensagens, lembrete)
    - `20261105_000054_media_plans.sql` (planos do Mídia On)
+   - `20261106_000055_media_plan_strategy.sql` (estratégia congelada no plano)
 
    O backend tolera a 053 ainda não aplicada no envio de links, mas contatos, mensagens e o status
    "publicado" só funcionam depois dela.

@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services import media_plan as mp
 from services import studio_approvals as sa
 from services import studio_messages as sm
 from services.studio_calendar import StudioError
@@ -162,67 +161,6 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["items"][2]["request"]["request_id"], "r1")
         self.assertEqual(out["items"][3]["client_feedback"]["comment"], "trocar foto")
         self.assertEqual(sum(out["counts"].values()), 6)
-
-
-class MediaPlanTests(unittest.TestCase):
-    META = mp.channel_metrics({"spend": 9000, "impressions": 900000, "clicks": 18000, "conversions": 180, "revenue": 54000},
-                              days_covered=90, period_days=90)
-
-    def test_baseline_metrics_from_real_totals(self):
-        m = self.META
-        self.assertEqual((m["cpm"], m["cpc"], m["cpa"], m["roas"]), (10.0, 0.5, 50.0, 6.0))
-        self.assertEqual(m["conversion_rate"], 0.01)
-        self.assertEqual(m["monthly_spend"], 3000.0)
-        self.assertEqual(m["confidence"], "boa")
-        empty = mp.channel_metrics({}, days_covered=0, period_days=90)
-        self.assertEqual(empty["confidence"], "sem_dados")
-        self.assertIsNone(empty["cpc"])
-
-    def test_simulation_uses_real_assumptions_and_saturation(self):
-        assumptions = mp.default_assumptions({"meta": self.META, "google_ads": mp.channel_metrics({}, days_covered=0, period_days=90)})
-        sim = mp.simulate(budget=3000, allocation={"meta": 100}, assumptions=assumptions)
-        expected = sim["channels"][0]["scenarios"]["esperado"]
-        self.assertEqual((expected["clicks"], expected["conversions"], expected["revenue"]), (6000, 60.0, 18000.0))
-        self.assertEqual(sim["totals"]["esperado"]["roas"], 6.0)
-        big = mp.simulate(budget=12000, allocation={"meta": 100}, assumptions=assumptions)
-        self.assertLess(big["channels"][0]["saturation"], 1)
-        self.assertTrue(big["warnings"])
-        split = mp.simulate(budget=1000, allocation={"meta": 50, "google_ads": 50}, assumptions=assumptions)
-        self.assertTrue(split["channels"][1]["missing"])  # canal sem dados não ganha número inventado
-
-    def test_allocation_must_sum_100(self):
-        with self.assertRaises(StudioError):
-            mp.simulate(budget=1000, allocation={"meta": 60}, assumptions={})
-        with self.assertRaises(StudioError):
-            mp.simulate(budget=0, allocation={"meta": 100}, assumptions={})
-
-
-class MediaPlanAsyncTests(unittest.IsolatedAsyncioTestCase):
-    async def test_channel_failure_does_not_break_baseline(self):
-        async def broken(*a, **k):
-            raise RuntimeError("sem conexão")
-        with patch.dict(mp.READERS, {"meta": AsyncMock(return_value={"totals": {"spend": 10, "impressions": 5000, "clicks": 50}, "days": 30}),
-                                     "google_ads": broken}):
-            out = await mp.read_channels("roove", "2026-08-01", "2026-10-29")
-        self.assertEqual(out["google_ads"]["confidence"], "desconectado")
-        self.assertEqual(out["meta"]["cpc"], 0.2)
-
-    async def test_recommendation_is_normalized_to_100_and_only_channels_with_data(self):
-        base = {"channels": {"meta": TestMetaHelper.meta(), "google_ads": mp.channel_metrics({}, days_covered=0, period_days=90)}}
-        llm = AsyncMock(return_value={"allocation": [{"channel": "meta", "pct": 70}], "rationale": "r", "main_risk": "m", "next_steps": ["a"]})
-        with patch.object(mp, "baseline", AsyncMock(return_value=base)), \
-             patch("services.studio_intelligence.build_content_intelligence", AsyncMock(return_value={})), \
-             patch("services.studio_llm.llm_json", llm), patch("services.studio_engines.throttle"):
-            out = await mp.recommend("roove", month="2026-11", budget=5000, objective="vendas")
-        self.assertEqual(out["allocation"], {"meta": 100.0})
-        schema = llm.await_args.kwargs["schema"]
-        self.assertEqual(schema["properties"]["allocation"]["items"]["properties"]["channel"]["enum"], ["meta"])
-
-
-class TestMetaHelper:
-    @staticmethod
-    def meta():
-        return MediaPlanTests.META
 
 
 if __name__ == "__main__":

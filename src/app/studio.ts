@@ -27,6 +27,8 @@ export type CalendarItem = {
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
   assets?: StudioAsset[];
+  /** Impulsionamento previsto no plano do Mídia On salvo para o mês (só na tela). */
+  boost?: { start: string; end: string; budget: number; why: string };
 };
 
 export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note">>;

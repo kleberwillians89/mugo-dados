@@ -33,7 +33,6 @@ const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
 const Calendar = lazy(() => import("./pages/Calendar"));
-const Library = lazy(() => import("./pages/Library"));
 const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
@@ -860,8 +859,6 @@ function PrivateApp() {
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "calendar" ? (
         <Calendar key={`calendar:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
-      ) : route === "library" ? (
-        <Library key={`library:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "approval" ? (
         <Approval key={`approval:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (

@@ -5,7 +5,6 @@ export type AppRoute =
   | "customers"
   | "goals"
   | "calendar"
-  | "library"
   | "approval"
   | "media"
   | "integrations"
@@ -30,7 +29,6 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
-  if (normalized === "/biblioteca" || normalized.startsWith("/biblioteca/")) return "library";
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized.startsWith("/meta")) return "meta";
@@ -64,7 +62,6 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "ecommerce") return "/ecommerce";
   if (route === "goals") return "/metas";
   if (route === "calendar") return "/calendario";
-  if (route === "library") return "/biblioteca";
   if (route === "approval") return "/aprovacao";
   if (route === "media") return "/midia";
   if (route === "customers") return "/clientes";

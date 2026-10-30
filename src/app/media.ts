@@ -2,42 +2,86 @@ import { http, clientClientPath } from "./api";
 
 export const CHANNELS = { meta: "Meta Ads", google_ads: "Google Ads" } as const;
 export type Channel = keyof typeof CHANNELS;
-export const OBJECTIVES = { vendas: "Vendas", leads: "Leads/cadastros", trafego: "Tráfego para o site", alcance: "Alcance e marca" } as const;
+export const OBJECTIVES = { vendas: "Vendas", leads: "Leads", trafego: "Tráfego", alcance: "Alcance" } as const;
 export type Objective = keyof typeof OBJECTIVES;
-export const CONFIDENCE = { boa: "Dados bons", baixa: "Poucos dados", sem_dados: "Sem investimento", desconectado: "Não conectado" } as const;
+export type Metric = "revenue" | "conversions" | "clicks" | "impressions";
+export const CONFIDENCE = { boa: "Dados consistentes", baixa: "Poucos dados", sem_dados: "Sem investimento" } as const;
+export const ACTIONS = { escalar: "Escalar", manter: "Manter", otimizar: "Otimizar", pausar: "Pausar", aprender: "Aprender" } as const;
+export type Action = keyof typeof ACTIONS;
+export const SCENARIO_KEYS = ["ritmo_atual", "meta", "eficiencia", "personalizado"] as const;
+export type ScenarioKey = (typeof SCENARIO_KEYS)[number];
 
-export type ChannelMetrics = {
-  spend: number; impressions: number; clicks: number; conversions: number; conversion_value: number; days_covered: number;
-  cpm: number | null; cpc: number | null; ctr: number | null; conversion_rate: number | null; cpa: number | null;
-  value_per_conversion: number | null; roas: number | null; monthly_spend: number; confidence: keyof typeof CONFIDENCE;
+export type Totals = { spend: number; impressions: number; clicks: number; conversions: number; revenue: number; cpm: number | null; cpc: number | null; ctr: number | null; cpa: number | null; roas: number | null; conversion_rate: number | null };
+export type Diagnosis = { channel: Channel; label: string; recent: Totals; previous: Totals; window: Totals; changes: Record<"spend" | "revenue" | "roas" | "cpa" | "cpm" | "ctr" | "conversions", number | null>;
+  confidence: keyof typeof CONFIDENCE; days_with_spend: number; monthly_spend: number; findings: Finding[] };
+export type Finding = { level: "alerta" | "oportunidade" | "info"; text: string };
+export type Curve = { a: number; b: number; fit: "medida" | "estimada" | "sem_dados"; r2: number | null; points: number };
+export type ChannelOutcome = { spend: number; revenue: number; conversions: number; clicks: number; impressions: number; roas: number | null; cpa: number | null; cpc: number | null; cpm: number | null };
+export type Outcome = { channels: Partial<Record<Channel, ChannelOutcome>>; totals: { spend: number; revenue: number; conversions: number; clicks: number; impressions: number; roas: number | null; cpa: number | null } };
+export type Scenario = { key: ScenarioKey; label: string; budget: number; why: string; allocation: Partial<Record<Channel, number>>; allocation_pct: Partial<Record<Channel, number | null>>;
+  change_vs_current: Partial<Record<Channel, number | null>>; result: Outcome; marginal_roas: number | null; goal?: { goal: number; capped: boolean } };
+export type CampaignAction = { channel: Channel; campaign: string; action: Action; why: string; spend: number; conversions: number; revenue: number; roas: number | null; cpa: number | null; share: number | null };
+export type Week = { start: string; end: string; budget: number; share: number; daily: number; phase: "base" | "aquecimento" | "pico"; dates: string[]; prepares: string[] };
+export type Guardrail = { channel: Channel; label: string; daily_budget: number; target_cpa: number | null; max_cpa: number | null; target_roas: number | null; min_roas: number | null; breakeven_roas: number | null; rule: string };
+export type BoostPost = { item_id: string; title: string; format: string; status: string; posted: string; start: string; end: string; phase: string; seasonal: string | null; score: number; budget: number; daily: number; impressions: number | null; why: string };
+export type Narrative = { headline: string; thesis: string; channel_roles: { channel: Channel; role: string; rationale: string }[]; campaign_notes: { campaign: string; note: string }[];
+  creative_guidance: string[]; risks: string[]; next_7_days: string[] };
+export type Strategy = {
+  month: string; objective: Objective; metric: Metric; metric_label: string; days: number; window: { start: string; end: string; days: number };
+  diagnosis: Diagnosis[]; store: { revenue?: number; orders?: number; investment?: number; roas?: number }; goal_revenue: number | null; margin: number | null;
+  curves: Partial<Record<Channel, Record<Metric, Curve>>>; current_budget: number; scenarios: Scenario[]; recommended: ScenarioKey; selected: ScenarioKey;
+  weeks: Week[]; guardrails: Guardrail[]; campaigns: CampaignAction[]; waste: number; findings: Finding[]; method: string;
+  boosts: { pool: number; share: number; posts: BoostPost[]; note: string | null };
+  narrative: Narrative | null; narrative_error?: string;
 };
-export type Assumption = { cpm: number | null; cpc: number | null; conversion_rate: number | null; value_per_conversion: number | null; monthly_spend?: number | null };
-export type Baseline = { period: { start: string; end: string; days: number }; channels: Record<Channel, ChannelMetrics>; assumptions: Record<Channel, Assumption> };
-export type Scenario = { impressions: number | null; clicks: number | null; conversions: number | null; revenue: number | null; cpa: number | null; roas: number | null };
-export type Simulation = {
-  budget: number; warnings: string[]; method: string; assumptions: Record<Channel, Assumption>;
-  channels: { channel: Channel; spend: number; pct?: number; saturation?: number; missing?: boolean; scenarios: Partial<Record<"conservador" | "esperado" | "otimista", Scenario>> }[];
-  totals: Record<"conservador" | "esperado" | "otimista", { conversions: number; revenue: number; cpa: number | null; roas: number | null }>;
-};
-export type MediaPlan = { id: string; month: string; objective: Objective; budget: number; allocation: Partial<Record<Channel, number>>; assumptions: Partial<Record<Channel, Assumption>>; notes: string | null; status: "rascunho" | "aprovado" };
+export type SavedStrategy = Omit<Strategy, "scenarios"> & { scenario: Scenario; scenarios?: Scenario[] };
+export type MediaPlan = { id: string; month: string; objective: Objective; budget: number; allocation: Partial<Record<Channel, number>>; scenario: ScenarioKey | null; margin: number | null;
+  strategy: SavedStrategy | Record<string, never>; notes: string | null; status: "rascunho" | "aprovado"; updated_at?: string };
 export type PlanVsActual = { month: string; plan: MediaPlan | null; elapsed_days: number; days_in_month: number; through?: string;
-  channels: { channel: Channel; label: string; planned_spend: number | null; spent: number; projected_spend: number | null; pace: number | null; expected_to_date: number | null; clicks: number | null; conversions: number | null; conversion_value: number | null; cpc: number | null; cpa: number | null; roas: number | null }[] };
-export type Recommendation = { allocation: Partial<Record<Channel, number>>; rationale: string; main_risk: string; next_steps: string[]; simulation: Simulation; assumptions: Record<Channel, Assumption> };
+  channels: { channel: Channel; label: string; planned_spend: number | null; spent: number; expected_to_date: number | null; projected_spend: number; pace: number | null;
+    conversions: number | null; revenue: number | null; cpa: number | null; roas: number | null; target_cpa: number | null; target_roas: number | null }[] };
 
 const base = (path: string) => clientClientPath(`/studio/media${path}`);
-type SimInput = { budget: number; allocation: Partial<Record<Channel, number>>; assumptions?: Partial<Record<Channel, Partial<Assumption>>> };
 
-export function getBaseline() { return http<Baseline>(base("/baseline"), { timeoutMs: 60_000 }); }
-export function runSimulation(input: SimInput) { return http<Simulation>(base("/simulate"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
+export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; with_narrative?: boolean }) {
+  return http<Strategy>(base("/strategy"), { method: "POST", body: JSON.stringify(input), timeoutMs: 150_000 });
+}
 export function getPlan(month: string) { return http<PlanVsActual>(base(`/plan?month=${encodeURIComponent(month)}`), { timeoutMs: 60_000 }); }
-export function savePlan(input: SimInput & { month: string; objective: Objective; notes?: string; status: "rascunho" | "aprovado" }) {
+export function savePlan(input: { month: string; objective: Objective; scenario: ScenarioKey; budget: number; allocation: Partial<Record<Channel, number>>; margin?: number; strategy: SavedStrategy; notes?: string; status: "rascunho" | "aprovado" }) {
   return http<{ plan: MediaPlan }>(base("/plan"), { method: "PUT", body: JSON.stringify(input), timeoutMs: 60_000 });
 }
-export function recommendPlan(input: { month: string; budget: number; objective: Objective }) {
-  return http<Recommendation>(base("/recommend"), { method: "POST", body: JSON.stringify(input), timeoutMs: 120_000 });
+
+/** Mesma fórmula do backend: y = a·(gasto semanal)^b × semanas. */
+export function project(curve: Curve | undefined, monthlySpend: number, days: number): number {
+  if (!curve || !curve.a || monthlySpend <= 0) return 0;
+  const weeks = days / 7;
+  return curve.a * (monthlySpend / weeks) ** curve.b * weeks;
 }
 
-export const allocationTotal = (a: Partial<Record<Channel, number>>) => Math.round(Object.values(a).reduce((s, v) => s + (Number(v) || 0), 0) * 10) / 10;
-export const money = (v: number | null | undefined) => v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: v < 100 ? 2 : 0 });
-export const num = (v: number | null | undefined, digits = 0) => v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: digits });
-export const percent = (v: number | null | undefined, digits = 2) => v == null ? "—" : `${(v * 100).toLocaleString("pt-BR", { maximumFractionDigits: digits })}%`;
+export function outcomeFor(curves: Strategy["curves"], allocation: Partial<Record<Channel, number>>, days: number): Outcome {
+  const channels: Outcome["channels"] = {};
+  for (const [c, spend] of Object.entries(allocation) as [Channel, number][]) {
+    const set = curves[c];
+    if (!set) continue;
+    const p = { revenue: project(set.revenue, spend, days), conversions: project(set.conversions, spend, days), clicks: project(set.clicks, spend, days), impressions: project(set.impressions, spend, days) };
+    channels[c] = { spend, ...p, roas: spend ? p.revenue / spend : null, cpa: p.conversions ? spend / p.conversions : null, cpc: p.clicks ? spend / p.clicks : null, cpm: p.impressions ? (spend * 1000) / p.impressions : null };
+  }
+  const list = Object.values(channels) as ChannelOutcome[];
+  const sum = (k: keyof ChannelOutcome) => list.reduce((s, ch) => s + (Number(ch[k]) || 0), 0);
+  const spend = sum("spend"), revenue = sum("revenue"), conversions = sum("conversions");
+  return { channels, totals: { spend, revenue, conversions, clicks: sum("clicks"), impressions: sum("impressions"), roas: spend ? revenue / spend : null, cpa: conversions ? spend / conversions : null } };
+}
+
+/** Pontos da curva de retorno de um canal, de 0 a 2,5x a verba de referência. */
+export function curvePoints(curve: Curve | undefined, reference: number, days: number, steps = 24) {
+  const max = Math.max(reference * 2.5, 1);
+  return Array.from({ length: steps + 1 }, (_, i) => { const spend = (max * i) / steps; return { spend, value: project(curve, spend, days) }; });
+}
+
+export const money = (v: number | null | undefined, digits?: number) => v == null || !Number.isFinite(v) ? "—"
+  : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: digits ?? (Math.abs(v) < 100 ? 2 : 0) });
+export const num = (v: number | null | undefined, digits = 0) => v == null || !Number.isFinite(v) ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: digits });
+export const percent = (v: number | null | undefined, digits = 1) => v == null || !Number.isFinite(v) ? "—" : `${(v * 100).toLocaleString("pt-BR", { maximumFractionDigits: digits })}%`;
+export const ratio = (v: number | null | undefined) => v == null || !Number.isFinite(v) ? "—" : v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const shortDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "");
+export const metricValue = (metric: Metric, v: number | null | undefined) => metric === "revenue" ? money(v) : num(v);

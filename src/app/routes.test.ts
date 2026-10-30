@@ -27,9 +27,8 @@ describe("platform routes", () => {
     expect(getPathForRoute("ecommerce")).toBe("/ecommerce");
   });
 
-  it("maps the Studio library route", () => {
-    expect(getAppRouteFromPath("/biblioteca")).toBe("library");
-    expect(getPathForRoute("library")).toBe("/biblioteca");
+  it("maps the Studio routes", () => {
+    expect(getAppRouteFromPath("/biblioteca")).toBe("not_found");
     expect(getAppRouteFromPath("/calendario")).toBe("calendar");
     expect(getAppRouteFromPath("/aprovacao")).toBe("approval");
     expect(getPathForRoute("approval")).toBe("/aprovacao");
