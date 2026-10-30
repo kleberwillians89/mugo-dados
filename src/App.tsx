@@ -37,6 +37,7 @@ const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Clipping = lazy(() => import("./pages/Clipping"));
+const Creators = lazy(() => import("./pages/Creators"));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
@@ -872,7 +873,9 @@ function PrivateApp() {
         <Clipping key={`clipping:${activeClientId}`} />
       ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
-      ) : route === "tasks" || route === "clipping" || route === "campaigns" ? (
+      ) : route === "creators" && (platformAdmin || agencyAdmin) ? (
+        <Creators key={`creators:${activeClientId}`} />
+      ) : route === "tasks" || route === "clipping" || route === "campaigns" || route === "creators" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />
