@@ -4,7 +4,7 @@ import {
   MESSAGE_KINDS, RECEIVES, STAGES, STAGE_STATUS, STUDIO_FORMATS, cancelApproval, createContact, deleteContact, getPipeline,
   listApprovals, listContacts, listMessages, localParts, previewMessage, sendMessage, updateCalendarItem, updateContact,
   type ApprovalRequest, type ClientContact, type ContactInput, type MessageKind, type MessageLog, type MessagePreview,
-  type MessageResult, type PipelineItem, type Receives, type Stage,
+  type MessageResult, type PipelineItem, type Receives, type Stage, type WhatsappChannel,
 } from "../app/studio";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -34,7 +34,8 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
   const [items, setItems] = useState<PipelineItem[]>([]);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [contacts, setContacts] = useState<ClientContact[]>([]);
-  const [channel, setChannel] = useState<"mugozap" | "wa_link">("wa_link");
+  const [channel, setChannel] = useState<WhatsappChannel>("nao_configurado");
+  const [missing, setMissing] = useState<string[]>([]);
   const [messages, setMessages] = useState<MessageLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
       const [pipe, reqs, cts, msgs] = await Promise.all([getPipeline(month), listApprovals(), listContacts(), listMessages()]);
       if (getActiveClientId() !== clientId) return;
       setItems(pipe.items || []); setRequests(reqs.requests || []); setContacts(cts.contacts || []);
-      setChannel(cts.whatsapp_channel === "mugozap" ? "mugozap" : "wa_link"); setMessages(msgs.messages || []);
+      setChannel(cts.whatsapp_channel); setMissing(cts.whatsapp_missing || []); setMessages(msgs.messages || []);
     } catch (cause) { setError(message(cause, "Não foi possível carregar a aprovação.")); }
     finally { setLoading(false); }
   }, [month, clientId]);
@@ -116,7 +117,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
       <button type="button" className="ds-button" onClick={() => navigateToAppRoute("calendar")}>Calendário</button>
       <button type="button" className="ds-button is-primary" onClick={() => { setTab("mensagens"); void openCompose("agenda"); }} disabled={!contacts.length}>Nova mensagem</button>
     </div> : undefined} />
-    {team ? <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo canal oficial da Mugô (MugôZap)." : "MugôZap ainda não configurado no Dados; as mensagens abrem no WhatsApp para envio manual."}</p> : <p className="libHint">Para aprovar, pedir ajuste ou editar um post, abra o Calendário. A equipe Mugô é avisada na hora.</p>}
+    {team ? <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo número oficial da Mugô, direto pelo Dados (API)." : channel === "wa_link" ? "envio manual: as mensagens abrem no WhatsApp." : `envio pelo número oficial ainda não configurado no servidor. Falta no Render: ${missing.join(", ") || "variáveis MUGOZAP_*"}.`}</p> : <p className="libHint">Para aprovar, pedir ajuste ou editar um post, abra o Calendário. A equipe Mugô é avisada na hora.</p>}
 
     <ClientTasks isAgency={isAgency} clientId={clientId} />
     <div className="studioTabs" role="tablist" aria-label="Seções">
@@ -223,7 +224,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
         </> : null}
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setCompose(null)}>Cancelar</button>
           <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !compose.preview} onClick={() => void submitMessage()}>
-            {busy === "send" ? "Enviando…" : channel === "mugozap" ? "Enviar pelo WhatsApp da Mugô" : "Abrir no WhatsApp"}</button></div>
+            {busy === "send" ? "Enviando…" : channel === "wa_link" ? "Abrir no WhatsApp" : "Enviar pelo WhatsApp da Mugô"}</button></div>
       </div> : null}
     </Drawer>
   </div></Shell>;

@@ -25,7 +25,8 @@ from services.studio_intelligence import build_content_intelligence, coverage
 from services.media_plan import get_strategy, list_strategies, plan_vs_actual, record_strategy, save_plan
 from services.media_strategy import build_strategy, narrative as media_narrative
 from services.studio_messages import (
-    TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
+    MUGOZAP_ENV, TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_missing, public_preview,
+    whatsapp_channel,
     save_contact, send_message,
 )
 from services.studio_client import CLIENT_STAGES, client_edit, client_items
@@ -388,6 +389,7 @@ ERRORS.update({
     "RECIPIENT_NOT_IN_CRM": (409, "Esse telefone não está cadastrado no CRM. Cadastre o contato no CRM e tente de novo."),
     "SEND_OUTCOME_UNKNOWN": (409, "Um envio anterior ainda não foi confirmado. Confira o histórico no CRM antes de reenviar."),
     "MUGOZAP_UNAVAILABLE": (502, "O MugôZap não respondeu. Tente novamente."),
+    "MUGOZAP_NOT_CONFIGURED": (503, "O envio pelo número oficial da Mugô não está configurado no servidor. Configure no Render: " + ", ".join(MUGOZAP_ENV) + "."),
     "SEND_FAILED": (502, "O MugôZap não conseguiu enviar a mensagem."),
 })
 
@@ -421,7 +423,7 @@ def _message_args(body: MessageInput) -> Dict[str, Any]:
 @router.get("/contacts")
 async def read_contacts(client_id: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
-    return {"contacts": await list_contacts(cid), "whatsapp_channel": "mugozap" if mugozap_config() else "wa_link"}
+    return {"contacts": await list_contacts(cid), "whatsapp_channel": whatsapp_channel(), "whatsapp_missing": mugozap_missing()}
 
 
 @router.post("/contacts", status_code=201)
@@ -458,7 +460,7 @@ async def remove_contact(client_id: str, contact_id: UUID, authorization: str | 
 async def read_messages(client_id: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
     return {"messages": await list_messages(cid), "templates": sorted(TEMPLATES),
-            "whatsapp_channel": "mugozap" if mugozap_config() else "wa_link"}
+            "whatsapp_channel": whatsapp_channel(), "whatsapp_missing": mugozap_missing()}
 
 
 @router.post("/messages/preview")
