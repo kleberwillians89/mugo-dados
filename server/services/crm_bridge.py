@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -59,6 +59,9 @@ async def _call(endpoint: str, client_id: str, params: Dict[str, Any]) -> Dict[s
         return {"available": True, **(body.get("data") or {})}
     if code == "UNKNOWN_EXTERNAL_CLIENT":
         return unavailable("not_linked")
+    if resp.status_code == 404 and code == "NOT_FOUND":
+        # Função não publicada no CRM (ou versão antiga sem este endpoint).
+        return unavailable("function_missing")
     if code == "CONVERSATION_NOT_FOUND":
         raise StudioError("CONVERSATION_NOT_FOUND")
     if resp.status_code == 401 or code in {"UNAUTHORIZED", "CONFIGURATION_MISSING"}:
@@ -72,8 +75,19 @@ async def list_tasks(client_id: str, status: Optional[str] = None, limit: int = 
     return await _call("tasks", client_id, {"status": status, "limit": max(1, min(int(limit), 200))})
 
 
-async def list_conversations(client_id: str, limit: int = 50) -> Dict[str, Any]:
-    return await _call("conversations", client_id, {"limit": max(1, min(int(limit), 200))})
+async def list_client_tasks(client_id: str) -> Dict[str, Any]:
+    """Visão do CLIENTE: só tarefas com a etiqueta "cliente" no CRM; o CRM já devolve sem nada interno."""
+    result = await _call("tasks", client_id, {"audience": "client", "limit": 50})
+    if not result.get("available"):
+        return result
+    allowed = {"id", "title", "status", "due_date", "updated_at"}
+    tasks = [{k: v for k, v in (t or {}).items() if k in allowed} for t in result.get("tasks") or []]
+    return {"available": True, "tasks": [t for t in tasks if t.get("status") in {"pending", "in_progress", "completed"}]}
+
+
+async def list_conversations(client_id: str, limit: int = 50, phones: Optional[List[str]] = None) -> Dict[str, Any]:
+    wa_ids = ",".join(p for p in (re.sub(r"\D", "", str(x or "")) for x in (phones or [])[:30]) if p)
+    return await _call("conversations", client_id, {"limit": max(1, min(int(limit), 200)), "wa_ids": wa_ids or None})
 
 
 async def list_messages(client_id: str, conversation_id: str, limit: int = 100) -> Dict[str, Any]:

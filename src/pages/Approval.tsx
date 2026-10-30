@@ -9,6 +9,8 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import ClientTasks from "../components/studio/ClientTasks";
+import CrmConversations from "../components/studio/CrmConversations";
 import { navigateToAppRoute } from "../app/routes";
 import "../styles/studio.css";
 
@@ -24,7 +26,7 @@ const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "
 const emptyContact: ContactInput = { name: "", phone: "", role: "", receives: ["conteudo"], is_primary: false };
 
 /** Aprovação de conteúdo: o "Comercial" do CRM virado funil de pautas + WhatsApp da Mugô. */
-export default function Approval({ canManage }: { canManage: boolean }) {
+export default function Approval({ canManage, isAgency = false }: { canManage: boolean; isAgency?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [tab, setTab] = useState<Tab>("funil");
@@ -114,6 +116,7 @@ export default function Approval({ canManage }: { canManage: boolean }) {
     </div> : undefined} />
     <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo canal oficial da Mugô (MugôZap)." : "MugôZap ainda não configurado no Dados; as mensagens abrem no WhatsApp para envio manual."}</p>
 
+    <ClientTasks isAgency={isAgency} clientId={clientId} />
     <div className="studioTabs" role="tablist" aria-label="Seções">
       {(Object.keys(TABS) as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "is-active" : ""} onClick={() => setTab(t)}>
         {TABS[t]}{t === "funil" && pendingClient ? <span>{pendingClient}</span> : null}{t === "pedidos" ? <span>{requests.filter((r) => r.status === "aberto").length}</span> : null}</button>)}
@@ -175,9 +178,10 @@ export default function Approval({ canManage }: { canManage: boolean }) {
     </div> : null}
 
     {tab === "mensagens" ? <div className="messagePanel">
+      {isAgency ? <CrmConversations contacts={contacts} clientId={clientId} /> : null}
       {canManage ? <div className="studioActions">{(["semanal", "agenda", "trafego", "resultados"] as MessageKind[]).map((k) => <button key={k} type="button" className="ds-button" disabled={Boolean(busy) || !contacts.length} onClick={() => void openCompose(k)}>{MESSAGE_KINDS[k]}</button>)}</div> : null}
       {!contacts.length ? <p className="studioEmpty">Cadastre um contato na aba Contatos para enviar mensagens.</p> : null}
-      <h3>Histórico</h3>
+      <h3>Envios pelo Dados</h3>
       <ul className="messageLog">{messages.map((m) => <li key={m.id} className={`is-${m.status}`}>
         <small>{dateTime(m.created_at)} · {MESSAGE_KINDS[m.kind]} · {m.contact_name || "—"} ({m.phone_masked}) · {m.channel === "mugozap" ? "MugôZap" : "link wa.me"}</small>
         <p>{m.preview?.text}</p>

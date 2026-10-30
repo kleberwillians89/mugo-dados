@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dueInfo, windowOpen } from "./crm";
+import { dueInfo, samePhone, windowOpen } from "./crm";
 import { getAppRouteFromPath, getPathForRoute } from "./routes";
 
 describe("crm helpers", () => {
@@ -15,10 +15,16 @@ describe("crm helpers", () => {
     expect(windowOpen("2026-10-30T18:00:00Z", new Date("2026-10-30T19:00:00Z"))).toBe(false);
     expect(windowOpen(null)).toBe(false);
   });
+  it("matches the same phone with or without the 9th digit", () => {
+    expect(samePhone("5511993161161", "551193161161")).toBe(true);
+    expect(samePhone("+55 11 99316-1161", "5511993161161")).toBe(true);
+    expect(samePhone("34632881089", "34632881089")).toBe(true);
+    expect(samePhone("5511993161161", "5511993161162")).toBe(false);
+    expect(samePhone(null, "5511993161161")).toBe(false);
+  });
   it("routes /tarefas and /atendimento", () => {
     expect(getAppRouteFromPath("/tarefas")).toBe("tasks");
-    expect(getAppRouteFromPath("/atendimento")).toBe("inbox");
+    expect(getAppRouteFromPath("/atendimento")).toBe("approval");
     expect(getPathForRoute("tasks")).toBe("/tarefas");
-    expect(getPathForRoute("inbox")).toBe("/atendimento");
   });
 });

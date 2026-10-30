@@ -36,7 +36,6 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
-const Inbox = lazy(() => import("./pages/Inbox"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -862,14 +861,12 @@ function PrivateApp() {
       ) : route === "calendar" ? (
         <Calendar key={`calendar:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "approval" ? (
-        <Approval key={`approval:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Approval key={`approval:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "tasks" && (platformAdmin || agencyAdmin) ? (
         <Tasks key={`tasks:${activeClientId}`} />
-      ) : route === "inbox" && (platformAdmin || agencyAdmin) ? (
-        <Inbox key={`inbox:${activeClientId}`} />
-      ) : route === "tasks" || route === "inbox" ? (
+      ) : route === "tasks" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />

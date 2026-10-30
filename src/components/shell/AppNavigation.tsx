@@ -45,7 +45,6 @@ const PRODUCT_ITEMS: NavItem[] = [
 // Operação da agência, lida do CRM Mugô: só agência/plataforma vê (o backend também recusa os demais).
 const AGENCY_ITEMS: NavItem[] = [
   { route: "tasks", label: "Tarefas" },
-  { route: "inbox", label: "Atendimento" },
 ];
 
 /**

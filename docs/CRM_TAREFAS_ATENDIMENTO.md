@@ -8,12 +8,15 @@ Fluxo: Dados (Render) → `GET https://<crm>.supabase.co/functions/v1/dados-ops-
 
 O CRM resolve organização e cliente pela tabela `external_integrations` (provider `mugo_dados`). O Dados nunca envia ids do CRM.
 
-| Tela | Rota | Quem vê |
+| O quê | Onde | Quem vê |
 |---|---|---|
-| Tarefas | `/tarefas` | agency_admin / platform_admin |
-| Atendimento | `/atendimento` | agency_admin / platform_admin |
+| Todas as tarefas do cliente | `/tarefas` (menu Operação) | agency_admin / platform_admin |
+| Conversas do WhatsApp por contato | Aprovação → aba Mensagens | agency_admin / platform_admin |
+| "Em andamento com a Mugô" | Aprovação (topo) | todos os membros da empresa |
 
-O cliente (client_admin/viewer) não vê essas telas: o menu fica escondido e o backend responde 403.
+O bloco "Em andamento com a Mugô" mostra só as tarefas com a **etiqueta `cliente`** no CRM. Cada uma aparece com título, status e prazo; observações, equipe e etiquetas não vão para o cliente.
+
+`/atendimento` agora abre a Aprovação.
 
 ## Ligar (uma vez)
 
@@ -30,7 +33,9 @@ Sem os passos 2 e 3, as telas mostram "A ligação com o CRM ainda não foi conf
 
 ## Atendimento: de onde vêm as conversas
 
-Uma conversa aparece na empresa quando o **contato do WhatsApp está vinculado ao cliente** no CRM (`whatsapp_contacts.client_id`). Para que a conversa de um contato apareça, vincule esse contato ao cliente no CRM.
+Uma conversa aparece na empresa quando o **contato do WhatsApp está vinculado ao cliente** no CRM (`whatsapp_contacts.client_id`).
+
+Na aba Mensagens, cada contato cadastrado na Aprovação (Ana, Nasser…) é casado com a conversa dele pelo telefone. O casamento aceita o número com ou sem o 9º dígito. Conversas de outros contatos vinculados ao cliente aparecem em "Outros contatos deste cliente no CRM".
 
 ## Tarefas: o que fica de fora
 
