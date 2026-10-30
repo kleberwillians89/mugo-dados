@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  ACTIONS, CHANNELS, CONFIDENCE, OBJECTIVES, curvePoints, generateStrategy, getPlan, metricValue, money, num, outcomeFor, percent, ratio, savePlan, shortDate,
-  type Channel, type Objective, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy,
+  ACTIONS, CHANNELS, CONFIDENCE, MIN_DAILY, OBJECTIVES, belowMinimum, curvePoints, generateStrategy, getPlan, getStrategy, latestSource, listStrategies, metricValue, money, num, outcomeFor,
+  percent, ratio, savePlan, shortDate,
+  type Channel, type Objective, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
 import { navigateToAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -22,7 +23,8 @@ const nextMonth = () => { const d = new Date(); const n = new Date(d.getFullYear
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const changePct = (now: number | null | undefined, before: number | null | undefined) => (now == null || !before ? null : ((now - before) / Math.abs(before)) * 100);
 
-type View = { strategy: Strategy | SavedStrategy; scenarios: Scenario[]; saved: boolean };
+type View = { strategy: Strategy | SavedStrategy; scenarios: Scenario[]; saved: boolean; source: "plan" | "history" | "new"; generatedAt?: string | null };
+const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Mídia On: estratégia de mídia paga calculada com os dados da conta, cruzada com o calendário editorial. */
 export default function MediaOn({ canManage }: { canManage: boolean }) {
@@ -40,24 +42,43 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [history, setHistory] = useState<StrategySummary[]>([]);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
+  function showGenerated(s: Strategy, source: "history" | "new") {
+    setView({ strategy: s, scenarios: s.scenarios, saved: false, source, generatedAt: s.generated_at });
+    setObjective(s.objective); setMargin(s.margin ? String(Math.round(s.margin * 100)) : ""); setCustomBudget(s.custom_budget ? String(s.custom_budget) : "");
+    const chosen = s.scenarios.find((x) => x.key === s.selected) || s.scenarios[0];
+    setSelected(chosen.key); setAllocation(chosen.allocation);
+  }
+
   const loadPlan = useCallback(async () => {
-    setError(null); setSaved(null); setView(null); setTracking(null);
+    setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]);
     try {
-      const data = await getPlan(month);
+      const [data, list] = await Promise.all([getPlan(month), listStrategies(month).catch(() => ({ strategies: [] as StrategySummary[] }))]);
       if (getActiveClientId() !== clientId) return;
-      setTracking(data);
+      setTracking(data); setHistory(list.strategies || []);
       const plan = data.plan;
       const strategy = plan?.strategy && "scenario" in plan.strategy ? plan.strategy as SavedStrategy : null;
-      if (plan && strategy) {
+      const source = latestSource(strategy ? plan?.updated_at : null, list.strategies || []);
+      if (source === "history") {
+        showGenerated(await getStrategy(list.strategies[0].id), "history");
+        if (plan) setNotes(plan.notes || "");
+      } else if (plan && strategy) {
         setObjective(plan.objective); setMargin(plan.margin ? String(Math.round(plan.margin * 100)) : ""); setNotes(plan.notes || "");
-        setView({ strategy, scenarios: strategy.scenarios?.length ? strategy.scenarios : [strategy.scenario], saved: true });
+        setView({ strategy, scenarios: strategy.scenarios?.length ? strategy.scenarios : [strategy.scenario], saved: true, source: "plan" });
         setSelected(strategy.scenario.key); setAllocation(plan.allocation);
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar o plano.")); }
   }, [month, clientId]);
+
+  async function openHistory(id: string) {
+    setBusy("history"); setError(null); setSaved(null);
+    try { showGenerated(await getStrategy(id), "history"); }
+    catch (cause) { setError(message(cause, "Não foi possível abrir essa estratégia.")); }
+    finally { setBusy(null); }
+  }
   useEffect(() => { void loadPlan(); }, [loadPlan]);
 
   async function generate() {
@@ -66,9 +87,9 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     setBusy("generate"); setError(null); setSaved(null);
     try {
       const s = await generateStrategy({ month, objective, margin: m, budget: b });
-      setView({ strategy: s, scenarios: s.scenarios, saved: false });
-      const chosen = s.scenarios.find((x) => x.key === s.selected) || s.scenarios[0];
-      setSelected(chosen.key); setAllocation(chosen.allocation);
+      showGenerated(s, "new");
+      if (s.strategy_id) setHistory((h) => [{ id: s.strategy_id!, month: s.month, objective: s.objective, margin: s.margin, custom_budget: b ?? null, selected: s.selected,
+        budget: s.scenarios.find((x) => x.key === s.selected)?.budget ?? null, headline: s.narrative?.headline ?? null, created_at: s.generated_at || new Date().toISOString() }, ...h]);
     } catch (cause) { setError(message(cause, "Não foi possível gerar a estratégia.")); }
     finally { setBusy(null); }
   }
@@ -83,6 +104,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const ritmo = view?.scenarios.find((s) => s.key === "ritmo_atual") || null;
   const budget = Object.values(allocation).reduce((s, v) => s + (Number(v) || 0), 0);
   const metric = strategy?.metric || "revenue";
+  const tooLow = strategy ? belowMinimum(allocation, strategy.days) : [];
 
   function pickScenario(key: ScenarioKey) {
     const s = view?.scenarios.find((x) => x.key === key);
@@ -110,7 +132,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         margin: strategy.margin || undefined, strategy: frozen, notes: notes || undefined, status });
       setSaved(status === "aprovado" ? "Plano aprovado. O calendário passa a mostrar os impulsionamentos." : "Rascunho salvo.");
       setTracking(await getPlan(month));
-      setView((v) => v && { ...v, saved: true });
+      setView((v) => v && { ...v, saved: true, source: "plan" });
     } catch (cause) { setError(message(cause, "Não foi possível salvar o plano.")); }
     finally { setBusy(null); }
   }
@@ -138,6 +160,15 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     </section> : null}
 
     {error ? <p role="alert" className="studioError">{error}</p> : null}
+    {view ? <div className="mediaSource">
+      <span>{view.source === "plan" ? `Exibindo o plano ${plan?.status === "aprovado" ? "aprovado" : "salvo"}${plan?.updated_at ? ` em ${stamp(plan.updated_at)}` : ""}.`
+        : `Exibindo a estratégia gerada em ${view.generatedAt ? stamp(view.generatedAt) : "agora"}${view.saved ? "" : " · ainda não salva como plano"}.`}</span>
+      {history.length ? <label>Histórico<select value="" disabled={Boolean(busy)} onChange={(e) => { if (e.target.value) void openHistory(e.target.value); }}>
+        <option value="">Abrir outra estratégia…</option>
+        {history.map((h) => <option key={h.id} value={h.id}>{stamp(h.created_at)} · {OBJECTIVES[h.objective]} · {money(h.budget)}{h.headline ? ` · ${h.headline.slice(0, 60)}` : ""}</option>)}
+      </select></label> : null}
+    </div> : null}
+    {view && "history_warning" in view.strategy && view.strategy.history_warning ? <p role="alert" className="studioError">{view.strategy.history_warning} A estratégia está na tela, mas só fica gravada se você salvar o plano.</p> : null}
     {!strategy && !busy ? <div className="ds-notice"><p className="ds-noticeTitle">{plan ? "Plano salvo sem estratégia detalhada." : `Nenhuma estratégia para ${monthLabel} ainda.`}</p>
       <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
 
@@ -193,6 +224,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
               <input type="range" min={0} max={100} step={1} value={Math.round(pct * 100)} onChange={(e) => setShare(c, Number(e.target.value))} /></label> : null}
           </li>;
         })}</ol>
+        {tooLow.length ? <p role="alert" className="studioError">{tooLow.map((c) => CHANNELS[c]).join(" e ")} abaixo de {money(MIN_DAILY)} por dia. Aumente a participação ou zere o canal antes de salvar.</p> : null}
       </section>
 
       <section className="ds-section" aria-labelledby="media-curve">
@@ -245,7 +277,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
 
       <section className="ds-section" aria-labelledby="media-boosts">
         <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-boosts" className="ds-sectionTitle">Impulsionamento dos posts do calendário</h2>
-          <p className="ds-caption">{strategy.boosts.posts.length ? `${money(strategy.boosts.pool)} da verba de Meta (${percent(strategy.boosts.share, 0)}) reservados para impulsionar as pautas com mais chance de resultado.` : strategy.boosts.note}</p></div>
+          <p className="ds-caption">{strategy.boosts.posts.length ? `${money(strategy.boosts.pool)} da verba de Meta (${percent(strategy.boosts.share, 0)}) reservados para impulsionar as pautas com mais chance de resultado, sempre com no mínimo ${money(MIN_DAILY)} por dia.` : strategy.boosts.note}</p></div>
           <button type="button" className="ds-link" onClick={() => navigateToAppRoute("calendar")}>Abrir calendário</button></div>
         {strategy.boosts.posts.length ? <div className="ds-tableWrap"><table className="ds-table">
           <thead><tr><th>Post</th><th>Publica</th><th>Impulsionar</th><th>Verba</th><th>Por dia</th><th>Impressões estimadas</th></tr></thead>
@@ -273,8 +305,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         <label>Observações do plano<textarea rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ofertas, lançamentos, restrições do cliente…" /></label>
         <div className="mediaSaveActions">
           {saved ? <span className="studioOk">{saved}</span> : null}
-          <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void save("rascunho")}>Salvar rascunho</button>
-          <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void save("aprovado")}>{busy === "save" ? "Salvando…" : "Aprovar plano"}</button>
+          <button type="button" className="ds-button" disabled={Boolean(busy) || tooLow.length > 0} onClick={() => void save("rascunho")}>Salvar rascunho</button>
+          <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || tooLow.length > 0} onClick={() => void save("aprovado")}>{busy === "save" ? "Salvando…" : "Aprovar plano"}</button>
         </div>
       </section> : null}
 

@@ -33,7 +33,10 @@ export type Strategy = {
   weeks: Week[]; guardrails: Guardrail[]; campaigns: CampaignAction[]; waste: number; findings: Finding[]; method: string;
   boosts: { pool: number; share: number; posts: BoostPost[]; note: string | null };
   narrative: Narrative | null; narrative_error?: string;
+  /** Gravação no histórico: id e hora; aviso se não foi possível gravar. */
+  strategy_id?: string | null; generated_at?: string | null; history_warning?: string; custom_budget?: number | null;
 };
+export type StrategySummary = { id: string; month: string; objective: Objective; margin: number | null; custom_budget: number | null; selected: ScenarioKey | null; budget: number | null; headline: string | null; created_at: string };
 export type SavedStrategy = Omit<Strategy, "scenarios"> & { scenario: Scenario; scenarios?: Scenario[] };
 export type MediaPlan = { id: string; month: string; objective: Objective; budget: number; allocation: Partial<Record<Channel, number>>; scenario: ScenarioKey | null; margin: number | null;
   strategy: SavedStrategy | Record<string, never>; notes: string | null; status: "rascunho" | "aprovado"; updated_at?: string };
@@ -45,6 +48,20 @@ const base = (path: string) => clientClientPath(`/studio/media${path}`);
 
 export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; with_narrative?: boolean }) {
   return http<Strategy>(base("/strategy"), { method: "POST", body: JSON.stringify(input), timeoutMs: 150_000 });
+}
+/** Mínimo de verba diária por canal e por impulsionamento (a Meta aceita ~R$ 6; abaixo de R$ 10 a entrega não aprende). */
+export const MIN_DAILY = 10;
+export function belowMinimum(allocation: Partial<Record<Channel, number>>, days: number): Channel[] {
+  return (Object.entries(allocation) as [Channel, number][]).filter(([, v]) => v > 0 && v / days < MIN_DAILY).map(([c]) => c);
+}
+export function listStrategies(month: string) { return http<{ strategies: StrategySummary[] }>(base(`/strategies?month=${encodeURIComponent(month)}`)); }
+export function getStrategy(id: string) { return http<Strategy>(base(`/strategies/${encodeURIComponent(id)}`), { timeoutMs: 60_000 }); }
+/** Abre a estratégia mais recente: a última gerada, a não ser que o plano tenha sido salvo depois dela. */
+export function latestSource(planUpdatedAt: string | null | undefined, history: StrategySummary[]): "plan" | "history" | null {
+  const last = history[0]?.created_at;
+  if (!last) return planUpdatedAt ? "plan" : null;
+  if (!planUpdatedAt) return "history";
+  return new Date(last).getTime() > new Date(planUpdatedAt).getTime() ? "history" : "plan";
 }
 export function getPlan(month: string) { return http<PlanVsActual>(base(`/plan?month=${encodeURIComponent(month)}`), { timeoutMs: 60_000 }); }
 export function savePlan(input: { month: string; objective: Objective; scenario: ScenarioKey; budget: number; allocation: Partial<Record<Channel, number>>; margin?: number; strategy: SavedStrategy; notes?: string; status: "rascunho" | "aprovado" }) {

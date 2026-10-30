@@ -234,3 +234,84 @@ class PlanTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryTests(unittest.IsolatedAsyncioTestCase):
+    STRATEGY = {"month": "2026-11-01", "selected": "meta", "narrative": {"headline": "Manchete"},
+                "scenarios": [{"key": "ritmo_atual", "budget": 1000}, {"key": "meta", "budget": 1500}]}
+
+    @staticmethod
+    def http_error(status, text=""):
+        import httpx
+        request = httpx.Request("POST", "https://sb/rest/v1/x")
+        return httpx.HTTPStatusError("erro", request=request, response=httpx.Response(status, text=text, request=request))
+
+    async def test_every_generation_is_recorded_with_summary(self):
+        with patch.object(mp, "sb_insert", AsyncMock(return_value={"id": "s1", "created_at": "2026-10-30T10:00:00Z"})) as insert:
+            out = await mp.record_strategy("ruah", self.STRATEGY, objective="vendas", margin=0.4, custom_budget=None, user_id="u1")
+        row = insert.await_args.args[1]
+        self.assertEqual((row["client_id"], row["month"], row["selected"], row["budget"], row["headline"]), ("ruah", "2026-11-01", "meta", 1500, "Manchete"))
+        self.assertIs(row["strategy"], self.STRATEGY)
+        self.assertEqual(out, {"saved": True, "id": "s1", "created_at": "2026-10-30T10:00:00Z"})
+
+    async def test_missing_table_is_reported_not_raised(self):
+        with patch.object(mp, "sb_insert", AsyncMock(side_effect=self.http_error(404))):
+            out = await mp.record_strategy("ruah", self.STRATEGY, objective="vendas", margin=None, custom_budget=None, user_id="u1")
+        self.assertEqual(out, {"saved": False, "reason": "MIGRATION_056_PENDING"})
+        with patch.object(mp, "sb_select", AsyncMock(side_effect=self.http_error(404))):
+            self.assertEqual(await mp.list_strategies("ruah", "2026-11"), [])
+
+    async def test_history_lookup_is_scoped_to_company(self):
+        row = {"id": "s1", "objective": "vendas", "margin": 0.4, "custom_budget": None, "strategy": {"month": "2026-11-01"}, "created_at": "t"}
+        with patch.object(mp, "sb_select", AsyncMock(return_value=[row])) as select:
+            out = await mp.get_strategy("ruah", "s1")
+        self.assertEqual(select.await_args.kwargs["filters"], {"client_id": "eq.ruah", "id": "eq.s1"})
+        self.assertEqual((out["strategy_id"], out["generated_at"], out["month"]), ("s1", "t", "2026-11-01"))
+        with patch.object(mp, "sb_select", AsyncMock(return_value=[])):
+            with self.assertRaises(StudioError):
+                await mp.get_strategy("ruah", "outra")
+
+    async def test_save_plan_names_the_missing_migration(self):
+        data = {"objective": "vendas", "scenario": "meta", "budget": 1000, "allocation": {"meta": 1000}, "strategy": {}}
+        for error, code in ((self.http_error(400, 'Could not find the "strategy" column'), "MIGRATION_055_PENDING"),
+                            (self.http_error(404), "MIGRATION_054_PENDING")):
+            with self.subTest(code=code), patch.object(mp, "get_plan", AsyncMock(return_value=None)), \
+                 patch.object(mp, "sb_upsert", AsyncMock(side_effect=error)):
+                with self.assertRaises(StudioError) as err:
+                    await mp.save_plan("ruah", "2026-11", data, user_id="u1")
+                self.assertEqual(err.exception.code, code)
+
+
+class MinimumDailyTests(unittest.TestCase):
+    WEEKS = ms.month_weeks(date(2026, 11, 1), 3000)
+
+    def item(self, i, day, fmt="reels"):
+        return {"id": i, "title": f"Post {i}", "format": fmt, "status": "aprovado", "signals": {}, "scheduled_at": f"2026-11-{day:02d}T22:00:00+00:00"}
+
+    def test_boosts_never_below_10_per_day(self):
+        items = [self.item(str(i), d) for i, d in enumerate([3, 6, 9, 12, 15, 18, 21, 24])]
+        plan = ms.boost_plan(items, self.WEEKS, meta_budget=1500, meta_cpm=10.0, format_reach={}, today=date(2026, 11, 1))  # pool R$ 300
+        self.assertTrue(plan["posts"])
+        self.assertLess(len(plan["posts"]), 8)
+        for p in plan["posts"]:
+            self.assertGreaterEqual(p["daily"], ms.MIN_DAILY)
+        self.assertAlmostEqual(sum(p["budget"] for p in plan["posts"]), 300, delta=1)
+
+    def test_tiny_pool_shortens_or_skips(self):
+        plan = ms.boost_plan([self.item("a", 5)], self.WEEKS, meta_budget=250, meta_cpm=10.0, format_reach={}, today=date(2026, 11, 1))  # R$ 50
+        post = plan["posts"][0]
+        self.assertGreaterEqual(post["daily"], ms.MIN_DAILY)
+        self.assertEqual((date.fromisoformat(post["end"]) - date.fromisoformat(post["start"])).days + 1, 5)
+        none = ms.boost_plan([self.item("a", 5)], self.WEEKS, meta_budget=100, meta_cpm=10.0, format_reach={}, today=date(2026, 11, 1))  # R$ 20
+        self.assertEqual(none["posts"], [])
+        self.assertIn("R$ 10/dia", none["note"])
+
+    def test_channels_get_at_least_10_per_day_or_drop_out(self):
+        curves = {"meta": {m: {"a": 50.0, "b": 0.6, "fit": "medida"} for m in ms.DEFAULT_B},
+                  "google_ads": {m: {"a": 20.0, "b": 0.8, "fit": "medida"} for m in ms.DEFAULT_B}}
+        d = {"meta": {"confidence": "boa", "monthly_spend": 3000, "recent": {"roas": 5}},
+             "google_ads": {"confidence": "boa", "monthly_spend": 3000, "recent": {"roas": 3}}}
+        alloc = ms.optimize(curves, d, 2000, "revenue", 30)
+        self.assertTrue(all(v / 30 >= ms.MIN_DAILY - 0.01 for v in alloc.values()))
+        small = ms.optimize(curves, d, 450, "revenue", 30)  # não paga R$ 10/dia nos dois canais
+        self.assertEqual(small, {"meta": 450.0})

@@ -52,6 +52,10 @@ MAX_GROWTH_ESTIMATED = 1.5  # curva sem medição: não extrapola tanto além do
 STEPS = 200
 MIN_MARGINAL_ROAS = 1.0
 CAMPAIGN_MIN_SPEND = 50.0
+# Verba diária mínima por canal e por impulsionamento. A Meta aceita a partir de ~R$ 6/dia,
+# mas abaixo de R$ 10 a entrega é instável e o aprendizado não sai do lugar.
+MIN_DAILY = 10.0
+MIN_BOOST_DAYS = 3
 
 
 def _f(value: Any) -> float:
@@ -212,12 +216,16 @@ def curves_for(week_rows: List[Dict[str, float]]) -> Dict[str, Dict[str, Any]]:
 # Otimização e cenários
 # --------------------------------------------------------------------------
 
-def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[str, str]] = None) -> Dict[str, Tuple[float, float]]:
+def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[str, str]] = None,
+           days: int = 30) -> Dict[str, Tuple[float, float]]:
     active = [c for c, d in diag.items() if d["confidence"] != "sem_dados"]
+    if len(active) > 1 and budget < MIN_DAILY * days * len(active):
+        # Verba não paga R$ 10/dia em todos os canais: fica só o de maior retorno recente.
+        active = [max(active, key=lambda c: (diag[c].get("recent") or {}).get("roas") or 0)]
     out = {}
     for c in active:
         d = diag[c]
-        lo = budget * MIN_ACTIVE_SHARE if len(active) > 1 else budget
+        lo = max(budget * MIN_ACTIVE_SHARE, MIN_DAILY * days) if len(active) > 1 else budget
         hi = budget
         if len(active) > 1:
             if d["confidence"] == "baixa":
@@ -235,7 +243,7 @@ def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[s
 
 def optimize(curves: Dict[str, Dict[str, Dict[str, Any]]], diag: Dict[str, Dict[str, Any]], budget: float,
              metric: str, days: int) -> Dict[str, float]:
-    limits = bounds(diag, budget, {c: curves[c][metric].get("fit", "medida") for c in curves})
+    limits = bounds(diag, budget, {c: curves[c][metric].get("fit", "medida") for c in curves}, days)
     if not limits or budget <= 0:
         return {}
     alloc = {c: lo for c, (lo, _) in limits.items()}
@@ -417,7 +425,8 @@ def boost_plan(items: List[Dict[str, Any]], weeks: List[Dict[str, Any]], *, meta
     * Data: semanas de "pico"/"aquecimento" (antes das datas comerciais) pesam mais; pauta de data sazonal ganha prioridade.
     * Início: 1 dia depois de publicar (24 h de leitura orgânica antes de pagar); em semana de pico, no mesmo dia,
       porque a janela de compra é curta. Duração de 7 dias, sem passar do fim do mês.
-    * Verba: 20% do que foi planejado para Meta, dividido pelo peso de cada post."""
+    * Verba: 20% do que foi planejado para Meta, dividido pelo peso de cada post, com mínimo de R$ 10/dia
+      por impulsionamento (sai o post de menor nota quando a verba não fecha a conta)."""
     pool = round(meta_budget * share, 2)
     if pool <= 0 or not items:
         return {"pool": pool, "share": share, "posts": [], "note": None if items else
@@ -453,10 +462,29 @@ def boost_plan(items: List[Dict[str, Any]], weeks: List[Dict[str, Any]], *, meta
         return {"pool": pool, "share": share, "posts": [], "note": "Nenhum post futuro elegível no calendário deste mês."}
     keep = max(2, min(len(candidates), len(weeks) * 2))
     chosen = sorted(candidates, key=lambda c: -c["score"])[:keep]
-    total_score = sum(c["score"] for c in chosen) or 1
+
+    def span(c: Dict[str, Any]) -> int:
+        return (date.fromisoformat(c["end"]) - date.fromisoformat(c["start"])).days + 1
+
+    def split(posts: List[Dict[str, Any]]) -> None:
+        total = sum(p["score"] for p in posts) or 1
+        for p in posts:
+            p["budget"] = round(pool * p["score"] / total, 2)
+
+    # Nenhum impulsionamento abaixo de R$ 10/dia: sai o post de menor nota até a verba fechar a conta.
+    split(chosen)
+    while len(chosen) > 1 and any(c["budget"] / span(c) < MIN_DAILY for c in chosen):
+        chosen = sorted(chosen, key=lambda c: -c["score"])[:-1]
+        split(chosen)
+    if chosen and chosen[0]["budget"] / span(chosen[0]) < MIN_DAILY:
+        # Um post só e ainda abaixo do mínimo: encurta a duração (até 3 dias) para manter R$ 10/dia.
+        days_ok = int(chosen[0]["budget"] // MIN_DAILY)
+        if days_ok < MIN_BOOST_DAYS:
+            return {"pool": pool, "share": share, "posts": [], "min_daily": MIN_DAILY,
+                    "note": f"A verba de impulsionamento ({pool:,.0f} reais) não paga o mínimo de R$ {MIN_DAILY:.0f}/dia por {MIN_BOOST_DAYS} dias.".replace(",", ".")}
+        chosen[0]["end"] = (date.fromisoformat(chosen[0]["start"]) + timedelta(days=days_ok - 1)).isoformat()
     for c in chosen:
-        c["budget"] = round(pool * c["score"] / total_score, 2)
-        days = (date.fromisoformat(c["end"]) - date.fromisoformat(c["start"])).days + 1
+        days = span(c)
         c["daily"] = round(c["budget"] / days, 2)
         c["impressions"] = int(c["budget"] / meta_cpm * 1000) if meta_cpm else None
         reason = [f"formato {c['format']} é dos que mais alcançam na conta" if format_rank.get(c["format"], 0) >= max(format_rank.values()) - 1 else None,
@@ -464,7 +492,7 @@ def boost_plan(items: List[Dict[str, Any]], weeks: List[Dict[str, Any]], *, meta
                   f"pauta de {c['seasonal']}" if c["seasonal"] else None,
                   "começa no dia da publicação por ser semana de pico" if c["phase"] == "pico" else "começa 24 h depois de publicar"]
         c["why"] = "; ".join(r for r in reason if r)
-    return {"pool": pool, "share": share, "posts": sorted(chosen, key=lambda c: c["start"]), "note": None}
+    return {"pool": pool, "share": share, "posts": sorted(chosen, key=lambda c: c["start"]), "note": None, "min_daily": MIN_DAILY}
 
 
 # --------------------------------------------------------------------------
@@ -599,7 +627,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
         "method": ("Curva y = a·gasto^b por canal, ajustada nas 13 semanas mais recentes (b medido quando a verba variou e o ajuste "
                    "explica pelo menos 30% da variação; senão, referência conservadora). A divisão maximiza o resultado do objetivo com "
                    "mínimo de 5% para canais ativos, teto de 40% para canais com poucos dados e no máximo 2,5x o investimento mensal "
-                   "atual de cada canal (1,5x quando a curva é estimada). Receita e conversões são as atribuídas pelas plataformas."),
+                   "atual de cada canal (1,5x quando a curva é estimada). Nenhum canal ou impulsionamento fica abaixo de R$ 10 por dia. Receita e conversões são as atribuídas pelas plataformas."),
     }
 
 

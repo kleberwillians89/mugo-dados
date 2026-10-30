@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { STAGES, STAGE_STATUS, STUDIO_STATUS, basedOnText } from "./studio";
-import { curvePoints, money, outcomeFor, percent, project } from "./media";
+import { belowMinimum, curvePoints, latestSource, money, outcomeFor, percent, project } from "./media";
 import AiAssist from "../components/studio/AiAssist";
 
 describe("inteligência de conteúdo", () => {
@@ -55,5 +55,24 @@ describe("Mídia On", () => {
     expect(money(null)).toBe("—");
     expect(money(1500)).toMatch(/R\$\s?1\.500/);
     expect(percent(0.0123, 2)).toBe("1,23%");
+  });
+});
+
+describe("qual estratégia abrir", () => {
+  const h = (created_at: string) => ({ id: created_at, month: "2026-11-01", objective: "vendas" as const, margin: null, custom_budget: null, selected: null, budget: null, headline: null, created_at });
+  it("abre a última gerada, a não ser que o plano tenha sido salvo depois", () => {
+    expect(latestSource(null, [])).toBeNull();
+    expect(latestSource("2026-10-30T10:00:00Z", [])).toBe("plan");
+    expect(latestSource(null, [h("2026-10-30T09:00:00Z")])).toBe("history");
+    expect(latestSource("2026-10-30T08:00:00Z", [h("2026-10-30T09:00:00Z")])).toBe("history");
+    expect(latestSource("2026-10-30T10:00:00Z", [h("2026-10-30T09:00:00Z")])).toBe("plan");
+  });
+});
+
+describe("mínimo de R$ 10/dia", () => {
+  it("aponta canal ajustado abaixo do mínimo e ignora canal zerado", () => {
+    expect(belowMinimum({ meta: 3000, google_ads: 240 }, 30)).toEqual(["google_ads"]);
+    expect(belowMinimum({ meta: 3000, google_ads: 0 }, 30)).toEqual([]);
+    expect(belowMinimum({ meta: 300 }, 30)).toEqual([]);
   });
 });
