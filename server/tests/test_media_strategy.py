@@ -170,14 +170,24 @@ class BuildStrategyTests(unittest.IsolatedAsyncioTestCase):
                   "scheduled_at": "2026-11-25T22:00:00+00:00"}]
         with patch.object(ms, "read_window", AsyncMock(return_value={"meta": meta, "google_ads": google})), \
              patch.object(ms, "_store_and_goal", AsyncMock(return_value=({"revenue": 90000, "investment": 9000}, 120000, []))), \
-             patch.object(ms, "_calendar_context", AsyncMock(return_value=(items, {"reels": 3000}))):
+             patch.object(ms, "_calendar_context", AsyncMock(return_value=(items, {"reels": 3000}))), \
+             patch.object(ms, "campaign_memory", AsyncMock(return_value={})):
             s = await ms.build_strategy("ruah", month="2026-11", objective="vendas", margin=0.4, today=date(2026, 10, 29))
         keys = [sc["key"] for sc in s["scenarios"]]
         self.assertIn("ritmo_atual", keys)
         self.assertIn("meta", keys)
         for sc in s["scenarios"]:
             self.assertAlmostEqual(sum(sc["allocation"].values()), sc["budget"], delta=1)
-            self.assertEqual(list(sc["allocation"]), ["meta"])  # canal desconectado não recebe verba
+            # equilibrado: Google sem histórico entra como teste estimado (20% a 40% da verba)
+            self.assertGreaterEqual(sc["allocation"]["google_ads"], sc["budget"] * ms.TEST_SHARE - 1)
+            self.assertLessEqual(sc["allocation"]["google_ads"], sc["budget"] * ms.REFERENCE_CAP + 1)
+        self.assertEqual(s["channel_kind"], {"meta": "dados", "google_ads": "referencia"})
+        self.assertIsNone(s["reference_inputs"]["google_ads"]["ticket"])  # loja sem pedidos no mock: ticket não inventado
+        chosen = next(sc for sc in s["scenarios"] if sc["key"] == s["selected"])
+        for channel, budget in chosen["allocation"].items():
+            planned = sum(c["planned_budget"] for c in s["campaigns"] if c["channel"] == channel)
+            self.assertAlmostEqual(planned, budget, delta=2)  # verba das campanhas fecha com a do canal
+        self.assertTrue(any(c.get("suggested") and c["channel"] == "google_ads" for c in s["campaigns"]))
         self.assertEqual(s["selected"], s["recommended"])
         self.assertTrue(any("sem conversão" in f["text"] for f in s["findings"]))
         self.assertEqual(s["campaigns"][0]["action"], "escalar")
@@ -190,7 +200,7 @@ class BuildStrategyTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(ms, "read_window", AsyncMock(return_value={"meta": empty, "google_ads": empty})):
             with self.assertRaises(StudioError) as err:
                 await ms.build_strategy("ruah", month="2026-11", objective="vendas", today=date(2026, 10, 29))
-        self.assertEqual(err.exception.code, "NO_PAID_DATA")
+        self.assertEqual(err.exception.code, "NO_PAID_HISTORY")
         with self.assertRaises(StudioError):
             await ms.build_strategy("ruah", month="2026-11", objective="vendas", margin=0.99)
 
@@ -315,3 +325,89 @@ class MinimumDailyTests(unittest.TestCase):
         self.assertTrue(all(v / 30 >= ms.MIN_DAILY - 0.01 for v in alloc.values()))
         small = ms.optimize(curves, d, 450, "revenue", 30)  # não paga R$ 10/dia nos dois canais
         self.assertEqual(small, {"meta": 450.0})
+
+
+class ChannelsWithoutHistoryTests(unittest.IsolatedAsyncioTestCase):
+    STORE = {"revenue": 60000, "orders": 300, "sessions": 20000, "investment": 0}
+
+    def test_reference_curve_uses_store_conversion_and_ticket(self):
+        curves, inputs = ms.reference_curves("meta", self.STORE, 600, 30)
+        self.assertEqual(inputs["ticket"], 200.0)
+        self.assertAlmostEqual(inputs["cvr"], 300 / 20000 * 0.8, places=4)
+        self.assertEqual(curves["revenue"]["fit"], "referencia")
+        conv = ms.project(curves["conversions"], 600, 30)
+        expected = 600 / 18 * 1000 * 0.012 * inputs["cvr"]
+        self.assertAlmostEqual(conv, expected, delta=expected * 0.01)
+        self.assertAlmostEqual(ms.project(curves["revenue"], 600, 30), conv * 200, delta=conv * 2)
+
+    async def run_build(self, data, **kw):
+        with patch.object(ms, "read_window", AsyncMock(return_value=data)), \
+             patch.object(ms, "_store_and_goal", AsyncMock(return_value=(self.STORE, None, []))), \
+             patch.object(ms, "_calendar_context", AsyncMock(return_value=([], {}))), \
+             patch.object(ms, "campaign_memory", AsyncMock(return_value={})):
+            return await ms.build_strategy("origami", month="2026-11", today=date(2026, 10, 29), **kw)
+
+    async def test_no_history_at_all_builds_plan_from_budget(self):
+        empty = {"daily": [], "campaigns": []}
+        s = await self.run_build({"meta": empty, "google_ads": empty}, objective="alcance", custom_budget=1000)
+        self.assertEqual([sc["key"] for sc in s["scenarios"]], ["personalizado"])
+        alloc = s["scenarios"][0]["allocation"]
+        self.assertEqual(set(alloc), {"meta", "google_ads"})
+        self.assertAlmostEqual(sum(alloc.values()), 1000, delta=1)
+        self.assertEqual(s["metric"], "impressions")
+        self.assertTrue(all(c.get("suggested") for c in s["campaigns"]))
+
+    async def test_untested_channel_does_not_inflate_recommended_budget(self):
+        google = {"daily": daily([900, 950, 1000, 1100, 1000, 1200, 1150, 1050, 1000, 1250, 1300, 1200, 1100], roas=6.5, b=0.8), "campaigns": []}
+        s = await self.run_build({"meta": {"daily": [], "campaigns": []}, "google_ads": google}, objective="vendas")
+        self.assertEqual(s["recommended"], "ritmo_atual")  # com canal em teste, não recomenda saltar de verba
+        chosen = next(sc for sc in s["scenarios"] if sc["key"] == s["selected"])
+        self.assertLessEqual(chosen["allocation"]["meta"], chosen["budget"] * ms.REFERENCE_CAP + 1)
+        eff = next((sc for sc in s["scenarios"] if sc["key"] == "eficiencia"), None)
+        if eff:
+            self.assertLessEqual(eff["allocation"]["meta"], eff["budget"] * ms.REFERENCE_CAP + 1)
+
+    async def test_hiperfoco_keeps_only_channels_with_data(self):
+        meta = {"daily": daily([1000] * 13), "campaigns": []}
+        s = await self.run_build({"meta": meta, "google_ads": {"daily": [], "campaigns": []}}, objective="vendas", distribution="hiperfoco")
+        self.assertTrue(all(list(sc["allocation"]) == ["meta"] for sc in s["scenarios"]))
+        self.assertEqual(s["channel_kind"], {"meta": "dados"})
+
+    async def test_irrelevant_attributed_revenue_switches_to_conversions(self):
+        meta = {"daily": [dict(d, revenue=d["revenue"] * 0.001) for d in daily([1000] * 13)], "campaigns": []}
+        s = await self.run_build({"meta": meta, "google_ads": {"daily": [], "campaigns": []}}, objective="vendas")
+        self.assertEqual(s["metric"], "conversions")
+        self.assertTrue(any("irrisória" in f["text"] for f in s["findings"]))
+
+
+class CampaignBudgetAndLearningTests(unittest.TestCase):
+    ROWS = [{"channel": "meta", "campaign": "A", "action": "escalar", "why": "x", "spend": 3000, "conversions": 80, "revenue": 24000, "roas": 8.0, "cpa": 37.5},
+            {"channel": "meta", "campaign": "B", "action": "manter", "why": "x", "spend": 2000, "conversions": 40, "revenue": 8000, "roas": 4.0, "cpa": 50.0},
+            {"channel": "meta", "campaign": "C", "action": "pausar", "why": "x", "spend": 900, "conversions": 0, "revenue": 0, "roas": 0.0, "cpa": None},
+            {"channel": "meta", "campaign": "D", "action": "aprender", "why": "x", "spend": 60, "conversions": 1, "revenue": 100, "roas": 1.6, "cpa": 60.0}]
+
+    def test_budgets_follow_actions_close_with_channel_and_respect_minimum(self):
+        rows = ms.plan_campaign_budgets([dict(r) for r in self.ROWS], {"meta": 6000, "google_ads": 1500}, 30, "vendas", boost_pool=600)
+        meta = {r["campaign"]: r["planned_budget"] for r in rows if r["channel"] == "meta"}
+        self.assertEqual(meta["C"], 0.0)                                   # pausar
+        self.assertEqual(meta["D"], 0.0)                                   # abaixo de R$ 10/dia: concentrada
+        self.assertGreater(meta["A"] / 3000, meta["B"] / 2000)            # escalar ganha mais que manter
+        self.assertEqual(meta["Impulsionamento dos posts do calendário"], 600)
+        self.assertAlmostEqual(sum(meta.values()), 6000, delta=1)
+        google = [r for r in rows if r["channel"] == "google_ads"]
+        self.assertTrue(all(r.get("suggested") and r["action"] == "testar" for r in google))
+        self.assertAlmostEqual(sum(r["planned_budget"] for r in google), 1500, delta=1)
+
+    def test_learning_adjusts_actions_from_previous_plans(self):
+        rows = [dict(r) for r in self.ROWS]
+        memory = {"A": {"month": "2026-10-01", "action": "escalar", "roas": 12.0, "planned_budget": 4000, "edited": True},
+                  "B": {"month": "2026-10-01", "action": "otimizar", "roas": 3.0},
+                  "C": {"month": "2026-10-01", "action": "pausar", "roas": 0.0}}
+        learned = ms.learn_from_history(rows, memory, "revenue")
+        by = {r["campaign"]: r for r in rows}
+        self.assertEqual(learned, 3)
+        self.assertEqual(by["A"]["action"], "manter")                       # escalada derrubou o ROAS (12 → 8)
+        self.assertIn("A equipe definiu escalar com R$ 4.000 em out", by["A"]["learning"])
+        self.assertEqual(by["B"]["action"], "manter")                       # otimização funcionou (3 → 4)
+        self.assertIn("seguiu investindo", by["C"]["learning"])
+        self.assertNotIn("learning", by["D"])

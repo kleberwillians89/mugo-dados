@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { STAGES, STAGE_STATUS, STUDIO_STATUS, basedOnText } from "./studio";
-import { belowMinimum, curvePoints, latestSource, money, outcomeFor, percent, project } from "./media";
+import { belowMinimum, campaignTotals, campaignsBelowMinimum, curvePoints, rescaleCampaigns, latestSource, money, outcomeFor, percent, project } from "./media";
 import AiAssist from "../components/studio/AiAssist";
 
 describe("inteligência de conteúdo", () => {
@@ -74,5 +74,21 @@ describe("mínimo de R$ 10/dia", () => {
     expect(belowMinimum({ meta: 3000, google_ads: 240 }, 30)).toEqual(["google_ads"]);
     expect(belowMinimum({ meta: 3000, google_ads: 0 }, 30)).toEqual([]);
     expect(belowMinimum({ meta: 300 }, 30)).toEqual([]);
+  });
+});
+
+describe("verba por campanha", () => {
+  const row = (campaign: string, planned: number, extra: Record<string, unknown> = {}) => ({ channel: "meta" as const, campaign, action: "manter" as const, why: "", spend: planned,
+    conversions: 10, revenue: 0, roas: null, cpa: null, share: null, planned_budget: planned, ...extra });
+  it("fecha com a verba do canal mantendo o que a equipe editou e o impulsionamento", () => {
+    const rows = [row("A", 600), row("B", 400), row("Fixa", 500, { edited: true }), row("Impulsionamento", 300, { boost: true, action: "impulsionar" })];
+    const out = rescaleCampaigns(rows, { meta: 3000 });
+    expect(out.find((r) => r.campaign === "Fixa")?.planned_budget).toBe(500);
+    expect(out.find((r) => r.campaign === "Impulsionamento")?.planned_budget).toBe(300);
+    expect(out.find((r) => r.campaign === "A")?.planned_budget).toBeCloseTo(1320, 0);   // 60% de 2.200
+    expect(campaignTotals(out).meta).toBeCloseTo(3000, 0);
+  });
+  it("aponta campanha abaixo de R$ 10/dia", () => {
+    expect(campaignsBelowMinimum([row("A", 200), row("B", 600), row("C", 0)], 30).map((r) => r.campaign)).toEqual(["A"]);
   });
 });

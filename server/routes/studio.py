@@ -589,6 +589,9 @@ ERRORS.update({
     "MARGIN_INVALID": (422, "A margem precisa estar entre 2% e 95%."),
     "STRATEGY_TOO_LARGE": (413, "Estratégia grande demais para salvar."),
     "STRATEGY_NOT_FOUND": (404, "Estratégia não encontrada nesta empresa."),
+    "NO_PAID_HISTORY": (409, "Sem histórico de Meta Ads e Google Ads nos últimos 90 dias. Informe a verba do mês para montar o plano "
+                             "com os dados da loja e referências de mercado."),
+    "DISTRIBUTION_INVALID": (422, "Modo de distribuição inválido."),
     "MIGRATION_054_PENDING": (503, "Falta aplicar a migration 000054 (planos do Mídia On) no Supabase."),
     "MIGRATION_055_PENDING": (503, "Falta aplicar a migration 000055 (estratégia no plano) no Supabase."),
     "MIGRATION_056_PENDING": (503, "Falta aplicar a migration 000056 (histórico de estratégias) no Supabase."),
@@ -605,6 +608,7 @@ class StrategyInput(BaseModel):
     objective: Objective = "vendas"
     margin: Optional[float] = Field(default=None, gt=0, lt=1)
     budget: Optional[float] = Field(default=None, gt=0, le=100000000)
+    distribution: Literal["equilibrado", "hiperfoco"] = "equilibrado"
     with_narrative: bool = True
 
 
@@ -626,7 +630,8 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     try:
-        strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget)
+        strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget,
+                                        distribution=body.distribution)
     except StudioError as exc:
         raise _http(exc) from None
     strategy["narrative"] = None

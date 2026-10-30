@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  ACTIONS, CHANNELS, CONFIDENCE, MIN_DAILY, OBJECTIVES, belowMinimum, curvePoints, generateStrategy, getPlan, getStrategy, latestSource, listStrategies, metricValue, money, num, outcomeFor,
+  ACTIONS, CHANNELS, CONFIDENCE, DISTRIBUTIONS, MIN_DAILY, OBJECTIVES, belowMinimum, campaignTotals, campaignsBelowMinimum, curvePoints, rescaleCampaigns, generateStrategy, getPlan, getStrategy, latestSource, listStrategies, metricValue, money, num, outcomeFor,
   percent, ratio, savePlan, shortDate,
-  type Channel, type Objective, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
+  type Action, type CampaignAction, type Channel, type Distribution, type Objective, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
 import { navigateToAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -43,6 +43,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [history, setHistory] = useState<StrategySummary[]>([]);
+  const [distribution, setDistribution] = useState<Distribution>("equilibrado");
+  const [campaigns, setCampaigns] = useState<CampaignAction[]>([]);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
@@ -50,7 +52,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     setView({ strategy: s, scenarios: s.scenarios, saved: false, source, generatedAt: s.generated_at });
     setObjective(s.objective); setMargin(s.margin ? String(Math.round(s.margin * 100)) : ""); setCustomBudget(s.custom_budget ? String(s.custom_budget) : "");
     const chosen = s.scenarios.find((x) => x.key === s.selected) || s.scenarios[0];
-    setSelected(chosen.key); setAllocation(chosen.allocation);
+    setSelected(chosen.key); setAllocation(chosen.allocation); setCampaigns(s.campaigns || []);
+    if (s.distribution) setDistribution(s.distribution);
   }
 
   const loadPlan = useCallback(async () => {
@@ -68,7 +71,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       } else if (plan && strategy) {
         setObjective(plan.objective); setMargin(plan.margin ? String(Math.round(plan.margin * 100)) : ""); setNotes(plan.notes || "");
         setView({ strategy, scenarios: strategy.scenarios?.length ? strategy.scenarios : [strategy.scenario], saved: true, source: "plan" });
-        setSelected(strategy.scenario.key); setAllocation(plan.allocation);
+        setSelected(strategy.scenario.key); setAllocation(plan.allocation); setCampaigns(strategy.campaigns || []);
+        if (strategy.distribution) setDistribution(strategy.distribution);
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar o plano.")); }
   }, [month, clientId]);
@@ -86,7 +90,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     const b = customBudget ? Number(customBudget) : undefined;
     setBusy("generate"); setError(null); setSaved(null);
     try {
-      const s = await generateStrategy({ month, objective, margin: m, budget: b });
+      const s = await generateStrategy({ month, objective, margin: m, budget: b, distribution });
       showGenerated(s, "new");
       if (s.strategy_id) setHistory((h) => [{ id: s.strategy_id!, month: s.month, objective: s.objective, margin: s.margin, custom_budget: b ?? null, selected: s.selected,
         budget: s.scenarios.find((x) => x.key === s.selected)?.budget ?? null, headline: s.narrative?.headline ?? null, created_at: s.generated_at || new Date().toISOString() }, ...h]);
@@ -105,6 +109,18 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const budget = Object.values(allocation).reduce((s, v) => s + (Number(v) || 0), 0);
   const metric = strategy?.metric || "revenue";
   const tooLow = strategy ? belowMinimum(allocation, strategy.days) : [];
+  useEffect(() => { setCampaigns((rows) => (rows.length ? rescaleCampaigns(rows, allocation) : rows)); }, [allocation]);
+  const lowCampaigns = strategy ? campaignsBelowMinimum(campaigns, strategy.days) : [];
+  const planned = campaignTotals(campaigns);
+  const mismatch = (Object.keys(allocation) as Channel[]).filter((c) => Math.abs((planned[c] || 0) - (allocation[c] || 0)) > Math.max(1, (allocation[c] || 0) * 0.01));
+  const blocked = tooLow.length > 0 || lowCampaigns.length > 0 || mismatch.length > 0;
+  function editCampaign(index: number, patch: Partial<CampaignAction>) {
+    // A campanha editada fica fixa; as demais do canal se ajustam para a soma continuar fechando com a verba do canal.
+    setCampaigns((rows) => rescaleCampaigns(rows.map((r, i) => (i === index ? { ...r, ...patch, edited: true, ...(patch.action === "pausar" ? { planned_budget: 0 } : {}) } : r)), allocation));
+  }
+  function setChannelBudget(channel: Channel, value: number) {
+    setAllocation((a) => ({ ...a, [channel]: Math.max(0, Math.round(value)) }));
+  }
 
   function pickScenario(key: ScenarioKey) {
     const s = view?.scenarios.find((x) => x.key === key);
@@ -126,6 +142,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     if (!strategy || !scenario || !result) return;
     setBusy("save"); setError(null);
     const frozen: SavedStrategy = { ...(strategy as Strategy), scenarios: view!.scenarios,
+      campaigns,
       scenario: { ...scenario, allocation, budget, result, why: edited ? `${scenario.why} Divisão ajustada pela equipe.` : scenario.why } };
     try {
       await savePlan({ month, objective: strategy.objective, scenario: scenario.key, budget: Math.round(budget * 100) / 100, allocation,
@@ -140,7 +157,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const narrative = strategy?.narrative || null;
   const notesByCampaign = new Map((narrative?.campaign_notes || []).map((n) => [n.campaign, n.note]));
   const roles = new Map((narrative?.channel_roles || []).map((r) => [r.channel, r]));
-  const activeDiagnosis = (strategy?.diagnosis || []).filter((d) => d.confidence !== "sem_dados");
+  const activeDiagnosis = (strategy?.diagnosis || []).filter((d) => d.confidence === "boa" || d.confidence === "baixa");
   const plan = tracking?.plan;
 
   return <Shell title="Mídia On" variant="editorial"><div className="ds-page mediaPage">
@@ -151,9 +168,12 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
 
+    {canManage ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
     {canManage ? <section className="mediaControls" aria-label="Parâmetros da estratégia">
       <div><span className="mediaControlLabel">Objetivo</span>
         <SegmentedControl ariaLabel="Objetivo" value={objective} onSelect={(id) => setObjective(id as Objective)} options={(Object.keys(OBJECTIVES) as Objective[]).map((o) => ({ id: o, label: OBJECTIVES[o] }))} /></div>
+      <div><span className="mediaControlLabel">Distribuição</span>
+        <SegmentedControl ariaLabel="Distribuição" value={distribution} onSelect={(id) => setDistribution(id as Distribution)} options={(Object.keys(DISTRIBUTIONS) as Distribution[]).map((d) => ({ id: d, label: DISTRIBUTIONS[d] }))} /></div>
       <label>Margem de contribuição <small>(opcional, %)</small><input type="number" min={2} max={95} step={1} value={margin} placeholder="ex.: 40" onChange={(e) => setMargin(e.target.value)} /></label>
       <label>Verba definida <small>(opcional, R$)</small><input type="number" min={0} step={100} value={customBudget} placeholder="deixe vazio para recomendar" onChange={(e) => setCustomBudget(e.target.value)} /></label>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void generate()}>{busy === "generate" ? "Calculando estratégia… (até 1 min)" : strategy ? "Recalcular estratégia" : "Gerar estratégia"}</button>
@@ -219,9 +239,14 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
             <span className="ds-rankBar" aria-hidden="true"><span style={{ width: `${Math.max(pct * 100, 2)}%`, background: CHANNEL_COLOR[c], opacity: 0.8 }} /></span>
             <p className="ds-caption">{metricValue(metric, out?.[metric])} · ROAS {ratio(out?.roas)} · CPA {money(out?.cpa)} · CPM {money(out?.cpm)}
               {scenario.change_vs_current[c] != null && !edited ? ` · ${scenario.change_vs_current[c]! > 0 ? "+" : ""}${num(scenario.change_vs_current[c], 0)}% vs hoje` : ""}</p>
+            {strategy.channel_kind?.[c] === "referencia" && strategy.reference_inputs?.[c] ? <p className="mediaEstimate"><b>Estimativa (sem histórico).</b> CPM {money(strategy.reference_inputs[c]!.cpm)} e CTR {percent(strategy.reference_inputs[c]!.ctr)} de referência de mercado;
+              conversão {percent(strategy.reference_inputs[c]!.cvr)} ({strategy.reference_inputs[c]!.cvr_source}){strategy.reference_inputs[c]!.ticket ? `; ticket ${money(strategy.reference_inputs[c]!.ticket)} (${strategy.reference_inputs[c]!.ticket_source})` : ""}.</p> : null}
             {role ? <p className="mediaRole"><b>{role.role}.</b> {role.rationale}</p> : null}
-            {canManage && Object.keys(allocation).length > 1 ? <label className="mediaSlider">Ajustar participação
-              <input type="range" min={0} max={100} step={1} value={Math.round(pct * 100)} onChange={(e) => setShare(c, Number(e.target.value))} /></label> : null}
+            {canManage ? <div className="mediaAdjust">
+              {Object.keys(allocation).length > 1 ? <label className="mediaSlider">Participação
+                <input type="range" min={0} max={100} step={1} value={Math.round(pct * 100)} onChange={(e) => setShare(c, Number(e.target.value))} /></label> : null}
+              <label className="mediaMoney">R$<input type="number" min={0} step={50} value={Math.round(allocation[c] || 0)} onChange={(e) => setChannelBudget(c, Number(e.target.value))} aria-label={`Verba do ${CHANNELS[c]}`} /></label>
+            </div> : null}
           </li>;
         })}</ol>
         {tooLow.length ? <p role="alert" className="studioError">{tooLow.map((c) => CHANNELS[c]).join(" e ")} abaixo de {money(MIN_DAILY)} por dia. Aumente a participação ou zere o canal antes de salvar.</p> : null}
@@ -232,7 +257,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
           <p className="ds-caption">Quanto cada canal devolve em {strategy.metric_label} conforme a verba do mês. O ponto é a verba planejada.</p></div></div>
         <CurveChart strategy={strategy} allocation={allocation} />
         <ul className="mediaCurveNotes">{(Object.keys(strategy.curves) as Channel[]).map((c) => { const cv = strategy.curves[c]![metric];
-          return <li key={c}><span className="mediaDot" style={{ background: CHANNEL_COLOR[c] }} />{CHANNELS[c]}: elasticidade {ratio(cv.b)} ({cv.fit === "medida" ? `medida em ${cv.points} semanas` : "estimada, pouca variação de verba no histórico"}).</li>; })}</ul>
+          return <li key={c}><span className="mediaDot" style={{ background: CHANNEL_COLOR[c] }} />{CHANNELS[c]}: elasticidade {ratio(cv.b)} ({cv.fit === "medida" ? `medida em ${cv.points} semanas` : cv.fit === "referencia" ? "referência, canal sem histórico" : "estimada, pouca variação de verba no histórico"}).</li>; })}</ul>
       </section>
 
       <section className="ds-section" aria-labelledby="media-diagnosis">
@@ -254,13 +279,24 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <section className="ds-section" aria-labelledby="media-campaigns">
         <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-campaigns" className="ds-sectionTitle">O que fazer em cada campanha</h2>
           <p className="ds-caption">Últimos 30 dias, comparando cada campanha com a média do próprio canal.{strategy.waste ? ` ${money(strategy.waste)} foram para campanhas sem conversão.` : ""}</p></div></div>
-        {strategy.campaigns.length ? <div className="ds-tableWrap"><table className="ds-table mediaCampaigns">
-          <thead><tr><th>Campanha</th><th>Ação</th><th>Investido</th><th>ROAS</th><th>CPA</th><th>Por quê</th></tr></thead>
-          <tbody>{strategy.campaigns.map((r) => <tr key={`${r.channel}:${r.campaign}`}>
-            <td><span className="mediaDot" style={{ background: CHANNEL_COLOR[r.channel] }} />{r.campaign}{notesByCampaign.get(r.campaign) ? <span className="ds-tableSub">{notesByCampaign.get(r.campaign)}</span> : null}</td>
-            <td><span className={`mediaAction is-${r.action}`}>{ACTIONS[r.action]}</span></td>
-            <td>{money(r.spend)}</td><td>{ratio(r.roas)}</td><td>{money(r.cpa)}</td><td className="mediaWhy">{r.why}</td></tr>)}</tbody></table></div>
+        {campaigns.length ? <div className="ds-tableWrap"><table className="ds-table mediaCampaigns">
+          <thead><tr><th>Campanha</th><th>Ação</th><th>Verba planejada</th><th>Investido (30 dias)</th><th>ROAS</th><th>CPA</th><th>Por quê</th></tr></thead>
+          <tbody>{campaigns.map((r, i) => <tr key={`${r.channel}:${r.campaign}`} className={r.action === "pausar" || (!r.planned_budget && !r.boost) ? "is-muted" : ""}>
+            <td><span className="mediaDot" style={{ background: CHANNEL_COLOR[r.channel] }} />{r.campaign}{r.suggested ? <em className="mediaTag">nova</em> : null}{r.edited ? <em className="mediaTag is-edited">ajustada</em> : null}
+              {notesByCampaign.get(r.campaign) ? <span className="ds-tableSub">{notesByCampaign.get(r.campaign)}</span> : null}
+              {r.learning ? <span className="ds-tableSub mediaLearning">↺ {r.learning}</span> : null}</td>
+            <td>{canManage && !r.boost ? <select className={`mediaAction is-${r.action}`} value={r.action} onChange={(e) => editCampaign(i, { action: e.target.value as Action })}>
+              {(Object.keys(ACTIONS) as Action[]).filter((a) => a !== "impulsionar").map((a) => <option key={a} value={a}>{ACTIONS[a]}</option>)}</select>
+              : <span className={`mediaAction is-${r.action}`}>{ACTIONS[r.action]}</span>}</td>
+            <td>{canManage && !r.boost && r.action !== "pausar" ? <input className="mediaCampaignBudget" type="number" min={0} step={50} value={Math.round(r.planned_budget)} aria-label={`Verba de ${r.campaign}`}
+              onChange={(e) => editCampaign(i, { planned_budget: Math.max(0, Number(e.target.value)) })} /> : money(r.planned_budget)}
+              {r.planned_budget > 0 && strategy ? <span className="ds-tableSub">{money(r.planned_budget / strategy.days)}/dia</span> : null}</td>
+            <td>{r.suggested || r.boost ? "—" : money(r.spend)}</td><td>{ratio(r.roas)}</td><td>{money(r.cpa)}</td><td className="mediaWhy">{r.why}</td></tr>)}</tbody></table></div>
           : <p className="ds-emptyLine">Sem campanhas com investimento relevante nos últimos 30 dias.</p>}
+        {campaigns.length ? <p className="ds-footnote">{(Object.keys(allocation) as Channel[]).map((c) => `${CHANNELS[c]}: campanhas ${money(planned[c] || 0)} de ${money(allocation[c])}`).join(" · ")}.
+          {" "}O que você ajustar aqui vira aprendizado: no próximo plano, cada campanha é comparada com a decisão e a verba definidas agora.</p> : null}
+        {mismatch.length ? <p role="alert" className="studioError">A soma das campanhas não bate com a verba de {mismatch.map((c) => CHANNELS[c]).join(" e ")}. Ajuste as verbas ou a divisão por canal.</p> : null}
+        {lowCampaigns.length ? <p role="alert" className="studioError">{lowCampaigns.map((c) => c.campaign).join(", ")} abaixo de {money(MIN_DAILY)} por dia. Aumente a verba ou pause.</p> : null}
       </section>
 
       <section className="ds-section" aria-labelledby="media-weeks">
@@ -305,8 +341,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         <label>Observações do plano<textarea rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ofertas, lançamentos, restrições do cliente…" /></label>
         <div className="mediaSaveActions">
           {saved ? <span className="studioOk">{saved}</span> : null}
-          <button type="button" className="ds-button" disabled={Boolean(busy) || tooLow.length > 0} onClick={() => void save("rascunho")}>Salvar rascunho</button>
-          <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || tooLow.length > 0} onClick={() => void save("aprovado")}>{busy === "save" ? "Salvando…" : "Aprovar plano"}</button>
+          <button type="button" className="ds-button" disabled={Boolean(busy) || blocked} onClick={() => void save("rascunho")}>Salvar rascunho</button>
+          <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || blocked} onClick={() => void save("aprovado")}>{busy === "save" ? "Salvando…" : "Aprovar plano"}</button>
         </div>
       </section> : null}
 
