@@ -48,3 +48,10 @@ describe("connection safety", () => {
     expect(shouldClearTenantStateOnUnauthorized(401, "GOOGLE_REAUTH_REQUIRED")).toBe(false);
   });
 });
+
+describe("erro de validação (422)", () => {
+  it("vira frase legível em vez da mensagem genérica", () => {
+    const out = normalizeApiErrorPayload({ detail: [{ loc: ["body", "briefing"], msg: "Extra inputs are not permitted", type: "extra_forbidden" }] });
+    expect(out.message).toBe("Dados inválidos no pedido (briefing). Atualize a página e tente de novo.");
+  });
+});

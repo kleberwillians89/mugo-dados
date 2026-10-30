@@ -235,9 +235,11 @@ def project(curve: Dict[str, Any], monthly_spend: float, days: int) -> float:
     return curve["a"] * (monthly_spend / weeks) ** curve["b"] * weeks
 
 
-def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, days: int) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
-    """Curva para canal sem histórico: conversão e ticket da loja + CPM/CTR de referência de mercado."""
-    ref = REFERENCE[channel]
+def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, days: int,
+                     cpm: Optional[float] = None, ctr: Optional[float] = None) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    """Curva para canal sem histórico (ou com conversões não confiáveis): conversão e ticket da loja +
+    CPM/CTR da própria conta quando existem, senão de referência de mercado."""
+    ref = {**REFERENCE[channel], **({"cpm": cpm} if cpm else {}), **({"ctr": ctr} if ctr else {})}
     orders, sessions, revenue = _f(store.get("orders")), _f(store.get("sessions")), _f(store.get("revenue"))
     ticket = round(revenue / orders, 2) if orders > 0 and revenue > 0 else None
     store_cvr = orders / sessions if sessions > 0 and orders > 0 else None
@@ -253,6 +255,7 @@ def reference_curves(channel: str, store: Dict[str, Any], test_spend: float, day
         y = point[metric]
         curves[metric] = {"a": y / (weekly_spend ** b) if y > 0 else 0.0, "b": b, "fit": "referencia", "r2": None, "points": 0}
     inputs = {"cpm": ref["cpm"], "ctr": ref["ctr"], "cvr": cvr, "ticket": ticket,
+              "cpm_source": "conta (últimos 30 dias)" if cpm else "referência de mercado",
               "cvr_source": "loja (sessões → pedidos)" if store_cvr else "referência de mercado",
               "ticket_source": "loja (faturamento ÷ pedidos)" if ticket else None}
     return curves, inputs
@@ -267,7 +270,7 @@ def curves_for(week_rows: List[Dict[str, float]]) -> Dict[str, Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[str, str]] = None,
-           days: int = 30, distribution: str = "equilibrado") -> Dict[str, Tuple[float, float]]:
+           days: int = 30, distribution: str = "equilibrado", emphasis: Optional[Dict[str, str]] = None) -> Dict[str, Tuple[float, float]]:
     active = [c for c, d in diag.items() if d["confidence"] != "sem_dados"]
     if len(active) > 1 and budget < MIN_DAILY * days * len(active):
         # Verba não paga R$ 10/dia em todos os canais: fica só o de maior retorno recente (com dados, se houver).
@@ -289,6 +292,13 @@ def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[s
         if d.get("monthly_spend", 0) > 0:
             growth = MAX_GROWTH if (fits or {}).get(c, "medida") == "medida" else MAX_GROWTH_ESTIMATED
             hi = min(hi, max(d["monthly_spend"] * growth, lo))
+        # Briefing da equipe manda: "mais" garante 45% da verba; "menos" limita a 20%.
+        wish = (emphasis or {}).get(c)
+        if wish == "mais":
+            lo, hi = max(lo, budget * 0.45), max(hi, budget * 0.45)
+        elif wish == "menos":
+            hi = min(hi, budget * 0.20)
+            lo = min(lo, hi)
         out[c] = (min(lo, hi), hi)
     total_hi = sum(h for _, h in out.values())
     if out and total_hi < budget:  # verba maior que o teto somado: abre os tetos dos canais COM dados
@@ -300,8 +310,8 @@ def bounds(diag: Dict[str, Dict[str, Any]], budget: float, fits: Optional[Dict[s
 
 
 def optimize(curves: Dict[str, Dict[str, Dict[str, Any]]], diag: Dict[str, Dict[str, Any]], budget: float,
-             metric: str, days: int, distribution: str = "equilibrado") -> Dict[str, float]:
-    limits = bounds(diag, budget, {c: curves[c][metric].get("fit", "medida") for c in curves}, days, distribution)
+             metric: str, days: int, distribution: str = "equilibrado", emphasis: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+    limits = bounds(diag, budget, {c: curves[c][metric].get("fit", "medida") for c in curves}, days, distribution, emphasis)
     if not limits or budget <= 0:
         return {}
     alloc = {c: lo for c, (lo, _) in limits.items()}
@@ -426,7 +436,18 @@ def plan_campaign_budgets(campaigns: List[Dict[str, Any]], allocation: Dict[str,
     out = [dict(r, planned_budget=0.0) for r in campaigns]
     for channel, channel_budget in allocation.items():
         budget = channel_budget - (boost_pool if channel == "meta" else 0.0)
-        rows = [r for r in out if r["channel"] == channel and ACTION_WEIGHT.get(r["action"], 0) > 0]
+        new_rows = [r for r in out if r["channel"] == channel and r.get("briefing_new")]
+        if new_rows:
+            from .media_briefing import NEW_CAMPAIGN_SHARE
+            share = budget * NEW_CAMPAIGN_SHARE if len(new_rows) < len([r for r in out if r["channel"] == channel]) else budget
+            for r in new_rows:
+                r["planned_budget"] = round(share / len(new_rows), 2)
+            budget -= share
+        rows = [r for r in out if r["channel"] == channel and ACTION_WEIGHT.get(r["action"], 0) > 0 and not r.get("briefing_new")]
+        if not rows and new_rows:
+            for r in new_rows:  # só campanhas novas no canal: ficam com toda a verba
+                r["planned_budget"] = round((budget + share) / len(new_rows), 2)
+            continue
         if not rows:
             for name, share, why in SUGGESTED_CAMPAIGNS[channel][objective]:
                 out.append({"channel": channel, "campaign": name, "action": "testar", "why": why, "spend": 0.0, "conversions": 0.0,
@@ -723,7 +744,7 @@ async def _calendar_context(client_id: str, month: date, today: date) -> Tuple[L
 
 async def build_strategy(client_id: str, *, month: str, objective: str, margin: Optional[float] = None,
                          custom_budget: Optional[float] = None, today: Optional[date] = None,
-                         distribution: str = "equilibrado") -> Dict[str, Any]:
+                         distribution: str = "equilibrado", briefing: Optional[str] = None) -> Dict[str, Any]:
     target = parse_month(month)
     if objective not in OBJECTIVES:
         raise StudioError("OBJECTIVE_INVALID")
@@ -738,6 +759,19 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     data = await read_window(client_id, end)
     diag = {c: diagnose(c, data[c]["daily"], end) for c in CHANNELS}
     with_data = {c: d for c, d in diag.items() if d["confidence"] != "sem_dados"}
+    from .media_briefing import apply_to_campaigns, clean as clean_briefing, describe, empty as empty_briefing, parse_briefing
+    briefing_text = clean_briefing(briefing)
+    directives, briefing_error = empty_briefing(), None
+    if briefing_text:
+        names = [str(c.get("campaign_name") or "") for ch in CHANNELS for c in data[ch].get("campaigns") or [] if c.get("campaign_name")]
+        try:
+            directives = await parse_briefing(client_id, briefing_text, month=target, campaigns=names, channels=CHANNELS)
+        except StudioError as exc:
+            briefing_error = exc.code  # o texto segue para a leitura da IA; só as instruções numéricas ficam de fora
+    used_cap = bool(directives.get("budget_cap") and not custom_budget)
+    if used_cap:
+        custom_budget = directives["budget_cap"]
+    emphasis = directives.get("channel_emphasis") or {}
     if not with_data and not custom_budget:
         raise StudioError("NO_PAID_HISTORY")
     store, goal, custom = await _store_and_goal(client_id, end, target)
@@ -752,11 +786,19 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
             if c not in with_data:
                 curves[c], reference_inputs[c] = reference_curves(c, store, test_budget, days)
                 diag[c] = {**diag[c], "confidence": "referencia", "reference": reference_inputs[c]}
+    unreliable = bool(directives.get("conversions_unreliable"))
+    if unreliable:
+        # Briefing: as conversões registradas não são reais. Custos (CPM/CTR) são reais; conversão e ticket vêm da loja.
+        for c in with_data:
+            fake, inputs = reference_curves(c, store, max(with_data[c]["recent"]["spend"], MIN_DAILY * days), days,
+                                            cpm=with_data[c]["recent"].get("cpm"), ctr=with_data[c]["recent"].get("ctr"))
+            curves[c] = {**curves[c], "conversions": fake["conversions"], "revenue": fake["revenue"]}
+            reference_inputs.setdefault(c, {**inputs, "unreliable_conversions": True})
     usable = {c: diag[c] for c in curves}
     attributed = sum(d["window"]["revenue"] for d in with_data.values())
     spent = sum(d["window"]["spend"] for d in with_data.values())
-    no_value = (with_data and (attributed <= 0 or attributed / max(spent, 1) < MIN_ATTRIBUTED_ROAS)) or \
-        (not with_data and not any(i.get("ticket") for i in reference_inputs.values()))
+    no_value = (not unreliable and with_data and (attributed <= 0 or attributed / max(spent, 1) < MIN_ATTRIBUTED_ROAS)) or \
+        ((unreliable or not with_data) and not any(i.get("ticket") for i in reference_inputs.values()))
     if metric == "revenue" and no_value:
         metric = "conversions"  # receita atribuída irrisória: otimiza por conversões e avisa
     b_mix = sum(curves[c]["revenue"]["b"] * with_data[c]["recent"]["spend"] for c in with_data) / max(sum(d["recent"]["spend"] for d in with_data.values()), 1)
@@ -766,7 +808,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     def scenario(key: str, label: str, budget: Optional[float], why: str, extra: Optional[Dict[str, Any]] = None):
         if not budget or budget <= 0:
             return
-        alloc = optimize(curves, usable, budget, metric, days, distribution)
+        alloc = optimize(curves, usable, budget, metric, days, distribution, emphasis)
         result = outcome(curves, alloc, days)
         current_alloc = {c: with_data[c]["recent"]["spend"] * days / 30 for c in with_data}
         scenarios.append({"key": key, "label": label, "budget": round(budget, 2), "why": why, "allocation": alloc,
@@ -798,14 +840,32 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     chosen = next(s for s in scenarios if s["key"] == (("personalizado" if custom_budget else recommended)))
 
     campaigns = [row for c in with_data for row in classify_campaigns(c, data[c]["campaigns"], with_data[c]["recent"], metric)]
-    learned = learn_from_history(campaigns, await campaign_memory(client_id, target), metric)
+    if unreliable:
+        # Sem conversão confiável não dá para julgar campanha por ROAS/CPA: tudo vira aprendizado até haver venda real.
+        for r in campaigns:
+            r["action"], r["why"] = "aprender", "conversões registradas eram testes (briefing): reavaliar com vendas reais"
+        learned = 0
+    else:
+        learned = learn_from_history(campaigns, await campaign_memory(client_id, target), metric)
     from .campaign_learning import campaign_history
-    learned += apply_trends(campaigns, await campaign_history(client_id), metric, today)
+    if not unreliable:
+        learned += apply_trends(campaigns, await campaign_history(client_id), metric, today)
+    for new in directives.get("new_campaigns") or []:
+        if new["channel"] in chosen["allocation"]:
+            campaigns.append({"channel": new["channel"], "campaign": new["name"], "action": "testar", "why": f"pedida no briefing: {new['purpose'] or 'nova campanha'}",
+                              "spend": 0.0, "conversions": 0.0, "revenue": 0.0, "roas": None, "cpa": None, "share": None,
+                              "suggested": True, "briefing_new": True})
+    campaign_changes = apply_to_campaigns(campaigns, directives)  # por último: o pedido da equipe tem a palavra final
     waste = round(sum(r["spend"] for r in campaigns if r["action"] == "pausar"), 2)
     findings = [f for d in with_data.values() for f in d["findings"]]
     if learned:
         findings.insert(0, {"level": "info", "text": f"Aprendizado: {learned} campanha(s) comparadas com as decisões dos planos anteriores; recomendações ajustadas."})
+    if unreliable:
+        findings.insert(0, {"level": "alerta", "text": "Briefing: as conversões registradas nas plataformas eram testes. ROAS e CPA das plataformas foram "
+                                                        "desconsiderados; a projeção usa o CPM e o CTR reais da conta e a conversão e o ticket da loja."})
     for c, inputs in reference_inputs.items():
+        if inputs.get("unreliable_conversions"):
+            continue
         parts = [f"CPM R$ {inputs['cpm']:.0f} e CTR {inputs['ctr'] * 100:.1f}% de referência de mercado",
                  f"conversão de {inputs['cvr'] * 100:.1f}% ({inputs['cvr_source']})"]
         if inputs.get("ticket"):
@@ -822,7 +882,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     if weak:
         findings.append({"level": "info", "text": f"Curva de retorno estimada (pouca variação de verba no histórico) em: {', '.join(weak)}. "
                                                    "Os cenários acima do ritmo atual têm mais incerteza."})
-    weeks = month_weeks(target, chosen["budget"], custom)
+    weeks = month_weeks(target, chosen["budget"], list(custom) + list(directives.get("dates") or []))
     meta_cpm = (with_data["meta"]["recent"].get("cpm") if "meta" in with_data else
                 (reference_inputs.get("meta") or {}).get("cpm"))
     boosts = boost_plan(calendar_items, weeks, meta_budget=chosen["allocation"].get("meta", 0.0), meta_cpm=meta_cpm,
@@ -832,6 +892,8 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     return {
         "boosts": boosts,
         "distribution": distribution, "reference_inputs": reference_inputs, "learned": learned,
+        "briefing": {"text": briefing_text, "summary": directives.get("summary"), "directives": directives,
+                     "applied": describe(directives, CHANNELS, campaign_changes, used_cap), "error": briefing_error} if briefing_text else None,
         "month": target.isoformat(), "objective": objective, "metric": metric, "metric_label": METRIC_LABEL[metric], "days": days,
         "window": {"start": (end - timedelta(days=WINDOW_DAYS - 1)).isoformat(), "end": end.isoformat(), "days": WINDOW_DAYS},
         "diagnosis": list(diag.values()), "store": store, "goal_revenue": goal, "margin": margin,
@@ -863,6 +925,8 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
     names = sorted({c["campaign"] for c in strategy["campaigns"]})
     chosen = next(s for s in strategy["scenarios"] if s["key"] == strategy["selected"])
     facts = {
+        "briefing_da_equipe_prioridade_maxima": (strategy.get("briefing") or {}).get("text"),
+        "como_o_briefing_foi_aplicado": (strategy.get("briefing") or {}).get("applied"),
         "objetivo": OBJECTIVES[strategy["objective"]], "otimiza_por": strategy["metric_label"],
         "diagnostico": [{"canal": d["label"], "ultimos_30": {k: d["recent"].get(k) for k in ("spend", "revenue", "roas", "cpa", "cpm", "ctr", "conversions")},
                          "variacao_pct": d["changes"], "confianca": d["confidence"]} for d in strategy["diagnosis"] if d["confidence"] != "sem_dados"],
@@ -895,7 +959,8 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
                 "Escreva: headline (1 frase com o principal número), thesis (3-4 frases: onde investir, por quê e o resultado esperado), "
                 "channel_roles (papel de cada canal no funil: prospecção, remarketing, captura de demanda…), campaign_notes (até 6, só "
                 "campanhas da lista, dizendo o que fazer), creative_guidance (até 4, ligados ao que performou), risks (até 3), "
-                "next_7_days (até 5 ações operacionais em ordem; inclua as datas de início dos impulsionamentos do calendário, se houver)."),
+                "next_7_days (até 5 ações operacionais em ordem; inclua as datas de início dos impulsionamentos do calendário, se houver). "
+                "Se houver briefing da equipe, a tese e os próximos passos DEVEM responder ao que ele pede."),
         schema_name="media_strategy_narrative", schema=schema, temperature=0.35, timeout=90)
     valid = set(names)
     return {
