@@ -349,3 +349,8 @@
 .mediaTag.is-edited{background:#fdf3e2;color:#8a5a00}
 .mediaLearning{color:#3d4f9f!important}
 .mediaCampaigns tr.is-muted td{opacity:.6}
+.mediaBriefing{flex:1 1 100%;display:grid;gap:6px;font-size:13px;font-weight:500;color:var(--text-secondary,#5f5b53)}
+.mediaBriefing small{font-weight:400}
+.mediaBriefing textarea{padding:10px 12px;border:1px solid var(--border,#d5d2cb);border-radius:8px;font:inherit;font-size:14px;line-height:1.45;color:var(--text-primary,#15181b);resize:vertical}
+.mediaBriefingCount{justify-self:end;color:var(--text-tertiary,#687178)}
+.mediaBriefingApplied blockquote{margin:0;padding:10px 14px;border-left:3px solid var(--accent,#004f6e);background:var(--surface-muted,#f3f1ec);border-radius:0 8px 8px 0;font-size:14px;line-height:1.5;white-space:pre-wrap}

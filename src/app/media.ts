@@ -35,6 +35,7 @@ export type Narrative = { headline: string; thesis: string; channel_roles: { cha
 export type Strategy = {
   month: string; objective: Objective; metric: Metric; metric_label: string; days: number; window: { start: string; end: string; days: number };
   diagnosis: Diagnosis[]; store: { revenue?: number; orders?: number; investment?: number; roas?: number }; goal_revenue: number | null; margin: number | null;
+  briefing?: { text: string; summary: string | null; applied: string[]; error: string | null } | null;
   distribution?: Distribution; reference_inputs?: Partial<Record<Channel, ReferenceInputs>>; channel_kind?: Partial<Record<Channel, "dados" | "referencia">>; learned?: number;
   curves: Partial<Record<Channel, Record<Metric, Curve>>>; current_budget: number; scenarios: Scenario[]; recommended: ScenarioKey; selected: ScenarioKey;
   weeks: Week[]; guardrails: Guardrail[]; campaigns: CampaignAction[]; waste: number; findings: Finding[]; method: string;
@@ -53,7 +54,7 @@ export type PlanVsActual = { month: string; plan: MediaPlan | null; elapsed_days
 
 const base = (path: string) => clientClientPath(`/studio/media${path}`);
 
-export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; distribution?: Distribution; with_narrative?: boolean }) {
+export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; distribution?: Distribution; briefing?: string; with_narrative?: boolean }) {
   return http<Strategy>(base("/strategy"), { method: "POST", body: JSON.stringify(input), timeoutMs: 150_000 });
 }
 /** Mínimo de verba diária por canal e por impulsionamento (a Meta aceita ~R$ 6; abaixo de R$ 10 a entrega não aprende). */
