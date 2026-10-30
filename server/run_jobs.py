@@ -104,6 +104,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-weekly-digest":
         from services.weekly_digest import run_weekly_digest
         return await run_weekly_digest(args.client_id)
+    if args.command == "studio-clipping":
+        from services.studio_clipping import refresh_all
+        return await refresh_all()
     if args.command == "studio-team-retry":
         from services.studio_team import retry_pending
         return await retry_pending()
@@ -224,6 +227,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sexta: grava o aprendizado semanal de cada campanha e envia o resumo no WhatsApp (MugôZap) de cada cliente.",
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
     sub.add_parser(
         "studio-team-retry",
         help="Reenvia ao CRM os avisos ao time (cliente aprovou/pediu ajuste/editou) que ficaram pendentes.",
