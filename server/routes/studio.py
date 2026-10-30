@@ -22,7 +22,7 @@ from services.studio_approvals import (
 )
 from services.studio_engines import ASSIST_ACTIONS, assist, strategy_chat, suggest_profile
 from services.studio_intelligence import build_content_intelligence, coverage
-from services.media_plan import plan_vs_actual, save_plan
+from services.media_plan import get_strategy, list_strategies, plan_vs_actual, record_strategy, save_plan
 from services.media_strategy import build_strategy, narrative as media_narrative
 from services.studio_messages import (
     TEMPLATES, build_message, delete_contact, list_contacts, list_messages, mugozap_config, public_preview,
@@ -588,6 +588,11 @@ ERRORS.update({
     "SCENARIO_INVALID": (422, "Cenário inválido."),
     "MARGIN_INVALID": (422, "A margem precisa estar entre 2% e 95%."),
     "STRATEGY_TOO_LARGE": (413, "Estratégia grande demais para salvar."),
+    "STRATEGY_NOT_FOUND": (404, "Estratégia não encontrada nesta empresa."),
+    "MIGRATION_054_PENDING": (503, "Falta aplicar a migration 000054 (planos do Mídia On) no Supabase."),
+    "MIGRATION_055_PENDING": (503, "Falta aplicar a migration 000055 (estratégia no plano) no Supabase."),
+    "MIGRATION_056_PENDING": (503, "Falta aplicar a migration 000056 (histórico de estratégias) no Supabase."),
+    "HISTORY_SAVE_FAILED": (502, "Não foi possível gravar a estratégia no histórico."),
 })
 
 Objective = Literal["vendas", "leads", "trafego", "alcance"]
@@ -619,6 +624,7 @@ class PlanInput(BaseModel):
 @router.post("/media/strategy")
 async def run_media_strategy(client_id: str, body: StrategyInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
     try:
         strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget)
     except StudioError as exc:
@@ -630,7 +636,30 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
         except StudioError as exc:
             # Os números valem sem a leitura da IA; a tela avisa e oferece tentar de novo.
             strategy["narrative_error"] = ERRORS.get(exc.code, (0, "A leitura da IA não veio agora."))[1]
+    # Toda estratégia gerada fica gravada: sair da página não perde a última.
+    record = await record_strategy(cid, strategy, objective=body.objective, margin=body.margin, custom_budget=body.budget, user_id=uid)
+    strategy["strategy_id"], strategy["generated_at"] = record.get("id"), record.get("created_at")
+    if not record["saved"]:
+        strategy["history_warning"] = ERRORS.get(record["reason"], (0, "Não foi possível gravar a estratégia no histórico."))[1]
     return strategy
+
+
+@router.get("/media/strategies")
+async def read_media_strategies(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return {"strategies": await list_strategies(cid, month)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/media/strategies/{strategy_id}")
+async def read_media_strategy(client_id: str, strategy_id: UUID, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return await get_strategy(cid, str(strategy_id))
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 @router.get("/media/plan")

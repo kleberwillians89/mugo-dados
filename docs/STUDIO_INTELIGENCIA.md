@@ -89,12 +89,23 @@ cadastro estão em **`docs/WHATSAPP_TEMPLATES.md`**.
 
 A equipe pode ajustar a divisão: a projeção é recalculada na hora pelas mesmas curvas.
 
+**Verba diária mínima de R$ 10:** vale por canal e por impulsionamento. A Meta aceita a partir de cerca de R$ 6/dia,
+mas abaixo de R$ 10 a entrega não aprende.
+- **Canais:** se a verba não paga R$ 10/dia em todos, fica só o de maior retorno recente.
+- **Impulsionamentos:** sai o post de menor nota até a conta fechar. Com um post só, a duração encurta (mínimo de 3 dias).
+- **Ajuste manual:** a tela avisa e bloqueia a gravação se algum canal ficar abaixo do mínimo.
+
+**Histórico:** toda estratégia gerada é gravada na hora (`studio_media_strategies`). A página abre na mais recente
+(ou no plano, se ele foi salvo depois) e o seletor "Histórico" reabre as anteriores. Se uma migration estiver
+faltando, a tela diz qual.
+
 ## Para ligar em produção (Kleber)
 
 1. Aplicar, nesta ordem, no SQL Editor:
    - `20261104_000053_studio_approval_flow.sql` (status publicado, contatos, mensagens, lembrete)
    - `20261105_000054_media_plans.sql` (planos do Mídia On)
    - `20261106_000055_media_plan_strategy.sql` (estratégia congelada no plano)
+   - `20261107_000056_media_strategy_history.sql` (histórico das estratégias geradas)
 
    O backend tolera a 053 ainda não aplicada no envio de links, mas contatos, mensagens e o status
    "publicado" só funcionam depois dela.

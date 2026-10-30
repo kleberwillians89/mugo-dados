@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import calendar
 import json
+import httpx
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
-from .ig_supabase import sb_select, sb_upsert
+from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_upsert
 from .studio_calendar import StudioError, parse_month
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 PLANS = "studio_media_plans"
+HISTORY = "studio_media_strategies"
+HISTORY_LIMIT = 15
 CHANNELS = {"meta": "Meta Ads", "google_ads": "Google Ads"}
 OBJECTIVES = ("vendas", "leads", "trafego", "alcance")
 SCENARIOS = ("ritmo_atual", "meta", "eficiencia", "personalizado")
@@ -71,7 +74,15 @@ async def save_plan(client_id: str, month: str, data: Dict[str, Any], *, user_id
            "status": "aprovado" if data.get("status") == "aprovado" else "rascunho", "updated_by": user_id}
     if not await get_plan(client_id, month):
         row["created_by"] = user_id
-    await sb_upsert(PLANS, [row], on_conflict="client_id,month")
+    try:
+        await sb_upsert(PLANS, [row], on_conflict="client_id,month")
+    except httpx.HTTPStatusError as exc:
+        # Coluna/tabela ainda não existe: diz qual migration falta em vez de um erro genérico.
+        if exc.response is not None and exc.response.status_code == 404:
+            raise StudioError("MIGRATION_054_PENDING") from None
+        if _is_column_compat_error(exc, "strategy"):
+            raise StudioError("MIGRATION_055_PENDING") from None
+        raise
     return await get_plan(client_id, month) or row
 
 
@@ -121,3 +132,50 @@ async def plan_vs_actual(client_id: str, month: str) -> Dict[str, Any]:
         })
     return {"month": target.isoformat(), "plan": plan, "elapsed_days": elapsed, "days_in_month": days_total,
             "through": end.isoformat(), "channels": rows}
+
+
+# --------------------------------------------------------------------------
+# Histórico: cada estratégia gerada é gravada na hora
+# --------------------------------------------------------------------------
+
+def _selected(strategy: Dict[str, Any]) -> Dict[str, Any]:
+    return next((s for s in strategy.get("scenarios") or [] if s.get("key") == strategy.get("selected")), {}) or {}
+
+
+async def record_strategy(client_id: str, strategy: Dict[str, Any], *, objective: str, margin: Optional[float],
+                          custom_budget: Optional[float], user_id: str) -> Dict[str, Any]:
+    """Grava a estratégia gerada. Falha aqui não perde a estratégia da tela: volta como aviso."""
+    chosen = _selected(strategy)
+    row = {"client_id": client_id, "month": strategy["month"], "objective": objective, "margin": margin,
+           "custom_budget": custom_budget, "selected": strategy.get("selected"), "budget": chosen.get("budget"),
+           "headline": ((strategy.get("narrative") or {}).get("headline") or "")[:300] or None,
+           "strategy": strategy, "created_by": user_id}
+    if len(json.dumps(strategy, ensure_ascii=False, default=str)) > MAX_STRATEGY_BYTES:
+        return {"saved": False, "reason": "STRATEGY_TOO_LARGE"}
+    try:
+        saved = await sb_insert(HISTORY, row)
+    except httpx.HTTPStatusError as exc:
+        missing = exc.response is not None and exc.response.status_code == 404
+        print(f"[media][history] gravar_falhou status={getattr(exc.response, 'status_code', '-')}")
+        return {"saved": False, "reason": "MIGRATION_056_PENDING" if missing else "HISTORY_SAVE_FAILED"}
+    return {"saved": True, "id": (saved or {}).get("id"), "created_at": (saved or {}).get("created_at")}
+
+
+async def list_strategies(client_id: str, month: str) -> list:
+    target = parse_month(month)
+    try:
+        return await sb_select(HISTORY, select="id,month,objective,margin,custom_budget,selected,budget,headline,created_at",
+                               filters={"client_id": f"eq.{client_id}", "month": f"eq.{target.isoformat()}"},
+                               order="created_at.desc", limit=HISTORY_LIMIT)
+    except httpx.HTTPStatusError:
+        return []  # migration 056 ainda não aplicada: sem histórico, a página segue com o plano salvo
+
+
+async def get_strategy(client_id: str, strategy_id: str) -> Dict[str, Any]:
+    rows = await sb_select(HISTORY, select="id,objective,margin,custom_budget,strategy,created_at",
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{strategy_id}"}, limit=1)
+    if not rows:
+        raise StudioError("STRATEGY_NOT_FOUND")
+    row = rows[0]
+    return {**(row.get("strategy") or {}), "strategy_id": row["id"], "generated_at": row["created_at"],
+            "margin": row.get("margin"), "custom_budget": row.get("custom_budget")}
