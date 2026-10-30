@@ -6,6 +6,7 @@ import {
 } from "../app/contentOps";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
+import BrandContextPanel from "../components/studio/BrandContextPanel";
 import Drawer from "../components/Drawer";
 import "../styles/studio.css";
 
@@ -74,6 +75,7 @@ export default function Clipping({ canManage = false }: { canManage?: boolean })
       <button type="button" className="ds-button" onClick={openSettings}>Termos</button>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !settings?.saved} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Atualizar agora"}</button>
     </div> : undefined} />
+    {canManage ? <BrandContextPanel clientId={clientId} /> : null}
     <p className="libHint">Notícias do Google Notícias sobre a marca e os concorrentes, buscadas todo dia às 7h40. A IA lê só a manchete e a fonte.{canManage ? " O cliente vê só as notícias relevantes, sem os termos nem as ações." : ""}{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioOk">{notice}</p> : null}

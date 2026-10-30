@@ -454,6 +454,15 @@ async def remove_contact(client_id: str, contact_id: UUID, authorization: str | 
     return {"ok": True}
 
 
+@router.get("/brand-context")
+async def brand_context(client_id: str, authorization: str | None = Header(default=None)):
+    """O que a IA de Calendário, Redação, Mídia On e Clipping sabe da marca, num lugar só."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    from services.studio_intelligence import build_content_intelligence
+    intel = await build_content_intelligence(cid)
+    return {k: intel.get(k) for k in ("marca", "negocio", "aprendizados", "redacao", "midia", "agenda", "clipping", "metas_do_mes", "lacunas")}
+
+
 @router.get("/messages")
 async def read_messages(client_id: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)

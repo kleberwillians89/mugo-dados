@@ -955,10 +955,11 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
                       "calculados. Cite números concretos (verba, ROAS, CPA, variações). Não invente métricas, campanhas, públicos ou "
                       "resultados. Português do Brasil, frases curtas, tom de consultoria."),
         prompt=(f"NÚMEROS CALCULADOS:\n{json.dumps(facts, ensure_ascii=False, default=str)}\n\n"
-                f"CONTEXTO DA MARCA:\n{to_prompt(intel, sections=['negocio', 'marca', 'metas_do_mes', 'ultima_analise', 'posts'], limit=5000)}\n\n"
+                f"CONTEXTO DA MARCA:\n{to_prompt(intel, sections=['marca', 'negocio', 'aprendizados', 'redacao', 'agenda', 'clipping', 'metas_do_mes', 'ultima_analise', 'posts'], limit=6000)}\n\n"
                 "Escreva: headline (1 frase com o principal número), thesis (3-4 frases: onde investir, por quê e o resultado esperado), "
                 "channel_roles (papel de cada canal no funil: prospecção, remarketing, captura de demanda…), campaign_notes (até 6, só "
-                "campanhas da lista, dizendo o que fazer), creative_guidance (até 4, ligados ao que performou), risks (até 3), "
+                "campanhas da lista, dizendo o que fazer), creative_guidance (até 4, ligados ao que performou, no tom e nos princípios da marca, "
+                "coerentes com as campanhas da Redação, a agenda do calendário e o que o cliente aprovou), risks (até 3), "
                 "next_7_days (até 5 ações operacionais em ordem; inclua as datas de início dos impulsionamentos do calendário, se houver). "
                 "Se houver briefing da equipe, a tese e os próximos passos DEVEM responder ao que ele pede."),
         schema_name="media_strategy_narrative", schema=schema, temperature=0.35, timeout=90)
