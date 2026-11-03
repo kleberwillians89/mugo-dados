@@ -153,7 +153,8 @@ class AiAutoreplyTests(unittest.IsolatedAsyncioTestCase):
 
         async def select(table, **kwargs):
             if table == "ig_media":
-                return [{"caption": "Bastidores do evento com Rodrigo Mancusi"}]
+                return [{"caption": "Bastidores do evento com Rodrigo Mancusi"}] if "media_id" in kwargs.get("filters", {}) else \
+                    [{"caption": "A gente não faz post, a gente faz barulho 📣"}]
             if table == ie.ACTIONS:
                 return rows or []
             return []
@@ -168,6 +169,7 @@ class AiAutoreplyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Bastidores do evento com Rodrigo Mancusi", prompt)
         self.assertIn("Valeu demais, Ana!", prompt)
         self.assertIn("TIPO: texto", prompt)
+        self.assertIn("a gente faz barulho", prompt)  # voz real da marca
 
     async def test_emoji_comment_gets_short_reply_or_review(self):
         out, prompt = await self.answer("🔥🔥🔥", "🔥🙌")
