@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   buildSocialReport, capital, compact, contentsNote, draftReportInsights, getSocialReport, lastMonth, meaning, nonFollowerNote,
-  pct, plus, postDate, saveReportInsights, shortCaption, viewsLine, watch, type ReportData, type ReportPost, type SocialReport as Report,
+  pct, photoPosts, plus, postDate, saveReportInsights, shortCaption, viewsLine, watch, type ReportData, type ReportPost, type SocialReport as Report,
 } from "../app/socialReport";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -169,12 +169,11 @@ function Insights({ items }: { items: string[] }) {
 
 /** Os 6 slides do modelo (também usados na prévia e no PDF). */
 export function ReportDeck({ d, images, brand, insights }: { d: ReportData; images: Record<string, string>; brand: string; insights: string[] }) {
-  const heroImg = d.highlight ? images[d.highlight.media_id] : undefined;
-  const second = [...d.top.views, ...d.top.likes].find((p) => p.media_id !== d.highlight?.media_id && images[p.media_id]);
+  const [first, second] = photoPosts(d, images);
   return <div className="srDeck">
     <Cover d={d} brand={brand} />
-    <Overview d={d} photo={heroImg} />
-    <Audience d={d} photo={second ? images[second.media_id] : heroImg} />
+    <Overview d={d} photo={first ? images[first] : undefined} />
+    <Audience d={d} photo={second ? images[second] : undefined} />
     <Highlight d={d} images={images} />
     <Top d={d} images={images} />
     <Insights items={insights} />

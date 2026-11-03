@@ -222,6 +222,11 @@ def gender(raw: Dict[str, int]) -> Optional[Dict[str, int]]:
     return {"homens": round(m / (m + f) * 100), "mulheres": round(f / (m + f) * 100)}
 
 
+def engagement(p: Dict[str, Any]) -> int:
+    """Interações do post (curtidas, comentários, compartilhamentos e salvamentos): escolhe as fotos grandes do relatório."""
+    return p["likes"] + p["comments"] + p["shares"] + p["saved"]
+
+
 def highlight(posts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     feed = [p for p in posts if p["format"] != "stories" and p["views"]]
     if not feed:
@@ -287,6 +292,7 @@ async def build(client_id: str, month: str) -> Dict[str, Any]:
                      "active": [{"day": s.get("weekday"), "hours": s.get("hours")} for s in slots[:3]]},
         "highlight": highlight(posts), "prev_highlight": highlight(prev_posts),
         "top": {"likes": sorted(feed, key=lambda p: -p["likes"])[:5], "views": sorted(feed, key=lambda p: -p["views"])[:5],
+                "engagement": sorted(feed, key=lambda p: -engagement(p))[:5],
                 "follows": [p for p in sorted(feed, key=lambda p: -(p.get("follows") or 0)) if p.get("follows")][:5]},
         "built_at": datetime.now(timezone.utc).isoformat(),
     }

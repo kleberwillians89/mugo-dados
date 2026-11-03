@@ -21,7 +21,7 @@ export type ReportData = {
     gender: { homens: number; mulheres: number } | null; active: { day: string; hours: string }[];
   };
   highlight: ReportPost | null; prev_highlight: ReportPost | null;
-  top: { likes: ReportPost[]; views: ReportPost[]; follows: ReportPost[] };
+  top: { likes: ReportPost[]; views: ReportPost[]; follows: ReportPost[]; engagement?: ReportPost[] };
 };
 export type SocialReport =
   | { month: string; built: false }
@@ -97,6 +97,16 @@ export const shortCaption = (text: string, max = 22) => {
 };
 
 export const postDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }) : "");
+
+/** Fotos grandes (overview e audiência): os posts com mais interações que têm imagem, sem repetir. */
+export function photoPosts(d: ReportData, images: Record<string, string>): [string | undefined, string | undefined] {
+  const score = (p: ReportPost) => p.likes + p.comments + p.shares + p.saved;
+  const pool = [...(d.top.engagement || []), ...d.top.likes, ...d.top.views, ...(d.highlight ? [d.highlight] : [])];
+  const seen = new Set<string>();
+  const ranked = pool.filter((p) => images[p.media_id] && !seen.has(p.media_id) && seen.add(p.media_id))
+    .sort((a, b) => score(b) - score(a));
+  return [ranked[0]?.media_id, ranked[1]?.media_id ?? ranked[0]?.media_id];
+}
 
 /** Mês fechado anterior em AAAA-MM (o relatório olha para trás). */
 export function lastMonth(now = new Date()): string {

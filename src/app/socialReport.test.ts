@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compact, contentsNote, lastMonth, nonFollowerNote, viewsLine, watch, type ReportData } from "./socialReport";
+import { compact, contentsNote, photoPosts, type ReportPost, lastMonth, nonFollowerNote, viewsLine, watch, type ReportData } from "./socialReport";
 import { getAppRouteFromPath, getPathForRoute } from "./routes";
 
 const ov = (patch: Partial<ReportData["overview"]> = {}): ReportData["overview"] => ({
@@ -25,6 +25,13 @@ describe("relatório social: textos do modelo", () => {
     expect(nonFollowerNote(ov({ non_follower_range: null }))).toBe("");
     expect(contentsNote(ov())).toBe("(7 reels, 4 posts e 27 stories. Os stories e os Reels foram os formatos que melhor performaram.)");
     expect(contentsNote(ov({ contents: { reels: 1, posts: 0, stories: 0 }, best_formats: [] }))).toBe("(1 reel.)");
+  });
+
+  it("fotos grandes usam os posts com mais interações (com imagem, sem repetir)", () => {
+    const p = (id: string, likes: number, saved = 0) => ({ media_id: id, likes, comments: 0, shares: 0, saved }) as ReportPost;
+    const d = { top: { likes: [p("a", 50)], views: [p("b", 10)], follows: [], engagement: [p("c", 20, 40), p("a", 50)] }, highlight: p("b", 10) } as unknown as ReportData;
+    expect(photoPosts(d, { a: "1", b: "2", c: "3" })).toEqual(["c", "a"]);
+    expect(photoPosts(d, { b: "2" })).toEqual(["b", "b"]);
   });
 
   it("abre no mês fechado anterior e tem rota própria", () => {

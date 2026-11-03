@@ -500,7 +500,7 @@ async def social_report(cid, window):
             "gender": {k: num(v) for k, v in (au.get("gender") or {}).items() if k in {"homens", "mulheres"}} or None,
             "active": [{"day": label(a.get("day")), "hours": label(a.get("hours"))} for a in (au.get("active") or [])[:3]]},
         "highlight": post(data.get("highlight")), "prev_highlight": post(data.get("prev_highlight")),
-        "top": {k: [post(p) for p in ((data.get("top") or {}).get(k) or [])[:5]] for k in ("likes", "views", "follows")},
+        "top": {k: [post(p) for p in ((data.get("top") or {}).get(k) or [])[:5]] for k in ("likes", "views", "follows", "engagement")},
         "insights": [t for t in (business_text(i, 300) for i in (stored.get("insights") or [])[:8]) if t],
         "observacoes": ["Retrato gravado quando a equipe gerou o relatório; leitura não chama a Meta.",
             "Métrica sem dado da Meta volta null: não estime."]}

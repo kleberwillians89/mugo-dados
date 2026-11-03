@@ -89,6 +89,7 @@ class BuildTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["highlight"]["media_id"], "a")
         self.assertEqual([p["media_id"] for p in data["top"]["likes"]], ["b", "a"])
         self.assertEqual([p["media_id"] for p in data["top"]["follows"]], ["a"])
+        self.assertEqual([p["media_id"] for p in data["top"]["engagement"]], ["b", "a"])
         self.assertEqual(data["audience"]["active"], [{"day": "terça", "hours": "18h-21h"}])
         self.assertEqual(data["month_label"], "outubro")
 
