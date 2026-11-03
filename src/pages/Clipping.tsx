@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  CRITICALITY_LABEL, KIND_LABEL, RADAR_FIELDS, SENTIMENT_LABEL, clippingToCalendar, exportClipping, getClipping, getClippingInsights,
+  CRITICALITY_LABEL, KIND_LABEL, RADAR_FIELDS, SENTIMENT_LABEL, clippingToCalendar, exportClipping, suggestClippingSettings, getClipping, getClippingInsights,
   getClippingReport, refreshClipping, saveClippingSettings, setClippingStatus,
   type Clipping as Item, type ClippingInsights, type ClippingReport, type ClippingView, type Count, type Sentiment,
 } from "../app/contentOps";
@@ -92,6 +92,19 @@ export default function Clipping({ canManage = false }: { canManage?: boolean })
     feeds: (settings?.feeds || []).join("\n"), region: settings?.region || "", criteria: settings?.relevance_criteria || "",
     min_relevance: String(settings?.min_relevance ?? 40),
   });
+  async function fillRadar() {
+    const r = await run("radar", () => suggestClippingSettings(), "Não foi possível sugerir os termos agora.");
+    if (!r) return;
+    setEditing((current) => {
+      if (!current) return current;
+      const next = { ...current };
+      for (const [key] of RADAR_FIELDS) if (!(next[key] || "").trim() && r[key]?.length) next[key] = r[key].join(", ");
+      if (!(next.region || "").trim() && r.region) next.region = r.region;
+      if (!(next.criteria || "").trim() && r.relevance_criteria) next.criteria = r.relevance_criteria;
+      return next;
+    });
+    setNotice("A IA preencheu os campos vazios do radar. Revise e clique em Salvar.");
+  }
   async function download() {
     const blob = await run("export", () => exportClipping(30), "Não foi possível exportar.");
     if (!blob) return;
@@ -199,6 +212,9 @@ export default function Clipping({ canManage = false }: { canManage?: boolean })
 
     <Drawer open={Boolean(editing)} title="Radar de notícias" description="Até 6 termos por campo, separados por vírgula. Use o nome exato (ex.: Curavino, vinho natural Curavino)." onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form className="studioForm" onSubmit={saveSettings}>
+        <div className="studioActions"><button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void fillRadar()}>{busy === "radar" ? "Lendo os dados da marca…" : "✦ Preencher com IA"}</button>
+          <small>Preenche só os campos vazios com o nome, o contexto de negócio, o perfil e os posts da marca. Revise antes de salvar.</small></div>
+        {error ? <p className="studioError" role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : null}
         {RADAR_FIELDS.map(([key, label]) => <label key={key}>{label}<textarea rows={2} required={key === "brand_terms"} value={editing[key] || ""} onChange={(e) => setEditing({ ...editing, [key]: e.target.value })} /></label>)}
         <label>Fontes próprias (RSS/Atom, uma por linha, https)<textarea rows={3} value={editing.feeds || ""} onChange={(e) => setEditing({ ...editing, feeds: e.target.value })} placeholder="https://www.revistaadega.com.br/feed/" /></label>
         <label>Região de interesse<input value={editing.region || ""} onChange={(e) => setEditing({ ...editing, region: e.target.value })} placeholder="São Paulo, Brasil" /></label>

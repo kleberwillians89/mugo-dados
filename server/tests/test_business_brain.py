@@ -46,3 +46,28 @@ def test_suggest_skips_when_complete(monkeypatch):
     monkeypatch.setattr(bb, "load_business_context", load)
     monkeypatch.setattr(bb, "llm_json", boom)
     assert asyncio.run(bb.suggest_business("c1"))["suggestion"] == {}
+
+
+def test_suggest_radar_dedupes_and_caps(monkeypatch):
+    async def load(cid):
+        return {"context": {"segment": "Restaurante brasileiro em Alicante"}}
+
+    async def intel(cid, use_cache=True):
+        return {"marca": {}}
+
+    async def llm(**kw):
+        assert "Restaurante brasileiro" in kw["prompt"]
+        return {"brand_terms": ["Latinas", "latinas", "Latinas Alicante"] + [f"t{i}" for i in range(9)],
+                "competitor_terms": [], "people": [], "keywords": ["coxinha"], "themes": [], "exclude_terms": ["Latinas Miss"],
+                "region": "Alicante, Espanha", "relevance_criteria": "Importa: gastronomia."}
+
+    async def name(cid):
+        return "Latinas"
+
+    monkeypatch.setattr(bb, "load_business_context", load)
+    monkeypatch.setattr(bb, "build_content_intelligence", intel)
+    monkeypatch.setattr(bb, "llm_json", llm)
+    monkeypatch.setattr(bb, "_company_name", name)
+    out = asyncio.run(bb.suggest_radar("c1"))
+    assert out["brand_terms"][:2] == ["Latinas", "Latinas Alicante"] and len(out["brand_terms"]) == 6
+    assert out["region"] == "Alicante, Espanha" and out["exclude_terms"] == ["Latinas Miss"]
