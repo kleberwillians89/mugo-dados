@@ -9,6 +9,11 @@ export type DataHealthSource = {
 };
 export type DataHealthResponse = { client_id: string; period: { start: string; end: string }; sources: DataHealthSource[] };
 export const DATA_HEALTH_CHANGED = "mugo:data-health-changed";
+/** Disparado quando uma sincronização em segundo plano termina (a tela relê os dados). */
+export const DATA_SYNC_FINISHED = "mugo:data-sync-finished";
+/** Enquanto alguma fonte está sincronizando, o status é relido neste intervalo (limitado). */
+export const SYNC_POLL_MS = 15_000;
+export const SYNC_POLL_MAX = 80; // ~20 min
 export const HEALTH_LABELS: Record<DataHealthSource["state"], string> = {
   synced: "Sincronizado", updating: "Atualizando", stale: "Atrasado", attention: "Atenção",
   reauth_required: "Reconexão necessária", no_data: "Sem dados registrados no período",

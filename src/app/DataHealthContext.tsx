@@ -3,13 +3,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getClientDataHealth } from "./api";
 import { useOptionalPeriod } from "./PeriodContext";
 import { getSelectedPeriodRange } from "./periodRange";
-import { DATA_HEALTH_CHANGED, type DataHealthResponse } from "./dataHealth";
+import { DATA_HEALTH_CHANGED, DATA_SYNC_FINISHED, SYNC_POLL_MAX, SYNC_POLL_MS, type DataHealthResponse } from "./dataHealth";
 
 type Value = { data: DataHealthResponse | null; loading: boolean; error: boolean; reload: () => Promise<void> };
 export const DataHealthContext = createContext<Value | null>(null);
 export function useDataHealth() { return useContext(DataHealthContext); }
 
-/** One bounded persisted read per client/period; no polling or provider sync. */
+/** One bounded persisted read per client/period. While a source is syncing (background
+ * history after connecting), re-reads every 15 s, bounded, and announces when it finishes. */
 export function DataHealthProvider({ clientId, enabled, children }: {clientId: string; enabled: boolean; children: ReactNode}) {
   const context = useOptionalPeriod();
   const { start, end } = getSelectedPeriodRange(context?.period);
@@ -53,6 +54,20 @@ export function DataHealthProvider({ clientId, enabled, children }: {clientId: s
     window.addEventListener(DATA_HEALTH_CHANGED, changed);
     return () => { cancelled = true; sequence.current += 1; window.removeEventListener(DATA_HEALTH_CHANGED, changed); };
   }, [clientId, key, reload]);
+  // Sincronização em segundo plano: relê o status até terminar (máx. ~20 min) e avisa a tela.
+  const syncing = state.key === key && Boolean(state.data?.sources.some(source => source.state === "updating"));
+  const polls = useRef(0);
+  const wasSyncing = useRef(false);
+  useEffect(() => {
+    if (wasSyncing.current && !syncing && state.key === key && !state.loading) {
+      window.dispatchEvent(new CustomEvent(DATA_SYNC_FINISHED, {detail: {clientId}}));
+    }
+    wasSyncing.current = syncing;
+    if (!syncing || !enabled) { polls.current = 0; return; }
+    if (polls.current >= SYNC_POLL_MAX) return;
+    const timer = window.setTimeout(() => { polls.current += 1; void reload(); }, SYNC_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [clientId, enabled, key, reload, state, syncing]);
   const value = useMemo(() => ({data: enabled && state.key === key ? state.data : null,
     loading: enabled && (state.key !== key || state.loading), error: state.key === key && state.error, reload}), [enabled, key, reload, state]);
   return <DataHealthContext.Provider value={value}>{children}</DataHealthContext.Provider>;

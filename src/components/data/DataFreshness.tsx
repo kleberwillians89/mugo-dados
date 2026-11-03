@@ -24,6 +24,8 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
       return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}`;
     };
     const success = format(source?.last_successful_sync_at);
+    // Logo depois de conectar, o essencial já apareceu e o histórico segue chegando.
+    if (source?.state === "updating") return <span>Sincronizando histórico…{success ? ` · atualizado em ${success}` : " · os primeiros dados aparecem assim que chegarem"}</span>;
     if (success) return <span>Atualizado em {success}</span>;
     // A plataforma respondeu, mas sem nada no período (ex.: conta Meta sem anúncio
     // rodando). Não é falha: mostra quando foi consultada.

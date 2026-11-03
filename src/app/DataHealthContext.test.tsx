@@ -135,3 +135,35 @@ it("tentativa e parcial sem sucesso anterior não inventam horário no indicador
  expect(host.textContent).toContain("Última coleta parcial");
  expect(host.textContent).not.toContain("Atualizado em");
 });
+
+it("sincronizando histórico mostra o estado e o último sucesso, sem esconder os dados", async () => {
+ const value={data:response("tenant-a",[{...source,provider:"meta_ads",state:"updating",sync_status:"running"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Sincronizando histórico… · atualizado em 19/10/2026 às 09:00");
+ const first={data:response("tenant-a",[{...source,provider:"meta_ads",state:"updating",sync_status:"running",last_successful_sync_at:null}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={first}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toContain("os primeiros dados aparecem assim que chegarem");
+});
+
+it("enquanto sincroniza, relê a cada 15 s e avisa a tela quando termina (só do próprio tenant)", async () => {
+ vi.useFakeTimers();
+ try {
+  const finished = vi.fn();
+  window.addEventListener("mugo:data-sync-finished", finished as EventListener);
+  vi.mocked(getClientDataHealth).mockResolvedValueOnce(response("tenant-a",[{...source,state:"updating",sync_status:"running"}]));
+  await render();
+  expect(getClientDataHealth).toHaveBeenCalledTimes(1);
+  vi.mocked(getClientDataHealth).mockResolvedValueOnce(response("tenant-a",[{...source,state:"updating",sync_status:"running"}]));
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15_000);});
+  expect(getClientDataHealth).toHaveBeenCalledTimes(2);
+  expect(finished).not.toHaveBeenCalled();
+  vi.mocked(getClientDataHealth).mockResolvedValueOnce(response("tenant-a",[{...source,state:"synced",sync_status:"success"}]));
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15_000);});
+  expect(getClientDataHealth).toHaveBeenCalledTimes(3);
+  expect(finished).toHaveBeenCalledTimes(1);
+  expect((finished.mock.calls[0][0] as CustomEvent).detail).toEqual({clientId:"tenant-a"});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_000);});
+  expect(getClientDataHealth).toHaveBeenCalledTimes(3); // terminou: para de reler
+  window.removeEventListener("mugo:data-sync-finished", finished as EventListener);
+ } finally { vi.useRealTimers(); }
+});

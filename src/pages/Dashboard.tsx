@@ -1,6 +1,7 @@
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { useDataHealth } from "../app/DataHealthContext";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
+import { DATA_SYNC_FINISHED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import PeriodTransition from "../components/data/PeriodTransition";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -1020,6 +1021,18 @@ export default function Dashboard({
     if (!enableExtrasStage) return;
     void loadNotesData();
   }, [enableExtrasStage, isAuthenticated, activeClientId, organicConnectionId, loadNotesData]);
+
+  // Histórico em segundo plano terminou (depois de conectar): relê o que já está no banco.
+  useEffect(() => {
+    const finished = (event: Event) => {
+      if ((event as CustomEvent<{clientId: string}>).detail?.clientId !== activeClientId) return;
+      void dashboardSnapshot.refetch({ afterCurrent: true }).then((snapshot) => {
+        if (snapshot && getActiveClientId() === activeClientId) void reloadSummary({ snapshot, force: true, includeSecondary: true });
+      });
+    };
+    window.addEventListener(DATA_SYNC_FINISHED, finished);
+    return () => window.removeEventListener(DATA_SYNC_FINISHED, finished);
+  }, [activeClientId, dashboardSnapshot, reloadSummary]);
 
   useEffect(() => {
     if (!isAuthenticated || !activeClientId) {

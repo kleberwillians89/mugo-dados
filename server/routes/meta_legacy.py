@@ -30,6 +30,7 @@ from services.ig_refresh import refresh_all
 from services.ads_sync import sync_ads_for_client_period
 from services.meta_backfill import enqueue_backfill, get_backfill
 from services.periods import resolve_period
+from services import meta_progressive
 from services.instagram_sync import discover_instagram_identity_for_connection, sync_instagram_connection
 from services.integration_errors import IntegrationError
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
@@ -551,7 +552,11 @@ async def api_activate_meta_organic(
             f"stage={stage} request_id={request_id} client_id={cid} "
             f"organic_connection_id={organic_connection_id}"
         )
-        sync_result = await sync_instagram_connection(organic_connection_id)
+        # Progressivo: só o essencial na requisição (perfil, KPIs, posts recentes);
+        # o sync completo roda logo depois da resposta.
+        sync_result = await sync_instagram_connection(
+            organic_connection_id, limit=meta_progressive.QUICK_MEDIA, process_thumbnails=False,
+        )
         if not isinstance(sync_result, dict):
             raise RuntimeError(
                 "A sincronização do Instagram retornou "
@@ -581,7 +586,11 @@ async def api_activate_meta_organic(
             f"organic_connection_id={organic_connection_id} "
             f"metrics_written={metrics_written}"
         )
+        meta_progressive.schedule(
+            "instagram_history", cid, lambda: meta_progressive.organic_history(organic_connection_id),
+        )
         return {
+            "history_sync": {"status": "scheduled", "scope": "instagram_full"},
             "ok": True,
             **prepared,
             "status": "active",
@@ -688,7 +697,8 @@ async def api_link_assets(
         if not paid_connection:
             return result
 
-        period = resolve_period(days=30, max_days=365)
+        # Progressivo: os últimos 7 dias liberam a tela; 30 dias e a fila de 90 rodam depois.
+        period = resolve_period(days=meta_progressive.QUICK_DAYS, max_days=365)
         connection_id = str(paid_connection.get("id") or "").strip()
         try:
             sync_result = await sync_ads_for_client_period(
@@ -705,7 +715,12 @@ async def api_link_assets(
                 "ok": bool(sync_result.get("ok")),
                 "client_id": cid,
                 "connection_id": connection_id,
+                "days": meta_progressive.QUICK_DAYS,
             }
+            meta_progressive.schedule(
+                "meta_ads_history", cid, lambda: meta_progressive.paid_history(cid, connection_id),
+            )
+            result["history_sync"] = {"status": "scheduled", "days": [meta_progressive.HISTORY_DAYS, meta_progressive.BACKFILL_DAYS]}
         except Exception as exc:
             result["meta_ads_initial_sync"] = {
                 "ok": False,

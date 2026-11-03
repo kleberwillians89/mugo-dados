@@ -412,13 +412,15 @@ async def exchange_code_for_token(*, code: str, redirect_uri: str) -> Dict[str, 
 
 
 async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
-    me = await _meta_get(
+    # /me não depende das Páginas: sai em paralelo com a listagem.
+    me_task = asyncio.ensure_future(_meta_get(
         "/me",
         {
             "fields": "id,name",
             "access_token": access_token,
         },
-    )
+    ))
+    await asyncio.sleep(0)  # /me sai primeiro (mesma ordem de chamadas de antes)
 
     page_rows: List[Dict[str, Any]] = []
     next_url: Optional[str] = None
@@ -446,7 +448,9 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
     for listed_page in page_rows:
         page_id = _safe_str((listed_page or {}).get("id"))
         page = listed_page
-        if page_id:
+        # /me/accounts já pede nome e Instagram de cada Página (mesmos campos do detalhe):
+        # a segunda chamada por Página só acontece se a linha veio sem esses campos.
+        if page_id and "name" not in (listed_page or {}):
             try:
                 page = await _meta_get(
                     f"/{page_id}",
@@ -483,6 +487,7 @@ async def fetch_instagram_identity(access_token: str) -> Dict[str, Any]:
             }
         )
 
+    me = await me_task
     return {
         "meta_user": {"id": _safe_str(me.get("id")), "name": _safe_str(me.get("name"))},
         "pages": available_pages,
@@ -1138,6 +1143,7 @@ async def _log_discovery_diagnostics(
     identity: Dict[str, Any],
     ad_accounts: List[Dict[str, Any]],
     business_managers: List[Dict[str, Any]],
+    prefetched: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Diagnóstico do discovery. Nunca lança exceção e nunca registra tokens,
     code, App Secret ou state — somente nomes de permissões, IDs de ativos,
@@ -1149,10 +1155,7 @@ async def _log_discovery_diagnostics(
         declined: List[str] = []
         other: List[str] = []
         try:
-            permissions = await meta_get_json(
-                "/me/permissions", params={"access_token": access_token},
-                timeout=30, retries=1, context={"resource": "oauth_diag_permissions"},
-            )
+            permissions = await ((prefetched or {}).get("permissions") or _diag_permissions(access_token))
             for row in permissions.get("data") or []:
                 name = _safe_str((row or {}).get("permission"))
                 status = _safe_str((row or {}).get("status")).lower()
@@ -1187,14 +1190,7 @@ async def _log_discovery_diagnostics(
         try:
             if settings is None:
                 raise _DiagSkipped()
-            debug = await meta_get_json(
-                "/debug_token",
-                params={
-                    "input_token": access_token,
-                    "access_token": f"{settings['app_id']}|{settings['app_secret']}",
-                },
-                timeout=30, retries=1, context={"resource": "oauth_diag_debug_token"},
-            )
+            debug = await ((prefetched or {}).get("debug") or _diag_debug_token(access_token, settings))
             data = _json_object(debug.get("data"))
             granular = []
             for item in _json_array(data.get("granular_scopes")):
@@ -1237,18 +1233,60 @@ async def _log_discovery_diagnostics(
         print(f"[meta_oauth][diag] stage=diag_failed error_type={exc.__class__.__name__}")
 
 
+def _diag_permissions(access_token: str) -> Any:
+    return meta_get_json(
+        "/me/permissions", params={"access_token": access_token},
+        timeout=30, retries=1, context={"resource": "oauth_diag_permissions"},
+    )
+
+
+def _diag_debug_token(access_token: str, settings: Dict[str, Any]) -> Any:
+    return meta_get_json(
+        "/debug_token",
+        params={
+            "input_token": access_token,
+            "access_token": f"{settings['app_id']}|{settings['app_secret']}",
+        },
+        timeout=30, retries=1, context={"resource": "oauth_diag_debug_token"},
+    )
+
+
+def _diag_prefetch(access_token: str) -> Dict[str, Any]:
+    """As duas leituras do diagnóstico saem junto com a descoberta (não somam tempo ao callback)."""
+    tasks: Dict[str, Any] = {"permissions": asyncio.ensure_future(_diag_permissions(access_token))}
+    try:
+        settings = get_meta_oauth_settings(debug=False)
+    except RuntimeError:
+        settings = None
+    if settings is not None:
+        tasks["debug"] = asyncio.ensure_future(_diag_debug_token(access_token, settings))
+    return tasks
+
+
 async def discover_assets(access_token: str) -> Dict[str, Any]:
     calls: List[str] = []
     identity: Dict[str, Any] = {}
     ad_accounts: List[Dict[str, Any]] = []
     business_managers: List[Dict[str, Any]] = []
+    prefetched = _diag_prefetch(access_token)
     try:
-        identity = await _diag_call("me_accounts", calls, fetch_instagram_identity(access_token))
-        ad_accounts = await _diag_call("me_adaccounts", calls, fetch_ad_accounts(access_token))
-        scopes = await _fetch_granted_scopes(access_token)
-        # Falha em /me/businesses não derruba a descoberta: seguem os ativos
-        # diretos (/me/accounts, /me/adaccounts) com um aviso seguro.
-        business_managers, discovery_warnings = await _business_managers_or_warning(access_token, calls)
+        # As quatro leituras iniciais são independentes: saem juntas. Falha em uma
+        # propaga como antes (na mesma ordem de prioridade); /me/businesses continua
+        # sem derrubar a descoberta (aviso seguro).
+        results = await asyncio.gather(
+            _diag_call("me_accounts", calls, fetch_instagram_identity(access_token)),
+            _diag_call("me_adaccounts", calls, fetch_ad_accounts(access_token)),
+            _fetch_granted_scopes(access_token),
+            _business_managers_or_warning(access_token, calls),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+        identity, ad_accounts, scopes, (business_managers, discovery_warnings) = results
+        # Ordem estável no log, como na leitura sequencial de antes.
+        order = {"me_accounts": 0, "me_adaccounts": 1, "me_businesses": 2}
+        calls.sort(key=lambda item: order.get(item.split("=", 1)[0], 9))
         # Ativos dos Businesses (owned/client) somados aos diretos. Falhas por
         # Business/edge ficam isoladas; nada é atribuído a tenant aqui.
         expanded = await _expand_with_business_assets(
@@ -1262,6 +1300,7 @@ async def discover_assets(access_token: str) -> Dict[str, Any]:
         await _log_discovery_diagnostics(
             access_token, calls=calls, identity=identity,
             ad_accounts=ad_accounts, business_managers=business_managers,
+            prefetched=prefetched,
         )
     return {
         "meta_user": identity.get("meta_user") or {},
