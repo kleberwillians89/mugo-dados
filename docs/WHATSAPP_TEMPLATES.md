@@ -10,7 +10,8 @@ Se a Meta pedir mudança no texto, altere nos dois lugares.
 ## Como cadastrar (Kleber)
 
 1. No **WhatsApp Manager → Modelos de mensagem → Criar modelo**, cadastre cada template abaixo com
-   o **mesmo nome**, idioma **Português (BR) – `pt_BR`** e a categoria indicada.
+   o **mesmo nome**, idioma **Português (BR) – `pt_BR`** e a categoria indicada. **Tipo de variável: Nome**
+   (`{{nome}}`, `{{marca}}`…), exatamente como no texto. Só o botão de URL continua com `{{1}}`.
 2. Na variável do botão, use a URL base do painel: `https://<FRONTEND_URL>/aprovar/{{1}}`
    (o mesmo domínio que está em `FRONTEND_URL` no Render).
 3. Depois de aprovados, no CRM: **Conversas → Templates → Sincronizar**.
@@ -44,11 +45,11 @@ Usado ao enviar pautas para o cliente aprovar quando nenhuma pauta tem arte de i
 
 **Corpo**
 ```
-Olá, {{1}}! A equipe Mugô preparou {{2}} conteúdo(s) de {{3}} para a {{4}}. Toque no botão abaixo para ver as artes e aprovar ou pedir ajuste em cada um. O link vale até {{5}} e não precisa de login.
+Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. Toque no botão abaixo para ver as artes e aprovar ou pedir ajuste em cada um. O link vale até {{validade}} e não precisa de login.
 ```
 **Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
 
-**Exemplos para a Meta:** {{1}} Ana · {{2}} 12 · {{3}} novembro · {{4}} Ruah Parfums · {{5}} 18/11 · botão `kq3V9x...`
+**Exemplos para a Meta:** nome Ana · quantidade 12 · mes novembro · marca Ruah Parfums · validade 18/11 · botão `kq3V9x...`
 
 ## 2. `mugo_conteudo_aprovacao_arte` — Utilidade
 
@@ -58,7 +59,7 @@ Mesmo envio, com a primeira arte (imagem) como cabeçalho.
 
 **Corpo**
 ```
-Olá, {{1}}! A equipe Mugô preparou {{2}} conteúdo(s) de {{3}} para a {{4}}. Esta é uma das artes. Toque no botão abaixo para ver todas e aprovar ou pedir ajuste. O link vale até {{5}} e não precisa de login.
+Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. Esta é uma das artes. Toque no botão abaixo para ver todas e aprovar ou pedir ajuste. O link vale até {{validade}} e não precisa de login.
 ```
 **Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
 
@@ -68,7 +69,7 @@ Lembrete de um pedido que ainda tem pautas sem resposta (reenvia o **mesmo** lin
 
 **Corpo**
 ```
-Olá, {{1}}! Ainda faltam {{2}} conteúdo(s) da {{3}} esperando sua aprovação. Para manter o calendário em dia, responda até {{4}} pelo botão abaixo.
+Olá, {{nome}}! Ainda faltam {{pendentes}} conteúdo(s) da {{marca}} esperando sua aprovação. Para manter o calendário em dia, responda até {{validade}} pelo botão abaixo.
 ```
 **Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
 
@@ -80,7 +81,7 @@ Agenda das publicações aprovadas da semana.
 
 **Corpo**
 ```
-Olá, {{1}}! Agenda de conteúdo da {{2}} para a semana de {{3}}: {{4}} publicação(ões) aprovada(s). Destaque: {{5}}. Qualquer ajuste, é só responder esta mensagem.
+Olá, {{nome}}! Agenda de conteúdo da {{marca}} para a semana de {{semana}}: {{quantidade}} publicação(ões) aprovada(s). Destaque: {{destaque}}. Qualquer ajuste, é só responder esta mensagem.
 ```
 **Exemplos:** Ana · Ruah Parfums · 10/11 a 16/11 · 4 · Reels do lançamento da linha Oud (12/11)
 
@@ -91,7 +92,7 @@ painel (soma de Meta Ads e Google Ads; faturamento da loja; retorno = faturament
 
 **Corpo**
 ```
-Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, faturamento da loja de {{5}} no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no Mugoverso.
+Olá, {{nome}}! Resumo do tráfego pago da {{marca}} em {{periodo}}: investimento de {{investimento}}, faturamento da loja de {{receita}} no mesmo período e retorno de {{roas}} para cada R$ 1 investido. Destaque: {{destaque}}. Os detalhes estão no Mugoverso.
 ```
 **Exemplos:** Ana · Ruah Parfums · 03/11 a 09/11 · R$ 2.350,00 · R$ 14.820,00 · R$ 6,31 · a campanha Remarketing Oud teve o melhor retorno da semana
 
@@ -108,7 +109,7 @@ semanal de cada campanha (`studio_campaign_learnings`): campanha nova, saturaç�
 
 **Corpo**
 ```
-Olá, {{1}}! Resumo da semana da {{2}} ({{3}}): investimento de {{4}} em mídia, faturamento da loja de {{5}} e retorno de {{6}} para cada R$ 1 investido. O que aprendemos: {{7}}. Próximo passo: {{8}}. Qualquer dúvida, é só responder esta mensagem.
+Olá, {{nome}}! Resumo da semana da {{marca}} ({{periodo}}): investimento de {{investimento}} em mídia, faturamento da loja de {{receita}} e retorno de {{roas}} para cada R$ 1 investido. O que aprendemos: {{destaque}}. Próximo passo: {{proximo}}. Qualquer dúvida, é só responder esta mensagem.
 ```
 **Exemplos:** Ana · Curavino · 23/10 a 29/10 · R$ 1.250,00 · R$ 9.800,00 · R$ 7,84 · a campanha nova de catálogo no Meta trouxe 12 vendas na primeira semana · subir 20% a verba do Search Marca
 
@@ -123,7 +124,7 @@ Fechamento do mês anterior.
 
 **Corpo**
 ```
-Olá, {{1}}! Fechamos {{2}} da {{3}}: faturamento de {{4}} ({{5}} em relação ao mês anterior), {{6}} pedidos e {{7}} investidos em mídia. Ponto de atenção: {{8}}. Vamos conversar sobre os próximos passos?
+Olá, {{nome}}! Fechamos {{mes}} da {{marca}}: faturamento de {{faturamento}} ({{variacao}} em relação ao mês anterior), {{pedidos}} pedidos e {{investimento}} investidos em mídia. Ponto de atenção: {{atencao}}. Vamos conversar sobre os próximos passos?
 ```
 **Exemplos:** Ana · outubro · Ruah Parfums · R$ 58.400,00 · +12,4% · 312 · R$ 9.800,00 · a taxa de conversão do site caiu 0,4 ponto
 
@@ -137,7 +138,7 @@ sabendo na hora e o cliente nunca recebe um "sim" sem resposta.
 
 **Corpo**
 ```
-Olá, {{1}}! O resumo da {{2}} de {{3}} está pronto, com investimento em mídia, vendas da loja e o destaque da semana. Quer receber aqui no WhatsApp?
+Olá, {{nome}}! O resumo da {{marca}} de {{periodo}} está pronto, com investimento em mídia, vendas da loja e o destaque da semana. Quer receber aqui no WhatsApp?
 ```
 **Botões** (resposta rápida): `Sim, quero ver` · `Agora não`
 

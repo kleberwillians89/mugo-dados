@@ -31,8 +31,11 @@ class TemplateContractTests(unittest.TestCase):
         for name, template in sm.TEMPLATES.items():
             with self.subTest(template=name):
                 body = template["body"]
-                numbers = [int(n) for n in re.findall(r"\{\{(\d+)\}\}", body)]
-                self.assertEqual(numbers, list(range(1, len(template["params"]) + 1)))
+                # Variáveis nomeadas (a Meta exige minúsculas, sublinhado e números): uma por parâmetro, na ordem.
+                names = re.findall(r"\{\{([^{}]+)\}\}", body)
+                self.assertEqual(names, template["params"])
+                for name in names:
+                    self.assertRegex(name, r"^[a-z0-9_]+$")
                 self.assertFalse(body.startswith("{{") or body.rstrip(".?!").endswith("}}"))
                 self.assertNotRegex(body, r"\}\}\s*\{\{")
 
@@ -49,6 +52,8 @@ class TemplateContractTests(unittest.TestCase):
         self.assertEqual([c["type"] for c in comps], ["header", "body", "button"])
         self.assertEqual(comps[0]["parameters"][0], {"type": "image", "image": {"link": "https://sb/a.png"}})
         self.assertEqual(comps[2], {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": "tok"}]})
+        # Corpo com variáveis nomeadas: cada parâmetro leva o nome exato do template.
+        self.assertEqual([p["parameter_name"] for p in comps[1]["parameters"]], sm.TEMPLATES["mugo_conteudo_aprovacao_arte"]["params"])
         with self.assertRaises(StudioError):
             sm.components_for("mugo_conteudo_aprovacao_arte", params, button_suffix="tok", header_image=None)
 

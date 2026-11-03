@@ -34,48 +34,48 @@ MONTHS = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "
           "outubro", "novembro", "dezembro")
 
 # Os mesmos textos estão em docs/WHATSAPP_TEMPLATES.md, prontos para cadastrar na Meta.
-# Corpo: variáveis numeradas na ordem de "params". Botão URL: sufixo dinâmico {{1}}.
+# Corpo: variáveis NOMEADAS ({{nome}}, {{marca}}...), o formato que a Meta exige hoje. Botão URL: sufixo dinâmico {{1}}.
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     "mugo_conteudo_aprovacao": {
         "kind": "aprovacao", "header": None,
         "params": ["nome", "quantidade", "mes", "marca", "validade"],
-        "body": "Olá, {{1}}! A equipe Mugô preparou {{2}} conteúdo(s) de {{3}} para a {{4}}. "
-                "Toque no botão abaixo para ver as artes e aprovar ou pedir ajuste em cada um. O link vale até {{5}} e não precisa de login.",
+        "body": "Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. "
+                "Toque no botão abaixo para ver as artes e aprovar ou pedir ajuste em cada um. O link vale até {{validade}} e não precisa de login.",
         "button": {"text": "Ver e aprovar", "path": "/aprovar/"},
     },
     "mugo_conteudo_aprovacao_arte": {
         "kind": "aprovacao", "header": "image",
         "params": ["nome", "quantidade", "mes", "marca", "validade"],
-        "body": "Olá, {{1}}! A equipe Mugô preparou {{2}} conteúdo(s) de {{3}} para a {{4}}. "
-                "Esta é uma das artes. Toque no botão abaixo para ver todas e aprovar ou pedir ajuste. O link vale até {{5}} e não precisa de login.",
+        "body": "Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. "
+                "Esta é uma das artes. Toque no botão abaixo para ver todas e aprovar ou pedir ajuste. O link vale até {{validade}} e não precisa de login.",
         "button": {"text": "Ver e aprovar", "path": "/aprovar/"},
     },
     "mugo_lembrete_aprovacao": {
         "kind": "lembrete", "header": None,
         "params": ["nome", "pendentes", "marca", "validade"],
-        "body": "Olá, {{1}}! Ainda faltam {{2}} conteúdo(s) da {{3}} esperando sua aprovação. "
-                "Para manter o calendário em dia, responda até {{4}} pelo botão abaixo.",
+        "body": "Olá, {{nome}}! Ainda faltam {{pendentes}} conteúdo(s) da {{marca}} esperando sua aprovação. "
+                "Para manter o calendário em dia, responda até {{validade}} pelo botão abaixo.",
         "button": {"text": "Ver e aprovar", "path": "/aprovar/"},
     },
     "mugo_agenda_semana": {
         "kind": "agenda", "header": None,
         "params": ["nome", "marca", "semana", "quantidade", "destaque"],
-        "body": "Olá, {{1}}! Agenda de conteúdo da {{2}} para a semana de {{3}}: {{4}} publicação(ões) aprovada(s). "
-                "Destaque: {{5}}. Qualquer ajuste, é só responder esta mensagem.",
+        "body": "Olá, {{nome}}! Agenda de conteúdo da {{marca}} para a semana de {{semana}}: {{quantidade}} publicação(ões) aprovada(s). "
+                "Destaque: {{destaque}}. Qualquer ajuste, é só responder esta mensagem.",
         "button": None,
     },
     "mugo_relatorio_trafego": {
         "kind": "trafego", "header": None,
         "params": ["nome", "marca", "periodo", "investimento", "receita", "roas", "destaque"],
-        "body": "Olá, {{1}}! Resumo do tráfego pago da {{2}} em {{3}}: investimento de {{4}}, faturamento da loja de {{5}} "
-                "no mesmo período e retorno de {{6}} para cada R$ 1 investido. Destaque: {{7}}. Os detalhes estão no Mugoverso.",
+        "body": "Olá, {{nome}}! Resumo do tráfego pago da {{marca}} em {{periodo}}: investimento de {{investimento}}, faturamento da loja de {{receita}} "
+                "no mesmo período e retorno de {{roas}} para cada R$ 1 investido. Destaque: {{destaque}}. Os detalhes estão no Mugoverso.",
         "button": None,
     },
     "mugo_resumo_semanal": {
         "kind": "semanal", "header": None,
         "params": ["nome", "marca", "periodo", "investimento", "receita", "roas", "destaque", "proximo"],
-        "body": "Olá, {{1}}! Resumo da semana da {{2}} ({{3}}): investimento de {{4}} em mídia, faturamento da loja de {{5}} "
-                "e retorno de {{6}} para cada R$ 1 investido. O que aprendemos: {{7}}. Próximo passo: {{8}}. "
+        "body": "Olá, {{nome}}! Resumo da semana da {{marca}} ({{periodo}}): investimento de {{investimento}} em mídia, faturamento da loja de {{receita}} "
+                "e retorno de {{roas}} para cada R$ 1 investido. O que aprendemos: {{destaque}}. Próximo passo: {{proximo}}. "
                 "Qualquer dúvida, é só responder esta mensagem.",
         "button": None,
     },
@@ -85,7 +85,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     "mugo_convite_resumo": {
         "kind": "convite", "header": None,
         "params": ["nome", "marca", "periodo"],
-        "body": "Olá, {{1}}! O resumo da {{2}} de {{3}} está pronto, com investimento em mídia, vendas da loja e o destaque "
+        "body": "Olá, {{nome}}! O resumo da {{marca}} de {{periodo}} está pronto, com investimento em mídia, vendas da loja e o destaque "
                 "da semana. Quer receber aqui no WhatsApp?",
         "button": None,
         "quick_replies": ["Sim, quero ver", "Agora não"],
@@ -93,8 +93,8 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     "mugo_resultados_mes": {
         "kind": "resultados", "header": None,
         "params": ["nome", "mes", "marca", "faturamento", "variacao", "pedidos", "investimento", "atencao"],
-        "body": "Olá, {{1}}! Fechamos {{2}} da {{3}}: faturamento de {{4}} ({{5}} em relação ao mês anterior), "
-                "{{6}} pedidos e {{7}} investidos em mídia. Ponto de atenção: {{8}}. Vamos conversar sobre os próximos passos?",
+        "body": "Olá, {{nome}}! Fechamos {{mes}} da {{marca}}: faturamento de {{faturamento}} ({{variacao}} em relação ao mês anterior), "
+                "{{pedidos}} pedidos e {{investimento}} investidos em mídia. Ponto de atenção: {{atencao}}. Vamos conversar sobre os próximos passos?",
         "button": None,
     },
 }
@@ -146,8 +146,8 @@ def mask_phone(phone: str) -> str:
 def render(template_name: str, params: Dict[str, str]) -> str:
     template = TEMPLATES[template_name]
     text = template["body"]
-    for index, key in enumerate(template["params"], start=1):
-        text = text.replace("{{%d}}" % index, params.get(key) or "—")
+    for key in template["params"]:
+        text = text.replace("{{%s}}" % key, params.get(key) or "—")
     return text
 
 
@@ -248,7 +248,8 @@ def components_for(template_name: str, params: Dict[str, str], *, button_suffix:
         if not header_image or not header_image.startswith("https://"):
             raise StudioError("HEADER_IMAGE_REQUIRED")
         components.append({"type": "header", "parameters": [{"type": "image", "image": {"link": header_image}}]})
-    components.append({"type": "body", "parameters": [{"type": "text", "text": params[k]} for k in template["params"]]})
+    # Template com variáveis nomeadas: cada parâmetro leva o nome ("parameter_name") exigido pela Meta.
+    components.append({"type": "body", "parameters": [{"type": "text", "parameter_name": k, "text": params[k]} for k in template["params"]]})
     if template["button"]:
         if not button_suffix:
             raise StudioError("BUTTON_PARAM_REQUIRED")
