@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAppRouteFromPath, getPathForRoute, getPublicAppRouteFromPath } from "./routes";
+import { approvalTokenFromPath, getAppRouteFromPath, getPathForRoute, getPublicAppRouteFromPath } from "./routes";
 
 describe("platform routes", () => {
   it("distinguishes goals from the existing Meta route", () => {
@@ -44,6 +44,13 @@ describe("platform routes", () => {
   it("maps the creators module both ways", () => {
     expect(getAppRouteFromPath("/criadores")).toBe("creators");
     expect(getPathForRoute("creators")).toBe("/criadores");
+  });
+
+  it("reads the approval token, even with the literal {{1}} left by the Meta template button", () => {
+    const token = "Cl18j4HG89zp1u1bQXkePI32xpYFMydAoeSUu1ZsBuU";
+    expect(approvalTokenFromPath(`/aprovar/${token}`)).toBe(token);
+    expect(approvalTokenFromPath(`/aprovar/%7B%7B1%7D%7D${token}`)).toBe(token);
+    expect(approvalTokenFromPath("/aprovar/curto")).toBeNull();
   });
 
   it("distinguishes an unknown URL from the dashboard", () => {

@@ -12,7 +12,9 @@ Se a Meta pedir mudança no texto, altere nos dois lugares.
 1. No **WhatsApp Manager → Modelos de mensagem → Criar modelo**, cadastre cada template abaixo com
    o **mesmo nome**, idioma **Português (BR) – `pt_BR`** e a categoria indicada. **Tipo de variável: Nome**
    (`{{nome}}`, `{{marca}}`…), exatamente como no texto. Só o botão de URL continua com `{{1}}`.
-2. Na variável do botão, use a URL base do painel: `https://<FRONTEND_URL>/aprovar/{{1}}`
+2. No botão, escolha **URL dinâmica** e digite só a base, terminando em barra: `https://<FRONTEND_URL>/aprovar/`.
+   **Não digite `{{1}}`**: a Meta acrescenta sozinha. Se digitar, o link chega como `/aprovar/{{1}}<token>`
+   (o painel aceita esse link quebrado, mas o certo é corrigir o template). Exemplo do sufixo: `kq3V9xExemploDeToken0123456789`.
    (o mesmo domínio que está em `FRONTEND_URL` no Render).
 3. Depois de aprovados, no CRM: **Conversas → Templates → Sincronizar**.
 4. No Render (serviço da API do Dados), configure:
@@ -47,7 +49,7 @@ Usado ao enviar pautas para o cliente aprovar quando nenhuma pauta tem arte de i
 ```
 Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. Toque no botão abaixo para ver as artes e aprovar ou pedir ajuste em cada um. O link vale até {{validade}} e não precisa de login.
 ```
-**Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
+**Botão** (URL dinâmica): texto `Ver e aprovar` · base `https://<FRONTEND_URL>/aprovar/` (sem `{{1}}`: a Meta acrescenta)
 
 **Exemplos para a Meta:** nome Ana · quantidade 12 · mes novembro · marca Ruah Parfums · validade 18/11 · botão `kq3V9x...`
 
@@ -61,7 +63,7 @@ Mesmo envio, com a primeira arte (imagem) como cabeçalho.
 ```
 Olá, {{nome}}! A equipe Mugô preparou {{quantidade}} conteúdo(s) de {{mes}} para a {{marca}}. Esta é uma das artes. Toque no botão abaixo para ver todas e aprovar ou pedir ajuste. O link vale até {{validade}} e não precisa de login.
 ```
-**Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
+**Botão** (URL dinâmica): texto `Ver e aprovar` · base `https://<FRONTEND_URL>/aprovar/` (sem `{{1}}`: a Meta acrescenta)
 
 ## 3. `mugo_lembrete_aprovacao` — Utilidade
 
@@ -71,7 +73,7 @@ Lembrete de um pedido que ainda tem pautas sem resposta (reenvia o **mesmo** lin
 ```
 Olá, {{nome}}! Ainda faltam {{pendentes}} conteúdo(s) da {{marca}} esperando sua aprovação. Para manter o calendário em dia, responda até {{validade}} pelo botão abaixo.
 ```
-**Botão** (URL dinâmica): texto `Ver e aprovar` · URL `https://<FRONTEND_URL>/aprovar/{{1}}`
+**Botão** (URL dinâmica): texto `Ver e aprovar` · base `https://<FRONTEND_URL>/aprovar/` (sem `{{1}}`: a Meta acrescenta)
 
 **Exemplos:** Ana · 3 · Ruah Parfums · 18/11
 

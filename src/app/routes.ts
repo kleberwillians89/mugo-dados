@@ -100,3 +100,14 @@ export function navigateToAppRoute(route: AppRoute, options?: { replace?: boolea
   const method = options?.replace ? "replaceState" : "pushState";
   window.history[method]({}, document.title, path);
 }
+
+/**
+ * Token do link de aprovação. Aceita o link quebrado que sai quando o botão do template na Meta foi cadastrado
+ * como ".../aprovar/{{1}}" (a Meta acrescenta outro {{1}} e o primeiro chega literal: /aprovar/%7B%7B1%7D%7D<token>).
+ */
+export function approvalTokenFromPath(pathname: string): string | null {
+  let path = String(pathname || "");
+  try { path = decodeURIComponent(path); } catch { /* caminho malformado: segue como veio */ }
+  const match = path.replace(/\{\{\s*\d+\s*\}\}/g, "").match(/^\/aprovar\/([A-Za-z0-9_-]{30,64})\/?$/);
+  return match ? match[1] : null;
+}

@@ -14,7 +14,7 @@ import {
   getCurrentAppRoute,
   getPublicAppRouteFromPath,
   navigateToAppRoute,
-  type AppRoute,
+  type AppRoute, approvalTokenFromPath,
 } from "./app/routes";
 import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
@@ -948,9 +948,10 @@ export default function App() {
   if (["/conectar-claude", "/conectar-claude/autorizar"].includes(window.location.pathname)) {
     return <Suspense fallback={<AppLoading />}><ClaudeConnect /></Suspense>;
   }
-  const approvalMatch = window.location.pathname.match(/^\/aprovar\/([A-Za-z0-9_-]{30,64})\/?$/);
-  if (approvalMatch) {
-    return <Suspense fallback={<AppLoading />}><ClientApproval token={approvalMatch[1]} /></Suspense>;
+  const approvalToken = approvalTokenFromPath(window.location.pathname);
+  if (approvalToken) {
+    if (window.location.pathname !== `/aprovar/${approvalToken}`) window.history.replaceState(null, "", `/aprovar/${approvalToken}`);
+    return <Suspense fallback={<AppLoading />}><ClientApproval token={approvalToken} /></Suspense>;
   }
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
   if (publicRoute === "privacy") return <PrivacyPage />;
