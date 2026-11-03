@@ -144,8 +144,38 @@ class AiAutoreplyTests(unittest.IsolatedAsyncioTestCase):
              patch.object(ie, "sb_select", AsyncMock(return_value=[])), \
              patch("services.studio_llm.llm_json", AsyncMock(return_value={"reply": "Oi!", "needs_human": False, "reason": ""})):
             out = await ie._ai_answer("roove", self.recent())
-        self.assertEqual(check.call_args.kwargs["avoid"], ["barato"])  # antes era posicional e quebrava a sugestão
+        self.assertEqual(check.call_args.kwargs["avoid"][0], "barato")  # antes era posicional e quebrava a sugestão
+        self.assertIn("combustível", check.call_args.kwargs["avoid"])  # clichês que soavam forçados
         self.assertEqual(out["reply"], "Oi!")
+
+    async def answer(self, text, llm_reply, *, rows=None):
+        llm = AsyncMock(return_value={"reply": llm_reply, "needs_human": False, "reason": ""})
+
+        async def select(table, **kwargs):
+            if table == "ig_media":
+                return [{"caption": "Bastidores do evento com Rodrigo Mancusi"}]
+            if table == ie.ACTIONS:
+                return rows or []
+            return []
+        with patch("services.studio_calendar.load_profile", AsyncMock(return_value={"profile": {"tone_of_voice": "leve"}})), \
+             patch.object(ie, "sb_select", AsyncMock(side_effect=select)), patch("services.studio_llm.llm_json", llm):
+            out = await ie._ai_answer("mugo", {**self.recent(text=text), "media_id": "m1"})
+        return out, llm.await_args.kwargs["prompt"]
+
+    async def test_prompt_has_post_examples_and_comment_type(self):
+        rows = [{"kind": "resposta_manual", "text": "Valeu demais, Ana! 🙌", "status": "enviado"}]
+        _, prompt = await self.answer("Gente olha sinceramente OS MAIORAIS", "Os maiorais mesmo! Obrigado 🙌", rows=rows)
+        self.assertIn("Bastidores do evento com Rodrigo Mancusi", prompt)
+        self.assertIn("Valeu demais, Ana!", prompt)
+        self.assertIn("TIPO: texto", prompt)
+
+    async def test_emoji_comment_gets_short_reply_or_review(self):
+        out, prompt = await self.answer("🔥🔥🔥", "🔥🙌")
+        self.assertIn("só emoji", prompt)
+        self.assertEqual(out["reply"], "🔥🙌")
+        out, _ = await self.answer("❤️❤️❤️", "Que bom que você gostou! Conta pra gente qual parte mais te marcou nesse post")
+        self.assertEqual(out["reply"], "")  # longa demais para uma reação: não sai sozinha
+        self.assertTrue(out["needs_human"])
 
 
 if __name__ == "__main__":
