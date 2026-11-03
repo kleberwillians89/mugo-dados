@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { extractSlides, slidesFromText } from "./pptxSlides";
-import { artKind, canvaEmbed, driveId } from "./artLinks";
+import { artImages, artKind, artList, canvaEmbed, driveId } from "./artLinks";
 
 // .pptx real (gerado com zipfile do Python): o zip montado dentro do jsdom mistura realms de Uint8Array.
 const pptx = () => new Uint8Array(readFileSync(join(__dirname, "__fixtures__", "calendario.pptx")));
@@ -35,5 +35,17 @@ describe("artLinks", () => {
     expect(artKind("https://drive.google.com/file/d/ABCDEFGHIJK/view")).toBe("drive");
     expect(driveId("https://drive.google.com/open?id=ABCDEFGHIJK")).toBe("ABCDEFGHIJK");
     expect(artKind("https://exemplo.com/arte.png")).toBe("outro");
+  });
+});
+
+describe("links por slide", () => {
+  it("um link por linha vira um slide; Canva fica fora da prévia", () => {
+    const value = "https://drive.google.com/file/d/AAAAAAAAAAAA/view\n https://drive.google.com/file/d/BBBBBBBBBBBB/view \nhttps://www.canva.com/design/X/view";
+    expect(artList(value)).toHaveLength(3);
+    expect(artImages(value)).toEqual([
+      "https://drive.google.com/thumbnail?id=AAAAAAAAAAAA&sz=w1200",
+      "https://drive.google.com/thumbnail?id=BBBBBBBBBBBB&sz=w1200",
+    ]);
+    expect(artImages("javascript:alert(1)")).toEqual([]);
   });
 });

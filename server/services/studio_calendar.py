@@ -541,11 +541,15 @@ EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft"
 
 
 def clean_art_url(value: Any) -> Optional[str]:
-    """Link da arte (Canva, Google Drive ou outro https). Vazio limpa o campo; http, javascript: etc. são recusados."""
-    text = str(value or "").strip()
-    if not text:
+    """Link(s) da arte (Canva, Google Drive ou outro https). Vazio limpa o campo; http, javascript: etc. são recusados."""
+    # Um link por linha = um slide do carrossel, na ordem (até 12). Primeiro link é a capa.
+    links = [part.strip() for part in re.split(r"[\s]+", str(value or "")) if part.strip()]
+    if not links:
         return None
-    if not re.match(r"^https://[^\s]+$", text) or len(text) > 1000:
+    if len(links) > 12 or any(not re.match(r"^https://\S+$", link) for link in links):
+        raise StudioError("ART_URL_INVALID")
+    text = "\n".join(links)
+    if len(text) > 1000:
         raise StudioError("ART_URL_INVALID")
     return text
 
