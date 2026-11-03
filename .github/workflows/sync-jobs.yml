@@ -37,6 +37,7 @@ on:
     - cron: "*/5 * * * *"      # Automações: processa a fila (sem AUTOMATIONS_SEND_ENABLED=true só simula)
     - cron: "*/15 * * * *"     # Google Calendar da Mugô: sincroniza reuniões e agenda os lembretes
     - cron: "2-59/5 * * * *"   # Instagram: gatilhos de comentário (resposta + Direct); sem IG_AUTOREPLY_ENABLED só simula
+    - cron: "4-59/5 * * * *"     # Instagram: publica posts aprovados e agendados (sem IG_PUBLISH_ENABLED=true só simula)
   workflow_dispatch:
     inputs:
       command:
@@ -82,6 +83,7 @@ jobs:
             "*/5 * * * *")         cmd="automations-process" ;;
             "*/15 * * * *")        cmd="calendar-sync" ;;
             "2-59/5 * * * *")      cmd="ig-engagement-run" ;;
+            "4-59/5 * * * *")      cmd="ig-publish-due" ;;
             "40 10 * * *")         cmd="studio-clipping" ;;
             "20 12 1 * *")         cmd="brand-profile-monthly" ;;
             "")                    cmd="$MANUAL" ;;

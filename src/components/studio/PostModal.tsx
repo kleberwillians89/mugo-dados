@@ -27,10 +27,12 @@ type Props = {
   onSendForApproval?: () => void;
   /** Equipe: valida o agendamento de um post aprovado, na data e horário do post. */
   onConfirmSchedule?: () => Promise<void>;
+  /** Equipe: depois de corrigir o link da arte, devolve a pauta para a fila de publicação. */
+  onRetryPublish?: () => Promise<void>;
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
@@ -151,7 +153,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {onSendForApproval && ["rascunho", "em_revisao", "rejeitado"].includes(item.status) ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={onSendForApproval}>Enviar para o cliente aprovar</button> : null}
             {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule()}>
               Agendar para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button> : null}
-            {item.status === "aprovado" && item.schedule_confirmed_at ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span> : null}
+            {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: publica sozinho no Instagram</span> : null}
+            {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
+            {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
+            {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
+            {onRetryPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
             {item.status === "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("publicado")}>Marcar como publicado</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
