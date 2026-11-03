@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
+import PostComments from "./PostComments";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
@@ -127,6 +128,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             <button type="button" className="ds-button is-primary" disabled={busy || (clientMode && !rejectNote.trim())} onClick={() => void onStatus("rejeitado", rejectNote).then(() => setRejectNote(null))}>{clientMode ? "Enviar pedido de ajuste" : "Rejeitar"}</button></div>
         </div> : null}
 
+        {item ? <PostComments itemId={item.id} clientMode={clientMode} /> : null}
         {canManage && clientMode && item ? <div className="postActions">
           {dirty ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : "Salvar alterações"}</button> : <>
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}

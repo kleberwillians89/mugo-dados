@@ -15,7 +15,7 @@ from .crm_bridge import post_event
 from .ig_supabase import sb_insert, sb_select, sb_update
 
 EVENTS = "studio_team_events"
-ACTIONS = ("aprovado", "ajuste_solicitado", "editado_pelo_cliente")
+ACTIONS = ("aprovado", "ajuste_solicitado", "editado_pelo_cliente", "comentario")
 MAX_ATTEMPTS = 8
 FIELD_LABELS = {"title": "título", "hook": "gancho", "caption_draft": "legenda", "scheduled_at": "data"}
 
