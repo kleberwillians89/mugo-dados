@@ -36,3 +36,24 @@ def test_instagram_is_part_of_history_plan():
     assert "instagram" in hb.PROVIDERS and "instagram" in hb.RUNNERS and "instagram" in hb.CONNECTIONS
     assert hb.EARLIEST["instagram"] == ("ig_media", "timestamp")
     assert hb.EARLIEST_FILTERS["instagram"]
+
+
+def test_restart_cancels_running_and_requests_all(monkeypatch):
+    seen = {"cancel": [], "all": None}
+
+    async def select(table, **kw):
+        return [{"client_id": "a"}, {"client_id": "a"}, {"client_id": "b"}]
+
+    async def cancel(cid):
+        seen["cancel"].append(cid)
+        return {"ok": True}
+
+    async def request_all(start, *, requested_by):
+        seen["all"] = (start, requested_by)
+        return {"ok": True, "start": start, "companies": []}
+
+    monkeypatch.setattr(hb, "sb_select", select)
+    monkeypatch.setattr(hb, "cancel_history", cancel)
+    monkeypatch.setattr(hb, "request_history_all", request_all)
+    out = asyncio.run(hb.restart_history_all("2026-01-01"))
+    assert seen["cancel"] == ["a", "b"] and seen["all"] == ("2026-01-01", "github_actions") and out["cancelled"] == 2

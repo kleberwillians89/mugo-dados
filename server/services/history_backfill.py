@@ -476,6 +476,26 @@ async def run_history_worker(*, budget_seconds: float = 2400, client_id: Optiona
     return {"ok": True, "companies": results}
 
 
+async def restart_history_all(start: str) -> Dict[str, Any]:
+    """Job manual: cancela os pedidos em andamento e pede de novo para todas as empresas.
+
+    O pedido congela as fontes; refazer inclui fontes novas (ex.: Instagram). Blocos já baixados não
+    são baixados de novo, porque o alvo novo começa antes do dado mais antigo já gravado.
+    """
+    validate_start(start)
+    rows = await sb_select("cron_job_runs", select="client_id",
+                           filters={"job_name": f"eq.{REQUEST_JOB}", "status": "eq.running"}, limit=500)
+    cancelled = 0
+    for client_id in dict.fromkeys(str(r.get("client_id")) for r in rows if r.get("client_id")):
+        try:
+            await cancel_history(client_id)
+            cancelled += 1
+        except HistoryBackfillError:
+            pass
+    result = await request_history_all(start, requested_by="github_actions")
+    return {**result, "cancelled": cancelled}
+
+
 async def request_history_all(start: str, *, requested_by: str) -> Dict[str, Any]:
     """Agenda a busca para TODAS as empresas ativas. Idempotente por empresa."""
     start_value = validate_start(start)
