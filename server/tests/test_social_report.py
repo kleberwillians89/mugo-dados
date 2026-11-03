@@ -105,3 +105,27 @@ class BuildTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_keep_images_prefers_storage_copy_and_saves_missing_ones(self):
+        stored = [{"media_id": "1", "thumb_url": "https://supa/storage/1.jpg"}, {"media_id": "2", "thumb_url": None, "media_url": "https://cdn/old2"}]
+        upload = AsyncMock(return_value="https://supa/storage/2.jpg")
+        update = AsyncMock()
+        with patch.object(sr, "sb_select", AsyncMock(return_value=stored)) as select, \
+             patch.object(sr, "_media_details", AsyncMock(return_value={"2": {"media_url": "https://cdn/fresh2"}, "3": {}})), \
+             patch("services.ig_meta.download_image", AsyncMock(return_value=(b"jpg", "image/jpeg"))) as download, \
+             patch("services.ig_supabase.sb_upload_public", upload), patch("services.ig_supabase.sb_update", update):
+            images = await sr.keep_images("c1", ["1", "2", "3"], "tok")
+        self.assertEqual(images, {"1": "https://supa/storage/1.jpg", "2": "https://supa/storage/2.jpg"})
+        self.assertEqual(select.await_args.kwargs["filters"]["media_id"], "in.(1,2,3)")
+        download.assert_awaited_once_with("https://cdn/fresh2")
+        self.assertEqual(upload.await_args.args[0], "clients/c1/media/2/thumb.jpg")
+        self.assertEqual(update.await_args.kwargs["patch"], {"thumb_url": "https://supa/storage/2.jpg"})
+
+    async def test_upload_failure_falls_back_to_meta_link(self):
+        with patch.object(sr, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(sr, "_media_details", AsyncMock(return_value={"9": {"thumbnail_url": "https://cdn/9"}})), \
+             patch("services.ig_meta.download_image", AsyncMock(side_effect=RuntimeError("x"))):
+            images = await sr.keep_images("c1", ["9"], "tok")
+        self.assertEqual(images, {"9": "https://cdn/9"})

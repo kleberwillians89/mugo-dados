@@ -317,6 +317,51 @@ def media_ids(data: Dict[str, Any]) -> List[str]:
     return ids
 
 
+async def _stored_images(client_id: str, ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Cópias das imagens já guardadas no nosso storage pela sincronização (thumb_url não expira)."""
+    if not ids:
+        return {}
+    rows = await sb_select("ig_media", select="media_id,thumb_url,media_url,thumbnail_url", limit=len(ids),
+                           filters={"client_id": f"eq.{client_id}", "media_id": f"in.({','.join(ids)})"})
+    return {str(r.get("media_id")): r for r in rows}
+
+
+async def keep_images(client_id: str, ids: List[str], token: str) -> Dict[str, str]:
+    """Garante cópia permanente (storage) das imagens do relatório: as do Instagram expiram e quebram o PDF.
+
+    Usa a cópia que a sincronização já fez; para o que faltar, baixa o link novo da Meta, sobe no storage
+    (mesmo caminho da sincronização) e grava em ig_media.thumb_url. Falha numa imagem não derruba o relatório.
+    """
+    from .ig_meta import download_image
+    from .ig_supabase import sb_update, sb_upload_public
+    stored = await _stored_images(client_id, ids)
+    images = {k: v["thumb_url"] for k, v in stored.items() if v.get("thumb_url")}
+    missing = [i for i in ids if i not in images]
+    if not missing:
+        return images
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            details = await _media_details(client, missing, token)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[social_report] imagens_meta_indisponiveis {type(exc).__name__}")
+        details = {}
+    for mid in missing:
+        d = details.get(mid) or {}
+        src = d.get("thumbnail_url") or d.get("media_url") or (stored.get(mid) or {}).get("thumbnail_url") or (stored.get(mid) or {}).get("media_url")
+        if not src:
+            continue
+        try:
+            content, content_type = await download_image(str(src))
+            url = await sb_upload_public(f"clients/{client_id}/media/{mid}/thumb.jpg", content, content_type)
+            await sb_update("ig_media", filters={"client_id": f"eq.{client_id}", "media_id": f"eq.{mid}"},
+                            patch={"thumb_url": url}, returning="minimal")
+            images[mid] = url
+        except Exception as exc:  # noqa: BLE001
+            print(f"[social_report] imagem_falhou media={mid} {type(exc).__name__}")
+            images[mid] = str(src)  # link da Meta: vale por algumas horas
+    return images
+
+
 async def load(client_id: str, month: str, *, creds: Optional[Dict[str, Any]] = None, fresh_images: bool = True) -> Dict[str, Any]:
     first = parse_month(month)
     row = await _stored(client_id, first.strftime("%Y-%m"))
@@ -328,9 +373,7 @@ async def load(client_id: str, month: str, *, creds: Optional[Dict[str, Any]] = 
         try:
             from .ig_engagement import credentials
             creds = creds or await credentials(client_id)
-            async with httpx.AsyncClient(timeout=20) as client:
-                details = await _media_details(client, media_ids(data), creds["token"])
-            images = {k: (v.get("thumbnail_url") or v.get("media_url")) for k, v in details.items() if v.get("thumbnail_url") or v.get("media_url")}
+            images = await keep_images(client_id, media_ids(data), creds["token"])
         except Exception as exc:  # noqa: BLE001 — sem imagem o relatório continua
             print(f"[social_report] imagens_indisponiveis {type(exc).__name__}")
     return {"month": data["month"], "built": True, "data": data, "insights": row.get("insights") or [],
