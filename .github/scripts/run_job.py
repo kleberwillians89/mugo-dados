@@ -32,9 +32,21 @@ def main() -> int:
         print(f"job={args[0]} status=sem_configuracao (segredo MUGO_JOBS_ENV ausente)")
         return 1
     env = {k: v for k, v in os.environ.items()}
-    for key, value in dotenv_values(stream=io.StringIO(raw)).items():
-        if key and value is not None:
-            env[key] = value
+    parsed = {k: v for k, v in dotenv_values(stream=io.StringIO(raw)).items() if k and v is not None}
+    env.update(parsed)
+    # Diagnóstico sem vazar nada: só NOMES de variáveis que faltam ou estão com formato errado.
+    problems = []
+    if not str(parsed.get("SUPABASE_URL", "")).strip().startswith("https://"):
+        problems.append("SUPABASE_URL (precisa começar com https://)")
+    if len(str(parsed.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()) < 20:
+        problems.append("SUPABASE_SERVICE_ROLE_KEY (vazia ou curta demais)")
+    masked = [k for k, v in parsed.items() if set(str(v).strip()) <= {"*", "•", "."} and str(v).strip()]
+    if masked:
+        problems.append("valores mascarados (copiados com ••• do painel): " + ", ".join(sorted(masked)[:10]))
+    if problems:
+        print(f"job={args[0]} status=configuracao_invalida variaveis_lidas={len(parsed)} problemas=[{'; '.join(problems)}]")
+        print("Use o formato NOME=valor, uma variável por linha, com os valores reais (no Render: Environment → olho/Reveal).")
+        return 1
     env.setdefault("APP_ENV", "production")
     env["PYTHONUNBUFFERED"] = "1"
     started = time.monotonic()
