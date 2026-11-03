@@ -103,9 +103,11 @@ export const textToList = (value: string) => value.split(/[,\n]/).map((v) => v.t
 
 // ------------------------------------------------------------ aprovação do cliente
 export type ApprovalRequest = { id: string; month: string; items: number; contact_name: string | null; status: "aberto" | "concluido" | "cancelado" | "expirado"; expires_at: string; created_at: string; completed_at: string | null; last_reminded_at?: string | null };
-export type ApprovalCreated = { request_id: string; link: string; expires_at: string; whatsapp_text: string; whatsapp_url: string; whatsapp?: MessageResult | { status: "falhou"; detail: string } };
+export type ApprovalCreated = { request_id: string; link: string; expires_at: string; whatsapp_text: string; whatsapp_url: string; whatsapp?: MessageResult | { status: "falhou"; detail: string };
+  /** Cópia para a equipe Mugô (mesma mensagem e mesmo link). */
+  team?: { name: string; status: string; error?: string }[] };
 export function listApprovals(): Promise<{ requests: ApprovalRequest[] }> { return http(base("/approvals")); }
-export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string; contact_id?: string; send_whatsapp?: boolean }) {
+export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string; contact_id?: string; send_whatsapp?: boolean; notify_team?: boolean }) {
   return http<ApprovalCreated>(base("/approvals"), { method: "POST", body: JSON.stringify(input) });
 }
 export function confirmSchedule(itemId: string) {
@@ -207,11 +209,14 @@ export type MessageKind = keyof typeof MESSAGE_KINDS;
 export type MessagePreview = { kind: MessageKind; template_name: string; params: Record<string, string>; text: string; editable: string[];
   contact: { id: string; name: string; role: string | null }; phone_masked: string; header_image: string | null; channel: "mugozap" | "wa_link" };
 export type MessageResult = { status: "enviado" | "link_gerado" | "aguardando"; channel: "mugozap" | "wa_link"; whatsapp_url?: string; text: string; already_sent?: boolean };
-export type MessageLog = { id: string; contact_name: string | null; phone_masked: string | null; kind: MessageKind; template_name: string | null; channel: string; status: string; error_code: string | null; preview: { text?: string }; created_at: string };
+export type MessageLog = { id: string; contact_name: string | null; phone_masked: string | null; kind: MessageKind; template_name: string | null; channel: string; status: string; error_code: string | null; preview: { text?: string }; created_at: string;
+  provider_message_id?: string | null; request_id?: string | null; delivery_status?: "accepted" | "sent" | "delivered" | "read" | "failed" | null };
 type MessageInput = { kind: MessageKind; contact_id?: string; request_id?: string; overrides?: Record<string, string> };
 export function previewMessage(input: MessageInput) { return http<MessagePreview>(base("/messages/preview"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
 export function sendMessage(input: MessageInput) { return http<MessageResult>(base("/messages/send"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
-export function listMessages() { return http<{ messages: MessageLog[]; templates: string[]; whatsapp_channel: "mugozap" | "wa_link" }>(base("/messages")); }
+export function listMessages(requestId?: string) {
+  return http<{ messages: MessageLog[]; templates: string[]; whatsapp_channel: "mugozap" | "wa_link" }>(base(`/messages${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`));
+}
 
 /** Problema apontado pela trava de fidelidade à marca (o texto não é reescrito; a equipe decide). */
 export type GuardIssue = { type: "palavra_proibida" | "promessa_sem_dado" | "urgencia_inventada"; text: string; fix: string };

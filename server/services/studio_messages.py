@@ -222,9 +222,41 @@ async def _contact(client_id: str, contact_id: Optional[str], kind: str) -> Dict
     return found
 
 
-async def list_messages(client_id: str) -> List[Dict[str, Any]]:
-    return await sb_select(MESSAGES, select="id,contact_name,phone_masked,kind,template_name,channel,status,error_code,preview,created_at",
-                           filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
+MESSAGE_FIELDS = "id,contact_name,phone_masked,kind,template_name,channel,status,error_code,preview,created_at,provider_message_id,request_id"
+
+
+async def list_messages(client_id: str, *, request_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    filters = {"client_id": f"eq.{client_id}", **({"request_id": f"eq.{request_id}"} if request_id else {})}
+    try:
+        return await sb_select(MESSAGES, select=f"{MESSAGE_FIELDS},delivery_status,delivery_updated_at,delivery_error",
+                               filters=filters, order="created_at.desc", limit=100)
+    except Exception:  # noqa: BLE001 — antes da migração 000070 não há status de entrega
+        return await sb_select(MESSAGES, select=MESSAGE_FIELDS, filters=filters, order="created_at.desc", limit=100)
+
+
+async def send_approval_to_team(client_id: str, request_id: str, *, user_id: str) -> List[Dict[str, Any]]:
+    """Mesma mensagem e mesmo link de aprovação para a equipe Mugô: cliente e time veem a mesma página."""
+    try:
+        team = await sb_select("automation_team_members", select="name,phone", limit=20,
+                               filters={"active": "eq.true", "receives_internal": "eq.true", "phone": "not.is.null"})
+    except Exception:  # noqa: BLE001 — sem a Central de Automações migrada não há equipe cadastrada
+        return []
+    brand = await _client_name(client_id)
+    out: List[Dict[str, Any]] = []
+    for member in team:
+        contact = {"id": None, "name": member["name"], "phone": normalize_phone(member["phone"])}
+        if not contact["phone"]:
+            continue
+        try:
+            params, extra = await _approval_params(client_id, "aprovacao", request_id, contact, brand)
+            template = params.pop("_template")
+            result = await deliver(client_id, contact=contact, template_name=template, params=params,
+                                   button_suffix=extra.get("button_suffix"), header_image=None, request_id=request_id,
+                                   user_id=user_id, key=idempotency(client_id, "aprovacao_equipe", request_id, contact["phone"]))
+            out.append({"name": member["name"], "status": result.get("status"), "provider_message_id": result.get("provider_message_id")})
+        except StudioError as exc:
+            out.append({"name": member["name"], "status": "falhou", "error": exc.code})
+    return out
 
 
 # --------------------------------------------------------------------------

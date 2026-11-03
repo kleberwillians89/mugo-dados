@@ -469,6 +469,8 @@ class ApprovalInput(BaseModel):
     message: Optional[str] = Field(default=None, max_length=1000)
     contact_id: Optional[UUID] = None
     send_whatsapp: bool = False
+    # Cópia da mesma mensagem (mesmo link) para a equipe Mugô cadastrada na Central de Automações.
+    notify_team: bool = True
 
 
 @router.get("/approvals")
@@ -500,6 +502,9 @@ async def send_for_approval(client_id: str, body: ApprovalInput, authorization: 
                                                      request_id=str(created["request_id"]))
         except StudioError as exc:
             created["whatsapp"] = {"status": "falhou", "detail": ERRORS.get(exc.code, (0, "Não foi possível enviar agora."))[1]}
+        if body.notify_team:
+            from services.studio_messages import send_approval_to_team
+            created["team"] = await send_approval_to_team(cid, str(created["request_id"]), user_id=uid)
     return created
 
 
@@ -615,9 +620,9 @@ async def remove_contact(client_id: str, contact_id: UUID, authorization: str | 
 
 
 @router.get("/messages")
-async def read_messages(client_id: str, authorization: str | None = Header(default=None)):
+async def read_messages(client_id: str, request_id: UUID | None = None, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
-    return {"messages": await list_messages(cid), "templates": sorted(TEMPLATES),
+    return {"messages": await list_messages(cid, request_id=str(request_id) if request_id else None), "templates": sorted(TEMPLATES),
             "whatsapp_channel": "mugozap" if mugozap_config() else "wa_link"}
 
 
