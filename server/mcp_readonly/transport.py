@@ -160,6 +160,7 @@ class LocalGateway:
             "get_goals": "Metas numéricas e progresso do período; não altera metas.",
             "get_business_context": "Disponibilidade do contexto salvo; textos sem comprovação de privacidade são omitidos.",
             "get_latest_analysis": "Metadados da última análise salva; não chama IA e omite texto livre sem origem segura.",
+            "get_social_report": "Relatório social do mês (modelo Mugô de 6 slides: capa, overview, audiência, destaque, top 5, insights) já gerado na plataforma, com o layout para reproduzir igual. Sem datas, o mês anterior; com datas, o mês da data de início.",
             "get_best_posting_times": "Melhor dia e faixa de horário para publicar no Instagram (fuso de São Paulo), pelo alcance real dos posts por formato e pelos seguidores online. Sem datas, usa os últimos 180 dias.",
         }
         for name, description in descriptions.items():
@@ -174,7 +175,7 @@ class LocalGateway:
                         return await invoke(tool_name, company_id=company_id, start=start, end=end)
                     return read
                 fn = factory(name)
-            self.sdk.tool(name=name, description=description + (" Datas AAAA-MM-DD; até 400 dias." if name == "get_best_posting_times" else " Datas AAAA-MM-DD; até 400 dias, padrão 30 dias."),
+            self.sdk.tool(name=name, description=description + (" Datas AAAA-MM-DD; até 400 dias." if name in ("get_best_posting_times", "get_social_report") else " Datas AAAA-MM-DD; até 400 dias, padrão 30 dias."),
                 annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
                 structured_output=True)(fn)
         class DependencyLog(SafeLog):

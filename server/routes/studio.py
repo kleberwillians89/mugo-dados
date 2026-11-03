@@ -935,3 +935,63 @@ async def engagement_rules_run(client_id: str, authorization: str | None = Heade
         return await run_rules(cid)
     except StudioError as exc:
         raise _http(exc) from None
+
+
+# ---------------------------------------------------------------- relatório social do mês
+
+ERRORS.update({
+    "REPORT_NOT_BUILT": (404, "O relatório deste mês ainda não foi gerado."),
+})
+
+
+@router.get("/social-report/{month}")
+async def social_report_read(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Relatório do mês já gerado (com os links das imagens renovados). Qualquer membro da marca lê."""
+    from services.social_report import load
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return await load(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/social-report/{month}/build")
+async def social_report_build(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Busca os números do mês na Meta e no banco e grava o retrato (os insights salvos são mantidos)."""
+    from services.social_report import build
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await build(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/social-report/{month}/insights/draft")
+async def social_report_draft(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Rascunho dos insights pela IA, a partir dos números (não grava: a equipe revisa e salva)."""
+    from services.social_report import draft_insights
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return {"insights": await draft_insights(cid, month)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class ReportInsightsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    insights: List[str] = Field(default_factory=list, max_length=8)
+
+
+@router.put("/social-report/{month}/insights")
+async def social_report_insights(client_id: str, month: str, body: ReportInsightsInput,
+                                 authorization: str | None = Header(default=None)):
+    from services.social_report import save_insights
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await save_insights(cid, month, body.insights, user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None

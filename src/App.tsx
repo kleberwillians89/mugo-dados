@@ -39,6 +39,7 @@ const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const Engagement = lazy(() => import("./pages/Engagement"));
+const SocialReport = lazy(() => import("./pages/SocialReport"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
@@ -877,6 +878,8 @@ function PrivateApp() {
         platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
+      ) : route === "social_report" ? (
+        <SocialReport key={`social_report:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} />
       ) : route === "engagement" ? (
         <Engagement key={`engagement:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (

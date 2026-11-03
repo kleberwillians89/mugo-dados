@@ -1,0 +1,136 @@
+/* Relatório social: modelo "Social Media Report" da Mugô (slides 1440x810). */
+.srPage { --sr-red: #B12133; --sr-gold: #C7982F; --sr-green: #058649; --sr-ink: #1E1E1E; --sr-meta: #EFF1F5; }
+.srMonthPick { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.srEditor { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--ds-border, #ddd); border-radius: 12px; background: var(--ds-surface, #fff); }
+.srEditor summary { cursor: pointer; font-weight: 600; }
+.srEditor textarea { width: 100%; margin: 8px 0; font: inherit; }
+.srDeck { display: grid; gap: 20px; }
+.srFoot { margin-top: 12px; }
+
+.srFrame { position: relative; width: 100%; overflow: hidden; border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, .12); background: #fff; }
+.srSlide {
+  position: absolute; left: 0; top: 0; width: 1440px; height: 810px; transform-origin: 0 0; overflow: hidden;
+  background: #FEFEFE; color: var(--sr-ink); font-family: "Open Sauce One", system-ui, sans-serif; font-size: 18px; line-height: 1.3;
+}
+.srSlide h2, .srSlide h3, .srSlide p, .srSlide ul, .srSlide figure { margin: 0; padding: 0; }
+.srMonth { position: absolute; right: 152px; top: 82px; font-size: 18px; letter-spacing: .01em; }
+.srTitle { position: absolute; left: 80px; top: 80px; color: var(--sr-red); font-weight: 700; font-size: 80px; line-height: .86; letter-spacing: -.065em; }
+.srPhoto { display: block; object-fit: cover; filter: grayscale(1) contrast(1.05); background: #1b1b1b; }
+.srPhoto.is-empty { background: linear-gradient(135deg, #2a2a2a, #111); }
+.srEmpty { color: #777; font-size: 18px; }
+
+/* 1 capa */
+.srCover .srMonth { right: 92px; top: 80px; }
+.srCoverTitle {
+  position: absolute; left: 82px; top: 108px; color: var(--sr-red); font-weight: 800; font-size: 217px; line-height: .9; letter-spacing: -.055em;
+}
+.srCoverBrand { position: absolute; left: 803px; top: 655px; font-size: 24px; letter-spacing: -.01em; }
+
+/* 2 overview */
+.srOverviewText { position: absolute; left: 80px; top: 0; width: 640px; height: 100%; }
+.srOverview .srTitle { left: 0; top: 52px; font-size: 88px; letter-spacing: -.06em; }
+.srStat { position: relative; }
+.srOverviewText .srStat:nth-of-type(1) { position: absolute; top: 146px; }
+.srOverviewText .srStat:nth-of-type(2) { position: absolute; top: 248px; }
+.srOverviewText .srStat:nth-of-type(3) { position: absolute; top: 380px; }
+.srOverviewText .srStat:nth-of-type(4) { position: absolute; top: 485px; }
+.srStat strong { display: block; color: var(--sr-green); font-size: 40px; font-weight: 700; line-height: 1.05; letter-spacing: -.02em; }
+.srStat strong.is-gold { color: var(--sr-gold); }
+.srStat p { margin-top: 6px; font-size: 21px; font-weight: 700; line-height: 1.32; text-align: justify; }
+.srStat p b { color: var(--sr-green); }
+.srOverviewText .srStat:nth-of-type(1) p { color: var(--sr-ink); }
+.srPlain { position: absolute; top: 668px; font-size: 21px; font-weight: 400; letter-spacing: -.02em; line-height: 1.45; }
+.srOverviewPhoto { position: absolute; left: 782px; top: 0; width: 658px; height: 810px; }
+
+/* 3 audiência */
+.srAudience .srTitle { left: 64px; top: 160px; }
+.srAudiencePhoto { position: absolute; left: 0; top: 378px; width: 747px; height: 432px; }
+.srList, .srGender, .srActive { position: absolute; font-size: 18px; }
+.srList h3, .srGender h3 { font-size: 18px; font-weight: 400; margin-bottom: 16px; }
+.srAges { left: 811px; top: 330px; }
+.srCities { left: 1136px; top: 330px; }
+.srList table { border-collapse: collapse; }
+.srList td { padding: 0 14px 1px 0; font-size: 18px; line-height: 1.3; white-space: nowrap; }
+.srCities td:first-child { padding-left: 4px; min-width: 150px; }
+.srGender { left: 811px; top: 512px; }
+.srGenderRow { display: flex; gap: 52px; }
+.srGender figure { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 120px; }
+.srGender figure:first-child { align-items: flex-start; }
+.srGender figure:first-child svg { margin-left: 26px; }
+.srGender figcaption { font-size: 18px; }
+.srActive { left: 811px; top: 678px; font-size: 22px; line-height: 1.18; }
+.srActive h3 { font-size: 22px; font-weight: 400; }
+
+/* 4 destaque */
+.srPrev { position: absolute; left: 80px; top: 262px; }
+.srPrev > p { font-size: 21px; }
+.srPrevCards { display: grid; grid-template-columns: repeat(2, 96px); gap: 6px 8px; margin-top: 14px; padding: 6px; background: #fff; }
+.srPrevThumb { position: absolute; left: 232px; top: 16px; width: 72px; height: 128px; filter: none; border-radius: 2px; }
+.srCard { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 10px 14px; border-radius: 10px; background: var(--sr-meta);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.srCard span { font-size: 13px; color: #333; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srCard strong { font-size: 21px; font-weight: 800; }
+.srCard.is-small { padding: 5px 7px; border-radius: 6px; gap: 2px; }
+.srCard.is-small span { font-size: 8px; }
+.srCard.is-small strong { font-size: 11px; }
+.srSummary { position: absolute; left: 158px; top: 432px; width: 380px; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.srSummary h3 { font-size: 19px; font-weight: 800; margin-bottom: 12px; }
+.srSummary h3 span { font-weight: 400; font-size: 15px; }
+.srSummaryCards { display: grid; grid-template-columns: 168px 168px; gap: 10px 10px; }
+.srSummaryCards .srCard { height: 78px; }
+.srMeaning { margin-top: 12px !important; width: 360px; font-family: "Open Sauce One", system-ui, sans-serif; font-size: 18px; line-height: 1.32; }
+.srHero { position: absolute; left: 872px; top: 82px; width: 142px; height: 248px; border-radius: 6px; overflow: hidden; }
+.srHeroImg { width: 100%; height: 100%; filter: none; }
+.srIcons { position: absolute; left: 765px; top: 355px; width: 355px; display: flex; justify-content: space-between; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+.srIcons span { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 50px; }
+.srIcons b { font-size: 17px; }
+.srChart { position: absolute; left: 664px; top: 430px; width: 592px; height: 330px; padding: 44px 40px 30px; background: #fff; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 28px; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+.srBar { display: grid; grid-template-columns: 1fr 90px; grid-template-rows: auto auto; gap: 8px 14px; align-items: center; }
+.srBarTrack { height: 22px; background: #F1F2F5; border-radius: 4px; overflow: hidden; }
+.srBarTrack i { display: block; height: 100%; border-radius: 4px; }
+.srBar.is-this i { background: #E01AB5; }
+.srBar.is-typical i { background: repeating-linear-gradient(90deg, #7B7F88 0 14px, transparent 14px 22px); }
+.srBarValue { font-size: 22px; font-weight: 800; }
+.srBarLabel { grid-column: 1 / -1; font-size: 17px; color: #555; }
+.srBar.is-this .srBarLabel { color: #333; }
+.srBar.is-this .srBarLabel::first-letter { color: #E01AB5; }
+.srChart > p { margin-top: auto !important; font-size: 14px; color: #888; }
+
+/* 5 top 5 */
+.srTopCol { position: absolute; top: 300px; width: 410px; }
+.srTopCol.is-0 { left: 100px; }
+.srTopCol.is-1 { left: 568px; }
+.srTopCol.is-2 { left: 1006px; width: 334px; }
+.srTopCol h3 { font-size: 25px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; letter-spacing: -.01em; margin-bottom: 14px; }
+.srTopCol ul { list-style: none; background: #fff; padding: 2px 8px; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.srTopRow { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; height: 74px; border-bottom: 1px solid #E6E7EA; }
+.srTopRow:last-child { border-bottom: 0; }
+.srTopThumb { width: 40px; height: 58px; filter: none; border-radius: 2px; }
+.srTopMain p { font-size: 16px; white-space: nowrap; overflow: hidden; }
+.srTopMain p span { color: #888; font-size: 13px; }
+.srTopIcons { display: flex; gap: 10px; margin-top: 4px !important; color: #555; font-size: 13px !important; }
+.srTopIcons span { display: inline-flex; align-items: center; gap: 3px; font-size: 13px !important; color: #555 !important; }
+.srTopValue { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.srTopValue strong { font-size: 19px; font-weight: 800; }
+.srTopValue span { font-size: 14px; color: #555; }
+.srTopCol.is-2 .srTopRow { height: 60px; grid-template-columns: 34px 1fr auto; }
+.srTopCol.is-2 .srTopThumb { width: 30px; height: 44px; }
+.srTopCol.is-2 .srTopMain p { font-size: 13px; }
+.srTopCol.is-2 .srTopValue strong { font-size: 16px; }
+.srTopCol.is-2 .srTopValue span { font-size: 11px; }
+
+/* 6 insights */
+.srInsights .srTitle { top: 96px; }
+.srInsightList { position: absolute; left: 80px; top: 356px; width: 1010px; font-size: 23.2px; line-height: 1.3; letter-spacing: -.01em; }
+
+/* PDF: um slide por página, tamanho real, sem a interface. */
+@media print {
+  @page { size: 1440px 810px; margin: 0; }
+  body * { visibility: hidden !important; }
+  .srDeck, .srDeck * { visibility: visible !important; }
+  .srDeck { position: absolute; left: 0; top: 0; display: block; gap: 0; }
+  .srFrame { width: 1440px !important; height: 810px !important; border-radius: 0; box-shadow: none; break-after: page; page-break-after: always; }
+  .srSlide { transform: none !important; }
+  .srSlide, .srPhoto, .srCard, .srBarTrack i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

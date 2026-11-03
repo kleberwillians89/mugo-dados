@@ -41,6 +41,7 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "calendar", label: "Calendário" },
   { route: "approval", label: "Aprovação" },
   { route: "media", label: "Mídia On" },
+  { route: "social_report", label: "Relatório social" },
 ];
 
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
