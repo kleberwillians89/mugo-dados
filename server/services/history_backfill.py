@@ -389,7 +389,8 @@ RUNNERS: Dict[str, Callable[[str, Dict[str, str]], Awaitable[int]]] = {
 
 
 def _error_code(exc: BaseException) -> str:
-    return str(getattr(exc, "code", "") or "HISTORY_BLOCK_FAILED")[:60]
+    # Código operacional ou só o tipo da exceção: mensagens de provider podem carregar URL/token.
+    return str(getattr(exc, "code", "") or f"HISTORY_BLOCK_FAILED:{exc.__class__.__name__}")[:60]
 
 
 async def run_history_step(client_id: str, *, budget_seconds: float = 240,
@@ -426,6 +427,13 @@ async def run_history_step(client_id: str, *, budget_seconds: float = 240,
                     rows = await RUNNERS[provider](client_id, block)
                 except Exception as exc:  # noqa: BLE001 — só o código vai para o registro
                     code = _error_code(exc)
+                    if code == "META_QUEUE_BUSY":
+                        # Fila do Meta ainda com a janela anterior: espera, não é falha.
+                        if job_id:
+                            await finish_job_run(job_id, status="skipped", error=code, client_id=client_id,
+                                                 payload_json={**checkpoint, "error_code": code})
+                        blocked[provider] = code
+                        break
                     if job_id:
                         await finish_job_run(job_id, status="error", error=code, client_id=client_id,
                                              payload_json={**checkpoint, "error_code": code})

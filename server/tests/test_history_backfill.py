@@ -159,6 +159,25 @@ class HistoryBackfillTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["state"], "pending")
         self.assertIsNotNone(await hb.active_request("c1"))
 
+    async def test_meta_queue_busy_waits_without_error(self):
+        await hb.request_history("c1", "2026-07-01", requested_by="admin")
+
+        async def busy(client_id, block):
+            self.calls.append(("fbits", block["start"], block["end"]))
+            from services.provider_history import HistorySliceError
+            raise HistorySliceError("fila ocupada", code="META_QUEUE_BUSY")
+
+        hb.RUNNERS["fbits"] = busy
+        result = await hb.run_history_step("c1", budget_seconds=600)
+        self.assertEqual(result["blocked"]["fbits"], "META_QUEUE_BUSY")
+        statuses = [r["status"] for r in self.runs.rows if (r.get("payload_json") or {}).get("provider") == "fbits"]
+        self.assertEqual(statuses, ["skipped"])  # espera, não falha
+        self.assertEqual(result["state"], "pending")
+
+    def test_error_code_never_carries_message(self):
+        self.assertEqual(hb._error_code(ValueError("https://graph.facebook.com/x?access_token=SEGREDO")),
+                         "HISTORY_BLOCK_FAILED:ValueError")
+
     async def test_cancel(self):
         await hb.request_history("c1", "2026-07-01", requested_by="admin")
         await hb.cancel_history("c1")

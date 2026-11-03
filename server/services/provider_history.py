@@ -29,6 +29,29 @@ _CLIENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 PROVIDERS = {"meta_ads", "google_ads", "ga4", "instagram_content"}
 
 
+class HistorySliceError(RuntimeError):
+    """Falha de um bloco com código operacional seguro (sem URL, token ou mensagem do provider)."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _incomplete_code(result: dict) -> str:
+    if result.get("ok") is not True:
+        return "SLICE_NOT_OK"
+    if result.get("skipped"):
+        return "SLICE_SKIPPED_" + str(result.get("reason") or result.get("status") or "LOCKED").upper()[:30]
+    if result.get("read_model_refreshed") is not True:
+        return "SLICE_READ_MODEL_NOT_REFRESHED"
+    return "SLICE_COLLECTION_INCOMPLETE"
+
+
+def _safe_code(exc: BaseException) -> str:
+    code = str(getattr(exc, "code", "") or "").strip()
+    return (code or exc.__class__.__name__)[:60]
+
+
 def validate_history(client_id: str, provider: str, start_date: str, end_date: str) -> None:
     # ID obrigatório e explícito; não existe modo global/default. Empresas
     # antigas usam slug (ex.: "roove"), as novas usam UUID: os dois valem.
@@ -92,7 +115,8 @@ async def backfill_provider_history(*, client_id: str, provider: str, start_date
         result = await enqueue_backfill(client_id=client_id, connection_id=connection,
                                         since=start_date, until=end_date, created_by=None)
         if result.get("requested_since") != start_date or result.get("requested_until") != end_date:
-            raise ValueError("Existe um backfill ativo de outra janela nesta conexão.")
+            # Não é falha: a fila durável processa uma janela por vez; esta entra quando a anterior terminar.
+            raise HistorySliceError("Existe um backfill ativo de outra janela nesta conexão.", code="META_QUEUE_BUSY")
         return {"ok": True, "provider": provider, "client_id": client_id,
                 "start_date": start_date, "end_date": end_date,
                 "backfill_job_id": result["backfill_job_id"], "status": result.get("status"),
@@ -143,7 +167,7 @@ async def backfill_provider_history(*, client_id: str, provider: str, start_date
                 if (result.get("ok") is not True or result.get("skipped")
                         or result.get("read_model_refreshed") is not True
                         or result.get("collection_complete") is not True):
-                    raise RuntimeError("Ingestão/projeção histórica não concluída.")
+                    raise HistorySliceError("Ingestão/projeção histórica não concluída.", code=_incomplete_code(result))
                 count = result.get("rows_upserted", 0)
                 count = int(count.get("total", 0) if isinstance(count, dict) else count)
                 await finish_job_run(job_id, client_id=client_id, connection_id=connection,
@@ -155,12 +179,13 @@ async def backfill_provider_history(*, client_id: str, provider: str, start_date
                 print(f"[provider_history] provider={provider} client_id={client_id} start={part['since']} end={part['until']} status=success rows={count}")
             except (Exception, asyncio.CancelledError) as exc:
                 # Exceções de provider podem carregar URL/token; só código operacional.
+                code = "CANCELLED" if isinstance(exc, asyncio.CancelledError) else _safe_code(exc)
                 await finish_job_run(job_id, client_id=client_id, connection_id=connection, status="error",
-                                     error="PROVIDER_HISTORY_SLICE_FAILED", payload_json=checkpoint)
-                print(f"[provider_history] provider={provider} client_id={client_id} start={part['since']} end={part['until']} status=error")
+                                     error=f"PROVIDER_HISTORY_SLICE_FAILED:{code}"[:120], payload_json={**checkpoint, "error_code": code})
+                print(f"[provider_history] provider={provider} client_id={client_id} start={part['since']} end={part['until']} status=error code={code}")
                 if isinstance(exc, asyncio.CancelledError):
                     raise
-                raise RuntimeError("O bloco histórico falhou; use --resume após resolver a falha.") from None
+                raise HistorySliceError("O bloco histórico falhou; use --resume após resolver a falha.", code=code) from None
     return {"ok": True, "client_id": client_id, "provider": provider,
             "start_date": start_date, "end_date": end_date, "completed_slices": completed,
             "skipped_slices": skipped, "rows_upserted": rows}

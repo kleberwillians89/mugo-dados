@@ -102,8 +102,9 @@ class HistoryOperationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(meta_backfill.build_slices(START, END)), 13)
 
     async def test_meta_active_different_window_does_not_claim_requested_history(self):
-        with patch.object(history,"resolve_connection_for_scope",AsyncMock(return_value={"connection_id":"meta"})), patch.object(history,"enqueue_backfill",AsyncMock(return_value={"requested_since":"2026-10-01","requested_until":END})), self.assertRaises(ValueError):
+        with patch.object(history,"resolve_connection_for_scope",AsyncMock(return_value={"connection_id":"meta"})), patch.object(history,"enqueue_backfill",AsyncMock(return_value={"requested_since":"2026-10-01","requested_until":END})), self.assertRaises(history.HistorySliceError) as caught:
             await history.backfill_provider_history(client_id=CID,provider="meta_ads",start_date=START,end_date=END)
+        self.assertEqual(caught.exception.code, "META_QUEUE_BUSY")
 
     def test_explicit_tenant_provider_and_maximum_90_are_required(self):
         history.validate_history("roove", "ga4", START, END)  # slug legado é válido
@@ -388,3 +389,12 @@ class HistoryReadPaginationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows),1001)
         self.assertEqual([c.kwargs["offset"] for c in read.await_args_list],[0,1000])
         self.assertTrue(all(c.kwargs["filters"]["property_id"]=="eq.123" for c in read.await_args_list))
+
+
+def test_incomplete_slice_codes_are_specific():
+    from services import provider_history as ph
+    assert ph._incomplete_code({"ok": False}) == "SLICE_NOT_OK"
+    assert ph._incomplete_code({"ok": True, "skipped": True, "reason": "locked"}) == "SLICE_SKIPPED_LOCKED"
+    assert ph._incomplete_code({"ok": True, "read_model_refreshed": False}) == "SLICE_READ_MODEL_NOT_REFRESHED"
+    assert ph._incomplete_code({"ok": True, "read_model_refreshed": True}) == "SLICE_COLLECTION_INCOMPLETE"
+    assert ph._safe_code(RuntimeError("token=abc")) == "RuntimeError"
