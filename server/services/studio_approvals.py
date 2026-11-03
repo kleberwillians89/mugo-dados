@@ -27,7 +27,7 @@ from .studio_calendar import ITEMS_TABLE, StudioError, parse_month
 REQUESTS = "studio_approval_requests"
 EVENTS = "studio_approval_events"
 LINK_DAYS = 14
-PUBLIC_FIELDS = "id,scheduled_at,format,pillar,title,hook,caption_draft,status"
+PUBLIC_FIELDS = "id,scheduled_at,format,pillar,title,hook,caption_draft,art_url,status"
 
 
 def frontend_base_url() -> str:
@@ -180,7 +180,7 @@ async def public_view(token: str) -> Dict[str, Any]:
         "contact_name": request.get("contact_name"),
         "status": request["status"],
         "expires_at": request["expires_at"],
-        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft")},
+        "items": [{**{k: item.get(k) for k in ("id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "art_url")},
                    "decision": (latest.get(str(item["id"])) or {}).get("action"),
                    "comment": (latest.get(str(item["id"])) or {}).get("comment")} for item in items],
     }

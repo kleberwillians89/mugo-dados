@@ -537,11 +537,23 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
 
 
-EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note")
+EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url")
+
+
+def clean_art_url(value: Any) -> Optional[str]:
+    """Link da arte (Canva, Google Drive ou outro https). Vazio limpa o campo; http, javascript: etc. são recusados."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not re.match(r"^https://[^\s]+$", text) or len(text) > 1000:
+        raise StudioError("ART_URL_INVALID")
+    return text
 
 
 async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
     clean = {k: v for k, v in patch.items() if k in EDITABLE and v is not None}
+    if "art_url" in clean:
+        clean["art_url"] = clean_art_url(clean["art_url"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -590,6 +602,7 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str) -> 
         "pillar": data.get("pillar"), "title": data["title"], "hook": data.get("hook"),
         "caption_draft": data.get("caption_draft"), "rationale": data.get("rationale"),
         "status": "rascunho", "origin": "manual", "created_by": user_id,
+        "art_url": clean_art_url(data.get("art_url")),
     }
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:

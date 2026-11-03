@@ -26,7 +26,9 @@ export type CalendarSignals = {
 export type CalendarItem = {
   id: string; client_id: string; month: string; scheduled_at: string; format: StudioFormat;
   pillar: string | null; title: string; hook: string | null; caption_draft: string | null; rationale: string | null;
-  signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual";
+  signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado";
+  /** Link da arte (Canva/Google Drive). */
+  art_url?: string | null;
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
   client_edited_at?: string | null; client_edited_fields?: string[];
@@ -35,7 +37,17 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url">>;
+
+/** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
+export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
+export function parseCalendarImport(slides: { index: number; text: string; links: string[] }[], fileName: string) {
+  return http<{ items: ImportRow[]; notes: string[]; slides: number }>(base("/calendar/import/parse"), { method: "POST", body: JSON.stringify({ slides, file_name: fileName }), timeoutMs: 180_000 });
+}
+export function commitCalendarImport(items: ImportRow[], approved: boolean) {
+  const rows = items.map(({ date, time, format, title, caption, art_url }) => ({ date, time, format, title, caption, art_url }));
+  return http<{ created: number; skipped_duplicates: number; invalid: number; months: string[]; approved: boolean }>(base("/calendar/import/commit"), { method: "POST", body: JSON.stringify({ items: rows, approved }) });
+}
 
 const base = (path: string) => clientClientPath(`/studio${path}`);
 
@@ -92,7 +104,7 @@ export function sendForApproval(input: { month: string; item_ids: string[]; cont
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
-export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
+export type PublicApprovalItem = Pick<CalendarItem, "id" | "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "art_url"> & { decision: "aprovado" | "ajuste_solicitado" | null; comment: string | null };
 export type PublicApproval = { client_name: string; month: string; contact_name: string | null; status: string; expires_at: string; items: PublicApprovalItem[] };
 export function getPublicApproval(token: string) { return publicHttp<PublicApproval>(`/api/public/approvals/${encodeURIComponent(token)}`); }
 export function decidePublicApproval(token: string, itemId: string, body: { action: "aprovado" | "ajuste_solicitado"; comment?: string; reviewer_name?: string }) {

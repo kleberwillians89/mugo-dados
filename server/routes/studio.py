@@ -53,6 +53,10 @@ ERRORS = {
     "EMPTY_PATCH": (422, "Nada para alterar."),
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
     "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
+    "ART_URL_INVALID": (422, "Link da arte inválido: use um link https (Canva, Google Drive…)."),
+    "IMPORT_EMPTY": (422, "Não encontrei texto nos slides. Confira o arquivo ou cole o conteúdo."),
+    "IMPORT_TOO_LARGE": (413, "Arquivo grande demais para importar de uma vez (até 150 slides)."),
+    "IMPORT_NOTHING": (422, "Nenhum post válido para importar."),
     "INVALID_STATUS": (422, "Status inválido."),
 }
 
@@ -115,6 +119,7 @@ class ItemCreate(BaseModel):
     hook: Optional[str] = Field(default=None, max_length=400)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
+    art_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ItemPatch(BaseModel):
@@ -128,6 +133,7 @@ class ItemPatch(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.get("/brand-profile")
@@ -187,6 +193,62 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
     uid = await require_user_id(authorization)
     try:
         return {"ok": True, "item": await create_item(cid, body.model_dump(mode="json"), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class ImportSlide(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: int = Field(ge=1, le=1000)
+    text: str = Field(default="", max_length=20000)
+    links: List[str] = Field(default_factory=list, max_length=40)
+
+
+class ImportParseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_name: str = Field(default="", max_length=200)
+    slides: List[ImportSlide] = Field(min_length=1, max_length=150)
+
+
+class ImportRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    date: str = Field(max_length=10)
+    time: str = Field(default="", max_length=5)
+    format: Format
+    title: str = Field(min_length=1, max_length=200)
+    caption: str = Field(default="", max_length=4000)
+    art_url: str = Field(default="", max_length=1000)
+
+
+class ImportCommitInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: List[ImportRow] = Field(min_length=1, max_length=200)
+    approved: bool = False
+
+
+@router.post("/calendar/import/parse")
+async def import_parse(client_id: str, body: ImportParseInput, authorization: str | None = Header(default=None)):
+    """Lê o texto e os links dos slides (extraídos no navegador) e devolve os posts para revisão. Nada é gravado."""
+    from services.studio_import import parse_slides
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        from services.studio_engines import throttle
+        throttle(cid)
+        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/calendar/import/commit", status_code=201)
+async def import_commit(client_id: str, body: ImportCommitInput, authorization: str | None = Header(default=None)):
+    """Grava os posts revisados. approved=true: calendário já aprovado pelo cliente fora da plataforma."""
+    from services.studio_import import commit_import
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await commit_import(cid, [r.model_dump() for r in body.items], approved=body.approved, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
 
