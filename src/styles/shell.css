@@ -290,10 +290,9 @@
 @media (min-width: 1024px){
   .appFrameMain{ margin-left: var(--sidebar-width); }
 }
-/* Sidebar alta demais para a janela: rola, sem esconder a conta. */
-@media (min-width: 1024px) and (max-height: 600px){
-  .appSidebar{ overflow-y: auto; }
-}
+/* Menu maior que a janela (muitos itens, notebook): rola por inteiro até a conta e o "nova empresa". */
+.appSidebar{ overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.appSidebar > *{ flex-shrink: 0; }
 
 @media (max-width: 1023px){
   .appTopbar{
