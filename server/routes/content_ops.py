@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -181,6 +182,11 @@ async def write_clipping_settings(client_id: str, body: ClippingSettingsInput, a
         return await clipping.save_settings(cid, body.model_dump(exclude_none=True), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+    except httpx.HTTPStatusError as exc:
+        # Coluna do radar ausente no banco (migração 000073 não aplicada): erro claro em vez de 500 sem CORS.
+        print(f"[clipping] save_settings client_id={cid} status={exc.response.status_code if exc.response is not None else '?'}")
+        raise HTTPException(status_code=503, detail="Não foi possível salvar o radar: o banco ainda não tem os campos novos "
+                                                    "do clipping (migração 000073). Fale com a equipe técnica.") from None
 
 
 @router.post("/clipping/refresh")
