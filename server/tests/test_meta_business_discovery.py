@@ -448,8 +448,8 @@ class PageAndInstagramDiscoveryTests(_DiscoveryCase):
         self.assertEqual(len(pages), 1)
         self.assertEqual(pages[0]["discovery_sources"], ["me_accounts", "business_owned", "business_client"])
         self.assertEqual(len(result["instagram_accounts"]), 1)
-        # Página direta já tem detalhe: nenhuma verificação extra além da existente.
-        self.assertEqual(graph.paths.count("/page-a"), 1)
+        # /me/accounts já trouxe nome e Instagram: nenhuma chamada extra por Página.
+        self.assertEqual(graph.paths.count("/page-a"), 0)
 
     async def test_instagram_discovered_only_from_business_owned_edge(self):
         result, logs, _graph = await self.discover(base_routes(**{
