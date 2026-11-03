@@ -277,7 +277,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     api.listGenericConnections.mockResolvedValue(integrations("vinhos", [entry("fbits")]));
     api.getFbitsOrdersSummary.mockResolvedValue(fbitsSummary("vinhos", 0));
     await render();
-    expect(container.textContent).toContain("Ainda não atualizado");
+    expect(container.textContent).toContain("Sem atualização confirmada");
   });
 
   it("falha de atualização com dado na tela não vira alarme nem apaga os números", async () => {
@@ -321,7 +321,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(3);
     await click(button("Mês passado"));
     expect(periodActions.setPeriod).toHaveBeenCalledTimes(4);
-    expect(container.textContent).toContain("Ainda não atualizado");
+    expect(container.textContent).toContain("Sem atualização confirmada");
     expect(container.textContent).not.toContain("Atualizado em 30/09/2026");
   });
 

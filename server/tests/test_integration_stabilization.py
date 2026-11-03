@@ -436,7 +436,9 @@ class Ga4StructuredErrorTests(unittest.TestCase):
 
 
 class Ga4ReportIsolationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_sync_builds_eight_valid_report_payloads(self):
+    async def test_sync_builds_nine_valid_report_payloads(self):
+        # transactions, daily, daily_commerce, channels, campaigns, events,
+        # landing_pages, devices e funnel (funil do site).
         report = AsyncMock(return_value={"rows": [], "row_count": 0})
         with patch.object(ga4_sync, "run_ga4_report", report), patch.object(ga4_sync, "refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})):
             result = await ga4_sync._sync_ga4_for_period(
@@ -444,7 +446,7 @@ class Ga4ReportIsolationTests(unittest.IsolatedAsyncioTestCase):
                 access_token="safe", days=1, record_job_run=False,
             )
         self.assertTrue(result["ok"])
-        self.assertEqual(report.await_count, 8)
+        self.assertEqual(report.await_count, 9)
         for call in report.await_args_list:
             self.assertEqual(call.kwargs["property_id"], "123456789")
             self.assertLessEqual(len(call.kwargs["metrics"]), 10)
