@@ -47,6 +47,7 @@ on:
 
 permissions:
   contents: read
+  issues: write   # só para o alerta de jobs parados (abre/fecha uma issue, sem segredo nenhum no texto)
 
 jobs:
   run:
@@ -112,3 +113,38 @@ jobs:
         run: |
           # shellcheck disable=SC2086
           python .github/scripts/run_job.py $CMD
+
+      # Alerta de jobs parados: uma issue só (label jobs-parados). Abre na 1ª falha, atualiza o corpo nas
+      # seguintes (sem spam de comentários) e fecha sozinha quando um job volta a dar certo. O GitHub
+      # avisa por e-mail quem acompanha o repositório. Funciona mesmo com o MUGO_JOBS_ENV quebrado.
+      - name: Alerta de job com falha
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMD: ${{ steps.pick.outputs.cmd }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create jobs-parados --color B22234 --description "Jobs automáticos falhando" 2>/dev/null || true
+          now="$(TZ=America/Sao_Paulo date '+%d/%m %H:%M')"
+          number="$(gh issue list --label jobs-parados --state open --json number --jq '.[0].number // empty')"
+          body="Último job com falha: \`${CMD%% *}\` em ${now} (horário de Brasília).
+
+          Execução: ${RUN_URL}
+
+          Causa mais comum: segredo MUGO_JOBS_ENV incompleto (ele precisa do bloco inteiro de variáveis do Render).
+          Esta issue fecha sozinha quando um job voltar a rodar com sucesso."
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body "$body"
+          else
+            gh issue create --title "Jobs automáticos falhando" --label jobs-parados --body "$body"
+          fi
+
+      - name: Fecha o alerta quando volta a funcionar
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMD: ${{ steps.pick.outputs.cmd }}
+        run: |
+          for number in $(gh issue list --label jobs-parados --state open --json number --jq '.[].number'); do
+            gh issue close "$number" --comment "Voltou: \`${CMD%% *}\` rodou com sucesso em $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')."
+          done
