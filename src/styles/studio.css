@@ -449,3 +449,14 @@
 .studioChip.is-on{background:#e3f1e8;color:#26734d}
 .engageAi{display:flex;justify-content:space-between;gap:var(--space-3);align-items:center;flex-wrap:wrap;padding:var(--space-3) var(--space-4);border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface)}
 .engageAi small{display:block;color:var(--text-muted);font-size:12px;max-width:70ch;margin-top:4px}
+/* Modal do post: o painel da direita rola dentro do modal (item de grid precisa de min-height:0)
+   e os botões de ação ficam presos no rodapé, sempre visíveis. */
+.postModal{grid-template-rows:minmax(0,1fr)}
+.postModal>*{min-height:0}
+.postPanel{max-height:calc(100vh - 48px);overscroll-behavior:contain}
+.postPanel .postActions{position:sticky;bottom:-20px;margin:0 -22px -20px;padding:12px 22px 16px;background:#fff;border-top:1px solid rgba(21,24,27,.08);z-index:1}
+@media (max-width:860px){
+  .postModal{grid-template-rows:none}
+  .postPanel{max-height:none}
+  .postPanel .postActions{bottom:0;margin:0 -22px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+}
