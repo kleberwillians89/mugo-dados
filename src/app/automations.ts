@@ -59,6 +59,13 @@ export const syncGoogleCalendar = () => http<{ changed: number }>(`${base}/googl
 export const listAllMeetings = (start: string, end: string) => http<{ items: Meeting[] }>(`${base}/meetings?${new URLSearchParams({ start, end })}`);
 export const listClientMeetings = (start: string, end: string) => http<{ items: Meeting[] }>(clientClientPath(`/meetings?${new URLSearchParams({ start, end })}`));
 
+export type HealthCheck = { ok: boolean; label: string; fix: string | null };
+export type ClientHealth = {
+  client_id: string; name: string; score: number; checks: HealthCheck[]; ai_comments: boolean;
+  whatsapp: { sent: number; failed: number; read: number; errors: [string, number][] };
+};
+export const getClientHealth = () => http<{ clients: ClientHealth[] }>(`${base}/client-health`);
+
 export const OUTBOX_STATUS: Record<string, string> = {
   agendado: "Agendado", processando: "Processando", enviado: "Enviado", falhou: "Falhou", cancelado: "Cancelado", bloqueado: "Bloqueado", simulado: "Simulado",
 };

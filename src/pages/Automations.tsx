@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
-  AUDIENCE, DELIVERY, OUTBOX_STATUS, OWNER, calendarStart, deleteTeamMember, getOutbox, getOverview, getResponses, getUsage,
+  AUDIENCE, DELIVERY, OUTBOX_STATUS, OWNER, calendarStart, deleteTeamMember, getClientHealth, getOutbox, getOverview, getResponses, getUsage,
   listAllMeetings, listGoogleCalendars, listTeam, processQueue, saveTeamMember, selectGoogleCalendar, simulateAutomation,
   syncCatalog, syncGoogleCalendar, updateAutomation, when,
-  type Automation, type Meeting, type OutboxItem, type Overview, type ResponseItem, type Simulation, type TeamInput, type TeamMember, type Usage,
+  type Automation, type ClientHealth, type Meeting, type OutboxItem, type Overview, type ResponseItem, type Simulation, type TeamInput, type TeamMember, type Usage,
 } from "../app/automations";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -11,9 +11,9 @@ import SegmentedControl from "../components/data/SegmentedControl";
 import Drawer from "../components/Drawer";
 import "../styles/automations.css";
 
-type Tab = "automacoes" | "historico" | "respostas" | "consumo" | "equipe" | "reunioes";
+type Tab = "automacoes" | "clientes" | "historico" | "respostas" | "consumo" | "equipe" | "reunioes";
 const TABS = [
-  { id: "automacoes", label: "Automações" }, { id: "historico", label: "Histórico" }, { id: "respostas", label: "Respostas" },
+  { id: "automacoes", label: "Automações" }, { id: "clientes", label: "Saúde dos clientes" }, { id: "historico", label: "Histórico" }, { id: "respostas", label: "Respostas" },
   { id: "consumo", label: "Consumo" }, { id: "equipe", label: "Equipe" }, { id: "reunioes", label: "Reuniões" },
 ];
 const EMPTY_MEMBER: TeamInput = { name: "", email: "", phone: "", active: true, receives_internal: true, receives_campaign_alerts: false };
@@ -42,6 +42,7 @@ export default function Automations() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [health, setHealth] = useState<ClientHealth[] | null>(null);
   const [calendars, setCalendars] = useState<{ id: string; summary: string; primary: boolean }[] | null>(null);
   const [editingMember, setEditingMember] = useState<(TeamInput & { id?: string }) | null>(null);
   const [simulating, setSimulating] = useState<{ a: Automation; params: Record<string, string>; result: Simulation | null } | null>(null);
@@ -65,6 +66,7 @@ export default function Automations() {
         if (tab === "respostas") setResponses((await getResponses()).items);
         if (tab === "consumo") setUsage(await getUsage());
         if (tab === "equipe") setTeam((await listTeam()).items);
+        if (tab === "clientes") setHealth((await getClientHealth()).clients);
         if (tab === "reunioes") {
           const start = new Date(); const end = new Date(Date.now() + 30 * 86400000);
           setMeetings((await listAllMeetings(start.toISOString(), end.toISOString())).items);
@@ -237,6 +239,18 @@ export default function Automations() {
         <button type="button" className="ds-button" onClick={() => setEditingMember({ ...m, phone: m.phone || "" })}>Editar</button>
         <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={async () => { const ok = await run("del", () => deleteTeamMember(m.id), "Não foi possível remover."); if (ok !== null) setTeam((await listTeam()).items); }}>Remover</button>
       </li>)}</ul>}
+    </section> : null}
+
+    {tab === "clientes" ? <section className="autoCard"><h2>Saúde dos clientes</h2>
+      <p className="autoMuted">O que falta para a IA ser fiel a cada marca e como está o WhatsApp (últimos 30 dias). Pior nota primeiro.</p>
+      {!health ? <p>Carregando…</p> : <div className="autoScroll"><table className="ds-table autoTable">
+        <thead><tr><th>Empresa</th><th>Nota</th><th>O que falta</th><th>WhatsApp (30 dias)</th></tr></thead>
+        <tbody>{health.map((c) => <tr key={c.client_id}>
+          <td><strong>{c.name}</strong><small>{c.ai_comments ? "IA nos comentários ligada" : "IA nos comentários desligada"}</small></td>
+          <td><span className={`autoMeta ${c.score >= 85 ? "is-approved" : c.score >= 60 ? "is-pending" : "is-rejected"}`}>{c.score}</span></td>
+          <td>{c.checks.filter((k) => !k.ok).length ? c.checks.filter((k) => !k.ok).map((k) => <small key={k.label}><b>{k.label}:</b> {k.fix}</small>) : <small>Tudo certo ✓</small>}</td>
+          <td>{c.whatsapp.sent} enviada(s) · {c.whatsapp.read} lida(s){c.whatsapp.failed ? <small className="autoError">{c.whatsapp.failed} falha(s): {c.whatsapp.errors.map(([code, n]) => `${code} (${n})`).join(", ")}</small> : null}</td>
+        </tr>)}</tbody></table></div>}
     </section> : null}
 
     {tab === "reunioes" ? <section className="autoCard"><h2>Próximos 30 dias</h2>
