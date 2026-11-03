@@ -85,7 +85,7 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
             view = await sa.public_view(TOKEN)
         self.assertEqual(reads.await_args_list[0].kwargs["filters"], {"token_hash": f"eq.{sa.hash_token(TOKEN)}"})
         self.assertEqual(reads.await_args_list[1].kwargs["filters"]["client_id"], "eq.roove")
-        self.assertEqual(set(view["items"][0]), {"id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "decision", "comment"})
+        self.assertEqual(set(view["items"][0]), {"id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "art_url", "decision", "comment"})
         self.assertEqual(view["items"][0]["decision"], "aprovado")
         self.assertEqual(view["client_name"], "Roove")
 

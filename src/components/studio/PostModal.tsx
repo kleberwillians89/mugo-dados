@@ -3,6 +3,7 @@ import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type Stud
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
+import ArtLink from "./ArtLink";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
@@ -98,6 +99,9 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+        {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive)<input type="url" inputMode="url" maxLength={1000} pattern="https://.*" placeholder="https://www.canva.com/design/…"
+          value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
+        <ArtLink url={(draft.art_url || "").startsWith("https://") ? draft.art_url : null} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
         {item?.client_edited_at ? <p className="postEdited">Editado pelo cliente em {new Date(item.client_edited_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{item.client_edited_fields?.length ? ` (${item.client_edited_fields.map((f) => ({ title: "título", hook: "gancho", caption_draft: "legenda", scheduled_at: "data" } as Record<string, string>)[f] || f).join(", ")})` : ""}. {clientMode ? "A equipe Mugô já foi avisada." : "Confira antes de publicar."}</p> : null}

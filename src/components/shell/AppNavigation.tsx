@@ -50,7 +50,7 @@ const OPERATION_ITEMS: NavItem[] = [
   { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
 ];
-const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "campaigns", label: "Redação" }];
+const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "campaigns", label: "Redação" }, { route: "engagement", label: "Comentários" }];
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);

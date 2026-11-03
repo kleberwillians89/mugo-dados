@@ -10,6 +10,7 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
@@ -44,6 +45,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
   const [modal, setModal] = useState<{ item: CalendarItem | null; draft: PostDraft } | null>(null);
   const [profile, setProfile] = useState<BrandProfile | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -128,12 +130,13 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   function openNew(at: string) {
     setError(null);
     const [date, time] = at.includes("T") ? at.split("T") : [at, "19:00"];
-    setModal({ item: null, draft: { date, time, format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "" } });
+    setModal({ item: null, draft: { date, time, format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
   }
 
   async function saveDraft(draft: PostDraft) {
     const body = { scheduled_at: toSaoPauloIso(draft.date, draft.time), format: draft.format, pillar: draft.pillar || undefined,
-      title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined };
+      title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined,
+      art_url: (draft.art_url || "").trim() };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;
@@ -235,6 +238,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   return <Shell title="Calendário" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Calendário editorial" controls={team ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => void openProfile()} disabled={Boolean(busy)}>Perfil da marca</button>
+      <button type="button" className="ds-button" onClick={() => setImportOpen(true)} disabled={Boolean(busy)}>Importar calendário</button>
       <button type="button" className="ds-button" onClick={() => { setError(null); setChat((c) => ({ ...c, open: true })); }} disabled={Boolean(busy)}>Estratégia (IA)</button>
       <button type="button" className="ds-button" onClick={() => openNew(view === "dia" ? cursor : `${month}-01`)} disabled={Boolean(busy)}>+ Pauta</button>
       <button type="button" className="ds-button" onClick={openSend} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
@@ -324,6 +328,9 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         </form>
       </div>
     </Drawer>
+
+    {team ? <ImportCalendar open={importOpen} onClose={() => setImportOpen(false)}
+      onDone={(summary) => { setImportOpen(false); setNotes([summary]); void load(); }} /> : null}
 
     <Drawer open={profileOpen} title="Perfil da marca" description="Base para a IA escrever no jeito da marca." width="lg" onClose={() => { if (!busy) setProfileOpen(false); }}>
       {profile ? <form className="studioForm" onSubmit={submitProfile}>

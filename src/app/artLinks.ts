@@ -1,0 +1,24 @@
+/** Link da arte (Canva, Google Drive ou outro https): tipo e prévia. */
+
+export type ArtKind = "canva" | "drive" | "outro";
+
+export function artKind(url: string): ArtKind {
+  try {
+    const host = new URL(url).hostname;
+    if (host.endsWith("canva.com") || host.endsWith("canva.link")) return "canva";
+    if (host === "drive.google.com" || host === "docs.google.com") return "drive";
+  } catch { /* link inválido cai em "outro" */ }
+  return "outro";
+}
+
+/** Id do arquivo do Drive em /file/d/<id>/… ou ?id=<id>. */
+export function driveId(url: string): string | null {
+  const m = url.match(/\/d\/([A-Za-z0-9_-]{10,})/) || url.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  return m ? m[1] : null;
+}
+
+/** Canva: /design/<id>/<token>/view vira /view?embed (só abre se o link estiver público). */
+export function canvaEmbed(url: string): string | null {
+  const m = url.match(/canva\.com\/design\/([A-Za-z0-9_-]+)(?:\/([A-Za-z0-9_-]+))?/);
+  return m ? `https://www.canva.com/design/${m[1]}${m[2] && m[2] !== "view" && m[2] !== "edit" ? `/${m[2]}` : ""}/view?embed` : null;
+}

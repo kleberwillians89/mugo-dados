@@ -6,12 +6,13 @@ membership resolvida no backend; o client_id da URL é só um pedido.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
     StudioError, create_item, delete_item, generate_month, list_items, load_profile,
@@ -53,6 +54,10 @@ ERRORS = {
     "EMPTY_PATCH": (422, "Nada para alterar."),
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
     "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
+    "ART_URL_INVALID": (422, "Link da arte inválido: use um link https (Canva, Google Drive…)."),
+    "IMPORT_EMPTY": (422, "Não encontrei texto nos slides. Confira o arquivo ou cole o conteúdo."),
+    "IMPORT_TOO_LARGE": (413, "Arquivo grande demais para importar de uma vez (até 150 slides)."),
+    "IMPORT_NOTHING": (422, "Nenhum post válido para importar."),
     "INVALID_STATUS": (422, "Status inválido."),
 }
 
@@ -115,6 +120,7 @@ class ItemCreate(BaseModel):
     hook: Optional[str] = Field(default=None, max_length=400)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
+    art_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ItemPatch(BaseModel):
@@ -128,6 +134,7 @@ class ItemPatch(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.get("/brand-profile")
@@ -187,6 +194,62 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
     uid = await require_user_id(authorization)
     try:
         return {"ok": True, "item": await create_item(cid, body.model_dump(mode="json"), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class ImportSlide(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: int = Field(ge=1, le=1000)
+    text: str = Field(default="", max_length=20000)
+    links: List[str] = Field(default_factory=list, max_length=40)
+
+
+class ImportParseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_name: str = Field(default="", max_length=200)
+    slides: List[ImportSlide] = Field(min_length=1, max_length=150)
+
+
+class ImportRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    date: str = Field(max_length=10)
+    time: str = Field(default="", max_length=5)
+    format: Format
+    title: str = Field(min_length=1, max_length=200)
+    caption: str = Field(default="", max_length=4000)
+    art_url: str = Field(default="", max_length=1000)
+
+
+class ImportCommitInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: List[ImportRow] = Field(min_length=1, max_length=200)
+    approved: bool = False
+
+
+@router.post("/calendar/import/parse")
+async def import_parse(client_id: str, body: ImportParseInput, authorization: str | None = Header(default=None)):
+    """Lê o texto e os links dos slides (extraídos no navegador) e devolve os posts para revisão. Nada é gravado."""
+    from services.studio_import import parse_slides
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        from services.studio_engines import throttle
+        throttle(cid)
+        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/calendar/import/commit", status_code=201)
+async def import_commit(client_id: str, body: ImportCommitInput, authorization: str | None = Header(default=None)):
+    """Grava os posts revisados. approved=true: calendário já aprovado pelo cliente fora da plataforma."""
+    from services.studio_import import commit_import
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await commit_import(cid, [r.model_dump() for r in body.items], approved=body.approved, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -697,5 +760,141 @@ async def public_approval_decide(token: str, item_id: UUID, body: DecisionInput)
     try:
         return await public_decide(token, str(item_id), action=body.action, comment=body.comment,
                                    reviewer_name=body.reviewer_name)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+# ---------------------------------------------------------------- engajamento no Instagram (tipo ManyChat)
+
+
+class EngagementReply(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    text: str = Field(min_length=1, max_length=1000)
+    direct: bool = False
+
+
+class EngagementRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    keywords: List[str] = Field(min_length=1, max_length=20)
+    media_id: Optional[str] = Field(default=None, pattern=r"^[0-9]{5,40}$")
+    public_reply: Optional[str] = Field(default=None, max_length=300)
+    dm_message: Optional[str] = Field(default=None, max_length=1000)
+    active: bool = False
+
+
+def _rule_row(body: EngagementRule) -> Dict[str, Any]:
+    keywords = [k.strip()[:60] for k in body.keywords if k.strip()]
+    if not keywords or not (body.public_reply or body.dm_message):
+        raise HTTPException(422, "Informe pelo menos uma palavra-chave e uma resposta (pública ou no Direct).")
+    return {"name": body.name, "keywords": keywords, "media_id": body.media_id or None,
+            "public_reply": body.public_reply or None, "dm_message": body.dm_message or None, "active": body.active}
+
+
+ERRORS.update({
+    "IG_NOT_CONNECTED": (409, "Conecte o Instagram desta marca em Integrações."),
+    "IG_PERMISSION_MISSING": (409, "Falta permissão no Meta: reconecte o Instagram da marca em Integrações para liberar respostas e Direct."),
+    "IG_PAGE_NOT_FOUND": (409, "Não achei a página do Facebook ligada a este Instagram. Reconecte a marca escolhendo a página."),
+    "IG_SEND_FAILED": (502, "O Instagram recusou o envio agora. Tente de novo em instantes."),
+    "DIRECT_WINDOW_CLOSED": (422, "O Instagram só permite Direct até 7 dias depois do comentário."),
+    "COMMENT_NOT_FOUND": (404, "Comentário não encontrado nesta marca."),
+    "REPLY_EMPTY": (422, "Escreva a resposta."),
+})
+
+
+@router.get("/engagement/comments")
+async def engagement_inbox(client_id: str, open_only: bool = True, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import inbox
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    return await inbox(cid, only_open=open_only)
+
+
+@router.post("/engagement/refresh")
+async def engagement_refresh(client_id: str, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import capabilities, credentials, refresh_comments
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        creds = await credentials(cid)
+        return {"comments": await refresh_comments(cid, creds=creds), "can": capabilities(creds["scopes"])}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/engagement/comments/{comment_id}/suggest")
+async def engagement_suggest(client_id: str, comment_id: str, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import suggest_reply
+    from services.studio_engines import throttle
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        throttle(cid)
+        return await suggest_reply(cid, comment_id)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/engagement/comments/{comment_id}/reply")
+async def engagement_reply(client_id: str, comment_id: str, body: EngagementReply, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import manual_reply
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/engagement/rules")
+async def engagement_rules(client_id: str, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import autoreply_enabled, list_rules
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    return {"rules": await list_rules(cid), "autoreply_enabled": autoreply_enabled()}
+
+
+@router.post("/engagement/rules", status_code=201)
+async def engagement_rule_create(client_id: str, body: EngagementRule, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import RULES
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    row = await sb_insert(RULES, {"client_id": cid, "created_by": uid, **_rule_row(body)})
+    return {"rule": row}
+
+
+@router.put("/engagement/rules/{rule_id}")
+async def engagement_rule_update(client_id: str, rule_id: UUID, body: EngagementRule, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import RULES
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    rows = await sb_update(RULES, filters={"client_id": f"eq.{cid}", "id": f"eq.{rule_id}"},
+                           patch={**_rule_row(body), "updated_at": datetime.now(timezone.utc).isoformat()})
+    if not rows:
+        raise HTTPException(404, "Gatilho não encontrado.")
+    return {"rule": rows[0]}
+
+
+@router.delete("/engagement/rules/{rule_id}")
+async def engagement_rule_delete(client_id: str, rule_id: UUID, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import RULES
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    rows = await sb_delete(RULES, filters={"client_id": f"eq.{cid}", "id": f"eq.{rule_id}"})
+    if not rows:
+        raise HTTPException(404, "Gatilho não encontrado.")
+    return {"ok": True}
+
+
+@router.post("/engagement/rules/run")
+async def engagement_rules_run(client_id: str, authorization: str | None = Header(default=None)):
+    """Roda os gatilhos agora (o job faz o mesmo a cada 5 min). Sem IG_AUTOREPLY_ENABLED=true, só simula."""
+    from services.ig_engagement import run_rules
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await run_rules(cid)
     except StudioError as exc:
         raise _http(exc) from None
