@@ -140,6 +140,18 @@ async def write_profile(client_id: str, body: ProfileInput, authorization: str |
     return await save_profile(cid, body.model_dump(mode="json"), user_id=uid)
 
 
+@router.get("/central")
+async def read_central(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Central da marca: o mês numa página. Cliente vê a versão filtrada (o que já pode ver em cada módulo)."""
+    cid = await require_client_read(client_id, authorization)
+    try:
+        target = parse_month(month)
+    except StudioError as exc:
+        raise _http(exc) from None
+    from services.studio_central import build_central
+    return await build_central(cid, target, agency=await is_agency_user(authorization))
+
+
 @router.get("/calendar")
 async def read_calendar(client_id: str, month: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)

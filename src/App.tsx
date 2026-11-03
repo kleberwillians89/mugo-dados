@@ -36,6 +36,7 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
@@ -861,7 +862,9 @@ function PrivateApp() {
         />
       ) : (
       <>
-      {route === "goals" ? (
+      {route === "central" ? (
+        <Central key={`central:${activeClientId}`} />
+      ) : route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "calendar" ? (
         <Calendar key={`calendar:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />

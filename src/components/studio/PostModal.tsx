@@ -111,6 +111,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {signals?.basis?.hours ? <li>⏱ Melhor faixa: {signals.basis.hours}{signals.basis.slot_reach_index ? ` (alcance ${signals.basis.slot_reach_index.toLocaleString("pt-BR")}x a média)` : ""}{signals.basis.confidence ? ` · confiança ${signals.basis.confidence}` : ""}</li> : null}
             {signals?.trend ? <li>🔥 Em alta: <a href={signals.trend.source_url} target="_blank" rel="noreferrer noopener">{signals.trend.topic}</a></li> : null}
             {signals?.palavras_evitar_encontradas?.length ? <li className="is-warning">⚠ Palavra a evitar: {signals.palavras_evitar_encontradas.join(", ")}</li> : null}
+            {(signals?.fora_da_marca || []).map((g) => <li key={`${g.type}:${g.text}`} className="is-warning">⚠ {g.fix}</li>)}
           </ul>
         </details> : null}
         {item?.boost ? <p className="postBoost">⚡ Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}

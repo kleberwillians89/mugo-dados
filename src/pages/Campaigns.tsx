@@ -63,6 +63,8 @@ function PieceCard({ campaignId, piece, busy, onSaved, run }: {
       </div></header>
     {over ? <p className="studioError">{over} texto(s) acima do limite da plataforma. Ajuste antes de subir.</p> : null}
     {piece.flags.length ? <p className="clipWarn">Revise: {piece.flags.join(", ")}</p> : null}
+    {piece.guard?.filter((g) => g.type !== "palavra_proibida").length ? <ul className="guardList" aria-label="Fora da marca">
+      {piece.guard.filter((g) => g.type !== "palavra_proibida").map((g) => <li key={`${g.type}:${g.text}`}>⚠ {g.fix}</li>)}</ul> : null}
     {ask !== null ? <div className="pieceAsk">
       <input placeholder="O que mudar? (opcional, ex.: mais direto, citar o frete grátis)" value={ask} maxLength={600} onChange={(e) => setAsk(e.target.value)} />
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void run(`r:${piece.channel}`, () => regeneratePiece(campaignId, piece.channel, ask), "Não foi possível regenerar.").then((r) => { if (r) { onSaved(r.campaign); setAsk(null); } })}>

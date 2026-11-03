@@ -9,7 +9,10 @@ IA escreva a partir de fatos da conta e não de clichês:
 * posts que mais e menos alcançaram em relação ao próprio formato;
 * melhores dias e horários (posting_times);
 * metas do mês e a última análise salva;
-* aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar.
+* aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar;
+* CÉREBRO DA MARCA (ligação entre módulos): vendas por origem, plano do Mídia On do mês,
+  campanhas ativas da Redação, notícias relevantes do Clipping e o andamento do Calendário.
+  Assim a pauta, a copy, o anúncio e a mensagem de sexta seguem a mesma linha.
 
 Cada fonte é lida com limite de tempo; fonte que falha vira "lacuna" e o
 pacote segue. Nada aqui chama a IA nem expõe dado de comprador.
@@ -184,7 +187,9 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     today = datetime.now(SAO_PAULO).date()
     start, end = (today - timedelta(days=days - 1)).isoformat(), today.isoformat()
     gaps: List[str] = []
-    profile, business, snap, posts, timing, goals, analysis, learnings = await asyncio.gather(
+    month = today.replace(day=1)
+    (profile, business, snap, posts, timing, goals, analysis, learnings,
+     origin, media, campaigns, clipping, calendar_month) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -193,6 +198,11 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("metas", gaps, lambda: _goals(client_id), []),
         _safe("ultima_analise", gaps, lambda: _analysis(client_id), {}),
         _safe("aprendizados_de_aprovacao", gaps, lambda: approval_learnings(client_id), {}),
+        _safe("vendas_por_origem", gaps, lambda: _sales_origin(client_id, today), {}),
+        _safe("plano_de_midia", gaps, lambda: _media_plan(client_id, month), {}),
+        _safe("campanhas_ativas", gaps, lambda: _active_campaigns(client_id), []),
+        _safe("clipping", gaps, lambda: _clipping(client_id), {}),
+        _safe("calendario_do_mes", gaps, lambda: _calendar_month(client_id, month), {}),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -207,6 +217,11 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "metas_do_mes": goals,
         "ultima_analise": analysis,
         "aprendizados": learnings,
+        "vendas_por_origem": origin,
+        "plano_de_midia": media,
+        "campanhas_ativas": campaigns,
+        "clipping": clipping,
+        "calendario_do_mes": calendar_month,
         "lacunas": sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
     }
     _CACHE[key] = (time.monotonic(), package)
@@ -226,6 +241,77 @@ def _empty_sections(profile, business, snap, posts, goals) -> set:
     if not goals:
         missing.add("sem_metas_no_mes")
     return missing
+
+
+# --------------------------------------------------------------------------
+# Cérebro da marca: o que cada módulo decidiu, para os outros saberem
+# --------------------------------------------------------------------------
+
+async def _sales_origin(client_id: str, today: date) -> Dict[str, Any]:
+    from .sales_by_origin import build_sales_by_origin
+    end = today - timedelta(days=1)
+    data = await build_sales_by_origin(client_id, start=(end - timedelta(days=29)).isoformat(), end=end.isoformat())
+    if data.get("status") not in ("available", "partial"):
+        return {}
+    totals = data.get("totals") or {}
+    return {"periodo": "30 dias", "faturamento": _num(totals.get("revenue")), "pedidos": totals.get("orders"),
+            "por_origem": [{"origem": c.get("channel"), "vendas": _num(c.get("revenue")), "pedidos": c.get("orders")}
+                           for c in (data.get("channels") or [])[:6]],
+            "campanhas_que_venderam": [{"campanha": clean_text(c.get("campaign"), 120), "vendas": _num(c.get("revenue")),
+                                        "pedidos": c.get("orders")} for c in (data.get("campaigns") or [])[:5]]}
+
+
+async def _media_plan(client_id: str, month: date) -> Dict[str, Any]:
+    from .media_plan import plan_vs_actual
+    data = await plan_vs_actual(client_id, month.strftime("%Y-%m"))
+    plan = data.get("plan") or {}
+    if not plan and not data.get("channels"):
+        return {}
+    return {"mes": month.strftime("%Y-%m"), "objetivo": plan.get("objective"), "verba_total": _num(plan.get("budget")),
+            "por_canal": [{"canal": r["label"], "planejado": r.get("planned_spend"), "gasto_ate_agora": r.get("spent"),
+                           "ritmo": r.get("pace"), "roas": r.get("roas"), "cpa": r.get("cpa")} for r in data.get("channels") or []],
+            "observacoes": clean_text(plan.get("notes"), 300) or None}
+
+
+async def _active_campaigns(client_id: str) -> List[Dict[str, Any]]:
+    since = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    rows = await sb_select("studio_campaigns", select="name,briefing,package,status,created_at", order="created_at.desc", limit=5,
+                           filters={"client_id": f"eq.{client_id}", "status": "neq.arquivada", "created_at": f"gte.{since}"})
+    out = []
+    for r in rows:
+        brief, concept = r.get("briefing") or {}, (r.get("package") or {}).get("concept") or {}
+        out.append({"campanha": clean_text(r.get("name"), 120), "objetivo": clean_text(brief.get("objective"), 200),
+                    "oferta": clean_text(brief.get("offer"), 300), "periodo": f"{brief.get('start') or '?'} a {brief.get('end') or '?'}",
+                    "conceito": clean_text(concept.get("ideia"), 300), "status": r.get("status")})
+    return out
+
+
+async def _clipping(client_id: str) -> Dict[str, Any]:
+    since = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    rows = await sb_select("studio_clippings", select="title,source,kind,sentiment,relevant,published_at", order="published_at.desc.nullslast",
+                           limit=40, filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}", "status": "neq.arquivado"})
+    rows = [r for r in rows if r.get("relevant") is not False]
+    if not rows:
+        return {}
+    return {"ultimos_14_dias": len(rows),
+            "negativas_da_marca": sum(1 for r in rows if r["kind"] == "marca" and r.get("sentiment") == "negativo"),
+            "noticias": [{"manchete": clean_text(r.get("title"), 160), "fonte": clean_text(r.get("source"), 60), "tipo": r["kind"],
+                          "sentimento": r.get("sentiment")} for r in rows[:6]]}
+
+
+async def _calendar_month(client_id: str, month: date) -> Dict[str, Any]:
+    rows = await sb_select("studio_calendar_items", select="status,format,pillar", limit=300,
+                           filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}"})
+    if not rows:
+        return {}
+    counts: Dict[str, int] = {}
+    for r in rows:
+        counts[r.get("status") or "?"] = counts.get(r.get("status") or "?", 0) + 1
+    pillars: Dict[str, int] = {}
+    for r in rows:
+        if r.get("pillar"):
+            pillars[r["pillar"]] = pillars.get(r["pillar"], 0) + 1
+    return {"posts": len(rows), "por_status": counts, "por_pilar": dict(sorted(pillars.items(), key=lambda kv: -kv[1])[:6])}
 
 
 def invalidate(client_id: str) -> None:
@@ -248,8 +334,9 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, limit: int = MAX_PROMPT_CHARS) -> str:
     """JSON compacto para o prompt; corta as seções menos importantes se passar do limite."""
-    order = sections or ["marca", "negocio", "aprendizados", "posts", "kpis", "campanhas_que_mais_venderam",
-                         "metas_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+    order = sections or ["marca", "negocio", "aprendizados", "campanhas_ativas", "plano_de_midia", "posts", "kpis",
+                         "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping", "calendario_do_mes",
+                         "ultima_analise", "funil_do_site", "horarios", "lacunas"]
     data = {k: package.get(k) for k in order if package.get(k)}
     text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     while len(text) > limit and len(data) > 1:

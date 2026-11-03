@@ -20,6 +20,7 @@ from .ig_supabase import sb_insert, sb_select, sb_update
 from .studio_calendar import StudioError, create_item, load_profile
 from .studio_engines import throttle
 from .studio_intelligence import build_content_intelligence, to_prompt
+from .brand_guard import check as brand_check, flatten as guard_text
 from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
 
 CAMPAIGNS = "studio_campaigns"
@@ -110,11 +111,18 @@ def _clean(value: Any) -> Any:
     return value
 
 
-def _piece(channel: str, content: Any, avoid: List[str]) -> Dict[str, Any]:
+def _piece(channel: str, content: Any, avoid: List[str], context: str = "") -> Dict[str, Any]:
     if channel == "google_ads" and isinstance(content, dict):
         content = {"titulos": [t for t in content.get("titulos") or [] if t][:15], "descricoes": [d for d in content.get("descricoes") or [] if d][:4]}
     return {"channel": channel, "label": CHANNEL_LABELS[channel], "content": content, "limits": check_limits(channel, content),
-            "flags": flag_words(json.dumps(content, ensure_ascii=False), avoid)}
+            "flags": flag_words(json.dumps(content, ensure_ascii=False), avoid),
+            # Trava de fidelidade: oferta, número ou urgência que não está no briefing nem nos dados.
+            "guard": brand_check(guard_text(content), avoid=avoid, context=context)}
+
+
+def _guard_context(briefing: Dict[str, Any], ctx: Dict[str, Any]) -> str:
+    return json.dumps({"briefing": briefing, "vendas": ctx.get("sales"), "marca": (ctx.get("intel") or {}).get("marca"),
+                       "negocio": (ctx.get("intel") or {}).get("negocio")}, ensure_ascii=False, default=str)
 
 
 async def _context(client_id: str) -> Dict[str, Any]:
@@ -146,7 +154,7 @@ async def generate(client_id: str, briefing: Dict[str, Any], *, user_id: str) ->
               + f"\n\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}")
     data = _clean(await llm_json(instructions=ROLE, prompt=prompt, schema_name="studio_campaign", schema=schema, temperature=0.7, timeout=120))
     package = {"concept": data.get("conceito") or {}, "titles": (data.get("titulos") or [])[:3],
-               "pieces": {c: _piece(c, data.get(c), ctx["avoid"]) for c in channels},
+               "pieces": {c: _piece(c, data.get(c), ctx["avoid"], _guard_context(brief, ctx)) for c in channels},
                "generated_at": datetime.now(timezone.utc).isoformat()}
     row = await sb_insert(CAMPAIGNS, {"client_id": client_id, "name": brief["name"], "briefing": brief, "package": package,
                                       "created_by": user_id})
@@ -169,7 +177,7 @@ async def regenerate_piece(client_id: str, campaign_id: str, channel: str, *, in
     data = _clean(await llm_json(instructions=ROLE, prompt=prompt, schema_name=f"studio_campaign_{channel}",
                                  schema=obj({"peca": CHANNEL_SCHEMAS[channel]}), temperature=0.8))
     package = dict(campaign["package"])
-    package["pieces"] = {**(package.get("pieces") or {}), channel: _piece(channel, data.get("peca"), ctx["avoid"])}
+    package["pieces"] = {**(package.get("pieces") or {}), channel: _piece(channel, data.get("peca"), ctx["avoid"], _guard_context(campaign["briefing"], ctx))}
     return await _save_package(client_id, campaign_id, package)
 
 
@@ -202,7 +210,8 @@ async def edit_piece(client_id: str, campaign_id: str, channel: str, content: An
     if channel not in pieces:
         raise StudioError("CHANNEL_INVALID")
     profile = (await load_profile(client_id))["profile"]
-    pieces[channel] = {**_piece(channel, _clean(content), list(profile.get("keywords_avoid") or [])), "edited": True}
+    context = json.dumps({"briefing": campaign.get("briefing"), "marca": profile}, ensure_ascii=False, default=str)
+    pieces[channel] = {**_piece(channel, _clean(content), list(profile.get("keywords_avoid") or []), context), "edited": True}
     return await _save_package(client_id, campaign_id, {**campaign["package"], "pieces": pieces})
 
 

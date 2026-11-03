@@ -96,7 +96,12 @@ async def assist(client_id: str, action: str, item: Dict[str, Any], *, instructi
     data = await llm_json(instructions=ROLE, prompt=prompt, schema_name=f"studio_{action}",
                           schema=ASSIST_SCHEMAS[action], temperature=0.8 if action in ("variacoes", "ganchos") else 0.6)
     data = _clean_assist(action, data)
-    return {"action": action, "result": data, "flags": _flags(data, (intel.get("marca") or {}).get("keywords_avoid") or []),
+    from .brand_guard import check as brand_check, flatten
+    avoid = (intel.get("marca") or {}).get("keywords_avoid") or []
+    context = json.dumps({"pauta": _item_payload(item), "marca": intel.get("marca"), "negocio": intel.get("negocio"),
+                          "campanhas_ativas": intel.get("campanhas_ativas")}, ensure_ascii=False, default=str)
+    return {"action": action, "result": data, "flags": _flags(data, avoid),
+            "guard": [i for i in brand_check(flatten(data), context=context) if i["type"] != "palavra_proibida"],
             "based_on": coverage(intel)}
 
 

@@ -325,7 +325,8 @@ async def content_signals(client_id: str) -> Dict[str, Any]:
     except Exception as exc:
         print(f"[studio][calendar] inteligencia_indisponivel erro={exc.__class__.__name__}")
         return {}
-    keys = ("aprendizados", "campanhas_que_mais_venderam", "kpis", "metas_do_mes", "ultima_analise")
+    keys = ("aprendizados", "campanhas_que_mais_venderam", "kpis", "metas_do_mes", "ultima_analise",
+            "campanhas_ativas", "plano_de_midia", "vendas_por_origem", "clipping")
     return {k: intel[k] for k in keys if intel.get(k)}
 
 
@@ -363,6 +364,10 @@ def build_prompt(
         "- Não invente números, resultados, depoimentos, preços nem promoções que não estejam nos dados.\n"
         "- inteligencia_da_conta (se houver): siga o tom do que o cliente aprovou, evite o que ele pediu para ajustar, "
         "puxe pautas para os produtos/ofertas das campanhas que mais venderam e para as metas do mês.\n"
+        "- campanhas_ativas (Redação): nos dias da campanha, as pautas conversam com o conceito e a oferta dela "
+        "(sem inventar desconto que não esteja na oferta).\n"
+        "- plano_de_midia (Mídia On): priorize pautas que sirvam de anúncio para o objetivo e os canais com verba.\n"
+        "- clipping: notícia boa da marca pode virar pauta; se houver notícia negativa, nada que soe insensível ao assunto.\n"
         "- Português do Brasil.\n\n"
         f"DADOS:\n{json.dumps(payload, ensure_ascii=False)}"
     )
@@ -398,7 +403,9 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
 
 def validate_items(
     raw: Dict[str, Any], *, slots: List[Dict[str, Any]], profile: Dict[str, Any], trends: List[Dict[str, Any]],
+    guard_context: str = "",
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
+    from .brand_guard import check as brand_check
     by_slot = {s["slot_id"]: s for s in slots}
     pillars = {p["name"].lower(): p["name"] for p in profile.get("pillars") or []}
     trend_by_id = {t["id"]: t for t in trends}
@@ -431,6 +438,10 @@ def validate_items(
         if trend:
             signals["trend"] = {"topic": trend["topic"], "source_url": trend["source_url"],
                                 "researched_at": trend["researched_at"]}
+        # Trava de fidelidade: oferta, número ou urgência que não está no perfil nem nas campanhas da marca.
+        off_brand = [i for i in brand_check(f"{title}\n{hook}\n{caption}", context=guard_context) if i["type"] != "palavra_proibida"]
+        if off_brand:
+            signals["fora_da_marca"] = off_brand[:5]
         if flagged:
             signals["palavras_evitar_encontradas"] = flagged
             warnings.append(f"{slot['date']}: contém palavra a evitar ({', '.join(flagged)}); revisar.")
@@ -495,7 +506,9 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
     prompt = build_prompt(slots=slots, profile=profile, business=business, top=top,
                           trends=trends, seasonal=seasonal, month=month, signals=signals)
     raw = await call_llm(prompt)
-    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends)
+    guard_context = json.dumps({"perfil": profile, "negocio": business, "campanhas_ativas": signals.get("campanhas_ativas"),
+                                "vendas_por_origem": signals.get("vendas_por_origem")}, ensure_ascii=False, default=str)
+    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends, guard_context=guard_context)
     if not items:
         raise StudioError("AI_INVALID_OUTPUT", "A IA não devolveu pautas válidas. Tente de novo.")
 

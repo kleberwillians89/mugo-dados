@@ -140,7 +140,7 @@ class ProviderRefreshTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as error:
                 await self.run_refresh("meta")
             self.assertNotIn("secret", error.exception.detail)
-            organic.assert_awaited_once_with(CID, limit=200, preferred_connection_id="organic", persisted_only=True)
+            organic.assert_awaited_once_with(CID, limit=40, preferred_connection_id="organic", persisted_only=True)
             paid.assert_awaited_once_with(client_id=CID, connection_id="paid", since=PERIOD["start"], until=PERIOD["end"], persisted_only=True)
             shopify.assert_not_awaited()
 

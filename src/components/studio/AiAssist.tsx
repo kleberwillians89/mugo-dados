@@ -49,6 +49,7 @@ export default function AiAssist({ draft, disabled, onApply }: Props) {
       {out ? <div className="aiResult">
         <p className="aiBasis">{basedOnText(out.based_on)}</p>
         {out.flags.length ? <p className="studioError">⚠ Revise: {out.flags.join(", ")}</p> : null}
+        {(out.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="studioError">⚠ {g.fix}</p>)}
         {out.action === "legenda" ? <>
           <p className="aiText">{out.result.caption}</p>
           <p className="aiWhy">{out.result.why}</p>
