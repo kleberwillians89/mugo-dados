@@ -379,3 +379,30 @@
 .pieceLabel{font-size:12px;font-weight:600;opacity:.75;display:flex;justify-content:space-between;gap:8px}
 .pieceLabel em{font-style:normal;font-weight:500;opacity:.8}.pieceLabel em.is-over{color:#a33;opacity:1;font-weight:700}
 .pieceAsk{display:flex;gap:8px;flex-wrap:wrap}.pieceAsk input{flex:1 1 240px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit}
+.guardList{list-style:none;margin:0;padding:8px 10px;border-radius:8px;background:#fff6e0;color:#7a5600;font-size:13px;display:grid;gap:4px}
+
+/* Central da marca */
+.centralNumbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 24px;align-items:end;margin:8px 0 16px}
+.centralBest{grid-column:1/-1;margin:0;font-size:14px;opacity:.85}
+.centralAlerts{border:1px solid #f0d9a8;background:#fffaf0;border-radius:14px;padding:12px 16px;margin-bottom:16px}
+.centralAlerts h2{margin:0 0 6px;font-size:15px}
+.centralAlerts ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.centralAlerts li{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:14px}
+.centralAlerts li.is-atencao span::before{content:"⚠ ";color:#b05d00}.centralAlerts li.is-info span::before{content:"• ";opacity:.6}
+.centralGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.centralCard{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:14px 16px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:10px;min-width:0}
+.centralCard>header{display:flex;justify-content:space-between;align-items:center}.centralCard h2{margin:0;font-size:17px}.centralCard h3{margin:4px 0 0;font-size:13px;opacity:.7}
+.centralOpen{color:#004f6e!important}
+.centralStages{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.centralStages li{border-radius:10px;background:#f1efea;padding:6px 10px;display:flex;flex-direction:column;min-width:76px}
+.centralStages b{font-size:20px}.centralStages span{font-size:12px;opacity:.75}
+.centralStages li.is-aprovado{background:#e3f1e8}.centralStages li.is-com_cliente{background:#fbf1dc}.centralStages li.is-ajuste{background:#f8e3e3}.centralStages li.is-publicado{background:#e6e9f6}
+.centralList{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.centralList li{display:flex;flex-direction:column;gap:1px;font-size:14px;min-width:0}.centralList small{font-size:12px;opacity:.65}
+.centralList a{color:inherit;overflow-wrap:anywhere}
+.centralBars{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.centralBars li>div:first-child{display:flex;justify-content:space-between;gap:8px;font-size:14px}.centralBars small{font-size:12px;opacity:.7}
+.centralBar{position:relative;height:8px;border-radius:999px;background:#eceae5;margin:4px 0}
+.centralBar i{position:absolute;inset:0 auto 0 0;border-radius:999px;background:#004f6e}
+.centralBar em{position:absolute;top:-3px;width:2px;height:14px;background:#b05d00}
+.centralClipWeek{margin:0;font-size:14px}.centralClipWeek b{font-size:20px}.centralClipWeek .is-pos{color:#26734d}.centralClipWeek .is-neg{color:#a33}

@@ -8,6 +8,7 @@ export type AppRoute =
   | "approval"
   | "media"
   | "tasks"
+  | "central"
   | "clipping"
   | "campaigns"
   | "creators"
@@ -37,6 +38,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
+  if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
@@ -77,6 +79,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "approval") return "/aprovacao";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
+  if (route === "central") return "/central";
   if (route === "clipping") return "/clipping";
   if (route === "campaigns") return "/redacao";
   if (route === "creators") return "/criadores";

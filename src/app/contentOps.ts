@@ -1,4 +1,5 @@
 import { http, clientClientPath } from "./api";
+import type { GuardIssue } from "./studio";
 
 /** Clipping da marca e Redação de campanha — só a equipe Mugô (o backend exige agency_admin). */
 const base = (path: string) => clientClientPath(`/studio${path}`);
@@ -35,7 +36,7 @@ export type Channel = "meta_ads" | "google_ads" | "post" | "reels" | "stories" |
 export const CHANNEL_LABEL: Record<Channel, string> = { meta_ads: "Anúncio Meta", google_ads: "Anúncio Google", post: "Post do feed", reels: "Reels", stories: "Stories", whatsapp: "WhatsApp", email: "E-mail" };
 export const CHANNEL_ORDER: Channel[] = ["post", "reels", "stories", "meta_ads", "google_ads", "whatsapp", "email"];
 export type LimitCheck = { field: string; index: number | null; length: number; limit: number; over: boolean };
-export type Piece = { channel: Channel; label: string; content: unknown; limits: LimitCheck[]; flags: string[]; edited?: boolean };
+export type Piece = { channel: Channel; label: string; content: unknown; limits: LimitCheck[]; flags: string[]; guard?: GuardIssue[]; edited?: boolean };
 export type Briefing = { name: string; objective: string; offer: string; audience: string; start: string; end: string; notes: string; channels: Channel[] };
 export type Campaign = {
   id: string; name: string; status: "rascunho" | "pronta" | "arquivada"; briefing: Briefing; created_at: string; updated_at: string;

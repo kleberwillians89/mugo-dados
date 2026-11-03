@@ -17,6 +17,8 @@ export type CalendarSignals = {
   seasonal?: string | null;
   trend?: { topic: string; source_url: string; researched_at: string };
   palavras_evitar_encontradas?: string[];
+  /** Trava de fidelidade: oferta, número ou urgência que não está no perfil nem nas campanhas. */
+  fora_da_marca?: GuardIssue[];
 };
 
 export type CalendarItem = {
@@ -121,7 +123,7 @@ export type AssistResult =
   | { action: "hashtags"; result: { hashtags: string[]; why: string } }
   | { action: "roteiro_reels"; result: { duration_seconds: number; cover_text: string; audio_suggestion: string; scenes: { seconds: string; visual: string; text_on_screen: string; voiceover: string }[] } }
   | { action: "revisar"; result: { issues: { problem: string; fix: string }[]; improved_caption: string } };
-export type AssistResponse = AssistResult & { flags: string[]; based_on: BasedOn };
+export type AssistResponse = AssistResult & { flags: string[]; guard?: GuardIssue[]; based_on: BasedOn };
 export function runAssist(action: AssistAction, item: { format: StudioFormat; title: string; pillar?: string; hook?: string; caption_draft?: string; scheduled_at?: string }, instruction?: string) {
   return http<AssistResponse>(base("/assist"), { method: "POST", body: JSON.stringify({ action, item, instruction: instruction || undefined }), timeoutMs: 100_000 });
 }
@@ -163,3 +165,24 @@ type MessageInput = { kind: MessageKind; contact_id?: string; request_id?: strin
 export function previewMessage(input: MessageInput) { return http<MessagePreview>(base("/messages/preview"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
 export function sendMessage(input: MessageInput) { return http<MessageResult>(base("/messages/send"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
 export function listMessages() { return http<{ messages: MessageLog[]; templates: string[]; whatsapp_channel: "mugozap" | "wa_link" }>(base("/messages")); }
+
+/** Problema apontado pela trava de fidelidade à marca (o texto não é reescrito; a equipe decide). */
+export type GuardIssue = { type: "palavra_proibida" | "promessa_sem_dado" | "urgencia_inventada"; text: string; fix: string };
+
+/** Central da marca: o mês numa página (cada bloco pode vir null se a fonte falhar). */
+export type CentralAlert = { level: "atencao" | "info"; module: string; text: string };
+export type CentralView = {
+  month: string; agency: boolean;
+  numbers: { start: string; end: string | null; investimento?: number | null; faturamento?: number | null; pedidos?: number | null; retorno?: number | null;
+    vendas_midia_paga?: number | null; melhor_campanha?: { campanha: string; pedidos: number; vendas: number } | null } | null;
+  calendar: { total: number; counts: Record<string, number>; waiting_client: number; off_brand: { id: string; title: string; issues: number }[];
+    upcoming: { id: string; title: string; format: StudioFormat; scheduled_at: string; stage: string; pillar: string | null }[] } | null;
+  media: { objetivo: string | null; verba: number | null; elapsed_days: number; days_in_month: number;
+    channels: { channel: string; label: string; planned_spend: number | null; spent: number; expected_to_date: number | null; projected_spend: number; pace: number | null; roas: number | null; cpa: number | null }[] } | null;
+  clipping: { week: { current: Record<string, number>; previous: Record<string, number>; marca_variacao: number };
+    latest: { id: string; title: string; source: string | null; url: string; kind: string; sentiment: string | null }[] } | null;
+  tasks: { available: boolean; reason?: string; open?: number; late?: number; next?: { title: string; due_date: string | null; status: string }[] } | null;
+  campaigns?: { id: string; name: string; status: string; objective: string | null; start: string | null; end: string | null; posts_no_calendario: number }[] | null;
+  alerts: CentralAlert[];
+};
+export function getCentral(month: string) { return http<CentralView>(base(`/central?month=${encodeURIComponent(month)}`), { timeoutMs: 60_000 }); }

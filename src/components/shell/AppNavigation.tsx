@@ -32,6 +32,7 @@ type NavItem = { route: AppRoute; label: string };
 // Produto: o que a empresa analisa. A ordem segue a leitura comercial
 // (resultado de vendas → mídia → site).
 const PRODUCT_ITEMS: NavItem[] = [
+  { route: "central", label: "Central da marca" },
   { route: "ecommerce", label: "Ecommerce" },
   { route: "customers", label: "Clientes" },
   { route: "meta", label: "Meta" },
