@@ -13,18 +13,28 @@ CREDS = {"ig_user_id": "1784", "token": "tok", "scopes": {"instagram_content_pub
 
 
 class MediaTests(unittest.TestCase):
-    def test_links(self):
-        self.assertEqual(ip.media_for(ITEM)[0], {"image_url": "https://cdn.roove.com/arte.jpg", "caption": "Legenda #roove"})
+    def test_single_drive_and_reels(self):
+        plan = ip.media_for(ITEM)[0]
+        self.assertEqual((plan["type"], plan["fields"]), ("image", {"image_url": "https://cdn.roove.com/arte.jpg", "caption": "Legenda #roove"}))
         drive = ip.media_for({**ITEM, "art_url": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view?usp=sharing"})[0]
-        self.assertEqual(drive["image_url"], "https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMnOp")
+        self.assertEqual(drive["fields"]["image_url"], "https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMnOp")
         reels = ip.media_for({**ITEM, "format": "reels", "art_url": "https://cdn.x/v.mp4"})[0]
-        self.assertEqual((reels["media_type"], reels["video_url"]), ("REELS", "https://cdn.x/v.mp4"))
+        self.assertEqual((reels["fields"]["media_type"], reels["fields"]["video_url"]), ("REELS", "https://cdn.x/v.mp4"))
+
+    def test_carousel_and_story(self):
+        plan = ip.media_for({**ITEM, "format": "carrossel", "art_url": "https://cdn.x/1.jpg\nhttps://cdn.x/2.mp4\nhttps://cdn.x/3.jpg"})[0]
+        self.assertEqual(plan["type"], "carousel")
+        self.assertEqual([c.get("media_type") for c in plan["children"]], [None, "VIDEO", None])
+        self.assertTrue(all(c["is_carousel_item"] == "true" for c in plan["children"]))
+        story = ip.media_for({**ITEM, "format": "stories"})[0]
+        self.assertEqual(story["fields"], {"media_type": "STORIES", "image_url": "https://cdn.roove.com/arte.jpg"})
 
     def test_manual_cases(self):
         for item in ({**ITEM, "art_url": "https://www.canva.com/design/abc/view"}, {**ITEM, "art_url": ""},
-                     {**ITEM, "art_url": "https://cdn.x/arte.png"}, {**ITEM, "format": "carrossel"}):
-            container, manual = ip.media_for(item)
-            self.assertIsNone(container)
+                     {**ITEM, "art_url": "https://cdn.x/arte.png"}, {**ITEM, "format": "carrossel"},
+                     {**ITEM, "format": "reels"}):
+            plan, manual = ip.media_for(item)
+            self.assertIsNone(plan)
             self.assertTrue(manual)
 
 
@@ -74,22 +84,35 @@ class PublishItemTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GraphFlowTests(unittest.IsolatedAsyncioTestCase):
-    async def test_reels_waits_for_processing(self):
-        calls = []
+    async def flow(self, plan, statuses):
+        calls, ids = [], iter(["c1", "c2", "c3", "c4"])
 
         async def graph(method, path, **kwargs):
-            calls.append((method, path))
+            calls.append((method, path, kwargs.get("data")))
             if path.endswith("/media"):
-                return {"id": "c1"}
-            if path == "/c1":
-                return {"status_code": "FINISHED" if len([c for c in calls if c[1] == "/c1"]) > 1 else "IN_PROGRESS"}
+                return {"id": next(ids)}
+            if method == "GET" and "fields" in (kwargs.get("params") or {}) and kwargs["params"]["fields"] == "status_code":
+                return {"status_code": statuses.pop(0) if statuses else "FINISHED"}
             if path.endswith("/media_publish"):
                 return {"id": "m1"}
-            return {"permalink": "https://instagram.com/reel/x"}
+            return {"permalink": "https://instagram.com/p/x"}
         with patch.object(ip, "_graph", AsyncMock(side_effect=graph)):
-            out = await ip.publish(CREDS, {"media_type": "REELS", "video_url": "https://x/v.mp4", "caption": ""}, wait_seconds=0)
-        self.assertEqual(out, {"media_id": "m1", "permalink": "https://instagram.com/reel/x"})
-        self.assertEqual([p for _, p in calls].count("/c1"), 2)
+            out = await ip.publish(CREDS, plan, wait_seconds=0)
+        return out, calls
+
+    async def test_reels_waits_for_processing(self):
+        plan = ip.media_for({**ITEM, "format": "reels", "art_url": "https://x/v.mp4"})[0]
+        out, calls = await self.flow(plan, ["IN_PROGRESS", "FINISHED"])
+        self.assertEqual(out, {"media_id": "m1", "permalink": "https://instagram.com/p/x"})
+        self.assertEqual(sum(1 for m, p, _ in calls if m == "GET" and p == "/c1"), 2)
+
+    async def test_carousel_creates_children_then_parent(self):
+        plan = ip.media_for({**ITEM, "format": "carrossel", "art_url": "https://x/1.jpg\nhttps://x/2.jpg"})[0]
+        out, calls = await self.flow(plan, [])
+        posts = [(p, d) for m, p, d in calls if m == "POST"]
+        self.assertEqual(posts[2][1]["children"], "c1,c2")
+        self.assertEqual(posts[2][1]["media_type"], "CAROUSEL")
+        self.assertEqual(posts[-1], ("/1784/media_publish", {"creation_id": "c3"}))
 
     async def test_due_only_confirmed_approved_and_past(self):
         select = AsyncMock(return_value=[])

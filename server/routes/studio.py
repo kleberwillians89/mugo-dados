@@ -295,6 +295,23 @@ async def publish_retry(client_id: str, item_id: UUID, authorization: str | None
         raise _http(exc) from None
 
 
+class ArtUploadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content_type: Literal["image/jpeg", "video/mp4", "video/quicktime"]
+
+
+@router.post("/calendar/items/{item_id}/art/upload")
+async def art_upload_target(client_id: str, item_id: UUID, body: ArtUploadInput, authorization: str | None = Header(default=None)):
+    """Link assinado para o navegador enviar a arte (JPG/MP4) direto ao Storage; devolve também o link público."""
+    from services.studio_art import upload_target
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await upload_target(cid, str(item_id), body.content_type)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 MEMBERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
 
 
@@ -828,6 +845,9 @@ ERRORS.update({
     "IG_SEND_FAILED": (502, "O Instagram recusou o envio agora. Tente de novo em instantes."),
     "DIRECT_WINDOW_CLOSED": (422, "O Instagram só permite Direct até 7 dias depois do comentário."),
     "COMMENT_NOT_FOUND": (404, "Comentário não encontrado nesta marca."),
+    "ART_TYPE_INVALID": (422, "Envie a arte em JPG (imagem) ou MP4/MOV (vídeo)."),
+    "STORAGE_NOT_CONFIGURED": (503, "Armazenamento de arquivos não configurado no servidor."),
+    "STORAGE_UPLOAD_FAILED": (502, "Não foi possível preparar o envio do arquivo. Tente de novo."),
     "SCHEDULE_NEEDS_APPROVAL": (409, "Só dá para agendar um post aprovado pelo cliente."),
     "SCHEDULE_IN_PAST": (409, "A data do post já passou. Ajuste a data e o horário antes de agendar."),
     "REPLY_EMPTY": (422, "Escreva a resposta."),

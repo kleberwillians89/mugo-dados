@@ -483,3 +483,7 @@
 .approvalDelivery li{display:flex;justify-content:space-between;gap:8px;font-size:13px}
 .approvalDelivery small{color:var(--text-muted)}
 .waStep.is-read{color:#027eb5}.waStep.is-delivered,.waStep.is-sent,.waStep.is-accepted,.waStep.is-enviado{color:var(--positive)}.waStep.is-failed,.waStep.is-falhou{color:var(--negative)}
+.postUpload{display:flex;flex-direction:column;gap:4px}
+.postUpload input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
+.postUpload .ds-button{align-self:flex-start;cursor:pointer}
+.postUpload small{font-size:12px;color:var(--text-muted)}
