@@ -38,6 +38,7 @@ const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
+const Engagement = lazy(() => import("./pages/Engagement"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
@@ -876,6 +877,8 @@ function PrivateApp() {
         platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
+      ) : route === "engagement" && (platformAdmin || agencyAdmin) ? (
+        <Engagement key={`engagement:${activeClientId}`} />
       ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
       ) : route === "creators" ? (

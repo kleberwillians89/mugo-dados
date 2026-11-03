@@ -10,6 +10,7 @@ export type AppRoute =
   | "tasks"
   | "central"
   | "clipping"
+  | "engagement"
   | "campaigns"
   | "creators"
   | "automations"
@@ -40,6 +41,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
   if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
+  if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
   if (normalized === "/automacoes" || normalized.startsWith("/automacoes/")) return "automations";
@@ -81,6 +83,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "tasks") return "/tarefas";
   if (route === "central") return "/central";
   if (route === "clipping") return "/clipping";
+  if (route === "engagement") return "/comentarios";
   if (route === "campaigns") return "/redacao";
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
