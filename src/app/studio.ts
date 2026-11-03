@@ -29,6 +29,8 @@ export type CalendarItem = {
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado";
   /** Link da arte (Canva/Google Drive). */
   art_url?: string | null;
+  /** Equipe validou o agendamento depois da aprovação do cliente. */
+  schedule_confirmed_at?: string | null;
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
   client_edited_at?: string | null; client_edited_fields?: string[];
@@ -101,6 +103,9 @@ export type ApprovalCreated = { request_id: string; link: string; expires_at: st
 export function listApprovals(): Promise<{ requests: ApprovalRequest[] }> { return http(base("/approvals")); }
 export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string; contact_id?: string; send_whatsapp?: boolean }) {
   return http<ApprovalCreated>(base("/approvals"), { method: "POST", body: JSON.stringify(input) });
+}
+export function confirmSchedule(itemId: string) {
+  return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/schedule`), { method: "POST" });
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 

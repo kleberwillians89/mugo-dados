@@ -38,6 +38,10 @@ class KeywordTests(unittest.TestCase):
 class RunRulesTests(unittest.IsolatedAsyncioTestCase):
     def patches(self, comments, done=()):
         reads = AsyncMock(side_effect=[[RULE], comments, list(done)])
+        # IA desligada aqui: estes testes cuidam só dos gatilhos (a IA tem os testes de AiAutoreplyTests).
+        self._ai_off = patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": False, "max_per_run": 10}))
+        self._ai_off.start()
+        self.addCleanup(self._ai_off.stop)
         return (patch.object(ie, "sb_select", reads), patch.object(ie, "credentials", AsyncMock(return_value=CREDS)),
                 patch.object(ie, "refresh_comments", AsyncMock(return_value=0)), patch.object(ie, "sb_insert", AsyncMock()))
 
@@ -83,6 +87,65 @@ class DirectWindowTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(StudioError) as ctx:
                 await ie.manual_reply("roove", "111111", "Obrigada!", actor="equipe:u")
         self.assertEqual(ctx.exception.code, "IG_PERMISSION_MISSING")
+
+
+
+class AiAutoreplyTests(unittest.IsolatedAsyncioTestCase):
+    def recent(self, cid="900001", text="Amei esse produto!", user="carla"):
+        from datetime import datetime, timezone
+        return {**comment(cid=cid, text=text, user=user), "timestamp": datetime.now(timezone.utc).isoformat()}
+
+    async def run_ai(self, comments, *, answer, live=False, claim="act1", handled=None):
+        insert = AsyncMock(return_value={"id": claim} if claim else None)
+        if claim is None:
+            insert.side_effect = Exception("duplicate key")
+        update, graph = AsyncMock(), AsyncMock(return_value={"id": "r1"})
+        with patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": True, "max_per_run": 10})), \
+             patch.object(ie, "_ai_answer", AsyncMock(return_value=answer)), patch.object(ie, "sb_insert", insert), \
+             patch.object(ie, "sb_update", update), patch.object(ie, "_graph_post", graph), \
+             patch.dict("os.environ", {"IG_AUTOREPLY_ENABLED": "true" if live else ""}):
+            out = await ie.run_ai_replies("roove", creds=CREDS, comments=comments, handled=handled or set())
+        return out, insert, update, graph
+
+    async def test_simulated_reply_claims_before_answering(self):
+        out, insert, update, graph = await self.run_ai([self.recent()], answer={"reply": "Que bom, Carla! 💛", "needs_human": False, "reason": "", "guard": []})
+        self.assertEqual(out["ai_simulated"], 1)
+        graph.assert_not_awaited()
+        self.assertEqual((insert.await_args.args[1]["kind"], insert.await_args.args[1]["status"]), ("resposta_ia", "pendente"))
+        self.assertEqual(update.await_args.kwargs["patch"]["status"], "simulado")
+
+    async def test_live_reply_goes_to_meta(self):
+        out, _, update, graph = await self.run_ai([self.recent()], answer={"reply": "Obrigada!", "needs_human": False, "reason": "", "guard": []}, live=True)
+        self.assertEqual(out["ai_sent"], 1)
+        self.assertEqual(graph.await_args.kwargs["data"], {"message": "Obrigada!"})
+        self.assertEqual(update.await_args.kwargs["patch"]["status"], "enviado")
+
+    async def test_sensitive_or_off_brand_goes_to_human_review(self):
+        for answer in ({"reply": "Chama no Direct", "needs_human": True, "reason": "reclamação", "guard": []},
+                       {"reply": "50% de desconto hoje!", "needs_human": False, "reason": "", "guard": [{"type": "promessa_sem_dado"}]}):
+            out, insert, _, graph = await self.run_ai([self.recent()], answer=answer, live=True)
+            self.assertEqual(out["ai_review"], 1)
+            self.assertEqual(insert.await_args.args[1]["kind"], "revisao")
+            graph.assert_not_awaited()
+
+    async def test_already_handled_own_old_or_claimed_elsewhere_is_skipped(self):
+        answer = {"reply": "Oi!", "needs_human": False, "reason": "", "guard": []}
+        out, insert, _, _ = await self.run_ai([self.recent(cid="1"), self.recent(cid="2", user="roove"), {**self.recent(cid="3"), "timestamp": "2020-01-01T00:00:00+00:00"}],
+                                              answer=answer, handled={"1"})
+        insert.assert_not_awaited()
+        out, _, update, graph = await self.run_ai([self.recent()], answer=answer, live=True, claim=None)
+        graph.assert_not_awaited()  # outra execução travou primeiro: não responde duas vezes
+        update.assert_not_awaited()
+
+    async def test_brand_guard_is_called_with_keywords(self):
+        from services import brand_guard
+        with patch.object(brand_guard, "check", return_value=[]) as check, \
+             patch("services.studio_calendar.load_profile", AsyncMock(return_value={"profile": {"keywords_avoid": ["barato"]}})), \
+             patch.object(ie, "sb_select", AsyncMock(return_value=[])), \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={"reply": "Oi!", "needs_human": False, "reason": ""})):
+            out = await ie._ai_answer("roove", self.recent())
+        self.assertEqual(check.call_args.kwargs["avoid"], ["barato"])  # antes era posicional e quebrava a sugestão
+        self.assertEqual(out["reply"], "Oi!")
 
 
 if __name__ == "__main__":

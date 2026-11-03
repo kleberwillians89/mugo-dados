@@ -31,3 +31,19 @@ describe("PostModal do cliente", () => {
     expect(html).toContain("(legenda)");
   });
 });
+
+describe("PostModal da equipe: aprovação e agendamento", () => {
+  const team = (status: string, extra: Record<string, unknown> = {}) => renderToStaticMarkup(<PostModal item={{ ...item, status, client_edited_at: null, ...extra } as never}
+    initial={draft} handle="@roove" pillars={[]} canManage busy={false} error={null} onClose={() => undefined} onSave={async () => true}
+    onStatus={noop} onDelete={noop} onSendForApproval={() => undefined} onConfirmSchedule={noop} />);
+
+  it("pauta em revisão oferece enviar para o cliente aprovar", () => {
+    expect(team("em_revisao")).toContain("Enviar para o cliente aprovar");
+  });
+
+  it("aprovado oferece agendar na data sugerida e, depois, mostra agendado", () => {
+    expect(team("aprovado")).toContain("Agendar para");
+    expect(team("aprovado")).not.toContain("Enviar para o cliente aprovar");
+    expect(team("aprovado", { schedule_confirmed_at: "2026-11-04T12:00:00Z" })).toContain("✓ Agendado para");
+  });
+});
