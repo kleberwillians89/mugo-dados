@@ -270,6 +270,19 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     return {"ok": True, "item": item}
 
 
+@router.post("/calendar/items/{item_id}/schedule")
+async def schedule_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Depois da aprovação do cliente, a equipe valida o agendamento na data e horário do post."""
+    from services.studio_calendar import confirm_schedule
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return {"ok": True, "item": await confirm_schedule(cid, str(item_id), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 MEMBERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
 
 
@@ -798,23 +811,37 @@ ERRORS.update({
     "IG_SEND_FAILED": (502, "O Instagram recusou o envio agora. Tente de novo em instantes."),
     "DIRECT_WINDOW_CLOSED": (422, "O Instagram só permite Direct até 7 dias depois do comentário."),
     "COMMENT_NOT_FOUND": (404, "Comentário não encontrado nesta marca."),
+    "SCHEDULE_NEEDS_APPROVAL": (409, "Só dá para agendar um post aprovado pelo cliente."),
+    "SCHEDULE_IN_PAST": (409, "A data do post já passou. Ajuste a data e o horário antes de agendar."),
     "REPLY_EMPTY": (422, "Escreva a resposta."),
 })
 
 
 @router.get("/engagement/comments")
 async def engagement_inbox(client_id: str, open_only: bool = True, authorization: str | None = Header(default=None)):
-    from services.ig_engagement import inbox
+    from services.ig_engagement import get_settings, inbox
+    # Visível ao cliente: caixa da própria marca (o que a IA respondeu, o que está em revisão).
+    cid = await require_client_read(client_id, authorization)
+    return {**await inbox(cid, only_open=open_only), "settings": await get_settings(cid)}
+
+
+class EngagementSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ai_autoreply: bool
+
+
+@router.put("/engagement/settings")
+async def engagement_settings(client_id: str, body: EngagementSettings, authorization: str | None = Header(default=None)):
+    from services.ig_engagement import save_settings
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
-    return await inbox(cid, only_open=open_only)
+    uid = await require_user_id(authorization)
+    return await save_settings(cid, ai_autoreply=body.ai_autoreply, user_id=uid)
 
 
 @router.post("/engagement/refresh")
 async def engagement_refresh(client_id: str, authorization: str | None = Header(default=None)):
     from services.ig_engagement import capabilities, credentials, refresh_comments
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     try:
         creds = await credentials(cid)
         return {"comments": await refresh_comments(cid, creds=creds), "can": capabilities(creds["scopes"])}
@@ -827,7 +854,6 @@ async def engagement_suggest(client_id: str, comment_id: str, authorization: str
     from services.ig_engagement import suggest_reply
     from services.studio_engines import throttle
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     try:
         throttle(cid)
         return await suggest_reply(cid, comment_id)
@@ -839,7 +865,6 @@ async def engagement_suggest(client_id: str, comment_id: str, authorization: str
 async def engagement_reply(client_id: str, comment_id: str, body: EngagementReply, authorization: str | None = Header(default=None)):
     from services.ig_engagement import manual_reply
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
         return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct)

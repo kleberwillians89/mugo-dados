@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  deleteRule, getInbox, listRules, refreshInbox, runRules, saveRule, sendReply, suggestReply,
-  type EngagementRule, type InboxComment, type RuleInput,
+  deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveRule, sendReply, suggestReply,
+  type EngagementRule, type EngagementSettings, type InboxComment, type RuleInput,
 } from "../app/engagement";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -12,11 +12,15 @@ import "../styles/studio.css";
 type Tab = "caixa" | "gatilhos";
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe" };
+const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe",
+  resposta_ia: "Resposta da IA", revisao: "IA pediu revisão da equipe" };
 const EMPTY_RULE: RuleInput = { name: "", keywords: [], media_id: null, public_reply: "Te mandei no Direct, {nome}! 💌", dm_message: "", active: false };
 
-/** Comentários do Instagram: responder com ajuda da IA e gatilhos por palavra-chave (comentou → recebe no Direct). */
-export default function Engagement() {
+/**
+ * Comentários do Instagram: a IA responde sozinha no tom da marca (pode desligar), gatilhos por palavra-chave
+ * (comentou → recebe no Direct) e resposta manual. Cliente vê a caixa da própria marca; gatilhos são da equipe Mugô.
+ */
+export default function Engagement({ isAgency = true, canManage = true }: { isAgency?: boolean; canManage?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
   const [tab, setTab] = useState<Tab>("caixa");
@@ -24,6 +28,7 @@ export default function Engagement() {
   const [items, setItems] = useState<InboxComment[] | null>(null);
   const [rules, setRules] = useState<EngagementRule[] | null>(null);
   const [live, setLive] = useState(false);
+  const [settings, setSettings] = useState<EngagementSettings | null>(null);
   const [can, setCan] = useState<{ reply: boolean; direct: boolean } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { text: string; direct: boolean; hint?: string }>>({});
   const [editing, setEditing] = useState<(RuleInput & { id?: string; keywordsText: string }) | null>(null);
@@ -40,7 +45,7 @@ export default function Engagement() {
     try {
       const data = await getInbox(openOnly);
       if (getActiveClientId() !== clientId) return;
-      setItems(data.items); setLive(data.autoreply_enabled);
+      setItems(data.items); setLive(data.autoreply_enabled); setSettings(data.settings || null);
     } catch (cause) { setError(message(cause, "Não foi possível carregar os comentários.")); }
   }, [openOnly, clientId]);
   const loadRules = useCallback(async () => {
@@ -101,8 +106,16 @@ export default function Engagement() {
   return <Shell title="Comentários" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Comentários do Instagram" controls={<div className="studioControls">
       <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Buscar agora"}</button>
-      {tab === "gatilhos" ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => setEditing({ ...EMPTY_RULE, keywordsText: "" })}>+ Gatilho</button> : null}
+      {isAgency && tab === "gatilhos" ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => setEditing({ ...EMPTY_RULE, keywordsText: "" })}>+ Gatilho</button> : null}
     </div>} />
+    {settings ? <div className="engageAi">
+      <div><b>IA respondendo sozinha</b> <span className={settings.ai_autoreply ? "studioOk" : "libHint"}>{settings.ai_autoreply ? "ligada" : "desligada"}</span>
+        <small>Comentário sem resposta recebe, a cada 5 minutos, uma resposta curta no tom do perfil da marca: resposta aumenta o alcance. Reclamação, dado pessoal ou texto fora da marca não sai: vira "revisão" aqui para a equipe responder.</small></div>
+      {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={async () => {
+        const out = await run("ai", () => saveEngagementSettings(!settings.ai_autoreply), "Não foi possível alterar.");
+        if (out) setSettings(out);
+      }}>{settings.ai_autoreply ? "Desligar IA" : "Ligar IA"}</button> : null}
+    </div> : null}
     <p className="libHint">Responda os comentários daqui (a IA sugere no tom da marca) e crie gatilhos: quem comenta a palavra-chave recebe uma resposta e uma mensagem no Direct. O Instagram só permite Direct até 7 dias depois do comentário, uma vez por pessoa.</p>
     {!live ? <p className="clipWarn">Gatilhos em <b>modo teste</b>: tudo fica registrado como "simulado" e nada é enviado até ligar <code>IG_AUTOREPLY_ENABLED=true</code>. Respostas que a equipe envia por aqui saem de verdade.</p> : null}
     {can && (!can.reply || !can.direct) ? <p className="clipWarn">Falta permissão no Meta para {[!can.reply ? "responder comentários" : "", !can.direct ? "enviar Direct" : ""].filter(Boolean).join(" e ")}. Reconecte o Instagram desta marca em Integrações.</p> : null}
@@ -110,7 +123,7 @@ export default function Engagement() {
     {notice ? <p className="studioOk">{notice}</p> : null}
 
     <div className="studioTabs" role="tablist" aria-label="Seção">
-      {([["caixa", "Caixa"], ["gatilhos", "Gatilhos"]] as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      {((isAgency ? [["caixa", "Caixa"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
     </div>
 
     {tab === "caixa" ? <>

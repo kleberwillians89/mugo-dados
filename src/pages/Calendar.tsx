@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  basedOnText, listContacts, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
+  basedOnText, confirmSchedule, listContacts, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus,
 } from "../app/studio";
@@ -164,9 +164,9 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     if (result) { if (monthOf(dayKey) === month || view !== "mes") replace(result.item); else setItems((all) => all.filter((i) => i.id !== item.id)); }
   }
 
-  function openSend() {
+  function openSend(only?: string[]) {
     setError(null); setSent(null);
-    const selected = monthItems.filter((i) => i.status !== "rejeitado" && i.status !== "publicado").map((i) => i.id);
+    const selected = only || monthItems.filter((i) => i.status !== "rejeitado" && i.status !== "publicado").map((i) => i.id);
     setSending({ selected, contact_name: "", contact_phone: "", message: "", contact_id: "", send_whatsapp: false });
     listContacts().then((d) => {
       setContacts({ list: d.contacts, channel: d.whatsapp_channel });
@@ -241,7 +241,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       <button type="button" className="ds-button" onClick={() => setImportOpen(true)} disabled={Boolean(busy)}>Importar calendário</button>
       <button type="button" className="ds-button" onClick={() => { setError(null); setChat((c) => ({ ...c, open: true })); }} disabled={Boolean(busy)}>Estratégia (IA)</button>
       <button type="button" className="ds-button" onClick={() => openNew(view === "dia" ? cursor : `${month}-01`)} disabled={Boolean(busy)}>+ Pauta</button>
-      <button type="button" className="ds-button" onClick={openSend} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
+      <button type="button" className="ds-button" onClick={() => openSend()} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
       <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : `Gerar ${MONTH_NAMES[Number(month.slice(5)) - 1]} com IA`}</button>
     </div> : undefined} />
     <div className="calToolbar">
@@ -273,7 +273,12 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     {view === "dia" ? <DayView day={cursor} {...common} /> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
-      canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent} /> : null}
+      canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
+      onSendForApproval={team && modal.item ? () => { const id = modal.item!.id; setModal(null); openSend([id]); } : undefined}
+      onConfirmSchedule={team && modal.item ? async () => {
+        const out = await run("schedule", () => confirmSchedule(modal.item!.id), "Não foi possível agendar.");
+        if (out) { replace(out.item); setModal((m) => m && { ...m, item: out.item }); }
+      } : undefined} /> : null}
 
     <Drawer open={Boolean(sending)} title="Enviar ao cliente" description="Gera um link sem login para o cliente aprovar ou pedir ajuste. Válido por 14 dias." width="lg" onClose={() => { if (!busy) setSending(null); }}>
       {sending ? <form className="studioForm" onSubmit={submitSend}>

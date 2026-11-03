@@ -877,8 +877,8 @@ function PrivateApp() {
         platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
-      ) : route === "engagement" && (platformAdmin || agencyAdmin) ? (
-        <Engagement key={`engagement:${activeClientId}`} />
+      ) : route === "engagement" ? (
+        <Engagement key={`engagement:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
       ) : route === "creators" ? (

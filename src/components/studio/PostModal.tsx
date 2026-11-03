@@ -23,10 +23,14 @@ type Props = {
   /** Cliente: edita texto e data, aprova ou pede ajuste; formato, pilar, IA, publicar e excluir ficam com a Mugô. */
   clientMode?: boolean;
   /** Troca a arte da pauta (ordem = slides). */
+  /** Equipe: abre o envio ao cliente já com esta pauta (link de aprovação + WhatsApp oficial). */
+  onSendForApproval?: () => void;
+  /** Equipe: valida o agendamento de um post aprovado, na data e horário do post. */
+  onConfirmSchedule?: () => Promise<void>;
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
@@ -144,7 +148,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {canManage && !clientMode ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
-            {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
+            {onSendForApproval && ["rascunho", "em_revisao", "rejeitado"].includes(item.status) ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={onSendForApproval}>Enviar para o cliente aprovar</button> : null}
+            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule()}>
+              Agendar para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button> : null}
+            {item.status === "aprovado" && item.schedule_confirmed_at ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span> : null}
+            {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
             {item.status === "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("publicado")}>Marcar como publicado</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
             {item.status !== "rejeitado" && item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}

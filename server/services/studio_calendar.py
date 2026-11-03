@@ -581,13 +581,39 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             before = found[0] if found else None
         except Exception as exc:  # noqa: BLE001
             print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
-    rows = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, patch=clean)
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
+    if "scheduled_at" in clean or clean.get("status", "aprovado") != "aprovado":
+        # Data mudou ou saiu de "aprovado": o agendamento confirmado não vale mais.
+        try:
+            rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None})
+        except Exception:  # noqa: BLE001 — antes da migração 000068 as colunas não existem
+            rows = await sb_update(ITEMS_TABLE, filters=filters, patch=clean)
+    else:
+        rows = await sb_update(ITEMS_TABLE, filters=filters, patch=clean)
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
     if before:
         from .automation_triggers import on_item_status_change
         await on_item_status_change(client_id, before, rows[0])
     return rows[0]
+
+
+async def confirm_schedule(client_id: str, item_id: str, *, user_id: str) -> Dict[str, Any]:
+    """Equipe valida o agendamento de um post que o cliente aprovou, na data/horário sugeridos (ou ajustados)."""
+    rows = await sb_select(ITEMS_TABLE, select="id,status,scheduled_at", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    item = rows[0]
+    if item.get("status") != "aprovado":
+        raise StudioError("SCHEDULE_NEEDS_APPROVAL")
+    when = datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00"))
+    if when <= datetime.now(timezone.utc):
+        raise StudioError("SCHEDULE_IN_PAST")
+    updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "status": "eq.aprovado"},
+                              patch={"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id})
+    if not updated:
+        raise StudioError("SCHEDULE_NEEDS_APPROVAL")
+    return updated[0]
 
 
 async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:

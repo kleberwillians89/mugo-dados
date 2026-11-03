@@ -447,3 +447,5 @@
 .engActions li.is-enviado{background:#e3f1e8}.engActions li.is-falhou{background:#f8e3e3}
 .engRuleHead{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .studioChip.is-on{background:#e3f1e8;color:#26734d}
+.engageAi{display:flex;justify-content:space-between;gap:var(--space-3);align-items:center;flex-wrap:wrap;padding:var(--space-3) var(--space-4);border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface)}
+.engageAi small{display:block;color:var(--text-muted);font-size:12px;max-width:70ch;margin-top:4px}
