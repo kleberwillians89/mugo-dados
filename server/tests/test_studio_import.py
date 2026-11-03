@@ -17,7 +17,8 @@ class ArtUrlTests(unittest.TestCase):
     def test_only_https(self):
         self.assertEqual(clean_art_url(" https://www.canva.com/design/x "), "https://www.canva.com/design/x")
         self.assertIsNone(clean_art_url(""))
-        for bad in ("http://x.com", "javascript:alert(1)", "https://a b"):
+        self.assertEqual(clean_art_url("https://a.com/1\n https://a.com/2 "), "https://a.com/1\nhttps://a.com/2")
+        for bad in ("http://x.com", "javascript:alert(1)", "https://a http://b", " ".join(["https://a.com/x"] * 13)):
             with self.assertRaises(StudioError):
                 clean_art_url(bad)
 

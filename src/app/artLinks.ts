@@ -32,3 +32,13 @@ export function artImage(url?: string | null): string | null {
   }
   return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url) ? url : null;
 }
+
+/** "Link da arte" aceita um link por linha (um por slide do carrossel, na ordem). */
+export function artList(value?: string | null): string[] {
+  return (value || "").split(/\s+/).map((s) => s.trim()).filter((s) => s.startsWith("https://")).slice(0, 12);
+}
+
+/** Imagens que dá para mostrar na prévia, na ordem dos slides. */
+export function artImages(value?: string | null): string[] {
+  return artList(value).map(artImage).filter((u): u is string => Boolean(u));
+}

@@ -4,7 +4,8 @@ import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
-import { artImage } from "../../app/artLinks";
+import { artImages, artList } from "../../app/artLinks";
+import ArtCarousel from "./ArtCarousel";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
@@ -40,8 +41,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [copied, setCopied] = useState(false);
   // Arte do Drive (ou link de imagem) vira a imagem grande da prévia; se não carregar, volta a capa com o gancho.
   const [artFailed, setArtFailed] = useState<string | null>(null);
-  const artCandidate = artImage(draft.art_url);
-  const art = artCandidate && artCandidate !== artFailed ? artCandidate : null;
+  const slides = artImages(draft.art_url);
+  const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
@@ -78,9 +79,9 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <div><strong>{handle.slice(1)}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
         <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
-          {art ? <img className="igArt" src={art} alt="Arte do post" onError={() => setArtFailed(art)} />
+          {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} />
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
-          {draft.format === "carrossel" ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
+          {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
         </div>
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -111,9 +112,10 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive)<input type="url" inputMode="url" maxLength={1000} pattern="https://.*" placeholder="https://www.canva.com/design/…"
-          value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
-        <ArtLink url={(draft.art_url || "").startsWith("https://") ? draft.art_url : null} preview={!art} />
+        {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive) — no carrossel, um link por linha, na ordem dos slides
+          <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/…"
+            value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
+        <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
         {item?.client_edited_at ? <p className="postEdited">Editado pelo cliente em {new Date(item.client_edited_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{item.client_edited_fields?.length ? ` (${item.client_edited_fields.map((f) => ({ title: "título", hook: "gancho", caption_draft: "legenda", scheduled_at: "data" } as Record<string, string>)[f] || f).join(", ")})` : ""}. {clientMode ? "A equipe Mugô já foi avisada." : "Confira antes de publicar."}</p> : null}
