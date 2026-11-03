@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getBusinessContext,
   saveBusinessContext,
+  suggestBusinessContext,
   type BusinessContextFields,
 } from "../../app/api";
 import { clearDashboardCacheByPrefix } from "../../hooks/dashboard/cache";
@@ -61,6 +62,8 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiFilled, setAiFilled] = useState<string[]>([]);
   const savedRef = useRef<Record<string, string>>(toForm(EMPTY));
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -99,6 +102,28 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
     setForm((current) => ({ ...current, [name]: value.slice(0, MAX_LENGTH) }));
   }
 
+  // Preenche só o que está vazio no formulário; a equipe revisa e clica em Salvar.
+  async function fillWithAi() {
+    setSuggesting(true);
+    setError("");
+    setSaved("");
+    try {
+      const response = await suggestBusinessContext();
+      const names = FIELDS.filter((f) => !form[f.name].trim() && response.suggestion[f.name]).map((f) => f.name);
+      if (!names.length) {
+        setSaved(response.message || "Não havia dado suficiente para preencher os campos vazios.");
+        return;
+      }
+      setForm((current) => names.reduce((next, name) => ({ ...next, [name]: String(response.suggestion[name]).slice(0, MAX_LENGTH) }), current));
+      setAiFilled(names);
+      setSaved(`A IA preencheu ${names.length} campo(s) com os dados da marca${response.sources.length ? ` (${response.sources.join(", ")})` : ""}. Revise e clique em Salvar contexto.`);
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Não foi possível gerar a sugestão agora.");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   async function submit() {
     if (!canEdit || !dirty) return;
     const clientId = getActiveClientId();
@@ -118,6 +143,7 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
       const persisted = toForm(response.context);
       savedRef.current = persisted;
       setForm(persisted);
+      setAiFilled([]);
       setSaved("Contexto salvo. As análises anteriores permanecem como foram geradas. Gere uma nova análise na Inteligência para usar o contexto atualizado.");
     } catch (cause) {
       setError(cause instanceof Error && cause.message
@@ -142,6 +168,14 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
           <div className="companiesActions">
             <button className="btn" type="button" disabled={loading || saving} onClick={() => void load()}>
               Recarregar
+            </button>
+            <button
+              className="btn"
+              type="button"
+              disabled={loading || saving || suggesting || FIELDS.every((f) => form[f.name].trim())}
+              onClick={() => void fillWithAi()}
+            >
+              {suggesting ? "Lendo os dados da marca..." : "Preencher com IA"}
             </button>
             <button
               className="btn btnPrimary"
@@ -174,7 +208,7 @@ export default function BusinessContextPanel({ canEdit = false }: Props) {
         <div className="businessContextForm">
           {FIELDS.map((field) => (
             <label key={field.name}>
-              {field.label}
+              {field.label}{aiFilled.includes(field.name) ? " · sugerido pela IA" : ""}
               <span className="businessContextHint">{field.hint}</span>
               <textarea
                 rows={field.rows}

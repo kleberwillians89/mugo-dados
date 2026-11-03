@@ -803,6 +803,20 @@ export async function saveBusinessContext(
   });
 }
 
+export type BusinessContextSuggestion = {
+  ok: true;
+  client_id: string;
+  suggestion: Partial<BusinessContextFields>;
+  filled: Array<keyof BusinessContextFields>;
+  sources: string[];
+  message?: string;
+};
+
+/** Rascunho da IA só para os campos vazios; nada é gravado. */
+export async function suggestBusinessContext(): Promise<BusinessContextSuggestion> {
+  return http("/api/intelligence/business-context/suggest", { method: "POST" });
+}
+
 export async function getIntelligenceContext(
   period: Period,
   options?: RequestSignalOptions & { includeCommerceDetails?: boolean },
