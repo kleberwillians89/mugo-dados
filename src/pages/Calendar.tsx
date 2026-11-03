@@ -3,9 +3,9 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  basedOnText, listContacts, strategyChat, suggestBrandProfile,
+  basedOnText, listContacts, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
-  type BrandProfile, type CalendarItem, type StudioFormat, type StudioStatus,
+  type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus,
 } from "../app/studio";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -51,7 +51,8 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean } | null>(null);
   const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: "mugozap" | "wa_link" }>({ list: [], channel: "wa_link" });
-  const [suggestion, setSuggestion] = useState<{ notes: string[]; based_on: BasedOn } | null>(null);
+  const [suggestion, setSuggestion] = useState<(Omit<ProfileSuggestionResult, "profile"> & { pendingId?: string }) | null>(null);
+  const [pending, setPending] = useState<PendingProfileSuggestion | null>(null);
   const [chat, setChat] = useState<{ open: boolean; turns: ChatTurn[]; input: string; actions: string[]; basis: BasedOn | null }>({ open: false, turns: [], input: "", actions: [], basis: null });
   const [sent, setSent] = useState<ApprovalCreated | null>(null);
 
@@ -184,11 +185,28 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     setError(null);
     const data = await run("profile", () => getBrandProfile(), "Não foi possível carregar o perfil da marca.");
     if (data) { setProfile(data.profile); setProfileOpen(true); setSuggestion(null); }
+    // Sugestão mensal da IA esperando revisão (só equipe Mugô; falha aqui não atrapalha o perfil).
+    setPending(null);
+    getProfileSuggestion().then((r) => { if (getActiveClientId() === clientId) setPending(r.suggestion); }).catch(() => undefined);
+  }
+
+  function reviewPending() {
+    if (!pending) return;
+    const { profile: suggested, ...rest } = pending.suggestion;
+    setProfile({ ...suggested, custom_dates: profile?.custom_dates || suggested.custom_dates || [] });
+    setSuggestion({ ...rest, pendingId: pending.id });
+    setPending(null);
+  }
+
+  async function dismissPending() {
+    if (!pending) return;
+    const ok = await run("dismiss", () => resolveProfileSuggestion(pending.id, "descartada"), "Não foi possível descartar a sugestão.");
+    if (ok) setPending(null);
   }
 
   async function suggestProfile() {
     const result = await run("suggest", () => suggestBrandProfile(), "Não foi possível sugerir o perfil.");
-    if (result) { setProfile(result.profile); setSuggestion({ notes: result.notes, based_on: result.based_on }); }
+    if (result) { const { profile: suggested, ...rest } = result; setProfile(suggested); setSuggestion(rest); }
   }
 
   async function ask(event: FormEvent) {
@@ -206,7 +224,10 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     event.preventDefault();
     if (!profile) return;
     const result = await run("profile-save", () => saveBrandProfile(profile), "Não foi possível salvar o perfil.");
-    if (result) { setProfile(result.profile); setProfileOpen(false); }
+    if (result) {
+      if (suggestion?.pendingId) await resolveProfileSuggestion(suggestion.pendingId, "aplicada").catch(() => undefined);
+      setProfile(result.profile); setProfileOpen(false); setSuggestion(null);
+    }
   }
 
   const common = { items: visible, canManage, canCreate: team, onOpen: openItem, onMove: (i: CalendarItem, d: string) => void move(i, d), onCreate: openNew };
@@ -308,12 +329,20 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       {profile ? <form className="studioForm" onSubmit={submitProfile}>
         <div className="aiBrand">
           <strong>✦ Brand Manager (IA)</strong>
-          <p>Preenche o perfil a partir dos dados da conta (posts, campanhas, contexto, aprovações). Nada é salvo antes de você revisar.</p>
+          <p>Lê 12 meses da conta: posts mais curtidos e mais salvos (texto e imagem), o que o cliente aprovou, pediu para ajustar, comentou e reescreveu, a Mídia On e as vendas. Palavras proibidas e restrições cadastradas pela equipe nunca são apagadas. Nada é salvo antes de você revisar.</p>
+          {pending ? <div className="aiPending" role="status">
+            <span>Sugestão de {pending.month.split("-").reverse().join("/")} pronta para revisar.</span>
+            <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={reviewPending}>Ver sugestão</button>
+            <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void dismissPending()}>Descartar</button>
+          </div> : null}
           <div className="studioRow">
-            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggestProfile()}>{busy === "suggest" ? "Analisando… (até 1 min)" : "Sugerir perfil com IA"}</button>
+            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggestProfile()}>{busy === "suggest" ? "Analisando 12 meses… (até 2 min)" : "Sugerir perfil com IA"}</button>
           </div>
-          {suggestion ? <div className="aiResult"><p className="aiBasis">{basedOnText(suggestion.based_on)}</p>
-            <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul><p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
+          {suggestion ? <div className="aiResult">
+            <p className="aiBasis">{sourcesText(suggestion.sources) || basedOnText(suggestion.based_on)}</p>
+            {suggestion.reasons?.length ? <ul className="aiReasons">{suggestion.reasons.map((r) => <li key={r.campo + r.motivo}><b>{r.campo}:</b> {r.motivo}</li>)}</ul> : null}
+            <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+            <p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
         </div>
         <label>Tom de voz<textarea rows={3} maxLength={1000} value={profile.tone_of_voice} onChange={(e) => setProfile({ ...profile, tone_of_voice: e.target.value })} /></label>
         <label>Personalidade<input maxLength={500} value={profile.personality} onChange={(e) => setProfile({ ...profile, personality: e.target.value })} /></label>
@@ -331,6 +360,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         <label>Palavras proibidas<input value={listToText(profile.keywords_avoid)} onChange={(e) => setProfile({ ...profile, keywords_avoid: textToList(e.target.value) })} /></label>
         <label>Hashtags<input value={listToText(profile.hashtags)} onChange={(e) => setProfile({ ...profile, hashtags: textToList(e.target.value) })} /></label>
         <label>Restrições (o que nunca pode ser dito ou prometido)<textarea rows={3} maxLength={1500} value={profile.restrictions} onChange={(e) => setProfile({ ...profile, restrictions: e.target.value })} /></label>
+        <label>Identidade visual (cores, composição, estilo de foto e de arte)<textarea rows={3} maxLength={1500} value={profile.visual_identity || ""} placeholder="A IA preenche olhando as imagens dos posts mais curtidos." onChange={(e) => setProfile({ ...profile, visual_identity: e.target.value })} /></label>
         <div className="studioRow is-top">
           <label>Posts por semana<input type="number" min={1} max={14} value={profile.posts_per_week} onChange={(e) => setProfile({ ...profile, posts_per_week: Number(e.target.value) })} /></label>
           <fieldset><legend>Formatos</legend>{Object.entries(STUDIO_FORMATS).map(([k, v]) => <label key={k} className="studioCheck">

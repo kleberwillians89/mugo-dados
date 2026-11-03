@@ -114,6 +114,7 @@ def normalize_profile(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         "keywords_avoid": _str_list(raw.get("keywords_avoid"), item_limit=40, max_items=30),
         "hashtags": _str_list(raw.get("hashtags"), item_limit=40, max_items=30),
         "restrictions": _text(raw.get("restrictions"), 1500),
+        "visual_identity": _text(raw.get("visual_identity"), 1500),
         "posts_per_week": max(1, min(14, ppw)),
         "formats_enabled": formats or list(DEFAULT_FORMATS),
         "custom_dates": custom_dates,
@@ -339,7 +340,7 @@ def build_prompt(
         "mes": month.strftime("%Y-%m"),
         "perfil_da_marca": {k: profile.get(k) for k in (
             "tone_of_voice", "personality", "audience", "pillars", "keywords_use", "keywords_avoid",
-            "hashtags", "restrictions")},
+            "hashtags", "restrictions", "visual_identity")},
         "contexto_do_negocio": {k: v for k, v in (business or {}).items() if v},
         "posts_que_mais_performaram": top,
         "datas_do_mes": seasonal,

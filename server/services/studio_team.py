@@ -44,7 +44,8 @@ async def _send(row: Dict[str, Any]) -> bool:
 
 
 async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, actor_name: Optional[str],
-                      comment: Optional[str] = None, changes: Optional[List[str]] = None) -> Optional[str]:
+                      comment: Optional[str] = None, changes: Optional[List[str]] = None,
+                      edits: Optional[Dict[str, Dict[str, str]]] = None) -> Optional[str]:
     """Registra e tenta avisar já. Nunca levanta: a ação do cliente vale mesmo com o CRM fora do ar."""
     if action not in ACTIONS:
         return None
@@ -52,7 +53,10 @@ async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, acto
         row = {"id": str(uuid.uuid4()), "client_id": client_id, "item_id": str(item.get("id")), "action": action,
                "actor_name": (actor_name or "O cliente")[:120],
                "payload": {"title": str(item.get("title") or "")[:200], "comment": (comment or None) and comment[:1000],
-                           "changes": [FIELD_LABELS.get(c, c) for c in (changes or [])], "scheduled_at": item.get("scheduled_at")},
+                           "changes": [FIELD_LABELS.get(c, c) for c in (changes or [])], "scheduled_at": item.get("scheduled_at"),
+                           # Antes/depois do texto editado pelo cliente: fica só aqui (aprendizado do perfil), não vai ao CRM.
+                           **({"edits": {k: {"antes": str(v.get("antes") or "")[:600], "depois": str(v.get("depois") or "")[:600]}
+                                         for k, v in edits.items()}} if edits else {})},
                "status": "pendente", "attempts": 0}
         await sb_insert(EVENTS, row)
         await _send(row)

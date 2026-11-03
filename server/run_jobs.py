@@ -107,6 +107,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-clipping":
         from services.studio_clipping import refresh_all
         return await refresh_all()
+    if args.command == "brand-profile-monthly":
+        from services.studio_brand_brain import run_monthly
+        return await run_monthly(args.client_id)
     if args.command == "studio-team-retry":
         from services.studio_team import retry_pending
         return await retry_pending()
@@ -243,6 +246,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
+    monthly = sub.add_parser(
+        "brand-profile-monthly",
+        help="Dia 1: gera a sugestão do perfil da marca (IA avançada) de cada marca ativa, pendente de revisão da equipe.",
+    )
+    monthly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     sub.add_parser(
         "studio-team-retry",
         help="Reenvia ao CRM os avisos ao time (cliente aprovou/pediu ajuste/editou) que ficaram pendentes.",

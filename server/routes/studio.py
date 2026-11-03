@@ -52,6 +52,8 @@ ERRORS = {
     "FORMAT_INVALID": (422, "Formato inválido."),
     "EMPTY_PATCH": (422, "Nada para alterar."),
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
+    "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
+    "INVALID_STATUS": (422, "Status inválido."),
 }
 
 
@@ -93,6 +95,7 @@ class ProfileInput(BaseModel):
     keywords_avoid: List[str] = Field(default_factory=list, max_length=30)
     hashtags: List[str] = Field(default_factory=list, max_length=30)
     restrictions: str = Field(default="", max_length=1500)
+    visual_identity: str = Field(default="", max_length=1500)
     posts_per_week: int = Field(default=3, ge=1, le=14)
     formats_enabled: List[Format] = Field(default_factory=lambda: ["reels", "carrossel", "imagem"], max_length=5)
     custom_dates: List[CustomDate] = Field(default_factory=list, max_length=30)
@@ -311,6 +314,33 @@ async def run_strategy_chat(client_id: str, body: ChatInput, authorization: str 
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     try:
         return await strategy_chat(cid, body.month, [m.model_dump() for m in body.messages])
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/brand-profile/suggestion")
+async def read_profile_suggestion(client_id: str, authorization: str | None = Header(default=None)):
+    """Sugestão mensal pendente de revisão (gerada pelo job do dia 1)."""
+    from services.studio_brand_brain import pending_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    return {"suggestion": await pending_suggestion(cid)}
+
+
+class SuggestionStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["aplicada", "descartada"]
+
+
+@router.post("/brand-profile/suggestion/{suggestion_id}")
+async def write_profile_suggestion(client_id: str, suggestion_id: UUID, body: SuggestionStatusInput,
+                                   authorization: str | None = Header(default=None)):
+    from services.studio_brand_brain import resolve_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await resolve_suggestion(cid, str(suggestion_id), body.status, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
 

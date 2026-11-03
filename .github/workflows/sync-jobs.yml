@@ -32,6 +32,7 @@ on:
     - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico)
     - cron: "15 13 * * 5"      # Sexta 10h15 (SP): aprendizado por campanha + resumo semanal no WhatsApp
     - cron: "40 10 * * *"      # 7h40 (SP): clipping da marca (Google Notícias)
+    - cron: "20 12 1 * *"      # Dia 1, 9h20 (SP): sugestão mensal do perfil da marca (IA avançada)
     - cron: "50 * * * *"       # Avisos ao time que o CRM não recebeu na hora (cliente aprovou/pediu ajuste/editou)
   workflow_dispatch:
     inputs:
@@ -76,6 +77,7 @@ jobs:
             "15 13 * * 5")         cmd="studio-weekly-digest" ;;
             "50 * * * *")          cmd="studio-team-retry" ;;
             "40 10 * * *")         cmd="studio-clipping" ;;
+            "20 12 1 * *")         cmd="brand-profile-monthly" ;;
             "")                    cmd="$MANUAL" ;;
             *) echo "horário sem comando mapeado"; exit 1 ;;
           esac
