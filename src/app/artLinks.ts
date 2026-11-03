@@ -22,3 +22,13 @@ export function canvaEmbed(url: string): string | null {
   const m = url.match(/canva\.com\/design\/([A-Za-z0-9_-]+)(?:\/([A-Za-z0-9_-]+))?/);
   return m ? `https://www.canva.com/design/${m[1]}${m[2] && m[2] !== "view" && m[2] !== "edit" ? `/${m[2]}` : ""}/view?embed` : null;
 }
+
+/** Imagem que dá para mostrar direto na prévia do post: miniatura do Drive ou link de imagem. Canva fica no botão. */
+export function artImage(url?: string | null): string | null {
+  if (!url || !url.startsWith("https://")) return null;
+  if (artKind(url) === "drive") {
+    const id = driveId(url);
+    return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w1200` : null;
+  }
+  return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url) ? url : null;
+}

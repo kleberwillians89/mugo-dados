@@ -4,6 +4,7 @@ import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
+import { artImage } from "../../app/artLinks";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
 const VERTICAL: StudioFormat[] = ["reels", "stories", "video"];
@@ -37,6 +38,10 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Arte do Drive (ou link de imagem) vira a imagem grande da prévia; se não carregar, volta a capa com o gancho.
+  const [artFailed, setArtFailed] = useState<string | null>(null);
+  const artCandidate = artImage(draft.art_url);
+  const art = artCandidate && artCandidate !== artFailed ? artCandidate : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
@@ -71,9 +76,10 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
           <div><strong>{handle.slice(1)}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
-        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}`}>
+        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
-          <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>
+          {art ? <img className="igArt" src={art} alt="Arte do post" onError={() => setArtFailed(art)} />
+            : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
         </div>
         <div className="igActions" aria-hidden="true">
@@ -107,7 +113,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
         {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive)<input type="url" inputMode="url" maxLength={1000} pattern="https://.*" placeholder="https://www.canva.com/design/…"
           value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
-        <ArtLink url={(draft.art_url || "").startsWith("https://") ? draft.art_url : null} />
+        <ArtLink url={(draft.art_url || "").startsWith("https://") ? draft.art_url : null} preview={!art} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
         {item?.client_edited_at ? <p className="postEdited">Editado pelo cliente em {new Date(item.client_edited_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{item.client_edited_fields?.length ? ` (${item.client_edited_fields.map((f) => ({ title: "título", hook: "gancho", caption_draft: "legenda", scheduled_at: "data" } as Record<string, string>)[f] || f).join(", ")})` : ""}. {clientMode ? "A equipe Mugô já foi avisada." : "Confira antes de publicar."}</p> : null}
