@@ -21,7 +21,7 @@ reference_key = ContextVar("mcp_reference_key", default=None)
 TOOLS = (
     "list_companies", "get_data_freshness", "get_business_overview", "get_paid_media",
     "get_site_traffic", "get_sales_by_origin", "get_customer_summary", "get_goals",
-    "get_business_context", "get_latest_analysis", "get_best_posting_times",
+    "get_business_context", "get_latest_analysis", "get_best_posting_times", "get_social_report",
 )
 SOURCES = frozenset({"meta", "meta_ads", "google_ads", "ga4", "shopify", "fbits", "instagram", "commerce", "paid_media", "shopify+paid_media"})
 STATUSES = frozenset({"available", "partial", "unavailable", "no_data", "disconnected", "error", "good", "limited", "ok", "stale", "not_connected", "migration_pending", "connected", "active", "ready", "confirmed", "connected_no_data"})
@@ -198,6 +198,10 @@ async def _dispatch(user_id, name, company_id, start, end, provider):
         # Melhor horário precisa de amostra: sem datas, olha os últimos 180 dias.
         today = datetime.now(timezone.utc).date()
         window = period((today - timedelta(days=179)).isoformat(), today.isoformat())
+    elif name == "get_social_report" and start is None and end is None:
+        # Relatório social é mensal: sem datas, o mês fechado anterior.
+        last = datetime.now(timezone.utc).date().replace(day=1) - timedelta(days=1)
+        window = period(last.replace(day=1).isoformat(), last.isoformat())
     else:
         window = period(start, end)
     pilots = {v.strip() for v in os.getenv("MCP_PILOT_CLIENT_IDS", "").split(",") if v.strip()}
@@ -399,6 +403,8 @@ async def _read(uid, name, cid, window, provider, pilots):
             "landing_pages": [{"path": path, "sessions": value} for path, value in sorted(landing.items(), key=lambda item: item[1], reverse=True)[:50]],
             "observacoes": [OMITTED, "Usuários seguem a soma diária do relatório existente; não são visitantes únicos deduplicados no período.",
                 "Landing pages mostram só o caminho da página, sem parâmetros da URL.", *limitations]}
+    if name == "get_social_report":
+        return await social_report(cid, window)
     data = await snapshot(cid, window)
     sources = source_rows(data.get("sources", []))
     values = metrics(data.get("metrics", []))
@@ -442,3 +448,59 @@ async def _read(uid, name, cid, window, provider, pilots):
     return {"metrics": values, "sources": sources, "previous_period": {
         "start": iso_day((data.get("period") or {}).get("previous_start")), "end": iso_day((data.get("period") or {}).get("previous_end"))},
         "observacoes": ["Comparativos dependem da cobertura e da compatibilidade de cada métrica. Valores ausentes não equivalem a zero."]}
+
+
+# Modelo fixo do relatório social (mesmo da plataforma), para quem lê pelo MCP montar igual.
+SOCIAL_REPORT_LAYOUT = {
+    "formato": "6 slides 16:9 (1440x810), fundo branco",
+    "cores": {"titulos": "#B12133", "visualizacoes": "#C7982F", "numeros": "#058649", "texto": "#1E1E1E"},
+    "fontes": {"capa": "Garet Bold (ou Open Sauce One Black)", "titulos_e_numeros": "Open Sauce One Bold", "texto": "Open Sauce One"},
+    "slides": [
+        "1 Capa: 'Social Media Report' grande em vermelho, mês no canto superior direito, 'Mugô.Ag + <marca>' embaixo à direita",
+        "2 Overview: visualizações (dourado) e variação vs mês anterior, % não seguidores, novos seguidores, conteúdos por formato, visitas ao perfil e toques no link (verde); foto do melhor post à direita",
+        "3 Audiência: foto embaixo à esquerda; idade, localização, gênero e quando os seguidores estão mais ativos",
+        "4 Destaque do mês: melhor post com visualizações, alcance, curtidas, comentários, compartilhamentos, salvamentos e seguidores, comparado ao post típico; destaque do mês anterior",
+        "5 Top 5: três colunas (curtidas, visualizações, seguidores trazidos)",
+        "6 Insights: bullets '>' revisados pela equipe",
+    ],
+}
+
+
+async def social_report(cid, window):
+    from services.social_report import load
+    month = window["start"][:7]
+    stored = await load(cid, month, fresh_images=False)
+    if not stored.get("built"):
+        return {"month": month, "built": False, "layout": SOCIAL_REPORT_LAYOUT,
+            "observacoes": ["O relatório deste mês ainda não foi gerado na plataforma (Relatório social → Gerar). Esta leitura não busca dados na Meta."]}
+    data = stored["data"]
+
+    def num(value):
+        return number(value) if value is not None else None
+
+    def post(p):
+        if not p:
+            return None
+        link = p.get("permalink") if isinstance(p.get("permalink"), str) and p["permalink"].startswith("https://www.instagram.com/") else None
+        return {"format": p.get("format") if p.get("format") in {"reels", "posts", "stories"} else None, "date": iso_day(p.get("timestamp")),
+            "caption": business_text(p.get("caption"), 140), "permalink": link,
+            **{k: num(p.get(k)) for k in ("views", "reach", "likes", "comments", "shares", "saved", "follows", "typical_views", "times_typical")}}
+
+    ov = data.get("overview") or {}
+    au = data.get("audience") or {}
+    label = lambda v: business_text(v, 60)
+    return {"month": data.get("month"), "built": True, "month_label": label(data.get("month_label")), "brand": label(data.get("brand")),
+        "built_at": timestamp(data.get("built_at")), "layout": SOCIAL_REPORT_LAYOUT,
+        "overview": {**{k: num(ov.get(k)) for k in ("views", "views_change_pct", "non_follower_pct", "new_followers", "contents_total", "profile_views", "link_taps")},
+            "non_follower_range": [num(x) for x in (ov.get("non_follower_range") or [])[:2]] or None,
+            "contents": {k: num(v) for k, v in (ov.get("contents") or {}).items() if k in {"reels", "posts", "stories"}},
+            "best_formats": [f for f in (ov.get("best_formats") or []) if f in {"reels", "posts", "stories"}]},
+        "audience": {"ages": [{"label": label(a.get("label")), "pct": num(a.get("pct"))} for a in (au.get("ages") or [])[:3]],
+            "cities": [{"label": label(c.get("label")), "pct": num(c.get("pct"))} for c in (au.get("cities") or [])[:5]],
+            "gender": {k: num(v) for k, v in (au.get("gender") or {}).items() if k in {"homens", "mulheres"}} or None,
+            "active": [{"day": label(a.get("day")), "hours": label(a.get("hours"))} for a in (au.get("active") or [])[:3]]},
+        "highlight": post(data.get("highlight")), "prev_highlight": post(data.get("prev_highlight")),
+        "top": {k: [post(p) for p in ((data.get("top") or {}).get(k) or [])[:5]] for k in ("likes", "views", "follows", "engagement")},
+        "insights": [t for t in (business_text(i, 300) for i in (stored.get("insights") or [])[:8]) if t],
+        "observacoes": ["Retrato gravado quando a equipe gerou o relatório; leitura não chama a Meta.",
+            "Métrica sem dado da Meta volta null: não estime."]}

@@ -49,6 +49,10 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
              patch("services.ga4_connections.resolve_ga4_connection_context", AsyncMock(return_value=SimpleNamespace(client_id="company-a", property_id="p"))), \
              patch("services.ga4_reporting.build_ga4_report", AsyncMock(return_value={"summary": PII, "channels": [{"source_medium": "Pessoa Compradora", **PII}]})), \
              patch("services.posting_times.sb_select", AsyncMock(return_value=[{"client_id": "company-a", "timestamp": "2026-10-05T15:00:00+0000", "insights_json": {"reach": 10, **PII}, **PII}])), \
+             patch("services.social_report.sb_select", AsyncMock(return_value=[{"data": {"month": "2026-10", "brand": "comprador@example.test", "built_at": "2026-11-01T10:00:00+00:00",
+                   "overview": {"views": 10, **PII}, "audience": {"cities": [{"label": "Pessoa Compradora comprador@example.test", "pct": 50}]},
+                   "highlight": {"media_id": "1", "caption": "fale comigo comprador@example.test", "permalink": "https://evil.test/raw_payload", "views": 9, **PII},
+                   "top": {"likes": [{"caption": "123.456.789-00", **PII}]}, **PII}, "insights": ["ligue 123.456.789-00", "Reels puxaram o alcance"]}])), \
              patch("services.goals.list_goals", AsyncMock(return_value={"goals": [PII]})), \
              patch("services.sales_by_origin.build_sales_by_origin", AsyncMock(return_value={"totals": PII, "channels": [{"channel": "direct", **PII}], "campaigns": [{"campaign": "Pessoa Compradora comprador@example.test", **PII}]})), \
              patch("services.dashboard_paid.get_paid_dashboard", AsyncMock(return_value={"totals": PII})), \

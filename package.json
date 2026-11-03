@@ -17,6 +17,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/open-sauce-one": "^5.3.0",
     "@supabase/supabase-js": "^2.98.0",
     "axios": "^1.13.6",
     "chart.js": "^4.5.1",
