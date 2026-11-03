@@ -4,20 +4,52 @@ import type { GuardIssue } from "./studio";
 /** Clipping da marca e Redação de campanha — só a equipe Mugô (o backend exige agency_admin). */
 const base = (path: string) => clientClientPath(`/studio${path}`);
 
-export type Sentiment = "positivo" | "neutro" | "negativo";
-export const SENTIMENT_LABEL: Record<Sentiment, string> = { positivo: "Positiva", neutro: "Neutra", negativo: "Negativa" };
+export type Sentiment = "positivo" | "neutro" | "negativo" | "misto";
+export const SENTIMENT_LABEL: Record<Sentiment, string> = { positivo: "Positiva", neutro: "Neutra", negativo: "Negativa", misto: "Mista" };
+export type Criticality = "baixa" | "media" | "alta" | "critica";
+export const CRITICALITY_LABEL: Record<Criticality, string> = { baixa: "Baixa", media: "Média", alta: "Alta", critica: "Crítica" };
+export const KIND_LABEL: Record<string, string> = { marca: "Marca", concorrente: "Concorrente", pessoa: "Pessoa", tema: "Tema" };
 export type Clipping = {
-  id: string; url: string; title: string; source: string | null; published_at: string | null; kind: "marca" | "concorrente";
+  id: string; url: string; title: string; source: string | null; published_at: string | null; kind: "marca" | "concorrente" | "pessoa" | "tema";
   term: string; sentiment: Sentiment | null; summary: string | null; relevant: boolean | null;
   status: "novo" | "lido" | "arquivado" | "pauta"; calendar_item_id: string | null; created_at: string;
+  relevance?: number | null; criticality?: Criticality | null; main_theme?: string | null; entities?: string[];
+  opportunities?: string[]; risks?: string[]; justification?: string | null; evidence?: string[]; alert_status?: string;
 };
+export type Count = { key: string; count: number };
+export type ClippingInsights = {
+  total: number; analyzed: number; sentiment: Count[]; themes: Count[]; sources: Count[]; mentions: Count[];
+  timeline: { day: string; count: number }[]; critical: (Pick<Clipping, "id" | "title" | "url" | "source" | "published_at" | "criticality" | "relevance" | "sentiment" | "risks">)[];
+};
+export type ReportRef = { text: string; url: string };
+export type ClippingReport = {
+  period: string; focus: string; items: number; summary: string; highlights: ReportRef[]; risks: ReportRef[]; opportunities: ReportRef[];
+  sources: { title: string; url: string; source: string | null }[]; ai?: boolean;
+};
+export const RADAR_FIELDS = [
+  ["brand_terms", "Marca e variações"], ["competitor_terms", "Concorrentes"], ["people", "Pessoas e porta-vozes"],
+  ["keywords", "Palavras-chave"], ["themes", "Temas estratégicos"], ["exclude_terms", "Ignorar notícias que tenham"],
+] as const;
 export type WeekCount = { total: number; marca: number; concorrente: number } & Record<Sentiment, number>;
-export type ClippingSettings = { brand_terms: string[]; competitor_terms: string[]; exclude_terms: string[]; active: boolean; last_run_at: string | null; saved: boolean };
+export type ClippingSettings = {
+  brand_terms: string[]; competitor_terms: string[]; exclude_terms: string[]; active: boolean; last_run_at: string | null; saved: boolean;
+  people?: string[]; keywords?: string[]; themes?: string[]; feeds?: string[]; region?: string | null; relevance_criteria?: string | null;
+  min_relevance?: number;
+};
 export type ClippingView = { items: Clipping[]; week: { current: WeekCount; previous: WeekCount; marca_variacao: number }; settings: ClippingSettings };
 
-export function getClipping(filters: { kind?: string; sentiment?: string } = {}) {
+export function getClipping(filters: { kind?: string; sentiment?: string; q?: string; theme?: string; min_relevance?: string; criticality?: string } = {}) {
   const q = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();
   return http<ClippingView>(base(`/clipping${q ? `?${q}` : ""}`));
+}
+export function getClippingInsights(days = 30) {
+  return http<ClippingInsights>(base(`/clipping/insights?days=${days}`));
+}
+export function getClippingReport(period: "diario" | "semanal" | "mensal", focus: "cobertura" | "concorrentes" | "setor" | "riscos") {
+  return http<ClippingReport>(base("/clipping/report"), { method: "POST", body: JSON.stringify({ period, focus }), timeoutMs: 90_000 });
+}
+export function exportClipping(days = 30) {
+  return http<Blob>(base(`/clipping/export?days=${days}`), { responseType: "blob" });
 }
 export function saveClippingSettings(input: Omit<ClippingSettings, "last_run_at" | "saved">) {
   return http<ClippingSettings>(base("/clipping/settings"), { method: "PUT", body: JSON.stringify(input) });

@@ -78,11 +78,19 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ai_labels_are_validated(self):
         items = clip.parse_news_rss(RSS, term="Curavino", kind="marca")
-        out = {"items": [{"index": 0, "sentimento": "positivo", "resumo": "Lançamento — linha natural", "relevante": True},
-                         {"index": 9, "sentimento": "positivo", "resumo": "x", "relevante": True}]}
+        base = {"tema": "lançamento", "entidades": ["Curavino"], "relevancia": 90, "criticidade": "baixa", "oportunidades": ["repostar"],
+                "riscos": [], "justificativa": "cita a marca"}
+        out = {"items": [{**base, "index": 0, "sentimento": "positivo", "resumo": "Lançamento — linha natural", "evidencias": ["lança linha de vinhos naturais"]},
+                         {**base, "index": 1, "sentimento": "positivo", "resumo": "x", "evidencias": ["trecho que não existe na matéria"]},
+                         {**base, "index": 9, "sentimento": "positivo", "resumo": "x", "evidencias": []}]}
         with patch("services.studio_llm.llm_json", AsyncMock(return_value=out)):
-            labels = await clip._classify("Curavino", items)
-        self.assertEqual(labels, {0: {"sentiment": "positivo", "summary": "Lançamento, linha natural", "relevant": True}})
+            labels = await clip._classify("MARCA: Curavino", items)
+        self.assertEqual(set(labels), {0, 1})  # índice inexistente descartado
+        self.assertEqual(labels[0]["summary"], "Lançamento, linha natural")
+        self.assertEqual(labels[0]["relevance"], 90)
+        self.assertEqual(labels[0]["evidence"], ["lança linha de vinhos naturais"])
+        self.assertEqual(labels[1]["evidence"], [])  # evidência inventada não entra
+        self.assertEqual(labels[1]["relevance"], 40)  # e sem evidência a relevância é limitada
 
 
 class CampaignTests(unittest.TestCase):
@@ -142,7 +150,7 @@ class AgencyOnlyTests(unittest.TestCase):
         routes = source.split("\n@router.")[1:]
         self.assertGreaterEqual(len(routes), 12)
         for route in routes:
-            if route.startswith('get("/clipping")'):
+            if route.startswith('get("/clipping")') or route.startswith('get("/clipping/insights")'):
                 self.assertIn("require_client_read", route)
                 self.assertIn("is_agency_user", route)
                 continue
