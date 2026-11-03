@@ -262,6 +262,8 @@ REPLY_STYLE = (
     "- Marcação de amigo (@fulano): resposta curta e simpática para os dois.\n"
     "- Texto em outro idioma ou spam (\"send me this post\", links, promoção de terceiros): needs_human=true, reply vazio.\n"
     "REGRAS DE ESTILO:\n"
+    "- Soe exatamente como a marca: mesmo vocabulário, gírias, ritmo e jeito de usar emoji das legendas dela e das respostas da "
+    "equipe. Se a marca é irreverente, seja irreverente; se é sóbria, seja sóbria. Nada de voz neutra de SAC.\n"
     "- 1 frase na maioria dos casos; no máximo 2. Linguagem do dia a dia, no tom do perfil.\n"
     "- Pergunta de volta só às vezes e só se for natural e ligada ao post; nunca pergunta genérica "
     "(\"qual parte você mais gostou?\", \"conta pra gente\", \"qual desafio...\").\n"
@@ -285,6 +287,13 @@ async def _reply_examples(client_id: str) -> Dict[str, List[str]]:
     return {"manual": manual, "recent": recent}
 
 
+async def _brand_voice(client_id: str) -> List[str]:
+    """Legendas recentes da própria marca: o jeito real como ela escreve (gírias, ritmo, emojis)."""
+    rows = await sb_select("ig_media", select="caption", order="timestamp.desc", limit=8,
+                           filters={"client_id": f"eq.{client_id}", "caption": "not.is.null"})
+    return [re.sub(r"\s+", " ", str(r["caption"]))[:280] for r in rows if str(r.get("caption") or "").strip()][:6]
+
+
 async def _post_context(client_id: str, media_id: Any) -> str:
     if not media_id:
         return ""
@@ -305,6 +314,7 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     context = json.dumps(business, ensure_ascii=False, default=str)[:2500]
     caption = await _post_context(client_id, comment.get("media_id"))
     examples = await _reply_examples(client_id)
+    voice = await _brand_voice(client_id)
     text = (comment.get("text") or "")[:600]
     kind = "só emoji ou reação curta" if _EMOJI_ONLY.match(text) or len(text.split()) <= 2 else "texto"
     schema = obj({"reply": STR, "needs_human": {"type": "boolean"}, "reason": STR})
@@ -312,6 +322,7 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
         instructions=REPLY_STYLE,
         prompt=(f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
                 f"NEGÓCIO: {context}\n"
+                f"COMO A MARCA ESCREVE (legendas recentes dela; copie o jeito, o vocabulário e o ritmo, não o conteúdo): {json.dumps(voice, ensure_ascii=False)}\n"
                 f"CONTEXTO DO POST (legenda): {caption or 'sem legenda'}\n"
                 f"RESPOSTAS QUE A EQUIPE ESCREVEU (siga este tom): {json.dumps(examples['manual'], ensure_ascii=False)}\n"
                 f"ÚLTIMAS RESPOSTAS DA MARCA (não repita): {json.dumps(examples['recent'], ensure_ascii=False)}\n"
