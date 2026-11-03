@@ -163,3 +163,8 @@ type MessageInput = { kind: MessageKind; contact_id?: string; request_id?: strin
 export function previewMessage(input: MessageInput) { return http<MessagePreview>(base("/messages/preview"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
 export function sendMessage(input: MessageInput) { return http<MessageResult>(base("/messages/send"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 }); }
 export function listMessages() { return http<{ messages: MessageLog[]; templates: string[]; whatsapp_channel: "mugozap" | "wa_link" }>(base("/messages")); }
+
+/** Comentários num post (cliente e equipe Mugô no mesmo fio). */
+export type ItemComment = { id: string; author_side: "cliente" | "mugo"; author_name: string | null; body: string; created_at: string };
+export function listItemComments(itemId: string) { return http<{ comments: ItemComment[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`)); }
+export function addItemComment(itemId: string, body: string) { return http<{ ok: true; comment: ItemComment }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`), { method: "POST", body: JSON.stringify({ body }) }); }

@@ -29,6 +29,7 @@ from services.studio_messages import (
     save_contact, send_message,
 )
 from services.studio_client import CLIENT_STAGES, client_edit, client_items
+from services.studio_comments import add_comment, list_comments
 from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
@@ -189,6 +190,35 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     except StudioError as exc:
         raise _http(exc) from None
     return {"ok": True, "item": item}
+
+
+MEMBERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
+
+
+class CommentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(min_length=1, max_length=2000)
+
+
+@router.get("/calendar/items/{item_id}/comments")
+async def read_item_comments(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return {"comments": await list_comments(cid, str(item_id), agency=await is_agency_user(authorization))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/calendar/items/{item_id}/comments", status_code=201)
+async def write_item_comment(client_id: str, item_id: UUID, body: CommentInput, authorization: str | None = Header(default=None)):
+    # Qualquer pessoa da empresa comenta (inclusive leitor); o post precisa estar visível para ela.
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    try:
+        comment = await add_comment(cid, str(item_id), body.body, agency=await is_agency_user(authorization), user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True, "comment": comment}
 
 
 @router.delete("/calendar/items/{item_id}")
@@ -534,6 +564,7 @@ class PlanInput(BaseModel):
 @router.post("/media/strategy")
 async def run_media_strategy(client_id: str, body: StrategyInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)  # cliente vê o plano salvo; gerar e mudar verba é da Mugô
     uid = await require_user_id(authorization)
     try:
         strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget,
@@ -563,6 +594,7 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
 @router.get("/media/strategies")
 async def read_media_strategies(client_id: str, month: str, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
+    await _agency_only(authorization)  # rascunhos de estratégia são da Mugô; o cliente vê só o plano salvo
     try:
         return {"strategies": await list_strategies(cid, month)}
     except StudioError as exc:
@@ -572,6 +604,7 @@ async def read_media_strategies(client_id: str, month: str, authorization: str |
 @router.get("/media/strategies/{strategy_id}")
 async def read_media_strategy(client_id: str, strategy_id: UUID, authorization: str | None = Header(default=None)):
     cid = await require_client_read(client_id, authorization)
+    await _agency_only(authorization)  # rascunhos de estratégia são da Mugô; o cliente vê só o plano salvo
     try:
         return await get_strategy(cid, str(strategy_id))
     except StudioError as exc:
@@ -590,6 +623,7 @@ async def read_media_plan(client_id: str, month: str, authorization: str | None 
 @router.put("/media/plan")
 async def write_media_plan(client_id: str, body: PlanInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)  # cliente vê o plano salvo; gerar e mudar verba é da Mugô
     uid = await require_user_id(authorization)
     try:
         return {"ok": True, "plan": await save_plan(cid, body.month, body.model_dump(mode="json"), user_id=uid)}
