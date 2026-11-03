@@ -549,7 +549,7 @@ def clean_art_url(value: Any) -> Optional[str]:
     if len(links) > 12 or any(not re.match(r"^https://\S+$", link) for link in links):
         raise StudioError("ART_URL_INVALID")
     text = "\n".join(links)
-    if len(text) > 1000:
+    if len(text) > 4000:  # migração 000072 (antes 1000): cabe carrossel de arquivos enviados pelo modal
         raise StudioError("ART_URL_INVALID")
     return text
 

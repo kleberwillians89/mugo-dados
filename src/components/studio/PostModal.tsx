@@ -1,3 +1,4 @@
+import { uploadArt } from "../../app/artUpload";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
 import type { PostDraft } from "../../app/studioCalendar";
@@ -41,6 +42,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [copied, setCopied] = useState(false);
   // Arte do Drive (ou link de imagem) vira a imagem grande da prévia; se não carregar, volta a capa com o gancho.
   const [artFailed, setArtFailed] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const slides = artImages(draft.art_url);
   const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -115,6 +118,22 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive) — no carrossel, um link por linha, na ordem dos slides
           <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/…"
             value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
+        {canManage && !clientMode && item ? <label className="postUpload">
+          <span className="ds-button">{uploading ? uploading : "Enviar arte (JPG/PNG ou vídeo MP4)"}</span>
+          <input type="file" multiple accept="image/*,video/mp4,video/quicktime" disabled={Boolean(uploading) || busy} onChange={async (e) => {
+            const files = Array.from(e.target.files || []); e.target.value = "";
+            if (!files.length) return;
+            setUploadError(null);
+            try {
+              const links: string[] = [];
+              for (const [i, file] of files.entries()) { setUploading(`Enviando ${i + 1} de ${files.length}…`); links.push(await uploadArt(item.id, file)); }
+              set({ art_url: [...artList(draft.art_url), ...links].slice(0, 12).join("\n") });
+            } catch (cause) { setUploadError(cause instanceof Error ? cause.message : "Não foi possível enviar a arte."); }
+            finally { setUploading(null); }
+          }} />
+          <small>Vira JPG (imagem) ou fica MP4 e entra no link da arte, na ordem. Salve depois. É o formato que publica sozinho no Instagram.</small>
+          {uploadError ? <small className="studioError">{uploadError}</small> : null}
+        </label> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
