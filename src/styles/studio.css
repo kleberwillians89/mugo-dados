@@ -449,3 +449,16 @@
 .studioChip.is-on{background:#e3f1e8;color:#26734d}
 .engageAi{display:flex;justify-content:space-between;gap:var(--space-3);align-items:center;flex-wrap:wrap;padding:var(--space-3) var(--space-4);border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface)}
 .engageAi small{display:block;color:var(--text-muted);font-size:12px;max-width:70ch;margin-top:4px}
+
+.igMedia.has-art{background:#0f1a20;padding:0}
+.igArt{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+
+/* Modal do post: as duas colunas rolam por dentro e os botões ficam sempre à vista. */
+.postModal{height:min(920px,calc(100vh - 48px));grid-template-rows:minmax(0,1fr)}
+.postModal>.igPreview,.postModal>.postPanel{min-height:0}
+.postPanel>.postActions{position:sticky;bottom:-20px;margin:auto -22px -20px;padding:12px 22px 16px;background:#fff;border-top:1px solid #efefef;z-index:1}
+.igFormat,.igCarouselDots{z-index:1}
+@media (max-width:900px){
+  .postModal{height:100%;grid-template-rows:auto}
+  .postPanel>.postActions{bottom:0}
+}
