@@ -207,7 +207,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
         "marca": {k: profile.get(k) for k in ("tone_of_voice", "personality", "audience", "pillars", "keywords_use",
-                                              "keywords_avoid", "hashtags", "restrictions", "custom_dates") if profile.get(k)},
+                                              "keywords_avoid", "hashtags", "restrictions", "visual_identity", "custom_dates") if profile.get(k)},
         "negocio": business,
         "kpis": snap.get("metricas") or [],
         "campanhas_que_mais_venderam": snap.get("campanhas") or [],

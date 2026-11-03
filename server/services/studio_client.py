@@ -83,7 +83,10 @@ async def client_edit(client_id: str, item_id: str, patch: Dict[str, Any], *, us
                                  patch={"client_edited_at": datetime.now(timezone.utc).isoformat(), "client_edited_by": user_id,
                                         "client_edited_fields": fields})
         item = marked[0] if marked else item
-        await notify_team(client_id, item, "editado_pelo_cliente", actor_name=actor_name, comment=note or None, changes=changed)
+        edits = {f: {"antes": str(current.get(f) or ""), "depois": str(patch[f] or "")}
+                 for f in changed if f in ("title", "hook", "caption_draft")}
+        await notify_team(client_id, item, "editado_pelo_cliente", actor_name=actor_name, comment=note or None, changes=changed,
+                          edits=edits or None)
     if status == "aprovado":
         await notify_team(client_id, item, "aprovado", actor_name=actor_name)
     elif status == "rejeitado":

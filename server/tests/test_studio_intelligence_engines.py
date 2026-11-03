@@ -145,8 +145,12 @@ class StrategyAndBrandTests(unittest.IsolatedAsyncioTestCase):
                       "pillars": [{"name": "Produto", "weight": 60, "description": "d"}, {"name": "Ritual", "weight": 40, "description": "d"}],
                       "keywords_use": ["oud"], "keywords_avoid": [], "hashtags": ["#ruah"], "restrictions": "",
                       "posts_per_week": 40, "formats_enabled": ["reels", "carrossel"], "notes": ["n1"]}
-        with patch.object(se, "build_content_intelligence", AsyncMock(return_value=INTEL)), \
-             patch.object(se, "llm_json", AsyncMock(return_value=suggestion)):
+        from services import studio_brand_brain as bb
+        sources = {"intel": INTEL, "posts": {"analisados": 0}, "validations": {}, "images": [], "gaps": []}
+        current = {"profile": {"custom_dates": [{"date": "03-15", "label": "Aniversário"}]}}
+        with patch.object(bb, "gather_sources", AsyncMock(return_value=sources)), \
+             patch.object(bb, "load_profile", AsyncMock(return_value=current)), \
+             patch.object(bb, "llm_json", AsyncMock(return_value={**suggestion, "visual_identity": "", "reasons": []})):
             out = await se.suggest_profile("roove")
         self.assertEqual(out["profile"]["posts_per_week"], 14)  # normalizado
         self.assertEqual(out["profile"]["custom_dates"], [{"date": "03-15", "label": "Aniversário"}])

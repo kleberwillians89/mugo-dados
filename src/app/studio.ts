@@ -9,6 +9,8 @@ export type BrandPillar = { name: string; weight: number; description: string };
 export type BrandProfile = {
   tone_of_voice: string; personality: string; audience: string; pillars: BrandPillar[];
   keywords_use: string[]; keywords_avoid: string[]; hashtags: string[]; restrictions: string;
+  /** Cores, composição, estilo de foto e de arte (a IA tira das imagens dos posts mais curtidos). */
+  visual_identity?: string;
   posts_per_week: number; formats_enabled: StudioFormat[]; custom_dates: { date: string; label: string }[];
 };
 
@@ -106,6 +108,15 @@ export const GAP_LABELS: Record<string, string> = {
   ultima_analise: "análise indisponível agora", aprendizados_de_aprovacao: "aprendizados indisponíveis agora",
   perfil_da_marca: "perfil indisponível agora", contexto_do_negocio: "contexto indisponível agora",
 };
+export function sourcesText(s?: ProfileSources | null): string {
+  if (!s) return "";
+  const parts = [s.posts ? `${s.posts} posts de 12 meses` : "", s.imagens ? `${s.imagens} imagem(ns) analisada(s)` : "",
+    s.aprovados ? `${s.aprovados} aprovação(ões)` : "", s.ajustes ? `${s.ajustes} ajuste(s) pedido(s)` : "",
+    s.comentarios ? `${s.comentarios} comentário(s) do cliente` : "", s.reescritas ? `${s.reescritas} texto(s) reescrito(s) pelo cliente` : "",
+    s.midia_on ? "plano da Mídia On" : ""].filter(Boolean);
+  return parts.length ? `Leu ${parts.join(", ")}.` : "";
+}
+
 export function basedOnText(b?: BasedOn | null): string {
   if (!b) return "";
   const parts = [b.posts_analisados ? `${b.posts_analisados} posts analisados` : "", b.aprovados ? `${b.aprovados} pauta(s) aprovada(s)` : "",
@@ -131,8 +142,20 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 export function strategyChat(month: string, messages: ChatTurn[]) {
   return http<{ reply: string; suggested_actions: string[]; based_on: BasedOn }>(base("/strategy/chat"), { method: "POST", body: JSON.stringify({ month, messages }), timeoutMs: 100_000 });
 }
+/** Fontes que a IA avançada leu para sugerir o perfil (12 meses). */
+export type ProfileSources = { posts: number; imagens: number; aprovados: number; ajustes: number; comentarios: number; reescritas: number; midia_on: number };
+export type ProfileReason = { campo: string; motivo: string };
+export type ProfileSuggestionResult = { profile: BrandProfile; notes: string[]; reasons?: ProfileReason[]; based_on: BasedOn; sources?: ProfileSources; gaps?: string[] };
 export function suggestBrandProfile() {
-  return http<{ profile: BrandProfile; notes: string[]; based_on: BasedOn }>(base("/brand-profile/suggest"), { method: "POST", body: JSON.stringify({}), timeoutMs: 120_000 });
+  return http<ProfileSuggestionResult>(base("/brand-profile/suggest"), { method: "POST", body: JSON.stringify({}), timeoutMs: 180_000 });
+}
+/** Sugestão mensal (job do dia 1) esperando revisão da equipe. */
+export type PendingProfileSuggestion = { id: string; month: string; created_at: string; suggestion: ProfileSuggestionResult };
+export function getProfileSuggestion() {
+  return http<{ suggestion: PendingProfileSuggestion | null }>(base("/brand-profile/suggestion"));
+}
+export function resolveProfileSuggestion(id: string, status: "aplicada" | "descartada") {
+  return http<{ ok: true }>(base(`/brand-profile/suggestion/${encodeURIComponent(id)}`), { method: "POST", body: JSON.stringify({ status }) });
 }
 
 // ------------------------------------------------------------ aprovação: funil, contatos e mensagens

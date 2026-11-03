@@ -114,6 +114,12 @@ async def _tasks(client_id: str, *, agency: bool) -> Optional[Dict[str, Any]]:
                      for t in sorted(open_tasks, key=lambda t: t.get("due_date") or "9999")[:4]]}
 
 
+async def _profile_suggestion(client_id: str) -> Optional[Dict[str, Any]]:
+    from .studio_brand_brain import pending_suggestion
+    row = await pending_suggestion(client_id)
+    return {"id": row["id"], "month": row.get("month")} if row else None
+
+
 def _alerts(blocks: Dict[str, Any], *, agency: bool) -> List[Dict[str, str]]:
     """O que precisa de atenção, só a partir do que os blocos trouxeram (nada estimado)."""
     out: List[Dict[str, str]] = []
@@ -135,6 +141,8 @@ def _alerts(blocks: Dict[str, Any], *, agency: bool) -> List[Dict[str, str]]:
         for camp in blocks.get("campaigns") or []:
             if camp.get("status") != "arquivada" and not camp.get("posts_no_calendario"):
                 out.append({"level": "info", "module": "campaigns", "text": f"Campanha “{camp['name']}” ainda não tem posts no Calendário."})
+    if agency and blocks.get("profile_suggestion"):
+        out.append({"level": "info", "module": "calendar", "text": "Nova sugestão do perfil da marca (IA) esperando revisão: Calendário → Perfil da marca."})
     tasks = blocks.get("tasks") or {}
     if tasks.get("late"):
         out.append({"level": "atencao", "module": "tasks", "text": f"{tasks['late']} tarefa(s) atrasada(s)."})
@@ -142,7 +150,7 @@ def _alerts(blocks: Dict[str, Any], *, agency: bool) -> List[Dict[str, str]]:
 
 
 async def build_central(client_id: str, month: date, *, agency: bool) -> Dict[str, Any]:
-    names = ["numbers", "calendar", "media", "clipping", "tasks"] + (["campaigns"] if agency else [])
+    names = ["numbers", "calendar", "media", "clipping", "tasks"] + (["campaigns", "profile_suggestion"] if agency else [])
     calls = [_safe("numeros", lambda: _numbers(client_id, month)),
              _safe("calendario", lambda: _calendar(client_id, month, agency=agency)),
              _safe("midia", lambda: _media(client_id, month)),
@@ -150,6 +158,7 @@ async def build_central(client_id: str, month: date, *, agency: bool) -> Dict[st
              _safe("tarefas", lambda: _tasks(client_id, agency=agency))]
     if agency:
         calls.append(_safe("campanhas", lambda: _campaigns(client_id)))
+        calls.append(_safe("sugestao_perfil", lambda: _profile_suggestion(client_id)))
     results = await asyncio.gather(*calls)
     blocks = dict(zip(names, results))
     return {"month": month.isoformat(), "agency": agency, **blocks, "alerts": _alerts(blocks, agency=agency)}

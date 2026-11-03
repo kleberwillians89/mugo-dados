@@ -191,19 +191,8 @@ PROFILE_SCHEMA = obj({
 
 
 async def suggest_profile(client_id: str) -> Dict[str, Any]:
+    """Perfil com IA avançada (12 meses de posts, imagens, validações do cliente, Mídia On e vendas)."""
+    from .studio_brand_brain import suggest
     throttle(client_id)
-    intel = await build_content_intelligence(client_id, use_cache=False)
-    prompt = (
-        "Monte o PERFIL DA MARCA para o Studio a partir dos dados abaixo. Mantenha o que o perfil atual já tem de bom; "
-        "complete o que falta. Pilares: 3 a 6, pesos somando 100, cada um com descrição de 1 frase. "
-        "Formatos: só os que a conta usa ou que fazem sentido para ela. posts_per_week entre 2 e 7. "
-        "Em notes, liste de 2 a 5 observações sobre o que nos dados sustentou as escolhas e o que ainda falta.\n\n"
-        f"PERFIL ATUAL E DADOS:\n{to_prompt(intel)}\n"
-    )
-    data = await llm_json(instructions="Você é o Brand Manager da agência: transforma os dados da marca em um perfil objetivo e utilizável.",
-                          prompt=prompt, schema_name="studio_brand_profile", schema=PROFILE_SCHEMA, temperature=0.4)
-    notes = [str(n)[:300] for n in (data.pop("notes", None) or [])[:5]]
-    # Datas próprias não fazem parte da sugestão: ficam as que a equipe cadastrou.
-    profile = normalize_profile({**data, "custom_dates": (intel.get("marca") or {}).get("custom_dates") or []})
-    return {"profile": profile, "notes": notes, "based_on": coverage(intel)}
+    return await suggest(client_id)
 

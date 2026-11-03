@@ -415,3 +415,8 @@
 .postComments li small{font-size:11px;opacity:.65}
 .postCommentForm{display:flex;gap:8px;align-items:flex-end}
 .postCommentForm textarea{flex:1;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit;min-width:0}
+
+/* Perfil da marca: sugestão mensal e motivos */
+.aiPending{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;border-radius:10px;background:#e8f3f7;margin:8px 0}
+.aiPending span{flex:1 1 220px;font-size:14px}
+.aiReasons{margin:6px 0;padding-left:18px;display:grid;gap:4px;font-size:13px}
