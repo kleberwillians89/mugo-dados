@@ -110,6 +110,25 @@ async def intelligence_save_business_context(
     return {"ok": True, "client_id": cid, **saved}
 
 
+@router.post("/business-context/suggest")
+async def intelligence_suggest_business_context(
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    # Rascunho da IA para os campos vazios; não grava nada (quem salva é a equipe).
+    cid = await require_client_role(client_id or x_client_id, authorization)
+    from services.business_brain import suggest_business
+    from services.studio_calendar import StudioError
+    from services.studio_engines import throttle
+    try:
+        throttle(cid)
+        return {"ok": True, "client_id": cid, **await suggest_business(cid)}
+    except StudioError as exc:
+        raise HTTPException(status_code=503 if exc.code == "AI_PROVIDER_NOT_CONFIGURED" else 429 if exc.code == "AI_RATE_LIMIT" else 502,
+                            detail="Não foi possível gerar a sugestão agora. Tente de novo em instantes.") from exc
+
+
 @router.get("/context")
 async def intelligence_context(
     include_commerce_details: bool = Query(default=True),

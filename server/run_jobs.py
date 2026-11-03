@@ -110,6 +110,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "brand-profile-monthly":
         from services.studio_brand_brain import run_monthly
         return await run_monthly(args.client_id)
+    if args.command == "business-context-prefill":
+        from services.business_brain import prefill_all
+        return await prefill_all(args.client_id)
     if args.command == "ig-publish-due":
         from services.ig_publish import publish_due
         return await publish_due()
@@ -257,6 +260,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dia 1: gera a sugestão do perfil da marca (IA avançada) de cada marca ativa, pendente de revisão da equipe.",
     )
     monthly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    prefill = sub.add_parser(
+        "business-context-prefill",
+        help="Preenche com IA os campos VAZIOS do contexto de negócio de cada marca ativa (os preenchidos ficam).",
+    )
+    prefill.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     sub.add_parser("ig-publish-due", help="Publica no Instagram os posts aprovados com agendamento validado (simula sem IG_PUBLISH_ENABLED=true).")
     sub.add_parser(
         "ig-engagement-run",
