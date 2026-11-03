@@ -35,9 +35,10 @@ create table if not exists public.ig_engagement_actions (
   created_at timestamptz not null default now()
 );
 -- Um gatilho responde cada comentário uma vez só (por tipo), mesmo que o job rode de novo.
+-- Respostas manuais da equipe não entram na trava (pode responder mais de uma vez).
 create unique index if not exists ig_engagement_actions_once_idx
-  on public.ig_engagement_actions (client_id, comment_id, kind, coalesce(rule_id::text, 'manual'))
-  where status in ('enviado', 'simulado');
+  on public.ig_engagement_actions (client_id, comment_id, kind, rule_id)
+  where rule_id is not null and status in ('enviado', 'simulado');
 create index if not exists ig_engagement_actions_client_idx on public.ig_engagement_actions (client_id, created_at desc);
 
 alter table public.ig_engagement_rules enable row level security;
