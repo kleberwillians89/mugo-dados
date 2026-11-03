@@ -103,3 +103,40 @@ async def prefill_all(client_id: Optional[str] = None) -> Dict[str, Any]:
             counts["failed"] += 1
             print(f"[business_brain] client_id={cid} failed={getattr(exc, 'code', type(exc).__name__)}")
     return counts
+
+
+# ------------------------------------------------------------------ radar do clipping
+
+RADAR_LISTS = ("brand_terms", "competitor_terms", "people", "keywords", "themes", "exclude_terms")
+RADAR_SCHEMA = obj({**{k: arr(STR) for k in RADAR_LISTS}, "region": STR, "relevance_criteria": STR})
+
+
+async def suggest_radar(client_id: str) -> Dict[str, Any]:
+    """Termos do Radar de notícias a partir do nome, contexto de negócio, perfil e legendas. Não grava."""
+    import json
+    business = (await load_business_context(client_id)).get("context") or {}
+    intel = await build_content_intelligence(client_id)
+    prompt = (
+        f"EMPRESA: {await _company_name(client_id) or 'sem nome cadastrado'}\n"
+        f"CONTEXTO DE NEGÓCIO: {json.dumps({k: v for k, v in business.items() if v}, ensure_ascii=False)}\n"
+        f"MARCA E POSTS: {to_prompt(intel, sections=['marca', 'negocio', 'posts', 'campanhas_ativas'], limit=5000)}\n\n"
+        "Monte o RADAR DE NOTÍCIAS (Google Notícias) desta marca. Até 6 termos por lista, curtos e exatos como "
+        "apareceriam numa manchete. brand_terms: nome da marca e variações (com cidade ou produto se o nome for comum, "
+        "para não trazer notícia de outra coisa). competitor_terms: só concorrentes citados nos dados ou óbvios no "
+        "segmento e na região (nome próprio). people: fundadores/porta-vozes que aparecem nos dados; sem dado, lista vazia. "
+        "keywords e themes: assuntos do setor que importam para a marca. exclude_terms: palavras que trariam notícia "
+        "errada por homônimo. region: cidade/país do público. relevance_criteria: 'Importa: ... Não importa: ...' em 2 linhas."
+    )
+    data = await llm_json(instructions=INSTRUCTIONS, prompt=prompt, schema_name="clipping_radar_v1",
+                          schema=RADAR_SCHEMA, temperature=0.3, timeout=90)
+    out: Dict[str, Any] = {}
+    for key in RADAR_LISTS:
+        seen: List[str] = []
+        for term in data.get(key) or []:
+            t = clean_text(term, 120)
+            if t and t.lower() not in {s.lower() for s in seen}:
+                seen.append(t)
+        out[key] = seen[:6]
+    out["region"] = clean_text(data.get("region"), 120)
+    out["relevance_criteria"] = clean_text(data.get("relevance_criteria"), 1000)
+    return out

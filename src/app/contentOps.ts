@@ -54,6 +54,11 @@ export function exportClipping(days = 30) {
 export function saveClippingSettings(input: Omit<ClippingSettings, "last_run_at" | "saved">) {
   return http<ClippingSettings>(base("/clipping/settings"), { method: "PUT", body: JSON.stringify(input) });
 }
+export type RadarSuggestion = Record<(typeof RADAR_FIELDS)[number][0], string[]> & { region: string; relevance_criteria: string };
+/** Rascunho do radar pela IA; nada é gravado. */
+export function suggestClippingSettings() {
+  return http<RadarSuggestion>(base("/clipping/settings/suggest"), { method: "POST", timeoutMs: 90_000 });
+}
 export function refreshClipping() {
   return http<{ found: number; new: number; classified: number }>(base("/clipping/refresh"), { method: "POST", timeoutMs: 120_000 });
 }

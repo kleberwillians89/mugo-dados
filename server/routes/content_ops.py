@@ -160,6 +160,19 @@ async def clipping_export(client_id: str, days: int = Query(default=30, ge=1, le
                     headers={"Content-Disposition": f'attachment; filename="clipping-{cid}-{days}d.csv"'})
 
 
+@router.post("/clipping/settings/suggest")
+async def suggest_clipping_settings(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Rascunho do radar pela IA (nome, contexto de negócio, perfil e posts). Não grava: a equipe revisa e salva."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    from services.business_brain import suggest_radar
+    from services.studio_engines import throttle
+    try:
+        throttle(cid)
+        return await suggest_radar(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.put("/clipping/settings")
 async def write_clipping_settings(client_id: str, body: ClippingSettingsInput, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
