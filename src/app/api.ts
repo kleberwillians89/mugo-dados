@@ -560,7 +560,7 @@ export type FbitsOriginProbeResult =
   | { ok: false; code?: string; message?: string };
 
 export type HistoryProviderPlan = {
-  provider: "fbits" | "shopify" | "google_ads" | "ga4" | "meta_ads";
+  provider: "fbits" | "shopify" | "google_ads" | "ga4" | "meta_ads" | "instagram";
   label: string;
   connected: boolean;
   earliest_in_database?: string | null;
