@@ -13,6 +13,7 @@ import Drawer from "../components/Drawer";
 import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
+import ApprovalDelivery from "../components/studio/ApprovalDelivery";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
 import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
 import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
@@ -51,7 +52,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
   const [copied, setCopied] = useState<string | null>(null);
-  const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean } | null>(null);
+  const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean; notify_team?: boolean } | null>(null);
   const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: "mugozap" | "wa_link" }>({ list: [], channel: "wa_link" });
   const [suggestion, setSuggestion] = useState<(Omit<ProfileSuggestionResult, "profile"> & { pendingId?: string }) | null>(null);
   const [pending, setPending] = useState<PendingProfileSuggestion | null>(null);
@@ -167,7 +168,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   function openSend(only?: string[]) {
     setError(null); setSent(null);
     const selected = only || monthItems.filter((i) => i.status !== "rejeitado" && i.status !== "publicado").map((i) => i.id);
-    setSending({ selected, contact_name: "", contact_phone: "", message: "", contact_id: "", send_whatsapp: false });
+    setSending({ selected, contact_name: "", contact_phone: "", message: "", contact_id: "", send_whatsapp: false, notify_team: true });
     listContacts().then((d) => {
       setContacts({ list: d.contacts, channel: d.whatsapp_channel });
       const main = d.contacts.find((c) => c.is_primary && c.receives.includes("conteudo")) || d.contacts.find((c) => c.receives.includes("conteudo"));
@@ -179,7 +180,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     event.preventDefault();
     if (!sending) return;
     const result = await run("send", () => sendForApproval({ month, item_ids: sending.selected, message: sending.message || undefined,
-      ...(sending.contact_id ? { contact_id: sending.contact_id, send_whatsapp: sending.send_whatsapp }
+      ...(sending.contact_id ? { contact_id: sending.contact_id, send_whatsapp: sending.send_whatsapp, notify_team: sending.send_whatsapp && sending.notify_team !== false }
         : { contact_name: sending.contact_name || undefined, contact_phone: sending.contact_phone || undefined }) }), "Não foi possível gerar o link de aprovação.");
     if (result) { setSent(result); setSending(null); await load(); }
   }
@@ -300,6 +301,8 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         </div> : null}
         {sending.contact_id && contacts.channel === "mugozap" ? <label className="studioCheck"><input type="checkbox" checked={sending.send_whatsapp}
           onChange={(e) => setSending({ ...sending, send_whatsapp: e.target.checked })} />Enviar agora pelo WhatsApp oficial da Mugô (template com a arte)</label> : null}
+        {sending.contact_id && contacts.channel === "mugozap" && sending.send_whatsapp ? <label className="studioCheck"><input type="checkbox" checked={sending.notify_team !== false}
+          onChange={(e) => setSending({ ...sending, notify_team: e.target.checked })} />Enviar cópia para a equipe Mugô (mesmo link, todos na mesma página)</label> : null}
         <label>Mensagem (opcional; sem ela usamos uma padrão)<textarea rows={3} maxLength={1000} value={sending.message} onChange={(e) => setSending({ ...sending, message: e.target.value })} /></label>
         {error ? <p role="alert">{error}</p> : null}
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setSending(null)}>Cancelar</button>
@@ -312,6 +315,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         <p>As pautas foram para <b>Em revisão</b> e voltam aprovadas ou com o pedido de ajuste do cliente.</p>
         {sent.whatsapp?.status === "enviado" ? <p className="studioOk">✓ Enviado pelo WhatsApp da Mugô.</p> : null}
         {sent.whatsapp?.status === "falhou" ? <p role="alert" className="studioError">WhatsApp da Mugô: {"detail" in sent.whatsapp ? sent.whatsapp.detail : ""} Use os botões abaixo.</p> : null}
+        {sent.whatsapp?.status === "enviado" || sent.team?.length ? <ApprovalDelivery sent={sent} /> : null}
         <label>Link<input readOnly value={sent.link} onFocus={(e) => e.currentTarget.select()} /></label>
         <div className="studioActions">
           <a className="ds-button is-primary" href={sent.whatsapp_url} target="_blank" rel="noreferrer noopener">Abrir no WhatsApp</a>

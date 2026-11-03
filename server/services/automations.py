@@ -414,21 +414,26 @@ DELIVERY_ORDER = {"accepted": 0, "sent": 1, "delivered": 2, "read": 3, "failed":
 
 
 async def apply_status(provider_message_id: str, status: str, error: Optional[str] = None) -> Dict[str, Any]:
-    """Status da Meta repassado pelo webhook do CRM. Nunca regride (lido não volta para entregue)."""
+    """Status da Meta repassado pelo webhook do CRM: fila de automações ou mensagens do Studio. Nunca regride."""
     status = (status or "").lower()
     if status not in DELIVERY_ORDER:
         return {"ok": True, "ignored": "unknown_status"}
-    rows = await sb_select(OUTBOX, select="id,delivery_status", filters={"provider_message_id": f"eq.{provider_message_id}"}, limit=1)
-    if not rows:
-        return {"ok": True, "ignored": "unknown_message"}
-    current = rows[0].get("delivery_status")
-    if current and DELIVERY_ORDER.get(current, -1) >= DELIVERY_ORDER[status] and status != "failed":
-        return {"ok": True, "ignored": "stale"}
-    patch: Dict[str, Any] = {"delivery_status": status, "delivery_updated_at": _iso(_now())}
-    if status == "failed":
-        patch["last_error"] = (error or "META_DELIVERY_FAILED")[:300]
-    await sb_update(OUTBOX, filters={"id": f"eq.{rows[0]['id']}"}, patch=patch, returning="minimal")
-    return {"ok": True, "status": status}
+    for table, error_field in ((OUTBOX, "last_error"), ("studio_messages", "delivery_error")):
+        try:
+            rows = await sb_select(table, select="id,delivery_status", filters={"provider_message_id": f"eq.{provider_message_id}"}, limit=1)
+        except Exception:  # noqa: BLE001 — coluna ainda não migrada nesta tabela
+            continue
+        if not rows:
+            continue
+        current = rows[0].get("delivery_status")
+        if current and DELIVERY_ORDER.get(current, -1) >= DELIVERY_ORDER[status] and status != "failed":
+            return {"ok": True, "ignored": "stale"}
+        patch: Dict[str, Any] = {"delivery_status": status, "delivery_updated_at": _iso(_now())}
+        if status == "failed":
+            patch[error_field] = (error or "META_DELIVERY_FAILED")[:300]
+        await sb_update(table, filters={"id": f"eq.{rows[0]['id']}"}, patch=patch, returning="minimal")
+        return {"ok": True, "status": status, "table": table}
+    return {"ok": True, "ignored": "unknown_message"}
 
 
 # ---------------------------------------------------------------- simulação (nenhum envio)
