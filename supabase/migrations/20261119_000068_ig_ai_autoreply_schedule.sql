@@ -1,5 +1,5 @@
 -- LOCAL: NÃO APLICADA. Revisão/aplicação remota manual; feature aditiva.
--- 1) IA responde comentários do Instagram sozinha, no tom de cada marca (ligada por padrão para todos).
+-- 1) IA responde comentários do Instagram sozinha, no tom de cada marca (desligada até o cliente validar).
 -- 2) Agendamento confirmado pela equipe depois que o cliente aprova a publicação.
 
 alter table public.ig_engagement_actions drop constraint if exists ig_engagement_actions_kind_check;
@@ -15,7 +15,7 @@ create unique index if not exists ig_engagement_actions_ai_once_idx
 
 create table if not exists public.ig_engagement_settings (
   client_id text primary key references public.clients(id) on delete cascade,
-  ai_autoreply boolean not null default true,
+  ai_autoreply boolean not null default false,
   max_per_run integer not null default 10 check (max_per_run between 1 and 30),
   updated_by text,
   updated_at timestamptz not null default now()

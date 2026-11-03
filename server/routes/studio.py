@@ -283,6 +283,18 @@ async def schedule_item(client_id: str, item_id: UUID, authorization: str | None
         raise _http(exc) from None
 
 
+@router.post("/calendar/items/{item_id}/publish/retry")
+async def publish_retry(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Depois de corrigir o link da arte, a pauta volta para a fila de publicação."""
+    from services.ig_publish import retry
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return {"ok": True, "item": await retry(cid, str(item_id))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 MEMBERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
 
 

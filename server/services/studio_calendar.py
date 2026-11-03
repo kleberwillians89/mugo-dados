@@ -585,7 +585,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if "scheduled_at" in clean or clean.get("status", "aprovado") != "aprovado":
         # Data mudou ou saiu de "aprovado": o agendamento confirmado não vale mais.
         try:
-            rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None})
+            rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None,
+                                                                    **({} if clean.get("status") == "publicado" else {"publish_status": None, "publish_error": None})})
         except Exception:  # noqa: BLE001 — antes da migração 000068 as colunas não existem
             rows = await sb_update(ITEMS_TABLE, filters=filters, patch=clean)
     else:

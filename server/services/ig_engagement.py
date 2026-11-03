@@ -9,7 +9,7 @@ e gatilhos por palavra-chave (resposta pública curta + mensagem no Direct).
 - Cada gatilho responde cada comentário uma vez por tipo (índice único em ig_engagement_actions).
 - Direct a partir de comentário = "private reply" da Meta: POST /{page-id}/messages com token da página,
   até 7 dias depois do comentário, uma mensagem por pessoa.
-- IA no piloto automático (``ig_engagement_settings.ai_autoreply``, ligada por padrão para todas as marcas):
+- IA no piloto automático (``ig_engagement_settings.ai_autoreply``, desligada por padrão; liga por marca depois que o cliente valida):
   comentário sem resposta e sem gatilho recebe resposta curta no tom do perfil. Reclamação, dado pessoal,
   assunto sensível ou texto que o brand_guard reprova vira "revisão" para a equipe, nunca resposta automática.
   O comentário é travado antes do envio (índice único), então duas execuções nunca respondem duas vezes.
@@ -281,13 +281,13 @@ async def suggest_reply(client_id: str, comment_id: str) -> Dict[str, Any]:
 
 
 async def get_settings(client_id: str) -> Dict[str, Any]:
-    """Sem linha (ou antes da migração 000068): IA ligada, que é o padrão para todas as marcas."""
+    """Sem linha (ou antes da migração 000068): IA desligada. Liga por marca depois que o cliente valida."""
     try:
         rows = await sb_select(SETTINGS, select="ai_autoreply,max_per_run", filters={"client_id": f"eq.{client_id}"}, limit=1)
     except Exception:  # noqa: BLE001
         rows = []
     row = rows[0] if rows else {}
-    return {"ai_autoreply": bool(row.get("ai_autoreply", True)), "max_per_run": int(row.get("max_per_run") or 10)}
+    return {"ai_autoreply": bool(row.get("ai_autoreply", False)), "max_per_run": int(row.get("max_per_run") or 10)}
 
 
 async def save_settings(client_id: str, *, ai_autoreply: bool, user_id: str) -> Dict[str, Any]:
@@ -411,7 +411,7 @@ async def run_rules(client_id: str, *, refresh: bool = True) -> Dict[str, Any]:
 
 async def run_all() -> Dict[str, Any]:
     rows = await sb_select(RULES, select="client_id", filters={"active": "eq.true"}, limit=1000)
-    # Toda marca com Instagram conectado entra: a IA responde por padrão (cada uma pode desligar).
+    # Marcas com Instagram conectado entram; a IA só responde nas que ligaram (padrão: desligada).
     connected = await sb_select("meta_connections", select="client_id", limit=1000,
                                 filters={"platform": "eq.instagram", "status": "eq.active"})
     clients = sorted({str(r["client_id"]) for r in [*rows, *connected] if r.get("client_id")})

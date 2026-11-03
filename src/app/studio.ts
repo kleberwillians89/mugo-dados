@@ -31,6 +31,10 @@ export type CalendarItem = {
   art_url?: string | null;
   /** Equipe validou o agendamento depois da aprovação do cliente. */
   schedule_confirmed_at?: string | null;
+  /** Publicação automática no Instagram (job a cada 5 min no horário do post). */
+  publish_status?: "publicando" | "publicado" | "falhou" | "simulado" | "manual" | null;
+  publish_error?: string | null;
+  published_permalink?: string | null;
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
   client_edited_at?: string | null; client_edited_fields?: string[];
@@ -106,6 +110,9 @@ export function sendForApproval(input: { month: string; item_ids: string[]; cont
 }
 export function confirmSchedule(itemId: string) {
   return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/schedule`), { method: "POST" });
+}
+export function retryPublish(itemId: string) {
+  return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/publish/retry`), { method: "POST" });
 }
 export function cancelApproval(id: string) { return http(base(`/approvals/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 

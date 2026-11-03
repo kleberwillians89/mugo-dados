@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  basedOnText, confirmSchedule, listContacts, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
+  basedOnText, confirmSchedule, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus,
 } from "../app/studio";
@@ -277,6 +277,10 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       onSendForApproval={team && modal.item ? () => { const id = modal.item!.id; setModal(null); openSend([id]); } : undefined}
       onConfirmSchedule={team && modal.item ? async () => {
         const out = await run("schedule", () => confirmSchedule(modal.item!.id), "Não foi possível agendar.");
+        if (out) { replace(out.item); setModal((m) => m && { ...m, item: out.item }); }
+      } : undefined}
+      onRetryPublish={team && modal.item ? async () => {
+        const out = await run("publish", () => retryPublish(modal.item!.id), "Não foi possível liberar a publicação.");
         if (out) { replace(out.item); setModal((m) => m && { ...m, item: out.item }); }
       } : undefined} /> : null}
 
