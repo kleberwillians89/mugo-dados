@@ -81,7 +81,7 @@ class HistoryBackfillTests(unittest.IsolatedAsyncioTestCase):
             item.start()
         self.addCleanup(lambda: [item.stop() for item in self.patches])
 
-        connections = {"fbits": "conn-f", "shopify": None, "google_ads": "conn-g", "ga4": None, "meta_ads": None}
+        connections = {"fbits": "conn-f", "shopify": None, "google_ads": "conn-g", "ga4": None, "meta_ads": None, "instagram": None}
         earliest = {"fbits": date(2026, 7, 29), "google_ads": None}
 
         async def connection_or_none(provider, client_id):

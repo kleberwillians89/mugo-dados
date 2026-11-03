@@ -42,6 +42,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     # Cada bloco de até 90 dias é ENFILEIRADO na fila durável do Meta (worker
     # a cada 5 min, 7 dias por vez); "concluído" aqui = enviado à fila.
     "meta_ads": {"label": "Meta Ads", "block_days": 90},
+    # Posts com legenda, imagem e métricas (total acumulado). Stories antigos não existem na Meta.
+    "instagram": {"label": "Instagram · posts", "block_days": 31},
 }
 
 
@@ -94,10 +96,10 @@ def _local_day(value: Any) -> Optional[date]:
         return None
 
 
-async def _earliest(table: str, column: str, client_id: str) -> Optional[date]:
+async def _earliest(table: str, column: str, client_id: str, extra: Optional[Dict[str, str]] = None) -> Optional[date]:
     rows = await sb_select(
         table, select=column,
-        filters={"client_id": f"eq.{client_id}", column: "not.is.null"},
+        filters={"client_id": f"eq.{client_id}", column: "not.is.null", **(extra or {})},
         order=f"{column}.asc", limit=1,
     )
     return _local_day(rows[0].get(column)) if rows else None
@@ -149,12 +151,21 @@ async def _meta_connection(client_id: str) -> Optional[str]:
     return str(context.get("connection_id") or "") or None
 
 
+async def _instagram_connection(client_id: str) -> Optional[str]:
+    from .connection_resolver import resolve_connection_for_scope
+
+    context = await resolve_connection_for_scope(client_id=client_id, platform="instagram", connection_type="organic")
+    has_account = (context.get("row") or {}).get("ig_user_id")
+    return str(context.get("connection_id") or "") or None if has_account else None
+
+
 CONNECTIONS: Dict[str, Callable[[str], Awaitable[Optional[str]]]] = {
     "fbits": _fbits_connection,
     "shopify": _shopify_connection,
     "google_ads": _google_ads_connection,
     "ga4": _ga4_connection,
     "meta_ads": _meta_connection,
+    "instagram": _instagram_connection,
 }
 
 EARLIEST: Dict[str, tuple[str, str]] = {
@@ -163,7 +174,11 @@ EARLIEST: Dict[str, tuple[str, str]] = {
     "google_ads": ("google_ads_daily_stats", "stat_date"),
     "ga4": ("ga4_daily_stats", "stat_date"),
     "meta_ads": ("ad_account_daily_stats", "stat_date"),
+    "instagram": ("ig_media", "timestamp"),
 }
+
+# Post listado sem métrica (histórico antigo só com id e data) não conta como "já tenho".
+EARLIEST_FILTERS: Dict[str, Dict[str, str]] = {"instagram": {"insights_json->>available_metrics": "not.is.null"}}
 
 
 async def _connection_or_none(provider: str, client_id: str) -> Optional[str]:
@@ -213,7 +228,8 @@ async def build_targets(client_id: str, start: date, *, today: Optional[date] = 
         target: Dict[str, Any] = {"provider": provider, "label": spec["label"], "connected": bool(connection_id)}
         if connection_id:
             table, column = EARLIEST[provider]
-            earliest = await _earliest(table, column, client_id)
+            extra = EARLIEST_FILTERS.get(provider)
+            earliest = await (_earliest(table, column, client_id, extra) if extra else _earliest(table, column, client_id))
             until = min(yesterday, earliest - timedelta(days=1)) if earliest else yesterday
             target.update({
                 "earliest_in_database": earliest.isoformat() if earliest else None,
@@ -356,12 +372,19 @@ async def _run_meta(client_id: str, block: Dict[str, str]) -> int:
     return int(result.get("total_slices") or 0)
 
 
+async def _run_instagram(client_id: str, block: Dict[str, str]) -> int:
+    from .instagram_history import backfill_block
+
+    return await backfill_block(client_id, date.fromisoformat(block["start"]), date.fromisoformat(block["end"]))
+
+
 RUNNERS: Dict[str, Callable[[str, Dict[str, str]], Awaitable[int]]] = {
     "fbits": _run_fbits,
     "shopify": _run_shopify,
     "google_ads": lambda client_id, block: _run_google("google_ads", client_id, block),
     "ga4": lambda client_id, block: _run_google("ga4", client_id, block),
     "meta_ads": _run_meta,
+    "instagram": _run_instagram,
 }
 
 
