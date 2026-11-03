@@ -34,6 +34,8 @@ on:
     - cron: "40 10 * * *"      # 7h40 (SP): clipping da marca (Google Notícias)
     - cron: "20 12 1 * *"      # Dia 1, 9h20 (SP): sugestão mensal do perfil da marca (IA avançada)
     - cron: "50 * * * *"       # Avisos ao time que o CRM não recebeu na hora (cliente aprovou/pediu ajuste/editou)
+    - cron: "*/5 * * * *"      # Automações: processa a fila (sem AUTOMATIONS_SEND_ENABLED=true só simula)
+    - cron: "*/15 * * * *"     # Google Calendar da Mugô: sincroniza reuniões e agenda os lembretes
   workflow_dispatch:
     inputs:
       command:
@@ -76,6 +78,8 @@ jobs:
             "10 5 * * *")          cmd="history-backfill-worker --budget-minutes 150" ;;
             "15 13 * * 5")         cmd="studio-weekly-digest" ;;
             "50 * * * *")          cmd="studio-team-retry" ;;
+            "*/5 * * * *")         cmd="automations-process" ;;
+            "*/15 * * * *")        cmd="calendar-sync" ;;
             "40 10 * * *")         cmd="studio-clipping" ;;
             "20 12 1 * *")         cmd="brand-profile-monthly" ;;
             "")                    cmd="$MANUAL" ;;
