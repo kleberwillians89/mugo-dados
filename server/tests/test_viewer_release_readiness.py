@@ -174,6 +174,12 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         ("intelligence", "intelligence_generate"),
         # Análise sobre snapshot, sem executor de ferramentas administrativas.
         ("intelligence", "intelligence_ask"),
+        # Conversas do assistente: cada membro só cria, renomeia, retoma ou
+        # apaga as PRÓPRIAS conversas (filtro client_id + user_id no serviço).
+        ("intelligence", "intelligence_rename_conversation"),
+        ("intelligence", "intelligence_delete_conversation"),
+        ("intelligence", "intelligence_create_conversation"),
+        ("intelligence", "intelligence_resume_conversation"),
         # Fachada restrita: membership, allowlist e conexões persistidas;
         # test_provider_refresh prova autorização e rejeição de IDs extras.
         ("integrations", "refresh_client_provider"),

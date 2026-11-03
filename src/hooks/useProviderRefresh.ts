@@ -39,7 +39,12 @@ export function useProviderRefresh(clientId: string, provider: ProviderRefreshSt
         observedRunning.current = running;
         const phase = running ? "running" : result.cooldown_seconds > 0 ? "cooldown" : "ready";
         setState({key, phase, error: null, cooldown: result.cooldown_seconds});
-        // Terminal readiness is refreshed on focus, visibility and cross-tab updates.\n        // Avoid an endless idle poll against Supabase after the job has finished.\n        if (phase !== "ready") {\n          const delay = phase === "cooldown" && result.cooldown_seconds > 30 ? 15_000 : 5_000;\n          timer.current = setTimeout(() => void check(), delay);\n        }
+        // Terminal readiness is refreshed on focus, visibility and cross-tab updates.
+        // Avoid an endless idle poll against Supabase after the job has finished.
+        if (phase !== "ready") {
+          const delay = phase === "cooldown" && result.cooldown_seconds > 30 ? 15_000 : 5_000;
+          timer.current = setTimeout(() => void check(), delay);
+        }
         return phase === "ready";
       } catch (cause) {
         if (scope.current !== key || generation.current !== version) return false;

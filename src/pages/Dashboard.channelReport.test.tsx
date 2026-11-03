@@ -271,7 +271,7 @@ it("consulta Ads sem dados não inventa horário de sucesso no indicador", async
   refreshApi.refreshProviderData.mockResolvedValue({ ok:true, sources:{ "Instagram":{status:"success"}, "Meta Ads":{status:"no_data"} } });
   await render(true);
   await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
-  expect(container.querySelector(".ds-dateline")?.textContent).toContain("Ainda não atualizado");
+  expect(container.querySelector(".ds-dateline")?.textContent).toContain("Sem atualização confirmada");
   expect(refreshApi.refetch).toHaveBeenCalledTimes(1);
 });
 

@@ -14,7 +14,7 @@ describe("mobile product experience contracts", () => {
     expect(nav).toContain('aria-controls="app-sidebar"');
     expect(nav).not.toContain('label: "Visão Geral"');
     expect(nav).toContain("Ecommerce");
-    expect(nav).toContain("Inteligência");
+    expect(nav).toContain("Calendário");
     expect(css).toContain("env(safe-area-inset-top)");
     expect(css).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.appSidebar\{[\s\S]*?transform: translateX\(-100%\)/);
   });

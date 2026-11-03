@@ -418,7 +418,7 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
     async def test_completed_ads_returns_http_success_after_job_finish_and_both_distinct_releases(self):
         response = await self.request_refresh()
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {'ok':True,'client_id':'amalie','provider':'meta','sources':{'Meta Ads':{'status':'success'}}})
+        self.assertEqual(response.json(), {'ok':True,'client_id':'amalie','provider':'meta','sources':{'Meta Ads':{'status':'success'}},'partial':False})
         ads_sync._upsert_ad_account_daily_stats.assert_awaited_once()
         ads_sync.refresh_dashboard_read_model_safely.assert_awaited_once()
         ads_sync.mark_connection_sync_success.assert_awaited_once()
@@ -438,11 +438,15 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
         self.assertIn('released=false', self.output)
         self.assertEqual(self.mark_error_calls, [])
 
-    async def test_ads_success_does_not_mask_partial_instagram_http_502(self):
+    async def test_ads_success_does_not_mask_partial_instagram(self):
+        # Fonte parcial não derruba os dados válidos das outras: 200, mas com
+        # o estado parcial explícito (nunca anunciado como sucesso completo).
         response = await self.request_refresh(organic={'ok':True,'partial':True,'read_model_refreshed':True})
-        self.assertEqual(response.status_code, 502)
-        self.assertIn('Instagram', response.json()['detail'])
-        self.assertNotIn('Meta Ads', response.json()['detail'])
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body['partial'])
+        self.assertEqual(body['sources']['Meta Ads']['status'], 'success')
+        self.assertIn('partial', [v['status'] for k, v in body['sources'].items() if 'Instagram' in k])
         self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
         self.assertEqual(len(self.mark_error_calls), 0)
 

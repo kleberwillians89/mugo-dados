@@ -16,12 +16,14 @@ class ProgressiveContextTests(unittest.IsolatedAsyncioTestCase):
             if table == 'dashboard_source_snapshots': return [{'provider':'shopify', 'last_success_at':'2026-10-06'}]
             if table == 'client_business_context': return []
             if table == 'ig_media' and detailed: return []
+            # Campanhas do período entram só no contexto detalhado.
+            if table == 'campaign_daily_stats' and detailed: return []
             self.fail('Leitura pesada inesperada: '+table)
         query = AsyncMock(side_effect=select)
         with patch.object(intelligence,'sb_select',query), patch.object(commerce_context,'sb_select',query), patch.object(business_context,'sb_select',query), patch.object(intelligence,'external_research_context',AsyncMock(side_effect=AssertionError('no provider live'))), patch.object(intelligence,'recurring_customers_in_period',AsyncMock(return_value=recurrence) if detailed else AsyncMock(side_effect=AssertionError('no Customer360 scan on first paint'))):
             result = await intelligence.calculate_intelligence_snapshot(client_id='tenant-fixture',start=start,end='2026-10-06',include_commerce_details=detailed,include_external_research=False)
         self.assertEqual(sum(call.args[0]=='integration_connections' for call in query.await_args_list),1)
-        self.assertEqual(query.await_count,5 if detailed else 4)
+        self.assertEqual(query.await_count,6 if detailed else 4)
         return {metric['id']:metric for metric in result['metrics']}
 
     async def test_complete_coverage_without_orders_is_zero_but_ticket_not_applicable(self):
