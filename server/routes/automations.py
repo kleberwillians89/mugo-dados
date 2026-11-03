@@ -203,6 +203,14 @@ async def simulate(key: str, body: SimulateInput, authorization: Optional[str] =
         raise _fail(exc) from None
 
 
+@router.get("/client-health")
+async def client_health(authorization: Optional[str] = Header(default=None)):
+    """Saúde dos clientes: o que falta preencher (IA fiel à marca) e falhas de WhatsApp dos últimos 30 dias."""
+    from services.client_health import overview
+    await agency(authorization)
+    return await overview()
+
+
 # ---------------------------------------------------------------- equipe e preferências
 
 
