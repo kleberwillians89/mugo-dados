@@ -98,6 +98,9 @@ async def _run(args: argparse.Namespace) -> Any:
         return await probe_fbits_order_origin(
             args.client_id, order_id=args.order_id, days=args.days, limit=args.limit, detail_sample=args.detail,
         )
+    if args.command == "history-request-all":
+        from services.history_backfill import restart_history_all
+        return await restart_history_all(args.start)
     if args.command == "history-backfill-worker":
         from services.history_backfill import run_history_worker
         return await run_history_worker(budget_seconds=max(60, args.budget_minutes * 60), client_id=args.client_id)
@@ -157,6 +160,11 @@ def _build_parser() -> argparse.ArgumentParser:
     history.add_argument("--connection-id", default=None)
     history.add_argument("--resume", action="store_true")
 
+    request_all = sub.add_parser(
+        "history-request-all",
+        help="Pede o histórico desde --start para TODAS as empresas (refaz pedidos em andamento para incluir fontes novas).",
+    )
+    request_all.add_argument("--start", required=True, help="Data inicial AAAA-MM-DD (máx. 2 anos).")
     history_worker = sub.add_parser(
         "history-backfill-worker",
         help="Continua as buscas de histórico agendadas em Empresas (blocos pequenos, retomável).",
