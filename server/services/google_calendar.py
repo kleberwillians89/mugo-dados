@@ -292,6 +292,22 @@ def _reminder_time(start: datetime, lead_minutes: int) -> Optional[datetime]:
     return max(start - timedelta(minutes=lead_minutes), now)
 
 
+def _participants(attending: List[Dict[str, Any]], contacts_by_email: Dict[str, Dict[str, Any]],
+                  team_by_email: Dict[str, Dict[str, Any]]) -> str:
+    """Primeiros nomes de quem vai, pelo cadastro (equipe/contatos) ou pelo nome no Google. Nunca o e-mail."""
+    names: List[str] = []
+    for a in attending:
+        if a.get("resource"):
+            continue
+        person = team_by_email.get(a.get("email")) or contacts_by_email.get(a.get("email")) or {}
+        name = str(person.get("name") or a.get("name") or "").strip().split(" ")[0]
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        return "equipe Mugô"
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " e " + names[-1]
+
+
 async def _client_brand(client_id: str) -> str:
     from .studio_approvals import _client_name
     return await _client_name(client_id)
@@ -310,6 +326,7 @@ async def schedule_reminders(event: Dict[str, Any], contacts_by_email: Dict[str,
     keep: List[str] = []
     queued = 0
     attending = [a for a in event["attendees"] if a.get("response") != "declined"]
+    participants = _participants(attending, contacts_by_email, team_by_email)
 
     async def put(definition: Dict[str, Any], *, client_id: Optional[str], recipient: Dict[str, Any], params: Dict[str, str],
                   when: datetime, source_type: str, extra: str) -> None:
@@ -330,8 +347,10 @@ async def schedule_reminders(event: Dict[str, Any], contacts_by_email: Dict[str,
                 member = team_by_email.get(attendee["email"])
                 if when and member and member.get("phone") and member.get("receives_internal"):
                     await put(definition, client_id=None, recipient={**member, "team_member": True},
-                              params={"nome": str(member["name"]).split()[0], "titulo": title, "data": local.strftime("%d/%m"),
-                                      "hora": local.strftime("%H:%M")}, when=when, source_type="calendar_event", extra="interna")
+                              params={"nome": str(member["name"]).split()[0], "titulo": title, "reuniao": title,
+                                      "data": local.strftime("%d/%m"), "hora": local.strftime("%H:%M"),
+                                      "horario": local.strftime("%H:%M"), "participantes": participants},
+                              when=when, source_type="calendar_event", extra="interna")
     elif event["kind"] == "cliente" and event.get("client_id"):
         client_id = event["client_id"]
         brand = await _client_brand(client_id)
@@ -347,7 +366,8 @@ async def schedule_reminders(event: Dict[str, Any], contacts_by_email: Dict[str,
                 when = _reminder_time(start, int(reminder.get("lead_minutes") or 1440))
                 if when:
                     await put(reminder, client_id=client_id, recipient=recipient, when=when, source_type="calendar_event", extra="cliente",
-                              params={"nome": first, "marca": brand, "titulo": title, "data": local.strftime("%d/%m"), "hora": local.strftime("%H:%M")})
+                              params={"nome": first, "marca": brand, "titulo": title, "reuniao": title, "data": local.strftime("%d/%m"),
+                                      "hora": local.strftime("%H:%M"), "horario": local.strftime("%H:%M"), "participantes": participants})
             # "Confirmado" só quando o próprio participante aceitou no Google (confirmação real).
             if (confirmed and confirmed.get("automation_enabled") and confirmed["owner"] == "dados"
                     and attendee.get("response") == "accepted" and start > _now()):

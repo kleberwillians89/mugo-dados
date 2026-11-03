@@ -61,7 +61,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const loadPlan = useCallback(async () => {
     setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]); setBriefing("");
     try {
-      const [data, list] = await Promise.all([getPlan(month), listStrategies(month).catch(() => ({ strategies: [] as StrategySummary[] }))]);
+      // Cliente vê só o plano salvo pela Mugô; rascunhos (histórico de estratégias) ficam com a equipe.
+      const [data, list] = await Promise.all([getPlan(month), canManage ? listStrategies(month).catch(() => ({ strategies: [] as StrategySummary[] })) : Promise.resolve({ strategies: [] as StrategySummary[] })]);
       if (getActiveClientId() !== clientId) return;
       setTracking(data); setHistory(list.strategies || []);
       const plan = data.plan;
@@ -78,7 +79,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         setBriefing(strategy.briefing?.text || "");
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar o plano.")); }
-  }, [month, clientId]);
+  }, [month, clientId, canManage]);
 
   async function openHistory(id: string) {
     setBusy("history"); setError(null); setSaved(null);

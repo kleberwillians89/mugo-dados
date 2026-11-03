@@ -871,7 +871,7 @@ function PrivateApp() {
       ) : route === "approval" ? (
         <Approval key={`approval:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (
-        <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
       ) : route === "tasks" ? (
         platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (

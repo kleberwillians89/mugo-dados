@@ -40,6 +40,28 @@ MAX_ATTEMPTS = len(BACKOFF_SECONDS)
 # Falhas passageiras: tentar de novo com a MESMA chave (o CRM deduplica).
 RETRYABLE = {"MUGOZAP_UNAVAILABLE", "SEND_OUTCOME_UNKNOWN", "RATE_LIMITED", "HTTP_429", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"}
 _PLACEHOLDER = re.compile(r"\{\{\s*(\d+)\s*\}\}")
+_NAMED = re.compile(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}")
+
+
+def body_names(template: Optional[Dict[str, Any]]) -> List[str]:
+    """Variáveis nomeadas do corpo ({{nome}}), na ordem em que aparecem. Vazio = template posicional ({{1}})."""
+    out: List[str] = []
+    for comp in (template or {}).get("components") or []:
+        if str(comp.get("type") or "").upper() == "BODY":
+            for name in _NAMED.findall(str(comp.get("text") or "")):
+                if name not in out:
+                    out.append(name)
+    return out
+
+
+def variables_match(template: Optional[Dict[str, Any]], variable_map: List[str]) -> bool:
+    """Quantidade igual e, se o template for nomeado, os mesmos nomes (a Meta recusa nome diferente)."""
+    if not template:
+        return False
+    names = body_names(template)
+    if names:
+        return sorted(names) == sorted(variable_map or [])
+    return int(template.get("body_param_count") or 0) == len(variable_map or [])
 
 
 class AutomationError(RuntimeError):
@@ -85,7 +107,8 @@ def parse_template(item: Dict[str, Any]) -> Dict[str, Any]:
     for comp in item.get("components") or []:
         kind = str(comp.get("type") or "").upper()
         if kind == "BODY":
-            body_params = len(set(_PLACEHOLDER.findall(str(comp.get("text") or ""))))
+            text = str(comp.get("text") or "")
+            body_params = len(set(_PLACEHOLDER.findall(text))) + len(set(_NAMED.findall(text)))
         elif kind == "HEADER":
             header_format = str(comp.get("format") or "").upper() or None
         elif kind == "BUTTONS":
@@ -166,7 +189,7 @@ def readiness(definition: Dict[str, Any], template: Optional[Dict[str, Any]], *,
               calendar_ready: bool, catalog_ready: bool) -> Dict[str, Any]:
     """Os quatro estados que a central mostra separados."""
     approved = bool(template and template.get("status") == "APPROVED")
-    variables_ok = bool(template) and int(template.get("body_param_count") or 0) == len(definition.get("variable_map") or [])
+    variables_ok = variables_match(template, definition.get("variable_map") or [])
     category_ok = not template or not template.get("category") or template["category"] == definition["expected_category"]
     configured = integration_configured(definition, mugozap_ready=mugozap_ready, calendar_ready=calendar_ready)
     problems: List[str] = []
@@ -181,7 +204,8 @@ def readiness(definition: Dict[str, Any], template: Optional[Dict[str, Any]], *,
     elif not approved:
         problems.append(f"Meta: {template.get('status')}.")
     if template and definition["owner"] == "dados" and not variables_ok:
-        problems.append(f"Variáveis: a Meta espera {template.get('body_param_count')}, a automação define {len(definition.get('variable_map') or [])}.")
+        expected = ", ".join(body_names(template)) or template.get("body_param_count")
+        problems.append(f"Variáveis: a Meta espera {expected}, a automação define {', '.join(definition.get('variable_map') or []) or 0}.")
     if template and not category_ok:
         problems.append(f"Categoria na Meta é {template.get('category')}, esperada {definition['expected_category']}.")
     if definition["owner"] == "dados" and not configured:
@@ -266,15 +290,26 @@ async def cancel_pending(source_type: str, source_id: str, *, keep_keys: Iterabl
     return cancelled
 
 
-def render_text(template: Optional[Dict[str, Any]], values: List[str]) -> str:
+def render_text(template: Optional[Dict[str, Any]], values: List[str], names: Optional[List[str]] = None) -> str:
     body = next((str(c.get("text") or "") for c in (template or {}).get("components") or [] if str(c.get("type")).upper() == "BODY"), "")
+    if names:
+        by_name = dict(zip(names, values))
+        body = _NAMED.sub(lambda m: by_name.get(m.group(1), m.group(0)), body)
     return _PLACEHOLDER.sub(lambda m: values[int(m.group(1)) - 1] if 0 < int(m.group(1)) <= len(values) else m.group(0), body)
 
 
-def build_components(template: Dict[str, Any], values: List[str], button_suffix: Optional[str]) -> List[Dict[str, Any]]:
+def build_components(template: Dict[str, Any], values: List[str], button_suffix: Optional[str],
+                     names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     if template.get("header_format") in {"IMAGE", "VIDEO", "DOCUMENT"}:
         raise AutomationError("HEADER_MEDIA_REQUIRED")
-    components: List[Dict[str, Any]] = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in values]}]
+    if body_names(template):
+        # Template com variáveis nomeadas: a Meta exige parameter_name em cada valor.
+        if not names or len(names) != len(values) or not variables_match(template, names):
+            raise AutomationError("VARIABLES_MISMATCH")
+        parameters = [{"type": "text", "parameter_name": n, "text": v} for n, v in zip(names, values)]
+    else:
+        parameters = [{"type": "text", "text": v} for v in values]
+    components: List[Dict[str, Any]] = [{"type": "body", "parameters": parameters}]
     if template.get("button_url_dynamic"):
         if not button_suffix:
             raise AutomationError("BUTTON_PARAM_REQUIRED")
@@ -304,7 +339,7 @@ async def validate(row: Dict[str, Any], definition: Optional[Dict[str, Any]], te
     if not template or template.get("status") != "APPROVED":
         return "TEMPLATE_NOT_APPROVED"
     values = [str((row.get("params") or {}).get(k) or "").strip() for k in definition.get("variable_map") or []]
-    if int(template.get("body_param_count") or 0) != len(values):
+    if not variables_match(template, definition.get("variable_map") or []):
         return "VARIABLES_MISMATCH"
     if any(not v or v == "—" for v in values):
         return "DATA_MISSING"
@@ -343,7 +378,7 @@ async def process_due(limit: int = 50) -> Dict[str, int]:
             continue
         values = [str(row["params"][k]) for k in definition["variable_map"]]
         try:
-            components = build_components(template, values, _button_suffix(row.get("button_suffix")))
+            components = build_components(template, values, _button_suffix(row.get("button_suffix")), definition["variable_map"])
         except AutomationError as exc:
             await _finish(row, token, {"status": "bloqueado", "last_error": exc.code, "claim_token": None})
             counts["bloqueado"] += 1
@@ -411,11 +446,11 @@ async def simulate(key: str, *, params: Dict[str, Any], phone: Optional[str] = N
     components: Optional[List[Dict[str, Any]]] = None
     if template and not reason:
         try:
-            components = build_components(template, values, button_suffix)
+            components = build_components(template, values, button_suffix, definition.get("variable_map") or [])
         except AutomationError as exc:
             reason = exc.code
     return {"automation": key, "template_name": definition["template_name"], "would_send": reason is None,
-            "blocked_reason": reason, "text": render_text(template, values) if template else None,
+            "blocked_reason": reason, "text": render_text(template, values, definition.get("variable_map") or []) if template else None,
             "components": components, "real_send": False}
 
 

@@ -186,3 +186,7 @@ export type CentralView = {
   alerts: CentralAlert[];
 };
 export function getCentral(month: string) { return http<CentralView>(base(`/central?month=${encodeURIComponent(month)}`), { timeoutMs: 60_000 }); }
+/** Comentários num post (cliente e equipe Mugô no mesmo fio). */
+export type ItemComment = { id: string; author_side: "cliente" | "mugo"; author_name: string | null; body: string; created_at: string };
+export function listItemComments(itemId: string) { return http<{ comments: ItemComment[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`)); }
+export function addItemComment(itemId: string, body: string) { return http<{ ok: true; comment: ItemComment }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`), { method: "POST", body: JSON.stringify({ body }) }); }
