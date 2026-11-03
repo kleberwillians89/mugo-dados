@@ -487,3 +487,17 @@
 .postUpload input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 .postUpload .ds-button{align-self:flex-start;cursor:pointer}
 .postUpload small{font-size:12px;color:var(--text-muted)}
+/* Clipping Intelligence */
+.clipInsights,.clipReport{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface)}
+.clipInsightsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:var(--space-4)}
+.clipBars h3,.clipReportBody h3{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--text-secondary)}
+.clipBars ul,.clipReportBody ul,.clipCritical ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.clipBars li{display:grid;grid-template-columns:minmax(80px,1fr) 2fr auto;gap:8px;align-items:center;font-size:13px}
+.clipBars li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clipBars li i{display:block;height:8px;border-radius:4px;background:var(--accent);min-width:2px}
+.clipTimeline{display:flex;align-items:flex-end;gap:2px;height:52px}
+.clipTimeline i{flex:1;background:var(--accent);opacity:.7;border-radius:2px 2px 0 0}
+.clipCritical{padding:var(--space-3);border-left:3px solid var(--negative);background:rgba(178,34,52,.05);font-size:14px}
+.clipCrit.is-alta{color:var(--warning)}.clipCrit.is-critica{color:var(--negative);font-weight:600}
+.clipAnalysis{font-size:13px;color:var(--text-secondary)}.clipAnalysis p{margin:4px 0}
+.clipReportBody{display:flex;flex-direction:column;gap:var(--space-2);font-size:14px}
