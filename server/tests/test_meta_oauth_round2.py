@@ -244,6 +244,7 @@ class MetaAdsInitialSyncTests(unittest.IsolatedAsyncioTestCase):
             patch.object(meta_legacy, "require_user_id", AsyncMock(return_value="user-ruah")),
             patch.object(meta_legacy, "require_client_role", AsyncMock(return_value="ruah")),
             patch.object(meta_legacy, "save_connections", AsyncMock(return_value=saved)),
+            patch.object(meta_legacy.meta_progressive, "schedule", lambda *a: None),
             patch.object(meta_legacy, "sync_ads_for_client_period", sync),
         ):
             result = await meta_legacy.api_link_assets(
@@ -260,6 +261,7 @@ class MetaAdsInitialSyncTests(unittest.IsolatedAsyncioTestCase):
             patch.object(meta_legacy, "require_user_id", AsyncMock(return_value="user-ruah")),
             patch.object(meta_legacy, "require_client_role", AsyncMock(return_value="ruah")),
             patch.object(meta_legacy, "save_connections", AsyncMock(return_value=saved)),
+            patch.object(meta_legacy.meta_progressive, "schedule", lambda *a: None),
             patch.object(meta_legacy, "sync_ads_for_client_period", AsyncMock(side_effect=MetaApiError("denied", status_code=503, retryable=True))),
         ):
             result = await meta_legacy.api_link_assets(

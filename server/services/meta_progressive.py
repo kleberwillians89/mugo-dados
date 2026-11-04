@@ -75,3 +75,28 @@ async def paid_history(client_id: str, connection_id: str) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — fila ocupada/indisponível: o histórico de Empresas cobre depois
         result = {**(result or {}), "backfill_90d": f"skipped:{exc.__class__.__name__}"}
     return result
+
+
+async def paid_first_read(client_id: str, connection_id: str, *, sync: Callable[..., Awaitable[Any]] | None = None) -> Dict[str, Any]:
+    """Primeiros 7 dias na requisição (KPI) e, se a Meta respondeu, histórico em segundo plano.
+
+    Falha aqui nunca desfaz a conexão: devolve o código para a tela e o sync de hora em hora tenta de novo.
+    """
+    from .ads_sync import sync_ads_for_client_period
+    from .periods import resolve_period
+
+    period = resolve_period(days=QUICK_DAYS, max_days=365)
+    try:
+        result = await (sync or sync_ads_for_client_period)(
+            client_id=client_id, connection_id=connection_id,
+            since=period.start.isoformat(), until=period.end.isoformat(),
+            job_name="meta_ads_initial_sync", trigger_source="oauth_asset_selection", record_job_run=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "client_id": client_id, "connection_id": connection_id,
+                "code": str(getattr(exc, "code", "META_ADS_INITIAL_SYNC_FAILED")),
+                "retryable": bool(getattr(exc, "retryable", True))}
+    schedule("meta_ads_history", client_id, lambda: paid_history(client_id, connection_id))
+    return {**(result or {}), "ok": bool((result or {}).get("ok")), "client_id": client_id,
+            "connection_id": connection_id, "days": QUICK_DAYS,
+            "history_sync": {"status": "scheduled", "days": [HISTORY_DAYS, BACKFILL_DAYS]}}

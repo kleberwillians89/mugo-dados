@@ -1,4 +1,5 @@
 import { DataFreshness } from "../components/data/DataFreshness";
+import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -960,10 +961,17 @@ export default function Onboarding({
     setSaving(true);
     setErr(null);
     try {
-      await selectClientMetaAdsAccount(selectedMetaAdsAccount);
+      const selected = await selectClientMetaAdsAccount(selectedMetaAdsAccount);
       await loadConnections();
       setMetaAdsPickerOpen(false);
-      setInfo(`Conta Meta Ads ${selectedMetaAdsAccount} selecionada para ${getActiveClientName()}.`);
+      // A seleção já busca os últimos 7 dias; 30 e 90 dias seguem em segundo plano.
+      const first = (selected?.meta_ads_initial_sync || {}) as { ok?: boolean; sync_outcome?: string; job_status?: string };
+      const outcome = String(first.sync_outcome || first.job_status || "");
+      setInfo(`Conta Meta Ads ${selectedMetaAdsAccount} selecionada para ${getActiveClientName()}. ${
+        first.ok === false ? "A primeira leitura não respondeu agora; a atualização automática tenta de novo em até 1 hora."
+          : outcome === "no_data" || outcome === "skipped" ? "Sem anúncios nos últimos 7 dias; o histórico de 30 e 90 dias está sendo buscado."
+          : "Últimos 7 dias carregados; o histórico de 30 e 90 dias está sendo buscado em segundo plano."}`);
+      window.dispatchEvent(new CustomEvent(DATA_HEALTH_CHANGED, { detail: { clientId: getActiveClientId() } }));
     } catch (error: unknown) {
       setErr(errorMessage(error, "Não foi possível persistir a conta Meta Ads."));
     } finally {
