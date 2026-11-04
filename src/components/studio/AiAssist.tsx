@@ -7,12 +7,14 @@ type Props = {
   disabled?: boolean;
   /** Aplica o texto escolhido no rascunho da pauta (a pessoa ainda salva depois). */
   onApply: (patch: Partial<Pick<Draft, "hook" | "caption_draft">>) => void;
+  /** Post salvo: a IA usa as referências dele. */
+  itemId?: string;
 };
 
 const message = (cause: unknown) => (cause instanceof Error && cause.message ? cause.message : "A IA não respondeu agora.");
 
 /** Motores de redação no modal: tudo parte dos dados da marca e volta para revisão humana. */
-export default function AiAssist({ draft, disabled, onApply }: Props) {
+export default function AiAssist({ draft, disabled, onApply, itemId }: Props) {
   const [busy, setBusy] = useState<AssistAction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
@@ -24,7 +26,7 @@ export default function AiAssist({ draft, disabled, onApply }: Props) {
     setBusy(action); setError(null);
     try {
       setOut(await runAssist(action, { format: draft.format, title: draft.title, pillar: draft.pillar || undefined, hook: draft.hook || undefined,
-        caption_draft: draft.caption_draft || undefined, scheduled_at: draft.date ? `${draft.date}T${draft.time || "12:00"}:00-03:00` : undefined }, instruction));
+        caption_draft: draft.caption_draft || undefined, scheduled_at: draft.date ? `${draft.date}T${draft.time || "12:00"}:00-03:00` : undefined }, instruction, itemId));
     } catch (cause) { setError(message(cause)); }
     finally { setBusy(null); }
   }

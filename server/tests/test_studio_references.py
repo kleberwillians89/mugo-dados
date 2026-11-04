@@ -70,3 +70,47 @@ def test_reference_rows_become_prompt_items():
     with patch.object(studio_intelligence, "sb_select", AsyncMock(return_value=rows)):
         out = asyncio.run(studio_intelligence._references("latinas"))
     assert out == [{"link": rows[0]["url"], "tipo": "imagem", "o_que_gostou": "cores quentes", "de_quem": "cliente"}]
+
+
+def test_item_references_filter_and_brand_tab_excludes_post_refs():
+    select = AsyncMock(return_value=[])
+    with patch.object(sr, "sb_select", select):
+        asyncio.run(sr.list_references("latinas", "it-1"))
+        assert select.await_args.kwargs["filters"]["item_id"] == "eq.it-1"
+        asyncio.run(sr.list_references("latinas"))
+        assert select.await_args.kwargs["filters"]["item_id"] == "is.null"
+
+
+def test_brand_tab_survives_before_item_migration():
+    select = AsyncMock(side_effect=[RuntimeError("column item_id does not exist"), [{"id": "r1"}]])
+    with patch.object(sr, "sb_select", select):
+        assert asyncio.run(sr.list_references("latinas")) == [{"id": "r1"}]
+
+
+def test_post_reference_is_saved_on_the_post_and_notifies_with_it():
+    insert = AsyncMock(return_value={"id": "r1"})
+    notify = AsyncMock()
+    item = {"id": "it-1", "title": "Coxinha vegana", "status": "em_revisao", "scheduled_at": None}
+    with patch.object(sr, "sb_insert", insert), patch("services.studio_team.notify_team", notify):
+        asyncio.run(sr.add_reference("latinas", url="https://pin.it/z", note="luz", kind="link", agency=False, user_id="u", item=item))
+    assert insert.await_args.args[1]["item_id"] == "it-1"
+    assert notify.await_args.args[1]["id"] == "it-1"
+
+
+def test_assist_prompt_includes_post_references():
+    from services import studio_engines as se
+    seen = {}
+
+    async def llm(**kw):
+        seen["prompt"] = kw["prompt"]
+        return {}
+
+    with patch.object(se, "build_content_intelligence", AsyncMock(return_value={})), \
+         patch.object(se, "_post_references", AsyncMock(return_value=[{"link": "https://pin.it/z", "o_que_gostou": "luz"}])), \
+         patch.object(se, "llm_json", llm), patch.object(se, "_clean_assist", lambda a, d: d), patch.object(se, "throttle", lambda c: None):
+        try:
+            asyncio.run(se.assist("latinas", "legenda" if "legenda" in se.ASSIST_ACTIONS else next(iter(se.ASSIST_ACTIONS)),
+                                  {"title": "Coxinha", "format": "reels"}, item_id="it-1"))
+        except Exception:
+            pass
+    assert "REFERÊNCIAS DESTE POST" in seen["prompt"] and "https://pin.it/z" in seen["prompt"]

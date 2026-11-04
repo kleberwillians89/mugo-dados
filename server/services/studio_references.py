@@ -27,13 +27,20 @@ def clean_url(value: Any) -> str:
     return url
 
 
-async def list_references(client_id: str) -> List[Dict[str, Any]]:
-    return await sb_select(TABLE, select="id,url,kind,note,author_side,author_id,created_at", order="created_at.desc", limit=200,
-                           filters={"client_id": f"eq.{client_id}"})
+async def list_references(client_id: str, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Sem item_id: referências da marca (aba); com item_id: só as daquele post."""
+    filters = {"client_id": f"eq.{client_id}", "item_id": f"eq.{item_id}" if item_id else "is.null"}
+    select = "id,url,kind,note,author_side,author_id,created_at"
+    try:
+        return await sb_select(TABLE, select=select, order="created_at.desc", limit=200, filters=filters)
+    except Exception:  # noqa: BLE001 — migração 000075 ainda não aplicada: a aba da marca segue funcionando
+        if item_id:
+            return []
+        return await sb_select(TABLE, select=select, order="created_at.desc", limit=200, filters={"client_id": f"eq.{client_id}"})
 
 
 async def add_reference(client_id: str, *, url: str, note: Optional[str], kind: str, agency: bool,
-                        user_id: Optional[str]) -> Dict[str, Any]:
+                        user_id: Optional[str], item: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if kind not in ("link", "arte"):
         raise StudioError("REFERENCE_URL_INVALID")
     url = clean_url(url)
@@ -42,10 +49,10 @@ async def add_reference(client_id: str, *, url: str, note: Optional[str], kind: 
     text = re.sub(r"\s+", " ", str(note or "")).strip()[:MAX_NOTE] or None
     side = "mugo" if agency else "cliente"
     row = await sb_insert(TABLE, {"client_id": client_id, "url": url, "kind": kind, "note": text,
-                                  "author_id": user_id, "author_side": side})
+                                  "author_id": user_id, "author_side": side, **({"item_id": item["id"]} if item else {})})
     if not agency:
         from .studio_team import notify_team
-        item = {"id": None, "title": "Referências da marca", "status": "referencia", "scheduled_at": None}
+        item = item or {"id": None, "title": "Referências da marca", "status": "referencia", "scheduled_at": None}
         try:
             await notify_team(client_id, item, "comentario", actor_name="O cliente pelo painel",
                               comment=f"Nova referência: {url}" + (f" — {text}" if text else ""))

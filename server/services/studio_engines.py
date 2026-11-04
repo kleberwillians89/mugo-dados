@@ -80,17 +80,32 @@ def _flags(data: Dict[str, Any], avoid: List[str]) -> List[str]:
     return flag_words(json.dumps(data, ensure_ascii=False), avoid)
 
 
-async def assist(client_id: str, action: str, item: Dict[str, Any], *, instruction: Optional[str] = None) -> Dict[str, Any]:
+async def _post_references(client_id: str, item_id: Optional[str]) -> List[Dict[str, Any]]:
+    if not item_id:
+        return []
+    from .studio_references import list_references
+    try:
+        rows = await list_references(client_id, item_id)
+    except Exception:  # noqa: BLE001 — sem a tabela ainda: segue sem referência
+        return []
+    return [{"link": r["url"], "o_que_gostou": (r.get("note") or None)} for r in rows[:10]]
+
+
+async def assist(client_id: str, action: str, item: Dict[str, Any], *, instruction: Optional[str] = None,
+                 item_id: Optional[str] = None) -> Dict[str, Any]:
     if action not in ASSIST_ACTIONS:
         raise StudioError("ACTION_INVALID")
     if not (item.get("title") or "").strip():
         raise StudioError("ITEM_TITLE_REQUIRED")
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
+    refs = await _post_references(client_id, item_id)
     prompt = (
         f"TAREFA: {ASSIST_TASKS[action]}\n"
         + (f"PEDIDO DA EQUIPE: {instruction.strip()[:600]}\n" if instruction and instruction.strip() else "")
         + f"\nPAUTA:\n{json.dumps(_item_payload(item), ensure_ascii=False)}\n"
+        + (f"\nREFERÊNCIAS DESTE POST (o cliente/equipe quer nesse estilo; siga formato, estética e tom, sem copiar):\n"
+           f"{json.dumps(refs, ensure_ascii=False)}\n" if refs else "")
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}"
     )
     data = await llm_json(instructions=ROLE, prompt=prompt, schema_name=f"studio_{action}",

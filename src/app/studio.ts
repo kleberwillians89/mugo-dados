@@ -161,8 +161,8 @@ export type AssistResult =
   | { action: "roteiro_reels"; result: { duration_seconds: number; cover_text: string; audio_suggestion: string; scenes: { seconds: string; visual: string; text_on_screen: string; voiceover: string }[] } }
   | { action: "revisar"; result: { issues: { problem: string; fix: string }[]; improved_caption: string } };
 export type AssistResponse = AssistResult & { flags: string[]; guard?: GuardIssue[]; based_on: BasedOn };
-export function runAssist(action: AssistAction, item: { format: StudioFormat; title: string; pillar?: string; hook?: string; caption_draft?: string; scheduled_at?: string }, instruction?: string) {
-  return http<AssistResponse>(base("/assist"), { method: "POST", body: JSON.stringify({ action, item, instruction: instruction || undefined }), timeoutMs: 100_000 });
+export function runAssist(action: AssistAction, item: { format: StudioFormat; title: string; pillar?: string; hook?: string; caption_draft?: string; scheduled_at?: string }, instruction?: string, itemId?: string) {
+  return http<AssistResponse>(base("/assist"), { method: "POST", body: JSON.stringify({ action, item, instruction: instruction || undefined, item_id: itemId || undefined }), timeoutMs: 100_000 });
 }
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 export function strategyChat(month: string, messages: ChatTurn[]) {
@@ -258,4 +258,8 @@ export async function uploadReference(file: File): Promise<string> {
   const response = await fetch(target.upload_url, { method: "PUT", body: file, headers: { "Content-Type": type, "x-upsert": "false" } });
   if (!response.ok) throw new Error(`O envio da imagem falhou (${response.status}).`);
   return target.public_url;
+}
+export function listItemReferences(itemId: string) { return http<{ references: BrandReference[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/references`)); }
+export function addItemReference(itemId: string, input: { url: string; note?: string | null; kind?: "link" | "arte" }) {
+  return http<{ ok: true; reference: BrandReference }>(base(`/calendar/items/${encodeURIComponent(itemId)}/references`), { method: "POST", body: JSON.stringify({ kind: "link", ...input }) });
 }
