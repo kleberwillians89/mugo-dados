@@ -1,18 +1,21 @@
-"""Lê o mapeamento horário → comando de .github/workflows/sync-jobs.yml."""
+"""Lê a agenda horário → comando de .github/scripts/due_jobs.py (fonte única do "Relógio dos jobs")."""
 from __future__ import annotations
 
-import re
+import importlib.util
 from pathlib import Path
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "sync-jobs.yml"
-_CASE = re.compile(r'^\s*"([^"]+)"\)\s+cmd="([^"]+)"\s*;;\s*$')
-_CRON = re.compile(r'^\s*- cron: "([^"]+)"')
+SCRIPT = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "due_jobs.py"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "jobs-tick.yml"
+
+
+def _module():
+    spec = importlib.util.spec_from_file_location("due_jobs", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def scheduled_commands() -> dict[str, str]:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    crons = {m.group(1) for line in text.splitlines() if (m := _CRON.match(line))}
-    mapping = {m.group(1): m.group(2) for line in text.splitlines() if (m := _CASE.match(line))}
-    # Todo horário agendado precisa de comando e vice-versa.
-    assert crons == set(mapping), (sorted(crons ^ set(mapping)))
+    mapping = dict(_module().SCHEDULE)
+    assert len(mapping) == len(_module().SCHEDULE), "horário repetido na agenda"
     return mapping
