@@ -5,7 +5,7 @@ import {
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
-  type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus,
+  type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus, type WhatsappChannel,
 } from "../app/studio";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -53,7 +53,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean; notify_team?: boolean } | null>(null);
-  const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: "mugozap" | "wa_link" }>({ list: [], channel: "wa_link" });
+  const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: WhatsappChannel }>({ list: [], channel: "nao_configurado" });
   const [suggestion, setSuggestion] = useState<(Omit<ProfileSuggestionResult, "profile"> & { pendingId?: string }) | null>(null);
   const [pending, setPending] = useState<PendingProfileSuggestion | null>(null);
   const [chat, setChat] = useState<{ open: boolean; turns: ChatTurn[]; input: string; actions: string[]; basis: BasedOn | null }>({ open: false, turns: [], input: "", actions: [], basis: null });
@@ -336,7 +336,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         {sent.whatsapp?.status === "enviado" || sent.team?.length ? <ApprovalDelivery sent={sent} /> : null}
         <label>Link<input readOnly value={sent.link} onFocus={(e) => e.currentTarget.select()} /></label>
         <div className="studioActions">
-          <a className="ds-button is-primary" href={sent.whatsapp_url} target="_blank" rel="noreferrer noopener">Abrir no WhatsApp</a>
+          {contacts.channel === "wa_link" ? <a className="ds-button is-primary" href={sent.whatsapp_url} target="_blank" rel="noreferrer noopener">Abrir no WhatsApp</a> : null}
           <button type="button" className="ds-button" onClick={() => void navigator.clipboard.writeText(sent.whatsapp_text).then(() => setCopied("link"), () => undefined)}>{copied === "link" ? "Mensagem copiada ✓" : "Copiar mensagem"}</button>
         </div>
       </div> : null}
