@@ -34,6 +34,8 @@ from .studio_calendar import StudioError
 RULES = "ig_engagement_rules"
 SETTINGS = "ig_engagement_settings"
 AI_LOOKBACK = timedelta(days=3)
+# A IA responde uma vez por dia (job ig-ai-replies, 16h de São Paulo); gatilhos seguem a cada 5 min.
+AI_DAILY_BUDGET = 30
 ACTIONS = "ig_engagement_actions"
 DIRECT_WINDOW = timedelta(days=7)
 MAX_ACTIONS_PER_RUN = 30
@@ -366,7 +368,8 @@ async def _claim(client_id: str, comment: Dict[str, Any], kind: str, text: str) 
     return str((row or {}).get("id") or "") or None
 
 
-async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: List[Dict[str, Any]], handled: set) -> Dict[str, int]:
+async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: List[Dict[str, Any]], handled: set,
+                         budget: Optional[int] = None) -> Dict[str, int]:
     settings = await get_settings(client_id)
     counts = {"ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0}
     if not settings["ai_autoreply"] or not capabilities(creds["scopes"])["reply"]:
@@ -374,7 +377,7 @@ async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: Lis
     since = datetime.now(timezone.utc) - AI_LOOKBACK
     own = creds["username"].lower()
     live = autoreply_enabled()
-    budget = settings["max_per_run"]
+    budget = budget if budget is not None else settings["max_per_run"]
     for comment in comments:
         if budget <= 0:
             break
@@ -416,9 +419,10 @@ async def list_rules(client_id: str) -> List[Dict[str, Any]]:
     return await sb_select(RULES, select="*", filters={"client_id": f"eq.{client_id}"}, order="created_at.asc", limit=100)
 
 
-async def run_rules(client_id: str, *, refresh: bool = True) -> Dict[str, Any]:
+async def run_rules(client_id: str, *, refresh: bool = True, ai: bool = False) -> Dict[str, Any]:
+    """Gatilhos sempre; a IA só quando ``ai=True`` (rodada diária) e a marca ligou o botão."""
     rules = [r for r in await list_rules(client_id) if r.get("active")]
-    ai_on = (await get_settings(client_id))["ai_autoreply"]
+    ai_on = ai and (await get_settings(client_id))["ai_autoreply"]
     if not rules and not ai_on:
         return {"client_id": client_id, "rules": 0, "sent": 0, "simulated": 0, "failed": 0}
     creds = await credentials(client_id)
@@ -465,11 +469,11 @@ async def run_rules(client_id: str, *, refresh: bool = True) -> Dict[str, Any]:
                     print(f"[ig_engagement] rule_failed client_id={client_id} kind={kind} code={exc.code}")
             handled.add(str(comment["comment_id"]))  # comentário de gatilho não recebe resposta da IA
             break  # um gatilho por comentário: o primeiro que bater
-    ai = await run_ai_replies(client_id, creds=creds, comments=comments, handled=handled) if ai_on else {}
+    ai = await run_ai_replies(client_id, creds=creds, comments=comments, handled=handled, budget=AI_DAILY_BUDGET) if ai_on else {}
     return {"client_id": client_id, "rules": len(rules), "live": live, **counts, **ai}
 
 
-async def run_all() -> Dict[str, Any]:
+async def run_all(*, ai: bool = False) -> Dict[str, Any]:
     rows = await sb_select(RULES, select="client_id", filters={"active": "eq.true"}, limit=1000)
     # Marcas com Instagram conectado entram; a IA só responde nas que ligaram (padrão: desligada).
     connected = await sb_select("meta_connections", select="client_id", limit=1000,
@@ -479,7 +483,7 @@ async def run_all() -> Dict[str, Any]:
            "ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0}
     for cid in clients:
         try:
-            r = await run_rules(cid)
+            r = await run_rules(cid, ai=ai)
             for k in ("sent", "simulated", "failed", "ai_sent", "ai_simulated", "ai_review", "ai_failed"):
                 out[k] += r.get(k, 0)
         except Exception as exc:  # noqa: BLE001 — uma marca não para as outras

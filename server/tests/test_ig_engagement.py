@@ -182,3 +182,34 @@ class AiAutoreplyTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DailyAiScheduleTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, *, ai, ai_on):
+        ai_mock = AsyncMock(return_value={"ai_sent": 1})
+        with patch.object(ie, "list_rules", AsyncMock(return_value=[])), \
+             patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": ai_on, "max_per_run": 10})), \
+             patch.object(ie, "credentials", AsyncMock(return_value=CREDS)), \
+             patch.object(ie, "refresh_comments", AsyncMock()), \
+             patch.object(ie, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(ie, "run_ai_replies", ai_mock):
+            out = await ie.run_rules("roove", ai=ai)
+        return out, ai_mock
+
+    async def test_five_minute_run_never_calls_ai(self):
+        out, ai_mock = await self._run(ai=False, ai_on=True)
+        ai_mock.assert_not_awaited()
+        self.assertEqual(out["sent"], 0)
+
+    async def test_daily_run_answers_only_brands_with_button_on(self):
+        _, ai_mock = await self._run(ai=True, ai_on=True)
+        self.assertEqual(ai_mock.await_args.kwargs["budget"], ie.AI_DAILY_BUDGET)
+        out, ai_mock = await self._run(ai=True, ai_on=False)
+        ai_mock.assert_not_awaited()
+        self.assertEqual(out["rules"], 0)
+
+    async def test_daily_job_passes_ai_flag(self):
+        run = AsyncMock(return_value={})
+        with patch.object(ie, "sb_select", AsyncMock(side_effect=[[], [{"client_id": "roove"}]])), \
+             patch.object(ie, "run_rules", run):
+            await ie.run_all(ai=True)
+        self.assertEqual(run.await_args.kwargs, {"ai": True})
