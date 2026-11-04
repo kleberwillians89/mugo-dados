@@ -46,7 +46,7 @@ export default function BrandReferences({ isAgency }: { isAgency: boolean }) {
   }
 
   return <section className="brandRefs" aria-label="Referências">
-    <p className="libHint">Cole aqui posts, perfis e artes que vocês gostam (Instagram, Pinterest, Behance, Drive) ou envie uma imagem. A equipe Mugô usa como referência para as próximas pautas.</p>
+    <p className="libHint">Cole aqui posts, perfis e artes que vocês gostam (Instagram, Pinterest, Behance, Drive) ou envie uma imagem. A IA usa essas referências ao montar as próximas pautas do calendário (formato, estética e tom), e a equipe Mugô também vê tudo aqui.</p>
     <form className="studioForm" onSubmit={submit}>
       <label>Link da referência<input type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={url} onChange={(e) => setUrl(e.target.value)} /></label>
       <label>O que você gostou (opcional)<textarea rows={2} maxLength={500} placeholder="Ex.: as cores, o jeito de mostrar o produto, a legenda curta" value={note} onChange={(e) => setNote(e.target.value)} /></label>

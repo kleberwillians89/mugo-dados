@@ -189,7 +189,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     gaps: List[str] = []
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
-     origin, media, campaigns, clipping, calendar_month) = await asyncio.gather(
+     origin, media, campaigns, clipping, calendar_month, references) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -203,6 +203,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("campanhas_ativas", gaps, lambda: _active_campaigns(client_id), []),
         _safe("clipping", gaps, lambda: _clipping(client_id), {}),
         _safe("calendario_do_mes", gaps, lambda: _calendar_month(client_id, month), {}),
+        _safe("referencias_do_cliente", gaps, lambda: _references(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -222,6 +223,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "campanhas_ativas": campaigns,
         "clipping": clipping,
         "calendario_do_mes": calendar_month,
+        "referencias_do_cliente": references,
         "lacunas": sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
     }
     _CACHE[key] = (time.monotonic(), package)
@@ -299,6 +301,15 @@ async def _clipping(client_id: str) -> Dict[str, Any]:
                           "sentimento": r.get("sentiment")} for r in rows[:6]]}
 
 
+async def _references(client_id: str) -> List[Dict[str, Any]]:
+    """Links e artes que o cliente marcou como referência (Aprovação → Referências): norte de estética e tom."""
+    rows = await sb_select("studio_references", select="url,kind,note,author_side,created_at", order="created_at.desc",
+                           limit=20, filters={"client_id": f"eq.{client_id}"})
+    return [{"link": r["url"], "tipo": "imagem" if r.get("kind") == "arte" else "link",
+             "o_que_gostou": clean_text(r.get("note"), 300) or None,
+             "de_quem": "cliente" if r.get("author_side") == "cliente" else "equipe Mugô"} for r in rows]
+
+
 async def _calendar_month(client_id: str, month: date) -> Dict[str, Any]:
     rows = await sb_select("studio_calendar_items", select="status,format,pillar", limit=300,
                            filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}"})
@@ -334,7 +345,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, limit: int = MAX_PROMPT_CHARS) -> str:
     """JSON compacto para o prompt; corta as seções menos importantes se passar do limite."""
-    order = sections or ["marca", "negocio", "aprendizados", "campanhas_ativas", "plano_de_midia", "posts", "kpis",
+    order = sections or ["marca", "negocio", "referencias_do_cliente", "aprendizados", "campanhas_ativas", "plano_de_midia", "posts", "kpis",
                          "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping", "calendario_do_mes",
                          "ultima_analise", "funil_do_site", "horarios", "lacunas"]
     data = {k: package.get(k) for k in order if package.get(k)}

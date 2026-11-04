@@ -327,7 +327,7 @@ async def content_signals(client_id: str) -> Dict[str, Any]:
         print(f"[studio][calendar] inteligencia_indisponivel erro={exc.__class__.__name__}")
         return {}
     keys = ("aprendizados", "campanhas_que_mais_venderam", "kpis", "metas_do_mes", "ultima_analise",
-            "campanhas_ativas", "plano_de_midia", "vendas_por_origem", "clipping")
+            "campanhas_ativas", "plano_de_midia", "vendas_por_origem", "clipping", "referencias_do_cliente")
     return {k: intel[k] for k in keys if intel.get(k)}
 
 
@@ -369,6 +369,10 @@ def build_prompt(
         "(sem inventar desconto que não esteja na oferta).\n"
         "- plano_de_midia (Mídia On): priorize pautas que sirvam de anúncio para o objetivo e os canais com verba.\n"
         "- clipping: notícia boa da marca pode virar pauta; se houver notícia negativa, nada que soe insensível ao assunto.\n"
+        "- referencias_do_cliente (se houver): são posts e artes que o CLIENTE disse que gosta. Use como norte de formato, "
+        "estética, gancho e tom (o 'o_que_gostou' diz o porquê); várias pautas do mês devem seguir essas referências, "
+        "adaptadas à marca, sem copiar texto. Quando uma pauta seguir uma referência, diga no rationale qual "
+        "(ex.: 'segue a referência de luz natural que o cliente enviou').\n"
         "- Português do Brasil.\n\n"
         f"DADOS:\n{json.dumps(payload, ensure_ascii=False)}"
     )
