@@ -50,7 +50,7 @@ async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, acto
     if action not in ACTIONS:
         return None
     try:
-        row = {"id": str(uuid.uuid4()), "client_id": client_id, "item_id": str(item.get("id")), "action": action,
+        row = {"id": str(uuid.uuid4()), "client_id": client_id, "item_id": str(item["id"]) if item.get("id") else None, "action": action,
                "actor_name": (actor_name or "O cliente")[:120],
                "payload": {"title": str(item.get("title") or "")[:200], "comment": (comment or None) and comment[:1000],
                            "changes": [FIELD_LABELS.get(c, c) for c in (changes or [])], "scheduled_at": item.get("scheduled_at"),

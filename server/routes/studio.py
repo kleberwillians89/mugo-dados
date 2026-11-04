@@ -341,6 +341,74 @@ async def write_item_comment(client_id: str, item_id: UUID, body: CommentInput, 
     return {"ok": True, "comment": comment}
 
 
+# ---------------------------------------------------------------- referências da marca
+
+ERRORS.update({
+    "REFERENCE_URL_INVALID": (422, "Cole um link completo começando com https:// (Instagram, Pinterest, Drive...)."),
+    "REFERENCE_TYPE_INVALID": (422, "Envie uma imagem JPG, PNG ou WEBP."),
+    "REFERENCE_NOT_FOUND": (404, "Referência não encontrada."),
+})
+
+
+class ReferenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=12, max_length=2000)
+    note: Optional[str] = Field(default=None, max_length=500)
+    kind: Literal["link", "arte"] = "link"
+
+
+class ReferenceUploadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content_type: Literal["image/jpeg", "image/png", "image/webp"]
+
+
+@router.get("/references")
+async def read_references(client_id: str, authorization: str | None = Header(default=None)):
+    from services.studio_references import list_references
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    agency = await is_agency_user(authorization)
+    rows = await list_references(cid)
+    return {"references": [{**{k: v for k, v in r.items() if k != "author_id"},
+                            "can_delete": agency or str(r.get("author_id") or "") == uid} for r in rows]}
+
+
+@router.post("/references", status_code=201)
+async def write_reference(client_id: str, body: ReferenceInput, authorization: str | None = Header(default=None)):
+    # Qualquer pessoa da empresa (inclusive leitor) pode mandar referência.
+    from services.studio_references import add_reference
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    try:
+        row = await add_reference(cid, url=body.url, note=body.note, kind=body.kind,
+                                  agency=await is_agency_user(authorization), user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True, "reference": {k: v for k, v in row.items() if k != "author_id"}}
+
+
+@router.post("/references/upload")
+async def reference_upload_target(client_id: str, body: ReferenceUploadInput, authorization: str | None = Header(default=None)):
+    from services.studio_references import upload_target
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    try:
+        return await upload_target(cid, body.content_type)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/references/{reference_id}")
+async def remove_reference(client_id: str, reference_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_references import delete_reference
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    try:
+        await delete_reference(cid, str(reference_id), agency=await is_agency_user(authorization), user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True}
+
+
 @router.delete("/calendar/items/{item_id}")
 async def remove_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
