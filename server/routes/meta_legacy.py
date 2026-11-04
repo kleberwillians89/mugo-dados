@@ -698,37 +698,11 @@ async def api_link_assets(
             return result
 
         # Progressivo: os últimos 7 dias liberam a tela; 30 dias e a fila de 90 rodam depois.
-        period = resolve_period(days=meta_progressive.QUICK_DAYS, max_days=365)
         connection_id = str(paid_connection.get("id") or "").strip()
-        try:
-            sync_result = await sync_ads_for_client_period(
-                client_id=cid,
-                connection_id=connection_id,
-                since=period.start.isoformat(),
-                until=period.end.isoformat(),
-                job_name="meta_ads_initial_sync",
-                trigger_source="oauth_asset_selection",
-                record_job_run=True,
-            )
-            result["meta_ads_initial_sync"] = {
-                **sync_result,
-                "ok": bool(sync_result.get("ok")),
-                "client_id": cid,
-                "connection_id": connection_id,
-                "days": meta_progressive.QUICK_DAYS,
-            }
-            meta_progressive.schedule(
-                "meta_ads_history", cid, lambda: meta_progressive.paid_history(cid, connection_id),
-            )
-            result["history_sync"] = {"status": "scheduled", "days": [meta_progressive.HISTORY_DAYS, meta_progressive.BACKFILL_DAYS]}
-        except Exception as exc:
-            result["meta_ads_initial_sync"] = {
-                "ok": False,
-                "client_id": cid,
-                "connection_id": connection_id,
-                "code": str(getattr(exc, "code", "META_ADS_INITIAL_SYNC_FAILED")),
-                "retryable": bool(getattr(exc, "retryable", True)),
-            }
+        first = await meta_progressive.paid_first_read(cid, connection_id, sync=sync_ads_for_client_period)
+        result["meta_ads_initial_sync"] = {k: v for k, v in first.items() if k != "history_sync"}
+        if first.get("history_sync"):
+            result["history_sync"] = first["history_sync"]
         return result
     except IntegrationError:
         raise
@@ -771,7 +745,15 @@ async def api_select_meta_ads_account(
             ad_account_id=str(payload.get("ad_account_id") or ""),
             user_id=user_id,
         )
-        return {"ok": True, **selected}
+        out = {"ok": True, **selected}
+        # Escolheu a conta: já busca os 7 dias (primeiro KPI) e agenda 30/90 em segundo plano.
+        connection_id = str(selected.get("connection_id") or "").strip()
+        if connection_id:
+            first = await meta_progressive.paid_first_read(cid, connection_id, sync=sync_ads_for_client_period)
+            out["meta_ads_initial_sync"] = {k: v for k, v in first.items() if k != "history_sync"}
+            if first.get("history_sync"):
+                out["history_sync"] = first["history_sync"]
+        return out
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -162,6 +162,33 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
                 await meta_legacy.api_link_assets("tenant-b", {"handoff": "h"}, authorization="Bearer x")
         sync.assert_not_awaited()
 
+    async def test_selecting_ad_account_reads_7_days_and_schedules_history(self):
+        from routes import meta_legacy
+        scheduled = []
+        sync = AsyncMock(return_value={"ok": True, "status": "success"})
+        with patch.object(meta_legacy, "require_user_id", AsyncMock(return_value="user-1")), \
+                patch.object(meta_legacy, "require_client_role", AsyncMock(return_value="tenant-a")), \
+                patch.object(meta_legacy, "select_paid_connection", AsyncMock(return_value={"connection_id": "conn-a"})), \
+                patch.object(meta_legacy, "sync_ads_for_client_period", sync), \
+                patch.object(meta_progressive, "schedule", lambda name, cid, factory: scheduled.append((name, cid))):
+            out = await meta_legacy.api_select_meta_ads_account("tenant-b-na-url", {"ad_account_id": "act_1"}, authorization="Bearer x")
+        self.assertTrue(out["ok"])
+        self.assertEqual(sync.await_args.kwargs["client_id"], "tenant-a")
+        self.assertEqual(sync.await_args.kwargs["connection_id"], "conn-a")
+        self.assertEqual(out["meta_ads_initial_sync"]["days"], 7)
+        self.assertEqual(scheduled, [("meta_ads_history", "tenant-a")])
+
+    async def test_selecting_ad_account_keeps_selection_when_meta_fails(self):
+        from routes import meta_legacy
+        with patch.object(meta_legacy, "require_user_id", AsyncMock(return_value="user-1")), \
+                patch.object(meta_legacy, "require_client_role", AsyncMock(return_value="tenant-a")), \
+                patch.object(meta_legacy, "select_paid_connection", AsyncMock(return_value={"connection_id": "conn-a"})), \
+                patch.object(meta_legacy, "sync_ads_for_client_period", AsyncMock(side_effect=MetaApiError("fora", status_code=500))):
+            out = await meta_legacy.api_select_meta_ads_account("tenant-a", {"ad_account_id": "act_1"}, authorization="Bearer x")
+        self.assertTrue(out["ok"])  # a conta continua escolhida
+        self.assertFalse(out["meta_ads_initial_sync"]["ok"])
+        self.assertNotIn("history_sync", out)
+
     async def test_organic_activation_is_quick_then_full_in_background(self):
         from routes import meta_legacy
         scheduled = []
