@@ -110,7 +110,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     </div>} />
     {settings ? <div className="engageAi">
       <div><b>IA respondendo sozinha</b> <span className={settings.ai_autoreply ? "studioOk" : "libHint"}>{settings.ai_autoreply ? "ligada" : "desligada"}</span>
-        <small>Comentário sem resposta recebe, a cada 5 minutos, uma resposta curta no tom do perfil da marca: resposta aumenta o alcance. Reclamação, dado pessoal ou texto fora da marca não sai: vira "revisão" aqui para a equipe responder.</small></div>
+        <small>Todo dia às 16h, os comentários sem resposta dos últimos 3 dias recebem uma resposta curta no tom do perfil da marca (até 30 por dia): resposta aumenta o alcance. Reclamação, dado pessoal ou texto fora da marca não sai: vira "revisão" aqui para a equipe responder.</small></div>
       {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={async () => {
         const out = await run("ai", () => saveEngagementSettings(!settings.ai_autoreply), "Não foi possível alterar.");
         if (out) setSettings(out);

@@ -134,6 +134,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "ig-engagement-run":
         from services.ig_engagement import run_all
         return await run_all()
+    if args.command == "ig-ai-replies":
+        from services.ig_engagement import run_all
+        return await run_all(ai=True)
     if args.command == "studio-team-retry":
         from services.studio_team import retry_pending
         return await retry_pending()
@@ -292,6 +295,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "ig-engagement-run",
         help="Gatilhos do Instagram (comentário com palavra-chave → resposta e Direct). Sem IG_AUTOREPLY_ENABLED=true, só simula.",
+    )
+    sub.add_parser(
+        "ig-ai-replies",
+        help="16h (SP): a IA responde os comentários sem resposta das marcas com o botão ligado (sem IG_AUTOREPLY_ENABLED=true, só simula).",
     )
     sub.add_parser(
         "studio-team-retry",
