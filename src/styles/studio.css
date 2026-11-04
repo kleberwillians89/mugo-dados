@@ -517,3 +517,17 @@
 .engageTone { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0 12px; }
 .engageTone label { display: grid; gap: 4px; flex: 1 1 320px; }
 .engageTone textarea { width: 100%; }
+/* Comentários → Respondidos por post */
+.repliedList { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.repliedList > li { border: 1px solid var(--ds-border, #e5e5e5); border-radius: 10px; overflow: hidden; }
+.repliedHead { display: flex; gap: 12px; width: 100%; padding: 10px; background: none; border: 0; text-align: left; cursor: pointer; align-items: flex-start; }
+.repliedHead img, .repliedNoThumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; flex: none; }
+.repliedNoThumb { display: grid; place-items: center; background: var(--ds-surface-2, #f2f2f2); font-size: 12px; }
+.repliedInfo { display: grid; gap: 4px; min-width: 0; }
+.repliedInfo b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repliedChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.studioChip.is-warn { background: #fff4e5; color: #8a4b00; }
+.repliedBody { padding: 0 12px 12px; display: grid; gap: 8px; }
+.repliedBody ol { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.repliedBody p { margin: 0; overflow-wrap: anywhere; }
+.repliedAnswer { display: grid; gap: 2px; padding-left: 10px; border-left: 2px solid var(--ds-border, #e5e5e5); }

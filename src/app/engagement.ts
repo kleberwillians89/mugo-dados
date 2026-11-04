@@ -14,6 +14,12 @@ export type EngagementRule = { id: string; name: string; keywords: string[]; med
 export type RuleInput = Omit<EngagementRule, "id">;
 
 export type EngagementSettings = { ai_autoreply: boolean; max_per_run: number; reply_tone?: string | null };
+export type PostReply = { comment: string; username: string | null; reply: string; who: "ia" | "equipe" | "gatilho" | "revisao"; status: "enviado" | "simulado" | "pendente" | "falhou"; at: string };
+export type RepliedPost = {
+  media_id: string; permalink?: string | null; caption?: string; thumb?: string | null; posted_at?: string; last_at: string;
+  counts: { ia: number; equipe: number; gatilho: number; revisao: number; simulado: number; falhou: number }; replies: PostReply[];
+};
+export const getRepliesByPost = (days = 30) => http<{ posts: RepliedPost[]; days: number }>(base(`/replies?days=${days}`));
 export const getInbox = (openOnly: boolean) =>
   http<{ items: InboxComment[]; autoreply_enabled: boolean; settings?: EngagementSettings }>(base(`/comments?open_only=${openOnly}`));
 export const saveEngagementSettings = (ai_autoreply: boolean) =>

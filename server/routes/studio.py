@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
@@ -953,6 +953,14 @@ ERRORS.update({
     "SCHEDULE_IN_PAST": (409, "A data do post já passou. Ajuste a data e o horário antes de agendar."),
     "REPLY_EMPTY": (422, "Escreva a resposta."),
 })
+
+
+@router.get("/engagement/replies")
+async def engagement_replies(client_id: str, days: int = Query(default=30, ge=1, le=90), authorization: str | None = Header(default=None)):
+    from services.ig_engagement import replies_by_post
+    # Visível ao cliente também: o que a marca respondeu em cada publicação.
+    cid = await require_client_read(client_id, authorization)
+    return await replies_by_post(cid, days=days)
 
 
 @router.get("/engagement/comments")

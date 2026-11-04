@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import RepliedPosts from "../components/studio/RepliedPosts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveReplyTone, saveRule, sendReply, suggestReply,
@@ -9,7 +10,7 @@ import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import "../styles/studio.css";
 
-type Tab = "caixa" | "gatilhos";
+type Tab = "caixa" | "respondidos" | "gatilhos";
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe",
@@ -53,7 +54,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     try { const data = await listRules(); if (getActiveClientId() === clientId) { setRules(data.rules); setLive(data.autoreply_enabled); } }
     catch (cause) { setError(message(cause, "Não foi possível carregar os gatilhos.")); }
   }, [clientId]);
-  useEffect(() => { if (tab === "caixa") void loadInbox(); else void loadRules(); }, [tab, loadInbox, loadRules]);
+  useEffect(() => { if (tab === "caixa") void loadInbox(); else if (tab === "gatilhos") void loadRules(); }, [tab, loadInbox, loadRules]);
 
   async function refresh() {
     const out = await run("refresh", refreshInbox, "Não foi possível buscar os comentários no Instagram.");
@@ -134,8 +135,10 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     {notice ? <p className="studioOk">{notice}</p> : null}
 
     <div className="studioTabs" role="tablist" aria-label="Seção">
-      {((isAgency ? [["caixa", "Caixa"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      {((isAgency ? [["caixa", "Caixa"], ["respondidos", "Respondidos por post"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"], ["respondidos", "Respondidos por post"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
     </div>
+
+    {tab === "respondidos" ? <RepliedPosts /> : null}
 
     {tab === "caixa" ? <>
       <div className="studioTabs" role="tablist" aria-label="Filtro">

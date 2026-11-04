@@ -250,3 +250,35 @@ class ReplyToneTests(unittest.IsolatedAsyncioTestCase):
             await ie._ai_answer("origami", {"comment_id": "c1", "text": "Adorei a explicação sobre renda fixa", "username": "ana"})
         self.assertTrue(seen["prompt"].startswith("TOM DAS RESPOSTAS DESTA MARCA"))
         self.assertIn("próximo e leve", seen["prompt"])
+
+
+class RepliesByPostTests(unittest.IsolatedAsyncioTestCase):
+    async def test_groups_replies_per_post_with_who_and_status(self):
+        actions = [
+            {"comment_id": "c1", "media_id": "111", "kind": "resposta_ia", "status": "enviado", "text": "Que bom!", "created_at": "2026-11-04T19:05:00Z"},
+            {"comment_id": "c2", "media_id": None, "kind": "revisao", "status": "pendente", "text": "reclamação", "created_at": "2026-11-04T19:04:00Z"},
+            {"comment_id": "c3", "media_id": "222", "kind": "resposta_manual", "status": "simulado", "text": "Obrigada", "created_at": "2026-11-03T10:00:00Z"},
+        ]
+        comments = [{"comment_id": "c1", "media_id": "111", "username": "ana", "text": "amei"},
+                    {"comment_id": "c2", "media_id": "111", "username": "bia", "text": "não chegou"},
+                    {"comment_id": "c3", "media_id": "222", "username": "caio", "text": "top"}]
+        media = [{"media_id": "111", "caption": "Coxinha vegana", "permalink": "https://instagram.com/p/1", "media_type": "IMAGE", "media_url": "https://cdn/1.jpg"}]
+        select = AsyncMock(side_effect=[actions, comments, media])
+        with patch.object(ie, "sb_select", select):
+            out = await ie.replies_by_post("latinas", days=30)
+        first, second = out["posts"]
+        self.assertEqual(first["media_id"], "111")
+        self.assertEqual(first["counts"]["ia"], 1)
+        self.assertEqual(first["counts"]["revisao"], 1)  # media_id veio do comentário
+        self.assertEqual(first["thumb"], "https://cdn/1.jpg")
+        self.assertEqual(second["counts"]["simulado"], 1)
+        self.assertEqual(first["replies"][0]["username"], "ana")
+        for call in select.await_args_list:
+            self.assertEqual(call.kwargs["filters"]["client_id"], "eq.latinas")
+
+    async def test_no_replies_returns_empty_without_extra_reads(self):
+        select = AsyncMock(return_value=[])
+        with patch.object(ie, "sb_select", select):
+            out = await ie.replies_by_post("latinas")
+        self.assertEqual(out["posts"], [])
+        self.assertEqual(select.await_count, 1)
