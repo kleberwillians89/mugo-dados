@@ -125,3 +125,32 @@ class WideReconciliationTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_tick_runs_due_commands_per_five_minute_window():
+    from datetime import datetime, timezone
+    from jobs_schedule import _module
+    due = _module().due
+    _, at_16 = due(datetime(2026, 11, 4, 19, 3, tzinfo=timezone.utc))
+    assert "ig-ai-replies" in at_16 and "automations-process" in at_16 and "ig-publish-due" in at_16
+    _, friday = due(datetime(2026, 11, 6, 13, 15, tzinfo=timezone.utc))
+    assert "studio-weekly-digest" in friday
+    _, sunday = due(datetime(2026, 11, 8, 8, 44, tzinfo=timezone.utc))
+    assert "shopify-historical-reconcile --days 90" in sunday
+    _, monday = due(datetime(2026, 11, 9, 8, 44, tzinfo=timezone.utc))
+    assert "shopify-historical-reconcile --days 90" not in monday
+    # todo comando agendado roda ao menos uma vez por semana
+    seen = set()
+    start = datetime(2026, 11, 2, tzinfo=timezone.utc)
+    from datetime import timedelta
+    for i in range(0, 7 * 24 * 60, 5):
+        seen.update(due(start + timedelta(minutes=i))[1])
+    assert seen >= {cmd for cron, cmd in _module().SCHEDULE if not cron.startswith("20 12 1 ")}
+
+
+def test_manual_workflow_has_no_schedule_and_tick_dedupes():
+    from jobs_schedule import WORKFLOW
+    manual = (WORKFLOW.parent / "sync-jobs.yml").read_text(encoding="utf-8")
+    assert "schedule:" not in manual
+    tick = WORKFLOW.read_text(encoding="utf-8")
+    assert "workflow_dispatch" in tick and "já rodou" in tick and "fromJSON(needs.plan.outputs.commands)" in tick

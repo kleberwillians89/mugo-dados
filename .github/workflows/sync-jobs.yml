@@ -5,40 +5,14 @@
 # (gratuito em repositório público), grava direto no Supabase e termina; o
 # Render fica só para servir o painel, a API e o MCP.
 #
-# Horários em UTC (São Paulo = UTC-3). Cada horário abaixo dispara UM comando
-# (o mapeamento está no passo "Escolher comando"). O GitHub pode atrasar
-# disparos agendados em alguns minutos; as janelas dos jobs já cobrem isso.
+# Este arquivo agora é só para rodar UM comando à mão (Run workflow). A agenda
+# automática está em jobs-tick.yml ("Relógio dos jobs") + .github/scripts/due_jobs.py.
 #
 # Segurança: o log público mostra só comando, status e duração (ver
 # .github/scripts/run_job.py). Configuração num único segredo: MUGO_JOBS_ENV.
 name: Sincronizações (jobs)
 
 on:
-  schedule:
-    - cron: "15 */6 * * *"     # token Meta
-    - cron: "10 6,12,18,23 * * *"  # Instagram orgânico
-    - cron: "5 * * * *"        # Meta Ads, últimos 7 dias
-    - cron: "20 */3 * * *"     # GA4, últimos 3 dias
-    - cron: "35 */3 * * *"     # Google Ads, últimos 7 dias
-    - cron: "0,30 * * * *"     # FBITS incremental
-    - cron: "15,45 * * * *"    # Shopify incremental
-    - cron: "25 7 * * *"       # Shopify, conferência de 14 dias
-    - cron: "40 8 * * 0"       # Shopify, conferência de 90 dias (domingo)
-    - cron: "45 2 * * *"       # Meta Ads, conferência de 30 dias
-    - cron: "*/10 * * * *"     # Meta Ads, fila de histórico
-    - cron: "15 3 * * *"       # GA4, conferência de 30 dias
-    - cron: "45 3 * * *"       # Google Ads, conferência de 30 dias
-    - cron: "20 9 * * 0"       # Instagram, conferência ampla (domingo)
-    - cron: "10 5 * * *"       # Histórico desde 01/01 (Empresas → Histórico)
-    - cron: "15 13 * * 5"      # Sexta 10h15 (SP): aprendizado por campanha + resumo semanal no WhatsApp
-    - cron: "40 10 * * *"      # 7h40 (SP): clipping da marca (Google Notícias)
-    - cron: "20 12 1 * *"      # Dia 1, 9h20 (SP): sugestão mensal do perfil da marca (IA avançada)
-    - cron: "50 * * * *"       # Avisos ao time que o CRM não recebeu na hora (cliente aprovou/pediu ajuste/editou)
-    - cron: "*/5 * * * *"      # Automações: processa a fila (sem AUTOMATIONS_SEND_ENABLED=true só simula)
-    - cron: "*/15 * * * *"     # Google Calendar da Mugô: sincroniza reuniões e agenda os lembretes
-    - cron: "2-59/5 * * * *"   # Instagram: gatilhos de comentário (resposta + Direct); sem IG_AUTOREPLY_ENABLED só simula
-    - cron: "2 19 * * *"       # 16h (SP): IA responde os comentários (só marcas com o botão ligado)
-    - cron: "4-59/5 * * * *"     # Instagram: publica posts aprovados e agendados (sem IG_PUBLISH_ENABLED=true só simula)
   workflow_dispatch:
     inputs:
       command:
@@ -55,43 +29,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 175
     concurrency:
-      group: mugo-job-${{ github.event.schedule || inputs.command }}
+      group: mugo-job-${{ inputs.command }}
       cancel-in-progress: false
     steps:
       - name: Escolher comando
         id: pick
         env:
-          SCHEDULE: ${{ github.event.schedule }}
           MANUAL: ${{ inputs.command }}
         run: |
-          case "$SCHEDULE" in
-            "15 */6 * * *")        cmd="token-refresh" ;;
-            "10 6,12,18,23 * * *") cmd="organic-sync --limit 60" ;;
-            "5 * * * *")           cmd="ads-sync-hourly --days 7" ;;
-            "20 */3 * * *")        cmd="ga4-sync-all --days 3" ;;
-            "35 */3 * * *")        cmd="google-ads-sync --days 7" ;;
-            "0,30 * * * *")        cmd="fbits-sync-all" ;;
-            "15,45 * * * *")       cmd="shopify-reconcile --fallback-days 30" ;;
-            "25 7 * * *")          cmd="shopify-historical-reconcile --days 14" ;;
-            "40 8 * * 0")          cmd="shopify-historical-reconcile --days 90" ;;
-            "45 2 * * *")          cmd="ads-sync-hourly --days 30" ;;
-            "*/10 * * * *")        cmd="ads-backfill-worker" ;;
-            "15 3 * * *")          cmd="ga4-sync-all --days 30" ;;
-            "45 3 * * *")          cmd="google-ads-sync --days 30" ;;
-            "20 9 * * 0")          cmd="organic-sync --limit 250 --skip-thumbnails" ;;
-            "10 5 * * *")          cmd="history-backfill-worker --budget-minutes 150" ;;
-            "15 13 * * 5")         cmd="studio-weekly-digest" ;;
-            "50 * * * *")          cmd="studio-team-retry" ;;
-            "*/5 * * * *")         cmd="automations-process" ;;
-            "*/15 * * * *")        cmd="calendar-sync" ;;
-            "2-59/5 * * * *")      cmd="ig-engagement-run" ;;
-            "4-59/5 * * * *")      cmd="ig-publish-due" ;;
-            "2 19 * * *")          cmd="ig-ai-replies" ;;
-            "40 10 * * *")         cmd="studio-clipping" ;;
-            "20 12 1 * *")         cmd="brand-profile-monthly" ;;
-            "")                    cmd="$MANUAL" ;;
-            *) echo "horário sem comando mapeado"; exit 1 ;;
-          esac
+          cmd="$MANUAL"
           case "$cmd" in
             *[!a-z0-9\ -]*|"") echo "comando inválido"; exit 1 ;;
           esac
