@@ -510,3 +510,7 @@
 .brandRefList li > div { flex: 1; min-width: 0; }
 .brandRefList p { margin: 2px 0 0; overflow-wrap: anywhere; }
 .postComments a, .brandRefList a { overflow-wrap: anywhere; }
+.postRefs { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--ds-border, #e5e5e5); }
+.postRefs h4 { margin: 0; }
+.postRefForm { display: grid; grid-template-columns: 1fr; gap: 6px; }
+@media (min-width: 720px) { .postRefForm { grid-template-columns: 2fr 1.4fr auto; } }

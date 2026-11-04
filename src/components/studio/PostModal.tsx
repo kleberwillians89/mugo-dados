@@ -1,4 +1,5 @@
 import { uploadArt } from "../../app/artUpload";
+import PostReferences from "./PostReferences";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
 import type { PostDraft } from "../../app/studioCalendar";
@@ -136,7 +137,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         </label> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
-        {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} onApply={(patch) => set(patch)} /> : null}
+        {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} itemId={item?.id} onApply={(patch) => set(patch)} /> : null}
         {item?.client_edited_at ? <p className="postEdited">Editado pelo cliente em {new Date(item.client_edited_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{item.client_edited_fields?.length ? ` (${item.client_edited_fields.map((f) => ({ title: "título", hook: "gancho", caption_draft: "legenda", scheduled_at: "data" } as Record<string, string>)[f] || f).join(", ")})` : ""}. {clientMode ? "A equipe Mugô já foi avisada." : "Confira antes de publicar."}</p> : null}
 
 
@@ -166,6 +167,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             <button type="button" className="ds-button is-primary" disabled={busy || (clientMode && !rejectNote.trim())} onClick={() => void onStatus("rejeitado", rejectNote).then(() => setRejectNote(null))}>{clientMode ? "Enviar pedido de ajuste" : "Rejeitar"}</button></div>
         </div> : null}
 
+        {item ? <PostReferences itemId={item.id} isAgency={!clientMode} /> : null}
         {item ? <PostComments itemId={item.id} clientMode={clientMode} /> : null}
         {canManage && clientMode && item ? <div className="postActions">
           {dirty ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : "Salvar alterações"}</button> : <>

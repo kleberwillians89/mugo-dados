@@ -397,6 +397,37 @@ async def reference_upload_target(client_id: str, body: ReferenceUploadInput, au
         raise _http(exc) from None
 
 
+@router.get("/calendar/items/{item_id}/references")
+async def read_item_references(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_comments import _item
+    from services.studio_references import list_references
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    agency = await is_agency_user(authorization)
+    try:
+        await _item(cid, str(item_id), agency=agency)  # cliente só vê referência de post que pode ver
+    except StudioError as exc:
+        raise _http(exc) from None
+    rows = await list_references(cid, str(item_id))
+    return {"references": [{**{k: v for k, v in r.items() if k != "author_id"},
+                            "can_delete": agency or str(r.get("author_id") or "") == uid} for r in rows]}
+
+
+@router.post("/calendar/items/{item_id}/references", status_code=201)
+async def write_item_reference(client_id: str, item_id: UUID, body: ReferenceInput, authorization: str | None = Header(default=None)):
+    from services.studio_comments import _item
+    from services.studio_references import add_reference
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    agency = await is_agency_user(authorization)
+    try:
+        item = await _item(cid, str(item_id), agency=agency)
+        row = await add_reference(cid, url=body.url, note=body.note, kind=body.kind, agency=agency, user_id=uid, item=item)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True, "reference": {k: v for k, v in row.items() if k != "author_id"}}
+
+
 @router.delete("/references/{reference_id}")
 async def remove_reference(client_id: str, reference_id: UUID, authorization: str | None = Header(default=None)):
     from services.studio_references import delete_reference
@@ -447,6 +478,7 @@ class AssistInput(BaseModel):
     action: AssistAction
     item: AssistItem
     instruction: Optional[str] = Field(default=None, max_length=600)
+    item_id: Optional[UUID] = None  # post salvo: a IA usa as referências dele
 
 
 class ChatMessage(BaseModel):
@@ -477,7 +509,8 @@ async def read_intelligence(client_id: str, authorization: str | None = Header(d
 async def run_assist(client_id: str, body: AssistInput, authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     try:
-        return await assist(cid, body.action, body.item.model_dump(), instruction=body.instruction)
+        return await assist(cid, body.action, body.item.model_dump(), instruction=body.instruction,
+                            item_id=str(body.item_id) if body.item_id else None)
     except StudioError as exc:
         raise _http(exc) from None
 
