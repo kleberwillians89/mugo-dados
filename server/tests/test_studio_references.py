@@ -49,3 +49,24 @@ def test_client_deletes_only_own_reference_agency_any():
 def test_missing_reference_is_not_found():
     with patch.object(sr, "sb_select", AsyncMock(return_value=[])), pytest.raises(StudioError):
         asyncio.run(sr.delete_reference("latinas", "r9", agency=False, user_id="u1"))
+
+
+def test_references_reach_the_calendar_prompt_and_intelligence():
+    from services import studio_calendar, studio_intelligence
+    refs = [{"link": "https://pin.it/x", "tipo": "link", "o_que_gostou": "luz natural", "de_quem": "cliente"}]
+    text = studio_intelligence.to_prompt({"marca": {"tone_of_voice": "leve"}, "referencias_do_cliente": refs})
+    assert "luz natural" in text
+    prompt = studio_calendar.build_prompt(slots=[], profile={}, business={}, top=[], trends=[], seasonal=[],
+                                          month=__import__("datetime").date(2026, 12, 1),
+                                          signals={"referencias_do_cliente": refs})
+    assert "referencias_do_cliente" in prompt and "luz natural" in prompt
+    assert "rationale qual" in prompt
+
+
+def test_reference_rows_become_prompt_items():
+    from services import studio_intelligence
+    rows = [{"url": "https://x.supabase.co/storage/v1/object/public/ig-media/studio-refs/l/a.jpg", "kind": "arte",
+             "note": "cores quentes", "author_side": "cliente", "created_at": "2026-11-04"}]
+    with patch.object(studio_intelligence, "sb_select", AsyncMock(return_value=rows)):
+        out = asyncio.run(studio_intelligence._references("latinas"))
+    assert out == [{"link": rows[0]["url"], "tipo": "imagem", "o_que_gostou": "cores quentes", "de_quem": "cliente"}]

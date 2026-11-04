@@ -200,7 +200,7 @@ def build_prompt(sources: Dict[str, Any], current: Dict[str, Any]) -> str:
         f"PUBLICAÇÕES DOS ÚLTIMOS 12 MESES:\n{json.dumps(sources['posts'], ensure_ascii=False)}\n\n"
         f"VALIDAÇÕES DO CLIENTE:\n{json.dumps(sources['validations'], ensure_ascii=False)}\n\n"
         f"NEGÓCIO, MÍDIA ON, CAMPANHAS E VENDAS:\n"
-        f"{to_prompt(intel, sections=['negocio', 'plano_de_midia', 'campanhas_ativas', 'campanhas_que_mais_venderam', 'vendas_por_origem', 'kpis', 'metas_do_mes', 'ultima_analise'], limit=7000)}\n"
+        f"{to_prompt(intel, sections=['negocio', 'referencias_do_cliente', 'plano_de_midia', 'campanhas_ativas', 'campanhas_que_mais_venderam', 'vendas_por_origem', 'kpis', 'metas_do_mes', 'ultima_analise'], limit=7000)}\n"
     )
 
 
