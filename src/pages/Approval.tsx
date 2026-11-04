@@ -11,11 +11,12 @@ import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import ClientTasks from "../components/studio/ClientTasks";
 import CrmConversations from "../components/studio/CrmConversations";
+import BrandReferences from "../components/studio/BrandReferences";
 import { navigateToAppRoute } from "../app/routes";
 import "../styles/studio.css";
 
-type Tab = "funil" | "pedidos" | "contatos" | "mensagens";
-const TABS: Record<Tab, string> = { funil: "Funil", pedidos: "Pedidos", contatos: "Contatos", mensagens: "Mensagens" };
+type Tab = "funil" | "referencias" | "pedidos" | "contatos" | "mensagens";
+const TABS: Record<Tab, string> = { funil: "Funil", referencias: "Referências", pedidos: "Pedidos", contatos: "Contatos", mensagens: "Mensagens" };
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const REQUEST_STATUS: Record<ApprovalRequest["status"], string> = { aberto: "Aguardando cliente", concluido: "Respondido", cancelado: "Cancelado", expirado: "Expirado" };
 const EDITABLE_LABEL: Record<string, string> = { destaque: "Destaque / aprendizado", atencao: "Ponto de atenção", proximo: "Próximo passo" };
@@ -152,6 +153,8 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
         })}
       </section>)}</div>
     </> : null}
+
+    {tab === "referencias" ? <BrandReferences isAgency={isAgency} /> : null}
 
     {tab === "pedidos" ? <ul className="approvalRequests">
       {!requests.length ? <li className="studioEmpty">Nenhum link enviado ainda. Use “Enviar ao cliente” no Calendário.</li> : null}

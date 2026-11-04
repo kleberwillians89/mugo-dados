@@ -242,3 +242,20 @@ export function getCentral(month: string) { return http<CentralView>(base(`/cent
 export type ItemComment = { id: string; author_side: "cliente" | "mugo"; author_name: string | null; body: string; created_at: string };
 export function listItemComments(itemId: string) { return http<{ comments: ItemComment[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`)); }
 export function addItemComment(itemId: string, body: string) { return http<{ ok: true; comment: ItemComment }>(base(`/calendar/items/${encodeURIComponent(itemId)}/comments`), { method: "POST", body: JSON.stringify({ body }) }); }
+
+// ---------------------------------------------------------------- referências da marca
+export type BrandReference = { id: string; url: string; kind: "link" | "arte"; note: string | null; author_side: "cliente" | "mugo"; created_at: string; can_delete: boolean };
+export function listReferences() { return http<{ references: BrandReference[] }>(base("/references")); }
+export function addReference(input: { url: string; note?: string | null; kind?: "link" | "arte" }) {
+  return http<{ ok: true; reference: BrandReference }>(base("/references"), { method: "POST", body: JSON.stringify({ kind: "link", ...input }) });
+}
+export function deleteReference(id: string) { return http<{ ok: true }>(base(`/references/${encodeURIComponent(id)}`), { method: "DELETE" }); }
+/** Sobe uma imagem de referência direto ao Storage da empresa e devolve o link público. */
+export async function uploadReference(file: File): Promise<string> {
+  const type = ["image/jpeg", "image/png", "image/webp"].includes(file.type) ? file.type : "";
+  if (!type) throw new Error("Envie uma imagem JPG, PNG ou WEBP.");
+  const target = await http<{ upload_url: string; public_url: string }>(base("/references/upload"), { method: "POST", body: JSON.stringify({ content_type: type }) });
+  const response = await fetch(target.upload_url, { method: "PUT", body: file, headers: { "Content-Type": type, "x-upsert": "false" } });
+  if (!response.ok) throw new Error(`O envio da imagem falhou (${response.status}).`);
+  return target.public_url;
+}

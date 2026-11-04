@@ -501,3 +501,12 @@
 .clipCrit.is-alta{color:var(--warning)}.clipCrit.is-critica{color:var(--negative);font-weight:600}
 .clipAnalysis{font-size:13px;color:var(--text-secondary)}.clipAnalysis p{margin:4px 0}
 .clipReportBody{display:flex;flex-direction:column;gap:var(--space-2);font-size:14px}
+
+/* Referências da marca (Aprovação → Referências) */
+.brandRefs { display: grid; gap: 12px; max-width: 760px; }
+.brandRefList { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.brandRefList li { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border: 1px solid var(--ds-border, #e5e5e5); border-radius: 10px; }
+.brandRefList img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; display: block; }
+.brandRefList li > div { flex: 1; min-width: 0; }
+.brandRefList p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.postComments a, .brandRefList a { overflow-wrap: anywhere; }

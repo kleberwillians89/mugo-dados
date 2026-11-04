@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import Linkified from "./Linkified";
 import { addItemComment, listItemComments, type ItemComment } from "../../app/studio";
 
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -33,10 +34,10 @@ export default function PostComments({ itemId, clientMode }: { itemId: string; c
   return <section className="postComments" aria-label="Comentários">
     <h4>Comentários{comments?.length ? ` (${comments.length})` : ""}</h4>
     {comments === null ? <p className="libHint">Carregando…</p> : null}
-    {comments && !comments.length ? <p className="libHint">{clientMode ? "Tem alguma observação sobre este post? Escreva aqui: a equipe Mugô é avisada na hora." : "Nenhum comentário ainda."}</p> : null}
+    {comments && !comments.length ? <p className="libHint">{clientMode ? "Tem alguma observação sobre este post? Escreva aqui (pode colar links de referência): a equipe Mugô é avisada na hora." : "Nenhum comentário ainda."}</p> : null}
     <ol>{(comments || []).map((c) => <li key={c.id || c.created_at} className={`is-${c.author_side}`}>
       <small>{c.author_side === "mugo" ? "Equipe Mugô" : "Cliente"} · {c.created_at ? when(c.created_at) : "agora"}</small>
-      <p>{c.body}</p>
+      <p><Linkified text={c.body} /></p>
     </li>)}</ol>
     <div className="postCommentForm" role="group" aria-label="Novo comentário">
       <textarea rows={2} maxLength={2000} value={text} placeholder={clientMode ? "Escreva um comentário para a equipe Mugô" : "Responder ao cliente"} onChange={(e) => { setText(e.target.value); setSent(false); }}
