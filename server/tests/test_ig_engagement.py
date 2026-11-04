@@ -213,3 +213,40 @@ class DailyAiScheduleTests(unittest.IsolatedAsyncioTestCase):
              patch.object(ie, "run_rules", run):
             await ie.run_all(ai=True)
         self.assertEqual(run.await_args.kwargs, {"ai": True})
+
+
+class ReplyToneTests(unittest.IsolatedAsyncioTestCase):
+    async def test_settings_keep_working_before_tone_migration(self):
+        select = AsyncMock(side_effect=[RuntimeError("column reply_tone does not exist"), [{"ai_autoreply": True, "max_per_run": 10}]])
+        with patch.object(ie, "sb_select", select):
+            out = await ie.get_settings("origami")
+        self.assertEqual(out, {"ai_autoreply": True, "max_per_run": 10, "reply_tone": None})
+
+    async def test_saving_tone_keeps_ai_switch_and_toggling_keeps_tone(self):
+        upsert = AsyncMock()
+        with patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": True, "max_per_run": 10, "reply_tone": "leve"})), \
+             patch.object(ie, "sb_upsert", upsert):
+            await ie.save_settings("origami", user_id="u", reply_tone="  próximo   e leve ", set_tone=True)
+            row = upsert.await_args.args[1][0]
+            self.assertEqual((row["ai_autoreply"], row["reply_tone"]), (True, "próximo e leve"))
+            await ie.save_settings("origami", user_id="u", ai_autoreply=False)
+            row = upsert.await_args.args[1][0]
+            self.assertEqual(row["ai_autoreply"], False)
+            self.assertNotIn("reply_tone", row)  # desligar a IA não apaga o tom
+
+    async def test_tone_goes_first_in_the_reply_prompt(self):
+        seen = {}
+
+        async def llm(**kw):
+            seen["prompt"] = kw["prompt"]
+            return {"reply": "Que bom que curtiu! 😊", "needs_human": False, "reason": ""}
+
+        with patch("services.studio_calendar.load_profile", AsyncMock(return_value={"profile": {"tone_of_voice": "sóbrio"}})), \
+             patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": True, "max_per_run": 10, "reply_tone": "próximo e leve"})), \
+             patch.object(ie, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(ie, "_reply_examples", AsyncMock(return_value={"manual": [], "recent": []})), \
+             patch.object(ie, "_brand_voice", AsyncMock(return_value=["Prezados investidores"])), \
+             patch("services.studio_llm.llm_json", llm):
+            await ie._ai_answer("origami", {"comment_id": "c1", "text": "Adorei a explicação sobre renda fixa", "username": "ana"})
+        self.assertTrue(seen["prompt"].startswith("TOM DAS RESPOSTAS DESTA MARCA"))
+        self.assertIn("próximo e leve", seen["prompt"])

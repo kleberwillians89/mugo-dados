@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveRule, sendReply, suggestReply,
+  deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveReplyTone, saveRule, sendReply, suggestReply,
   type EngagementRule, type EngagementSettings, type InboxComment, type RuleInput,
 } from "../app/engagement";
 import Shell from "../components/Shell";
@@ -29,6 +29,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
   const [rules, setRules] = useState<EngagementRule[] | null>(null);
   const [live, setLive] = useState(false);
   const [settings, setSettings] = useState<EngagementSettings | null>(null);
+  const [toneDraft, setToneDraft] = useState<string | null>(null);
   const [can, setCan] = useState<{ reply: boolean; direct: boolean } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { text: string; direct: boolean; hint?: string }>>({});
   const [editing, setEditing] = useState<(RuleInput & { id?: string; keywordsText: string }) | null>(null);
@@ -115,6 +116,16 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         const out = await run("ai", () => saveEngagementSettings(!settings.ai_autoreply), "Não foi possível alterar.");
         if (out) setSettings(out);
       }}>{settings.ai_autoreply ? "Desligar IA" : "Ligar IA"}</button> : null}
+    </div> : null}
+    {settings && canManage ? <div className="engageTone">
+      <label><b>Tom das respostas nos comentários</b>
+        <small>Separado do tom das legendas. Vazio: a IA segue o jeito das legendas da marca. Ex.: "próximo e leve, como conversa; sem 'prezado' nem jargão; no máximo 1 emoji".</small>
+        <textarea rows={2} maxLength={500} value={toneDraft ?? settings.reply_tone ?? ""} placeholder="Como a marca fala nos comentários"
+          onChange={(e) => setToneDraft(e.target.value)} /></label>
+      <button type="button" className="ds-button" disabled={Boolean(busy) || toneDraft === null || toneDraft === (settings.reply_tone ?? "")} onClick={async () => {
+        const out = await run("tone", () => saveReplyTone(toneDraft ?? ""), "Não foi possível salvar o tom.");
+        if (out) { setSettings(out); setToneDraft(null); setNotice("Tom salvo: as próximas respostas e sugestões da IA já usam."); }
+      }}>{busy === "tone" ? "Salvando…" : "Salvar tom"}</button>
     </div> : null}
     <p className="libHint">Responda os comentários daqui (a IA sugere no tom da marca) e crie gatilhos: quem comenta a palavra-chave recebe uma resposta e uma mensagem no Direct. O Instagram só permite Direct até 7 dias depois do comentário, uma vez por pessoa.</p>
     {!live ? <p className="clipWarn">Gatilhos em <b>modo teste</b>: tudo fica registrado como "simulado" e nada é enviado até ligar <code>IG_AUTOREPLY_ENABLED=true</code>. Respostas que a equipe envia por aqui saem de verdade.</p> : null}
