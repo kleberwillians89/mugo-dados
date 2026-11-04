@@ -26,6 +26,15 @@ export function DataFreshness({ provider, compact = false }: {provider: string; 
     const success = format(source?.last_successful_sync_at);
     // Logo depois de conectar, o essencial já apareceu e o histórico segue chegando.
     if (source?.state === "updating") return <span>Sincronizando histórico…{success ? ` · atualizado em ${success}` : " · os primeiros dados aparecem assim que chegarem"}</span>;
+    // A consulta mais recente voltou vazia (ex.: conta sem anúncio rodando): mostra quando foi consultada,
+    // não o último sucesso antigo, para não parecer que a atualização não rodou.
+    const lastAttempt = source?.last_attempt_at ? new Date(source.last_attempt_at).getTime() : 0;
+    const lastSuccess = source?.last_successful_sync_at ? new Date(source.last_successful_sync_at).getTime() : 0;
+    if (source?.sync_status === "no_data" && lastAttempt > lastSuccess) {
+      const checkedAt = format(source.last_attempt_at);
+      const lastData = source.last_data_at ? ` · último dado em ${day(source.last_data_at)}` : "";
+      if (checkedAt) return <span>Consultado em {checkedAt} · {provider === "meta_ads" ? "sem anúncios no período" : "sem dados novos no período"}{lastData}</span>;
+    }
     if (success) return <span>Atualizado em {success}</span>;
     // A plataforma respondeu, mas sem nada no período (ex.: conta Meta sem anúncio
     // rodando). Não é falha: mostra quando foi consultada.
