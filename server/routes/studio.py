@@ -965,7 +965,8 @@ async def engagement_inbox(client_id: str, open_only: bool = True, authorization
 
 class EngagementSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    ai_autoreply: bool
+    ai_autoreply: Optional[bool] = None
+    reply_tone: Optional[str] = Field(default=None, max_length=500)
 
 
 @router.put("/engagement/settings")
@@ -973,7 +974,8 @@ async def engagement_settings(client_id: str, body: EngagementSettings, authoriz
     from services.ig_engagement import save_settings
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
-    return await save_settings(cid, ai_autoreply=body.ai_autoreply, user_id=uid)
+    return await save_settings(cid, user_id=uid, ai_autoreply=body.ai_autoreply, reply_tone=body.reply_tone,
+                               set_tone="reply_tone" in body.model_fields_set)
 
 
 @router.post("/engagement/refresh")

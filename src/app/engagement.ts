@@ -13,11 +13,14 @@ export type InboxComment = {
 export type EngagementRule = { id: string; name: string; keywords: string[]; media_id: string | null; public_reply: string | null; dm_message: string | null; active: boolean };
 export type RuleInput = Omit<EngagementRule, "id">;
 
-export type EngagementSettings = { ai_autoreply: boolean; max_per_run: number };
+export type EngagementSettings = { ai_autoreply: boolean; max_per_run: number; reply_tone?: string | null };
 export const getInbox = (openOnly: boolean) =>
   http<{ items: InboxComment[]; autoreply_enabled: boolean; settings?: EngagementSettings }>(base(`/comments?open_only=${openOnly}`));
 export const saveEngagementSettings = (ai_autoreply: boolean) =>
   http<EngagementSettings>(base("/settings"), { method: "PUT", body: JSON.stringify({ ai_autoreply }) });
+/** Tom das respostas desta marca (vazio = segue o tom das legendas). Não liga nem desliga a IA. */
+export const saveReplyTone = (reply_tone: string) =>
+  http<EngagementSettings>(base("/settings"), { method: "PUT", body: JSON.stringify({ reply_tone }) });
 export const refreshInbox = () => http<{ comments: number; can: { reply: boolean; direct: boolean } }>(base("/refresh"), { method: "POST", timeoutMs: 90_000 });
 export const suggestReply = (commentId: string) =>
   http<{ reply: string; needs_human: boolean; reason: string; guard: GuardIssue[] }>(base(`/comments/${encodeURIComponent(commentId)}/suggest`), { method: "POST", timeoutMs: 60_000 });

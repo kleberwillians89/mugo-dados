@@ -311,6 +311,7 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     from .studio_calendar import load_profile
     from .studio_llm import STR, llm_json, obj
     profile = (await load_profile(client_id))["profile"]
+    reply_tone = (await get_settings(client_id)).get("reply_tone")
     rows = await sb_select("client_business_context", select="*", filters={"client_id": f"eq.{client_id}"}, limit=1)
     business = {k: v for k, v in (rows[0] if rows else {}).items() if k not in ("client_id", "id", "created_at", "updated_at", "updated_by") and v}
     context = json.dumps(business, ensure_ascii=False, default=str)[:2500]
@@ -320,11 +321,14 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     text = (comment.get("text") or "")[:600]
     kind = "só emoji ou reação curta" if _EMOJI_ONLY.match(text) or len(text.split()) <= 2 else "texto"
     schema = obj({"reply": STR, "needs_human": {"type": "boolean"}, "reason": STR})
+    tone_rule = (f"TOM DAS RESPOSTAS DESTA MARCA (definido pela equipe; vale ACIMA do tom das legendas e do perfil): {reply_tone}\n"
+                 if reply_tone else "")
     data = await llm_json(
         instructions=REPLY_STYLE,
-        prompt=(f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
+        prompt=(tone_rule + f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
                 f"NEGÓCIO: {context}\n"
-                f"COMO A MARCA ESCREVE (legendas recentes dela; copie o jeito, o vocabulário e o ritmo, não o conteúdo): {json.dumps(voice, ensure_ascii=False)}\n"
+                f"COMO A MARCA ESCREVE (legendas recentes dela; copie o jeito, o vocabulário e o ritmo, não o conteúdo"
+                f"{'; se o TOM DAS RESPOSTAS pedir outro registro, ele manda' if reply_tone else ''}): {json.dumps(voice, ensure_ascii=False)}\n"
                 f"CONTEXTO DO POST (legenda): {caption or 'sem legenda'}\n"
                 f"RESPOSTAS QUE A EQUIPE ESCREVEU (siga este tom): {json.dumps(examples['manual'], ensure_ascii=False)}\n"
                 f"ÚLTIMAS RESPOSTAS DA MARCA (não repita): {json.dumps(examples['recent'], ensure_ascii=False)}\n"
@@ -344,17 +348,27 @@ async def suggest_reply(client_id: str, comment_id: str) -> Dict[str, Any]:
 
 async def get_settings(client_id: str) -> Dict[str, Any]:
     """Sem linha (ou antes da migração 000068): IA desligada. Liga por marca depois que o cliente valida."""
-    try:
-        rows = await sb_select(SETTINGS, select="ai_autoreply,max_per_run", filters={"client_id": f"eq.{client_id}"}, limit=1)
-    except Exception:  # noqa: BLE001
-        rows = []
+    rows: List[Dict[str, Any]] = []
+    for select in ("ai_autoreply,max_per_run,reply_tone", "ai_autoreply,max_per_run"):  # 2ª: antes da migração 000076
+        try:
+            rows = await sb_select(SETTINGS, select=select, filters={"client_id": f"eq.{client_id}"}, limit=1)
+            break
+        except Exception:  # noqa: BLE001
+            rows = []
     row = rows[0] if rows else {}
-    return {"ai_autoreply": bool(row.get("ai_autoreply", False)), "max_per_run": int(row.get("max_per_run") or 10)}
+    return {"ai_autoreply": bool(row.get("ai_autoreply", False)), "max_per_run": int(row.get("max_per_run") or 10),
+            "reply_tone": (str(row.get("reply_tone") or "").strip() or None)}
 
 
-async def save_settings(client_id: str, *, ai_autoreply: bool, user_id: str) -> Dict[str, Any]:
-    await sb_upsert(SETTINGS, [{"client_id": client_id, "ai_autoreply": bool(ai_autoreply), "updated_by": user_id,
-                                "updated_at": datetime.now(timezone.utc).isoformat()}], on_conflict="client_id")
+async def save_settings(client_id: str, *, user_id: str, ai_autoreply: Optional[bool] = None,
+                        reply_tone: Optional[str] = None, set_tone: bool = False) -> Dict[str, Any]:
+    """Só muda o que veio: ligar/desligar a IA não apaga o tom, e salvar o tom não liga a IA."""
+    current = await get_settings(client_id)
+    row: Dict[str, Any] = {"client_id": client_id, "updated_by": user_id, "updated_at": datetime.now(timezone.utc).isoformat(),
+                           "ai_autoreply": current["ai_autoreply"] if ai_autoreply is None else bool(ai_autoreply)}
+    if set_tone:
+        row["reply_tone"] = re.sub(r"\s+", " ", str(reply_tone or "")).strip()[:500] or None
+    await sb_upsert(SETTINGS, [row], on_conflict="client_id")
     return await get_settings(client_id)
 
 
