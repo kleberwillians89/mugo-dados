@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  basedOnText, confirmSchedule, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
+  basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus,
 } from "../app/studio";
@@ -172,16 +172,33 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     listContacts().then((d) => {
       setContacts({ list: d.contacts, channel: d.whatsapp_channel });
       const main = d.contacts.find((c) => c.is_primary && c.receives.includes("conteudo")) || d.contacts.find((c) => c.receives.includes("conteudo"));
-      if (main) setSending((cur) => cur && { ...cur, contact_id: main.id, send_whatsapp: d.whatsapp_channel === "mugozap" });
+      // Com o WhatsApp da Mugô ligado, o padrão é enviar por ele (contato cadastrado ou digitado na hora).
+      setSending((cur) => cur && { ...cur, contact_id: main?.id || "", send_whatsapp: d.whatsapp_channel === "mugozap" });
     }).catch(() => undefined);
   }
 
   async function submitSend(event: FormEvent) {
     event.preventDefault();
     if (!sending) return;
-    const result = await run("send", () => sendForApproval({ month, item_ids: sending.selected, message: sending.message || undefined,
-      ...(sending.contact_id ? { contact_id: sending.contact_id, send_whatsapp: sending.send_whatsapp, notify_team: sending.send_whatsapp && sending.notify_team !== false }
-        : { contact_name: sending.contact_name || undefined, contact_phone: sending.contact_phone || undefined }) }), "Não foi possível gerar o link de aprovação.");
+    // Contato digitado na hora + WhatsApp da Mugô: salva em Aprovação → Contatos e envia por ele.
+    const typed = !sending.contact_id && contacts.channel === "mugozap" && sending.send_whatsapp && sending.contact_name.trim() && sending.contact_phone.trim();
+    const result = await run("send", async () => {
+      let contactId = sending.contact_id;
+      const digits = (v: string) => v.replace(/\D/g, "").slice(-11);
+      const known = typed ? contacts.list.find((c) => digits(c.phone) === digits(sending.contact_phone)) : undefined;
+      if (known) contactId = known.id;
+      else if (typed) {
+        const saved = (await createContact({ name: sending.contact_name.trim(), phone: sending.contact_phone.trim(), receives: ["conteudo"],
+          is_primary: !contacts.list.some((c) => c.is_primary) })).contact;
+        contactId = saved.id;
+        // Se o envio falhar, a nova tentativa usa o contato já salvo (não duplica).
+        setContacts((cur) => ({ ...cur, list: [...cur.list, saved] }));
+        setSending((cur) => cur && { ...cur, contact_id: saved.id });
+      }
+      return sendForApproval({ month, item_ids: sending.selected, message: sending.message || undefined,
+      ...(contactId ? { contact_id: contactId, send_whatsapp: sending.send_whatsapp, notify_team: sending.send_whatsapp && sending.notify_team !== false }
+        : { contact_name: sending.contact_name || undefined, contact_phone: sending.contact_phone || undefined }) });
+    }, "Não foi possível gerar o link de aprovação.");
     if (result) { setSent(result); setSending(null); await load(); }
   }
 
@@ -294,14 +311,15 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         </fieldset>
         {contacts.list.length ? <label>Quem aprova<select value={sending.contact_id} onChange={(e) => setSending({ ...sending, contact_id: e.target.value })}>
           {contacts.list.map((c) => <option key={c.id} value={c.id}>{c.name}{c.role ? ` · ${c.role}` : ""}{c.is_primary ? " (principal)" : ""}</option>)}
-          <option value="">Outra pessoa…</option></select></label> : <p className="postArtHint">Dica: cadastre quem aprova em <b>Aprovação → Contatos</b> para enviar pelo WhatsApp da Mugô.</p>}
+          <option value="">Outra pessoa…</option></select></label> : <p className="postArtHint">{contacts.channel === "mugozap" ? "Digite quem aprova: a pessoa fica salva em Aprovação → Contatos para os próximos envios."
+            : <>Dica: cadastre quem aprova em <b>Aprovação → Contatos</b> para enviar pelo WhatsApp da Mugô.</>}</p>}
         {!sending.contact_id ? <div className="studioRow">
           <label>Nome do contato<input maxLength={120} value={sending.contact_name} onChange={(e) => setSending({ ...sending, contact_name: e.target.value })} placeholder="Ana" /></label>
           <label>WhatsApp<input inputMode="tel" maxLength={30} value={sending.contact_phone} onChange={(e) => setSending({ ...sending, contact_phone: e.target.value })} placeholder="(11) 98888-7777" /></label>
         </div> : null}
-        {sending.contact_id && contacts.channel === "mugozap" ? <label className="studioCheck"><input type="checkbox" checked={sending.send_whatsapp}
-          onChange={(e) => setSending({ ...sending, send_whatsapp: e.target.checked })} />Enviar agora pelo WhatsApp oficial da Mugô (template com a arte)</label> : null}
-        {sending.contact_id && contacts.channel === "mugozap" && sending.send_whatsapp ? <label className="studioCheck"><input type="checkbox" checked={sending.notify_team !== false}
+        {contacts.channel === "mugozap" ? <label className="studioCheck"><input type="checkbox" checked={sending.send_whatsapp}
+          onChange={(e) => setSending({ ...sending, send_whatsapp: e.target.checked })} />Enviar agora pelo WhatsApp oficial da Mugô (template com a arte){sending.contact_id ? "" : " e salvar a pessoa em Aprovação → Contatos"}</label> : null}
+        {contacts.channel === "mugozap" && sending.send_whatsapp ? <label className="studioCheck"><input type="checkbox" checked={sending.notify_team !== false}
           onChange={(e) => setSending({ ...sending, notify_team: e.target.checked })} />Enviar cópia para a equipe Mugô (mesmo link, todos na mesma página)</label> : null}
         <label>Mensagem (opcional; sem ela usamos uma padrão)<textarea rows={3} maxLength={1000} value={sending.message} onChange={(e) => setSending({ ...sending, message: e.target.value })} /></label>
         {error ? <p role="alert">{error}</p> : null}
