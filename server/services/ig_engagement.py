@@ -180,6 +180,46 @@ async def inbox(client_id: str, *, only_open: bool = True, days: int = 30) -> Di
     return {"items": items, "autoreply_enabled": autoreply_enabled()}
 
 
+REPLY_KINDS = ("resposta_ia", "resposta_manual", "resposta_publica", "revisao")
+WHO = {"resposta_ia": "ia", "resposta_manual": "equipe", "resposta_publica": "gatilho", "revisao": "revisao"}
+
+
+async def replies_by_post(client_id: str, *, days: int = 30) -> Dict[str, Any]:
+    """O que foi respondido em cada publicação (IA, equipe, gatilho) e o que ficou em revisão, mais recente primeiro."""
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 90)))).isoformat()
+    actions = await sb_select(ACTIONS, select="comment_id,media_id,kind,status,text,created_at", order="created_at.desc", limit=1000,
+                              filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}",
+                                       "kind": f"in.({','.join(REPLY_KINDS)})", "status": "in.(enviado,simulado,pendente,falhou)"})
+    if not actions:
+        return {"posts": [], "days": days}
+    comment_ids = sorted({str(a["comment_id"]) for a in actions})[:500]
+    comments = await sb_select("ig_comments", select="comment_id,media_id,username,text,timestamp", limit=1000,
+                               filters={"client_id": f"eq.{client_id}", "comment_id": f"in.({','.join(comment_ids)})"})
+    by_comment = {str(c["comment_id"]): c for c in comments}
+    posts: Dict[str, Dict[str, Any]] = {}
+    for a in actions:
+        comment = by_comment.get(str(a["comment_id"]), {})
+        media_id = str(a.get("media_id") or comment.get("media_id") or "")
+        if not media_id:
+            continue
+        post = posts.setdefault(media_id, {"media_id": media_id, "last_at": a["created_at"], "replies": [],
+                                           "counts": {"ia": 0, "equipe": 0, "gatilho": 0, "revisao": 0, "simulado": 0, "falhou": 0}})
+        who = WHO[a["kind"]]
+        post["counts"][who] += 1
+        if a["status"] in ("simulado", "falhou"):
+            post["counts"][a["status"]] += 1
+        post["replies"].append({"comment": (comment.get("text") or "")[:300], "username": comment.get("username"),
+                                "reply": (a.get("text") or "")[:300], "who": who, "status": a["status"], "at": a["created_at"]})
+    media = await sb_select("ig_media", select="media_id,permalink,caption,thumbnail_url,media_url,media_type,timestamp", limit=200,
+                            filters={"client_id": f"eq.{client_id}", "media_id": f"in.({','.join(sorted(posts))})"})
+    for m in media:
+        post = posts.get(str(m["media_id"]))
+        if post:
+            post.update({"permalink": m.get("permalink"), "caption": (m.get("caption") or "")[:160], "posted_at": m.get("timestamp"),
+                         "thumb": m.get("thumbnail_url") or (m.get("media_url") if m.get("media_type") != "VIDEO" else None)})
+    return {"posts": sorted(posts.values(), key=lambda p: p["last_at"], reverse=True), "days": days}
+
+
 # ------------------------------------------------------------------ envio
 
 async def _log(client_id: str, comment: Dict[str, Any], *, kind: str, status: str, text: str, rule_id: Optional[str] = None,
