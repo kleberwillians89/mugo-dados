@@ -122,7 +122,7 @@ it("indicador compacto conserva só o último sucesso em São Paulo durante exec
 it("conta consultada sem dados mostra quando foi consultada, sem fingir sucesso", async () => {
  const value={data:response("tenant-a",[{...source,provider:"meta_ads",last_successful_sync_at:null,sync_status:"no_data",last_attempt_at:"2026-10-27T20:10:00Z"}]),loading:false,error:false,reload:async()=>{}};
  await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
- expect(host.textContent).toBe("Consultado em 27/10/2026 às 17:10 · sem anúncios no período");
+ expect(host.textContent).toBe("Consultado em 27/10/2026 às 17:10 · sem anúncios no período · último dado em 17/10/2026");
  const failed={data:response("tenant-a",[{...source,provider:"meta_ads",last_successful_sync_at:null,sync_status:"error",last_attempt_at:"2026-10-27T20:10:00Z"}]),loading:false,error:false,reload:async()=>{}};
  await act(async()=>root.render(<DataHealthContext.Provider value={failed}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
  expect(host.textContent).not.toContain("Atualizado em");
@@ -166,4 +166,10 @@ it("enquanto sincroniza, relê a cada 15 s e avisa a tela quando termina (só do
   expect(getClientDataHealth).toHaveBeenCalledTimes(3); // terminou: para de reler
   window.removeEventListener("mugo:data-sync-finished", finished as EventListener);
  } finally { vi.useRealTimers(); }
+});
+
+it("consulta vazia mais recente que o último sucesso mostra quando foi consultada (não parece parado)", async () => {
+ const value={data:response("tenant-a",[{...source,provider:"meta_ads",sync_status:"no_data",state:"no_data",last_successful_sync_at:"2026-11-04T08:05:00Z",last_attempt_at:"2026-11-04T23:05:00Z",last_data_at:"2026-07-31"}]),loading:false,error:false,reload:async()=>{}};
+ await act(async()=>root.render(<DataHealthContext.Provider value={value}><DataFreshness provider="meta_ads" compact /></DataHealthContext.Provider>));
+ expect(host.textContent).toBe("Consultado em 04/11/2026 às 20:05 · sem anúncios no período · último dado em 31/07/2026");
 });

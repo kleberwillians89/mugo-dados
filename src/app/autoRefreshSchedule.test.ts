@@ -23,8 +23,9 @@ describe("agenda das atualizações automáticas", () => {
   });
 
   it("segue exatamente os horários do workflow", () => {
-    const workflow = readFileSync(new URL("../../.github/workflows/sync-jobs.yml", import.meta.url), "utf8");
-    const crons = [...workflow.matchAll(/- cron: "([^"]+)"/g)].map((m) => m[1]);
+    // Agenda única do "Relógio dos jobs" (jobs-tick.yml).
+    const agenda = readFileSync(new URL("../../.github/scripts/due_jobs.py", import.meta.url), "utf8");
+    const crons = [...agenda.matchAll(/\("([^"]+)", "[^"]+"\)/g)].map((m) => m[1]);
     for (const expected of ["5 * * * *", "10 6,12,18,23 * * *", "20 */3 * * *", "35 */3 * * *", "0,30 * * * *", "15,45 * * * *"]) {
       expect(crons).toContain(expected);
     }

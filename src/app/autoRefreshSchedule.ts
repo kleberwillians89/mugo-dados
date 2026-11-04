@@ -1,6 +1,6 @@
 /**
- * Agenda das atualizações automáticas (GitHub Actions, .github/workflows/sync-jobs.yml).
- * Horários em UTC, iguais ao cron do workflow. O GitHub pode atrasar alguns
+ * Agenda das atualizações automáticas (Relógio dos jobs, .github/scripts/due_jobs.py).
+ * Horários em UTC, iguais à agenda do relógio. O GitHub pode atrasar alguns
  * minutos, por isso a tela fala em "por volta de".
  */
 type Schedule = { minutes: number[]; hours: number[] | "all" };
