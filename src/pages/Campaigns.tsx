@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CHANNEL_LABEL, CHANNEL_ORDER, campaignToCalendar, createCampaign, editPiece, getCampaign, listCampaigns, pieceText,
@@ -132,6 +133,7 @@ export default function Campaigns() {
       {current ? <button type="button" className="ds-button" onClick={() => setCurrent(null)}>Campanhas</button> : null}
       <button type="button" className="ds-button is-primary" onClick={() => setBriefing({ ...emptyBriefing })} disabled={Boolean(busy)}>Nova campanha</button>
     </div>} />
+    <BrandContextPanel clientId={clientId} />
     <p className="libHint">A IA escreve com o Perfil de Marca e os dados reais da conta (o que alcançou, o que vendeu, Origem das vendas). Limites de caracteres conferidos pelo sistema. Só a equipe Mugô vê esta tela; posts, Reels e Stories vão para o Calendário e seguem a aprovação do cliente.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioOk">{notice}</p> : null}
