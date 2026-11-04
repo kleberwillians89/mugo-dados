@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
@@ -262,6 +263,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       <button type="button" className="ds-button" onClick={() => openSend()} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
       <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : `Gerar ${MONTH_NAMES[Number(month.slice(5)) - 1]} com IA`}</button>
     </div> : undefined} />
+    {team ? <BrandContextPanel clientId={clientId} /> : null}
     <div className="calToolbar">
       <div className="calNav">
         <button type="button" className="ds-button" aria-label="Anterior" onClick={() => step(-1)}>‹</button>
