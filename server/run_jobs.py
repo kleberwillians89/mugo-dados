@@ -46,9 +46,21 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "token-refresh":
         return await run_token_refresh_job()
     if args.command == "organic-sync":
-        return await run_daily_instagram_sync(
+        result = await run_daily_instagram_sync(
             limit=args.limit, process_thumbnails=not args.skip_thumbnails,
         )
+        # Autocorreção: preenche os KPIs do perfil dos últimos 30 dias que faltarem (só os ausentes).
+        try:
+            from services.instagram_profile_history import backfill_all
+            history = await backfill_all(days=30)
+            if isinstance(result, dict):
+                result = {**result, "profile_history": history}
+        except Exception as exc:  # noqa: BLE001 — o sync do dia já foi gravado
+            print(f"[ig_profile_history] stage=error error_type={exc.__class__.__name__}")
+        return result
+    if args.command == "instagram-profile-backfill":
+        from services.instagram_profile_history import backfill_all
+        return await backfill_all(days=args.days)
     if args.command == "ads-sync-hourly":
         return await run_hourly_ads_sync(window_days=args.days)
     if args.command == "ads-backfill":
@@ -198,6 +210,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("token-refresh", help="Renova/valida tokens Meta ativos.")
 
+    profile_backfill = sub.add_parser("instagram-profile-backfill",
+                                      help="KPIs do perfil (alcance, visitas, interações) dos dias sem snapshot, todas as contas.")
+    profile_backfill.add_argument("--days", type=int, default=30)
     organic_sync = sub.add_parser("organic-sync", help="Roda sync recorrente do Instagram orgânico.")
     organic_sync.add_argument("--limit", type=int, default=60, help="Limite de mídias recentes por conexão.")
     organic_sync.add_argument(

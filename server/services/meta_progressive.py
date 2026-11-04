@@ -50,8 +50,12 @@ async def drain() -> None:
 
 
 async def organic_history(connection_id: str) -> Dict[str, Any]:
+    from .instagram_profile_history import backfill_connection
     from .instagram_sync import sync_instagram_connection
-    return await sync_instagram_connection(connection_id)
+    result = await sync_instagram_connection(connection_id)
+    # KPIs do perfil dos 30 dias anteriores (o sync só grava o dia de hoje).
+    history = await backfill_connection(connection_id)
+    return {**(result or {}), "profile_days_written": history.get("written")}
 
 
 async def paid_history(client_id: str, connection_id: str) -> Dict[str, Any]:

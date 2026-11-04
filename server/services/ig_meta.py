@@ -108,20 +108,22 @@ async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str
     """
     KPIs do PERFIL (snapshot do dia).
     """
+    import asyncio
+
     out: Dict[str, Any] = {}
     unavailable: List[str] = []
-    for metric in ("reach", "profile_views", "website_clicks", "accounts_engaged", "total_interactions"):
-        try:
-            out.update(await _fetch_total_value_metrics(ig_user_id, access_token, metric))
-        except Exception:
-            unavailable.append(metric)
-
+    # Uma leitura por métrica (falha isolada), todas ao mesmo tempo.
+    names = ("reach", "profile_views", "website_clicks", "accounts_engaged", "total_interactions", "views")
+    results = await asyncio.gather(*(_fetch_total_value_metrics(ig_user_id, access_token, m) for m in names),
+                                   return_exceptions=True)
     views_val = 0
-    try:
-        vv = await _fetch_total_value_metrics(ig_user_id, access_token, "views")
-        views_val = int(vv.get("views") or 0)
-    except Exception:
-        unavailable.append("views")
+    for metric, result in zip(names, results):
+        if isinstance(result, BaseException):
+            unavailable.append(metric)
+        elif metric == "views":
+            views_val = int(result.get("views") or 0)
+        else:
+            out.update(result)
 
     imp_val = 0
     if views_val == 0:
