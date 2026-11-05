@@ -1144,3 +1144,70 @@ async def social_report_insights(client_id: str, month: str, body: ReportInsight
         return await save_insights(cid, month, body.insights, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+
+
+# ---------------------------------------------------------------- conversa da marca e linha do tempo
+
+ERRORS.update({
+    "CHAT_CHANNEL_INVALID": (422, "Canal inválido."),
+    "CHAT_FORBIDDEN": (403, "Este canal é só da equipe Mugô."),
+    "CHAT_BODY_REQUIRED": (422, "Escreva a mensagem."),
+})
+
+
+class ChatInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(min_length=1, max_length=4000)
+    item_id: Optional[UUID] = None
+
+
+def _chat_author(authorization: str | None, uid: str) -> str:
+    from services.auth import _bearer_token, _decode_jwt_claims_no_verify
+    from services.studio_chat import author_name_from_claims
+    claims = _decode_jwt_claims_no_verify(_bearer_token(authorization) or "") or {}
+    # O token já foi validado por require_user_id; o nome só é usado se for do mesmo usuário.
+    return author_name_from_claims(claims if str(claims.get("sub") or "") == uid else {})
+
+
+@router.get("/chat/{channel}")
+async def read_chat(client_id: str, channel: str, authorization: str | None = Header(default=None)):
+    from services.studio_chat import list_messages, mark_read
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    try:
+        rows = await list_messages(cid, channel, agency=await is_agency_user(authorization), user_id=uid)
+        await mark_read(cid, channel, uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"messages": rows}
+
+
+@router.post("/chat/{channel}", status_code=201)
+async def write_chat(client_id: str, channel: str, body: ChatInput, authorization: str | None = Header(default=None)):
+    from services.studio_chat import post_message
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    try:
+        row = await post_message(cid, channel, body.body, agency=await is_agency_user(authorization), user_id=uid,
+                                 author_name=_chat_author(authorization, uid), item_id=str(body.item_id) if body.item_id else None)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True, "message": row}
+
+
+@router.get("/chat-unread")
+async def read_chat_unread(client_id: str, authorization: str | None = Header(default=None)):
+    from services.studio_chat import unread
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return {"unread": await unread(cid, agency=await is_agency_user(authorization), user_id=uid)}
+    except Exception:  # noqa: BLE001 — migração 000077 ainda não aplicada: sem contador, sem erro na tela
+        return {"unread": {}}
+
+
+@router.get("/timeline")
+async def read_timeline(client_id: str, authorization: str | None = Header(default=None)):
+    from services.studio_chat import timeline
+    cid = await require_client_read(client_id, authorization)
+    return {"events": await timeline(cid)}

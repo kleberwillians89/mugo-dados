@@ -264,3 +264,15 @@ export function listItemReferences(itemId: string) { return http<{ references: B
 export function addItemReference(itemId: string, input: { url: string; note?: string | null; kind?: "link" | "arte" }) {
   return http<{ ok: true; reference: BrandReference }>(base(`/calendar/items/${encodeURIComponent(itemId)}/references`), { method: "POST", body: JSON.stringify({ kind: "link", ...input }) });
 }
+
+// ---------------------------------------------------------------- conversa da marca e linha do tempo
+export type ChatChannel = "cliente" | "equipe";
+export type ChatMessage = { id: string; channel: ChatChannel; author_side: "cliente" | "mugo"; author_name: string | null; body: string;
+  item_id: string | null; item_title: string | null; created_at: string; mine: boolean };
+export type TimelineEvent = { id: string; at: string; side: "cliente" | "mugo"; kind: string; text: string; detail: string | null; item_id: string | null };
+export function listChat(channel: ChatChannel) { return http<{ messages: ChatMessage[] }>(base(`/chat/${channel}`)); }
+export function sendChat(channel: ChatChannel, body: string, itemId?: string | null) {
+  return http<{ ok: true; message: ChatMessage }>(base(`/chat/${channel}`), { method: "POST", body: JSON.stringify({ body, ...(itemId ? { item_id: itemId } : {}) }) });
+}
+export function chatUnread() { return http<{ unread: Partial<Record<ChatChannel, number>> }>(base("/chat-unread")); }
+export function listTimeline() { return http<{ events: TimelineEvent[] }>(base("/timeline")); }

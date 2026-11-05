@@ -11,6 +11,7 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import ClientHub from "../components/studio/ClientHub";
 import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
@@ -41,7 +42,6 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const isMobile = typeof window !== "undefined" && Boolean(window.matchMedia?.("(max-width: 640px)").matches);
   // /aprovacao (endereço antigo) abre direto o Fluxo de aprovação.
   const [view, setView] = useState<ViewMode>(() => (typeof window !== "undefined" && window.location.pathname.startsWith("/aprovacao") ? "fluxo" : isMobile ? "semana" : "mes"));
-  const [clientPanel, setClientPanel] = useState(false);
   // No celular abre na 1ª semana cheia do próximo mês (a semana do dia 1º costuma ser quase toda do mês anterior).
   const [cursor, setCursor] = useState(() => { const first = firstOfNextMonth(); return isMobile ? addDays(mondayOf(first), mondayOf(first) === first ? 0 : 7) : first; });
   const month = monthOf(cursor);
@@ -277,7 +277,6 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       <div className="studioTabs" role="tablist" aria-label="Visão">
         {(["mes", "semana", "dia", "fluxo"] as const).map((v) => <button key={v} role="tab" aria-selected={view === v} className={view === v ? "is-active" : ""} onClick={() => setView(v)}>{v === "mes" ? "Mês" : v === "semana" ? "Semana" : v === "dia" ? "Dia" : "Fluxo de aprovação"}</button>)}
       </div>
-      <button type="button" className="ds-button calClientBtn" onClick={() => setClientPanel(true)}>{team ? "Cliente: pedidos, contatos e mensagens" : "Pedidos e referências"}</button>
     </div>
     {view !== "fluxo" ? <div className="studioTabs calStatus" role="tablist" aria-label="Filtrar por status">
       {(["todos", "rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"] as const).filter((key) => isAgency || key !== "rascunho").map((key) => (
@@ -289,7 +288,10 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     {error && !modal ? <p role="alert" className="studioError">{error}</p> : null}
     {notes.length ? <ul className="studioNotes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
     {loading && !items.length ? <p>Carregando calendário…</p> : null}
-    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
+    <ClientHub team={team} canManage={canManage} isAgency={isAgency} month={month}
+      posts={monthItems.map((i) => ({ id: i.id, title: i.title || "Post sem título" }))}
+      onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} />
+    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty is-slim"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
 
     {view === "mes" ? <MonthView month={month} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
     {view === "semana" ? <WeekView weekStart={mondayOf(cursor)} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
@@ -298,9 +300,6 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     {view === "fluxo" ? <Approval embedded month={month} tabs={["funil"]} canManage={canManage} isAgency={isAgency}
       onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} /> : null}
 
-    <Drawer open={clientPanel} title={team ? "Cliente" : "Pedidos e referências"} description={team ? "Pedidos de aprovação enviados, referências, contatos e mensagens desta marca." : "Seus pedidos de aprovação e as referências que vocês gostam."} width="lg" onClose={() => setClientPanel(false)}>
-      {clientPanel ? <Approval embedded month={month} tabs={team ? ["pedidos", "referencias", "contatos", "mensagens"] : ["pedidos", "referencias"]} canManage={canManage} isAgency={isAgency} onChanged={() => void load()} /> : null}
-    </Drawer>
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}

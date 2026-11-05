@@ -553,3 +553,63 @@
 .kanbanTitle:hover{text-decoration:underline}
 .kanbanTitle:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:2px}
 @media (max-width:860px){.calClientBtn{margin-left:0;width:100%}}
+
+/* Tarefas em quadro (mesmo modelo do Fluxo de aprovação) */
+.taskToolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 6px}
+.taskToolbar input[type=search],.taskToolbar select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--border,#dedbd4);border-radius:8px;background:var(--surface,#fff);min-width:0}
+.taskToolbar input[type=search]{flex:1 1 180px;max-width:280px}
+.taskToggle{display:inline-flex;gap:6px;align-items:center;font-size:13px}
+.taskLateBadge{font-size:12px;font-weight:600;color:#a33;background:#fdf0f0;border-radius:999px;padding:3px 10px}
+.kanbanCol.is-task-pending{border-top-color:#c98a00}.kanbanCol.is-task-in_progress{border-top-color:#004f6e}
+.kanbanCol.is-task-completed{border-top-color:#26734d}.kanbanCol.is-task-cancelled{border-top-color:#9aa3ad;opacity:.75}
+.taskCard{cursor:default;border-left:3px solid transparent}
+.taskCard.is-late{border-left-color:#a33}
+.taskMeta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.taskDue{font-size:11px;padding:1px 7px;border-radius:999px;background:#f0eee9;color:var(--text-secondary,#5f5b53)}
+.taskDue.is-late{background:#fdf0f0;color:#a33;font-weight:600}
+.taskPrio{font-size:11px;padding:1px 7px;border-radius:999px;background:#fff4dc;color:#7a5600}
+.taskPrio.is-urgent{background:#a33;color:#fff}
+.taskWho{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.taskWho i{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.taskColEmpty{margin:4px 2px;font-size:12px;color:var(--text-secondary,#5f5b53)}
+.taskDetailBackdrop{position:fixed;inset:0;background:rgba(20,18,15,.35);z-index:50;display:flex;justify-content:flex-end}
+.taskDetail{width:min(420px,100%);height:100%;overflow-y:auto;background:var(--surface,#fff);padding:20px;box-shadow:-8px 0 24px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:12px}
+.taskDetail header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.taskDetail h2{margin:0;font-size:18px;line-height:1.3}
+.taskDetail dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:14px}
+.taskDetail dt{color:var(--text-secondary,#5f5b53)}.taskDetail dd{margin:0}.taskDetail dd.is-late{color:#a33;font-weight:600}
+.taskNotes{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;background:#f7f6f3;border-radius:8px;padding:10px}
+/* Calendário → painel do cliente aberto na página (conversa, tarefas, linha do tempo, pedidos, referências) */
+.clientHub{border:1px solid var(--border,#dedbd4);border-radius:14px;background:var(--surface,#fff);margin:12px 0;overflow:hidden}
+.clientHubHead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;border-bottom:1px solid transparent}
+.clientHub.is-open .clientHubHead{border-bottom-color:var(--border,#dedbd4);background:#faf9f6}
+.clientHubToggle{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.clientHubToggle em{font-style:normal;opacity:.6;font-size:12px}
+.clientHubToggle:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:4px}
+.clientHubTabs{margin:0;flex-wrap:wrap}
+.hubBadge{font-style:normal;display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:#a33;color:#fff;font-size:11px;font-weight:700}
+.clientHubBody{padding:12px 14px;max-height:min(70vh,640px);overflow-y:auto}
+.studioEmpty.is-slim{padding:10px 14px}
+.studioEmpty.is-slim p{margin:2px 0}
+.chatPanel{display:flex;flex-direction:column;gap:8px}
+.chatThread{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;padding:2px}
+.chatEmpty{margin:4px 0;font-size:14px;color:var(--text-secondary,#5f5b53)}
+.chatMsg{max-width:min(78%,560px);align-self:flex-start;background:#f3f1ec;border-radius:12px 12px 12px 4px;padding:8px 11px;display:grid;gap:3px}
+.chatMsg.is-cliente{background:#fff4dc}
+.chatMsg.is-mine{align-self:flex-end;background:#e3eef3;border-radius:12px 12px 4px 12px}
+.chatMsg small{font-size:11px;color:var(--text-secondary,#5f5b53)}
+.chatMsg p{margin:0;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.chatPost{all:unset;cursor:pointer;font-size:12px;font-weight:600;color:#004f6e}
+.chatPost:hover{text-decoration:underline}
+.chatComposer{display:grid;gap:6px}
+.chatComposer textarea{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:10px;resize:vertical;min-height:44px;width:100%;box-sizing:border-box}
+.chatActions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.chatActions select{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border,#dedbd4);border-radius:8px;max-width:260px}
+.timeline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid #e6e3dc;display:grid;gap:12px}
+.timeline li{position:relative;display:grid;gap:2px;font-size:14px}
+.timeline li::before{content:"";position:absolute;left:-20px;top:5px;width:10px;height:10px;border-radius:50%;background:#9aa3ad;border:2px solid var(--surface,#fff)}
+.timeline li.is-cliente::before{background:#c98a00}.timeline li.is-mugo::before{background:#004f6e}
+.timeline li.is-aprovado::before{background:#26734d}.timeline li.is-ajuste_solicitado::before{background:#a33}
+.timeline small{font-size:11px;color:var(--text-secondary,#5f5b53)}
+.timeline p{margin:0;font-size:13px;color:var(--text-secondary,#5f5b53);white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:640px){.chatMsg{max-width:92%}.clientHubBody{padding:10px}}

@@ -26,6 +26,24 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
   // Na Aprovação, sem tarefas (ou sem ligação com o CRM) o bloco some; na página própria, avisa.
   if (!isAgency && !tasks.length) return standalone ? <p className="studioEmpty">Nenhuma tarefa em andamento com a Mugô no momento.</p> : null;
 
+  if (standalone && tasks.length) {
+    const cols = [["pending", open.filter((t) => t.status === "pending")], ["in_progress", open.filter((t) => t.status === "in_progress")],
+      ["completed", tasks.filter((t) => t.status === "completed").slice(0, 12)]] as const;
+    return <div className="kanban is-compact taskBoard" aria-label="Quadro de tarefas">{cols.map(([status, list]) =>
+      <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>
+        <header><b>{TASK_STATUS[status]}</b><span>{list.length}</span></header>
+        {list.map((t) => {
+          const due = dueInfo(t.due_date);
+          const late = due.late && t.status !== "completed";
+          return <article key={t.id} className={`kanbanCard taskCard${late ? " is-late" : ""}`}>
+            <b>{t.title}</b>
+            <div className="taskMeta"><span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}</span></div>
+          </article>;
+        })}
+        {!list.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
+      </section>)}</div>;
+  }
+
   return <section className="clientTasks" aria-label="Em andamento com a Mugô">
     <h2 className="crmGroupTitle">Em andamento com a Mugô {open.length ? <span>{open.length}</span> : null}</h2>
     {isAgency ? <p className="libHint">{unavailable ? CRM_UNAVAILABLE_TEXT[unavailable] : "O cliente vê aqui só as tarefas com a etiqueta \"cliente\" no CRM, sem observações nem nomes da equipe."}</p> : null}
