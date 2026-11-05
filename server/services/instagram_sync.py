@@ -138,7 +138,7 @@ async def _resolve_connection_by_id(connection_id: str) -> Optional[Dict[str, An
     return rows[0] if rows else None
 
 
-async def _mark_connection_success(connection_id: str, *, partial: bool = False) -> None:
+async def _mark_connection_success(connection_id: str, *, partial: bool = False, detail: str | None = None) -> None:
     now = _iso_now()
     await sb_update(
         "meta_connections",
@@ -147,7 +147,7 @@ async def _mark_connection_success(connection_id: str, *, partial: bool = False)
             **({"last_synced_at": now} if not partial else {}),
             "last_sync_at": now,
             "last_sync_status": "partial" if partial else "success",
-            "last_error": "Sincronização parcial; dados anteriores preservados." if partial else None,
+            "last_error": ((detail or "Sincronização parcial; dados anteriores preservados.")[:1000]) if partial else None,
             "status": "active",
             "updated_at": now,
         },
@@ -656,6 +656,7 @@ async def _run_sync_for_client_and_ig(
             "accounts_engaged": int(kpis.get("accounts_engaged") or 0),
             "available_metrics": kpis.get("available_metrics") or [],
             "unavailable_metrics": kpis.get("unavailable_metrics") or [],
+            "errors": kpis.get("errors") or {},
         },
         "media": enriched,
         "stories_fetched": len(stories),
@@ -728,8 +729,16 @@ async def _sync_instagram_connection(
             limit=limit,
         )
         if not res.get("snapshot_saved"):
-            raise RuntimeError("Instagram não persistiu o snapshot diário.")
-        if res.get("snapshot_saved"):
+            if not int(res.get("media_saved") or 0):
+                raise RuntimeError("Instagram não persistiu o snapshot diário.")
+            # Posts entraram, mas a Meta não devolveu métrica nenhuma do perfil (ex.: conta com menos de
+            # 100 seguidores). Não é falha da conexão: segue como coleta parcial, com o motivo na tela.
+            meta_errors = (res.get("kpis") or {}).get("errors") or {}
+            first = next(iter(meta_errors.values()), "sem detalhe da Meta")
+            res["profile_metrics_error"] = f"Métricas do perfil indisponíveis na Meta ({first}); posts atualizados."
+            res.setdefault("warnings", []).append(res["profile_metrics_error"])
+            print(f"[ig_sync] profile_insights_unavailable client_id={client_id} connection_id={connection_id} media={res.get('media_saved')}")
+        if res.get("snapshot_saved") or int(res.get("media_saved") or 0):
             read_model_result = await refresh_dashboard_read_model_safely(
                 client_id=client_id,
                 start=_utc_date_str(),
@@ -744,7 +753,7 @@ async def _sync_instagram_connection(
                        any((item.get("insights") or {}).get("unavailable_metrics") for item in res.get("media") or []))
         res["partial"] = partial
         if partial:
-            await _mark_connection_success(connection_id, partial=True)
+            await _mark_connection_success(connection_id, partial=True, detail=res.get("profile_metrics_error"))
         else:
             await _mark_connection_success(connection_id)
         thumbnail_jobs = res.pop("_thumbnail_jobs", [])

@@ -117,9 +117,11 @@ async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str
     results = await asyncio.gather(*(_fetch_total_value_metrics(ig_user_id, access_token, m) for m in names),
                                    return_exceptions=True)
     views_val = 0
+    errors: Dict[str, str] = {}
     for metric, result in zip(names, results):
         if isinstance(result, BaseException):
             unavailable.append(metric)
+            errors[metric] = meta_error_summary(result)
         elif metric == "views":
             views_val = int(result.get("views") or 0)
         else:
@@ -141,7 +143,26 @@ async def fetch_kpis_total_value(ig_user_id: str, access_token: str) -> Dict[str
         key for key in out.keys() if key not in {"available_metrics", "unavailable_metrics"}
     )
     out["unavailable_metrics"] = sorted(set(unavailable) - set(out["available_metrics"]))
+    if errors:
+        out["errors"] = errors
     return out
+
+
+def meta_error_summary(exc: BaseException) -> str:
+    """Código e mensagem da Meta para diagnóstico (nunca o token nem a URL)."""
+    response = getattr(exc, "response", None)
+    error: Dict[str, Any] = {}
+    if response is not None:
+        try:
+            error = (response.json() or {}).get("error") or {}
+        except Exception:  # noqa: BLE001
+            error = {}
+    status = getattr(response, "status_code", None)
+    code, sub = error.get("code"), error.get("error_subcode")
+    message = str(error.get("message") or "")[:160]
+    if not (status or code or message):
+        return exc.__class__.__name__
+    return f"HTTP {status} · código {code}{f'/{sub}' if sub else ''} · {message}".strip()
 
 
 async def fetch_media_list(ig_user_id: str, access_token: str, limit: int = 40, *, history: bool = False) -> List[Dict[str, Any]]:
