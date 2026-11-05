@@ -74,6 +74,31 @@ def _retry_budget(method: str) -> int:
     return 3 if method.upper() in {"GET", "PATCH"} else 1
 
 
+# Conexão reaproveitada com o Supabase (keep-alive). Antes, cada consulta abria uma conexão nova com
+# TLS completo: com a API em Oregon e o banco em Ohio, isso custava 3-4 idas e voltas (~200-390 ms) por
+# consulta. Um cliente por event loop; quando um teste troca httpx.AsyncClient, volta ao modo antigo.
+_REAL_ASYNC_CLIENT = httpx.AsyncClient
+_SHARED_CLIENTS: Dict[int, Any] = {}
+
+
+def _shared_client() -> Optional[httpx.AsyncClient]:
+    if httpx.AsyncClient is not _REAL_ASYNC_CLIENT:
+        return None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    for key, (other_loop, _client) in list(_SHARED_CLIENTS.items()):
+        if other_loop.is_closed():
+            _SHARED_CLIENTS.pop(key, None)
+    entry = _SHARED_CLIENTS.get(id(loop))
+    if entry and entry[0] is loop and not entry[1].is_closed:
+        return entry[1]
+    client = _REAL_ASYNC_CLIENT(limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=30))
+    _SHARED_CLIENTS[id(loop)] = (loop, client)
+    return client
+
+
 async def _request(
     method: str,
     path: str,
@@ -98,14 +123,15 @@ async def _request(
         pool=min(15, timeout),
     )
 
-    async with httpx.AsyncClient(timeout=resolved_timeout) as client:
+    async def _send(client: httpx.AsyncClient, per_request_timeout: bool) -> Any:
         for attempt in range(1, attempts + 1):
             started = time.perf_counter()
             measurement = transport_started()
             measurement_status = "transport_error"
             try:
                 try:
-                    r = await client.request(method, url, headers=h, params=params, json=json)
+                    r = await (client.request(method, url, headers=h, params=params, json=json, timeout=resolved_timeout) if per_request_timeout
+                                else client.request(method, url, headers=h, params=params, json=json))
                     measurement_status = str(r.status_code)
                 finally:
                     transport_done(measurement, dependency="supabase_rest", operation=method.upper() + " " + path.split("?", 1)[0],
@@ -149,6 +175,12 @@ async def _request(
                 return r.json()
             except Exception:
                 return None
+
+    shared = _shared_client()
+    if shared is not None:
+        return await _send(shared, True)
+    async with httpx.AsyncClient(timeout=resolved_timeout) as client:
+        return await _send(client, False)
 
 
 async def sb_query(table: str, query: str) -> List[Dict[str, Any]]:
