@@ -82,8 +82,13 @@ async def _profile(client_id: str) -> Dict[str, Any]:
 
 async def _business(client_id: str) -> Dict[str, Any]:
     from .business_context import load_business_context
+    from .brand_knowledge import knowledge_for_prompt
     context = (await load_business_context(client_id)).get("context") or {}
-    return {k: clean_text(v, 800) for k, v in context.items() if clean_text(v, 800)}
+    out = {k: clean_text(v, 800) for k, v in context.items() if clean_text(v, 800)}
+    knowledge = await knowledge_for_prompt(client_id)
+    if knowledge:
+        out["conhecimento_da_marca"] = knowledge  # documentos enviados pela equipe/cliente, já consolidados
+    return out
 
 
 async def _snapshot(client_id: str, start: str, end: str) -> Dict[str, Any]:

@@ -3,12 +3,13 @@ import { getActiveClientId } from "../../app/activeClient";
 import { chatUnread, type ChatChannel } from "../../app/studio";
 import Approval from "../../pages/Approval";
 import BrandChat from "./BrandChat";
+import BrandKnowledge from "./BrandKnowledge";
 import BrandTimeline from "./BrandTimeline";
 import ClientTasks from "./ClientTasks";
 import TaskBoard from "./TaskBoard";
 
-type HubTab = "conversa" | "equipe" | "tarefas" | "linha" | "pedidos" | "referencias" | "contatos" | "mensagens";
-const LABELS: Record<HubTab, string> = { conversa: "Conversa", equipe: "Equipe (interno)", tarefas: "Tarefas", linha: "Linha do tempo",
+type HubTab = "conversa" | "equipe" | "tarefas" | "conhecimento" | "linha" | "pedidos" | "referencias" | "contatos" | "mensagens";
+const LABELS: Record<HubTab, string> = { conversa: "Conversa", equipe: "Equipe (interno)", tarefas: "Tarefas", conhecimento: "Conhecimento da IA", linha: "Linha do tempo",
   pedidos: "Pedidos de aprovação", referencias: "Referências", contatos: "Contatos", mensagens: "WhatsApp" };
 const STORE = "mugo.calendar.hub";
 
@@ -26,8 +27,8 @@ export default function ClientHub({ team, canManage, isAgency, month, posts, onO
   posts: { id: string; title: string }[]; onOpenItem: (id: string) => void; onChanged: () => void;
 }) {
   const clientId = getActiveClientId();
-  const tabs: HubTab[] = team ? ["conversa", "equipe", "tarefas", "linha", "pedidos", "referencias", "contatos", "mensagens"]
-    : ["conversa", "tarefas", "linha", "pedidos", "referencias"];
+  const tabs: HubTab[] = team ? ["conversa", "equipe", "tarefas", "conhecimento", "linha", "pedidos", "referencias", "contatos", "mensagens"]
+    : ["conversa", "tarefas", "conhecimento", "linha", "pedidos", "referencias"];
   const [state, setState] = useState(remembered);
   const tab: HubTab = state.tab && tabs.includes(state.tab) ? state.tab : "conversa";
   const [unread, setUnread] = useState<Partial<Record<ChatChannel, number>>>({});
@@ -59,6 +60,7 @@ export default function ClientHub({ team, canManage, isAgency, month, posts, onO
       {tab === "conversa" ? <BrandChat key={`c-${clientId}`} channel="cliente" posts={posts} onOpenItem={onOpenItem} onRead={markRead} /> : null}
       {tab === "equipe" && team ? <BrandChat key={`e-${clientId}`} channel="equipe" posts={posts} onOpenItem={onOpenItem} onRead={markRead} /> : null}
       {tab === "tarefas" ? (team ? <TaskBoard key={clientId} /> : <ClientTasks isAgency={false} clientId={clientId} standalone />) : null}
+      {tab === "conhecimento" ? <BrandKnowledge key={clientId} canManage={canManage} /> : null}
       {tab === "linha" ? <BrandTimeline key={clientId} onOpenItem={onOpenItem} /> : null}
       {["pedidos", "referencias", "contatos", "mensagens"].includes(tab) ? <Approval key={`${tab}-${clientId}`} embedded month={month}
         tabs={[tab as "pedidos" | "referencias" | "contatos" | "mensagens"]} canManage={canManage} isAgency={isAgency} onChanged={onChanged} /> : null}

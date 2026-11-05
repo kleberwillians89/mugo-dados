@@ -505,6 +505,10 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
         raise StudioError("NO_SLOTS", "Não sobrou dia livre neste mês para novas pautas.")
 
     business = (await load_business_context(client_id)).get("context") or {}
+    from .brand_knowledge import knowledge_for_prompt
+    knowledge = await knowledge_for_prompt(client_id)
+    if knowledge:
+        business = {**business, "conhecimento_da_marca": knowledge}
     top = await top_posts(client_id)
     trends = (await fetch_trends_br()).get("items") or []
     signals = await content_signals(client_id)
