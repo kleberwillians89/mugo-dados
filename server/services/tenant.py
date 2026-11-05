@@ -1,3 +1,4 @@
+from contextvars import ContextVar
 from typing import Optional, Dict, Any, List
 
 from fastapi import HTTPException
@@ -136,11 +137,29 @@ async def require_user_client_access(user_id: str, client_id: str, *, fresh: boo
 
 
 @measured("authorization")
-async def is_agency_user(authorization: Optional[str]) -> bool:
-    """Equipe Mugô (platform_admin ou agency_admin). Decide o que só a agência vê/faz no Studio."""
+async def is_agency_user(authorization: Optional[str], client_id: Optional[str] = None) -> bool:
+    """Equipe Mugô (platform_admin ou agency_admin). Decide o que só a agência vê/faz no Studio.
+
+    "Gestora da conta" (account_manager) conta como equipe Mugô só na empresa onde tem esse papel:
+    a empresa vem do argumento ou da que esta requisição já autorizou (require_client_role/read).
+    """
     user_id = await require_user_id(authorization)
     from .platform_admin import is_platform_admin
-    return bool(await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id))
+    if await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id):
+        return True
+    cid = str(client_id or _REQUEST_CLIENT.get() or "").strip()
+    return bool(cid) and await _client_role(user_id, cid) == ACCOUNT_MANAGER
+
+
+ACCOUNT_MANAGER = "account_manager"
+# Empresa já autorizada nesta requisição (cada requisição roda no seu próprio contexto).
+_REQUEST_CLIENT: ContextVar[Optional[str]] = ContextVar("mugo_request_client", default=None)
+
+
+async def _client_role(user_id: str, client_id: str) -> str:
+    memberships = await sb_get_client_memberships(user_id)
+    row = next((r for r in memberships if str(r.get("client_id") or "").strip() == client_id), None)
+    return str((row or {}).get("role") or "").strip()
 
 
 async def require_client_role(
@@ -151,16 +170,13 @@ async def require_client_role(
     user_id = await require_user_id(authorization)
     resolved = await resolve_client_id(client_id, authorization)
     from .platform_admin import is_platform_admin
+    _REQUEST_CLIENT.set(resolved)
     if await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id):
         return resolved
-    memberships = await sb_get_client_memberships(user_id)
-    membership = next(
-        (row for row in memberships if str(row.get("client_id") or "").strip() == resolved),
-        None,
-    )
-    role = str((membership or {}).get("role") or "").strip()
-    legacy_role = {"owner": "client_admin", "admin": "client_admin"}.get(role, role)
-    if legacy_role not in allowed_roles:
+    role = await _client_role(user_id, resolved)
+    # Gestora da conta age como equipe Mugô, mas só nesta empresa.
+    legacy_role = {"owner": "client_admin", "admin": "client_admin", ACCOUNT_MANAGER: "agency_admin"}.get(role, role)
+    if legacy_role not in allowed_roles and not (role == ACCOUNT_MANAGER and "client_admin" in allowed_roles):
         raise HTTPException(status_code=403, detail="Perfil sem permissão para alterar esta empresa.")
     return resolved
 
@@ -175,7 +191,9 @@ async def require_client_read(
     Membership válida (inclusive viewer) ou platform_admin com tenant explícito
     resolvido por resolve_client_id. Não confere papel de mutação.
     """
-    return await resolve_client_id(client_id, authorization)
+    resolved = await resolve_client_id(client_id, authorization)
+    _REQUEST_CLIENT.set(resolved)
+    return resolved
 
 
 async def require_client_manage(
