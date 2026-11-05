@@ -2,7 +2,7 @@ import { http, clientClientPath, publicHttp } from "./api";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
-export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Rejeitado", publicado: "Publicado" } as const;
+export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Ajuste pedido", publicado: "Publicado" } as const;
 export type StudioStatus = keyof typeof STUDIO_STATUS;
 
 export type BrandPillar = { name: string; weight: number; description: string };
@@ -269,7 +269,8 @@ export function addItemReference(itemId: string, input: { url: string; note?: st
 export type ChatChannel = "cliente" | "equipe";
 export type ChatMessage = { id: string; channel: ChatChannel; author_side: "cliente" | "mugo"; author_name: string | null; body: string;
   item_id: string | null; item_title: string | null; created_at: string; mine: boolean };
-export type TimelineEvent = { id: string; at: string; side: "cliente" | "mugo"; kind: string; text: string; detail: string | null; item_id: string | null };
+export type TimelineEvent = { id: string; at: string; side: "cliente" | "mugo"; kind: string; text: string; detail: string | null; item_id: string | null;
+  actor?: string; title?: string | null; changes?: string[] };
 export function listChat(channel: ChatChannel) { return http<{ messages: ChatMessage[] }>(base(`/chat/${channel}`)); }
 export function sendChat(channel: ChatChannel, body: string, itemId?: string | null) {
   return http<{ ok: true; message: ChatMessage }>(base(`/chat/${channel}`), { method: "POST", body: JSON.stringify({ body, ...(itemId ? { item_id: itemId } : {}) }) });

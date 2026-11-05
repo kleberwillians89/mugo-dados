@@ -701,3 +701,39 @@
 .chatActions select{border:1px solid #e1ddd5;background:#fff;border-radius:999px;padding:5px 12px;font-size:12.5px;color:#4a463f;max-width:60%}
 .chatActions .ds-button{border-radius:999px;padding-inline:18px}
 .chatMsg{box-shadow:0 1px 1px rgba(20,18,15,.04)}
+
+/* Proposta A: resumo do cliente em cartões + gaveta */
+.desk{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:4px 0 14px}
+.deskCard{all:unset;box-sizing:border-box;cursor:pointer;display:grid;gap:3px;align-content:start;padding:12px 14px;border:1px solid var(--border,#e6e3dc);border-radius:14px;background:var(--surface,#fff);min-width:0;transition:border-color .15s,box-shadow .15s,transform .15s}
+.deskCard:hover{border-color:#cfd9dd;box-shadow:0 6px 18px -12px rgba(20,18,15,.35);transform:translateY(-1px)}
+.deskCard:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
+.deskCard.is-alert{border-color:#f1cdbf;background:linear-gradient(180deg,#fff7f3,#fff 70%)}
+.deskTop{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.deskLabel{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary,#6b665d)}
+.deskCta{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;color:#004f6e}
+.deskValue{font-size:21px;font-weight:700;letter-spacing:-.01em;color:var(--text-primary,#1f1d1a)}
+.deskCard.is-alert .deskValue{color:#c2410c}
+.deskSub{font-size:12px;color:var(--text-secondary,#6b665d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:1000px){.desk{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.desk{grid-template-columns:1fr 1fr;gap:8px}.deskCard{padding:10px}.deskValue{font-size:18px}.deskSub{display:none}}
+.deskDrawer{display:grid;gap:14px}
+.deskTabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border,#ece9e3);padding-bottom:10px}
+.deskTabs button{all:unset;cursor:pointer;padding:6px 11px;border-radius:9px;font-size:13px;color:#5f5b53;display:inline-flex;align-items:center}
+.deskTabs button:hover{background:#f3f1ec}
+.deskTabs button.is-active{background:#eef5f8;color:#004f6e;font-weight:600}
+.deskTabs button:focus-visible{outline:2px solid #004f6e}
+.deskList{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.deskItem{border:1px solid var(--border,#e6e3dc);border-radius:14px;padding:12px 14px;display:grid;gap:4px}
+.deskItemTitle{font-size:14.5px}
+.deskItem small{font-size:12px;color:var(--text-secondary,#6b665d)}
+.deskItem p{margin:2px 0 0;font-size:13.5px;line-height:1.45;color:#3d3a34;white-space:pre-wrap;overflow-wrap:anywhere}
+.deskItem p.is-clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.deskTag{justify-self:start;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px}
+.deskTag.is-r{background:#fdecea;color:#b42318}.deskTag.is-y{background:#fff4dc;color:#7a5600}.deskTag.is-g{background:#e7f3ec;color:#26734d}.deskTag.is-b{background:#eef5f8;color:#004f6e}
+.deskActions{display:flex;gap:6px;margin-top:6px}
+.deskEmpty{display:grid;justify-items:center;text-align:center;gap:6px;padding:36px 12px;color:#4a463f}
+.deskEmpty svg{color:#0a7aa3}.deskEmpty p{margin:0;font-size:13.5px;color:var(--text-secondary,#6b665d);max-width:340px}
+.drawerPanel .kb{grid-template-columns:1fr}
+.deskDrawer{grid-template-columns:minmax(0,1fr)}
+.deskDrawer .taskToolbar input[type=search]{max-width:none}
+.deskDrawer .kanban.is-compact{grid-auto-columns:minmax(150px,1fr)}

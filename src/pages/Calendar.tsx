@@ -289,7 +289,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
     {notes.length ? <ul className="studioNotes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
     {loading && !items.length ? <p>Carregando calendário…</p> : null}
     <ClientHub team={team} canManage={canManage} isAgency={isAgency} month={month}
-      posts={monthItems.map((i) => ({ id: i.id, title: i.title || "Post sem título" }))}
+      posts={monthItems.map((i) => ({ id: i.id, title: i.title || "Post sem título", status: i.status }))}
       onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} />
     {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty is-slim"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
 

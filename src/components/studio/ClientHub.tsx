@@ -1,110 +1,160 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckSquare, ChevronDown, ClipboardCheck, MessageCircle, Sparkles, Users } from "lucide-react";
+import { ArrowRight, CheckSquare, Flag, MessageCircle, Sparkles } from "lucide-react";
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
-import { chatUnread, type ChatChannel } from "../../app/studio";
+import { dueInfo, listClientTasks, listCrmTasks } from "../../app/crm";
+import { chatUnread, getKnowledge, listChat, listTimeline, type ChatChannel, type ChatMessage, type TimelineEvent } from "../../app/studio";
 import Approval from "../../pages/Approval";
+import Drawer from "../Drawer";
 import BrandChat from "./BrandChat";
 import BrandKnowledge from "./BrandKnowledge";
-import BrandTimeline from "./BrandTimeline";
 import ClientTasks from "./ClientTasks";
 import TaskBoard from "./TaskBoard";
 
-/** 5 seções no máximo; cada uma com no máximo 2 visões. Antes eram 9 abas soltas. */
-type Section = "conversa" | "tarefas" | "aprovacoes" | "ia" | "contatos";
-type View = "cliente" | "equipe" | "pedidos" | "linha" | "conhecimento" | "referencias" | "pessoas" | "whatsapp" | "board";
-type SectionDef = { id: Section; label: string; hint: string; icon: typeof MessageCircle; views?: { id: View; label: string }[] };
-const STORE = "mugo.calendar.hub.v2";
+type Panel = "ajustes" | "conversa" | "tarefas" | "ia" | "mais";
+type Post = { id: string; title: string; status?: string };
+type Summary = { lastAdjust: TimelineEvent | null; events: TimelineEvent[]; unread: Partial<Record<ChatChannel, number>>;
+  lastMessage: ChatMessage | null; lateTasks: number | null; openTasks: number | null; sources: number | null };
+const EMPTY: Summary = { lastAdjust: null, events: [], unread: {}, lastMessage: null, lateTasks: null, openTasks: null, sources: null };
+const CLIENT_KINDS = ["ajuste_solicitado", "editado_pelo_cliente", "comentario", "aprovado"];
+const TAGS: Record<string, [string, string]> = { ajuste_solicitado: ["Ajuste pedido", "r"], editado_pelo_cliente: ["Editado pelo cliente", "y"],
+  comentario: ["Comentário", "b"], aprovado: ["Aprovado", "g"] };
 
-function sections(team: boolean): SectionDef[] {
-  return [
-    { id: "conversa", label: "Conversa", hint: team ? "Fale com o cliente ou só com a equipe" : "Fale com a equipe Mugô", icon: MessageCircle,
-      views: team ? [{ id: "cliente", label: "Com o cliente" }, { id: "equipe", label: "Só equipe" }] : undefined },
-    { id: "tarefas", label: "Tarefas", hint: "O que está em andamento", icon: CheckSquare },
-    { id: "aprovacoes", label: "Aprovações", hint: "Pedidos enviados e histórico", icon: ClipboardCheck,
-      views: [{ id: "pedidos", label: "Pedidos" }, { id: "linha", label: "Linha do tempo" }] },
-    { id: "ia", label: "Marca & IA", hint: "O que a IA sabe e as referências", icon: Sparkles,
-      views: [{ id: "conhecimento", label: "Conhecimento" }, { id: "referencias", label: "Referências" }] },
-    ...(team ? [{ id: "contatos" as const, label: "Contatos", hint: "Quem recebe e o WhatsApp", icon: Users,
-      views: [{ id: "pessoas" as const, label: "Pessoas" }, { id: "whatsapp" as const, label: "WhatsApp" }] }] : []),
-  ];
+export function ago(iso: string, now = Date.now()): string {
+  const min = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  if (min < 24 * 60) return `há ${Math.round(min / 60)} h`;
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
-
-type Memory = { open: boolean; section: Section; views: Partial<Record<Section, View>> };
-function remembered(): Memory {
-  try {
-    const v = JSON.parse(window.localStorage.getItem(STORE) || "{}");
-    return { open: v.open !== false, section: v.section || "conversa", views: v.views || {} };
-  } catch { return { open: true, section: "conversa", views: {} }; }
-}
+const clip = (text: string | null | undefined, n: number) => { const t = String(text || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 /**
- * Central do cliente no Calendário: conversa, tarefas, aprovações, marca & IA e contatos.
- * Navegação lateral com ícones (no celular vira uma faixa rolável) e, dentro de cada seção, no máximo duas visões.
+ * Proposta A: quatro cartões de resumo acima do calendário (o que pede atenção em um olhar)
+ * e uma gaveta lateral com o detalhe só quando a pessoa clica. O calendário continua com a tela toda.
  */
 export default function ClientHub({ team, canManage, isAgency, month, posts, onOpenItem, onChanged }: {
   team: boolean; canManage: boolean; isAgency: boolean; month: string;
-  posts: { id: string; title: string }[]; onOpenItem: (id: string) => void; onChanged: () => void;
+  posts: Post[]; onOpenItem: (id: string) => void; onChanged: () => void;
 }) {
   const clientId = getActiveClientId();
   const brand = getActiveClientName() || "Cliente";
-  const list = sections(team);
-  const [memory, setMemory] = useState(remembered);
-  const current = list.find((s) => s.id === memory.section) || list[0];
-  const view: View | undefined = current.views ? (current.views.find((v) => v.id === memory.views[current.id])?.id || current.views[0].id) : undefined;
-  const [unread, setUnread] = useState<Partial<Record<ChatChannel, number>>>({});
+  const [summary, setSummary] = useState<Summary>(EMPTY);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [cite, setCite] = useState<string>("");
 
-  const save = (next: Memory) => {
-    setMemory(next);
-    try { window.localStorage.setItem(STORE, JSON.stringify(next)); } catch { /* sem armazenamento: só não lembra */ }
+  const load = useCallback(async () => {
+    const settle = <T,>(p: Promise<T>) => p.then((v) => v, () => null);
+    const [timeline, unread, chat, tasks, knowledge] = await Promise.all([
+      settle(listTimeline()), settle(chatUnread()), settle(listChat("cliente")),
+      settle<{ available: boolean; tasks?: { status: string; due_date: string | null }[] }>(team ? listCrmTasks() : listClientTasks()), settle(getKnowledge()),
+    ]);
+    if (getActiveClientId() !== clientId) return;
+    const events = (timeline?.events || []).filter((e) => CLIENT_KINDS.includes(e.kind));
+    const messages = chat?.messages || [];
+    const list = tasks && tasks.available ? tasks.tasks || [] : null;
+    const open = list?.filter((t) => t.status === "pending" || t.status === "in_progress") || null;
+    setSummary({ events, lastAdjust: events.find((e) => e.kind === "ajuste_solicitado") || null, unread: unread?.unread || {},
+      lastMessage: [...messages].reverse().find((m) => !m.mine) || null,
+      lateTasks: open ? open.filter((t) => dueInfo(t.due_date).late).length : null, openTasks: open ? open.length : null,
+      sources: knowledge ? knowledge.sources : null });
+  }, [clientId, team]);
+  useEffect(() => { setSummary(EMPTY); void load(); const t = window.setInterval(() => void load(), 60000); return () => window.clearInterval(t); }, [load]);
+  // Estável: a conversa avisa "li" a cada leitura; uma função nova a cada render faria ela recarregar em laço.
+  const refresh = useCallback(() => { void load(); }, [load]);
+
+  const adjusts = posts.filter((p) => p.status === "rejeitado").length;
+  const unreadTotal = (summary.unread.cliente || 0) + (team ? summary.unread.equipe || 0 : 0);
+  const open = (p: Panel) => setPanel(p);
+  const reply = (itemId: string | null) => { setCite(itemId || ""); setPanel("conversa"); };
+
+  const cards = [
+    { id: "ajustes" as const, icon: Flag, label: "Ajustes pedidos", value: String(adjusts), alert: adjusts > 0, cta: "Ver",
+      sub: summary.lastAdjust ? `Último: ${clip(summary.lastAdjust.actor, 16)} ${ago(summary.lastAdjust.at)} · “${clip(summary.lastAdjust.title, 26)}”` : adjusts ? "Posts esperando a correção" : "Nada pendente neste mês" },
+    { id: "conversa" as const, icon: MessageCircle, label: "Conversa", value: unreadTotal ? `${unreadTotal} nova${unreadTotal > 1 ? "s" : ""}` : "Em dia", alert: unreadTotal > 0, cta: "Abrir",
+      sub: summary.lastMessage ? `${clip(summary.lastMessage.author_name || "Cliente", 14)}: “${clip(summary.lastMessage.body, 40)}”` : team ? "Fale com o cliente ou só com a equipe" : "Fale com a equipe Mugô" },
+    { id: "tarefas" as const, icon: CheckSquare, label: "Tarefas", alert: Boolean(summary.lateTasks), cta: "Ver",
+      value: summary.lateTasks ? `${summary.lateTasks} atrasada${summary.lateTasks > 1 ? "s" : ""}` : summary.openTasks !== null ? `${summary.openTasks} em aberto` : "—",
+      sub: summary.openTasks !== null ? `${summary.openTasks} em aberto no total` : "Ligação com o CRM indisponível" },
+    { id: "ia" as const, icon: Sparkles, label: "IA da marca", alert: false, cta: canManage ? "Ensinar" : "Ver",
+      value: summary.sources === null ? "—" : `${summary.sources} fonte${summary.sources === 1 ? "" : "s"}`,
+      sub: summary.sources ? "Quanto mais material, melhores as pautas" : "Envie a apresentação ou o cardápio da marca" },
+  ];
+  const tabs: { id: Panel; label: string; n?: number }[] = [
+    { id: "ajustes", label: "Ajustes", n: adjusts }, { id: "conversa", label: "Conversa", n: unreadTotal },
+    { id: "tarefas", label: "Tarefas" }, { id: "ia", label: "IA da marca" }, { id: "mais", label: team ? "Mais" : "Referências" },
+  ];
+  const TITLES: Record<Panel, [string, string]> = {
+    ajustes: ["Ajustes pedidos", "O que o cliente pediu, aprovou ou mudou — do mais recente ao mais antigo."],
+    conversa: ["Conversa", team ? "Com o cliente, ou só entre a equipe. Mensagem do cliente avisa o time no WhatsApp." : "Fale com a equipe Mugô."],
+    tarefas: ["Tarefas", team ? "Do CRM Mugô, onde a tarefa muda de etapa." : "O que está em andamento com a Mugô."],
+    ia: ["IA da marca", "Documentos ensinam a IA e são descartados. Ela usa isso nas pautas e nas respostas."],
+    mais: team ? ["Mais", "Pedidos enviados, referências, contatos e WhatsApp."] : ["Referências", "Links e artes que vocês gostam."],
   };
-  const refreshUnread = useCallback(() => { chatUnread().then((r) => setUnread(r.unread || {})).catch(() => undefined); }, []);
-  useEffect(() => { refreshUnread(); const t = window.setInterval(refreshUnread, 60000); return () => window.clearInterval(t); }, [refreshUnread, clientId]);
-  const markRead = useCallback(() => { window.setTimeout(refreshUnread, 300); }, [refreshUnread]);
 
-  const badge = (id: Section | View): number => {
-    if (id === "conversa") return (unread.cliente || 0) + (team ? unread.equipe || 0 : 0);
-    if (id === "cliente") return unread.cliente || 0;
-    if (id === "equipe") return unread.equipe || 0;
-    return 0;
-  };
-  const total = badge("conversa");
-  const embed = (tab: "pedidos" | "referencias" | "contatos" | "mensagens") =>
-    <Approval key={`${tab}-${clientId}`} embedded month={month} tabs={[tab]} canManage={canManage} isAgency={isAgency} onChanged={onChanged} />;
-
-  return <section className={`hub${memory.open ? " is-open" : ""}`} aria-label="Central do cliente">
-    <button type="button" className="hubHead" aria-expanded={memory.open} onClick={() => save({ ...memory, open: !memory.open })}>
-      <span className="hubAvatar" aria-hidden="true">{brand.slice(0, 1).toUpperCase()}</span>
-      <span className="hubTitle"><b>{team ? `Central do cliente · ${brand}` : "Com a Mugô"}</b>
-        <small>{memory.open ? current.hint : "Conversa, tarefas, aprovações e o que a IA sabe da marca"}</small></span>
-      {total && !memory.open ? <i className="hubBadge">{total}</i> : null}
-      <ChevronDown className="hubChevron" size={18} aria-hidden="true" />
-    </button>
-    {memory.open ? <div className="hubLayout">
-      <nav className="hubNav" aria-label="Seções">
-        {list.map((s) => {
-          const Icon = s.icon;
-          const n = badge(s.id);
-          return <button key={s.id} type="button" className={s.id === current.id ? "is-active" : ""} aria-current={s.id === current.id ? "page" : undefined}
-            onClick={() => save({ ...memory, section: s.id })}>
-            <Icon size={17} aria-hidden="true" /><span>{s.label}</span>{n ? <i className="hubBadge">{n}</i> : null}
-          </button>;
-        })}
-      </nav>
-      <div className="hubBody">
-        {current.views ? <div className="hubViews" role="tablist" aria-label={current.label}>
-          {current.views.map((v) => <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={view === v.id ? "is-active" : ""}
-            onClick={() => save({ ...memory, views: { ...memory.views, [current.id]: v.id } })}>
-            {v.label}{badge(v.id) ? <i className="hubBadge">{badge(v.id)}</i> : null}
-          </button>)}
-        </div> : null}
-        {current.id === "conversa" ? <BrandChat key={`${view || "cliente"}-${clientId}`} channel={view === "equipe" && team ? "equipe" : "cliente"}
-          posts={posts} onOpenItem={onOpenItem} onRead={markRead} /> : null}
-        {current.id === "tarefas" ? (team ? <TaskBoard key={clientId} /> : <ClientTasks isAgency={false} clientId={clientId} standalone />) : null}
-        {current.id === "aprovacoes" ? (view === "linha" ? <BrandTimeline key={clientId} onOpenItem={onOpenItem} /> : embed("pedidos")) : null}
-        {current.id === "ia" ? (view === "referencias" ? embed("referencias") : <BrandKnowledge key={clientId} canManage={canManage} />) : null}
-        {current.id === "contatos" && team ? (view === "whatsapp" ? embed("mensagens") : embed("contatos")) : null}
-      </div>
-    </div> : null}
-  </section>;
+  return <>
+    <div className="desk" role="group" aria-label={`Resumo do cliente ${brand}`}>
+      {cards.map((c) => { const Icon = c.icon; return <button key={c.id} type="button" className={`deskCard${c.alert ? " is-alert" : ""}`} onClick={() => open(c.id)}>
+        <span className="deskTop"><span className="deskLabel"><Icon size={15} aria-hidden="true" />{c.label}</span><span className="deskCta">{c.cta} <ArrowRight size={13} aria-hidden="true" /></span></span>
+        <span className="deskValue">{c.value}</span>
+        <span className="deskSub">{c.sub}</span>
+      </button>; })}
+    </div>
+    <Drawer open={panel !== null} width="lg" title={panel ? `${TITLES[panel][0]} · ${brand}` : ""} description={panel ? TITLES[panel][1] : undefined} onClose={() => setPanel(null)}>
+      {panel ? <div className="deskDrawer">
+        <div className="deskTabs" role="tablist" aria-label="Seções">
+          {tabs.map((t) => <button key={t.id} type="button" role="tab" aria-selected={panel === t.id} className={panel === t.id ? "is-active" : ""} onClick={() => setPanel(t.id)}>
+            {t.label}{t.n ? <i className="hubBadge">{t.n}</i> : null}</button>)}
+        </div>
+        {panel === "ajustes" ? <Adjustments events={summary.events} onOpenItem={(id) => { setPanel(null); onOpenItem(id); }} onReply={reply} /> : null}
+        {panel === "conversa" ? <Conversation team={team} posts={posts} cite={cite} onOpenItem={(id) => { setPanel(null); onOpenItem(id); }} onRead={refresh} /> : null}
+        {panel === "tarefas" ? (team ? <TaskBoard key={clientId} /> : <ClientTasks isAgency={false} clientId={clientId} standalone />) : null}
+        {panel === "ia" ? <BrandKnowledge key={clientId} canManage={canManage} /> : null}
+        {panel === "mais" ? <More team={team} month={month} canManage={canManage} isAgency={isAgency} onChanged={onChanged} /> : null}
+      </div> : null}
+    </Drawer>
+  </>;
 }
 
+function Adjustments({ events, onOpenItem, onReply }: { events: TimelineEvent[]; onOpenItem: (id: string) => void; onReply: (itemId: string | null) => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  if (!events.length) return <div className="deskEmpty"><Flag size={22} aria-hidden="true" /><b>Nenhum pedido do cliente por enquanto</b><p>Quando o cliente aprovar, pedir ajuste ou comentar um post, aparece aqui.</p></div>;
+  return <ul className="deskList">{events.map((e) => {
+    const [label, tone] = TAGS[e.kind] || ["Atualização", "b"];
+    const long = (e.detail || "").length > 180;
+    return <li key={e.id} className="deskItem">
+      <span className={`deskTag is-${tone}`}>{label}</span>
+      <b className="deskItemTitle">{e.title || "Post"}</b>
+      <small>{e.actor || "Cliente"} · {ago(e.at)}{e.changes?.length ? ` · mudou ${e.changes.join(", ")}` : ""}</small>
+      {e.detail ? <p className={expanded === e.id ? "" : "is-clamped"}>“{e.detail}”</p> : null}
+      {long ? <button type="button" className="kbLink" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>{expanded === e.id ? "Ver menos" : "Ver tudo"}</button> : null}
+      <div className="deskActions">
+        {e.item_id ? <button type="button" className="ds-button is-primary" onClick={() => onOpenItem(e.item_id!)}>Abrir post</button> : null}
+        {e.kind !== "aprovado" ? <button type="button" className="ds-button" onClick={() => onReply(e.item_id)}>Responder</button> : null}
+      </div>
+    </li>;
+  })}</ul>;
+}
+
+function Conversation({ team, posts, cite, onOpenItem, onRead }: { team: boolean; posts: Post[]; cite: string; onOpenItem: (id: string) => void; onRead: () => void }) {
+  const [channel, setChannel] = useState<ChatChannel>("cliente");
+  return <>
+    {team ? <div className="hubViews" role="tablist" aria-label="Canal">
+      <button type="button" role="tab" aria-selected={channel === "cliente"} className={channel === "cliente" ? "is-active" : ""} onClick={() => setChannel("cliente")}>Com o cliente</button>
+      <button type="button" role="tab" aria-selected={channel === "equipe"} className={channel === "equipe" ? "is-active" : ""} onClick={() => setChannel("equipe")}>Só equipe</button>
+    </div> : null}
+    <BrandChat key={`${channel}-${cite}`} channel={channel} posts={posts.map(({ id, title }) => ({ id, title }))} onOpenItem={onOpenItem} onRead={onRead}
+      initialItemId={cite} placeholder={cite ? "Responda sobre este post…" : undefined} />
+  </>;
+}
+
+function More({ team, month, canManage, isAgency, onChanged }: { team: boolean; month: string; canManage: boolean; isAgency: boolean; onChanged: () => void }) {
+  const views = team ? (["pedidos", "referencias", "contatos", "mensagens"] as const) : (["referencias", "pedidos"] as const);
+  const labels = { pedidos: "Enviados para aprovação", referencias: "Referências", contatos: "Contatos", mensagens: "WhatsApp" };
+  const [view, setView] = useState<(typeof views)[number]>(views[0]);
+  return <>
+    <div className="hubViews" role="tablist" aria-label="Mais">
+      {views.map((v) => <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? "is-active" : ""} onClick={() => setView(v)}>{labels[v]}</button>)}
+    </div>
+    <Approval key={view} embedded month={month} tabs={[view]} canManage={canManage} isAgency={isAgency} onChanged={onChanged} />
+  </>;
+}
