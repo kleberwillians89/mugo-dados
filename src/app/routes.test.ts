@@ -30,8 +30,8 @@ describe("platform routes", () => {
   it("maps the Studio routes", () => {
     expect(getAppRouteFromPath("/biblioteca")).toBe("not_found");
     expect(getAppRouteFromPath("/calendario")).toBe("calendar");
-    expect(getAppRouteFromPath("/aprovacao")).toBe("approval");
-    expect(getPathForRoute("approval")).toBe("/aprovacao");
+    expect(getAppRouteFromPath("/aprovacao")).toBe("calendar"); // aprovação mora no Calendário (Fluxo)
+    expect(getPathForRoute("approval")).toBe("/calendario");
     expect(getAppRouteFromPath("/midia")).toBe("media");
     expect(getPathForRoute("media")).toBe("/midia");
   });

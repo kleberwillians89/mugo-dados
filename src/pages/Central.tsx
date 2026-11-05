@@ -11,7 +11,7 @@ import "../styles/studio.css";
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-const MODULE_ROUTE: Record<string, AppRoute> = { approval: "approval", calendar: "calendar", media: "media", clipping: "clipping", campaigns: "campaigns", tasks: "tasks" };
+const MODULE_ROUTE: Record<string, AppRoute> = { approval: "calendar", calendar: "calendar", media: "media", clipping: "clipping", campaigns: "campaigns", tasks: "tasks" };
 const SENT: Record<string, string> = { positivo: "Positiva", neutro: "Neutra", negativo: "Negativa" };
 
 function Card({ title, route, children, empty }: { title: string; route: AppRoute; children: React.ReactNode; empty?: string | null }) {
