@@ -26,6 +26,16 @@ export async function uploadArt(itemId: string | null, file: File): Promise<stri
   const target = await http<Target>(clientClientPath(path),
     { method: "POST", body: JSON.stringify({ content_type: contentType }) });
   const response = await fetch(target.upload_url, { method: "PUT", body, headers: { "Content-Type": contentType, "x-upsert": "false" } });
-  if (!response.ok) throw new Error(`O envio do arquivo falhou (${response.status}).`);
+  if (!response.ok) throw new Error(await storageError(response, file, isVideo));
   return target.public_url;
+}
+
+/** Motivo legível quando o Storage recusa o arquivo (tipo não liberado no bucket, tamanho acima do limite...). */
+export async function storageError(response: Response, file: File, isVideo: boolean): Promise<string> {
+  let detail = "";
+  try { const data = await response.json(); detail = String(data?.message || data?.error || ""); } catch { /* corpo vazio */ }
+  const mb = (file.size / 1024 / 1024).toFixed(0);
+  if (/mime|type/i.test(detail)) return `O armazenamento ainda não aceita ${isVideo ? "vídeo" : "este tipo de arquivo"} (${file.type || "tipo desconhecido"}). Libere o tipo no bucket de mídia do Supabase.`;
+  if (response.status === 413 || /size|large|exceed/i.test(detail)) return `Arquivo de ${mb} MB passou do limite do armazenamento. Reduza o vídeo ou aumente o limite do bucket no Supabase.`;
+  return `O envio do arquivo falhou (${response.status}${detail ? `: ${detail}` : ""}).`;
 }
