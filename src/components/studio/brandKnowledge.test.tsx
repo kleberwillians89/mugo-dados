@@ -1,0 +1,53 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn() }));
+vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
+
+import BrandKnowledge from "./BrandKnowledge";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let host: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+  state.getKnowledge.mockResolvedValue({ knowledge: "Empresa: M2\n- Treino sábado 6h", sources: 1, updated_at: "2026-11-05T10:00:00Z",
+    documents: [{ id: "d1", name: "horarios.pdf", kind: "produto", summary: "Horários de treino", facts_added: 2, truncated: false, created_at: "2026-11-05T10:00:00Z" }] });
+});
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
+const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
+
+describe("BrandKnowledge", () => {
+  it("mostra o que a IA sabe e os materiais lidos", async () => {
+    await show(<BrandKnowledge canManage />);
+    expect(host.textContent).toContain("Treino sábado 6h");
+    expect(host.textContent).toContain("horarios.pdf");
+    expect(host.textContent).toContain("Enviar documentos");
+  });
+
+  it("quem só lê não vê envio nem edição", async () => {
+    await show(<BrandKnowledge canManage={false} />);
+    expect(host.textContent).not.toContain("Enviar documentos");
+    expect(host.textContent).not.toContain("Corrigir");
+    expect(host.textContent).toContain("Treino sábado 6h");
+  });
+
+  it("ensina um texto colado e atualiza o conhecimento", async () => {
+    state.teachFromText.mockResolvedValue({ ok: true, knowledge: "Empresa: M2\n- Longão domingo 5h30", sources: 2,
+      document: { id: "d2", name: "Texto colado", kind: "institucional", summary: "Longão de domingo", facts_added: 1, truncated: false, created_at: "2026-11-05T11:00:00Z" } });
+    await show(<BrandKnowledge canManage />);
+    const textarea = host.querySelector("textarea")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea, "O longão da M2 acontece todo domingo às 5h30 na orla de Boa Viagem.");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const button = [...host.querySelectorAll("button")].find((b) => b.textContent === "Ensinar este texto")!;
+    await act(async () => { button.click(); });
+    expect(state.teachFromText).toHaveBeenCalledWith(expect.stringContaining("domingo às 5h30"), "institucional");
+    expect(host.textContent).toContain("Longão domingo 5h30");
+    expect(host.textContent).toContain("2 fontes");
+  });
+});

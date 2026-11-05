@@ -355,6 +355,10 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     rows = await sb_select("client_business_context", select="*", filters={"client_id": f"eq.{client_id}"}, limit=1)
     business = {k: v for k, v in (rows[0] if rows else {}).items() if k not in ("client_id", "id", "created_at", "updated_at", "updated_by") and v}
     context = json.dumps(business, ensure_ascii=False, default=str)[:2500]
+    from .brand_knowledge import knowledge_for_prompt
+    knowledge = await knowledge_for_prompt(client_id, 2000)
+    if knowledge:
+        context += f"\nCONHECIMENTO DA MARCA (documentos): {knowledge}"
     caption = await _post_context(client_id, comment.get("media_id"))
     examples = await _reply_examples(client_id)
     voice = await _brand_voice(client_id)

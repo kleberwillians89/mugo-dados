@@ -276,3 +276,29 @@ export function sendChat(channel: ChatChannel, body: string, itemId?: string | n
 }
 export function chatUnread() { return http<{ unread: Partial<Record<ChatChannel, number>> }>(base("/chat-unread")); }
 export function listTimeline() { return http<{ events: TimelineEvent[] }>(base("/timeline")); }
+
+// ---------------------------------------------------------------- conhecimento da marca (documentos alimentam a IA)
+export type KnowledgeKind = "institucional" | "produto" | "campanha" | "tom_de_voz" | "restricao" | "outro";
+export type BrandDocument = { id: string; name: string; kind: KnowledgeKind; summary: string | null; facts_added: number; truncated: boolean; created_at: string };
+export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
+export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
+export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
+export const KNOWLEDGE_MAX_BYTES = 10 * 1024 * 1024;
+async function fileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+/** O arquivo vai ao servidor, vira conhecimento da IA e é descartado (não fica guardado). */
+export async function teachFromFile(file: File, kind: KnowledgeKind) {
+  if (file.size > KNOWLEDGE_MAX_BYTES) throw new Error("Arquivo grande demais (até 10 MB). Divida em partes.");
+  return http<{ ok: true; document: BrandDocument; knowledge: string; sources: number }>(base("/knowledge/documents"),
+    { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file) }), timeoutMs: 180_000 });
+}
+export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto colado") {
+  return http<{ ok: true; document: BrandDocument; knowledge: string; sources: number }>(base("/knowledge/documents"),
+    { method: "POST", body: JSON.stringify({ file_name: title, kind, text }), timeoutMs: 180_000 });
+}

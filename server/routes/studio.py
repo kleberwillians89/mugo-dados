@@ -1211,3 +1211,59 @@ async def read_timeline(client_id: str, authorization: str | None = Header(defau
     from services.studio_chat import timeline
     cid = await require_client_read(client_id, authorization)
     return {"events": await timeline(cid)}
+
+
+# ---------------------------------------------------------------- conhecimento da marca (documentos alimentam a IA)
+
+ERRORS.update({
+    "DOC_TYPE_INVALID": (422, "Envie PDF, DOCX, PPTX, XLSX, CSV, TXT ou MD."),
+    "DOC_UNREADABLE": (422, "Não deu para ler este arquivo (protegido por senha ou corrompido)."),
+    "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler (ex.: PDF só de imagem)."),
+    "DOC_TOO_LARGE": (413, "Arquivo grande demais (até 10 MB). Divida em partes."),
+    "DOC_SOURCE_REQUIRED": (422, "Envie um arquivo ou cole um texto."),
+})
+
+
+class KnowledgeDocInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_name: str = Field(default="Texto colado", max_length=200)
+    kind: Literal["institucional", "produto", "campanha", "tom_de_voz", "restricao", "outro"] = "outro"
+    content_base64: Optional[str] = Field(default=None, max_length=14_500_000)
+    text: Optional[str] = Field(default=None, max_length=60_000)
+
+
+class KnowledgeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    knowledge: str = Field(max_length=6000)
+
+
+@router.get("/knowledge")
+async def read_knowledge(client_id: str, authorization: str | None = Header(default=None)):
+    from services.brand_knowledge import list_documents, load_knowledge
+    cid = await require_client_read(client_id, authorization)
+    return {**await load_knowledge(cid), "documents": await list_documents(cid)}
+
+
+@router.post("/knowledge/documents", status_code=201)
+async def add_knowledge_document(client_id: str, body: KnowledgeDocInput, authorization: str | None = Header(default=None)):
+    """O arquivo é lido em memória, vira conhecimento e é descartado — não é guardado."""
+    from services.brand_knowledge import decode_upload, extract_text, learn
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        if body.content_base64:
+            text = extract_text(body.file_name, decode_upload(body.content_base64))
+        elif body.text and len(body.text.strip()) >= 30:
+            text = body.text.strip()
+        else:
+            raise StudioError("DOC_SOURCE_REQUIRED")
+        return {"ok": True, **await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.put("/knowledge")
+async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: str | None = Header(default=None)):
+    from services.brand_knowledge import save_manual
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, **await save_manual(cid, body.knowledge, user_id=await require_user_id(authorization))}
