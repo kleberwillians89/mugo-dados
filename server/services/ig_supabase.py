@@ -520,8 +520,11 @@ async def sb_get_active_meta_connections(
     platform: Optional[str] = None,
     connection_type: Optional[str] = None,
     client_id: Optional[str] = None,
+    include_errored: bool = False,
 ) -> List[Dict[str, Any]]:
-    filters: Dict[str, str] = {"status": "eq.active"}
+    # include_errored: os syncs recorrentes também retentam conexão que falhou uma vez (status "error"),
+    # senão ela fica parada até alguém clicar ou reconectar. Quem precisa de reconexão continua de fora.
+    filters: Dict[str, str] = {"status": "in.(active,error)" if include_errored else "eq.active"}
     if platform:
         filters["platform"] = f"eq.{platform}"
     if connection_type:
@@ -529,7 +532,7 @@ async def sb_get_active_meta_connections(
     if client_id:
         filters["client_id"] = f"eq.{client_id}"
 
-    return await sb_select(
+    rows = await sb_select(
         "meta_connections",
         select=(
             "id,client_id,platform,connection_type,status,expires_at,token_last_refreshed_at,"
@@ -541,3 +544,6 @@ async def sb_get_active_meta_connections(
         order="updated_at.asc",
         limit=500,
     )
+    if include_errored:
+        rows = [r for r in rows if not r.get("requires_reauth")]
+    return rows

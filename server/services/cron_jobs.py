@@ -140,7 +140,7 @@ async def run_token_refresh_job() -> Dict[str, Any]:
 
 
 async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool = True) -> Dict[str, Any]:
-    conns = await sb_get_active_meta_connections(platform="instagram", connection_type="organic")
+    conns = await sb_get_active_meta_connections(platform="instagram", connection_type="organic", include_errored=True)
     conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
@@ -236,7 +236,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
 
 
 async def run_hourly_ads_sync(window_days: int = 7) -> Dict[str, Any]:
-    conns = await sb_get_active_meta_connections(platform="meta_ads", connection_type="paid")
+    conns = await sb_get_active_meta_connections(platform="meta_ads", connection_type="paid", include_errored=True)
     conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
