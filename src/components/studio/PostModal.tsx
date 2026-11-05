@@ -33,10 +33,12 @@ type Props = {
   onConfirmSchedule?: () => Promise<void>;
   /** Equipe: depois de corrigir o link da arte, devolve a pauta para a fila de publicação. */
   onRetryPublish?: () => Promise<void>;
+  /** Business Suite já na Página desta marca (vem da conexão do Instagram). */
+  publisherUrl?: string;
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
@@ -170,7 +172,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
         {item?.status === "aprovado" || item?.status === "publicado" ? <div className="studioPublish">
           <button type="button" onClick={() => void copyCaption()}>{copied ? "Legenda copiada ✓" : "Copiar legenda"}</button>
-          <a href={PUBLISHER_URL} target="_blank" rel="noreferrer noopener">Abrir no Meta Business Suite ↗</a>
+          <a href={publisherUrl || PUBLISHER_URL} target="_blank" rel="noreferrer noopener">Abrir no Meta Business Suite ↗</a>
         </div> : null}
 
         {rejectNote !== null ? <div className="postReject">
