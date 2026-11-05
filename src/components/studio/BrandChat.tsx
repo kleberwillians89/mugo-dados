@@ -52,7 +52,7 @@ export default function BrandChat({ channel, posts = [], onOpenItem, onRead }: {
           <option value="">Citar um post…</option>
           {posts.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
         </select> : null}
-        <button type="button" className="ds-button ds-button--primary" onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? "Enviando…" : "Enviar"}</button>
+        <button type="button" className="ds-button is-primary" onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? "Enviando…" : "Enviar"}</button>
       </div>
     </div>
   </div>;

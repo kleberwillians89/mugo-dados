@@ -25,15 +25,17 @@ describe("ClientHub", () => {
   it("abre direto na conversa, sem botão, com contador de não lidas", async () => {
     await show(<ClientHub team {...props} />);
     expect(host.textContent).toContain("Amei o post");
-    expect(host.textContent).toContain("Equipe (interno)");
-    expect(host.querySelector(".hubBadge")?.textContent).toBe("3");
+    expect(host.textContent).toContain("Só equipe");
+    expect(host.querySelector(".hubNav .hubBadge")?.textContent).toBe("3");
+    expect(host.querySelectorAll(".hubNav button")).toHaveLength(5);
   });
 
   it("cliente não vê o canal interno da equipe nem contatos", async () => {
     await show(<ClientHub team={false} {...props} canManage={false} isAgency={false} />);
-    expect(host.textContent).not.toContain("Equipe (interno)");
+    expect(host.textContent).not.toContain("Só equipe");
     expect(host.textContent).not.toContain("Contatos");
-    expect(host.textContent).toContain("Linha do tempo");
+    expect(host.textContent).toContain("Aprovações");
+    expect(host.querySelectorAll(".hubNav button")).toHaveLength(4);
   });
 
   it("envia mensagem citando um post", async () => {
