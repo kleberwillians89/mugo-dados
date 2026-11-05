@@ -39,7 +39,6 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "google", label: "Google" },
   { route: "origins", label: "Origem das vendas" },
   { route: "calendar", label: "Calendário" },
-  { route: "approval", label: "Aprovação" },
   { route: "media", label: "Mídia On" },
   { route: "social_report", label: "Relatório social" },
 ];

@@ -537,3 +537,19 @@
 .brandContext summary span{font-weight:400;font-size:12px;color:var(--text-muted)}
 .brandContext dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:var(--space-2) var(--space-4);margin:var(--space-3) 0 0}
 .brandContext dt{font-size:12px;color:var(--text-muted)}.brandContext dd{margin:2px 0 0;color:var(--text-primary);overflow-wrap:anywhere}.brandContext em{color:var(--text-muted)}
+
+/* Calendário → Fluxo de aprovação (kanban compacto) e painel Cliente */
+.calClientBtn{margin-left:auto}
+.approvalEmbedded{display:grid;gap:12px;min-width:0}
+.kanban.is-compact{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(168px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;align-items:start}
+.kanban.is-compact .kanbanCol{min-width:0;max-height:min(70vh,720px);overflow-y:auto;padding:8px;gap:6px}
+.kanban.is-compact .kanbanCol header{position:sticky;top:-8px;background:inherit;z-index:1;padding:4px 2px 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.kanban.is-compact .kanbanCard{padding:8px;gap:4px;font-size:13px}
+.kanban.is-compact .kanbanCard small{font-size:11px}
+.kanban.is-compact .kanbanCard select{font-size:12px;padding:4px 6px}
+.kanban.is-compact .kanbanNote{font-size:12px;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+.kanbanThumb{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:6px;display:block;max-width:100%}
+.kanbanTitle{all:unset;cursor:pointer;font-weight:600;line-height:1.3;text-align:left}
+.kanbanTitle:hover{text-decoration:underline}
+.kanbanTitle:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:2px}
+@media (max-width:860px){.calClientBtn{margin-left:0;width:100%}}

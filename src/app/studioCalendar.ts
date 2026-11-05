@@ -1,6 +1,6 @@
 import { localParts, type CalendarItem, type StudioFormat } from "./studio";
 
-export type ViewMode = "mes" | "semana" | "dia";
+export type ViewMode = "mes" | "semana" | "dia" | "fluxo";
 export type PostDraft = { date: string; time: string; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string };
 
 /** Datas como "AAAA-MM-DD" sem fuso: o calendário inteiro raciocina no dia de São Paulo. */

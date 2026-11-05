@@ -37,7 +37,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
-  if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "approval";
+  // Aprovação mora no Calendário (visão Fluxo); o endereço antigo abre o Calendário já no Fluxo.
+  if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "calendar";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
   if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
@@ -47,8 +48,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
   if (normalized === "/automacoes" || normalized.startsWith("/automacoes/")) return "automations";
-  // Atendimento agora mora na aba Mensagens da Aprovação; o endereço antigo continua funcionando.
-  if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "approval";
+  // Atendimento mora no painel Cliente do Calendário; o endereço antigo continua funcionando.
+  if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "calendar";
   if (normalized.startsWith("/meta")) return "meta";
   if (
     normalized === "/" ||
@@ -80,7 +81,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "ecommerce") return "/ecommerce";
   if (route === "goals") return "/metas";
   if (route === "calendar") return "/calendario";
-  if (route === "approval") return "/aprovacao";
+  if (route === "approval") return "/calendario";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
   if (route === "central") return "/central";

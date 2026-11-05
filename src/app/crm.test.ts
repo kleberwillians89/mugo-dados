@@ -24,7 +24,7 @@ describe("crm helpers", () => {
   });
   it("routes /tarefas and /atendimento", () => {
     expect(getAppRouteFromPath("/tarefas")).toBe("tasks");
-    expect(getAppRouteFromPath("/atendimento")).toBe("approval");
+    expect(getAppRouteFromPath("/atendimento")).toBe("calendar");
     expect(getPathForRoute("tasks")).toBe("/tarefas");
   });
 });

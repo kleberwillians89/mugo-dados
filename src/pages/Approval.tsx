@@ -21,17 +21,28 @@ const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 const REQUEST_STATUS: Record<ApprovalRequest["status"], string> = { aberto: "Aguardando cliente", concluido: "Respondido", cancelado: "Cancelado", expirado: "Expirado" };
 const EDITABLE_LABEL: Record<string, string> = { destaque: "Destaque / aprendizado", atencao: "Ponto de atenção", proximo: "Próximo passo" };
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
+/** Primeira imagem da arte (JPG/PNG/WEBP) para a miniatura do card; vídeo e link do Canva/Drive ficam sem. */
+const thumbOf = (art?: string | null) => (String(art || "").split(/\s+/).find((l) => /^https:\/\/\S+\.(jpe?g|png|webp)(\?|$)/i.test(l)) || null);
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const emptyContact: ContactInput = { name: "", phone: "", role: "", receives: ["conteudo"], is_primary: false };
 
 /** Aprovação de conteúdo: o "Comercial" do CRM virado funil de pautas + WhatsApp da Mugô. */
-export default function Approval({ canManage, isAgency = false }: { canManage: boolean; isAgency?: boolean }) {
+type Props = {
+  canManage: boolean; isAgency?: boolean;
+  /** Dentro do Calendário: sem cabeçalho de página, mês e abas controlados por quem embute. */
+  embedded?: boolean; month?: string; tabs?: Tab[];
+  onOpenItem?: (id: string) => void; onChanged?: () => void;
+};
+
+export default function Approval({ canManage, isAgency = false, embedded = false, month: monthProp, tabs, onOpenItem, onChanged }: Props) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
-  const [tab, setTab] = useState<Tab>("funil");
-  const [month, setMonth] = useState(thisMonth);
+  const allowed = (tabs && tabs.length ? tabs : (Object.keys(TABS) as Tab[]));
+  const [tab, setTab] = useState<Tab>(allowed[0]);
+  const [monthState, setMonth] = useState(thisMonth);
+  const month = monthProp || monthState;
   const [items, setItems] = useState<PipelineItem[]>([]);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [contacts, setContacts] = useState<ClientContact[]>([]);
@@ -73,7 +84,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
     const note = status === "rejeitado" ? window.prompt("O que precisa mudar?") : undefined;
     if (status === "rejeitado" && !note) return;
     const ok = await run("move", () => updateCalendarItem(item.id, { status, ...(note ? { review_note: note } : {}) }), "Não foi possível mover a pauta.");
-    if (ok) await load();
+    if (ok) { await load(); onChanged?.(); }
   }
 
   function onDrop(e: DragEvent, stage: Stage) {
@@ -113,29 +124,30 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
   const byStage = (stage: Stage) => items.filter((i) => i.stage === stage);
   const pendingClient = items.filter((i) => i.stage === "com_cliente").length;
 
-  return <Shell title="Aprovação" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Aprovação de conteúdo" controls={team ? <div className="studioControls">
+  const body = <>
+    {embedded ? null : <><PageHeader company={clientName} title="Aprovação de conteúdo" controls={team ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => navigateToAppRoute("calendar")}>Calendário</button>
       <button type="button" className="ds-button is-primary" onClick={() => { setTab("mensagens"); void openCompose("agenda"); }} disabled={!contacts.length}>Nova mensagem</button>
     </div> : undefined} />
     {team ? <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo número oficial da Mugô, direto pelo Dados (API)." : channel === "wa_link" ? "envio manual: as mensagens abrem no WhatsApp." : `envio pelo número oficial ainda não configurado no servidor. Falta no Render: ${missing.join(", ") || "variáveis MUGOZAP_*"}.`}</p> : <p className="libHint">Para aprovar, pedir ajuste ou editar um post, abra o Calendário. A equipe Mugô é avisada na hora.</p>}
 
-    <ClientTasks isAgency={isAgency} clientId={clientId} />
-    <div className="studioTabs" role="tablist" aria-label="Seções">
-      {(Object.keys(TABS) as Tab[]).filter((t) => team || t !== "mensagens").map((t) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "is-active" : ""} onClick={() => setTab(t)}>
+    <ClientTasks isAgency={isAgency} clientId={clientId} /></>}
+    {embedded && team && allowed.includes("mensagens") ? <p className="libHint">WhatsApp: {channel === "mugozap" ? "envio pelo número oficial da Mugô." : `número oficial não configurado (falta: ${missing.join(", ") || "MUGOZAP_*"}).`}</p> : null}
+    {allowed.length > 1 ? <div className="studioTabs" role="tablist" aria-label="Seções">
+      {allowed.filter((t) => team || t !== "mensagens").map((t) => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "is-active" : ""} onClick={() => setTab(t)}>
         {TABS[t]}{t === "funil" && pendingClient ? <span>{pendingClient}</span> : null}{t === "pedidos" ? <span>{requests.filter((r) => r.status === "aberto").length}</span> : null}</button>)}
-    </div>
+    </div> : null}
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {result ? <p className="studioOk">{result.status === "aguardando" ? "Registrada: sai sozinha quando o WhatsApp da Mugô for ligado." : result.status === "enviado" ? (result.already_sent ? "Essa mensagem já tinha sido enviada." : (result.text.includes("Quer receber aqui no WhatsApp?") ? "✓ Convite enviado. Quando o cliente tocar em Sim, o resumo sai sozinho." : "✓ Mensagem enviada pelo WhatsApp da Mugô.")) : "Mensagem aberta no WhatsApp para envio."}</p> : null}
     {loading && !items.length ? <p>Carregando…</p> : null}
 
     {tab === "funil" ? <>
-      <div className="calNav">
+      {monthProp ? null : <div className="calNav">
         <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
         <h2 className="calRange">{MONTH_NAMES[Number(month.slice(5)) - 1]} {month.slice(0, 4)}</h2>
         <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
-      </div>
-      <div className="kanban">{(Object.keys(STAGES) as Stage[]).map((stage) => <section key={stage} className={`kanbanCol is-${stage} ${over === stage ? "is-over" : ""}`}
+      </div>}
+      <div className={`kanban${embedded ? " is-compact" : ""}`}>{(Object.keys(STAGES) as Stage[]).map((stage) => <section key={stage} className={`kanbanCol is-${stage} ${over === stage ? "is-over" : ""}`}
         onDragOver={team ? (e) => { e.preventDefault(); setOver(stage); } : undefined} onDragLeave={() => setOver((o) => (o === stage ? null : o))}
         onDrop={team ? (e) => onDrop(e, stage) : undefined}>
         <header><strong>{STAGES[stage]}</strong><span>{byStage(stage).length}</span></header>
@@ -143,8 +155,9 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
           const when = localParts(item.scheduled_at);
           return <article key={item.id} className="kanbanCard" draggable={team}
             onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}>
+            {embedded && thumbOf(item.art_url) ? <img className="kanbanThumb" src={thumbOf(item.art_url)!} alt="" loading="lazy" /> : null}
             <small>{when.label} · {when.time} · {STUDIO_FORMATS[item.format]}</small>
-            <b>{item.title}</b>
+            {onOpenItem ? <button type="button" className="kanbanTitle" onClick={() => onOpenItem(item.id)}>{item.title}</button> : <b>{item.title}</b>}
             {item.client_feedback?.comment ? <p className="kanbanNote">“{item.client_feedback.comment}” — {item.client_feedback.reviewer_name || "cliente"}</p> : null}
             {item.stage === "ajuste" && !item.client_feedback?.comment && item.review_note ? <p className="kanbanNote">{item.review_note}</p> : null}
             {item.request ? <small>Enviado {dateTime(item.request.sent_at)}{item.request.contact_name ? ` para ${item.request.contact_name}` : ""}</small> : null}
@@ -230,5 +243,7 @@ export default function Approval({ canManage, isAgency = false }: { canManage: b
             {busy === "send" ? "Enviando…" : channel === "wa_link" ? "Abrir no WhatsApp" : "Enviar pelo WhatsApp da Mugô"}</button></div>
       </div> : null}
     </Drawer>
-  </div></Shell>;
+  </>;
+  if (embedded) return <div className="approvalEmbedded">{body}</div>;
+  return <Shell title="Aprovação" variant="editorial"><div className="ds-page studioPage">{body}</div></Shell>;
 }
