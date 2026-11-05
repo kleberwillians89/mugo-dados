@@ -38,6 +38,7 @@ type Props = {
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
 export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
+  const [dragArt, setDragArt] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -63,6 +64,17 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
   const signals = item?.signals;
   const set = (patch: Partial<PostDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  /** Sobe a arte (antes ou depois de a pauta existir) e acrescenta os links na ordem dos slides. */
+  async function sendArt(files: File[]) {
+    if (!files.length || uploading) return;
+    setUploadError(null);
+    try {
+      const links: string[] = [];
+      for (const [i, file] of files.entries()) { setUploading(`Enviando ${i + 1} de ${files.length}…`); links.push(await uploadArt(item?.id || null, file)); }
+      setDraft((d) => ({ ...d, art_url: [...artList(d.art_url), ...links].slice(0, 12).join("\n") }));
+    } catch (cause) { setUploadError(cause instanceof Error ? cause.message : "Não foi possível enviar a arte."); }
+    finally { setUploading(null); }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -116,25 +128,25 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {canManage && !clientMode ? <label>Link da arte (Canva ou Google Drive) — no carrossel, um link por linha, na ordem dos slides
-          <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/…"
-            value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} /></label> : null}
-        {canManage && !clientMode && item ? <label className="postUpload">
-          <span className="ds-button">{uploading ? uploading : "Enviar arte (JPG/PNG ou vídeo MP4)"}</span>
-          <input type="file" multiple accept="image/*,video/mp4,video/quicktime" disabled={Boolean(uploading) || busy} onChange={async (e) => {
-            const files = Array.from(e.target.files || []); e.target.value = "";
-            if (!files.length) return;
-            setUploadError(null);
-            try {
-              const links: string[] = [];
-              for (const [i, file] of files.entries()) { setUploading(`Enviando ${i + 1} de ${files.length}…`); links.push(await uploadArt(item.id, file)); }
-              set({ art_url: [...artList(draft.art_url), ...links].slice(0, 12).join("\n") });
-            } catch (cause) { setUploadError(cause instanceof Error ? cause.message : "Não foi possível enviar a arte."); }
-            finally { setUploading(null); }
-          }} />
-          <small>Vira JPG (imagem) ou fica MP4 e entra no link da arte, na ordem. Salve depois. É o formato que publica sozinho no Instagram.</small>
+        {canManage && !clientMode ? <div className="postArt">
+          <span className="postArtTitle">Arte do post {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
+          <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragArt(true); }} onDragLeave={() => setDragArt(false)}
+            onDrop={(e) => { e.preventDefault(); setDragArt(false); void sendArt(Array.from(e.dataTransfer.files || [])); }}>
+            <b>{uploading ? uploading : "Arraste a arte aqui ou clique para escolher"}</b>
+            <small>Imagem (JPG/PNG) ou vídeo (MP4/MOV) · no carrossel, envie os slides na ordem · é o formato que publica sozinho no Instagram</small>
+            <input type="file" multiple accept="image/*,video/mp4,video/quicktime" disabled={Boolean(uploading) || busy} onChange={(e) => {
+              const files = Array.from(e.target.files || []); e.target.value = ""; void sendArt(files);
+            }} />
+          </label>
           {uploadError ? <small className="studioError">{uploadError}</small> : null}
-        </label> : null}
+          <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
+            <summary>ou colar link do Canva / Google Drive</summary>
+            <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
+              value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} aria-label="Link da arte" />
+          </details>
+          {!item && artList(draft.art_url).length ? <small className="postArtHint">A arte já subiu. Ela fica salva na pauta quando você clicar em <b>Criar pauta</b>.</small> : null}
+        </div> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} itemId={item?.id} onApply={(patch) => set(patch)} /> : null}

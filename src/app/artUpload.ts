@@ -16,12 +16,14 @@ export async function toJpeg(file: File): Promise<Blob> {
 }
 
 /** Envia um arquivo direto ao Storage (link assinado gerado pelo backend) e devolve o link público. */
-export async function uploadArt(itemId: string, file: File): Promise<string> {
+/** itemId vazio/null = pauta ainda não criada: a arte sobe antes e o link entra na pauta ao salvar. */
+export async function uploadArt(itemId: string | null, file: File): Promise<string> {
   const isVideo = file.type === "video/mp4" || file.type === "video/quicktime";
   if (!isVideo && !file.type.startsWith("image/")) throw new Error("Envie imagem (JPG/PNG) ou vídeo MP4/MOV.");
   const body = isVideo ? file : await toJpeg(file);
   const contentType = isVideo ? file.type : "image/jpeg";
-  const target = await http<Target>(clientClientPath(`/studio/calendar/items/${encodeURIComponent(itemId)}/art/upload`),
+  const path = itemId ? `/studio/calendar/items/${encodeURIComponent(itemId)}/art/upload` : "/studio/calendar/art/upload";
+  const target = await http<Target>(clientClientPath(path),
     { method: "POST", body: JSON.stringify({ content_type: contentType }) });
   const response = await fetch(target.upload_url, { method: "PUT", body, headers: { "Content-Type": contentType, "x-upsert": "false" } });
   if (!response.ok) throw new Error(`O envio do arquivo falhou (${response.status}).`);
