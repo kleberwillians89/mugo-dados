@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
 
-import BrandKnowledge from "./BrandKnowledge";
+import BrandKnowledge, { parseKnowledge } from "./BrandKnowledge";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -24,12 +24,12 @@ describe("BrandKnowledge", () => {
     await show(<BrandKnowledge canManage />);
     expect(host.textContent).toContain("Treino sábado 6h");
     expect(host.textContent).toContain("horarios.pdf");
-    expect(host.textContent).toContain("Enviar documentos");
+    expect(host.querySelector('[aria-label="Enviar documentos"]')).not.toBeNull();
   });
 
   it("quem só lê não vê envio nem edição", async () => {
     await show(<BrandKnowledge canManage={false} />);
-    expect(host.textContent).not.toContain("Enviar documentos");
+    expect(host.querySelector('[aria-label="Enviar documentos"]')).toBeNull();
     expect(host.textContent).not.toContain("Corrigir");
     expect(host.textContent).toContain("Treino sábado 6h");
   });
@@ -38,16 +38,24 @@ describe("BrandKnowledge", () => {
     state.teachFromText.mockResolvedValue({ ok: true, knowledge: "Empresa: M2\n- Longão domingo 5h30", sources: 2,
       document: { id: "d2", name: "Texto colado", kind: "institucional", summary: "Longão de domingo", facts_added: 1, truncated: false, created_at: "2026-11-05T11:00:00Z" } });
     await show(<BrandKnowledge canManage />);
+    await act(async () => { [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("colar um texto"))!.click(); });
     const textarea = host.querySelector("textarea")!;
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
       setter.call(textarea, "O longão da M2 acontece todo domingo às 5h30 na orla de Boa Viagem.");
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const button = [...host.querySelectorAll("button")].find((b) => b.textContent === "Ensinar este texto")!;
+    const button = [...host.querySelectorAll("button")].find((b) => b.textContent === "Ensinar")!;
     await act(async () => { button.click(); });
     expect(state.teachFromText).toHaveBeenCalledWith(expect.stringContaining("domingo às 5h30"), "institucional");
     expect(host.textContent).toContain("Longão domingo 5h30");
     expect(host.textContent).toContain("2 fontes");
+  });
+
+  it("divide o conhecimento em blocos por título", () => {
+    const parts = parseKnowledge("Empresa:\n- M2 Community Run\n- Recife\n\n## Produtos e preços\n- Plano mensal R$ 89\n**Restrições**\n• Não citar concorrentes");
+    expect(parts.map((p) => p.title)).toEqual(["Empresa", "Produtos e preços", "Restrições"]);
+    expect(parts[1].items).toEqual(["Plano mensal R$ 89"]);
+    expect(parseKnowledge("Texto solto sem título")[0]).toEqual({ title: "Sobre a marca", items: ["Texto solto sem título"] });
   });
 });

@@ -6,10 +6,11 @@ type PostRef = { id: string; title: string };
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 /** Fio da conversa da marca. Canal "cliente": cliente + Mugô. Canal "equipe": só Mugô. Atualiza sozinho a cada 20 s. */
-export default function BrandChat({ channel, posts = [], onOpenItem, onRead }: { channel: ChatChannel; posts?: PostRef[]; onOpenItem?: (id: string) => void; onRead?: () => void }) {
+export default function BrandChat({ channel, posts = [], onOpenItem, onRead, initialItemId = "", placeholder }: {
+  channel: ChatChannel; posts?: PostRef[]; onOpenItem?: (id: string) => void; onRead?: () => void; initialItemId?: string; placeholder?: string }) {
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [text, setText] = useState("");
-  const [itemId, setItemId] = useState("");
+  const [itemId, setItemId] = useState(initialItemId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -45,14 +46,14 @@ export default function BrandChat({ channel, posts = [], onOpenItem, onRead }: {
     </div>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     <div className="chatComposer">
-      <textarea rows={2} value={text} placeholder={channel === "equipe" ? "Mensagem para a equipe…" : "Escreva uma mensagem…"} maxLength={4000}
+      <textarea rows={2} value={text} placeholder={placeholder || (channel === "equipe" ? "Mensagem para a equipe…" : "Escreva uma mensagem…")} maxLength={4000}
         onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} aria-label="Mensagem" />
       <div className="chatActions">
         {posts.length ? <select value={itemId} onChange={(e) => setItemId(e.target.value)} aria-label="Citar um post">
           <option value="">Citar um post…</option>
           {posts.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
         </select> : null}
-        <button type="button" className="ds-button ds-button--primary" onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? "Enviando…" : "Enviar"}</button>
+        <button type="button" className="ds-button is-primary" onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? "Enviando…" : "Enviar"}</button>
       </div>
     </div>
   </div>;

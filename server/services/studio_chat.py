@@ -134,7 +134,8 @@ async def timeline(client_id: str, limit: int = 60) -> List[Dict[str, Any]]:
         verb = TEAM_ACTION.get(e.get("action"), e.get("action"))
         events.append({"id": f"t-{e['id']}", "at": e["created_at"], "side": "cliente", "kind": e.get("action"),
                        "text": f"{e.get('actor_name') or 'O cliente'} {verb} “{title}”", "detail": payload.get("comment"),
-                       "item_id": e.get("item_id")})
+                       "item_id": e.get("item_id"), "actor": e.get("actor_name") or "O cliente", "title": payload.get("title"),
+                       "changes": payload.get("changes") or []})
     for r in requests:
         n = len(r.get("item_ids") or [])
         events.append({"id": f"r-{r['id']}", "at": r["created_at"], "side": "mugo", "kind": "pedido",
