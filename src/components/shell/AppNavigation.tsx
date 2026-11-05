@@ -17,6 +17,8 @@ type Props = {
   route: AppRoute;
   platformAdmin: boolean;
   agencyAdmin: boolean;
+  /** Equipe Mugô nesta empresa (inclui gestora da conta, que não vê Empresas/Automações). */
+  teamHere?: boolean;
   canManageIntegrations?: boolean;
   onOpen: (route: AppRoute) => void;
   /** Memberships já resolvidas pelo App — a única fonte da lista de empresas. */
@@ -62,6 +64,7 @@ export default function AppNavigation({
   route,
   platformAdmin,
   agencyAdmin,
+  teamHere,
   canManageIntegrations,
   onOpen,
   clients,
@@ -196,7 +199,7 @@ export default function AppNavigation({
           <div className="appNavGroup">
             <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
             <ul className="appNavList" aria-labelledby="app-nav-agency">
-              {(platformAdmin || agencyAdmin ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).map(renderItem)}
+              {(platformAdmin || agencyAdmin || teamHere ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).map(renderItem)}
             </ul>
           </div>
           {adminItems.length ? (

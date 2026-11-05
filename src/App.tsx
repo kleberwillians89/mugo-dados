@@ -765,9 +765,10 @@ function PrivateApp() {
       || getActiveClient()?.role
       || ""
   ).toLowerCase();
+  // Gestora da conta: equipe Mugô só na empresa onde tem esse papel (sem Empresas nem Automações).
+  const teamHere = platformAdmin || agencyAdmin || activeClientRole === "account_manager";
   const canManageIntegrations =
-    platformAdmin
-    || agencyAdmin
+    teamHere
     || ["client_admin", "owner", "admin"].includes(activeClientRole);
   const navigationUser = resolveNavigationUser(session, localMode);
 
@@ -807,6 +808,7 @@ function PrivateApp() {
           route="integrations"
           platformAdmin={platformAdmin}
           agencyAdmin={agencyAdmin}
+          teamHere={teamHere}
           canManageIntegrations={canManageIntegrations}
           onOpen={openRoute}
           clients={clients}
@@ -840,6 +842,7 @@ function PrivateApp() {
         route={route}
         platformAdmin={platformAdmin}
         agencyAdmin={agencyAdmin}
+        teamHere={teamHere}
         canManageIntegrations={canManageIntegrations}
         onOpen={openRoute}
         clients={clients}
@@ -867,25 +870,25 @@ function PrivateApp() {
       {route === "central" ? (
         <Central key={`central:${activeClientId}`} />
       ) : route === "goals" ? (
-        <Goals key={`goals:${activeClientId}`} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Goals key={`goals:${activeClientId}`} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "calendar" ? (
-        <Calendar key={`calendar:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Calendar key={`calendar:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "approval" ? (
-        <Approval key={`approval:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Approval key={`approval:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "media" ? (
-        <MediaOn key={`media:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
+        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
       ) : route === "tasks" ? (
-        platformAdmin || agencyAdmin ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
+        teamHere ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
-        <Clipping key={`clipping:${activeClientId}`} canManage={platformAdmin || agencyAdmin} />
+        <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
       ) : route === "social_report" ? (
-        <SocialReport key={`social_report:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} />
+        <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (
-        <Engagement key={`engagement:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canManage={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
-      ) : route === "campaigns" && (platformAdmin || agencyAdmin) ? (
+        <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+      ) : route === "campaigns" && (teamHere) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
       ) : route === "creators" ? (
-        <Creators key={`creators:${activeClientId}`} isAgency={platformAdmin || agencyAdmin} canAct={platformAdmin || agencyAdmin || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (
         <Automations />
       ) : route === "campaigns" || route === "automations" ? (
