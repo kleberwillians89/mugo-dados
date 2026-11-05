@@ -301,6 +301,18 @@ class ArtUploadInput(BaseModel):
     content_type: Literal["image/jpeg", "video/mp4", "video/quicktime"]
 
 
+@router.post("/calendar/art/upload")
+async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorization: str | None = Header(default=None)):
+    """Arte enviada antes de a pauta existir (criação): vai para a pasta "nova" da empresa; o link entra na pauta ao salvar."""
+    from services.studio_art import upload_target
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await upload_target(cid, "", body.content_type)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("/calendar/items/{item_id}/art/upload")
 async def art_upload_target(client_id: str, item_id: UUID, body: ArtUploadInput, authorization: str | None = Header(default=None)):
     """Link assinado para o navegador enviar a arte (JPG/MP4) direto ao Storage; devolve também o link público."""
