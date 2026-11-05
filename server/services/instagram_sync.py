@@ -326,10 +326,12 @@ async def _run_sync_for_client_and_ig(
         media = await fetch_media_list(ig_user_id, access_token, limit=limit)
         block_status["media"] = {"ok": True, "status": "ok", "count": len(media)}
     except Exception as exc:
+        from .ig_meta import meta_error_summary
         block_status["media"] = {
             "ok": False,
             "status": _classify_meta_error(exc),
             "detail": str(exc)[:180],
+            "meta_error": meta_error_summary(exc),
         }
         print(
             "[ig_sync][meta_error] "
@@ -730,7 +732,18 @@ async def _sync_instagram_connection(
         )
         if not res.get("snapshot_saved"):
             if not int(res.get("media_saved") or 0):
-                raise RuntimeError("Instagram não persistiu o snapshot diário.")
+                # Nada salvo: o motivo da Meta vai para a conexão (last_error), não só para o log.
+                media_block = (res.get("block_status") or {}).get("media") or {}
+                kpi_errors = (res.get("kpis") or {}).get("errors") or {}
+                if media_block.get("ok") is False:
+                    reason = f"lista de posts recusada pela Meta ({media_block.get('meta_error') or media_block.get('status')})"
+                elif int(media_block.get("count") or 0) == 0:
+                    reason = "a Meta devolveu a conta sem nenhum post"
+                else:
+                    reason = "os posts não foram gravados"
+                if kpi_errors:
+                    reason += f"; métricas do perfil: {next(iter(kpi_errors.values()))}"
+                raise RuntimeError(f"Instagram não persistiu o snapshot diário: {reason}.")
             # Posts entraram, mas a Meta não devolveu métrica nenhuma do perfil (ex.: conta com menos de
             # 100 seguidores). Não é falha da conexão: segue como coleta parcial, com o motivo na tela.
             meta_errors = (res.get("kpis") or {}).get("errors") or {}

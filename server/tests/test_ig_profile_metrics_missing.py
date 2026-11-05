@@ -31,6 +31,7 @@ class ProfileMetricsMissingTests(unittest.IsolatedAsyncioTestCase):
                 ("fetch_stories", AsyncMock(return_value=[])), ("sb_upsert", upsert),
                 ("refresh_dashboard_read_model_safely", AsyncMock(return_value={"ok": True})),
                 ("_mark_connection_success", AsyncMock(side_effect=lambda *a, **k: marks.append(k))),
+                ("_mark_connection_error", AsyncMock(side_effect=lambda cid, msg: marks.append({"error": msg}))),
             ]:
                 stack.enter_context(patch.object(ig, name, value))
             result = await ig._sync_instagram_connection("organic", process_thumbnails=False, persisted_only=True)
@@ -45,9 +46,11 @@ class ProfileMetricsMissingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("código 10", marks[0]["detail"])  # motivo da Meta fica salvo na conexão
         self.assertTrue(any("código 10" in w for w in result["warnings"]))
 
-    async def test_nothing_saved_still_fails(self):
-        with self.assertRaises(RuntimeError):
+    async def test_nothing_saved_still_fails_with_the_reason(self):
+        with self.assertRaises(RuntimeError) as caught:
             await self._run([])
+        self.assertIn("a Meta devolveu a conta sem nenhum post", str(caught.exception))
+        self.assertIn("código 10", str(caught.exception))
 
 
 if __name__ == "__main__":
