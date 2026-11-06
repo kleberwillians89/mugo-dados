@@ -76,6 +76,29 @@ def _str_list(values: Any, *, item_limit: int, max_items: int) -> List[str]:
     return out
 
 
+# Idioma do que é PUBLICADO (legendas, ganchos, roteiros, hashtags, respostas de comentário).
+# A equipe continua lendo pautas, justificativas e notas em português.
+LANGUAGES = {"pt-BR": "português do Brasil", "en": "inglês (English)", "es": "espanhol (español)"}
+DEFAULT_LANGUAGE = "pt-BR"
+
+
+def content_language(profile: Dict[str, Any] | None) -> str:
+    code = str((profile or {}).get("content_language") or "").strip()
+    return code if code in LANGUAGES else DEFAULT_LANGUAGE
+
+
+def language_rule(profile: Dict[str, Any] | None) -> str:
+    """Regra de idioma para os prompts que escrevem peças publicáveis."""
+    code = content_language(profile)
+    if code == DEFAULT_LANGUAGE:
+        return "- IDIOMA: português do Brasil."
+    name = LANGUAGES[code]
+    return (f"- IDIOMA: esta marca publica em {name}. Todo texto que vai ao ar (legenda, gancho, CTA, hashtags, texto na tela, "
+            f"narração, roteiro falado, títulos e textos das peças) deve ser escrito em {name}, nativo e natural, nunca tradução "
+            "literal do português. Campos internos para a equipe (pauta/title, rationale, why, ângulo, problemas e correções) "
+            "continuam em português do Brasil.")
+
+
 def normalize_profile(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     pillars = []
@@ -118,6 +141,7 @@ def normalize_profile(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         "posts_per_week": max(1, min(14, ppw)),
         "formats_enabled": formats or list(DEFAULT_FORMATS),
         "custom_dates": custom_dates,
+        "content_language": content_language(raw),
     }
 
 
@@ -373,7 +397,7 @@ def build_prompt(
         "estética, gancho e tom (o 'o_que_gostou' diz o porquê); várias pautas do mês devem seguir essas referências, "
         "adaptadas à marca, sem copiar texto. Quando uma pauta seguir uma referência, diga no rationale qual "
         "(ex.: 'segue a referência de luz natural que o cliente enviou').\n"
-        "- Português do Brasil.\n\n"
+        f"{language_rule(profile)}\n\n"
         f"DADOS:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 

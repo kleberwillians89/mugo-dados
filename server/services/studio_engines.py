@@ -17,7 +17,7 @@ import time
 from collections import deque
 from typing import Any, Dict, List, Optional
 
-from .studio_calendar import FORMATS, StudioError, list_items, normalize_profile, parse_month
+from .studio_calendar import FORMATS, StudioError, language_rule, list_items, normalize_profile, parse_month
 from .studio_dates import dates_for_month
 from .studio_intelligence import build_content_intelligence, coverage, to_prompt
 from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
@@ -106,7 +106,7 @@ async def assist(client_id: str, action: str, item: Dict[str, Any], *, instructi
         + f"\nPAUTA:\n{json.dumps(_item_payload(item), ensure_ascii=False)}\n"
         + (f"\nREFERÊNCIAS DESTE POST (o cliente/equipe quer nesse estilo; siga formato, estética e tom, sem copiar):\n"
            f"{json.dumps(refs, ensure_ascii=False)}\n" if refs else "")
-        + f"\nDADOS DA MARCA:\n{to_prompt(intel)}"
+        + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
     )
     data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_{action}",
                           schema=ASSIST_SCHEMAS[action], temperature=0.8 if action in ("variacoes", "ganchos") else 0.6)

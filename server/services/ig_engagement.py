@@ -302,7 +302,7 @@ REPLY_STYLE = (
     "Se ela marcou alguém da equipe/convidado, reconheça essa pessoa.\n"
     "- Pergunta: responda com o que está no CONTEXTO DO POST ou no NEGÓCIO; se não estiver lá, diga que vai chamar no Direct.\n"
     "- Marcação de amigo (@fulano): resposta curta e simpática para os dois.\n"
-    "- Texto em outro idioma ou spam (\"send me this post\", links, promoção de terceiros): needs_human=true, reply vazio.\n"
+    "- Spam (\"send me this post\", links, promoção de terceiros): needs_human=true, reply vazio.\n"
     "REGRAS DE ESTILO:\n"
     "- Soe exatamente como a marca: mesmo vocabulário, gírias, ritmo e jeito de usar emoji das legendas dela e das respostas da "
     "equipe. Se a marca é irreverente, seja irreverente; se é sóbria, seja sóbria. Nada de voz neutra de SAC.\n"
@@ -344,6 +344,16 @@ async def _post_context(client_id: str, media_id: Any) -> str:
     return str((rows[0] if rows else {}).get("caption") or "")[:700]
 
 
+def reply_language_rule(profile: Dict[str, Any]) -> str:
+    from .studio_calendar import DEFAULT_LANGUAGE, LANGUAGES, content_language
+    code = content_language(profile)
+    if code == DEFAULT_LANGUAGE:
+        return "IDIOMA DAS RESPOSTAS: português do Brasil. Comentário em outro idioma: needs_human=true, reply vazio."
+    name = LANGUAGES[code]
+    return (f"IDIOMA DAS RESPOSTAS: SEMPRE em {name}, nativo e natural, mesmo quando o comentário vier em outro idioma "
+            f"(o público desta marca fala {name}). Só use needs_human por idioma se não entender o comentário.")
+
+
 async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     """Resposta no tom do perfil, ciente do post e do tipo de comentário; conferida pelo brand_guard."""
     import json
@@ -365,8 +375,8 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     text = (comment.get("text") or "")[:600]
     kind = "só emoji ou reação curta" if _EMOJI_ONLY.match(text) or len(text.split()) <= 2 else "texto"
     schema = obj({"reply": STR, "needs_human": {"type": "boolean"}, "reason": STR})
-    tone_rule = (f"TOM DAS RESPOSTAS DESTA MARCA (definido pela equipe; vale ACIMA do tom das legendas e do perfil): {reply_tone}\n"
-                 if reply_tone else "")
+    tone_rule = ((f"TOM DAS RESPOSTAS DESTA MARCA (definido pela equipe; vale ACIMA do tom das legendas e do perfil): {reply_tone}\n"
+                  if reply_tone else "") + reply_language_rule(profile) + "\n")
     data = await llm_json(client_id=client_id, 
         instructions=REPLY_STYLE,
         prompt=(tone_rule + f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"

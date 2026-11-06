@@ -12,7 +12,11 @@ export type BrandProfile = {
   /** Cores, composição, estilo de foto e de arte (a IA tira das imagens dos posts mais curtidos). */
   visual_identity?: string;
   posts_per_week: number; formats_enabled: StudioFormat[]; custom_dates: { date: string; label: string }[];
+  /** Idioma do que vai ao ar (legendas, roteiros, hashtags, respostas de comentário). Pautas e notas seguem em português. */
+  content_language?: ContentLanguage;
 };
+export const CONTENT_LANGUAGES = { "pt-BR": "Português (Brasil)", en: "Inglês", es: "Espanhol" } as const;
+export type ContentLanguage = keyof typeof CONTENT_LANGUAGES;
 
 export type CalendarSignals = {
   basis?: { reason?: string; hours?: string; weekday_reach_index?: number | null; slot_reach_index?: number | null; confidence?: string | null };

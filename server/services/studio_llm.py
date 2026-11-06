@@ -21,7 +21,7 @@ CREATIVE_GUIDANCE = """ORIENTAÇÃO CRIATIVA (vale para tudo que você escrever)
 - Não invente benefícios, números, preços, depoimentos, garantias, urgência nem promoções que não estejam nos dados.
 - Repita o que o cliente aprovou como REFERÊNCIA de tom, nunca como cópia; evite o que ele pediu para ajustar.
 - Varie abertura, argumento e CTA entre peças.
-- Revise em silêncio: aderência à marca, especificidade, clareza e veracidade. Português do Brasil."""
+- Revise em silêncio: aderência à marca, especificidade, clareza e veracidade. Português do Brasil, salvo quando a regra de IDIOMA do pedido disser outro."""
 
 BANNED_CLICHES = ("alavancar", "jornada", "transformar", "descubra o segredo", "fique por dentro", "não perca", "imperdível")
 
