@@ -58,12 +58,14 @@ class ChatTests(unittest.TestCase):
                                               "created_at": "2026-11-02T10:00:00Z", "completed_at": None}],
                 "studio_item_comments": [],
                 "studio_references": [{"id": "3", "url": "https://x.com/a", "note": None, "created_at": "2026-11-04T10:00:00Z"}],
+                "studio_calendar_items": [{"id": "9", "title": "Reels do desafio", "published_permalink": "https://instagram.com/p/x", "updated_at": "2026-11-05T10:00:00Z"}],
             }.get(table, [])
         with patch.object(studio_chat, "sb_select", fake_select):
             events = run(studio_chat.timeline("latinas"))
-        self.assertEqual([e["kind"] for e in events], ["referencia", "aprovado", "pedido"])
-        self.assertIn("Carelle aprovou “Post A”", events[1]["text"])
-        self.assertIn("2 posts", events[2]["text"])
+        self.assertEqual([e["kind"] for e in events], ["publicado", "referencia", "aprovado", "pedido"])
+        self.assertEqual(events[0]["link"], "https://instagram.com/p/x")
+        self.assertIn("Carelle aprovou “Post A”", events[2]["text"])
+        self.assertIn("2 posts", events[3]["text"])
 
     def test_timeline_survives_missing_source(self):
         async def broken(table, **kw):

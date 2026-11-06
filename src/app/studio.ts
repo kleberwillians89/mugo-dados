@@ -270,7 +270,7 @@ export type ChatChannel = "cliente" | "equipe";
 export type ChatMessage = { id: string; channel: ChatChannel; author_side: "cliente" | "mugo"; author_name: string | null; body: string;
   item_id: string | null; item_title: string | null; created_at: string; mine: boolean };
 export type TimelineEvent = { id: string; at: string; side: "cliente" | "mugo"; kind: string; text: string; detail: string | null; item_id: string | null;
-  actor?: string; title?: string | null; changes?: string[] };
+  actor?: string; title?: string | null; changes?: string[]; link?: string | null };
 export function listChat(channel: ChatChannel) { return http<{ messages: ChatMessage[] }>(base(`/chat/${channel}`)); }
 export function sendChat(channel: ChatChannel, body: string, itemId?: string | null) {
   return http<{ ok: true; message: ChatMessage }>(base(`/chat/${channel}`), { method: "POST", body: JSON.stringify({ body, ...(itemId ? { item_id: itemId } : {}) }) });

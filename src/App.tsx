@@ -41,6 +41,7 @@ const Clipping = lazy(() => import("./pages/Clipping"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
 const BrandAI = lazy(() => import("./pages/BrandAI"));
+const ChatWidget = lazy(() => import("./components/studio/ChatWidget"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
@@ -943,6 +944,7 @@ function PrivateApp() {
       )}
       </Suspense>
       </div>
+      {activeClientId && (session || localMode) ? <Suspense fallback={null}><ChatWidget key={`chat:${activeClientId}`} clientId={activeClientId} team={teamHere} /></Suspense> : null}
       </div>
       </DashboardDataProvider>
       </DataHealthProvider>
