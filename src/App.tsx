@@ -40,6 +40,7 @@ const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
+const BrandAI = lazy(() => import("./pages/BrandAI"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
@@ -881,6 +882,8 @@ function PrivateApp() {
         teamHere ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
+      ) : route === "brand_ai" ? (
+        <BrandAI key={`brand_ai:${activeClientId}`} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "social_report" ? (
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (

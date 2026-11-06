@@ -752,3 +752,17 @@
 .postArtLink summary{cursor:pointer;font-size:13px;color:#004f6e;font-weight:600}
 .postArtLink textarea{margin-top:6px;width:100%}
 .postArtHint{font-size:12px;color:#26734d}
+/* Artes do post em miniatura: tirar e reordenar */
+.artFiles{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.artFile{display:grid;gap:4px;justify-items:center;border:1px solid var(--border,#e6e3dc);border-radius:10px;padding:6px;background:#fff}
+.artFileThumb{position:relative;width:100%;aspect-ratio:4/5;border-radius:7px;overflow:hidden;background:#f2f0eb;display:grid;place-items:center;color:#6b665d}
+.artFileThumb img{width:100%;height:100%;object-fit:cover}
+.artFileThumb i{position:absolute;top:4px;left:4px;font-style:normal;font-size:11px;font-weight:700;background:rgba(20,18,15,.7);color:#fff;border-radius:999px;min-width:18px;height:18px;display:grid;place-items:center;padding:0 5px}
+.artFile small{font-size:11px;color:var(--text-secondary,#6b665d)}
+.artFileActions{display:flex;gap:4px}
+.artFileActions button{all:unset;cursor:pointer;width:24px;height:24px;border-radius:6px;display:grid;place-items:center;border:1px solid #e1ddd5;color:#4a463f;background:#fff}
+.artFileActions button:hover:not(:disabled){background:#f3f1ec}
+.artFileActions button:disabled{opacity:.35;cursor:default}
+.artFileActions button.is-remove{color:#b42318;border-color:#f3c9c3}
+.artFileActions button.is-remove:hover:not(:disabled){background:#fdecea}
+.artFileActions button:focus-visible{outline:2px solid #004f6e;outline-offset:1px}

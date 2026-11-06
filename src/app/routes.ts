@@ -12,6 +12,7 @@ export type AppRoute =
   | "clipping"
   | "engagement"
   | "social_report"
+  | "brand_ai"
   | "campaigns"
   | "creators"
   | "automations"
@@ -44,6 +45,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
+  if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
   if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
@@ -88,6 +90,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";
+  if (route === "brand_ai") return "/ia-da-marca";
   if (route === "campaigns") return "/redacao";
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
