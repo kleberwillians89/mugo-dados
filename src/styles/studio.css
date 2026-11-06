@@ -826,3 +826,11 @@
 .kanbanLast{display:block;font-size:11px;line-height:1.35;color:var(--text-secondary,#6b665d);border-top:1px dashed #ebe8e2;padding-top:4px}
 .kanbanLast b{font-weight:600;color:#3d3a34}
 .kanbanLast.is-cliente b{color:#8a5d00}
+/* Colaboradores do post */
+.collab{display:grid;gap:6px}
+.postArtTitle em.is-muted{background:#f2f0eb;color:#6b665d}
+.collabChips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.collabChips li{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:#eef5f8;color:#004f6e;border-radius:999px;padding:4px 6px 4px 11px}
+.collabChips button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:#004f6e}
+.collabChips button:hover{background:#d5e7ee}
+.collabChips button:focus-visible{outline:2px solid #004f6e}

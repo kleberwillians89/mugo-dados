@@ -41,3 +41,13 @@ class HistoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChangedFieldsTests(unittest.TestCase):
+    def test_only_real_changes(self):
+        before = {"title": "Coxinha", "caption_draft": "Legenda", "art_url": "https://x/a.jpg", "scheduled_at": "2026-11-07T11:00:00+00:00",
+                  "format": "reels", "collaborators": ["m2communityrun"]}
+        same = {"title": "Coxinha ", "caption_draft": "Legenda", "art_url": "https://x/a.jpg", "scheduled_at": "2026-11-07T08:00:00-03:00",
+                "format": "reels", "collaborators": ["@M2communityrun"]}
+        self.assertEqual(h.changed_fields(before, same), {})
+        self.assertEqual(h.describe_patch(h.changed_fields(before, {**same, "caption_draft": "Nova"})), ["editou legenda"])

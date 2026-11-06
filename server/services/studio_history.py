@@ -26,6 +26,28 @@ def _when(value: Any) -> str:
         return ""
 
 
+def _same(key: str, old: Any, new: Any) -> bool:
+    if key == "scheduled_at":
+        try:
+            a = datetime.fromisoformat(str(old).replace("Z", "+00:00"))
+            b = datetime.fromisoformat(str(new).replace("Z", "+00:00"))
+            if b.tzinfo is None:
+                b = b.replace(tzinfo=SAO_PAULO)
+            return a == b
+        except (TypeError, ValueError):
+            return False
+    if key == "collaborators":
+        return [str(x).lower().lstrip("@") for x in (old or [])] == [str(x).lower().lstrip("@") for x in (new or [])]
+    return (str(old).strip() if old is not None else "") == (str(new).strip() if new is not None else "")
+
+
+def changed_fields(before: Optional[Dict[str, Any]], patch: Dict[str, Any]) -> Dict[str, Any]:
+    """Só o que mudou de verdade (a tela manda todos os campos a cada salvar)."""
+    if not before:
+        return dict(patch)
+    return {k: v for k, v in patch.items() if not _same(k, before.get(k), v)}
+
+
 def describe_patch(patch: Dict[str, Any]) -> List[str]:
     """Frases do que mudou numa edição da equipe (uma por tipo de mudança)."""
     out: List[str] = []

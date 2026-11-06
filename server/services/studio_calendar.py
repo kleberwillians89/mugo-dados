@@ -554,7 +554,7 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
 
 
-EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url")
+EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators")
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -575,6 +575,9 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     clean = {k: v for k, v in patch.items() if k in EDITABLE and v is not None}
     if "art_url" in clean:
         clean["art_url"] = clean_art_url(clean["art_url"])
+    if "collaborators" in clean:
+        from .ig_publish import clean_collaborators
+        clean["collaborators"] = clean_collaborators(clean["collaborators"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -652,6 +655,9 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str) -> 
         "status": "rascunho", "origin": "manual", "created_by": user_id,
         "art_url": clean_art_url(data.get("art_url")),
     }
+    if data.get("collaborators"):
+        from .ig_publish import clean_collaborators
+        row["collaborators"] = clean_collaborators(data["collaborators"])
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")

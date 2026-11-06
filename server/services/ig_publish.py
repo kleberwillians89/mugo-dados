@@ -14,10 +14,11 @@ Fluxo: pauta aprovada pelo cliente → equipe clica "Agendar para dd/mm hh:mm" �
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -60,7 +61,26 @@ def _media_fields(asset: Dict[str, str], fmt_is_video: bool) -> Dict[str, str]:
 
 
 def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Plano de publicação ({"type", "fields", "children"}) ou o motivo para ficar manual."""
+    """Plano de publicação ({"type", "fields", "children"}) ou o motivo para ficar manual.
+    Colaboradores (até 3 @) vão no contêiner principal de imagem, Reels e carrossel; Stories não aceitam."""
+    plan, problem = _media_plan(item)
+    collaborators = clean_collaborators(item.get("collaborators"))
+    if plan and collaborators and plan["type"] != "story":
+        plan["fields"]["collaborators"] = json.dumps(collaborators)
+    return plan, problem
+
+
+def clean_collaborators(value: Any) -> List[str]:
+    """@ do Instagram: sem @, minúsculo, letras/números/ponto/sublinhado, até 30 caracteres; no máximo 3, sem repetir."""
+    out: List[str] = []
+    for raw in (value or [])[:10]:
+        user = str(raw or "").strip().lstrip("@").lower()
+        if re.fullmatch(r"[a-z0-9._]{1,30}", user) and user not in out:
+            out.append(user)
+    return out[:3]
+
+
+def _media_plan(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     fmt = str(item.get("format") or "").lower()
     links = [l for l in re.split(r"\s+", str(item.get("art_url") or "")) if l.strip()]
     if not links:
@@ -179,10 +199,14 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
 
 async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
     now = now or datetime.now(timezone.utc)
-    items = await sb_select(ITEMS_TABLE, select="id,client_id,format,art_url,caption_draft,scheduled_at,status,schedule_confirmed_at,publish_status",
-                            order="scheduled_at.asc", limit=MAX_PER_RUN,
-                            filters={"status": "eq.aprovado", "schedule_confirmed_at": "not.is.null", "publish_status": "is.null",
-                                     "scheduled_at": f"lte.{now.isoformat()}"})
+    base = "id,client_id,format,art_url,caption_draft,scheduled_at,status,schedule_confirmed_at,publish_status"
+    query = dict(order="scheduled_at.asc", limit=MAX_PER_RUN,
+                 filters={"status": "eq.aprovado", "schedule_confirmed_at": "not.is.null", "publish_status": "is.null",
+                          "scheduled_at": f"lte.{now.isoformat()}"})
+    try:
+        items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators", **query)
+    except Exception:  # noqa: BLE001 — antes da migração 000080 (sem colaboradores): publica igual
+        items = await sb_select(ITEMS_TABLE, select=base, **query)
     counts: Dict[str, int] = {"due": len(items)}
     cache: Dict[str, Any] = {}
     for item in items:

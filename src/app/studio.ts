@@ -29,6 +29,8 @@ export type CalendarItem = {
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado";
   /** Link da arte (Canva/Google Drive). */
   art_url?: string | null;
+  /** @ dos colaboradores no Instagram (até 3; sem @). */
+  collaborators?: string[];
   /** Equipe validou o agendamento depois da aprovação do cliente. */
   schedule_confirmed_at?: string | null;
   /** Publicação automática no Instagram (job a cada 5 min no horário do post). */
@@ -43,7 +45,7 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators">>;
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };

@@ -8,6 +8,7 @@ import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
 import ItemHistory from "./ItemHistory";
+import Collaborators from "./Collaborators";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
@@ -98,7 +99,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
-          <div><strong>{handle.slice(1)}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
+          <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
         <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}
           style={art && !vertical && ratio ? { aspectRatio: String(ratio) } : undefined}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
@@ -136,6 +137,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+        {canManage && !clientMode ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
+          disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">Arte do post {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}

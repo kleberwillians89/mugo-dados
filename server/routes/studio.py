@@ -122,6 +122,7 @@ class ItemCreate(BaseModel):
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
     art_url: Optional[str] = Field(default=None, max_length=1000)
+    collaborators: Optional[List[str]] = Field(default=None, max_length=3)
 
 
 class ItemPatch(BaseModel):
@@ -136,6 +137,7 @@ class ItemPatch(BaseModel):
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
     art_url: Optional[str] = Field(default=None, max_length=1000)
+    collaborators: Optional[List[str]] = Field(default=None, max_length=3)
 
 
 @router.get("/brand-profile")
@@ -268,11 +270,18 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
             # Cliente: edita texto/data, aprova ou pede ajuste; o time é avisado (tarefa + WhatsApp).
             item = await client_edit(cid, str(item_id), patch, user_id=uid, actor_name="O cliente pelo painel")
             return {"ok": True, "item": item}
+        from services.studio_history import changed_fields
+        try:
+            from services.ig_supabase import sb_select
+            found = await sb_select("studio_calendar_items", select="*", limit=1, filters={"client_id": f"eq.{cid}", "id": f"eq.{item_id}"})
+            before = found[0] if found else None
+        except Exception:  # noqa: BLE001 — sem o estado anterior, o histórico registra o pedido como veio
+            before = None
         item = await update_item(cid, str(item_id), patch, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
     from services.studio_history import describe_patch, record_many
-    await record_many(cid, str(item_id), describe_patch(patch), actor_name=_chat_author(authorization, uid), actor_id=uid)
+    await record_many(cid, str(item_id), describe_patch(changed_fields(before, patch)), actor_name=_chat_author(authorization, uid), actor_id=uid)
     return {"ok": True, "item": item}
 
 
