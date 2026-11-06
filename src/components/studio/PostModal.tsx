@@ -7,6 +7,7 @@ import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
+import ItemHistory from "./ItemHistory";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
@@ -174,6 +175,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {(signals?.fora_da_marca || []).map((g) => <li key={`${g.type}:${g.text}`} className="is-warning">⚠ {g.fix}</li>)}
           </ul>
         </details> : null}
+        {item && canManage && !clientMode ? <ItemHistory itemId={item.id} refreshKey={`${item.updated_at || ""}:${item.status}`} /> : null}
         {item?.boost ? <p className="postBoost">⚡ Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}
         {item?.review_note ? <p className="studioReview">Nota da revisão: {item.review_note}</p> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}

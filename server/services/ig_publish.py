@@ -192,6 +192,11 @@ async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
             await _set(item, {"publish_status": "falhou", "publish_error": exc.code}, expect="publicando")
             result = "falhou"
         counts[result] = counts.get(result, 0) + 1
+        phrase = {"publicado": "publicou no Instagram", "falhou": "não conseguiu publicar", "manual": "deixou para publicar à mão",
+                  "simulado": "simulou a publicação (publicação automática desligada)"}.get(result)
+        if phrase:
+            from .studio_history import record
+            await record(item["client_id"], item["id"], phrase, actor_name="Publicação automática", side="sistema")
     return counts
 
 

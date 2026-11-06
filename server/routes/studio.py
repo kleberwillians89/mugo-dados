@@ -194,9 +194,12 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
     await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
-        return {"ok": True, "item": await create_item(cid, body.model_dump(mode="json"), user_id=uid)}
+        item = await create_item(cid, body.model_dump(mode="json"), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+    from services.studio_history import record
+    await record(cid, (item or {}).get("id"), "criou a pauta", actor_name=_chat_author(authorization, uid), actor_id=uid)
+    return {"ok": True, "item": item}
 
 
 class ImportSlide(BaseModel):
@@ -268,6 +271,8 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
         item = await update_item(cid, str(item_id), patch, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+    from services.studio_history import describe_patch, record_many
+    await record_many(cid, str(item_id), describe_patch(patch), actor_name=_chat_author(authorization, uid), actor_id=uid)
     return {"ok": True, "item": item}
 
 
@@ -279,9 +284,13 @@ async def schedule_item(client_id: str, item_id: UUID, authorization: str | None
     await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
-        return {"ok": True, "item": await confirm_schedule(cid, str(item_id), user_id=uid)}
+        item = await confirm_schedule(cid, str(item_id), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+    from services.studio_history import _when, record
+    await record(cid, str(item_id), f"agendou a publicação para {_when((item or {}).get('scheduled_at'))}".strip(),
+                 actor_name=_chat_author(authorization, uid), actor_id=uid)
+    return {"ok": True, "item": item}
 
 
 @router.post("/calendar/items/{item_id}/publish/retry")
@@ -291,9 +300,13 @@ async def publish_retry(client_id: str, item_id: UUID, authorization: str | None
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     await _agency_only(authorization)
     try:
-        return {"ok": True, "item": await retry(cid, str(item_id))}
+        item = await retry(cid, str(item_id))
     except StudioError as exc:
         raise _http(exc) from None
+    from services.studio_history import record
+    uid = await require_user_id(authorization)
+    await record(cid, str(item_id), "colocou de novo na fila de publicação", actor_name=_chat_author(authorization, uid), actor_id=uid)
+    return {"ok": True, "item": item}
 
 
 class ArtUploadInput(BaseModel):
@@ -626,6 +639,10 @@ async def send_for_approval(client_id: str, body: ApprovalInput, authorization: 
                                        app_origin=_frontend_base_url(), contact_id=str(body.contact_id) if body.contact_id else None)
     except StudioError as exc:
         raise _http(exc) from None
+    from services.studio_history import record
+    who = _chat_author(authorization, uid)
+    for iid in body.item_ids:
+        await record(cid, str(iid), f"enviou para aprovação do cliente{f' ({name})' if name else ''}", actor_name=who, actor_id=uid)
     if body.send_whatsapp and body.contact_id:
         # O link já existe; falha no WhatsApp não desfaz o pedido, só volta como aviso.
         try:
@@ -1305,3 +1322,23 @@ async def read_publisher(client_id: str, authorization: str | None = Header(defa
     row = next((r for r in rows if r.get("status") == "active" and r.get("business_id")), None) or next((r for r in rows if r.get("business_id")), None)
     page = str((row or {}).get("business_id") or "")
     return {"url": publisher_url(page), "page_id": page or None, "username": (row or {}).get("username")}
+
+
+# ---------------------------------------------------------------- histórico de cada pauta (kanban interno)
+
+@router.get("/calendar/items/{item_id}/history")
+async def read_item_history(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Quem fez o quê nesta pauta (só a equipe Mugô)."""
+    from services.studio_history import list_item
+    cid = await require_client_read(client_id, authorization)
+    await _agency_only(authorization)
+    return {"events": await list_item(cid, str(item_id))}
+
+
+@router.get("/calendar/history/latest")
+async def read_latest_history(client_id: str, authorization: str | None = Header(default=None)):
+    """Último acontecimento de cada pauta, para o cartão do kanban (só a equipe Mugô)."""
+    from services.studio_history import latest_by_item
+    cid = await require_client_read(client_id, authorization)
+    await _agency_only(authorization)
+    return {"latest": await latest_by_item(cid)}

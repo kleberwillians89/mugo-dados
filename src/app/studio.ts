@@ -306,3 +306,9 @@ export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto 
 
 /** Link do Meta Business Suite já na Página desta marca. */
 export function getPublisher() { return http<{ url: string; page_id: string | null; username: string | null }>(base("/publisher")); }
+
+// ---------------------------------------------------------------- histórico de cada pauta (só equipe)
+export type ItemEvent = { id: string; action: string; actor_name: string | null; actor_side: "mugo" | "cliente" | "sistema"; detail: string | null; created_at: string };
+export type LatestEvent = { item_id: string; action: string; actor_name: string | null; actor_side: ItemEvent["actor_side"]; created_at: string };
+export function getItemHistory(itemId: string) { return http<{ events: ItemEvent[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/history`)); }
+export function getLatestHistory() { return http<{ latest: Record<string, LatestEvent> }>(base("/calendar/history/latest")); }

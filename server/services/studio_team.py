@@ -59,6 +59,10 @@ async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, acto
                                          for k, v in edits.items()}} if edits else {})},
                "status": "pendente", "attempts": 0}
         await sb_insert(EVENTS, row)
+        from .studio_history import record
+        phrase = {"aprovado": "aprovou", "ajuste_solicitado": "pediu ajuste", "comentario": "comentou",
+                  "editado_pelo_cliente": "editou " + ", ".join(row["payload"]["changes"]) if row["payload"]["changes"] else "editou o post"}[action]
+        await record(client_id, row["item_id"], phrase, actor_name=row["actor_name"], side="cliente", detail=comment)
         await _send(row)
         return row["id"]
     except Exception as exc:  # noqa: BLE001 — aviso é complemento; nunca derruba a ação do cliente
