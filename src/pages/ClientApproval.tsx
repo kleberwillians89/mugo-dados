@@ -46,7 +46,7 @@ export default function ClientApproval({ token }: { token: string }) {
         <h3>{item.title}</h3>
         {item.hook ? <p className="studioHook">“{item.hook}”</p> : null}
         {item.caption_draft ? <p className="studioCaption">{item.caption_draft}</p> : null}
-        {artSlides(item.art_url).length ? <div className="approvalArt"><ArtCarousel images={artSlides(item.art_url)} /></div> : null}
+        {artSlides(item.art_url).length ? <ApprovalArt vertical={["reels", "stories", "video"].includes(item.format)} slides={artSlides(item.art_url)} /> : null}
         <ArtLink url={artList(item.art_url)[0] || null} preview={!artSlides(item.art_url).length} count={artList(item.art_url).length} />
         {item.comment ? <p className="studioReview">Seu comentário: {item.comment}</p> : null}
         {adjusting?.id === item.id ? <form className="studioForm" onSubmit={(e) => { e.preventDefault(); void decide(item, "ajuste_solicitado", adjusting.comment); }}>
@@ -60,4 +60,12 @@ export default function ClientApproval({ token }: { token: string }) {
     })}</div>
     <p className="approvalFoot">Link válido até {new Date(data.expires_at).toLocaleDateString("pt-BR")}. Nada é publicado sem a sua aprovação.</p>
   </main>;
+}
+
+/** Arte no formato em que vai ao ar: 9:16 em Reels/Stories; no feed, a proporção do 1º slide (4:5 a 1,91:1). */
+function ApprovalArt({ vertical, slides }: { vertical: boolean; slides: string[] }) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  return <div className={`approvalArt${vertical ? " is-vertical" : ""}`} style={!vertical && ratio ? { aspectRatio: String(ratio) } : undefined}>
+    <ArtCarousel images={slides} onRatio={vertical ? undefined : setRatio} />
+  </div>;
 }

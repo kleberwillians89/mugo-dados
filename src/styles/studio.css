@@ -804,3 +804,10 @@
 .igCoverWarn{display:grid;gap:6px;font-size:16px}
 .igCoverWarn small{font-size:13px;font-weight:400;opacity:.9}
 .postArtWarn{margin:0;font-size:12.5px;line-height:1.45;background:#fff4dc;color:#5c4200;border-radius:10px;padding:8px 10px}
+/* Reels/Stories fiéis ao Instagram: moldura 9:16 de verdade (a largura acompanha a altura máxima) e mídia preenchendo a tela */
+.igMedia.is-vertical{width:min(100%,calc(62vh * 9 / 16))}
+.igMedia.is-vertical .artTrack img,.igMedia.is-vertical .artTrack video,.approvalArt.is-vertical .artTrack img,.approvalArt.is-vertical .artTrack video{object-fit:cover}
+.approvalArt.is-vertical{aspect-ratio:9/16;max-width:320px}
+@media (max-width:860px){.igMedia.is-vertical{width:72%;max-height:none}}
+/* Feed: a moldura segue a proporção do 1º slide e os demais são cortados nela (como no Instagram) */
+.igMedia.has-art:not(.is-vertical) .artTrack img,.igMedia.has-art:not(.is-vertical) .artTrack video,.approvalArt:not(.is-vertical) .artTrack img,.approvalArt:not(.is-vertical) .artTrack video{object-fit:cover}

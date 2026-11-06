@@ -2,7 +2,13 @@ import { useRef, useState } from "react";
 import { isArtVideo } from "../../app/artLinks";
 
 /** Carrossel como no Instagram: um slide por vez, setas, bolinhas e deslize no celular. */
-export default function ArtCarousel({ images, onBroken }: { images: string[]; onBroken?: () => void }) {
+/** Instagram no feed: a proporção do 1º slide vale para todos, entre 4:5 (em pé) e 1,91:1 (deitado). */
+export function feedRatio(width: number, height: number): number {
+  if (!width || !height) return 4 / 5;
+  return Math.min(1.91, Math.max(4 / 5, width / height));
+}
+
+export default function ArtCarousel({ images, onBroken, onRatio }: { images: string[]; onBroken?: () => void; onRatio?: (ratio: number) => void }) {
   const track = useRef<HTMLDivElement | null>(null);
   const [index, setIndex] = useState(0);
   const go = (i: number) => {
@@ -19,9 +25,11 @@ export default function ArtCarousel({ images, onBroken }: { images: string[]; on
     }}>
       {images.map((src, i) => isArtVideo(src)
         ? <video key={src + i} src={src} controls muted playsInline loop preload="metadata" aria-label={`Vídeo, slide ${i + 1} de ${images.length}`}
-            onError={i === 0 ? onBroken : undefined} />
+            onError={i === 0 ? onBroken : undefined}
+            onLoadedMetadata={i === 0 && onRatio ? (e) => onRatio(feedRatio(e.currentTarget.videoWidth, e.currentTarget.videoHeight)) : undefined} />
         : <img key={src + i} src={src} alt={`Slide ${i + 1} de ${images.length}`} loading={i < 2 ? "eager" : "lazy"}
-            onError={i === 0 ? onBroken : undefined} draggable={false} />)}
+            onError={i === 0 ? onBroken : undefined} draggable={false}
+            onLoad={i === 0 && onRatio ? (e) => onRatio(feedRatio(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)) : undefined} />)}
     </div>
     {images.length > 1 ? <>
       {index > 0 ? <button type="button" className="artNav is-prev" aria-label="Slide anterior" onClick={() => go(index - 1)}>‹</button> : null}
