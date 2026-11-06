@@ -623,19 +623,31 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     return rows[0]
 
 
-async def confirm_schedule(client_id: str, item_id: str, *, user_id: str) -> Dict[str, Any]:
-    """Equipe valida o agendamento de um post que o cliente aprovou, na data/horário sugeridos (ou ajustados)."""
-    rows = await sb_select(ITEMS_TABLE, select="id,status,scheduled_at", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: bool = False) -> Dict[str, Any]:
+    """Equipe valida o agendamento de um post que o cliente aprovou, na data/horário sugeridos (ou ajustados).
+    now=True: publica agora (o horário vira agora e o job dos próximos 5 min publica).
+    Antes de agendar, confere se a arte publica sozinha (link do Canva, pasta do Drive, formato x arte)."""
+    rows = await sb_select(ITEMS_TABLE, select="*", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
     item = rows[0]
     if item.get("status") != "aprovado":
         raise StudioError("SCHEDULE_NEEDS_APPROVAL")
-    when = datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00"))
-    if when <= datetime.now(timezone.utc):
-        raise StudioError("SCHEDULE_IN_PAST")
+    from .ig_publish import media_for
+    _plan, problem = media_for(item)
+    if problem:
+        raise StudioError("SCHEDULE_ART_INVALID", problem)
+    patch: Dict[str, Any] = {"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id}
+    if now:
+        moment = datetime.now(timezone.utc)
+        patch["scheduled_at"] = moment.isoformat()
+        patch["month"] = moment.astimezone(SAO_PAULO).date().replace(day=1).isoformat()
+    else:
+        when = datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00"))
+        if when <= datetime.now(timezone.utc):
+            raise StudioError("SCHEDULE_IN_PAST")
     updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "status": "eq.aprovado"},
-                              patch={"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id})
+                              patch=patch)
     if not updated:
         raise StudioError("SCHEDULE_NEEDS_APPROVAL")
     return updated[0]

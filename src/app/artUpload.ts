@@ -39,3 +39,17 @@ export async function storageError(response: Response, file: File, isVideo: bool
   if (response.status === 413 || /size|large|exceed/i.test(detail)) return `Arquivo de ${mb} MB passou do limite do armazenamento. Reduza o vídeo ou aumente o limite do bucket no Supabase.`;
   return `O envio do arquivo falhou (${response.status}${detail ? `: ${detail}` : ""}).`;
 }
+
+/** Traz a arte de um link do Drive (arquivo) ou do Canva para o Storage: vira arquivo de verdade (prévia e publicação). */
+export async function importArt(itemId: string | null, url: string): Promise<{ public_url: string; content_type: string; note: string | null }> {
+  return http(clientClientPath("/studio/calendar/art/import"), { method: "POST", body: JSON.stringify({ url: url.trim(), ...(itemId ? { item_id: itemId } : {}) }), timeoutMs: 180_000 });
+}
+
+/** Link que dá para trazer (Drive ou Canva), e que ainda não é arquivo do nosso Storage. */
+export function canImport(url: string): boolean {
+  if (url.includes("/storage/v1/object/public/")) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "drive.google.com" || host === "docs.google.com" || host === "canva.link" || host === "canva.com" || host.endsWith(".canva.com");
+  } catch { return false; }
+}

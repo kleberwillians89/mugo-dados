@@ -285,19 +285,27 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     return {"ok": True, "item": item}
 
 
+class ScheduleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    now: bool = False
+
+
 @router.post("/calendar/items/{item_id}/schedule")
-async def schedule_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
-    """Depois da aprovação do cliente, a equipe valida o agendamento na data e horário do post."""
+async def schedule_item(client_id: str, item_id: UUID, body: Optional[ScheduleInput] = None, authorization: str | None = Header(default=None)):
+    """Depois da aprovação do cliente, a equipe valida o agendamento na data e horário do post (ou publica agora)."""
     from services.studio_calendar import confirm_schedule
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     await _agency_only(authorization)
     uid = await require_user_id(authorization)
+    now = bool(body and body.now)
     try:
-        item = await confirm_schedule(cid, str(item_id), user_id=uid)
+        item = await confirm_schedule(cid, str(item_id), user_id=uid, now=now)
     except StudioError as exc:
+        if exc.code == "SCHEDULE_ART_INVALID":
+            raise HTTPException(status_code=422, detail=f"Não dá para publicar sozinho: {exc}") from None
         raise _http(exc) from None
     from services.studio_history import _when, record
-    await record(cid, str(item_id), f"agendou a publicação para {_when((item or {}).get('scheduled_at'))}".strip(),
+    await record(cid, str(item_id), "pediu para publicar agora" if now else f"agendou a publicação para {_when((item or {}).get('scheduled_at'))}".strip(),
                  actor_name=_chat_author(authorization, uid), actor_id=uid)
     return {"ok": True, "item": item}
 
@@ -331,6 +339,33 @@ async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorizat
     await _agency_only(authorization)
     try:
         return await upload_target(cid, "", body.content_type)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+ERRORS.update({
+    "ART_LINK_INVALID": (422, "Cole um link de arquivo do Google Drive ou um link de visualização do Canva."),
+    "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
+    "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
+    "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
+    "ART_LINK_TOO_LARGE": (413, "Arquivo maior que 200 MB."),
+})
+
+
+class ArtImportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=12, max_length=1000)
+    item_id: Optional[UUID] = None
+
+
+@router.post("/calendar/art/import")
+async def import_art_from_link(client_id: str, body: ArtImportInput, authorization: str | None = Header(default=None)):
+    """Traz a arte de um link do Drive/Canva para o Storage: aparece na prévia, na aprovação e publica sozinho."""
+    from services.studio_art_import import import_art
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await import_art(cid, body.url, str(body.item_id) if body.item_id else None)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1001,7 +1036,7 @@ ERRORS.update({
     "STORAGE_NOT_CONFIGURED": (503, "Armazenamento de arquivos não configurado no servidor."),
     "STORAGE_UPLOAD_FAILED": (502, "Não foi possível preparar o envio do arquivo. Tente de novo."),
     "SCHEDULE_NEEDS_APPROVAL": (409, "Só dá para agendar um post aprovado pelo cliente."),
-    "SCHEDULE_IN_PAST": (409, "A data do post já passou. Ajuste a data e o horário antes de agendar."),
+    "SCHEDULE_IN_PAST": (409, "O horário do post já passou. Clique em Publicar agora ou ajuste a data e o horário."),
     "REPLY_EMPTY": (422, "Escreva a resposta."),
 })
 

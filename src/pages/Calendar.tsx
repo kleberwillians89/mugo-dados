@@ -316,8 +316,8 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
       publisherUrl={publisherUrl || undefined}
       onSendForApproval={team && modal.item ? () => { const id = modal.item!.id; setModal(null); openSend([id]); } : undefined}
-      onConfirmSchedule={team && modal.item ? async () => {
-        const out = await run("schedule", () => confirmSchedule(modal.item!.id), "Não foi possível agendar.");
+      onConfirmSchedule={team && modal.item ? async (now?: boolean) => {
+        const out = await run("schedule", () => confirmSchedule(modal.item!.id, Boolean(now)), now ? "Não foi possível publicar agora." : "Não foi possível agendar.");
         if (out) { replace(out.item); setModal((m) => m && { ...m, item: out.item }); }
       } : undefined}
       onRetryPublish={team && modal.item ? async () => {

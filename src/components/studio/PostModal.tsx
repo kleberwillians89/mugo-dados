@@ -1,4 +1,4 @@
-import { uploadArt } from "../../app/artUpload";
+import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
@@ -33,7 +33,7 @@ type Props = {
   /** Equipe: abre o envio ao cliente já com esta pauta (link de aprovação + WhatsApp oficial). */
   onSendForApproval?: () => void;
   /** Equipe: valida o agendamento de um post aprovado, na data e horário do post. */
-  onConfirmSchedule?: () => Promise<void>;
+  onConfirmSchedule?: (now?: boolean) => Promise<void>;
   /** Equipe: depois de corrigir o link da arte, devolve a pauta para a fila de publicação. */
   onRetryPublish?: () => Promise<void>;
   /** Business Suite já na Página desta marca (vem da conexão do Instagram). */
@@ -45,6 +45,9 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
+  const [linkInput, setLinkInput] = useState("");
+  const [importing, setImporting] = useState<number | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -71,6 +74,23 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
   const signals = item?.signals;
   const set = (patch: Partial<PostDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  /** Traz a arte de um link do Drive/Canva. index = troca o link existente nessa posição; sem index = acrescenta no fim. */
+  async function bringFromLink(url: string, index?: number) {
+    if (!url.trim() || uploading || importing !== null) return;
+    setUploadError(null); setImportNote(null); setImporting(index ?? -1);
+    try {
+      const out = await importArt(item?.id || null, url);
+      setDraft((d) => {
+        const list = artList(d.art_url);
+        if (index !== undefined && index >= 0 && index < list.length) list[index] = out.public_url; else list.push(out.public_url);
+        return { ...d, art_url: list.slice(0, 12).join("\n") };
+      });
+      if (index === undefined) setLinkInput("");
+      setImportNote(out.note);
+    } catch (cause) { setUploadError(cause instanceof Error ? cause.message : "Não foi possível trazer a arte do link."); }
+    finally { setImporting(null); }
+  }
+
   /** Sobe a arte (antes ou depois de a pauta existir) e acrescenta os links na ordem dos slides. */
   async function sendArt(files: File[]) {
     if (!files.length || uploading) return;
@@ -150,11 +170,19 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
               const files = Array.from(e.target.files || []); e.target.value = ""; void sendArt(files);
             }} />
           </label>
+          <div className="postArtFromLink">
+            <input type="url" value={linkInput} placeholder="ou cole o link do Google Drive (arquivo) ou do Canva" aria-label="Link da arte no Drive ou Canva"
+              onChange={(e) => setLinkInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void bringFromLink(linkInput); } }} />
+            <button type="button" className="ds-button is-primary" disabled={!linkInput.trim() || importing !== null || Boolean(uploading) || busy}
+              onClick={() => void bringFromLink(linkInput)}>{importing === -1 ? "Trazendo…" : "Trazer arte"}</button>
+          </div>
           {uploadError ? <small className="studioError">{uploadError}</small> : null}
-          <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy} onChange={(art_url) => set({ art_url })} />
-          {artList(draft.art_url).length && item ? <small className="postArtHint">Tirou ou mudou a ordem? Clique em <b>Salvar</b> para valer.</small> : null}
+          {importNote ? <small className="postArtHint">{importNote}</small> : null}
+          <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy || importing !== null} onChange={(art_url) => set({ art_url })}
+            onImport={(url, i) => void bringFromLink(url, i)} importing={importing} />
+          {item && (draft.art_url || "") !== (initial.art_url || "") ? <small className="postArtHint is-pending">A arte mudou. Clique em <b>Salvar alterações</b>, aqui embaixo, para valer.</small> : null}
           <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
-            <summary>ou colar link do Canva / Google Drive</summary>
+            <summary>editar os links à mão</summary>
             <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
               value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} aria-label="Link da arte" />
           </details>
@@ -203,19 +231,26 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           </>}
           {dirty ? <button type="button" className="ds-button" disabled={busy} onClick={() => setDraft(initial)}>Descartar</button> : null}
         </div> : null}
+        {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? <p className="postPublishWarn">
+          Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p> : null}
+        {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
+          Marcado como publicado à mão: o Mugoverso não enviou este post ao Instagram.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
             {onSendForApproval && ["rascunho", "em_revisao", "rejeitado"].includes(item.status) ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={onSendForApproval}>Enviar para o cliente aprovar</button> : null}
-            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule()}>
+            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at && new Date(item.scheduled_at).getTime() > Date.now() ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule(false)}>
               Agendar para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button> : null}
+            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
+              onClick={() => { if (window.confirm("Publicar agora no Instagram? O post sai em até 5 minutos.")) void onConfirmSchedule(true); }}>Publicar agora</button> : null}
             {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: publica sozinho no Instagram</span> : null}
             {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
             {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
             {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
             {onRetryPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
-            {item.status === "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("publicado")}>Marcar como publicado</button> : null}
+            {item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="studioLink" disabled={busy}
+              onClick={() => { if (window.confirm("Isso NÃO publica no Instagram: só marca no Mugoverso que você já publicou à mão. Continuar?")) void onStatus("publicado"); }}>Já publiquei à mão</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
             {item.status !== "rejeitado" && item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}
             {item.status === "aprovado" || item.status === "rejeitado" || item.status === "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("rascunho")}>Reabrir</button> : null}
