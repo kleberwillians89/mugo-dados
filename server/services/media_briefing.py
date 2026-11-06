@@ -51,7 +51,7 @@ async def parse_briefing(client_id: str, text: str, *, month: date, campaigns: L
         "new_campaigns": arr(obj({"channel": {"type": "string", "enum": list(channels)}, "name": STR, "purpose": STR})),
     })
     last = calendar.monthrange(month.year, month.month)[1]
-    data = await llm_json(
+    data = await llm_json(client_id=client_id, 
         instructions=("Você interpreta o briefing de mídia paga do mês escrito pela equipe da agência e extrai SÓ o que está "
                       "explícito. Não invente datas, campanhas ou valores."),
         prompt=(f"MÊS: {month.strftime('%Y-%m')} (dias 1 a {last})\nCANAIS: {channels}\nCAMPANHAS DA CONTA: {names}\n\n"

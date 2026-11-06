@@ -950,7 +950,7 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
         "campaign_notes": arr(obj({"campaign": {"type": "string", "enum": names or ["-"]}, "note": STR})),
         "creative_guidance": arr(STR), "risks": arr(STR), "next_7_days": arr(STR),
     })
-    data = await llm_json(
+    data = await llm_json(client_id=client_id, 
         instructions=("Você é o head de mídia paga da agência. Escreve a estratégia do mês para o cliente com base EXCLUSIVA nos números "
                       "calculados. Cite números concretos (verba, ROAS, CPA, variações). Não invente métricas, campanhas, públicos ou "
                       "resultados. Português do Brasil, frases curtas, tom de consultoria."),

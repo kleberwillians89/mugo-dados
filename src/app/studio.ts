@@ -29,6 +29,8 @@ export type CalendarItem = {
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado";
   /** Link da arte (Canva/Google Drive). */
   art_url?: string | null;
+  /** @ dos colaboradores no Instagram (até 3; sem @). */
+  collaborators?: string[];
   /** Equipe validou o agendamento depois da aprovação do cliente. */
   schedule_confirmed_at?: string | null;
   /** Publicação automática no Instagram (job a cada 5 min no horário do post). */
@@ -43,7 +45,7 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators">>;
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
@@ -306,3 +308,9 @@ export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto 
 
 /** Link do Meta Business Suite já na Página desta marca. */
 export function getPublisher() { return http<{ url: string; page_id: string | null; username: string | null }>(base("/publisher")); }
+
+// ---------------------------------------------------------------- histórico de cada pauta (só equipe)
+export type ItemEvent = { id: string; action: string; actor_name: string | null; actor_side: "mugo" | "cliente" | "sistema"; detail: string | null; created_at: string };
+export type LatestEvent = { item_id: string; action: string; actor_name: string | null; actor_side: ItemEvent["actor_side"]; created_at: string };
+export function getItemHistory(itemId: string) { return http<{ events: ItemEvent[] }>(base(`/calendar/items/${encodeURIComponent(itemId)}/history`)); }
+export function getLatestHistory() { return http<{ latest: Record<string, LatestEvent> }>(base("/calendar/history/latest")); }

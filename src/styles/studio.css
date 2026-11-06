@@ -811,3 +811,26 @@
 @media (max-width:860px){.igMedia.is-vertical{width:72%;max-height:none}}
 /* Feed: a moldura segue a proporção do 1º slide e os demais são cortados nela (como no Instagram) */
 .igMedia.has-art:not(.is-vertical) .artTrack img,.igMedia.has-art:not(.is-vertical) .artTrack video,.approvalArt:not(.is-vertical) .artTrack img,.approvalArt:not(.is-vertical) .artTrack video{object-fit:cover}
+
+/* Histórico da pauta (quem fez o quê) */
+.postHistory{border:1px solid var(--border,#e6e3dc);border-radius:12px;padding:8px 12px}
+.postHistory summary{cursor:pointer;font-weight:600;font-size:14px}
+.postHistory summary span{font-weight:600;font-size:11.5px;background:#eef5f8;color:#004f6e;border-radius:999px;padding:1px 8px;margin-left:6px}
+.itemHistory{list-style:none;margin:10px 0 2px;padding:0;display:grid;gap:10px}
+.itemHistory li{display:grid;grid-template-columns:26px minmax(0,1fr);gap:9px;font-size:13.5px;line-height:1.4}
+.itemHistoryWho{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:#004f6e}
+.itemHistory li.is-cliente .itemHistoryWho{background:#c98a00}
+.itemHistory li.is-sistema .itemHistoryWho{background:#6b665d}
+.itemHistory small{margin-left:6px;font-size:11.5px;color:var(--text-secondary,#6b665d)}
+.itemHistory q{display:block;margin-top:3px;font-size:12.5px;color:#5f5b53;quotes:"“" "”"}
+.kanbanLast{display:block;font-size:11px;line-height:1.35;color:var(--text-secondary,#6b665d);border-top:1px dashed #ebe8e2;padding-top:4px}
+.kanbanLast b{font-weight:600;color:#3d3a34}
+.kanbanLast.is-cliente b{color:#8a5d00}
+/* Colaboradores do post */
+.collab{display:grid;gap:6px}
+.postArtTitle em.is-muted{background:#f2f0eb;color:#6b665d}
+.collabChips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.collabChips li{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:#eef5f8;color:#004f6e;border-radius:999px;padding:4px 6px 4px 11px}
+.collabChips button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:#004f6e}
+.collabChips button:hover{background:#d5e7ee}
+.collabChips button:focus-visible{outline:2px solid #004f6e}

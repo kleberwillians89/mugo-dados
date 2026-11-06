@@ -108,7 +108,7 @@ async def assist(client_id: str, action: str, item: Dict[str, Any], *, instructi
            f"{json.dumps(refs, ensure_ascii=False)}\n" if refs else "")
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}"
     )
-    data = await llm_json(instructions=ROLE, prompt=prompt, schema_name=f"studio_{action}",
+    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_{action}",
                           schema=ASSIST_SCHEMAS[action], temperature=0.8 if action in ("variacoes", "ganchos") else 0.6)
     data = _clean_assist(action, data)
     from .brand_guard import check as brand_check, flatten
@@ -180,7 +180,7 @@ async def strategy_chat(client_id: str, month: str, messages: List[Dict[str, str
         f"DADOS DA MARCA:\n{to_prompt(intel)}\n\n"
         f"CONVERSA (responda à última mensagem):\n{json.dumps(history, ensure_ascii=False)}"
     )
-    data = await llm_json(
+    data = await llm_json(client_id=client_id, 
         instructions=("Você é o Head de Estratégia de conteúdo da agência. Direto, específico e provocativo quando ajudar. "
                       "Use os números e aprendizados dos DADOS para justificar; se um dado faltar, diga qual. "
                       "Responda em Markdown curto (até 12 linhas). Em suggested_actions, até 3 próximos passos objetivos."),

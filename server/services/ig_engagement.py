@@ -367,7 +367,7 @@ async def _ai_answer(client_id: str, comment: Dict[str, Any]) -> Dict[str, Any]:
     schema = obj({"reply": STR, "needs_human": {"type": "boolean"}, "reason": STR})
     tone_rule = (f"TOM DAS RESPOSTAS DESTA MARCA (definido pela equipe; vale ACIMA do tom das legendas e do perfil): {reply_tone}\n"
                  if reply_tone else "")
-    data = await llm_json(
+    data = await llm_json(client_id=client_id, 
         instructions=REPLY_STYLE,
         prompt=(tone_rule + f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
                 f"NEGÓCIO: {context}\n"

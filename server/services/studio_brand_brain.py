@@ -231,7 +231,7 @@ def source_counts(sources: Dict[str, Any]) -> Dict[str, int]:
 async def suggest(client_id: str) -> Dict[str, Any]:
     sources = await gather_sources(client_id)
     current = (await load_profile(client_id))["profile"]
-    data = await llm_json(instructions=INSTRUCTIONS, prompt=build_prompt(sources, current), schema_name="studio_brand_profile_v2",
+    data = await llm_json(client_id=client_id, instructions=INSTRUCTIONS, prompt=build_prompt(sources, current), schema_name="studio_brand_profile_v2",
                           schema=SCHEMA, temperature=0.3, timeout=150, model=profile_model(), images=sources["images"])
     reasons = [{"campo": clean_text(r.get("campo"), 60), "motivo": clean_text(r.get("motivo"), 300)}
                for r in (data.pop("reasons", None) or []) if isinstance(r, dict) and clean_text(r.get("motivo"), 300)][:14]

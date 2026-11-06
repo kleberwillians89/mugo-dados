@@ -377,7 +377,7 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
         lines.append(f"Briefing da campanha: {brief[:1000]}")
     lines.append(f"Tipo de campanha: {'UGC (conteúdo para a marca usar)' if campaign_type == 'ugc' else 'influência (alcance na audiência do criador)'}")
     lines.append(f"Indique {count * 2} perfis do Instagram.")
-    data = await llm_json(instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
+    data = await llm_json(client_id=client_id, instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
                           schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.3, timeout=60)
 
     connection = await get_active_connection_for_client(client_id) or {}

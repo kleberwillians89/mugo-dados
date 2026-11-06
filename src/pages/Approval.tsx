@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type DragEvent, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
+  getLatestHistory, type LatestEvent,
   MESSAGE_KINDS, RECEIVES, STAGES, STAGE_STATUS, STUDIO_FORMATS, cancelApproval, createContact, deleteContact, getPipeline,
   listApprovals, listContacts, listMessages, localParts, previewMessage, sendMessage, updateCalendarItem, updateContact,
   type ApprovalRequest, type ClientContact, type ContactInput, type MessageKind, type MessageLog, type MessagePreview,
@@ -13,6 +14,7 @@ import ClientTasks from "../components/studio/ClientTasks";
 import CrmConversations from "../components/studio/CrmConversations";
 import BrandReferences from "../components/studio/BrandReferences";
 import { navigateToAppRoute } from "../app/routes";
+import { ago } from "../app/ago";
 import "../styles/studio.css";
 
 type Tab = "funil" | "referencias" | "pedidos" | "contatos" | "mensagens";
@@ -58,12 +60,15 @@ export default function Approval({ canManage, isAgency = false, embedded = false
   const [result, setResult] = useState<MessageResult | null>(null);
   // Mover no funil, mandar mensagem e cuidar dos links é da equipe Mugô; o cliente aprova/ajusta no Calendário.
   const team = canManage && isAgency;
+  const [latest, setLatest] = useState<Record<string, LatestEvent>>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [pipe, reqs, cts, msgs] = await Promise.all([getPipeline(month), listApprovals(), listContacts(), listMessages()]);
+      const [pipe, reqs, cts, msgs, hist] = await Promise.all([getPipeline(month), listApprovals(), listContacts(), listMessages(),
+        team ? getLatestHistory().catch(() => null) : Promise.resolve(null)]);
       if (getActiveClientId() !== clientId) return;
+      setLatest(hist?.latest || {});
       setItems(pipe.items || []); setRequests(reqs.requests || []); setContacts(cts.contacts || []);
       setChannel(cts.whatsapp_channel); setMissing(cts.whatsapp_missing || []); setMessages(msgs.messages || []);
     } catch (cause) { setError(message(cause, "Não foi possível carregar a aprovação.")); }
@@ -161,6 +166,8 @@ export default function Approval({ canManage, isAgency = false, embedded = false
             {item.client_feedback?.comment ? <p className="kanbanNote">“{item.client_feedback.comment}” — {item.client_feedback.reviewer_name || "cliente"}</p> : null}
             {item.stage === "ajuste" && !item.client_feedback?.comment && item.review_note ? <p className="kanbanNote">{item.review_note}</p> : null}
             {item.request ? <small>Enviado {dateTime(item.request.sent_at)}{item.request.contact_name ? ` para ${item.request.contact_name}` : ""}</small> : null}
+            {team && latest[item.id] ? <small className={`kanbanLast is-${latest[item.id].actor_side}`} title={new Date(latest[item.id].created_at).toLocaleString("pt-BR")}>
+              <b>{latest[item.id].actor_name || "Equipe"}</b> {latest[item.id].action} · {ago(latest[item.id].created_at)}</small> : null}
             {team ? <select aria-label="Mover para" value={item.stage} onChange={(e) => void moveTo(item, e.target.value as Stage)}>
               {(Object.keys(STAGES) as Stage[]).map((s) => <option key={s} value={s} disabled={s === "com_cliente" && item.stage !== "com_cliente"}>{STAGES[s]}</option>)}</select> : null}
           </article>;
