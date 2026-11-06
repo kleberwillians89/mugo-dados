@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
+  CONTENT_LANGUAGES, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
@@ -229,7 +229,8 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   function reviewPending() {
     if (!pending) return;
     const { profile: suggested, ...rest } = pending.suggestion;
-    setProfile({ ...suggested, custom_dates: profile?.custom_dates || suggested.custom_dates || [] });
+    setProfile({ ...suggested, custom_dates: profile?.custom_dates || suggested.custom_dates || [],
+      content_language: profile?.content_language || suggested.content_language });
     setSuggestion({ ...rest, pendingId: pending.id });
     setPending(null);
   }
@@ -242,7 +243,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
 
   async function suggestProfile() {
     const result = await run("suggest", () => suggestBrandProfile(), "Não foi possível sugerir o perfil.");
-    if (result) { const { profile: suggested, ...rest } = result; setProfile(suggested); setSuggestion(rest); }
+    if (result) { const { profile: suggested, ...rest } = result; setProfile((p) => ({ ...suggested, content_language: p?.content_language || suggested.content_language })); setSuggestion(rest); }
   }
 
   async function ask(event: FormEvent) {
@@ -405,6 +406,13 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
             <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul>
             <p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
         </div>
+        <label>Idioma das publicações e das respostas de comentário
+          <select value={profile.content_language || "pt-BR"} onChange={(e) => setProfile({ ...profile, content_language: e.target.value as ContentLanguage })}>
+            {Object.entries(CONTENT_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+          {profile.content_language && profile.content_language !== "pt-BR"
+            ? <small className="libHint">Legendas, roteiros, hashtags e respostas saem em {CONTENT_LANGUAGES[profile.content_language].toLowerCase()}. Pautas e justificativas continuam em português para a equipe.</small> : null}
+        </label>
         <label>Tom de voz<textarea rows={3} maxLength={1000} value={profile.tone_of_voice} onChange={(e) => setProfile({ ...profile, tone_of_voice: e.target.value })} /></label>
         <label>Personalidade<input maxLength={500} value={profile.personality} onChange={(e) => setProfile({ ...profile, personality: e.target.value })} /></label>
         <label>Público<textarea rows={2} maxLength={1000} value={profile.audience} onChange={(e) => setProfile({ ...profile, audience: e.target.value })} /></label>

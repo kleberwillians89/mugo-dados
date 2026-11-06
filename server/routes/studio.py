@@ -105,6 +105,7 @@ class ProfileInput(BaseModel):
     posts_per_week: int = Field(default=3, ge=1, le=14)
     formats_enabled: List[Format] = Field(default_factory=lambda: ["reels", "carrossel", "imagem"], max_length=5)
     custom_dates: List[CustomDate] = Field(default_factory=list, max_length=30)
+    content_language: Literal["pt-BR", "en", "es"] = "pt-BR"
 
 
 class GenerateInput(BaseModel):

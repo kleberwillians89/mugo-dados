@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .ig_supabase import sb_insert, sb_select, sb_update
-from .studio_calendar import StudioError, create_item, load_profile
+from .studio_calendar import StudioError, create_item, language_rule, load_profile
 from .studio_engines import throttle
 from .studio_intelligence import build_content_intelligence, to_prompt
 from .brand_guard import check as brand_check, flatten as guard_text
@@ -151,7 +151,7 @@ async def generate(client_id: str, briefing: Dict[str, Any], *, user_id: str) ->
               + "\n\nAlém das peças: o conceito da campanha (nome, ideia em 2 frases e por que funciona, citando um dado) "
                 "e 3 títulos de campanha. Sem travessão."
               + f"\n\nVENDAS DOS ÚLTIMOS 30 DIAS (Origem das vendas):\n{json.dumps(ctx['sales'], ensure_ascii=False, default=str)}"
-              + f"\n\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}")
+              + f"\n\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}\n\n{language_rule(ctx['intel'].get('marca'))}")
     data = _clean(await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_campaign", schema=schema, temperature=0.7, timeout=120))
     package = {"concept": data.get("conceito") or {}, "titles": (data.get("titulos") or [])[:3],
                "pieces": {c: _piece(c, data.get(c), ctx["avoid"], _guard_context(brief, ctx)) for c in channels},
@@ -173,7 +173,7 @@ async def regenerate_piece(client_id: str, campaign_id: str, channel: str, *, in
               f"PEÇA: {channel}: {CHANNEL_TASKS[channel]}\n"
               f"VERSÃO ATUAL (reescreva com outro ângulo):\n{json.dumps(current, ensure_ascii=False)}\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
-              + f"\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}")
+              + f"\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}\n\n{language_rule(ctx['intel'].get('marca'))}")
     data = _clean(await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_campaign_{channel}",
                                  schema=obj({"peca": CHANNEL_SCHEMAS[channel]}), temperature=0.8))
     package = dict(campaign["package"])

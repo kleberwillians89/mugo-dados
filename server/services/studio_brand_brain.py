@@ -216,6 +216,7 @@ def protect_manual(suggested: Dict[str, Any], current: Dict[str, Any]) -> Dict[s
     new = (suggested.get("restrictions") or "").strip()
     out["restrictions"] = manual if not new or new.lower() in manual.lower() else (f"{manual}\n{new}" if manual else new)
     out["custom_dates"] = current.get("custom_dates") or []
+    out["content_language"] = current.get("content_language")  # idioma é decisão da equipe, a IA não muda
     return normalize_profile(out)
 
 
