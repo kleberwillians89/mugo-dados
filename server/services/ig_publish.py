@@ -45,8 +45,8 @@ def _asset(url: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
     drive = _DRIVE.match(url)
     if drive:
         return {"kind": "drive", "url": f"https://drive.google.com/uc?export=download&id={next(g for g in drive.groups() if g)}"}, None
-    if "canva.com" in url:
-        return None, "Link do Canva não é arquivo: envie a arte pelo modal (JPG/MP4) ou cole o link do Drive."
+    if "canva.com" in url or "canva.link" in url:
+        return None, "Link do Canva não é arquivo: na pauta, clique em Trazer arte (ou envie o JPG/MP4)."
     path = url.split("?", 1)[0].lower()
     if path.endswith(VIDEO_EXT):
         return {"kind": "video", "url": url}, None

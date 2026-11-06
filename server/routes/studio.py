@@ -335,6 +335,33 @@ async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorizat
         raise _http(exc) from None
 
 
+ERRORS.update({
+    "ART_LINK_INVALID": (422, "Cole um link de arquivo do Google Drive ou um link de visualização do Canva."),
+    "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
+    "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
+    "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
+    "ART_LINK_TOO_LARGE": (413, "Arquivo maior que 200 MB."),
+})
+
+
+class ArtImportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=12, max_length=1000)
+    item_id: Optional[UUID] = None
+
+
+@router.post("/calendar/art/import")
+async def import_art_from_link(client_id: str, body: ArtImportInput, authorization: str | None = Header(default=None)):
+    """Traz a arte de um link do Drive/Canva para o Storage: aparece na prévia, na aprovação e publica sozinho."""
+    from services.studio_art_import import import_art
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await import_art(cid, body.url, str(body.item_id) if body.item_id else None)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("/calendar/items/{item_id}/art/upload")
 async def art_upload_target(client_id: str, item_id: UUID, body: ArtUploadInput, authorization: str | None = Header(default=None)):
     """Link assinado para o navegador enviar a arte (JPG/MP4) direto ao Storage; devolve também o link público."""
