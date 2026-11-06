@@ -45,7 +45,7 @@ const ChatWidget = lazy(() => import("./components/studio/ChatWidget"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
-const Campaigns = lazy(() => import("./pages/Campaigns"));
+const Production = lazy(() => import("./pages/Production"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -889,13 +889,13 @@ function PrivateApp() {
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (
         <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
-      ) : route === "campaigns" && (teamHere) ? (
-        <Campaigns key={`campaigns:${activeClientId}`} />
+      ) : route === "production" && (teamHere) ? (
+        <Production key={`production:${activeClientId}`} />
       ) : route === "creators" ? (
         <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (
         <Automations />
-      ) : route === "campaigns" || route === "automations" ? (
+      ) : route === "production" || route === "automations" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />
