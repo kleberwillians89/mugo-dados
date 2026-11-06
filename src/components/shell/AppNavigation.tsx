@@ -47,14 +47,14 @@ const PRODUCT_ITEMS: NavItem[] = [
 ];
 
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
-// Redação continua só da agência/plataforma (o backend também recusa os demais).
+// Produção de conteúdo (iAgência) é só da agência/plataforma.
 const OPERATION_ITEMS: NavItem[] = [
   { route: "tasks", label: "Tarefas" },
   { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
   { route: "engagement", label: "Comentários" },
 ];
-const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "campaigns", label: "Redação" }];
+const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "production", label: "Produção de conteúdo" }];
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);

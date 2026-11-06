@@ -13,7 +13,7 @@ export type AppRoute =
   | "engagement"
   | "social_report"
   | "brand_ai"
-  | "campaigns"
+  | "production"
   | "creators"
   | "automations"
   | "integrations"
@@ -47,7 +47,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
-  if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
+  // Redação saiu; o endereço antigo abre a Produção de conteúdo (iAgência).
+  if (normalized === "/producao" || normalized.startsWith("/producao/") || normalized === "/redacao" || normalized.startsWith("/redacao/")) return "production";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
   if (normalized === "/automacoes" || normalized.startsWith("/automacoes/")) return "automations";
   // Atendimento mora no painel Cliente do Calendário; o endereço antigo continua funcionando.
@@ -91,7 +92,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";
   if (route === "brand_ai") return "/ia-da-marca";
-  if (route === "campaigns") return "/redacao";
+  if (route === "production") return "/producao";
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
   if (route === "customers") return "/clientes";

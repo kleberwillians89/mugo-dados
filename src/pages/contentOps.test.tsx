@@ -11,7 +11,6 @@ vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof im
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 
 import Clipping from "./Clipping";
-import Campaigns from "./Campaigns";
 import { pieceText } from "../app/contentOps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,22 +70,7 @@ describe("Clipping", () => {
   });
 });
 
-describe("Redação", () => {
-  it("abre a campanha com contador de caracteres e alerta acima do limite", async () => {
-    api.listCampaigns.mockResolvedValue({ campaigns: [{ id: "c1", name: "Black Friday", status: "rascunho", briefing: { objective: "vender" }, calendar_item_ids: [] }] });
-    api.getCampaign.mockResolvedValue({ campaign: { id: "c1", name: "Black Friday", status: "rascunho", briefing: {}, calendar_item_ids: [], updated_at: "x",
-      package: { concept: { nome: "Presente certo", ideia: "Oud como presente", por_que: "Oud vendeu 40% em outubro" }, titles: ["A"], generated_at: "x",
-        pieces: { google_ads: { channel: "google_ads", label: "Anúncio Google", content: { titulos: ["Oud na Black Friday", "Um título longo demais para o Google Ads"], descricoes: ["Frete grátis"] },
-          limits: [{ field: "titulos", index: 0, length: 19, limit: 30, over: false }, { field: "titulos", index: 1, length: 39, limit: 30, over: true }, { field: "descricoes", index: 0, length: 12, limit: 90, over: false }], flags: [] } } } } });
-    await show(<Campaigns />);
-    const button = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Black Friday"))!;
-    await act(async () => { button.click(); }); await act(async () => {});
-    expect(host.textContent).toContain("Presente certo");
-    expect(host.textContent).toContain("1 texto(s) acima do limite");
-    expect(host.textContent).toContain("40/30"); // contador conta o texto da tela, não o que a IA disse
-    expect(host.querySelector(".pieceLabel em.is-over")).not.toBeNull();
-  });
-
+describe("textos de campanha", () => {
   it("texto para copiar sai na ordem da plataforma", () => {
     expect(pieceText("google_ads", { titulos: ["T1", "T2"], descricoes: ["D1"] })).toBe("Títulos:\nT1\nT2\n\nDescrições:\nD1");
     expect(pieceText("email", { assunto: "A", preheader: "P", corpo: "C" })).toBe("Assunto: A\nPré-cabeçalho: P\n\nC");
