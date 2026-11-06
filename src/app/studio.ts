@@ -112,8 +112,9 @@ export function listApprovals(): Promise<{ requests: ApprovalRequest[] }> { retu
 export function sendForApproval(input: { month: string; item_ids: string[]; contact_name?: string; contact_phone?: string; message?: string; contact_id?: string; send_whatsapp?: boolean; notify_team?: boolean }) {
   return http<ApprovalCreated>(base("/approvals"), { method: "POST", body: JSON.stringify(input) });
 }
-export function confirmSchedule(itemId: string) {
-  return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/schedule`), { method: "POST" });
+/** now=true: publica agora (o job dos próximos 5 minutos publica). */
+export function confirmSchedule(itemId: string, now = false) {
+  return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/schedule`), { method: "POST", body: JSON.stringify({ now }) });
 }
 export function retryPublish(itemId: string) {
   return http<{ ok: boolean; item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(itemId)}/publish/retry`), { method: "POST" });
