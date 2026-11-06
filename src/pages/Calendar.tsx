@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, deleteCalendarItem, generateCalendar, getBrandProfile,
+  STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
@@ -53,6 +53,15 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   const [importOpen, setImportOpen] = useState(false);
   const [modal, setModal] = useState<{ item: CalendarItem | null; draft: PostDraft } | null>(null);
   const [profile, setProfile] = useState<BrandProfile | null>(null);
+  const [publisherUrl, setPublisherUrl] = useState<string | null>(null);
+  // Business Suite já na Página desta marca; troca junto com a empresa ativa.
+  useEffect(() => {
+    if (!team) return;
+    let alive = true;
+    setPublisherUrl(null);
+    getPublisher().then((r) => { if (alive) setPublisherUrl(r.url); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [team, clientId]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
   const [copied, setCopied] = useState<string | null>(null);
@@ -303,6 +312,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
+      publisherUrl={publisherUrl || undefined}
       onSendForApproval={team && modal.item ? () => { const id = modal.item!.id; setModal(null); openSend([id]); } : undefined}
       onConfirmSchedule={team && modal.item ? async () => {
         const out = await run("schedule", () => confirmSchedule(modal.item!.id), "Não foi possível agendar.");

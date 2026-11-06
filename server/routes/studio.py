@@ -1279,3 +1279,28 @@ async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: s
     from services.brand_knowledge import save_manual
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     return {"ok": True, **await save_manual(cid, body.knowledge, user_id=await require_user_id(authorization))}
+
+
+# ---------------------------------------------------------------- Meta Business Suite da marca
+
+def publisher_url(page_id: str | None) -> str:
+    """Abre o criador de posts do Business Suite já na Página da marca (asset_id); sem página, o genérico."""
+    import re as _re
+    base = "https://business.facebook.com/latest/composer"
+    pid = _re.sub(r"\D", "", str(page_id or ""))
+    return f"{base}?asset_id={pid}" if pid else base
+
+
+@router.get("/publisher")
+async def read_publisher(client_id: str, authorization: str | None = Header(default=None)):
+    """Link do Business Suite desta empresa (a Página vem da conexão orgânica do Instagram)."""
+    from services.ig_supabase import sb_select
+    cid = await require_client_read(client_id, authorization)
+    try:
+        rows = await sb_select("meta_connections", select="business_id,username,status,updated_at", order="updated_at.desc", limit=5,
+                               filters={"client_id": f"eq.{cid}", "connection_type": "eq.organic", "platform": "eq.instagram"})
+    except Exception:  # noqa: BLE001 — sem leitura: cai no link genérico
+        rows = []
+    row = next((r for r in rows if r.get("status") == "active" and r.get("business_id")), None) or next((r for r in rows if r.get("business_id")), None)
+    page = str((row or {}).get("business_id") or "")
+    return {"url": publisher_url(page), "page_id": page or None, "username": (row or {}).get("username")}

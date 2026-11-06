@@ -303,3 +303,6 @@ export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto 
   return http<{ ok: true; document: BrandDocument; knowledge: string; sources: number }>(base("/knowledge/documents"),
     { method: "POST", body: JSON.stringify({ file_name: title, kind, text }), timeoutMs: 180_000 });
 }
+
+/** Link do Meta Business Suite já na Página desta marca. */
+export function getPublisher() { return http<{ url: string; page_id: string | null; username: string | null }>(base("/publisher")); }
