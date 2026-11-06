@@ -843,3 +843,26 @@
 .collabChips button:focus-visible{outline:2px solid #004f6e}
 .postPublishWarn{margin:0;font-size:13px;line-height:1.45;background:#fff4dc;color:#5c4200;border-radius:10px;padding:8px 10px}
 .postPublishWarn.is-muted{background:#f2f0eb;color:#5f5b53}
+
+/* IA da marca: status do material e conversa com o agente */
+.studioWarn{color:#8a5a00;background:#fff6e0;border-radius:8px;padding:8px 10px;margin:4px 0;font-size:13.5px}
+.kbDocs li.is-falhou{background:#fff8ea}
+.kbDocs li.is-pendente{background:#f3f6f8}
+.kbRetry{grid-column:2;font-size:12px;justify-self:start}
+.kbRetry:disabled{opacity:.5;cursor:progress}
+.agentBox{display:grid;gap:10px;margin-top:22px;padding-top:18px;border-top:1px solid var(--border,#e6e2da)}
+.agentBox header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.agentBox h3{display:flex;align-items:center;gap:7px;margin:0;font-size:14px}
+.agentBox .libHint{margin:0}
+.chatMsg.is-agent{background:#eef5f8}
+.chatMsg.is-offtopic{background:#f3f1ec}
+.agentSources{font-style:italic}
+.agentFacts{display:grid;gap:4px;margin-top:4px;padding:8px 10px;border-radius:10px;background:#fff;border:1px dashed #c9c4ba}
+.agentFacts ul{margin:0;padding-left:18px;font-size:13.5px}
+.agentSaved{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:#26734d}
+.agentSuggest{display:flex;flex-wrap:wrap;gap:6px}
+.agentSuggest button{all:unset;cursor:pointer;font-size:13px;padding:6px 11px;border-radius:999px;border:1px solid #e1ddd5;background:#fff;color:#004f6e}
+.agentSuggest button:hover{background:#eef5f8;border-color:#004f6e}
+.agentSuggest button:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
+.agentSuggest button:disabled{opacity:.5;cursor:progress}
+.agentTyping{color:var(--text-secondary,#6b665d);font-style:italic}

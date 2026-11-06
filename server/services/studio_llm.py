@@ -39,15 +39,20 @@ def _accepts_temperature(model: str) -> bool:
 
 async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
                    temperature: float = 0.6, timeout: float = 90, model: str | None = None,
-                   images: tuple | list = (), client_id: str | None = None, leak_check: bool = True) -> Dict[str, Any]:
+                   images: tuple | list = (), client_id: str | None = None, leak_check: bool = True,
+                   guidance: bool = True, max_output_tokens: int | None = None) -> Dict[str, Any]:
     """Resposta da IA em JSON. Com a marca conhecida (client_id ou a empresa já autorizada na requisição),
-    passa pela auditoria anti-vazamento: citou outra marca da Mugô → refaz 1 vez avisando; citou de novo → bloqueia."""
+    passa pela auditoria anti-vazamento: citou outra marca da Mugô → refaz 1 vez avisando; citou de novo → bloqueia.
+
+    ``guidance=False`` não anexa a orientação criativa (para conversas que não escrevem peças: menos tokens).
+    ``max_output_tokens`` limita o tamanho da resposta."""
     cid = client_id
     if cid is None and leak_check:
         from .tenant import _REQUEST_CLIENT
         cid = _REQUEST_CLIENT.get()
+    extra = {"guidance": guidance, "max_output_tokens": max_output_tokens}
     data = await _llm_json_once(instructions=instructions, prompt=prompt, schema_name=schema_name, schema=schema,
-                                temperature=temperature, timeout=timeout, model=model, images=images)
+                                temperature=temperature, timeout=timeout, model=model, images=images, **extra)
     if not (leak_check and cid):
         return data
     from .brand_guard import flatten
@@ -60,7 +65,7 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
     warn = ("\n\nREGRA DE CONFIDENCIALIDADE: esta resposta é só para esta marca. NUNCA cite estas outras marcas, "
             f"que são de outros clientes da agência: {', '.join(found)}.")
     data = await _llm_json_once(instructions=instructions + warn, prompt=prompt, schema_name=schema_name, schema=schema,
-                                temperature=temperature, timeout=timeout, model=model, images=images)
+                                temperature=temperature, timeout=timeout, model=model, images=images, **extra)
     again = find_leaks(flatten(data), terms)
     if again:
         print(f"[tenant_guard] leak schema={schema_name} client_id={cid} terms={len(again)} action=blocked")
@@ -71,7 +76,8 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
 
 async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
                          temperature: float = 0.6, timeout: float = 90, model: str | None = None,
-                         images: tuple | list = ()) -> Dict[str, Any]:
+                         images: tuple | list = (), guidance: bool = True,
+                         max_output_tokens: int | None = None) -> Dict[str, Any]:
     from .ai_summary import _extract_output_text
     from .studio_calendar import StudioError
 
@@ -86,12 +92,14 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
                                                    *({"type": "input_image", "image_url": url, "detail": "low"} for url in images)]}]
     payload: Dict[str, Any] = {
         "model": chosen,
-        "instructions": f"{instructions}\n\n{CREATIVE_GUIDANCE}",
+        "instructions": f"{instructions}\n\n{CREATIVE_GUIDANCE}" if guidance else instructions,
         "input": user_input,
         "text": {"format": {"type": "json_schema", "name": schema_name, "schema": schema, "strict": True}},
     }
     if _accepts_temperature(chosen):
         payload["temperature"] = temperature
+    if max_output_tokens:
+        payload["max_output_tokens"] = int(max_output_tokens)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post("https://api.openai.com/v1/responses",
