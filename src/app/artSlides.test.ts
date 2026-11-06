@@ -17,3 +17,14 @@ describe("prévia da arte", () => {
     expect(artSlides(FOLDER)).toEqual([]);
   });
 });
+
+import { feedRatio } from "../components/studio/ArtCarousel";
+describe("proporção no feed (regra do Instagram)", () => {
+  it("fica entre 4:5 e 1,91:1", () => {
+    expect(feedRatio(1080, 1350)).toBeCloseTo(0.8);
+    expect(feedRatio(1080, 1080)).toBe(1);
+    expect(feedRatio(1080, 1920)).toBeCloseTo(0.8);   // vertical demais vira 4:5 (corta)
+    expect(feedRatio(3000, 1000)).toBeCloseTo(1.91);  // deitado demais vira 1,91:1
+    expect(feedRatio(0, 0)).toBeCloseTo(0.8);
+  });
+});

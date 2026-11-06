@@ -42,6 +42,7 @@ type Props = {
 export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
+  const [ratio, setRatio] = useState<number | null>(null);
   const [captionOpen, setCaptionOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -97,9 +98,10 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
           <div><strong>{handle.slice(1)}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
-        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}>
+        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}
+          style={art && !vertical && ratio ? { aspectRatio: String(ratio) } : undefined}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
-          {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} />
+          {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} onRatio={setRatio} />
             : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
