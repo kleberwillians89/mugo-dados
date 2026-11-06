@@ -42,3 +42,18 @@ export function artList(value?: string | null): string[] {
 export function artImages(value?: string | null): string[] {
   return artList(value).map(artImage).filter((u): u is string => Boolean(u));
 }
+
+/** Vídeo enviado pelo painel (MP4/MOV no Storage): dá para tocar direto na prévia. */
+export function isArtVideo(url: string): boolean {
+  return /^https:\/\/[^\s]+\.(mp4|mov)(\?|$)/i.test(url);
+}
+
+/** Slides da prévia, na ordem: imagens e vídeos que dá para mostrar. */
+export function artSlides(value?: string | null): string[] {
+  return artList(value).map((u) => (isArtVideo(u) ? u : artImage(u))).filter((u): u is string => Boolean(u));
+}
+
+/** Link de PASTA do Drive: não tem prévia nem publica sozinho (precisa ser o link de cada arquivo). */
+export function isDriveFolder(url: string): boolean {
+  return artKind(url) === "drive" && /\/drive\/(u\/\d+\/)?folders\//.test(url);
+}

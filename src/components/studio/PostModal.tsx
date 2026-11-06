@@ -7,7 +7,7 @@ import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
-import { artImages, artList } from "../../app/artLinks";
+import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
@@ -49,7 +49,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [artFailed, setArtFailed] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const slides = artImages(draft.art_url);
+  const slides = artSlides(draft.art_url);
+  const folderLink = artList(draft.art_url).some(isDriveFolder);
   const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
@@ -99,6 +100,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
           {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} />
+            : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
         </div>
@@ -150,6 +152,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
               value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} aria-label="Link da arte" />
           </details>
+          {folderLink ? <p className="postArtWarn">Esse é o link de uma <b>pasta</b> do Drive: não aparece na prévia, o cliente não vê a arte e não publica sozinho. No Drive, clique com o botão direito no <b>arquivo</b> → Compartilhar → Copiar link (deixe como "qualquer pessoa com o link"). Ou baixe e envie o arquivo aqui em cima.</p> : null}
           {!item && artList(draft.art_url).length ? <small className="postArtHint">A arte já subiu. Ela fica salva na pauta quando você clicar em <b>Criar pauta</b>.</small> : null}
         </div> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
