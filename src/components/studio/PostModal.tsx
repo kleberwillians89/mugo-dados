@@ -176,7 +176,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           {importNote ? <small className="postArtHint">{importNote}</small> : null}
           <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy || importing !== null} onChange={(art_url) => set({ art_url })}
             onImport={(url, i) => void bringFromLink(url, i)} importing={importing} />
-          {artList(draft.art_url).length && item ? <small className="postArtHint">Tirou ou mudou a ordem? Clique em <b>Salvar</b> para valer.</small> : null}
+          {item && (draft.art_url || "") !== (initial.art_url || "") ? <small className="postArtHint is-pending">A arte mudou. Clique em <b>Salvar alterações</b>, aqui embaixo, para valer.</small> : null}
           <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
             <summary>editar os links à mão</summary>
             <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"

@@ -817,3 +817,4 @@
 .postArtFromLink input:focus{outline:2px solid #004f6e;outline-offset:1px}
 .artFileActions button.is-import{color:#004f6e;border-color:#cfe1e9}
 .artFileActions button.is-import:hover:not(:disabled){background:#eef5f8}
+.postArtHint.is-pending{color:#7a5600;background:#fff4dc;border-radius:8px;padding:5px 8px}
