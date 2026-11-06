@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { FileText, Pencil, Sparkles, Type, UploadCloud } from "lucide-react";
-import { getKnowledge, saveKnowledge, teachFromFile, teachFromText, type BrandDocument, type BrandKnowledge as Knowledge, type KnowledgeKind } from "../../app/studio";
+import { FileText, MessageSquare, Pencil, RotateCw, Sparkles, Type, UploadCloud } from "lucide-react";
+import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromFile, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
 
 const KINDS: Record<KnowledgeKind, string> = { institucional: "Institucional", produto: "Produtos e preços", campanha: "Campanha",
-  tom_de_voz: "Tom de voz", restricao: "Restrições", outro: "Outro" };
+  tom_de_voz: "Tom de voz", restricao: "Restrições", outro: "Outro", conversa: "Conversa" };
+const UPLOAD_KINDS = (Object.keys(KINDS) as KnowledgeKind[]).filter((k) => k !== "conversa");
 const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md";
 const MAX = 6000;
 const when = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
@@ -26,9 +27,10 @@ export function parseKnowledge(text: string): KnowledgeSection[] {
 
 /**
  * Marca & IA → Conhecimento. À esquerda, ensinar (arrastar arquivos ou colar texto); à direita, o que a IA já sabe.
- * O arquivo não fica guardado: a IA aprende e ele é descartado.
+ * O conteúdo de cada material fica guardado antes de a IA ler: se a IA falhar, dá para tentar de novo sem reenviar.
+ * ``version`` muda quando outra parte da tela (o agente) altera a memória: recarrega.
  */
-export default function BrandKnowledge({ canManage }: { canManage: boolean }) {
+export default function BrandKnowledge({ canManage, version = 0 }: { canManage: boolean; version?: number }) {
   const [data, setData] = useState<Knowledge | null>(null);
   const [kind, setKind] = useState<KnowledgeKind>("institucional");
   const [text, setText] = useState("");
@@ -37,17 +39,20 @@ export default function BrandKnowledge({ canManage }: { canManage: boolean }) {
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { getKnowledge().then(setData).catch(() => setData({ knowledge: "", sources: 0, updated_at: null, documents: [] })); }, []);
+  useEffect(() => { getKnowledge().then(setData).catch(() => setData({ knowledge: "", sources: 0, updated_at: null, documents: [] })); }, [version]);
 
-  async function run(label: string, task: () => Promise<{ document: BrandDocument; knowledge: string; sources: number }>) {
-    setBusy(label); setError(null); setOk(null);
+  async function run(label: string, task: () => Promise<TeachResult>) {
+    setBusy(label); setError(null); setOk(null); setWarn(null);
     try {
       const res = await task();
-      setData((d) => ({ knowledge: res.knowledge, sources: res.sources, updated_at: new Date().toISOString(), documents: [res.document, ...(d?.documents || [])] }));
-      setOk(res.document.summary ? `Aprendi com “${res.document.name}”: ${res.document.summary}` : `Aprendi com “${res.document.name}”.`);
+      setData((d) => ({ knowledge: res.knowledge, sources: res.sources, updated_at: new Date().toISOString(),
+        documents: [res.document, ...(d?.documents || []).filter((x) => x.id !== res.document.id)] }));
+      if (res.warning) setWarn(`“${res.document.name}”: ${res.warning}`);
+      else setOk(res.document.summary ? `Aprendi com “${res.document.name}”: ${res.document.summary}` : `Aprendi com “${res.document.name}”.`);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível processar."); return false; }
     finally { setBusy(null); }
@@ -74,7 +79,7 @@ export default function BrandKnowledge({ canManage }: { canManage: boolean }) {
       <h3><UploadCloud size={16} aria-hidden="true" /> Ensinar a IA</h3>
       <small className="kbLabel">1. Sobre o que é o material?</small>
       <div className="kbChips" role="radiogroup" aria-label="Sobre o que é o material">
-        {(Object.keys(KINDS) as KnowledgeKind[]).map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k}
+        {UPLOAD_KINDS.map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k}
           className={kind === k ? "is-active" : ""} onClick={() => setKind(k)}>{KINDS[k]}</button>)}
       </div>
       <small className="kbLabel">2. Envie o arquivo</small>
@@ -84,7 +89,7 @@ export default function BrandKnowledge({ canManage }: { canManage: boolean }) {
         {busy && busy !== "texto" && busy !== "edit"
           ? <><span className="kbSpinner" aria-hidden="true" /><b>Lendo “{busy}”…</b><small>A IA está aprendendo. Leva até 1 minuto.</small></>
           : <><FileText size={26} aria-hidden="true" /><b>Arraste arquivos aqui ou clique para escolher</b>
-            <small>PDF, Word, PowerPoint, Excel, CSV ou TXT · até 10 MB · o arquivo é descartado depois de lido</small></>}
+            <small>PDF, Word, PowerPoint, Excel, CSV ou TXT · até 10 MB · o conteúdo fica guardado para a IA consultar</small></>}
       </div>
       <input ref={input} type="file" accept={ACCEPT} multiple hidden onChange={(e) => void onFiles(e.target.files)} />
       {pasting ? <div className="kbPaste">
@@ -96,11 +101,17 @@ export default function BrandKnowledge({ canManage }: { canManage: boolean }) {
           <button type="button" className="ds-button" onClick={() => setPasting(false)}>Cancelar</button></div>
       </div> : <button type="button" className="kbLink" onClick={() => setPasting(true)}><Type size={14} aria-hidden="true" /> ou colar um texto</button>}
       {error ? <p role="alert" className="studioError">{error}</p> : null}
+      {warn ? <p role="status" className="studioWarn">{warn}</p> : null}
       {ok ? <p className="studioOk">{ok}</p> : null}
       {data.documents.length ? <div className="kbDocs">
         <h4>Já lidos <span>{data.documents.length}</span></h4>
-        <ul>{data.documents.slice(0, 8).map((d) => <li key={d.id || d.name + d.created_at} title={d.summary || undefined}>
-          <FileText size={14} aria-hidden="true" /><span>{d.name}</span><small>{KINDS[d.kind] || d.kind} · {d.created_at ? when(d.created_at) : "agora"}</small>
+        <ul>{data.documents.slice(0, 8).map((d) => <li key={d.id || d.name + d.created_at} title={d.summary || undefined}
+          className={d.status && d.status !== "aprendido" ? `is-${d.status}` : undefined}>
+          {d.kind === "conversa" ? <MessageSquare size={14} aria-hidden="true" /> : <FileText size={14} aria-hidden="true" />}<span>{d.name}</span>
+          <small>{KINDS[d.kind] || d.kind} · {d.created_at ? when(d.created_at) : "agora"}
+            {d.status === "falhou" ? " · guardado, a IA ainda não aprendeu" : d.status === "pendente" ? " · guardado, aguardando a IA" : ""}</small>
+          {d.status && d.status !== "aprendido" && d.id ? <button type="button" className="kbLink kbRetry" disabled={Boolean(busy)}
+            onClick={() => void run(d.name, () => retryKnowledgeDocument(d.id))}><RotateCw size={13} aria-hidden="true" /> Tentar de novo</button> : null}
         </li>)}</ul>
       </div> : null}
     </div> : null}

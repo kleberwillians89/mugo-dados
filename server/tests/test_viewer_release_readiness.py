@@ -180,6 +180,12 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         ("intelligence", "intelligence_delete_conversation"),
         ("intelligence", "intelligence_create_conversation"),
         ("intelligence", "intelligence_resume_conversation"),
+        # Agente da marca: qualquer membro conversa; cada um só grava e apaga a
+        # PRÓPRIA conversa (filtro client_id + user_id no serviço). Custo de IA
+        # contido por throttle por empresa, prompt enxuto e teto de resposta.
+        # Guardar fatos na memória da marca continua exigindo papel (WRITERS).
+        ("studio", "ask_brand_agent"),
+        ("studio", "clear_brand_agent"),
         # Fachada restrita: membership, allowlist e conexões persistidas;
         # test_provider_refresh prova autorização e rejeição de IDs extras.
         ("integrations", "refresh_client_provider"),

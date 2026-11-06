@@ -282,8 +282,12 @@ export function chatUnread() { return http<{ unread: Partial<Record<ChatChannel,
 export function listTimeline() { return http<{ events: TimelineEvent[] }>(base("/timeline")); }
 
 // ---------------------------------------------------------------- conhecimento da marca (documentos alimentam a IA)
-export type KnowledgeKind = "institucional" | "produto" | "campanha" | "tom_de_voz" | "restricao" | "outro";
-export type BrandDocument = { id: string; name: string; kind: KnowledgeKind; summary: string | null; facts_added: number; truncated: boolean; created_at: string };
+export type KnowledgeKind = "institucional" | "produto" | "campanha" | "tom_de_voz" | "restricao" | "outro" | "conversa";
+/** pendente: guardado, IA ainda lendo · aprendido: entrou na memória · falhou: guardado, IA não leu (dá para tentar de novo). */
+export type BrandDocumentStatus = "pendente" | "aprendido" | "falhou";
+export type BrandDocument = { id: string; name: string; kind: KnowledgeKind; summary: string | null; facts_added: number; truncated: boolean; created_at: string;
+  status?: BrandDocumentStatus; error?: string | null; chars_total?: number };
+export type TeachResult = { ok: true; document: BrandDocument; knowledge: string; sources: number; warning?: string };
 export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
 export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
 export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
@@ -297,13 +301,30 @@ async function fileBase64(file: File): Promise<string> {
   });
 }
 /** O arquivo vai ao servidor, vira conhecimento da IA e é descartado (não fica guardado). */
+export function retryKnowledgeDocument(id: string) {
+  return http<TeachResult>(base(`/knowledge/documents/${encodeURIComponent(id)}/retry`), { method: "POST", timeoutMs: 180_000 });
+}
+export function addKnowledgeFacts(facts: string[]) {
+  return http<TeachResult>(base("/knowledge/facts"), { method: "POST", body: JSON.stringify({ facts }) });
+}
+
+export type BrandAgentSource = { name: string };
+export type BrandAgentMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string;
+  meta?: { on_topic?: boolean; sources?: BrandAgentSource[]; new_facts?: string[] } };
+export type BrandAgentAnswer = { ok: true; id: string | null; answer: string; on_topic: boolean; sources: BrandAgentSource[]; new_facts: string[] };
+export function getBrandAgent() { return http<{ messages: BrandAgentMessage[] }>(base("/brand-agent")); }
+export function askBrandAgent(question: string) {
+  return http<BrandAgentAnswer>(base("/brand-agent"), { method: "POST", body: JSON.stringify({ question }), timeoutMs: 60_000 });
+}
+export function clearBrandAgent() { return http<{ ok: true }>(base("/brand-agent"), { method: "DELETE" }); }
+
 export async function teachFromFile(file: File, kind: KnowledgeKind) {
   if (file.size > KNOWLEDGE_MAX_BYTES) throw new Error("Arquivo grande demais (até 10 MB). Divida em partes.");
-  return http<{ ok: true; document: BrandDocument; knowledge: string; sources: number }>(base("/knowledge/documents"),
+  return http<TeachResult>(base("/knowledge/documents"),
     { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file) }), timeoutMs: 180_000 });
 }
 export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto colado") {
-  return http<{ ok: true; document: BrandDocument; knowledge: string; sources: number }>(base("/knowledge/documents"),
+  return http<TeachResult>(base("/knowledge/documents"),
     { method: "POST", body: JSON.stringify({ file_name: title, kind, text }), timeoutMs: 180_000 });
 }
 

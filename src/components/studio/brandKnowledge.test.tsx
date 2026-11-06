@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn() }));
+const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
 
 import BrandKnowledge, { parseKnowledge } from "./BrandKnowledge";
@@ -50,6 +50,33 @@ describe("BrandKnowledge", () => {
     expect(state.teachFromText).toHaveBeenCalledWith(expect.stringContaining("domingo às 5h30"), "institucional");
     expect(host.textContent).toContain("Longão domingo 5h30");
     expect(host.textContent).toContain("2 fontes");
+  });
+
+  it("quando a IA falha, avisa que o material ficou guardado e permite tentar de novo", async () => {
+    state.teachFromText.mockResolvedValue({ ok: true, knowledge: "Empresa: M2\n- Treino sábado 6h", sources: 1,
+      warning: "Material guardado. A IA demorou demais para ler. Use “Tentar de novo” para a IA aprender com ele.",
+      document: { id: "d3", name: "Texto colado", kind: "institucional", summary: null, facts_added: 0, truncated: false,
+        created_at: "2026-11-06T11:00:00Z", status: "falhou", error: "AI_PROVIDER_TIMEOUT" } });
+    state.retryKnowledgeDocument.mockResolvedValue({ ok: true, knowledge: "Empresa: M2\n- Kit de boas-vindas", sources: 2,
+      document: { id: "d3", name: "Texto colado", kind: "institucional", summary: "Kit de boas-vindas", facts_added: 1, truncated: false,
+        created_at: "2026-11-06T11:00:00Z", status: "aprendido" } });
+    await show(<BrandKnowledge canManage />);
+    await act(async () => { [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("colar um texto"))!.click(); });
+    const textarea = host.querySelector("textarea")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea, "Todo aluno novo da M2 recebe um kit de boas-vindas com camiseta e squeeze.");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { [...host.querySelectorAll("button")].find((b) => b.textContent === "Ensinar")!.click(); });
+    expect(host.querySelector(".studioWarn")?.textContent).toContain("Material guardado");
+    expect(host.textContent).toContain("guardado, a IA ainda não aprendeu");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => { [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Tentar de novo"))!.click(); });
+    expect(state.retryKnowledgeDocument).toHaveBeenCalledWith("d3");
+    expect(host.textContent).toContain("Kit de boas-vindas");
+    expect(host.textContent).not.toContain("Tentar de novo");
+    expect(host.querySelectorAll(".kbDocs li").length).toBe(2);   // não duplica o material reprocessado
   });
 
   it("divide o conhecimento em blocos por título", () => {

@@ -1295,6 +1295,10 @@ ERRORS.update({
     "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler (ex.: PDF só de imagem)."),
     "DOC_TOO_LARGE": (413, "Arquivo grande demais (até 10 MB). Divida em partes."),
     "DOC_SOURCE_REQUIRED": (422, "Envie um arquivo ou cole um texto."),
+    "DOC_SAVE_FAILED": (502, "Não foi possível guardar o material agora. Tente de novo."),
+    "DOC_NOT_FOUND": (404, "Material não encontrado nesta empresa."),
+    "FACTS_EMPTY": (422, "Nenhum fato para guardar."),
+    "AGENT_QUESTION_EMPTY": (422, "Escreva uma pergunta sobre a marca."),
 })
 
 
@@ -1311,6 +1315,16 @@ class KnowledgeInput(BaseModel):
     knowledge: str = Field(max_length=6000)
 
 
+class KnowledgeFactsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    facts: List[str] = Field(min_length=1, max_length=5)
+
+
+class BrandAgentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=1000)
+
+
 @router.get("/knowledge")
 async def read_knowledge(client_id: str, authorization: str | None = Header(default=None)):
     from services.brand_knowledge import list_documents, load_knowledge
@@ -1320,7 +1334,8 @@ async def read_knowledge(client_id: str, authorization: str | None = Header(defa
 
 @router.post("/knowledge/documents", status_code=201)
 async def add_knowledge_document(client_id: str, body: KnowledgeDocInput, authorization: str | None = Header(default=None)):
-    """O arquivo é lido em memória, vira conhecimento e é descartado — não é guardado."""
+    """O texto do material é guardado em trechos ANTES da IA ler; o arquivo binário não fica.
+    Se a IA falhar, responde 201 com ``warning`` e o documento em status 'falhou' (reprocessável)."""
     from services.brand_knowledge import decode_upload, extract_text, learn
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
@@ -1334,6 +1349,53 @@ async def add_knowledge_document(client_id: str, body: KnowledgeDocInput, author
         return {"ok": True, **await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)}
     except StudioError as exc:
         raise _http(exc) from None
+
+
+@router.post("/knowledge/documents/{document_id}/retry")
+async def retry_knowledge_document(client_id: str, document_id: UUID, authorization: str | None = Header(default=None)):
+    from services.brand_knowledge import retry
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await retry(cid, str(document_id), user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/knowledge/facts", status_code=201)
+async def add_knowledge_facts(client_id: str, body: KnowledgeFactsInput, authorization: str | None = Header(default=None)):
+    """Fatos confirmados na conversa com o agente entram na memória da marca."""
+    from services.brand_knowledge import add_facts
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await add_facts(cid, body.facts, user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/brand-agent")
+async def read_brand_agent(client_id: str, authorization: str | None = Header(default=None)):
+    """Conversa da própria pessoa com o agente da marca (privada)."""
+    from services.brand_agent import history
+    cid = await require_client_read(client_id, authorization)
+    return {"messages": await history(cid, await require_user_id(authorization))}
+
+
+@router.post("/brand-agent")
+async def ask_brand_agent(client_id: str, body: BrandAgentInput, authorization: str | None = Header(default=None)):
+    from services.brand_agent import ask
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return {"ok": True, **await ask(cid, await require_user_id(authorization), body.question)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/brand-agent")
+async def clear_brand_agent(client_id: str, authorization: str | None = Header(default=None)):
+    from services.brand_agent import clear
+    cid = await require_client_read(client_id, authorization)
+    await clear(cid, await require_user_id(authorization))
+    return {"ok": True}
 
 
 @router.put("/knowledge")
