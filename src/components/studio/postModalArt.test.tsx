@@ -39,7 +39,7 @@ describe("PostModal: arte na criação", () => {
     const DRIVE = "https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view";
     await act(async () => { root.render(<PostModal item={null} initial={{ ...draft, art_url: DRIVE }} handle="@latinas" pillars={[]} canManage busy={false} error={null}
       onClose={() => undefined} onSave={async () => true} onStatus={noop} onDelete={noop} />); });
-    const input = host.querySelector<HTMLInputElement>('.postArtFromLink input')!;
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Link da arte no Drive ou Canva"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "https://canva.link/sym7z8mpql3cf9l");
       input.dispatchEvent(new Event("input", { bubbles: true }));
