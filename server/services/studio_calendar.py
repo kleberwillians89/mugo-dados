@@ -408,9 +408,10 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
 
 def validate_items(
     raw: Dict[str, Any], *, slots: List[Dict[str, Any]], profile: Dict[str, Any], trends: List[Dict[str, Any]],
-    guard_context: str = "",
+    guard_context: str = "", leak_terms: List[str] = (),
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     from .brand_guard import check as brand_check
+    from .tenant_guard import find_leaks
     by_slot = {s["slot_id"]: s for s in slots}
     pillars = {p["name"].lower(): p["name"] for p in profile.get("pillars") or []}
     trend_by_id = {t["id"]: t for t in trends}
@@ -434,6 +435,12 @@ def validate_items(
                 warnings.append(f"{slot['date']}: pilar fora do perfil foi removido.")
         caption = str(item.get("caption_draft") or "").strip()[:4000]
         hook = _text(item.get("hook"), 400)
+        leaked = find_leaks(f"{title}\n{hook}\n{caption}\n{item.get('rationale') or ''}", leak_terms) if leak_terms else []
+        if leaked:
+            # Vazamento entre clientes: a pauta não entra (a equipe gera de novo ou cria à mão).
+            warnings.append(f"{slot['date']}: pauta descartada por citar outra marca atendida pela Mugô.")
+            used.discard(slot["slot_id"])
+            continue
         flagged = sorted({w for w in avoid if w and w in f"{title} {hook} {caption}".lower()})
         trend = trend_by_id.get(str(item.get("trend_id") or ""))
         if trend and trends_used >= 2:
@@ -517,7 +524,9 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
     raw = await call_llm(prompt)
     guard_context = json.dumps({"perfil": profile, "negocio": business, "campanhas_ativas": signals.get("campanhas_ativas"),
                                 "vendas_por_origem": signals.get("vendas_por_origem")}, ensure_ascii=False, default=str)
-    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends, guard_context=guard_context)
+    from .tenant_guard import leak_terms as _leak_terms
+    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends, guard_context=guard_context,
+                                     leak_terms=await _leak_terms(client_id))
     if not items:
         raise StudioError("AI_INVALID_OUTPUT", "A IA não devolveu pautas válidas. Tente de novo.")
 
@@ -545,7 +554,7 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
 
 
-EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url")
+EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators")
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -566,6 +575,9 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     clean = {k: v for k, v in patch.items() if k in EDITABLE and v is not None}
     if "art_url" in clean:
         clean["art_url"] = clean_art_url(clean["art_url"])
+    if "collaborators" in clean:
+        from .ig_publish import clean_collaborators
+        clean["collaborators"] = clean_collaborators(clean["collaborators"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -643,6 +655,9 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str) -> 
         "status": "rascunho", "origin": "manual", "created_by": user_id,
         "art_url": clean_art_url(data.get("art_url")),
     }
+    if data.get("collaborators"):
+        from .ig_publish import clean_collaborators
+        row["collaborators"] = clean_collaborators(data["collaborators"])
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")

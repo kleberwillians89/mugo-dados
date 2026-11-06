@@ -150,7 +150,9 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   async function saveDraft(draft: PostDraft) {
     const body = { scheduled_at: toSaoPauloIso(draft.date, draft.time), format: draft.format, pillar: draft.pillar || undefined,
       title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined,
-      art_url: (draft.art_url || "").trim() };
+      art_url: (draft.art_url || "").trim(),
+      // Colaboradores só vão quando mudam (não registra "marcou" a cada salvar).
+      ...(JSON.stringify(draft.collaborators || []) !== JSON.stringify(modal?.item?.collaborators || []) ? { collaborators: draft.collaborators || [] } : {}) };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;

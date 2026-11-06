@@ -5,7 +5,8 @@ de aparecer na tela. Não reescreve nada: aponta, para a equipe decidir.
 * palavra proibida: as "palavras a evitar" do Perfil de Marca + clichês proibidos do Studio;
 * promessa sem dado: número, porcentagem, preço, frete grátis, brinde ou garantia que não está no
   briefing nem nos dados da conta (a IA não pode inventar oferta);
-* urgência inventada: "só hoje", "últimas unidades"... que ninguém pediu.
+* urgência inventada: "só hoje", "últimas unidades"... que ninguém pediu;
+* vazamento entre clientes: o texto cita outra marca atendida pela Mugô (tenant_guard).
 """
 from __future__ import annotations
 
@@ -28,10 +29,16 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower())
 
 
-def check(text: str, *, avoid: Iterable[str] = (), context: str = "") -> List[Dict[str, str]]:
-    """Problemas de fidelidade do texto. ``context`` = briefing + dados que o texto pode citar."""
+def check(text: str, *, avoid: Iterable[str] = (), context: str = "", leak_terms: Iterable[str] = ()) -> List[Dict[str, str]]:
+    """Problemas de fidelidade do texto. ``context`` = briefing + dados que o texto pode citar.
+    ``leak_terms`` = termos de outras marcas (tenant_guard.leak_terms) que não podem aparecer."""
     low, ctx = _norm(text), _norm(context)
     issues: List[Dict[str, str]] = []
+    if leak_terms:
+        from .tenant_guard import find_leaks
+        for term in find_leaks(text, leak_terms):
+            issues.append({"type": "vazamento_cliente", "text": term,
+                           "fix": f"Cita outra marca atendida pela Mugô (“{term}”). Tire antes de usar."})
     for word in sorted({w.lower().strip() for w in (*BANNED_CLICHES, *avoid) if w and w.strip()}):
         if word in low:
             issues.append({"type": "palavra_proibida", "text": word, "fix": f"Troque “{word}”: está nas palavras a evitar da marca."})

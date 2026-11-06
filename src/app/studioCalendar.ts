@@ -1,7 +1,7 @@
 import { localParts, type CalendarItem, type StudioFormat } from "./studio";
 
 export type ViewMode = "mes" | "semana" | "dia" | "fluxo";
-export type PostDraft = { date: string; time: string; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string };
+export type PostDraft = { date: string; time: string; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string; collaborators?: string[] };
 
 /** Datas como "AAAA-MM-DD" sem fuso: o calendário inteiro raciocina no dia de São Paulo. */
 export const toKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -13,5 +13,6 @@ export const todayKey = () => toKey(new Date());
 export function draftFrom(item: CalendarItem): PostDraft {
   const { date, time } = localParts(item.scheduled_at);
   return { date, time, format: item.format, pillar: item.pillar || "", title: item.title, hook: item.hook || "",
-    caption_draft: item.caption_draft || "", rationale: item.rationale || "", art_url: item.art_url || "" };
+    caption_draft: item.caption_draft || "", rationale: item.rationale || "", art_url: item.art_url || "",
+    collaborators: item.collaborators || [] };
 }

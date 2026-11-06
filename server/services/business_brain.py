@@ -72,7 +72,7 @@ async def suggest_business(client_id: str) -> Dict[str, Any]:
         "Até 4 linhas por campo. Em fontes, liste de onde tirou (ex.: 'legendas dos posts', 'vendas por origem').\n\n"
         f"DADOS DA MARCA:\n{to_prompt(intel, sections=['marca', 'posts', 'campanhas_que_mais_venderam', 'vendas_por_origem', 'campanhas_ativas', 'plano_de_midia', 'metas_do_mes', 'kpis', 'clipping', 'aprendizados', 'ultima_analise'], limit=9000)}\n"
     )
-    data = await llm_json(instructions=INSTRUCTIONS, prompt=prompt, schema_name="business_context_v1",
+    data = await llm_json(client_id=client_id, instructions=INSTRUCTIONS, prompt=prompt, schema_name="business_context_v1",
                           schema=SCHEMA, temperature=0.3, timeout=120)
     suggestion = {f: clean_text(data.get(f), MAX_FIELD_LENGTH) for f in empty if clean_text(data.get(f), MAX_FIELD_LENGTH)}
     return {"suggestion": suggestion, "filled": sorted(suggestion),
@@ -127,7 +127,7 @@ async def suggest_radar(client_id: str) -> Dict[str, Any]:
         "keywords e themes: assuntos do setor que importam para a marca. exclude_terms: palavras que trariam notícia "
         "errada por homônimo. region: cidade/país do público. relevance_criteria: 'Importa: ... Não importa: ...' em 2 linhas."
     )
-    data = await llm_json(instructions=INSTRUCTIONS, prompt=prompt, schema_name="clipping_radar_v1",
+    data = await llm_json(client_id=client_id, instructions=INSTRUCTIONS, prompt=prompt, schema_name="clipping_radar_v1",
                           schema=RADAR_SCHEMA, temperature=0.3, timeout=90)
     out: Dict[str, Any] = {}
     for key in RADAR_LISTS:

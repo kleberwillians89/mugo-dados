@@ -197,7 +197,8 @@ async def _classify(context: str, items: List[Dict[str, Any]]) -> Dict[int, Dict
         f"[{i}] ({it['kind']}: {it['term']}) {it['title']} | fonte: {it.get('source') or 'desconhecida'} | data: {it.get('published_at') or 's/d'}\n"
         f"TEXTO: {(it.get('content_text') or it.get('excerpt') or '')[:1200]}" for i, it in enumerate(items))
     try:
-        data = await llm_json(
+        # Matérias de terceiros podem citar concorrentes (às vezes outro cliente): aqui não é vazamento.
+        data = await llm_json(leak_check=False,
             instructions=("Você faz clipping para uma agência. Analise cada matéria SÓ em relação ao cliente descrito no CONTEXTO "
                           "(a mesma matéria pode importar para outro cliente por outros motivos). Use apenas título, fonte e TEXTO; "
                           "não invente fatos, números nem conclusões. relevancia: 0 a 100 para ESTE cliente (homônimo ou citação de "
@@ -495,7 +496,7 @@ async def build_report(client_id: str, period: str, focus: str) -> Dict[str, Any
     lines = "\n".join(f"- {r['title']} ({r.get('source') or 'fonte'}, {_day(r)}) [{r['kind']}: {r['term']}] relevância {r.get('relevance')}, "
                       f"{r.get('sentiment') or 'sem análise'}. {r.get('summary') or ''} URL: {r['url']}" for r in rows[:60])
     try:
-        data = await llm_json(
+        data = await llm_json(client_id=client_id, 
             instructions=("Escreva um relatório de clipping para a agência usando SOMENTE as matérias listadas. Cada destaque, risco e "
                           "oportunidade precisa citar a URL exata de uma matéria da lista. Não invente fatos, números ou matérias."),
             prompt=f"{_context(brand, settings)}\nFOCO: {focus}\nPERÍODO: {label}\nMATÉRIAS:\n{lines}",

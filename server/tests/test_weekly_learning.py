@@ -71,7 +71,7 @@ class WeeklyMessageTests(unittest.IsolatedAsyncioTestCase):
     async def build(self, **overrides):
         with patch.object(sm, "list_contacts", AsyncMock(return_value=[CONTACT])), patch.object(sm, "_client_name", AsyncMock(return_value="Curavino")), \
              patch.object(sm, "_snapshot", AsyncMock(return_value=self.SNAP)), patch.object(sm, "sb_select", AsyncMock(return_value=self.ROWS)), \
-             patch.object(sm, "_sentence", AsyncMock(side_effect=lambda task, data, fallback, preset=None: preset or fallback)):
+             patch.object(sm, "_sentence", AsyncMock(side_effect=lambda task, data, fallback, preset=None, **kw: preset or fallback)):
             return await sm.build_message("curavino", "semanal", overrides=overrides)
 
     async def test_numbers_from_panel_learning_and_next_step_from_memory(self):

@@ -552,7 +552,7 @@ def clean_sentence(value: Any, limit: int = 300) -> str:
     return text[:limit]
 
 
-async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Optional[str] = None) -> str:
+async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Optional[str] = None, *, client_id: Optional[str] = None) -> str:
     """Frase curta escrita pela IA a partir dos números; sem IA, a frase determinística.
 
     Se a equipe já escolheu/editou a frase (preset), ela vale e a IA não é chamada de novo."""
@@ -560,7 +560,7 @@ async def _sentence(task: str, data: Dict[str, Any], fallback: str, preset: Opti
     if preset and preset.strip():
         return clean_sentence(preset) or clean_sentence(fallback)
     try:
-        out = await llm_json(
+        out = await llm_json(client_id=client_id,
             instructions=("Você escreve UMA frase curta (até 140 caracteres, sem quebra de linha, sem emoji, sem travessão, "
                           "sem ponto final) para uma mensagem de WhatsApp a um cliente de agência. Ela precisa citar pelo "
                           "menos um número ou nome de campanha dos DADOS, de preferência vendas ou pedidos. Use só o que está "
@@ -633,7 +633,7 @@ async def _traffic_params(client_id: str, contact: Dict[str, Any], brand: str, p
         {"vendas_da_loja": sales["revenue"], "pedidos": sales["orders"], "vendas_vindas_de_midia_paga": sales["paid_revenue"],
          "pedidos_de_midia_paga": sales["paid_orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
          "vendas_por_origem": sales["channels"], "campanhas_nas_plataformas": campaigns},
-        _sales_fallback(sales, "acompanhamos as campanhas para aumentar as vendas"), preset)
+        _sales_fallback(sales, "acompanhamos as campanhas para aumentar as vendas"), preset, client_id=client_id)
     return {"_template": "mugo_relatorio_trafego", "nome": first_name(contact.get("name")), "marca": brand,
             "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
             "receita": brl(sales["revenue"]), "roas": brl(sales["revenue"] / spend), "destaque": highlight}
@@ -653,7 +653,7 @@ async def _results_params(client_id: str, contact: Dict[str, Any], brand: str, p
     data = {k: {"valor": _value(metrics, k), "variacao_pct": (metrics.get(k) or {}).get("variation_percent")}
             for k in ("revenue", "orders", "average_ticket", "investment", "roas", "sessions", "conversion_rate") if k in metrics}
     attention = await _sentence("Aponte o principal ponto de atenção do mês (a métrica que mais piorou ou o risco mais claro).",
-                                data, "vamos revisar juntos os canais no painel", preset)
+                                data, "vamos revisar juntos os canais no painel", preset, client_id=client_id)
     return {"_template": "mugo_resultados_mes", "nome": first_name(contact.get("name")), "mes": MONTHS[start.month - 1],
             "marca": brand, "faturamento": brl(revenue), "variacao": pct(variation) if variation is not None else "sem base de comparação",
             "pedidos": str(int(sales["orders"] or 0)), "investimento": brl(_value(metrics, "investment") or 0),
@@ -686,10 +686,10 @@ async def _weekly_params(client_id: str, contact: Dict[str, Any], brand: str, ov
                               {"anotacoes": notes[:8], "melhor_campanha": best and best["campaign_name"], "vendas_da_loja": revenue,
                                "pedidos": sales["orders"], "melhor_campanha_em_vendas": sales["top_campaign"],
                                "vendas_por_origem": sales["channels"]},
-                              learned_fallback, overrides.get("destaque"))
+                              learned_fallback, overrides.get("destaque"), client_id=client_id)
     nxt = await _sentence("Diga em 1 frase curta o próximo passo da agência para a semana (ação concreta numa campanha).",
                           {"acoes_recomendadas": [{"campanha": a["campaign_name"], "acao": a["recommended_action"]} for a in actions[:5]],
-                           "anotacoes": notes[:5]}, next_fallback, overrides.get("proximo"))
+                           "anotacoes": notes[:5]}, next_fallback, overrides.get("proximo"), client_id=client_id)
     params = {"_template": "mugo_resumo_semanal", "nome": first_name(contact.get("name")), "marca": brand,
               "periodo": f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}", "investimento": brl(spend),
               "receita": brl(revenue), "roas": brl(roas), "destaque": learned, "proximo": nxt}
