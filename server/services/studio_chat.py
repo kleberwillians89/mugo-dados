@@ -126,6 +126,8 @@ async def timeline(client_id: str, limit: int = 60) -> List[Dict[str, Any]]:
                                      limit=30, filters={**cid, "author_side": "eq.mugo"}))
     refs = await _safe(sb_select("studio_references", select="id,url,note,created_at", order="created_at.desc",
                                  limit=20, filters={**cid, "author_side": "eq.mugo"}))
+    published = await _safe(sb_select(ITEMS_TABLE, select="id,title,published_permalink,updated_at", order="updated_at.desc",
+                                      limit=20, filters={**cid, "status": "eq.publicado"}))
     titles = await _safe(_titles(client_id, [str(c.get("item_id") or "") for c in comments])) or {}
     events: List[Dict[str, Any]] = []
     for e in team:
@@ -151,5 +153,11 @@ async def timeline(client_id: str, limit: int = 60) -> List[Dict[str, Any]]:
     for f in refs:
         events.append({"id": f"f-{f['id']}", "at": f["created_at"], "side": "mugo", "kind": "referencia",
                        "text": "Mugô adicionou uma referência", "detail": f.get("note") or f.get("url"), "item_id": None})
+    for p in published:
+        if not p.get("updated_at"):
+            continue
+        events.append({"id": f"p-{p['id']}", "at": p["updated_at"], "side": "mugo", "kind": "publicado",
+                       "text": f"Publicado no Instagram: “{p.get('title') or 'post'}”", "detail": None, "item_id": p.get("id"),
+                       "title": p.get("title"), "link": p.get("published_permalink")})
     events.sort(key=lambda x: str(x["at"]), reverse=True)
     return events[:limit]

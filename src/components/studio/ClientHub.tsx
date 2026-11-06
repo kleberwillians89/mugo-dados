@@ -5,6 +5,7 @@ import { dueInfo, listClientTasks, listCrmTasks } from "../../app/crm";
 import { chatUnread, getKnowledge, listChat, listTimeline, type ChatChannel, type ChatMessage, type TimelineEvent } from "../../app/studio";
 import Approval from "../../pages/Approval";
 import Drawer from "../Drawer";
+import { ago } from "../../app/ago";
 import BrandChat from "./BrandChat";
 import BrandKnowledge from "./BrandKnowledge";
 import ClientTasks from "./ClientTasks";
@@ -19,13 +20,7 @@ const CLIENT_KINDS = ["ajuste_solicitado", "editado_pelo_cliente", "comentario",
 const TAGS: Record<string, [string, string]> = { ajuste_solicitado: ["Ajuste pedido", "r"], editado_pelo_cliente: ["Editado pelo cliente", "y"],
   comentario: ["Comentário", "b"], aprovado: ["Aprovado", "g"] };
 
-export function ago(iso: string, now = Date.now()): string {
-  const min = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
-  if (min < 1) return "agora";
-  if (min < 60) return `há ${min} min`;
-  if (min < 24 * 60) return `há ${Math.round(min / 60)} h`;
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-}
+export { ago };
 const clip = (text: string | null | undefined, n: number) => { const t = String(text || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 /**

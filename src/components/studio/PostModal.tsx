@@ -6,6 +6,7 @@ import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
+import ArtFiles from "./ArtFiles";
 import { artImages, artList } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
@@ -142,6 +143,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             }} />
           </label>
           {uploadError ? <small className="studioError">{uploadError}</small> : null}
+          <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy} onChange={(art_url) => set({ art_url })} />
+          {artList(draft.art_url).length && item ? <small className="postArtHint">Tirou ou mudou a ordem? Clique em <b>Salvar</b> para valer.</small> : null}
           <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
             <summary>ou colar link do Canva / Google Drive</summary>
             <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
