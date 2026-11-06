@@ -841,3 +841,5 @@
 .collabChips button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:#004f6e}
 .collabChips button:hover{background:#d5e7ee}
 .collabChips button:focus-visible{outline:2px solid #004f6e}
+.postPublishWarn{margin:0;font-size:13px;line-height:1.45;background:#fff4dc;color:#5c4200;border-radius:10px;padding:8px 10px}
+.postPublishWarn.is-muted{background:#f2f0eb;color:#5f5b53}

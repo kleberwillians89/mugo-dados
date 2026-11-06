@@ -12,7 +12,7 @@ from services.studio_calendar import StudioError
 class ConfirmScheduleTests(unittest.IsolatedAsyncioTestCase):
     async def confirm(self, status, when):
         update = AsyncMock(return_value=[{"id": "i1", "schedule_confirmed_at": "agora"}])
-        with patch.object(sc, "sb_select", AsyncMock(return_value=[{"id": "i1", "status": status, "scheduled_at": when.isoformat()}])), \
+        with patch.object(sc, "sb_select", AsyncMock(return_value=[{"id": "i1", "status": status, "scheduled_at": when.isoformat(), "format": "imagem", "art_url": "https://x.supabase.co/storage/v1/object/public/ig-media/a.jpg"}])), \
              patch.object(sc, "sb_update", update):
             return await sc.confirm_schedule("roove", "i1", user_id="u1"), update
 

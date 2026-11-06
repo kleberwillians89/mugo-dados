@@ -33,7 +33,7 @@ type Props = {
   /** Equipe: abre o envio ao cliente já com esta pauta (link de aprovação + WhatsApp oficial). */
   onSendForApproval?: () => void;
   /** Equipe: valida o agendamento de um post aprovado, na data e horário do post. */
-  onConfirmSchedule?: () => Promise<void>;
+  onConfirmSchedule?: (now?: boolean) => Promise<void>;
   /** Equipe: depois de corrigir o link da arte, devolve a pauta para a fila de publicação. */
   onRetryPublish?: () => Promise<void>;
   /** Business Suite já na Página desta marca (vem da conexão do Instagram). */
@@ -231,19 +231,26 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           </>}
           {dirty ? <button type="button" className="ds-button" disabled={busy} onClick={() => setDraft(initial)}>Descartar</button> : null}
         </div> : null}
+        {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? <p className="postPublishWarn">
+          Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p> : null}
+        {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
+          Marcado como publicado à mão: o Mugoverso não enviou este post ao Instagram.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
             {onSendForApproval && ["rascunho", "em_revisao", "rejeitado"].includes(item.status) ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={onSendForApproval}>Enviar para o cliente aprovar</button> : null}
-            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule()}>
+            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at && new Date(item.scheduled_at).getTime() > Date.now() ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule(false)}>
               Agendar para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button> : null}
+            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
+              onClick={() => { if (window.confirm("Publicar agora no Instagram? O post sai em até 5 minutos.")) void onConfirmSchedule(true); }}>Publicar agora</button> : null}
             {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: publica sozinho no Instagram</span> : null}
             {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
             {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
             {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
             {onRetryPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
-            {item.status === "aprovado" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onStatus("publicado")}>Marcar como publicado</button> : null}
+            {item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="studioLink" disabled={busy}
+              onClick={() => { if (window.confirm("Isso NÃO publica no Instagram: só marca no Mugoverso que você já publicou à mão. Continuar?")) void onStatus("publicado"); }}>Já publiquei à mão</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
             {item.status !== "rejeitado" && item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}
             {item.status === "aprovado" || item.status === "rejeitado" || item.status === "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("rascunho")}>Reabrir</button> : null}

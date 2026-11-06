@@ -42,8 +42,15 @@ describe("PostModal da equipe: aprovação e agendamento", () => {
   });
 
   it("aprovado oferece agendar na data sugerida e, depois, mostra agendado", () => {
-    expect(team("aprovado")).toContain("Agendar para");
-    expect(team("aprovado")).not.toContain("Enviar para o cliente aprovar");
-    expect(team("aprovado", { schedule_confirmed_at: "2026-11-04T12:00:00Z" })).toContain("✓ Agendado para");
+    const future = new Date(Date.now() + 2 * 86400000).toISOString();
+    expect(team("aprovado", { scheduled_at: future })).toContain("Agendar para");
+    expect(team("aprovado", { scheduled_at: future })).toContain("Publicar agora");
+    expect(team("aprovado", { scheduled_at: future })).toContain("ainda não vai para o Instagram");
+    expect(team("aprovado", { scheduled_at: future })).not.toContain("Enviar para o cliente aprovar");
+    expect(team("aprovado", { scheduled_at: "2020-01-01T12:00:00Z" })).not.toContain("Agendar para");
+    expect(team("aprovado", { scheduled_at: "2020-01-01T12:00:00Z" })).toContain("Publicar agora");
+    expect(team("aprovado", { scheduled_at: future, schedule_confirmed_at: "2026-11-04T12:00:00Z" })).toContain("✓ Agendado para");
+    expect(team("aprovado")).toContain("Já publiquei à mão");
+    expect(team("publicado")).toContain("o Mugoverso não enviou este post");
   });
 });
