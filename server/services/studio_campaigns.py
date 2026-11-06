@@ -152,7 +152,7 @@ async def generate(client_id: str, briefing: Dict[str, Any], *, user_id: str) ->
                 "e 3 títulos de campanha. Sem travessão."
               + f"\n\nVENDAS DOS ÚLTIMOS 30 DIAS (Origem das vendas):\n{json.dumps(ctx['sales'], ensure_ascii=False, default=str)}"
               + f"\n\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}")
-    data = _clean(await llm_json(instructions=ROLE, prompt=prompt, schema_name="studio_campaign", schema=schema, temperature=0.7, timeout=120))
+    data = _clean(await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_campaign", schema=schema, temperature=0.7, timeout=120))
     package = {"concept": data.get("conceito") or {}, "titles": (data.get("titulos") or [])[:3],
                "pieces": {c: _piece(c, data.get(c), ctx["avoid"], _guard_context(brief, ctx)) for c in channels},
                "generated_at": datetime.now(timezone.utc).isoformat()}
@@ -174,7 +174,7 @@ async def regenerate_piece(client_id: str, campaign_id: str, channel: str, *, in
               f"VERSÃO ATUAL (reescreva com outro ângulo):\n{json.dumps(current, ensure_ascii=False)}\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
               + f"\nDADOS DA MARCA:\n{to_prompt(ctx['intel'])}")
-    data = _clean(await llm_json(instructions=ROLE, prompt=prompt, schema_name=f"studio_campaign_{channel}",
+    data = _clean(await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_campaign_{channel}",
                                  schema=obj({"peca": CHANNEL_SCHEMAS[channel]}), temperature=0.8))
     package = dict(campaign["package"])
     package["pieces"] = {**(package.get("pieces") or {}), channel: _piece(channel, data.get("peca"), ctx["avoid"], _guard_context(campaign["briefing"], ctx))}

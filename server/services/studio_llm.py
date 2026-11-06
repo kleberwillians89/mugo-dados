@@ -39,7 +39,39 @@ def _accepts_temperature(model: str) -> bool:
 
 async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
                    temperature: float = 0.6, timeout: float = 90, model: str | None = None,
-                   images: tuple | list = ()) -> Dict[str, Any]:
+                   images: tuple | list = (), client_id: str | None = None, leak_check: bool = True) -> Dict[str, Any]:
+    """Resposta da IA em JSON. Com a marca conhecida (client_id ou a empresa já autorizada na requisição),
+    passa pela auditoria anti-vazamento: citou outra marca da Mugô → refaz 1 vez avisando; citou de novo → bloqueia."""
+    cid = client_id
+    if cid is None and leak_check:
+        from .tenant import _REQUEST_CLIENT
+        cid = _REQUEST_CLIENT.get()
+    data = await _llm_json_once(instructions=instructions, prompt=prompt, schema_name=schema_name, schema=schema,
+                                temperature=temperature, timeout=timeout, model=model, images=images)
+    if not (leak_check and cid):
+        return data
+    from .brand_guard import flatten
+    from .tenant_guard import find_leaks, leak_terms
+    terms = await leak_terms(cid)
+    found = find_leaks(flatten(data), terms) if terms else []
+    if not found:
+        return data
+    print(f"[tenant_guard] leak schema={schema_name} client_id={cid} terms={len(found)} action=retry")
+    warn = ("\n\nREGRA DE CONFIDENCIALIDADE: esta resposta é só para esta marca. NUNCA cite estas outras marcas, "
+            f"que são de outros clientes da agência: {', '.join(found)}.")
+    data = await _llm_json_once(instructions=instructions + warn, prompt=prompt, schema_name=schema_name, schema=schema,
+                                temperature=temperature, timeout=timeout, model=model, images=images)
+    again = find_leaks(flatten(data), terms)
+    if again:
+        print(f"[tenant_guard] leak schema={schema_name} client_id={cid} terms={len(again)} action=blocked")
+        from .studio_calendar import StudioError
+        raise StudioError("AI_TENANT_LEAK", "A IA citou outra marca atendida pela Mugô e a resposta foi bloqueada.")
+    return data
+
+
+async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
+                         temperature: float = 0.6, timeout: float = 90, model: str | None = None,
+                         images: tuple | list = ()) -> Dict[str, Any]:
     from .ai_summary import _extract_output_text
     from .studio_calendar import StudioError
 

@@ -1161,6 +1161,7 @@ async def social_report_insights(client_id: str, month: str, body: ReportInsight
 # ---------------------------------------------------------------- conversa da marca e linha do tempo
 
 ERRORS.update({
+    "AI_TENANT_LEAK": (422, "A IA citou outra marca atendida pela Mugô e a resposta foi bloqueada. Confira os materiais desta marca (pode haver conteúdo de outro cliente) e tente de novo."),
     "CHAT_CHANNEL_INVALID": (422, "Canal inválido."),
     "CHAT_FORBIDDEN": (403, "Este canal é só da equipe Mugô."),
     "CHAT_BODY_REQUIRED": (422, "Escreva a mensagem."),

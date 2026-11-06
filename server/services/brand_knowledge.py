@@ -166,7 +166,7 @@ async def learn(client_id: str, *, file_name: str, kind: str, text: str, user_id
                   f"DOCUMENTO NOVO — tipo: {kind}; nome: {name}"
                   + (" (lido só o começo, documento longo)" if truncated else "")
                   + f"\n<<<\n{text[:MAX_SOURCE_CHARS]}\n>>>")
-        data = await llm_json(instructions=INSTRUCTIONS, prompt=prompt, schema_name="brand_knowledge",
+        data = await llm_json(client_id=client_id, instructions=INSTRUCTIONS, prompt=prompt, schema_name="brand_knowledge",
                               schema=SCHEMA, temperature=0.2, timeout=150, model=profile_model())
         knowledge = str(data.get("knowledge") or "").strip()[:MAX_KNOWLEDGE]
         if not knowledge:

@@ -408,9 +408,10 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
 
 def validate_items(
     raw: Dict[str, Any], *, slots: List[Dict[str, Any]], profile: Dict[str, Any], trends: List[Dict[str, Any]],
-    guard_context: str = "",
+    guard_context: str = "", leak_terms: List[str] = (),
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     from .brand_guard import check as brand_check
+    from .tenant_guard import find_leaks
     by_slot = {s["slot_id"]: s for s in slots}
     pillars = {p["name"].lower(): p["name"] for p in profile.get("pillars") or []}
     trend_by_id = {t["id"]: t for t in trends}
@@ -434,6 +435,12 @@ def validate_items(
                 warnings.append(f"{slot['date']}: pilar fora do perfil foi removido.")
         caption = str(item.get("caption_draft") or "").strip()[:4000]
         hook = _text(item.get("hook"), 400)
+        leaked = find_leaks(f"{title}\n{hook}\n{caption}\n{item.get('rationale') or ''}", leak_terms) if leak_terms else []
+        if leaked:
+            # Vazamento entre clientes: a pauta não entra (a equipe gera de novo ou cria à mão).
+            warnings.append(f"{slot['date']}: pauta descartada por citar outra marca atendida pela Mugô.")
+            used.discard(slot["slot_id"])
+            continue
         flagged = sorted({w for w in avoid if w and w in f"{title} {hook} {caption}".lower()})
         trend = trend_by_id.get(str(item.get("trend_id") or ""))
         if trend and trends_used >= 2:
@@ -517,7 +524,9 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
     raw = await call_llm(prompt)
     guard_context = json.dumps({"perfil": profile, "negocio": business, "campanhas_ativas": signals.get("campanhas_ativas"),
                                 "vendas_por_origem": signals.get("vendas_por_origem")}, ensure_ascii=False, default=str)
-    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends, guard_context=guard_context)
+    from .tenant_guard import leak_terms as _leak_terms
+    items, warnings = validate_items(raw, slots=slots, profile=profile, trends=trends, guard_context=guard_context,
+                                     leak_terms=await _leak_terms(client_id))
     if not items:
         raise StudioError("AI_INVALID_OUTPUT", "A IA não devolveu pautas válidas. Tente de novo.")
 
