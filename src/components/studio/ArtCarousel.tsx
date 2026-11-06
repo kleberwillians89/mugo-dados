@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { isArtVideo } from "../../app/artLinks";
 
 /** Carrossel como no Instagram: um slide por vez, setas, bolinhas e deslize no celular. */
 export default function ArtCarousel({ images, onBroken }: { images: string[]; onBroken?: () => void }) {
@@ -16,8 +17,11 @@ export default function ArtCarousel({ images, onBroken }: { images: string[]; on
       const el = e.currentTarget;
       if (el.clientWidth) setIndex(Math.round(el.scrollLeft / el.clientWidth));
     }}>
-      {images.map((src, i) => <img key={src + i} src={src} alt={`Slide ${i + 1} de ${images.length}`} loading={i < 2 ? "eager" : "lazy"}
-        onError={i === 0 ? onBroken : undefined} draggable={false} />)}
+      {images.map((src, i) => isArtVideo(src)
+        ? <video key={src + i} src={src} controls muted playsInline loop preload="metadata" aria-label={`Vídeo, slide ${i + 1} de ${images.length}`}
+            onError={i === 0 ? onBroken : undefined} />
+        : <img key={src + i} src={src} alt={`Slide ${i + 1} de ${images.length}`} loading={i < 2 ? "eager" : "lazy"}
+            onError={i === 0 ? onBroken : undefined} draggable={false} />)}
     </div>
     {images.length > 1 ? <>
       {index > 0 ? <button type="button" className="artNav is-prev" aria-label="Slide anterior" onClick={() => go(index - 1)}>‹</button> : null}

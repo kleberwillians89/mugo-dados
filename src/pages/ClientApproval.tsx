@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { STUDIO_FORMATS, decidePublicApproval, getPublicApproval, localParts, type PublicApproval, type PublicApprovalItem } from "../app/studio";
 import ArtLink from "../components/studio/ArtLink";
 import ArtCarousel from "../components/studio/ArtCarousel";
-import { artImages, artList } from "../app/artLinks";
+import { artList, artSlides } from "../app/artLinks";
 import "../styles/studio.css";
 
 /** Página pública: o cliente aprova ou pede ajuste nas pautas, sem login. O token do link é a credencial. */
@@ -46,8 +46,8 @@ export default function ClientApproval({ token }: { token: string }) {
         <h3>{item.title}</h3>
         {item.hook ? <p className="studioHook">“{item.hook}”</p> : null}
         {item.caption_draft ? <p className="studioCaption">{item.caption_draft}</p> : null}
-        {artImages(item.art_url).length ? <div className="approvalArt"><ArtCarousel images={artImages(item.art_url)} /></div> : null}
-        <ArtLink url={artList(item.art_url)[0] || null} preview={!artImages(item.art_url).length} count={artList(item.art_url).length} />
+        {artSlides(item.art_url).length ? <div className="approvalArt"><ArtCarousel images={artSlides(item.art_url)} /></div> : null}
+        <ArtLink url={artList(item.art_url)[0] || null} preview={!artSlides(item.art_url).length} count={artList(item.art_url).length} />
         {item.comment ? <p className="studioReview">Seu comentário: {item.comment}</p> : null}
         {adjusting?.id === item.id ? <form className="studioForm" onSubmit={(e) => { e.preventDefault(); void decide(item, "ajuste_solicitado", adjusting.comment); }}>
           <label>O que precisa mudar?<textarea rows={3} maxLength={1000} required value={adjusting.comment} onChange={(e) => setAdjusting({ id: item.id, comment: e.target.value })} /></label>
