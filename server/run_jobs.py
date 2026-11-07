@@ -335,6 +335,9 @@ def main() -> None:
     _print_json(result)
     if args.command in {"provider-history", "provider-coverage"} and result.get("ok") is False:
         raise SystemExit(1)
+    # IA dos comentários: se alguma marca ficou sem resposta por falha, o job falha e o GitHub abre o alerta.
+    if args.command == "ig-ai-replies" and isinstance(result, dict) and result.get("ai_brands_failed"):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

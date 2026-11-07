@@ -436,12 +436,51 @@ async def _claim(client_id: str, comment: Dict[str, Any], kind: str, text: str) 
     return str((row or {}).get("id") or "") or None
 
 
+AI_FAILURE_REASONS = {
+    "AI_PROVIDER_NOT_CONFIGURED": "A chave da OpenAI não está configurada no ambiente dos jobs.",
+    "AI_PROVIDER_TIMEOUT": "A OpenAI demorou demais para responder.",
+    "AI_PROVIDER_ERROR": "A OpenAI recusou o pedido.",
+    "AI_INVALID_OUTPUT": "A OpenAI devolveu uma resposta inválida.",
+    "AI_TENANT_LEAK": "A resposta citava outra marca da Mugô e foi bloqueada.",
+}
+PROVIDER_DETAILS = {
+    "insufficient_quota": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
+    "invalid_api_key": "Chave da OpenAI inválida: atualize OPENAI_API_KEY no Render e no segredo MUGO_JOBS_ENV do GitHub.",
+    "rate_limit_exceeded": "Limite de uso da OpenAI por minuto atingido.",
+    "model_not_found": "O modelo configurado em OPENAI_MODEL não existe ou não está liberado na conta.",
+}
+
+
+def failure_reason(code: str, detail: str = "") -> str:
+    """Frase para a equipe a partir do código do erro (ex.: AI_PROVIDER_ERROR + http_429:insufficient_quota)."""
+    tail = detail.split(":", 1)[1] if ":" in detail else ""
+    if tail in PROVIDER_DETAILS:
+        return PROVIDER_DETAILS[tail]
+    if detail.startswith("http_401"):
+        return PROVIDER_DETAILS["invalid_api_key"]
+    base = AI_FAILURE_REASONS.get(code) or f"Falha: {code}."
+    return f"{base} ({detail})" if detail and detail != code else base
+
+
+async def _record_failure(client_id: str, comment: Dict[str, Any], code: str, detail: str) -> None:
+    """Falha da IA fica registrada (não bloqueia nova tentativa: o índice único ignora 'falhou')."""
+    try:
+        await sb_insert(ACTIONS, {"client_id": client_id, "comment_id": str(comment["comment_id"]), "media_id": comment.get("media_id"),
+                                  "kind": "resposta_ia", "status": "falhou", "text": failure_reason(code, detail)[:1000],
+                                  "error": f"{code}:{detail}"[:200] if detail and detail != code else code[:200], "actor": "ia"},
+                        returning="minimal")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ig_engagement] record_failure client_id={client_id} error_type={exc.__class__.__name__}")
+
+
 async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: List[Dict[str, Any]], handled: set,
-                         budget: Optional[int] = None) -> Dict[str, int]:
+                         budget: Optional[int] = None) -> Dict[str, Any]:
     settings = await get_settings(client_id)
-    counts = {"ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0}
-    if not settings["ai_autoreply"] or not capabilities(creds["scopes"])["reply"]:
-        return counts
+    counts: Dict[str, Any] = {"ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0, "ai_errors": {}, "ai_candidates": 0}
+    if not settings["ai_autoreply"]:
+        return {**counts, "ai_skipped": "ia_desligada"}
+    if not capabilities(creds["scopes"])["reply"]:
+        return {**counts, "ai_skipped": "sem_permissao_responder"}
     since = datetime.now(timezone.utc) - AI_LOOKBACK
     own = creds["username"].lower()
     live = autoreply_enabled()
@@ -454,10 +493,16 @@ async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: Lis
                 or str(comment.get("username") or "").lower() == own or not (comment.get("text") or "").strip()):
             continue
         budget -= 1
+        counts["ai_candidates"] += 1
         try:
             answer = await _ai_answer(client_id, comment)
-        except StudioError:
+        except StudioError as exc:
+            detail = str(exc) if str(exc) != exc.code else ""
+            key = f"{exc.code}:{detail}" if detail else exc.code
             counts["ai_failed"] += 1
+            counts["ai_errors"][key] = counts["ai_errors"].get(key, 0) + 1
+            print(f"[ig_engagement] ai_failed client_id={client_id} code={key}")
+            await _record_failure(client_id, comment, exc.code, detail)
             continue
         review = answer["needs_human"] or bool(answer["guard"]) or not answer["reply"]
         kind = "revisao" if review else "resposta_ia"
@@ -475,6 +520,8 @@ async def run_ai_replies(client_id: str, *, creds: Dict[str, Any], comments: Lis
                 status, external = "enviado", str(out.get("id") or "") or None
             except StudioError as exc:
                 status, error = "falhou", exc.code
+                key = f"INSTAGRAM:{exc.code}"
+                counts["ai_errors"][key] = counts["ai_errors"].get(key, 0) + 1
         await sb_update(ACTIONS, filters={"id": f"eq.{action_id}", "client_id": f"eq.{client_id}"},
                         patch={"status": status, "error": error, "external_id": external}, returning="minimal")
         counts[{"enviado": "ai_sent", "simulado": "ai_simulated", "falhou": "ai_failed"}[status]] += 1
@@ -538,7 +585,78 @@ async def run_rules(client_id: str, *, refresh: bool = True, ai: bool = False) -
             handled.add(str(comment["comment_id"]))  # comentário de gatilho não recebe resposta da IA
             break  # um gatilho por comentário: o primeiro que bater
     ai = await run_ai_replies(client_id, creds=creds, comments=comments, handled=handled, budget=AI_DAILY_BUDGET) if ai_on else {}
-    return {"client_id": client_id, "rules": len(rules), "live": live, **counts, **ai}
+    return {"client_id": client_id, "rules": len(rules), "live": live, "ai_on": ai_on, **counts, **ai}
+
+
+AI_JOB = "ig-ai-replies"
+
+
+def run_status(result: Dict[str, Any]) -> str:
+    """success: tudo certo (ou nada a responder) · partial: parte falhou · error: nada saiu por falha."""
+    if result.get("error"):
+        return "error"
+    if result.get("ai_skipped"):
+        return "skipped"
+    ok = sum(int(result.get(k) or 0) for k in ("ai_sent", "ai_simulated", "ai_review"))
+    failed = int(result.get("ai_failed") or 0)
+    if failed and not ok:
+        return "error"
+    return "partial" if failed else "success"
+
+
+def run_summary(result: Dict[str, Any]) -> str:
+    """Uma frase do que aconteceu na rodada da IA para esta marca."""
+    status = run_status(result)
+    if status == "skipped":
+        return {"ia_desligada": "IA desligada nesta marca.",
+                "sem_permissao_responder": "A conexão do Instagram não tem permissão para responder comentários: reconecte a Meta."
+                }.get(result["ai_skipped"], "Rodada ignorada.")
+    if result.get("error"):
+        return f"A rodada parou antes de responder: {result['error']}"
+    parts = []
+    for key, label in (("ai_sent", "publicada(s)"), ("ai_simulated", "simulada(s) (modo teste)"), ("ai_review", "para revisão"),
+                       ("ai_failed", "com falha")):
+        if result.get(key):
+            parts.append(f"{result[key]} {label}")
+    if not parts:
+        return "Nenhum comentário novo sem resposta nos últimos 3 dias."
+    text = ", ".join(parts) + "."
+    errors = result.get("ai_errors") or {}
+    if errors:
+        top = max(errors, key=errors.get)
+        code, _, detail = top.partition(":")
+        text += " Motivo: " + (f"o Instagram recusou a publicação ({detail})." if code == "INSTAGRAM" else failure_reason(code, detail))
+    return text
+
+
+async def _record_run(client_id: str, result: Dict[str, Any], started: str) -> None:
+    from .job_runs import finish_job_run, start_job_run
+    try:
+        run = await start_job_run(job_name=AI_JOB, client_id=client_id, payload_json={"started": started})
+        status = run_status(result)
+        await finish_job_run(run.get("id") or "", status=status, rows_upserted=int(result.get("ai_sent") or 0),
+                             error=run_summary(result) if status in ("error", "partial") else None,
+                             payload_json={**{k: result.get(k) for k in ("ai_sent", "ai_simulated", "ai_review", "ai_failed",
+                                                                       "ai_errors", "ai_candidates", "ai_skipped", "live")},
+                                           "summary": run_summary(result)})
+    except Exception as exc:  # noqa: BLE001 — registrar não pode derrubar a rodada
+        print(f"[ig_engagement] record_run client_id={client_id} error_type={exc.__class__.__name__}")
+
+
+async def last_ai_run(client_id: str) -> Optional[Dict[str, Any]]:
+    """Última rodada da IA nesta marca, para a tela de Comentários."""
+    try:
+        rows = await sb_select("cron_job_runs", select="started_at,finished_at,status,payload_json", order="started_at.desc", limit=1,
+                               filters={"job_name": f"eq.{AI_JOB}", "client_id": f"eq.{client_id}"})
+    except Exception:  # noqa: BLE001
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    payload = row.get("payload_json") or {}
+    return {"at": row.get("finished_at") or row.get("started_at"), "status": row.get("status"),
+            "summary": payload.get("summary") or "", "live": payload.get("live"),
+            "counts": {k: int(payload.get(k) or 0) for k in ("ai_sent", "ai_simulated", "ai_review", "ai_failed")}}
 
 
 async def run_all(*, ai: bool = False) -> Dict[str, Any]:
@@ -548,7 +666,8 @@ async def run_all(*, ai: bool = False) -> Dict[str, Any]:
                                 filters={"platform": "eq.instagram", "status": "eq.active"})
     clients = sorted({str(r["client_id"]) for r in [*rows, *connected] if r.get("client_id")})
     out = {"clients": len(clients), "sent": 0, "simulated": 0, "failed": 0, "errors": 0,
-           "ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0}
+           "ai_sent": 0, "ai_simulated": 0, "ai_review": 0, "ai_failed": 0, "ai_brands_failed": 0}
+    started = datetime.now(timezone.utc).isoformat()
     for cid in clients:
         try:
             r = await run_rules(cid, ai=ai)
@@ -556,5 +675,18 @@ async def run_all(*, ai: bool = False) -> Dict[str, Any]:
                 out[k] += r.get(k, 0)
         except Exception as exc:  # noqa: BLE001 — uma marca não para as outras
             out["errors"] += 1
-            print(f"[ig_engagement] client_failed client_id={cid} {getattr(exc, 'code', type(exc).__name__)}")
+            code = getattr(exc, "code", type(exc).__name__)
+            print(f"[ig_engagement] client_failed client_id={cid} {code}")
+            r = {"error": f"{code}", "ai_on": ai and (await _ai_on(cid))}
+        if ai and (r.get("ai_on") or "ai_skipped" in r or "ai_candidates" in r):
+            await _record_run(cid, r, started)
+            if run_status(r) == "error":
+                out["ai_brands_failed"] += 1
     return out
+
+
+async def _ai_on(client_id: str) -> bool:
+    try:
+        return bool((await get_settings(client_id))["ai_autoreply"])
+    except Exception:  # noqa: BLE001
+        return False

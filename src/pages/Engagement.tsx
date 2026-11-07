@@ -3,7 +3,7 @@ import RepliedPosts from "../components/studio/RepliedPosts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveReplyTone, saveRule, sendReply, suggestReply,
-  type EngagementRule, type EngagementSettings, type InboxComment, type RuleInput,
+  type EngagementRule, type EngagementSettings, type InboxComment, type LastAiRun, type RuleInput,
 } from "../app/engagement";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -30,6 +30,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
   const [rules, setRules] = useState<EngagementRule[] | null>(null);
   const [live, setLive] = useState(false);
   const [settings, setSettings] = useState<EngagementSettings | null>(null);
+  const [lastRun, setLastRun] = useState<LastAiRun | null>(null);
   const [toneDraft, setToneDraft] = useState<string | null>(null);
   const [can, setCan] = useState<{ reply: boolean; direct: boolean } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { text: string; direct: boolean; hint?: string }>>({});
@@ -47,7 +48,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     try {
       const data = await getInbox(openOnly);
       if (getActiveClientId() !== clientId) return;
-      setItems(data.items); setLive(data.autoreply_enabled); setSettings(data.settings || null);
+      setItems(data.items); setLive(data.autoreply_enabled); setSettings(data.settings || null); setLastRun(data.last_ai_run || null);
     } catch (cause) { setError(message(cause, "Não foi possível carregar os comentários.")); }
   }, [openOnly, clientId]);
   const loadRules = useCallback(async () => {
@@ -112,7 +113,10 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     </div>} />
     {settings ? <div className="engageAi">
       <div><b>IA respondendo sozinha</b> <span className={settings.ai_autoreply ? "studioOk" : "libHint"}>{settings.ai_autoreply ? "ligada" : "desligada"}</span>
-        <small>Todo dia às 16h, os comentários sem resposta dos últimos 3 dias recebem uma resposta curta no tom do perfil da marca (até 30 por dia): resposta aumenta o alcance. Reclamação, dado pessoal ou texto fora da marca não sai: vira "revisão" aqui para a equipe responder.</small></div>
+        <small>Todo dia às 16h, os comentários sem resposta dos últimos 3 dias recebem uma resposta curta no tom do perfil da marca (até 30 por dia): resposta aumenta o alcance. Reclamação, dado pessoal ou texto fora da marca não sai: vira "revisão" aqui para a equipe responder.</small>
+        {settings.ai_autoreply && lastRun ? <p className={`engageLastRun is-${lastRun.status}`} role={lastRun.status === "error" ? "alert" : undefined}>
+          <b>Última rodada · {new Date(lastRun.at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}:</b> {lastRun.summary}
+        </p> : null}</div>
       {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={async () => {
         const out = await run("ai", () => saveEngagementSettings(!settings.ai_autoreply), "Não foi possível alterar.");
         if (out) setSettings(out);

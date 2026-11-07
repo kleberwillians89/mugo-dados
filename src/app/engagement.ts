@@ -14,6 +14,9 @@ export type EngagementRule = { id: string; name: string; keywords: string[]; med
 export type RuleInput = Omit<EngagementRule, "id">;
 
 export type EngagementSettings = { ai_autoreply: boolean; max_per_run: number; reply_tone?: string | null };
+/** Última rodada diária da IA nesta marca (16h). status: success | partial | error | skipped. */
+export type LastAiRun = { at: string; status: "success" | "partial" | "error" | "skipped" | "running"; summary: string; live?: boolean;
+  counts: { ai_sent: number; ai_simulated: number; ai_review: number; ai_failed: number } };
 export type PostReply = { comment: string; username: string | null; reply: string; who: "ia" | "equipe" | "gatilho" | "revisao"; status: "enviado" | "simulado" | "pendente" | "falhou"; at: string };
 export type RepliedPost = {
   media_id: string; permalink?: string | null; caption?: string; thumb?: string | null; posted_at?: string; last_at: string;
@@ -21,7 +24,7 @@ export type RepliedPost = {
 };
 export const getRepliesByPost = (days = 30) => http<{ posts: RepliedPost[]; days: number }>(base(`/replies?days=${days}`));
 export const getInbox = (openOnly: boolean) =>
-  http<{ items: InboxComment[]; autoreply_enabled: boolean; settings?: EngagementSettings }>(base(`/comments?open_only=${openOnly}`));
+  http<{ items: InboxComment[]; autoreply_enabled: boolean; settings?: EngagementSettings; last_ai_run?: LastAiRun | null }>(base(`/comments?open_only=${openOnly}`));
 export const saveEngagementSettings = (ai_autoreply: boolean) =>
   http<EngagementSettings>(base("/settings"), { method: "PUT", body: JSON.stringify({ ai_autoreply }) });
 /** Tom das respostas desta marca (vazio = segue o tom das legendas). Não liga nem desliga a IA. */

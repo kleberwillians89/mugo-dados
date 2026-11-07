@@ -110,7 +110,7 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
         raise StudioError("AI_PROVIDER_ERROR") from None
     if response.status_code >= 400:
         print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code}")
-        raise StudioError("AI_PROVIDER_ERROR")
+        raise StudioError("AI_PROVIDER_ERROR", provider_error_detail(response))
     try:
         data = json.loads(_extract_output_text(response.json()))
     except (ValueError, TypeError):
@@ -118,6 +118,17 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
     if not isinstance(data, dict):
         raise StudioError("AI_INVALID_OUTPUT")
     return data
+
+
+def provider_error_detail(response: Any) -> str:
+    """'http_429:insufficient_quota', 'http_401:invalid_api_key'… Só status e código: nunca o corpo inteiro."""
+    detail = f"http_{getattr(response, 'status_code', '?')}"
+    try:
+        err = (response.json() or {}).get("error") or {}
+        code = str(err.get("code") or err.get("type") or "").strip()[:60]
+    except Exception:  # noqa: BLE001
+        code = ""
+    return f"{detail}:{code}" if code else detail
 
 
 def obj(properties: Dict[str, Any]) -> Dict[str, Any]:
