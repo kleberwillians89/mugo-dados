@@ -1052,10 +1052,10 @@ async def engagement_replies(client_id: str, days: int = Query(default=30, ge=1,
 
 @router.get("/engagement/comments")
 async def engagement_inbox(client_id: str, open_only: bool = True, authorization: str | None = Header(default=None)):
-    from services.ig_engagement import get_settings, inbox
+    from services.ig_engagement import get_settings, inbox, last_ai_run
     # Visível ao cliente: caixa da própria marca (o que a IA respondeu, o que está em revisão).
     cid = await require_client_read(client_id, authorization)
-    return {**await inbox(cid, only_open=open_only), "settings": await get_settings(cid)}
+    return {**await inbox(cid, only_open=open_only), "settings": await get_settings(cid), "last_ai_run": await last_ai_run(cid)}
 
 
 class EngagementSettings(BaseModel):

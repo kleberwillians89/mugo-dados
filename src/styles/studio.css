@@ -866,3 +866,8 @@
 .agentSuggest button:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
 .agentSuggest button:disabled{opacity:.5;cursor:progress}
 .agentTyping{color:var(--text-secondary,#6b665d);font-style:italic}
+
+.engageLastRun{margin:8px 0 0;font-size:13px;padding:6px 10px;border-radius:8px;background:#eef5f8;color:#1f3d4a;max-width:70ch}
+.engageLastRun.is-success{background:#e8f4ec;color:#1f5a3a}
+.engageLastRun.is-partial,.engageLastRun.is-skipped{background:#fff6e0;color:#7a5200}
+.engageLastRun.is-error{background:#fdecec;color:#8a1f1f}
