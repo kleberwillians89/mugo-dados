@@ -234,6 +234,28 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         response, _ = await self.request(self.as_client(linked=("c1",)), "GET", "/00000000-0000-0000-0000-000000000009")
         self.assertEqual(response.status_code, 404)
 
+    async def test_client_delete_only_unlinks_from_company(self):
+        delete = AsyncMock(return_value=[{"creator_id": "c1"}])
+        uid = "00000000-0000-0000-0000-000000000001"
+        response, mocks = await self.request(self.as_client(linked=(uid,)) + [patch.object(creators, "sb_delete", delete)], "DELETE", f"/{uid}")
+        self.assertEqual(response.json(), {"ok": True, "scope": "company"})
+        self.assertEqual(delete.await_args.args[0], "creator_client_links")
+        self.assertEqual(delete.await_args.kwargs["filters"], {"client_id": f"eq.{CID}", "creator_id": f"eq.{uid}"})
+        self.assertEqual(mocks[1].await_args.kwargs["allowed_roles"], ("agency_admin", "client_admin"))
+
+    async def test_client_cannot_delete_other_company_creator(self):
+        delete = AsyncMock(return_value=[{}])
+        response, _ = await self.request(self.as_client(linked=("c1",)) + [patch.object(creators, "sb_delete", delete)], "DELETE", "/00000000-0000-0000-0000-000000000009")
+        self.assertEqual(response.status_code, 404)
+        delete.assert_not_awaited()
+
+    async def test_agency_delete_removes_from_bank(self):
+        delete = AsyncMock(return_value=[{"id": "x"}])
+        uid = "00000000-0000-0000-0000-000000000002"
+        response, _ = await self.request(self.as_agency() + [patch.object(creators, "sb_delete", delete)], "DELETE", f"/{uid}")
+        self.assertEqual(response.json()["scope"], "bank")
+        self.assertEqual(delete.await_args.args[0], "creators")
+
     async def test_client_usage_hides_mugo_costs(self):
         summary = {"apify": {"month_spent_usd": 1}, "youtube": {}, "meta": {"month_calls_this_client": 2}}
         response, _ = await self.request(self.as_client() + [patch.object(creators, "usage_summary", AsyncMock(return_value=summary))], "GET", "/usage")

@@ -230,6 +230,16 @@ async def read_creator(client_id: str, creator_id: UUID, authorization: Optional
     return creator
 
 
+@router.delete("/{creator_id}")
+async def delete_creator(client_id: str, creator_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid, only = await actor(client_id, authorization)
+    if only is not None and str(creator_id) not in only:
+        raise HTTPException(404, "Criador não encontrado.")
+    if not await creators.remove_creator(cid, str(creator_id), agency=only is None):
+        raise HTTPException(404, "Criador não encontrado.")
+    return {"ok": True, "scope": "company" if only is not None else "bank"}
+
+
 @router.post("/{creator_id}/refresh")
 async def refresh_creator(client_id: str, creator_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid, only = await actor(client_id, authorization)

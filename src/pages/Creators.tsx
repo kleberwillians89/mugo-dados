@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber,
+  CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
   getCreatorUsage, getShortlist, listCreators, listShortlists, lookupCreator, refreshCreator, removeFromShortlist,
   searchCreators, suggestCreators, updateShortlistItem,
   type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
@@ -100,8 +100,31 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const addTo = (creatorId: string) =>
     run("other", async () => { await addToShortlist(activeList, creatorId); await loadList(activeList); }, "Não foi possível adicionar.");
 
-  const toggle = (id: string) => setSelected((current) =>
-    current.includes(id) ? current.filter((i) => i !== id) : current.length >= MAX_COMPARE ? current : [...current, id]);
+  // Seleção livre (antes travava em 5 sem aviso): serve para comparar (2 a 5), adicionar à shortlist e excluir em lote.
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((i) => i !== id) : [...current, id]);
+  const allSelected = creators.length > 0 && creators.every((c) => selected.includes(c.id));
+
+  const addSelected = () => {
+    if (!activeList) { setError("Escolha ou crie uma shortlist acima para adicionar os criadores."); return; }
+    run("other", async () => { for (const id of selected) await addToShortlist(activeList, id); await loadList(activeList); setSelected([]); },
+      "Não foi possível adicionar.");
+  };
+
+  function remove(ids: string[]) {
+    if (!ids.length) return;
+    const who = ids.length === 1 ? `@${creators.find((c) => c.id === ids[0])?.handle || "criador"}` : `${ids.length} criadores`;
+    const ok = window.confirm(isAgency
+      ? `Excluir ${who} do banco de criadores? Sai para todas as empresas, junto com as métricas e as shortlists.`
+      : `Excluir ${who} da lista de criadores da ${clientName || "empresa"}?`);
+    if (!ok) return;
+    run("other", async () => {
+      for (const id of ids) await deleteCreator(id);
+      setCreators((current) => current.filter((c) => !ids.includes(c.id)));
+      setSelected((current) => current.filter((id) => !ids.includes(id)));
+      setComparison((current) => current && current.filter((c) => !ids.includes(c.id)));
+      if (activeList) await loadList(activeList);
+    }, "Não foi possível excluir.");
+  }
 
   function onLookup(event: FormEvent) {
     event.preventDefault();
@@ -192,10 +215,16 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </section> : null}
 
       <div className="creatorToolbar">
-        <button type="button" className="ds-button" disabled={selected.length < 2 || Boolean(busy)}
+        <button type="button" className="ds-button" disabled={selected.length < 2 || selected.length > MAX_COMPARE || Boolean(busy)}
+          title={selected.length > MAX_COMPARE ? `Compare até ${MAX_COMPARE} de cada vez` : undefined}
           onClick={() => run("other", async () => setComparison((await compareCreators(selected)).creators), "Não foi possível comparar.")}>
           Comparar {selected.length ? `(${selected.length}/${MAX_COMPARE})` : ""}
         </button>
+        {canAct && selected.length ? <>
+          <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={addSelected}>+ Shortlist ({selected.length})</button>
+          <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove(selected)}>Excluir ({selected.length})</button>
+        </> : null}
+        {selected.length ? <button type="button" className="studioLink" onClick={() => setSelected([])}>Limpar seleção</button> : null}
         <select value={activeList} aria-label="Shortlist ativa" onChange={(e) => { setActiveList(e.target.value); run("other", () => loadList(e.target.value), "Não foi possível abrir a shortlist."); }}>
           <option value="">Shortlist ativa…</option>
           {shortlists.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.campaign_type === "ugc" ? "UGC" : "Influência"})</option>)}
@@ -239,9 +268,9 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
         {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador no banco ainda. Analise um @, descubra por hashtag ou peça sugestões à IA."
           : canAct ? "Nenhum criador da sua empresa ainda. Analise um @ ou peça sugestões à IA." : "A Mugô ainda não selecionou criadores para a sua empresa."}</p> :
           <div className="creatorScroll"><table className="ds-table creatorTable">
-            <thead><tr><th aria-label="Comparar" /><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>
+            <thead><tr><th><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : creators.map((c) => c.id))} aria-label="Selecionar todos" /></th><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>
             <tbody>{creators.map((creator) => <tr key={creator.id}>
-              <td><input type="checkbox" checked={selected.includes(creator.id)} onChange={() => toggle(creator.id)} aria-label={`Comparar @${creator.handle}`} /></td>
+              <td><input type="checkbox" checked={selected.includes(creator.id)} onChange={() => toggle(creator.id)} aria-label={`Selecionar @${creator.handle}`} /></td>
               <td><Identity creator={creator} /></td>
               <td className="is-number" title={creatorNumber(creator.followers)}>{creatorCompact(creator.followers)}</td>
               <td className="is-number" title="Média dos posts recentes">{creatorCompact(creator.avg_likes)}</td>
@@ -253,7 +282,9 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
               </td>
               <td>{canAct ? <div className="creatorActions">
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
-                {activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ Shortlist</button> : null}
+                <button type="button" className="ds-button" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
+                  onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
+                <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove([creator.id])}>Excluir</button>
               </div> : null}</td>
             </tr>)}</tbody>
           </table></div>}

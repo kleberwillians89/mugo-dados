@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from . import creators_providers as providers
 from .business_context import load_business_context
-from .ig_supabase import sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upsert
+from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upsert
 from .integration_errors import IntegrationError
 from .meta_tokens import ensure_valid_meta_token, get_active_connection_for_client
 
@@ -218,6 +218,16 @@ async def link_creators(client_id: str, creator_ids: List[str]) -> None:
         await sb_upsert("creator_client_links", rows, on_conflict="client_id,creator_id")
     except Exception as exc:  # sem a migração 000061 o vínculo falha, mas a consulta segue
         print(f"[creators][link_failed] client_id={client_id} error={str(exc)[:200]}")
+
+
+async def remove_creator(client_id: str, creator_id: str, *, agency: bool) -> bool:
+    """Excluir criador. Cliente: sai só da lista da própria empresa (o perfil segue no banco das outras).
+    Agência: sai do banco inteiro (métricas e itens de shortlist vão junto, por cascade)."""
+    if agency:
+        rows = await sb_delete("creators", filters={"id": f"eq.{creator_id}"})
+    else:
+        rows = await sb_delete("creator_client_links", filters={"client_id": f"eq.{client_id}", "creator_id": f"eq.{creator_id}"})
+    return bool(rows)
 
 
 async def linked_ids(client_id: str) -> set[str]:
