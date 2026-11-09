@@ -1,0 +1,21 @@
+/* Usuários: lista da equipe da empresa e drawer de permissões por tela (modelo CRM). */
+.usersPage{width:100%;box-sizing:border-box;padding:24px;max-width:1280px;margin:0 auto;gap:var(--space-4)}
+.usersIntro{margin:0;max-width:72ch;color:var(--text-secondary)}
+.usersToolbar{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;justify-content:space-between}
+.usersMuted{margin:0;font-size:13px;color:var(--text-muted)}
+.usersScroll{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-lg,12px);background:var(--surface)}
+.usersTable td{vertical-align:middle}
+.usersTable td b{display:block;font-weight:600;color:var(--text-primary)}
+.usersTable td small{display:block;color:var(--text-muted);font-size:12px}
+.usersActions{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.usersActions .ds-button{white-space:nowrap}
+.usersSecret code{font-size:14px;padding:2px 6px;border-radius:4px;background:var(--surface-subtle)}
+.usersForm input:not([type="checkbox"]),.usersForm select{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(21,24,27,.16);border-radius:var(--radius-sm,6px);font:inherit;font-size:14px;background:var(--surface);color:var(--text-primary)}
+.usersPasswordRow{display:flex;gap:var(--space-2);align-items:center}
+.usersPasswordRow input{flex:1;min-width:0;font-family:ui-monospace,monospace}
+.usersGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:var(--space-3);border:1px solid var(--border-subtle);border-radius:var(--radius-md,8px);padding:var(--space-3);margin:0}
+.usersGrid legend{padding:0 6px;font-weight:600;font-size:13px}
+.usersGrid[disabled]{opacity:.55}
+.usersModule{display:flex;flex-direction:column;gap:6px;min-width:0}
+.usersModule b{font-size:13px;color:var(--text-primary)}
+.usersModule .studioCheck{font-size:13px}

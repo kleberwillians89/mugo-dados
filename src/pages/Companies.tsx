@@ -12,7 +12,6 @@ import { getActiveClient } from "../app/activeClient";
 import type { AppRoute } from "../app/routes";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "../app/roles";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
-import ClientAccessPanel from "../components/admin/ClientAccessPanel";
 import FbitsOriginProbePanel from "../components/admin/FbitsOriginProbePanel";
 import HistoryBackfillPanel from "../components/admin/HistoryBackfillPanel";
 import TestOrdersPanel from "../components/admin/TestOrdersPanel";
@@ -35,11 +34,10 @@ type Props = {
   canEditBusinessContext?: boolean;
 };
 
-type Tab = "empresas" | "acessos" | "usuarios" | "permissoes" | "contexto" | "origem" | "historico";
+type Tab = "empresas" | "usuarios" | "permissoes" | "contexto" | "origem" | "historico";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "empresas", label: "Empresas" },
-  { id: "acessos", label: "Acessos" },
   { id: "usuarios", label: "Equipe Mugô" },
   { id: "permissoes", label: "Permissões" },
   { id: "contexto", label: "Contexto estratégico" },
@@ -343,8 +341,8 @@ export default function Companies({
             <h2>Responsáveis e convites</h2>
           </div>
           <p className="wizardHint">
-            Responsável cadastrado de cada empresa e convites enviados. Os acessos de usuário de
-            cada empresa ficam na aba Acessos.
+            Responsável cadastrado de cada empresa e convites enviados. Os usuários e as permissões
+            de cada empresa ficam na tela Usuários, no menu lateral.
           </p>
           {companies.length === 0 ? (
             <p className="companiesEmptyState">Nenhuma empresa cadastrada ainda.</p>
@@ -370,7 +368,6 @@ export default function Companies({
         </section>
       ) : null}
 
-      {tab === "acessos" ? <ClientAccessPanel canManage={canEditBusinessContext} /> : null}
 
       {tab === "origem" ? <FbitsOriginProbePanel companies={companies} /> : null}
       {tab === "historico" ? <><HistoryBackfillPanel companies={companies} /><TestOrdersPanel companies={companies} /><OriginReprocessPanel companies={companies} /></> : null}

@@ -53,6 +53,7 @@ from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
+from routes.team import router as team_router
 from routes.goals import router as goals_router
 from routes.creators import router as creators_router
 from routes.automations import client_router as automations_client_router, router as automations_router
@@ -87,6 +88,26 @@ from services.tenant import require_client_role, require_user_id, resolve_client
 from services.integration_errors import IntegrationError
 
 app = FastAPI(title="Mugoverso API")
+
+
+class _RouteContextMiddleware:
+    """Grava (método, caminho) da requisição para a checagem de permissão por módulo (team_access)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.inner(scope, receive, send)
+        from services.team_access import REQUEST_ROUTE
+        token = REQUEST_ROUTE.set((str(scope.get("method") or "GET"), str(scope.get("path") or "")))
+        try:
+            return await self.inner(scope, receive, send)
+        finally:
+            REQUEST_ROUTE.reset(token)
+
+
+app.add_middleware(_RouteContextMiddleware)
 
 
 def _version_payload() -> Dict[str, str]:
@@ -333,6 +354,7 @@ app.include_router(meta_legacy_router)
 app.include_router(invitations_router)
 app.include_router(intelligence_router)
 app.include_router(client_access_router)
+app.include_router(team_router)
 app.include_router(customers_router)
 app.include_router(goals_router)
 app.include_router(creators_router)

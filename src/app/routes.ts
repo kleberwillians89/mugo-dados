@@ -20,6 +20,7 @@ export type AppRoute =
   | "origins"
   | "intelligence"
   | "companies"
+  | "users"
   | "not_found";
 
 export type PublicAppRoute = "privacy" | "data_deletion" | "data_protection" | "terms";
@@ -36,6 +37,7 @@ export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | nu
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";
+  if (normalized === "/usuarios" || normalized.startsWith("/usuarios/")) return "users";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
   // Aprovação mora no Calendário (visão Fluxo); o endereço antigo abre o Calendário já no Fluxo.
@@ -75,6 +77,7 @@ export function getCurrentAppRoute(): AppRoute {
 
 export function getPathForRoute(route: AppRoute): string {
   if (route === "companies") return "/empresas";
+  if (route === "users") return "/usuarios";
   if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";
   if (route === "origins") return "/origem-das-vendas";

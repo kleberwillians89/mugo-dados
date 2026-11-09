@@ -176,9 +176,47 @@ async def require_client_role(
     role = await _client_role(user_id, resolved)
     # Gestora da conta age como equipe Mugô, mas só nesta empresa.
     legacy_role = {"owner": "client_admin", "admin": "client_admin", ACCOUNT_MANAGER: "agency_admin"}.get(role, role)
-    if legacy_role not in allowed_roles and not (role == ACCOUNT_MANAGER and "client_admin" in allowed_roles):
+    role_ok = legacy_role in allowed_roles or (role == ACCOUNT_MANAGER and "client_admin" in allowed_roles)
+    # Rota fora de módulo que o papel já recusa: recusa antes de ler o banco.
+    from .team_access import current_requirement
+    if not role_ok and not current_requirement():
+        raise HTTPException(status_code=403, detail="Perfil sem permissão para alterar esta empresa.")
+    if role != ACCOUNT_MANAGER:
+        granted = await _module_check(resolved, user_id, role=role, member_route=_viewer_allowed(allowed_roles))
+        # Permissão do módulo (ex.: creators.edit) libera a rota que o admin do cliente poderia usar,
+        # mesmo com papel viewer. Rota só da equipe Mugô continua só da equipe.
+        if granted and "client_admin" in allowed_roles:
+            return resolved
+    if not role_ok:
         raise HTTPException(status_code=403, detail="Perfil sem permissão para alterar esta empresa.")
     return resolved
+
+
+def _viewer_allowed(allowed_roles: tuple[str, ...]) -> bool:
+    return "viewer" in allowed_roles
+
+
+async def _module_check(client_id: str, user_id: str, *, role: str, member_route: bool) -> bool:
+    """Equipe e acessos (team_access): inativo é recusado; rota de módulo exige o código do módulo.
+
+    Devolve True quando a rota pertence a um módulo e o membro tem o código exigido; False quando a rota
+    não é de módulo (vale só o papel). ``member_route``: a rota já era aberta a qualquer membro (viewer),
+    então basta ver o módulo."""
+    from .team_access import current_requirement, denied_message, member_access
+    access = await member_access(client_id, user_id, role=role)
+    if access is None:
+        return False
+    if access["status"] != "active":
+        raise HTTPException(status_code=403, detail="Seu usuário está desativado nesta empresa. Fale com o administrador.")
+    requirement = current_requirement()
+    if not requirement:
+        return False
+    module, code = requirement
+    if member_route and code.endswith(".edit"):
+        code = f"{module}.view"
+    if code not in access["codes"]:
+        raise HTTPException(status_code=403, detail=denied_message(code))
+    return True
 
 
 async def require_client_read(
@@ -193,6 +231,17 @@ async def require_client_read(
     """
     resolved = await resolve_client_id(client_id, authorization)
     _REQUEST_CLIENT.set(resolved)
+    try:
+        user_id = await require_user_id(authorization)
+        from .platform_admin import is_platform_admin
+        if not (await is_platform_admin(user_id) or await _has_agency_admin_membership(user_id)):
+            role = await _client_role(user_id, resolved)
+            if role != ACCOUNT_MANAGER:
+                await _module_check(resolved, user_id, role=role, member_route=True)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — sem conseguir ler permissões, a leitura segue como antes
+        print(f"[tenant][module_check] client_id={resolved} status=skipped error_type={type(exc).__name__}")
     return resolved
 
 

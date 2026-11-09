@@ -1,3 +1,4 @@
+import { normalizeLoginIdentifier } from "../app/teamRules";
 import { markReadStage } from "../app/readPerformance";
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -36,7 +37,7 @@ function toErrorMessage(error: unknown): string {
  */
 function withEmailHint(message: string): string {
   const msg = message.toLowerCase();
-  if (msg.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
+  if (msg.includes("invalid login credentials")) return "Usuário, e-mail ou senha incorretos.";
   if (msg.includes("email not confirmed")) return "Confirme seu e-mail antes de entrar.";
   if (msg.includes("smtp") || msg.includes("email provider")) {
     return "Não foi possível enviar o e-mail agora. Tente novamente em alguns minutos.";
@@ -111,12 +112,14 @@ export function LoginView({
       <form className="loginForm" onSubmit={onSubmit}>
         {mode !== "set-password" ? (
           <div className="loginField">
-            <label htmlFor="email">E-mail</label>
+            <label htmlFor="email">{mode === "recover" ? "E-mail" : "E-mail ou usuário"}</label>
             <input
               id="email"
-              type="email"
-              placeholder="nome@empresa.com.br"
-              autoComplete="email"
+              type={mode === "recover" ? "email" : "text"}
+              placeholder={mode === "recover" ? "nome@empresa.com.br" : "nome@empresa.com.br ou seu.usuario"}
+              autoComplete={mode === "recover" ? "email" : "username"}
+              autoCapitalize="none"
+              spellCheck={false}
               value={email}
               onChange={(event) => onEmailChange(event.target.value)}
               disabled={inputDisabled}
@@ -228,11 +231,12 @@ export default function Login({
       return;
     }
 
-    const cleanEmail = email.trim();
+    // Login por usuário (Usuários): "ana.roove" vira o e-mail interno; e-mail real passa direto.
+    const cleanEmail = normalizeLoginIdentifier(email);
     const cleanPassword = password.trim();
 
     if (!cleanEmail || !cleanPassword) {
-      setErr("Informe e-mail e senha para continuar.");
+      setErr("Informe e-mail (ou usuário) e senha para continuar.");
       return;
     }
 

@@ -27,6 +27,8 @@ type Props = {
   onClientChange?: (clientId: string) => void;
   onLogout: () => void | Promise<void>;
   user?: NavigationUser | null;
+  /** Permissão de ver cada tela (Usuários e acessos por módulo). Sem ela, tudo aparece como antes. */
+  canView?: (route: AppRoute) => boolean;
 };
 
 type NavItem = { route: AppRoute; label: string };
@@ -73,6 +75,7 @@ export default function AppNavigation({
   onClientChange,
   onLogout,
   user,
+  canView,
 }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -85,6 +88,7 @@ export default function AppNavigation({
   const showIntegrations = canManageIntegrations ?? (platformAdmin || agencyAdmin);
   const adminItems: NavItem[] = [];
   if (showIntegrations) adminItems.push({ route: "integrations", label: "Integrações" });
+  if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
@@ -134,6 +138,7 @@ export default function AppNavigation({
     onOpen(target);
   }
 
+  const visible = (item: NavItem) => !canView || canView(item.route);
   const renderItem = (item: NavItem) => (
     <li key={item.route}>
       <a
@@ -196,11 +201,11 @@ export default function AppNavigation({
         ) : null}
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
-          <ul className="appNavList">{PRODUCT_ITEMS.map(renderItem)}</ul>
+          <ul className="appNavList">{PRODUCT_ITEMS.filter(visible).map(renderItem)}</ul>
           <div className="appNavGroup">
             <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
             <ul className="appNavList" aria-labelledby="app-nav-agency">
-              {(platformAdmin || agencyAdmin || teamHere ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).map(renderItem)}
+              {(platformAdmin || agencyAdmin || teamHere ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).filter(visible).map(renderItem)}
             </ul>
           </div>
           {adminItems.length ? (
