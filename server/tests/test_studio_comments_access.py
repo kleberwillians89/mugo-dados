@@ -76,5 +76,21 @@ class RouteAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 403)
 
 
+    def test_client_admin_manages_triggers(self):
+        import inspect
+        for handler in ("engagement_rules", "engagement_rule_create", "engagement_rule_update",
+                        "engagement_rule_delete", "engagement_rules_run"):
+            src = inspect.getsource(getattr(studio_routes, handler))
+            with self.subTest(handler=handler):
+                self.assertNotIn("_agency_only", src)
+                self.assertIn("allowed_roles=WRITERS", src)
+        self.assertNotIn("viewer", studio_routes.WRITERS)
+
+    def test_rule_accepts_ai_greeting_alone(self):
+        row = studio_routes._rule_row(studio_routes.EngagementRule(name="Oi", keywords=["quero"], ai_greeting=True))
+        self.assertTrue(row["ai_greeting"])
+        with self.assertRaises(HTTPException):
+            studio_routes._rule_row(studio_routes.EngagementRule(name="Oi", keywords=["quero"]))
+
 if __name__ == "__main__":
     unittest.main()

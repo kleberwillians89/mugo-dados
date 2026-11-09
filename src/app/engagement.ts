@@ -10,7 +10,7 @@ export type InboxComment = {
   answered: boolean; direct_open: boolean; actions: EngagementAction[];
   media: { permalink: string | null; caption: string; thumb: string | null } | null;
 };
-export type EngagementRule = { id: string; name: string; keywords: string[]; media_id: string | null; public_reply: string | null; dm_message: string | null; active: boolean };
+export type EngagementRule = { id: string; name: string; keywords: string[]; media_id: string | null; public_reply: string | null; dm_message: string | null; ai_greeting?: boolean; active: boolean };
 export type RuleInput = Omit<EngagementRule, "id">;
 
 export type EngagementSettings = { ai_autoreply: boolean; max_per_run: number; reply_tone?: string | null };

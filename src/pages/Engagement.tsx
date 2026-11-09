@@ -15,11 +15,11 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe",
   resposta_ia: "Resposta da IA", revisao: "IA pediu revisão da equipe" };
-const EMPTY_RULE: RuleInput = { name: "", keywords: [], media_id: null, public_reply: "Te mandei no Direct, {nome}! 💌", dm_message: "", active: false };
+const EMPTY_RULE: RuleInput = { name: "", keywords: [], media_id: null, public_reply: "Te mandei no Direct, {nome}! 💌", dm_message: "", ai_greeting: false, active: false };
 
 /**
  * Comentários do Instagram: a IA responde sozinha no tom da marca (pode desligar), gatilhos por palavra-chave
- * (comentou → recebe no Direct) e resposta manual. Cliente vê a caixa da própria marca; gatilhos são da equipe Mugô.
+ * (comentou → recebe no Direct) e resposta manual. Cliente vê a caixa da própria marca; gatilhos: equipe Mugô e admin da empresa.
  */
 export default function Engagement({ isAgency = true, canManage = true }: { isAgency?: boolean; canManage?: boolean }) {
   const clientId = getActiveClientId();
@@ -84,14 +84,16 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     if (!editing) return;
     const keywords = editing.keywordsText.split(/[,\n]/).map((k) => k.trim()).filter(Boolean).slice(0, 20);
     const input: RuleInput = { name: editing.name, keywords, media_id: editing.media_id?.trim() || null,
-      public_reply: editing.public_reply?.trim() || null, dm_message: editing.dm_message?.trim() || null, active: editing.active };
+      public_reply: editing.public_reply?.trim() || null, dm_message: editing.dm_message?.trim() || null, ai_greeting: Boolean(editing.ai_greeting), active: editing.active };
     const ok = await run("rule", () => saveRule(input, editing.id), "Não foi possível salvar o gatilho.");
     if (ok) { setEditing(null); await loadRules(); }
   }
 
   async function toggle(rule: EngagementRule) {
-    const { id, ...rest } = rule;
-    const ok = await run(`t:${id}`, () => saveRule({ ...rest, active: !rule.active }, id), "Não foi possível alterar.");
+    // Só os campos do gatilho: a linha do banco traz client_id/created_at, que o backend recusa.
+    const { id, name, keywords, media_id, public_reply, dm_message, ai_greeting } = rule;
+    const input: RuleInput = { name, keywords, media_id, public_reply, dm_message, ai_greeting: Boolean(ai_greeting), active: !rule.active };
+    const ok = await run(`t:${id}`, () => saveRule(input, id), "Não foi possível alterar.");
     if (ok) await loadRules();
   }
 
@@ -109,7 +111,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
   return <Shell title="Comentários" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Comentários do Instagram" controls={<div className="studioControls">
       <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Buscar agora"}</button>
-      {isAgency && tab === "gatilhos" ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => setEditing({ ...EMPTY_RULE, keywordsText: "" })}>+ Gatilho</button> : null}
+      {canManage && tab === "gatilhos" ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => setEditing({ ...EMPTY_RULE, keywordsText: "" })}>+ Gatilho</button> : null}
     </div>} />
     {settings ? <div className="engageAi">
       <div><b>IA respondendo sozinha</b> <span className={settings.ai_autoreply ? "studioOk" : "libHint"}>{settings.ai_autoreply ? "ligada" : "desligada"}</span>
@@ -133,13 +135,13 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
       }}>{busy === "tone" ? "Salvando…" : "Salvar tom"}</button>
     </div> : null}
     <p className="libHint">Responda os comentários daqui (a IA sugere no tom da marca) e crie gatilhos: quem comenta a palavra-chave recebe uma resposta e uma mensagem no Direct. O Instagram só permite Direct até 7 dias depois do comentário, uma vez por pessoa.</p>
-    {!live ? <p className="clipWarn">Gatilhos em <b>modo teste</b>: tudo fica registrado como "simulado" e nada é enviado até ligar <code>IG_AUTOREPLY_ENABLED=true</code>. Respostas que a equipe envia por aqui saem de verdade.</p> : null}
+    {!live ? <p className="clipWarn">Gatilhos em <b>modo teste</b>: tudo fica registrado como "simulado" e nada é enviado{isAgency ? <> até ligar <code>IG_AUTOREPLY_ENABLED=true</code></> : " até a equipe Mugô liberar o envio"}. Respostas enviadas por aqui saem de verdade.</p> : null}
     {can && (!can.reply || !can.direct) ? <p className="clipWarn">Falta permissão no Meta para {[!can.reply ? "responder comentários" : "", !can.direct ? "enviar Direct" : ""].filter(Boolean).join(" e ")}. Reconecte o Instagram desta marca em Integrações.</p> : null}
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioOk">{notice}</p> : null}
 
     <div className="studioTabs" role="tablist" aria-label="Seção">
-      {((isAgency ? [["caixa", "Caixa"], ["respondidos", "Respondidos por post"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"], ["respondidos", "Respondidos por post"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      {((canManage ? [["caixa", "Caixa"], ["respondidos", "Respondidos por post"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"], ["respondidos", "Respondidos por post"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
     </div>
 
     {tab === "respondidos" ? <RepliedPosts /> : null}
@@ -183,7 +185,8 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         <div className="engRuleHead"><b>{r.name}</b><span className={`studioChip${r.active ? " is-on" : ""}`}>{r.active ? "Ligado" : "Desligado"}</span></div>
         <p>Palavras: {r.keywords.join(", ")}{r.media_id ? ` · só no post ${r.media_id}` : " · todos os posts"}</p>
         {r.public_reply ? <p><small>Resposta no post:</small> {r.public_reply}</p> : null}
-        {r.dm_message ? <p><small>Direct:</small> {r.dm_message}</p> : null}
+        {r.ai_greeting ? <p><small>Direct:</small> ✦ oi feito pela IA no tom do perfil{r.dm_message ? <> + {r.dm_message}</> : null}</p>
+          : r.dm_message ? <p><small>Direct:</small> {r.dm_message}</p> : null}
         <div className="studioActions">
           <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void toggle(r)}>{r.active ? "Desligar" : "Ligar"}</button>
           <button type="button" className="studioLink" onClick={() => setEditing({ ...r, keywordsText: r.keywords.join(", ") })}>Editar</button>
@@ -198,7 +201,8 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         <label>Palavras-chave (separadas por vírgula; maiúscula e acento não importam)<input required value={editing.keywordsText} onChange={(e) => setEditing({ ...editing, keywordsText: e.target.value })} placeholder="quero, link, preço" /></label>
         <label>Só neste post (ID do post; vazio = todos)<input value={editing.media_id || ""} pattern="[0-9]{5,40}" onChange={(e) => setEditing({ ...editing, media_id: e.target.value })} /></label>
         <label>Resposta no comentário (pública, curta)<textarea rows={2} maxLength={300} value={editing.public_reply || ""} onChange={(e) => setEditing({ ...editing, public_reply: e.target.value })} /></label>
-        <label>Mensagem no Direct<textarea rows={4} maxLength={1000} value={editing.dm_message || ""} onChange={(e) => setEditing({ ...editing, dm_message: e.target.value })} placeholder="Oi {nome}! Aqui está o link: https://…" /></label>
+        <label className="studioCheck"><input type="checkbox" checked={Boolean(editing.ai_greeting)} onChange={(e) => setEditing({ ...editing, ai_greeting: e.target.checked })} /> ✦ Oi feito pela IA no Direct (a IA escreve o oi no tom do perfil da marca, ligado ao comentário e ao post)</label>
+        <label>{editing.ai_greeting ? "O que o Direct precisa levar (opcional: link, cupom; a IA escreve o oi em volta)" : "Mensagem no Direct"}<textarea rows={4} maxLength={1000} value={editing.dm_message || ""} onChange={(e) => setEditing({ ...editing, dm_message: e.target.value })} placeholder={editing.ai_greeting ? "https://…" : "Oi {nome}! Aqui está o link: https://…"} /></label>
         <label className="studioCheck"><input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} /> Ligado</label>
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
           <button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "rule" ? "Salvando…" : "Salvar"}</button></div>

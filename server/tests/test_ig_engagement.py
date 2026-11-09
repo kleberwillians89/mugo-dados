@@ -2,7 +2,9 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import io
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -18,6 +20,38 @@ RULE = {"id": "r1", "active": True, "keywords": ["quero", "Link"], "media_id": N
 
 def comment(cid="111111", text="QUÉRO muito", user="ana", age=timedelta(hours=1), media="555555"):
     return {"comment_id": cid, "media_id": media, "username": user, "text": text, "timestamp": (NOW - age).isoformat()}
+
+
+class AiGreetingTests(unittest.IsolatedAsyncioTestCase):
+    CTX = {"profile": {"keywords_avoid": []}, "context": "{}", "voice": [], "tone": None}
+    AI_RULE = {**RULE, "id": "r2", "public_reply": None, "dm_message": "https://roove.com.br", "ai_greeting": True}
+
+    async def test_ai_text_keeps_rule_link(self):
+        with patch("services.studio_llm.llm_json", AsyncMock(return_value={"message": "Oi @ana! Que bom que curtiu 💛"})), \
+             patch.object(ie, "_post_context", AsyncMock(return_value="post")):
+            text = await ie.ai_greeting("roove", comment(), "https://roove.com.br", self.CTX)
+        self.assertTrue(text.startswith("Oi @ana!"))
+        self.assertIn("https://roove.com.br", text)
+
+    async def test_ai_failure_falls_back_to_rule_text(self):
+        with patch("services.studio_llm.llm_json", AsyncMock(side_effect=RuntimeError("fora"))), \
+             patch.object(ie, "_post_context", AsyncMock(return_value="")), redirect_stdout(io.StringIO()):
+            self.assertEqual(await ie.ai_greeting("roove", comment(), "Oi {nome}!", self.CTX), "Oi @ana!")
+            self.assertEqual(await ie.ai_greeting("roove", comment(), "", self.CTX), "Oi @ana! 💛")
+
+    async def test_rule_with_ai_greeting_sends_ai_direct(self):
+        reads = AsyncMock(side_effect=[[self.AI_RULE], [comment()], []])
+        with patch.object(ie, "get_settings", AsyncMock(return_value={"ai_autoreply": False})), \
+             patch.object(ie, "sb_select", reads), patch.object(ie, "credentials", AsyncMock(return_value=CREDS)), \
+             patch.object(ie, "refresh_comments", AsyncMock(return_value=0)), patch.object(ie, "sb_insert", AsyncMock()) as insert, \
+             patch.object(ie, "_greeting_context", AsyncMock(return_value=self.CTX)) as ctx, \
+             patch.object(ie, "ai_greeting", AsyncMock(return_value="Oi @ana! Aqui: https://roove.com.br")), \
+             patch.dict("os.environ", {"IG_AUTOREPLY_ENABLED": ""}):
+            out = await ie.run_rules("roove")
+        self.assertEqual(out["simulated"], 1)
+        ctx.assert_awaited_once()
+        row = insert.await_args_list[0].args[1]
+        self.assertEqual((row["kind"], row["text"]), ("direct", "Oi @ana! Aqui: https://roove.com.br"))
 
 
 class KeywordTests(unittest.TestCase):
