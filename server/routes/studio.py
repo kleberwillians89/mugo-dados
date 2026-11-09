@@ -1015,15 +1015,18 @@ class EngagementRule(BaseModel):
     media_id: Optional[str] = Field(default=None, pattern=r"^[0-9]{5,40}$")
     public_reply: Optional[str] = Field(default=None, max_length=300)
     dm_message: Optional[str] = Field(default=None, max_length=1000)
+    # Oi no Direct escrito pela IA no tom do perfil da marca; dm_message vira o que a mensagem precisa levar (link etc.).
+    ai_greeting: bool = False
     active: bool = False
 
 
 def _rule_row(body: EngagementRule) -> Dict[str, Any]:
     keywords = [k.strip()[:60] for k in body.keywords if k.strip()]
-    if not keywords or not (body.public_reply or body.dm_message):
-        raise HTTPException(422, "Informe pelo menos uma palavra-chave e uma resposta (pública ou no Direct).")
+    if not keywords or not (body.public_reply or body.dm_message or body.ai_greeting):
+        raise HTTPException(422, "Informe pelo menos uma palavra-chave e uma resposta (pública, no Direct ou o oi feito pela IA).")
     return {"name": body.name, "keywords": keywords, "media_id": body.media_id or None,
-            "public_reply": body.public_reply or None, "dm_message": body.dm_message or None, "active": body.active}
+            "public_reply": body.public_reply or None, "dm_message": body.dm_message or None,
+            "ai_greeting": body.ai_greeting, "active": body.active}
 
 
 ERRORS.update({
@@ -1110,8 +1113,8 @@ async def engagement_reply(client_id: str, comment_id: str, body: EngagementRepl
 @router.get("/engagement/rules")
 async def engagement_rules(client_id: str, authorization: str | None = Header(default=None)):
     from services.ig_engagement import autoreply_enabled, list_rules
+    # Gatilhos: equipe Mugô e admin da própria empresa (WRITERS); viewer não vê nem mexe.
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     return {"rules": await list_rules(cid), "autoreply_enabled": autoreply_enabled()}
 
 
@@ -1119,7 +1122,6 @@ async def engagement_rules(client_id: str, authorization: str | None = Header(de
 async def engagement_rule_create(client_id: str, body: EngagementRule, authorization: str | None = Header(default=None)):
     from services.ig_engagement import RULES
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     uid = await require_user_id(authorization)
     row = await sb_insert(RULES, {"client_id": cid, "created_by": uid, **_rule_row(body)})
     return {"rule": row}
@@ -1129,7 +1131,6 @@ async def engagement_rule_create(client_id: str, body: EngagementRule, authoriza
 async def engagement_rule_update(client_id: str, rule_id: UUID, body: EngagementRule, authorization: str | None = Header(default=None)):
     from services.ig_engagement import RULES
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     rows = await sb_update(RULES, filters={"client_id": f"eq.{cid}", "id": f"eq.{rule_id}"},
                            patch={**_rule_row(body), "updated_at": datetime.now(timezone.utc).isoformat()})
     if not rows:
@@ -1141,7 +1142,6 @@ async def engagement_rule_update(client_id: str, rule_id: UUID, body: Engagement
 async def engagement_rule_delete(client_id: str, rule_id: UUID, authorization: str | None = Header(default=None)):
     from services.ig_engagement import RULES
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     rows = await sb_delete(RULES, filters={"client_id": f"eq.{cid}", "id": f"eq.{rule_id}"})
     if not rows:
         raise HTTPException(404, "Gatilho não encontrado.")
@@ -1153,7 +1153,6 @@ async def engagement_rules_run(client_id: str, authorization: str | None = Heade
     """Roda os gatilhos agora (o job faz o mesmo a cada 5 min). Sem IG_AUTOREPLY_ENABLED=true, só simula."""
     from services.ig_engagement import run_rules
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    await _agency_only(authorization)
     try:
         return await run_rules(cid)
     except StudioError as exc:
