@@ -1,21 +1,39 @@
-/* Usuários: lista da equipe da empresa e drawer de permissões por tela (modelo CRM). */
+/* Usuários: mesma linguagem das outras telas (ds-page, ds-segmented, ds-button, ds-link, ds-field). */
 .usersPage{width:100%;box-sizing:border-box;padding:24px;max-width:1280px;margin:0 auto;gap:var(--space-4)}
 .usersIntro{margin:0;max-width:72ch;color:var(--text-secondary)}
-.usersToolbar{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;justify-content:space-between}
+.usersToolbar{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;justify-content:space-between}
 .usersMuted{margin:0;font-size:13px;color:var(--text-muted)}
+
 .usersScroll{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-lg,12px);background:var(--surface)}
-.usersTable td{vertical-align:middle}
+.usersTable{width:100%}
+.usersTable th,.usersTable td{padding:14px 16px;text-align:left;vertical-align:middle}
+.usersTable th:first-child,.usersTable td:first-child{padding-left:20px}
+.usersTable th:last-child,.usersTable td:last-child{padding-right:20px}
 .usersTable td b{display:block;font-weight:600;color:var(--text-primary)}
-.usersTable td small{display:block;color:var(--text-muted);font-size:12px}
-.usersActions{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
-.usersActions .ds-button{white-space:nowrap}
-.usersSecret code{font-size:14px;padding:2px 6px;border-radius:4px;background:var(--surface-subtle)}
-.usersForm input:not([type="checkbox"]),.usersForm select{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(21,24,27,.16);border-radius:var(--radius-sm,6px);font:inherit;font-size:14px;background:var(--surface);color:var(--text-primary)}
+.usersTable td small{display:block;margin-top:2px;color:var(--text-muted);font-size:12px}
+.usersTable td:last-child{width:1%;white-space:nowrap}
+
+.usersActions{display:flex;flex-wrap:nowrap;gap:var(--space-3);align-items:center;justify-content:flex-end}
+.usersActions .ds-button{min-height:32px;padding:0 12px}
+.usersActions .ds-link{font-size:13px;white-space:nowrap}
+.ds-link.usersDanger{color:var(--negative,#b42318);text-decoration-color:transparent}
+.ds-link.usersDanger:hover{text-decoration-color:currentColor}
+
+.usersSecret p{margin:0}
+.usersSecret code{font:500 14px ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 6px;border-radius:var(--radius-sm,6px);background:rgba(21,24,27,.06);color:var(--text-primary)}
+.usersSecret .usersActions{justify-content:flex-start;margin-top:var(--space-2)}
+
+/* Drawer de permissões */
+.usersForm{display:flex;flex-direction:column;gap:var(--space-4)}
+.usersForm .ds-field{font-size:12px;color:var(--text-muted)}
+.usersForm .ds-field input,.usersForm .ds-field select{min-height:36px;width:100%;box-sizing:border-box;padding:0 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font:400 14px var(--font-body)}
 .usersPasswordRow{display:flex;gap:var(--space-2);align-items:center}
-.usersPasswordRow input{flex:1;min-width:0;font-family:ui-monospace,monospace}
-.usersGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:var(--space-3);border:1px solid var(--border-subtle);border-radius:var(--radius-md,8px);padding:var(--space-3);margin:0}
-.usersGrid legend{padding:0 6px;font-weight:600;font-size:13px}
-.usersGrid[disabled]{opacity:.55}
+.usersPasswordRow input{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace !important}
+.usersCheck{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--text-primary);cursor:pointer}
+.usersCheck input{margin:2px 0 0;accent-color:var(--text-primary);flex:0 0 auto}
+.usersGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:var(--space-4);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:var(--space-4);margin:0}
+.usersGrid legend{padding:0 6px;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.usersGrid[disabled]{opacity:.5}
 .usersModule{display:flex;flex-direction:column;gap:6px;min-width:0}
-.usersModule b{font-size:13px;color:var(--text-primary)}
-.usersModule .studioCheck{font-size:13px}
+.usersModule b{font-size:13px;font-weight:600;color:var(--text-primary)}
+.usersFormActions{display:flex;justify-content:flex-end;gap:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border-subtle)}
