@@ -19,6 +19,8 @@ import {
 import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
+import { ROUTE_MODULE } from "./app/teamRules";
+import type { MyAccess } from "./app/team";
 import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
 import Login from "./pages/Login";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
@@ -43,6 +45,7 @@ const SocialReport = lazy(() => import("./pages/SocialReport"));
 const BrandAI = lazy(() => import("./pages/BrandAI"));
 const ChatWidget = lazy(() => import("./components/studio/ChatWidget"));
 const Creators = lazy(() => import("./pages/Creators"));
+const Users = lazy(() => import("./pages/Users"));
 const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
@@ -63,6 +66,7 @@ const Customers = lazy(loadCustomers);
 const Companies = lazy(loadCompanies);
 const Intelligence = lazy(loadIntelligence);
 const NotFound = lazy(loadNotFound);
+const AccessRestricted = lazy(() => import("./pages/AccessRestricted"));
 const ClaudeConnect = lazy(() => import("./pages/ClaudeConnect"));
 const AcceptInvitation = lazy(loadAcceptInvitation);
 
@@ -223,6 +227,7 @@ function PrivateApp() {
   const [agencyAdmin, setAgencyAdmin] = useState(false);
   const [activeClientId, setActiveClientId] = useState("");
   const [tenantReady, setTenantReady] = useState(false);
+  const [myAccess, setMyAccess] = useState<MyAccess | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const authBootstrapCompletedRef = useRef(false);
@@ -762,6 +767,14 @@ function PrivateApp() {
     openRoute(targetRoute);
   }, [openRoute]);
 
+  useEffect(() => {
+    if (!activeClientId || !session || localMode || !tenantReady) return;
+    let alive = true;
+    import("./app/team").then(({ getMyAccess }) => getMyAccess())
+      .then((access) => { if (alive) setMyAccess(access); }).catch(() => { if (alive) setMyAccess(null); });
+    return () => { alive = false; };
+  }, [activeClientId, session, localMode, tenantReady]);
+
   const activeClientRole = String(
     clients.find((client) => client.client_id === activeClientId)?.role
       || getActiveClient()?.role
@@ -773,6 +786,22 @@ function PrivateApp() {
     teamHere
     || ["client_admin", "owner", "admin"].includes(activeClientRole);
   const navigationUser = resolveNavigationUser(session, localMode);
+  // Usuários e acessos por módulo: o servidor confere cada ação; aqui só decide menu, telas e botões.
+  // Sem a resposta de /api/team/me (ainda carregando ou backend antigo), vale o papel, como antes.
+  const accessForClient = myAccess && myAccess.client_id === activeClientId ? myAccess : null;
+  const can = (code: string): boolean => {
+    if (teamHere || localMode) return true;
+    if (accessForClient) return accessForClient.access_total || accessForClient.codes.includes(code);
+    if (["client_admin", "owner", "admin"].includes(activeClientRole)) return true;
+    return code.endsWith(".view") && code !== "team.view";
+  };
+  const canView = (target: AppRoute): boolean => {
+    const module = ROUTE_MODULE[target];
+    return !module || can(`${module}.view`);
+  };
+  const canEdit = (module: string) => can(`${module}.edit`);
+  const firstAllowed = (["central", "meta", "ecommerce", "calendar", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
+    .find((target) => canView(target));
 
   if (view === "loading") {
     return <AppLoading />;
@@ -818,6 +847,7 @@ function PrivateApp() {
           onClientChange={handleClientChange}
           onLogout={handleLogout}
           user={navigationUser}
+          canView={canView}
         />
         <div className="appFrameMain">
           <DataHealthSummary />
@@ -852,12 +882,19 @@ function PrivateApp() {
         onClientChange={handleClientChange}
         onLogout={handleLogout}
         user={navigationUser}
+        canView={canView}
       />
       <div className="appFrameMain">
       {route !== "meta" && route !== "google" ? <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} /> : null}
       <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
+      ) : !canView(route) ? (
+        <AccessRestricted onGoHome={firstAllowed ? () => openRoute(firstAllowed) : undefined} />
+      ) : route === "users" ? (
+        <Users key={`users:${activeClientId}`} canManage={can("team.edit")} isTeam={teamHere}
+          myAccessTotal={Boolean(accessForClient?.access_total) || ["client_admin", "owner", "admin"].includes(activeClientRole)}
+          myCodes={accessForClient?.codes} />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}
@@ -872,11 +909,11 @@ function PrivateApp() {
       {route === "central" ? (
         <Central key={`central:${activeClientId}`} />
       ) : route === "goals" ? (
-        <Goals key={`goals:${activeClientId}`} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
       ) : route === "calendar" ? (
-        <Calendar key={`calendar:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Calendar key={`calendar:${activeClientId}`} isAgency={teamHere} canManage={canEdit("calendar")} />
       ) : route === "approval" ? (
-        <Approval key={`approval:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Approval key={`approval:${activeClientId}`} isAgency={teamHere} canManage={canEdit("calendar")} />
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
       ) : route === "tasks" ? (
@@ -884,15 +921,15 @@ function PrivateApp() {
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (
-        <BrandAI key={`brand_ai:${activeClientId}`} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <BrandAI key={`brand_ai:${activeClientId}`} canManage={canEdit("brand_ai")} />
       ) : route === "social_report" ? (
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (
-        <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={canEdit("engagement")} />
       ) : route === "campaigns" && (teamHere) ? (
         <Campaigns key={`campaigns:${activeClientId}`} />
       ) : route === "creators" ? (
-        <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={teamHere || ["client_admin", "owner", "admin"].includes(activeClientRole)} />
+        <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={canEdit("creators")} />
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (
         <Automations />
       ) : route === "campaigns" || route === "automations" ? (

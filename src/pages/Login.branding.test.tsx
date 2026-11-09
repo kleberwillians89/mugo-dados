@@ -32,7 +32,7 @@ describe("Login — produto, frase e formulário", () => {
     expect(markup).toContain("Dados claros.");
     expect(markup).toContain("Decisões melhores.");
     expect(markup).toContain("Acesse sua conta");
-    expect(markup).toContain('<label for="email">E-mail</label>');
+    expect(markup).toContain('<label for="email">E-mail ou usuário</label>');
     expect(markup).toContain('<label for="password">Senha</label>');
     expect(markup).toContain(">Entrar</button>");
     expect(markup).toContain("Esqueci minha senha");
@@ -107,7 +107,7 @@ describe("Login — fluxo preservado", () => {
     await type("#password", "errada");
     await submit();
     const alert = container.querySelector('[role="alert"]');
-    expect(alert?.textContent).toBe("E-mail ou senha incorretos.");
+    expect(alert?.textContent).toBe("Usuário, e-mail ou senha incorretos.");
     expect(container.textContent).not.toContain("Supabase");
   });
 
