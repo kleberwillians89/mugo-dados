@@ -9,6 +9,7 @@ import Drawer from "../components/Drawer";
 import Shell from "../components/Shell";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/data/PageHeader";
+import SegmentedControl from "../components/data/SegmentedControl";
 import "../styles/users.css";
 
 function message(cause: unknown, fallback: string) {
@@ -133,10 +134,8 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
     <PageHeader company={clientName} title="Usuários" />
     <p className="usersIntro">Quem entra na Mugô por {clientName} e o que cada pessoa pode ver e alterar, tela por tela.</p>
     <div className="usersToolbar">
-      <div className="studioTabs" role="tablist" aria-label="Status">
-        {([["active", "Ativos"], ["inactive", "Inativos"], ["all", "Todos"]] as const).map(([k, l]) =>
-          <button key={k} role="tab" aria-selected={filter === k} className={filter === k ? "is-active" : ""} onClick={() => setFilter(k)}>{l}</button>)}
-      </div>
+      <SegmentedControl ariaLabel="Status" value={filter} onSelect={(id) => setFilter(id as typeof filter)}
+        options={[{ id: "active", label: "Ativos" }, { id: "inactive", label: "Inativos" }, { id: "all", label: "Todos" }]} />
       {canManage ? <button type="button" className="ds-button is-primary" onClick={openNew} disabled={!catalog}>+ Novo usuário</button> : null}
     </div>
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
@@ -146,7 +145,7 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
       <p>Usuário: <code>{secret.login}</code> · Senha: <code>{secret.password}</code></p>
       <div className="usersActions">
         <button type="button" className="ds-button" onClick={() => void navigator.clipboard?.writeText(`Usuário: ${secret.login}\nSenha: ${secret.password}`)}>Copiar</button>
-        <button type="button" className="studioLink" onClick={() => setSecret(null)}>Fechar</button>
+        <button type="button" className="ds-link is-quiet" onClick={() => setSecret(null)}>Fechar</button>
       </div>
     </div> : null}
 
@@ -161,35 +160,35 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
           <td><small>{m.last_sign_in_at ? new Date(m.last_sign_in_at).toLocaleString("pt-BR") : "Nunca"}</small></td>
           <td>{canManage && !m.is_global_role ? <div className="usersActions">
             <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => openEdit(m)}>Permissões</button>
-            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void resetPassword(m)}>Nova senha</button>
-            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void toggleStatus(m)}>{m.status === "active" ? "Desativar" : "Reativar"}</button>
-            <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void remove(m)}>Remover</button>
+            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void resetPassword(m)}>Nova senha</button>
+            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void toggleStatus(m)}>{m.status === "active" ? "Desativar" : "Reativar"}</button>
+            <button type="button" className="ds-link is-quiet usersDanger" disabled={Boolean(busy)} onClick={() => void remove(m)}>Remover</button>
           </div> : null}</td>
         </tr>)}</tbody>
       </table></div>}
 
     <Drawer open={Boolean(editing)} width="lg" title={editing?.member ? `Permissões de ${editing.member.name || editing.member.login}` : "Novo usuário"}
       description="Escolha um perfil pronto e ajuste tela por tela. Alterar exige ver." onClose={() => { if (!busy) setEditing(null); }}>
-      {editing && catalog ? <form className="studioForm usersForm" onSubmit={submit}>
+      {editing && catalog ? <form className="usersForm" onSubmit={submit}>
         {!editing.member ? <>
-          <label>Nome<input maxLength={120} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Ana Souza" /></label>
-          <label>Usuário (é com ele que a pessoa entra)<input required value={editing.login} autoCapitalize="none" spellCheck={false}
+          <label className="ds-field">Nome<input maxLength={120} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Ana Souza" /></label>
+          <label className="ds-field">Usuário (é com ele que a pessoa entra)<input required value={editing.login} autoCapitalize="none" spellCheck={false}
             onChange={(e) => setEditing({ ...editing, login: e.target.value.toLowerCase().replace(/\s+/g, ".") })} placeholder="ana.roove" /></label>
-          <label>Senha
+          <label className="ds-field">Senha
             <span className="usersPasswordRow">
               <input required minLength={8} value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
               <button type="button" className="ds-button" onClick={() => setEditing({ ...editing, password: generatePassword() })}>Gerar senha</button>
             </span>
           </label>
         </> : null}
-        <label>Perfil
+        <label className="ds-field">Perfil
           <select value={editing.preset} onChange={(e) => choosePreset(e.target.value as TeamPreset)}>
             {catalog.presets.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
           </select>
         </label>
-        <label className="studioCheck"><input type="checkbox" checked={editing.access_total} disabled={!isTeam && !myAccessTotal}
+        <label className="usersCheck"><input type="checkbox" checked={editing.access_total} disabled={!isTeam && !myAccessTotal}
           onChange={(e) => setEditing({ ...editing, access_total: e.target.checked, preset: e.target.checked ? "administrador" : editing.preset === "administrador" ? "personalizado" : editing.preset })} /> Acesso total (pode tudo nesta empresa, inclusive integrações e usuários)</label>
-        <label className="studioCheck"><input type="checkbox" checked={editing.view_all} disabled={editing.access_total}
+        <label className="usersCheck"><input type="checkbox" checked={editing.view_all} disabled={editing.access_total}
           onChange={(e) => {
             const views = catalog.permissions.filter((p) => p.code.endsWith(".view") && p.code !== "team.view").map((p) => p.code);
             const codes = new Set(editing.codes);
@@ -200,13 +199,13 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
           <legend>Permissões por tela</legend>
           {groups.map((g) => <div key={g.code} className="usersModule">
             <b>{g.label}</b>
-            {g.items.map((p) => <label key={p.code} className="studioCheck">
+            {g.items.map((p) => <label key={p.code} className="usersCheck">
               <input type="checkbox" checked={selected.has(p.code)} disabled={!canGrant(p.code) && !selected.has(p.code)}
                 onChange={() => { toggleCode(p.code); if (editing.preset !== "personalizado") setEditing((cur) => cur && { ...cur, preset: "personalizado" }); }} /> {p.label}
             </label>)}
           </div>)}
         </fieldset>
-        <div className="studioActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
+        <div className="usersFormActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
           <button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "save" ? "Salvando…" : editing.member ? "Salvar permissões" : "Criar usuário"}</button></div>
       </form> : null}
     </Drawer>
