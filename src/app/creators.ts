@@ -41,6 +41,8 @@ export type CreatorSuggestion = { creator: Creator; reason: string };
 export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 6) =>
   http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }, SLOW_MS));
 export const refreshCreator = (id: string) => http<Creator>(path(`/${encodeURIComponent(id)}/refresh`), { method: "POST" });
+// Cliente: tira o criador da lista da empresa. Agência: exclui do banco inteiro.
+export const deleteCreator = (id: string) => http<{ ok: true; scope: "company" | "bank" }>(path(`/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const compareCreators = (ids: string[]) => http<{ creators: Creator[] }>(path("/compare"), post({ creator_ids: ids }));
 export const getCreatorUsage = () => http<CreatorUsage>(path("/usage"));
 export const listShortlists = () => http<{ shortlists: Shortlist[] }>(path("/shortlists"));
