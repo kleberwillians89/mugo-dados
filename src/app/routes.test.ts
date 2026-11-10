@@ -65,7 +65,7 @@ describe("platform routes", () => {
   });
 
   it("reads the approval token, even with the literal {{1}} left by the Meta template button", () => {
-    const token = "Cl18j4HG89zp1u1bQXkePI32xpYFMydAoeSUu1ZsBuU";
+    const token = "tokenDeTesteFalso_000000000000000000000000";
     expect(approvalTokenFromPath(`/aprovar/${token}`)).toBe(token);
     expect(approvalTokenFromPath(`/aprovar/%7B%7B1%7D%7D${token}`)).toBe(token);
     expect(approvalTokenFromPath("/aprovar/curto")).toBeNull();

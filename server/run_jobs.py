@@ -125,6 +125,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "media-strategies-monthly":
         from services.media_monthly import run_monthly as media_monthly
         return await media_monthly(args.client_id, args.month)
+    if args.command == "brand-knowledge-retry":
+        from services.brand_knowledge import retry_failed
+        return await retry_failed(args.client_id)
     if args.command == "brand-profile-monthly":
         from services.studio_brand_brain import run_monthly
         return await run_monthly(args.client_id)
@@ -290,6 +293,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     media_monthly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     media_monthly.add_argument("--month", default=None, help="Mês AAAA-MM (padrão: o atual, horário de São Paulo).")
+    knowledge_retry = sub.add_parser(
+        "brand-knowledge-retry",
+        help="Tenta de novo a IA nos materiais da marca que falharam ou ficaram pendentes (memória sempre em dia).",
+    )
+    knowledge_retry.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     monthly = sub.add_parser(
         "brand-profile-monthly",
         help="Dia 1: gera a sugestão do perfil da marca (IA avançada) de cada marca ativa, pendente de revisão da equipe.",

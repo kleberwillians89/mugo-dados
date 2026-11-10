@@ -84,3 +84,39 @@ async def save_business_context(
         on_conflict="client_id",
     )
     return {"available": is_filled(context), "context": context}
+
+
+# ---- Contexto da marca para a IA (contexto do negócio + memória da marca) ----------------------------
+# A memória da marca (``brand_knowledge``) é o resumo do material que a equipe enviou e dos fatos
+# confirmados no agente da marca. Ela já ia para o calendário, as ideias de post e os comentários; aqui
+# passa a ir também para a Inteligência (análises e chat), para nenhuma resposta sair "sem conhecer a
+# marca". Continua sendo texto editorial: nunca métrica verificada nem instrução de sistema.
+BRAND_MEMORY_CHARS = 2500
+COMPACT_FIELD_CHARS = 320
+COMPACT_MEMORY_CHARS = 1400
+
+
+async def load_business_context_for_ai(client_id: str, *, memory_chars: int = BRAND_MEMORY_CHARS) -> Dict[str, Any]:
+    """Contexto do negócio + memória da marca. Nunca levanta: sem dado, segue sem ele."""
+    business = await load_business_context(client_id)
+    try:
+        from .brand_knowledge import knowledge_for_prompt
+        memory = (await knowledge_for_prompt(client_id, limit=memory_chars)).strip()
+    except Exception as exc:  # noqa: BLE001 — memória indisponível não derruba a análise
+        print(f"[intelligence][brand_memory] client_id={_text(client_id)} status=unavailable error_type={exc.__class__.__name__}")
+        memory = ""
+    context = {**(business.get("context") or {}), "brand_memory": memory or None}
+    return {**business, "context": context, "available": bool(business.get("available") or memory),
+            "brand_memory_available": bool(memory)}
+
+
+def compact_brand_context(context: Dict[str, Any] | None, *, field_chars: int = COMPACT_FIELD_CHARS,
+                          memory_chars: int = COMPACT_MEMORY_CHARS) -> Optional[Dict[str, str]]:
+    """Versão curta para prompts com teto de tamanho (chat da Inteligência). None quando não há nada."""
+    source = context if isinstance(context, dict) else {}
+    out: Dict[str, str] = {}
+    for field in (*FIELDS, "brand_memory"):
+        value = _text(source.get(field))
+        if value:
+            out[field] = value[: memory_chars if field == "brand_memory" else field_chars]
+    return out or None
