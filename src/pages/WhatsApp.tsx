@@ -282,7 +282,11 @@ export default function WhatsApp() {
                       <small>{fullWhen(m.at)}{isOutbound(m.direction) && m.read_at ? " · lida" : ""}{m.failed ? " · falhou" : ""}</small>
                     </li>
                   ))}
-                  {open.purchase ? <li className="waEvent is-sale">Pedido {open.purchase.last_order || ""} na loja · {money(open.purchase.revenue)}</li> : null}
+                  {open.purchase ? (
+                    <li className="waEvent is-sale">
+                      {open.purchase.last_order?.startsWith("#") ? `Pedido ${open.purchase.last_order} na loja` : "Venda registrada no CRM"} · {money(open.purchase.revenue)}
+                    </li>
+                  ) : null}
                 </ol>
               </>
             ) : <p className="waMuted waPad">Escolha uma conversa.</p>}

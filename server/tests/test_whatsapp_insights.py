@@ -104,7 +104,7 @@ class AggregateTests(unittest.TestCase):
 
 class BuildTests(unittest.TestCase):
     def test_no_brand_number(self):
-        with patch.object(wi.crm_bridge, "brand_leads", AsyncMock(return_value={"available": True, "connected": False})):
+        with patch.object(wi.whatsapp_sources, "brand_leads", AsyncMock(return_value={"available": True, "connected": False})):
             out = asyncio.run(wi.build_whatsapp_insights("ruah", start="2026-11-01", end="2026-11-07"))
         self.assertEqual(out["status"], "no_brand_number")
 
@@ -112,8 +112,9 @@ class BuildTests(unittest.TestCase):
         k = wi.phone_key("5511993161161")
         conv = {"id": "c1", "contact": {"name": "Mariana", "phone_masked": "•••• 1161", "phone_key": k, "first_seen_at": "2026-11-01T12:00:00Z"},
                 "origin": {"source": "META_ADS_WHATSAPP", "ad_headline": "Kit BF"}}
-        with patch.object(wi.crm_bridge, "brand_conversations", AsyncMock(return_value={"available": True, "connected": True, "conversations": [conv]})), \
+        with patch.object(wi.whatsapp_sources, "brand_conversations", AsyncMock(return_value={"available": True, "connected": True, "conversations": [conv]})), \
              patch.object(wi, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
+             patch.object(wi.whatsapp_sources, "brand_sales", AsyncMock(return_value=[])), \
              patch.object(wi, "_recent_shopify_orders", AsyncMock(return_value=[
                  order("11993161161", "2026-11-01T13:00:00Z", 389.0, "#4417"),
                  order("11993161161", "2026-10-20T13:00:00Z", 999.0, "#4000"),  # antes do 1º contato: não conta
@@ -124,6 +125,60 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(row["purchase"]["last_order"], "#4417")
         self.assertEqual(row["purchase"]["orders"], 1)
         self.assertEqual(row["origin"]["label"], "Anúncio · Kit BF")
+
+
+    def test_crm_sales_count_for_brand_with_own_crm(self):
+        # Ruah: sem Shopify; a venda vem do CRM dela com a chave pronta e só a data.
+        k = wi.phone_key("5511993161161")
+        leads = {"available": True, "connected": True, "truncated": False,
+                 "leads": [{"phone_key": k, "first_seen_at": "2026-11-03T15:00:00Z", "origin": {"source": "META_ADS_WHATSAPP", "ad_id": "111"}}]}
+        sale = {"name": "Venda CRM 2026-11-03", "created_at_shopify": "2026-11-03T23:59:00-03:00", "value": 389.0,
+                "phone_keys": [k], "source": "crm"}
+        with patch.object(wi.whatsapp_sources, "brand_leads", AsyncMock(return_value=leads)), \
+             patch.object(wi.whatsapp_sources, "brand_sales", AsyncMock(return_value=[sale])), \
+             patch.object(wi, "resolve_commerce_provider", AsyncMock(return_value={"provider": None})), \
+             patch.object(wi, "_ad_stats", AsyncMock(return_value={"111": {"spend": 50.0, "ad_name": "Kit"}})):
+            out = asyncio.run(wi.build_whatsapp_insights("ruah", start="2026-11-01", end="2026-11-07"))
+        self.assertEqual(out["totals"]["converted_conversations"], 1)
+        self.assertEqual(out["totals"]["revenue"], 389.0)
+        self.assertEqual(out["ads"][0]["roas"], 7.78)
+
+
+class SourcesTests(unittest.TestCase):
+    def test_bridge_config_from_env(self):
+        from services import whatsapp_sources as ws
+        cid = "b1281853-ab59-4fd2-b824-df88ebddabb6"
+        env = '{"%s": {"url": "https://x.supabase.co/functions/v1/mugoverso-bridge", "key": "k"}, "roove": {"url": "https://y.supabase.co/x", "key": "r"}, "../x": {"url": "https://z", "key": "k"}, "sem-https": {"url": "http://z", "key": "k"}}' % cid
+        with patch.dict(os.environ, {"WHATSAPP_BRAND_BRIDGES": env}):
+            self.assertEqual(ws.bridge_for(cid.upper())["key"], "k")
+            self.assertEqual(ws.bridge_for("roove")["key"], "r")
+            self.assertIsNone(ws.bridge_for("../x"))
+            self.assertIsNone(ws.bridge_for("sem-https"))
+        with patch.dict(os.environ, {"WHATSAPP_BRAND_BRIDGES": "{quebrado"}):
+            self.assertIsNone(ws.bridge_for(cid))
+
+    def test_crm_sales_shape_and_failure(self):
+        from services import whatsapp_sources as ws
+        k = wi.phone_key("5511993161161")
+        cfg = {"url": "https://x", "key": "k"}
+        with patch.object(ws, "bridge_for", return_value=cfg), \
+             patch.object(ws, "_bridge_call", AsyncMock(return_value={"available": True, "sales": [
+                 {"phone_keys": [k, "nao-hash"], "sale_date": "2026-11-03", "value": 120.5}, {"phone_keys": [], "sale_date": "2026-11-03", "value": 1}]})):
+            sales = asyncio.run(ws.brand_sales("ruah", "2026-11-01", "2026-11-07"))
+        self.assertEqual(len(sales), 1)
+        self.assertEqual(sales[0]["phone_keys"], [k])
+        self.assertEqual(sales[0]["created_at_shopify"], "2026-11-03T23:59:00-03:00")
+        with patch.object(ws, "bridge_for", return_value=cfg), \
+             patch.object(ws, "_bridge_call", AsyncMock(side_effect=ws.StudioError("CRM_UNREACHABLE"))):
+            self.assertEqual(asyncio.run(ws.brand_sales("ruah", "2026-11-01", "2026-11-07")), [])
+
+    def test_without_bridge_falls_back_to_crm_mugo(self):
+        from services import whatsapp_sources as ws
+        with patch.object(ws, "bridge_for", return_value=None), \
+             patch.object(ws.crm_bridge, "brand_leads", AsyncMock(return_value={"available": True, "connected": False})) as mugo:
+            out = asyncio.run(ws.brand_leads("roove", "2026-11-01", "2026-11-07"))
+        mugo.assert_awaited_once()
+        self.assertFalse(out["connected"])
 
 
 if __name__ == "__main__":

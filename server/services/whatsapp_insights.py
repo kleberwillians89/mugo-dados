@@ -20,7 +20,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from . import crm_bridge
+from . import whatsapp_sources
 from .commerce_context import SHOPIFY, resolve_commerce_provider
 from .ig_supabase import sb_select
 from .periods import resolve_period
@@ -96,6 +96,9 @@ def phone_key(value: Any, *, international: bool = False) -> Optional[str]:
 
 
 def order_phone_keys(order: Dict[str, Any]) -> List[str]:
+    # Venda do CRM da marca já vem com as chaves prontas (o telefone não sai de lá).
+    if isinstance(order.get("phone_keys"), list):
+        return [k for k in order["phone_keys"] if isinstance(k, str) and k]
     keys: List[str] = []
     for field in ("phone", "customer_phone", "billing_phone", "shipping_phone"):
         key = phone_key(order.get(field))
@@ -362,7 +365,7 @@ async def build_whatsapp_insights(client_id: str, *, start: Optional[str] = None
         "attribution_label": ATTRIBUTION_LABEL,
         "window_days": CONVERSION_WINDOW_DAYS,
     }
-    result = await crm_bridge.brand_leads(client_id, period.start.isoformat(), period.end.isoformat())
+    result = await whatsapp_sources.brand_leads(client_id, period.start.isoformat(), period.end.isoformat())
     if not result.get("available"):
         return {**base, "status": "crm_unavailable", "reason": result.get("reason")}
     if not result.get("connected"):
@@ -381,7 +384,12 @@ async def build_whatsapp_insights(client_id: str, *, start: Optional[str] = None
         store_orders = [o for o in orders_window if _in_bounds(o.get("created_at_shopify"), start_utc, end_utc)]
         if window_end > datetime.now(timezone.utc):
             notes.append("Conversas dos últimos 7 dias ainda podem virar venda: os números desses dias sobem nos próximos dias.")
-    else:
+    crm_sales = await whatsapp_sources.brand_sales(client_id, period.start.isoformat(), period.end.isoformat())
+    if crm_sales:
+        orders_window = orders_window + crm_sales
+        store_orders = store_orders + [o for o in crm_sales if _in_bounds(o.get("created_at_shopify"), start_utc, end_utc)]
+        notes.append("Vendas: pedidos da loja e vendas registradas no CRM da marca (mesma cliente no mesmo dia = 1 venda).")
+    elif provider != SHOPIFY:
         notes.append("Vendas pelo WhatsApp aparecem quando a loja Shopify estiver conectada.")
 
     ad_ids = [_text((lead.get("origin") or {}).get("ad_id")) for lead in leads]
@@ -395,7 +403,7 @@ async def build_whatsapp_insights(client_id: str, *, start: Optional[str] = None
 
 async def build_whatsapp_inbox(client_id: str, *, limit: int = 60) -> Dict[str, Any]:
     """Caixa de entrada do número da marca, com a origem e o selo de compra de cada conversa."""
-    result = await crm_bridge.brand_conversations(client_id, limit=limit)
+    result = await whatsapp_sources.brand_conversations(client_id, limit=limit)
     if not result.get("available"):
         return {"ok": True, "status": "crm_unavailable", "reason": result.get("reason"), "conversations": []}
     if not result.get("connected"):
@@ -404,9 +412,15 @@ async def build_whatsapp_inbox(client_id: str, *, limit: int = 60) -> Dict[str, 
 
     purchases: Dict[str, Dict[str, Any]] = {}
     provider = (await resolve_commerce_provider(client_id)).get("provider")
-    if provider == SHOPIFY and conversations:
-        now = datetime.now(timezone.utc)
-        orders = await _recent_shopify_orders(client_id, (now - timedelta(days=INBOX_ORDER_DAYS)).isoformat())
+    now = datetime.now(timezone.utc)
+    orders: List[Dict[str, Any]] = []
+    if conversations:
+        if provider == SHOPIFY:
+            orders = await _recent_shopify_orders(client_id, (now - timedelta(days=INBOX_ORDER_DAYS)).isoformat())
+        brt_today = (now - timedelta(hours=3)).date()
+        orders = orders + await whatsapp_sources.brand_sales(
+            client_id, (brt_today - timedelta(days=INBOX_ORDER_DAYS)).isoformat(), brt_today.isoformat())
+    if orders:
         # Primeiro contato de cada telefone: pedido feito ANTES dele não é venda do WhatsApp.
         first_seen: Dict[str, Optional[datetime]] = {}
         for c in conversations:
