@@ -93,41 +93,12 @@ describe("Clipping", () => {
 
 const tab = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.startsWith(label))!;
 
-describe("Social Media: Campanhas (antes Redação)", () => {
-  it("abre a campanha com contador de caracteres e alerta acima do limite", async () => {
-    api.listCampaigns.mockResolvedValue({ campaigns: [{ id: "c1", name: "Black Friday", status: "rascunho", briefing: { objective: "vender" }, calendar_item_ids: [] }] });
-    api.getCampaign.mockResolvedValue({ campaign: { id: "c1", name: "Black Friday", status: "rascunho", briefing: {}, calendar_item_ids: [], updated_at: "x",
-      package: { concept: { nome: "Presente certo", ideia: "Oud como presente", por_que: "Oud vendeu 40% em outubro" }, titles: ["A"], generated_at: "x",
-        pieces: { google_ads: { channel: "google_ads", label: "Anúncio Google", content: { titulos: ["Oud na Black Friday", "Um título longo demais para o Google Ads"], descricoes: ["Frete grátis"] },
-          limits: [{ field: "titulos", index: 0, length: 19, limit: 30, over: false }, { field: "titulos", index: 1, length: 39, limit: 30, over: true }, { field: "descricoes", index: 0, length: 12, limit: 90, over: false }], flags: [] } } } } });
-    await show(<Campaigns />);
-    expect(host.textContent).toContain("Social Media");
-    const button = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Black Friday"))!;
-    await act(async () => { button.click(); }); await act(async () => {});
-    expect(host.textContent).toContain("Presente certo");
-    expect(host.textContent).toContain("1 texto(s) acima do limite");
-    expect(host.textContent).toContain("40/30"); // contador conta o texto da tela, não o que a IA disse
-    expect(host.querySelector(".pieceLabel em.is-over")).not.toBeNull();
-  });
-
+describe("Campanhas: texto das peças", () => {
   it("texto para copiar sai na ordem da plataforma", () => {
     expect(pieceText("google_ads", { titulos: ["T1", "T2"], descricoes: ["D1"] })).toBe("Títulos:\nT1\nT2\n\nDescrições:\nD1");
     expect(pieceText("email", { assunto: "A", preheader: "P", corpo: "C" })).toBe("Assunto: A\nPré-cabeçalho: P\n\nC");
   });
 
-  it("campanha exportada abre a aba Calendário existente", async () => {
-    const campaign = { id: "c1", name: "Black Friday", status: "pronta", briefing: {}, calendar_item_ids: [], updated_at: "x", package: { concept: { nome: "Conceito", ideia: "Ideia", por_que: "Motivo" }, titles: [], pieces: {} } };
-    api.listCampaigns.mockResolvedValue({ campaigns: [campaign] });
-    api.getCampaign.mockResolvedValue({ campaign });
-    api.campaignToCalendar.mockResolvedValue({ created: 1, already: false, calendar_item_ids: ["item-1"] });
-    await show(<Campaigns />);
-    await act(async () => { [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Black Friday"))!.click(); }); await act(async () => {});
-    await act(async () => { byText("Mandar pro Calendário").click(); }); await act(async () => {});
-    await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
-    expect(scrollTargets).toContain("social-calendario");
-    expect(window.location.hash).toBe("#social-calendario");
-    expect(api.campaignToCalendar).toHaveBeenCalledWith("c1");
-  });
 });
 
 const opp = (id: string, extra: Record<string, unknown> = {}) => ({ id, matrix_id: "m1", platform: "instagram", pillar: "Produto", week: 1, weekday: 2,
@@ -264,15 +235,13 @@ describe("Social Media: Matriz de conteúdo", () => {
 });
 
 describe("Social Media unificado", () => {
-  it("mantém Matriz, Planejador e Calendário visíveis na mesma página", async () => {
+  it("mostra Matriz e Calendário na mesma página, sem o Planejador de Conteúdo", async () => {
     await show(<Campaigns />);
     expect(host.querySelector("#social-matriz")).not.toBeNull();
-    expect(host.querySelector("#social-criacao")).not.toBeNull();
+    expect(host.querySelector("#social-criacao")).toBeNull();
     expect(host.querySelector("#social-calendario")).not.toBeNull();
-    const draft = host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')!;
-    draft.value = "edição preservada";
-    await act(async () => { byText("Equilibre os pilares nas próximas quatro semanas").click(); }); await act(async () => {});
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')?.value).toBe("edição preservada");
+    expect(host.textContent).not.toContain("Planejador de Conteúdo");
+    expect(studioApi.strategyChat).not.toHaveBeenCalled();
   });
 
   it("usuário com somente Calendário não recebe acesso às seções de Matriz ou Planejador", async () => {
@@ -286,7 +255,7 @@ describe("Social Media unificado", () => {
   it("links legados posicionam a página na seção correspondente", async () => {
     window.history.replaceState({}, "", "/social-media?aba=criacao");
     await show(<Campaigns />);
-    expect(scrollTargets).toContain("social-criacao");
+    expect(scrollTargets).toContain("social-matriz"); // o Planejador saiu: link antigo cai na Matriz
     await act(async () => root.unmount());
     root = createRoot(host);
     scrollTargets = [];
@@ -295,16 +264,6 @@ describe("Social Media unificado", () => {
     expect(scrollTargets).toContain("social-calendario");
   });
 
-  it("assistente usa o chat estratégico existente sem chamada automática", async () => {
-    await show(<Campaigns />);
-    expect(studioApi.strategyChat).not.toHaveBeenCalled();
-    await act(async () => { byText("Equilibre os pilares nas próximas quatro semanas").click(); });
-    await act(async () => { byText("Enviar").click(); }); await act(async () => {});
-    expect(studioApi.strategyChat).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}$/), [
-      { role: "user", content: "Equilibre os pilares nas próximas quatro semanas" },
-    ]);
-    expect(host.textContent).toContain("Use Produto como eixo principal.");
-  });
 });
 
 const doc = { id: "d1", title: "Legenda Oud", kind: "legenda", status: "rascunho", calendar_item_id: null, updated_at: "2026-11-09T20:00:00Z",
