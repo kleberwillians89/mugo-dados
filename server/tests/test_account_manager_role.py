@@ -1,10 +1,14 @@
 import asyncio
+import os
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-from services import tenant
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from services import tenant  # noqa: E402
 
 
 def run(coro):

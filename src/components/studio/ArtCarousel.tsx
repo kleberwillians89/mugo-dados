@@ -1,12 +1,8 @@
 import { useRef, useState } from "react";
 import { isArtVideo } from "../../app/artLinks";
+import { feedRatio } from "./artCarousel.helpers";
 
 /** Carrossel como no Instagram: um slide por vez, setas, bolinhas e deslize no celular. */
-/** Instagram no feed: a proporção do 1º slide vale para todos, entre 4:5 (em pé) e 1,91:1 (deitado). */
-export function feedRatio(width: number, height: number): number {
-  if (!width || !height) return 4 / 5;
-  return Math.min(1.91, Math.max(4 / 5, width / height));
-}
 
 export default function ArtCarousel({ images, onBroken, onRatio }: { images: string[]; onBroken?: () => void; onRatio?: (ratio: number) => void }) {
   const track = useRef<HTMLDivElement | null>(null);

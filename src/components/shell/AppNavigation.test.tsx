@@ -84,6 +84,29 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
   });
 
+  it("mantém Clientes e Origem das vendas separados e marca a rota ativa", async () => {
+    await render({ route: "origins" });
+    expect(link("Clientes")?.getAttribute("href")).toBe("/clientes");
+    expect(link("Origem das vendas")?.getAttribute("href")).toBe("/origem-das-vendas");
+    expect(link("Origem das vendas")?.getAttribute("aria-current")).toBe("page");
+    expect(link("Clientes")?.getAttribute("aria-current")).toBeNull();
+    expect(link("Clientes e vendas")).toBeUndefined();
+  });
+
+  it("preserva acesso independente para quem pode ver somente Clientes", async () => {
+    await render({ route: "customers", canView: (route) => route === "customers" });
+    expect(link("Clientes")?.getAttribute("href")).toBe("/clientes");
+    expect(link("Clientes")?.getAttribute("aria-current")).toBe("page");
+    expect(link("Origem das vendas")).toBeUndefined();
+  });
+
+  it("preserva acesso independente para quem pode ver somente Origem das vendas", async () => {
+    await render({ route: "origins", canView: (route) => route === "origins" });
+    expect(link("Clientes")).toBeUndefined();
+    expect(link("Origem das vendas")?.getAttribute("href")).toBe("/origem-das-vendas");
+    expect(link("Origem das vendas")?.getAttribute("aria-current")).toBe("page");
+  });
+
   it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {
     await render();
     expect(link("Tarefas")?.getAttribute("href")).toBe("/tarefas");

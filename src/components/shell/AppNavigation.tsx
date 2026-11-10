@@ -31,7 +31,8 @@ type Props = {
   canView?: (route: AppRoute) => boolean;
 };
 
-type NavItem = { route: AppRoute; label: string };
+/** `also`: telas que vivem dentro deste item (abas). O item fica ativo nelas e abre a primeira permitida. */
+type NavItem = { route: AppRoute; label: string; also?: AppRoute[] };
 const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
@@ -152,19 +153,23 @@ export default function AppNavigation({
     onOpen(target);
   }
 
-  const visible = (item: NavItem) => !canView || canView(item.route);
-  const renderItem = (item: NavItem) => (
-    <li key={item.route}>
-      <a
-        className="appNavLink"
-        href={getPathForRoute(item.route)}
-        aria-current={route === item.route ? "page" : undefined}
-        onClick={(event) => go(event, item.route)}
-      >
-        {item.label}
-      </a>
-    </li>
-  );
+  const routesOf = (item: NavItem): AppRoute[] => [item.route, ...(item.also || [])];
+  const visible = (item: NavItem) => !canView || routesOf(item).some((target) => canView(target));
+  const renderItem = (item: NavItem) => {
+    const target = routesOf(item).find((candidate) => !canView || canView(candidate)) || item.route;
+    return (
+      <li key={item.route}>
+        <a
+          className="appNavLink"
+          href={getPathForRoute(target)}
+          aria-current={routesOf(item).includes(route) ? "page" : undefined}
+          onClick={(event) => go(event, target)}
+        >
+          {item.label}
+        </a>
+      </li>
+    );
+  };
 
   return (
     <>

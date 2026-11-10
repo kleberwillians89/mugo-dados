@@ -4,19 +4,22 @@ import { getActiveClientName } from "../../app/activeClient";
 import { chatUnread, listTimeline, type ChatChannel, type TimelineEvent } from "../../app/studio";
 import BrandChat from "./BrandChat";
 import { ago } from "../../app/ago";
+import { DONE_KINDS, newDone } from "./chatWidget.helpers";
 
 type Tab = "conversa" | "feito";
-const DONE_KINDS = ["publicado", "pedido", "comentario_mugo", "referencia"];
+type Activity = { unread: Partial<Record<ChatChannel, number>>; events: TimelineEvent[] };
+
+/** Lê mensagens não lidas e o que a equipe fez (sem estado). */
+async function fetchActivity(): Promise<Activity> {
+  const [u, t] = await Promise.all([chatUnread().catch(() => null), listTimeline().catch(() => null)]);
+  return { unread: u?.unread || {}, events: t?.events || [] };
+}
 const DONE_ICON: Record<string, typeof CheckCircle2> = { publicado: CheckCircle2, pedido: ClipboardCheck, comentario_mugo: MessageSquareText, referencia: ImageIcon };
 const seenKey = (clientId: string) => `mugo.widget.seen.${clientId}`;
 const autoKey = (clientId: string) => `mugo.widget.auto.${clientId}`;
 const read = (store: Storage | undefined, key: string) => { try { return store?.getItem(key) || ""; } catch { return ""; } };
 const write = (store: Storage | undefined, key: string, value: string) => { try { store?.setItem(key, value); } catch { /* sem armazenamento */ } };
 
-/** Novidades feitas pela equipe depois da última vez que a pessoa olhou. */
-export function newDone(events: TimelineEvent[], seenAt: string): number {
-  return events.filter((e) => DONE_KINDS.includes(e.kind) && (!seenAt || e.at > seenAt)).length;
-}
 
 /**
  * Balão de conversa em todas as páginas. Para o cliente, abre sozinho uma vez por sessão quando há
@@ -30,37 +33,43 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
   const [done, setDone] = useState<TimelineEvent[]>([]);
   const [seenAt, setSeenAt] = useState(() => read(globalThis.localStorage, seenKey(clientId)));
 
-  const refresh = useCallback(async () => {
-    const [u, t] = await Promise.all([chatUnread().catch(() => null), listTimeline().catch(() => null)]);
-    setUnread(u?.unread || {});
-    setDone((t?.events || []).filter((e) => DONE_KINDS.includes(e.kind)));
-    return { unread: u?.unread || {}, events: t?.events || [] };
+  const apply = useCallback((data: Activity) => {
+    setUnread(data.unread);
+    setDone(data.events.filter((e) => DONE_KINDS.includes(e.kind)));
   }, []);
+  const refresh = useCallback(() => fetchActivity().then((data) => { apply(data); return data; }), [apply]);
 
+  // O widget é remontado a cada troca de empresa (key no App), então o estado já começa limpo.
   useEffect(() => {
-    setOpen(false); setTab("conversa"); setChannel("cliente"); setDone([]); setUnread({});
     const seen = read(globalThis.localStorage, seenKey(clientId));
-    setSeenAt(seen);
     let alive = true;
-    void refresh().then(({ unread: u, events }) => {
-      if (!alive || team || read(globalThis.sessionStorage, autoKey(clientId))) return;
+    void fetchActivity().then((data) => {
+      if (!alive) return;
+      apply(data);
+      const { unread: u, events } = data;
+      if (team || read(globalThis.sessionStorage, autoKey(clientId))) return;
       const msgs = u.cliente || 0;
       const fresh = newDone(events, seen);
       if (msgs || fresh) { write(globalThis.sessionStorage, autoKey(clientId), "1"); setTab(msgs ? "conversa" : "feito"); setOpen(true); }
     });
-    const timer = window.setInterval(() => void refresh(), 60000);
+    const timer = window.setInterval(() => void fetchActivity().then((data) => { if (alive) apply(data); }), 60000);
     return () => { alive = false; window.clearInterval(timer); };
-  }, [clientId, team, refresh]);
+  }, [clientId, team, apply]);
 
-  // Ao olhar "O que foi feito", marca como visto.
+  // Ao olhar "O que foi feito", conta como visto na hora (derivado, sem setState no efeito); o efeito só
+  // grava no navegador, e o estado é atualizado quando a pessoa sai da aba ou fecha o balão.
+  const latestDone = done[0]?.at || "";
+  const viewingDone = open && tab === "feito" && Boolean(latestDone);
+  const effectiveSeen = viewingDone && latestDone > seenAt ? latestDone : seenAt;
   useEffect(() => {
-    if (!open || tab !== "feito" || !done.length) return;
-    const latest = done[0].at;
-    if (latest > seenAt) { write(globalThis.localStorage, seenKey(clientId), latest); setSeenAt(latest); }
-  }, [open, tab, done, seenAt, clientId]);
+    if (viewingDone && latestDone > read(globalThis.localStorage, seenKey(clientId))) write(globalThis.localStorage, seenKey(clientId), latestDone);
+  }, [viewingDone, latestDone, clientId]);
+  const commitSeen = () => { if (effectiveSeen !== seenAt) setSeenAt(effectiveSeen); };
+  const close = () => { commitSeen(); setOpen(false); };
+  const showTab = (next: Tab) => { commitSeen(); setTab(next); };
 
   const msgCount = (unread.cliente || 0) + (team ? unread.equipe || 0 : 0);
-  const doneCount = newDone(done, seenAt);
+  const doneCount = newDone(done, effectiveSeen);
   const total = msgCount + doneCount;
   const markRead = useCallback(() => { window.setTimeout(() => void refresh(), 300); }, [refresh]);
   const brand = getActiveClientName() || "Cliente";
@@ -70,12 +79,12 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
       <header className="cwHead">
         <span className="cwAvatar" aria-hidden="true">{team ? brand.slice(0, 1).toUpperCase() : "M"}</span>
         <span className="cwTitle"><b>{team ? brand : "Equipe Mugô"}</b><small>{team ? "Conversa e o que foi feito" : "Fale com a gente e veja o que foi feito"}</small></span>
-        <button type="button" className="cwClose" aria-label="Fechar" onClick={() => setOpen(false)}><X size={18} /></button>
+        <button type="button" className="cwClose" aria-label="Fechar" onClick={close}><X size={18} /></button>
       </header>
       <div className="cwTabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "conversa"} className={tab === "conversa" ? "is-active" : ""} onClick={() => setTab("conversa")}>
+        <button type="button" role="tab" aria-selected={tab === "conversa"} className={tab === "conversa" ? "is-active" : ""} onClick={() => showTab("conversa")}>
           Conversa{msgCount ? <i className="hubBadge">{msgCount}</i> : null}</button>
-        <button type="button" role="tab" aria-selected={tab === "feito"} className={tab === "feito" ? "is-active" : ""} onClick={() => setTab("feito")}>
+        <button type="button" role="tab" aria-selected={tab === "feito"} className={tab === "feito" ? "is-active" : ""} onClick={() => showTab("feito")}>
           O que foi feito{doneCount ? <i className="hubBadge">{doneCount}</i> : null}</button>
       </div>
       <div className="cwBody">
@@ -96,7 +105,7 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
         })}</ul> : <p className="chatEmpty">Assim que a equipe publicar um post ou enviar algo para aprovação, aparece aqui.</p>}
       </div>
     </section> : null}
-    <button type="button" className="cwBubble" aria-label={open ? "Fechar conversa" : `Abrir conversa${total ? ` (${total} novidades)` : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+    <button type="button" className="cwBubble" aria-label={open ? "Fechar conversa" : `Abrir conversa${total ? ` (${total} novidades)` : ""}`} aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
       {open ? <X size={22} /> : <MessageCircle size={22} />}
       {!open && total ? <i className="cwBadge">{total > 9 ? "9+" : total}</i> : null}
     </button>

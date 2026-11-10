@@ -10,15 +10,19 @@ const when = (iso?: string) => (iso ? new Date(iso).toLocaleString("pt-BR", { da
 export default function RepliedPosts() {
   const clientId = getActiveClientId();
   const [days, setDays] = useState(30);
-  const [posts, setPosts] = useState<RepliedPost[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Resultado marcado com empresa + período: trocar o período mostra "Carregando…" sem setState no efeito.
+  const scope = `${clientId}:${days}`;
+  const [loaded, setLoaded] = useState<{ scope: string; posts: RepliedPost[]; error: string | null } | null>(null);
+  const current = loaded?.scope === scope ? loaded : null;
+  const posts = current ? current.posts : null;
+  const error = current ? current.error : null;
 
   useEffect(() => {
     let alive = true;
-    setPosts(null); setError(null);
-    getRepliesByPost(days).then((r) => { if (alive && getActiveClientId() === clientId) setPosts(r.posts || []); })
-      .catch((cause) => { if (alive) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar."); setPosts([]); } });
+    const key = `${clientId}:${days}`;
+    getRepliesByPost(days).then((r) => { if (alive && getActiveClientId() === clientId) setLoaded({ scope: key, posts: r.posts || [], error: null }); })
+      .catch((cause) => { if (alive) setLoaded({ scope: key, posts: [], error: cause instanceof Error ? cause.message : "Não foi possível carregar." }); });
     return () => { alive = false; };
   }, [days, clientId]);
 

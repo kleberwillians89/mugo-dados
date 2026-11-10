@@ -258,9 +258,17 @@ async def _read(uid, name, cid, window, provider, pilots):
         from services.business_context import FIELDS
         fields = context.get("context") or {}
         text = {field: business_text(fields.get(field), 1200) for field in FIELDS}
-        return {"available": context.get("available") is True, "updated_at": timestamp(context.get("updated_at")),
-                "context": {key: value for key, value in text.items() if value}, "observacoes": [OMITTED,
-                "Contexto escrito pela própria empresa/agência; use como premissa, não como dado medido."]}
+        out = {"available": context.get("available") is True, "updated_at": timestamp(context.get("updated_at")),
+               "context": {key: value for key, value in text.items() if value}, "observacoes": [OMITTED,
+               "Contexto escrito pela própria empresa/agência; use como premissa, não como dado medido."]}
+        # Memória da marca (material enviado + fatos confirmados), linha a linha: uma linha com cara de
+        # dado pessoal sai inteira, o resto continua. Só entra quando existe.
+        from services.brand_knowledge import knowledge_for_prompt
+        memory = [line for line in (business_text(raw.strip(" -•\t"), 200) for raw in (await knowledge_for_prompt(cid, 3500)).splitlines()) if line][:40]
+        if memory:
+            out["brand_memory"] = memory
+            out["available"] = True
+        return out
     if name == "get_latest_analysis":
         from services.technical_text import humanize_analysis_row
         rows = await sb_select("ai_analyses", select="client_id,period_start,period_end,status,created_at,completed_at,analysis,metrics_snapshot,sources",

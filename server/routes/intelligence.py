@@ -110,6 +110,17 @@ async def intelligence_save_business_context(
     return {"ok": True, "client_id": cid, **saved}
 
 
+def _ai_throttle(cid: str) -> None:
+    """Teto de chamadas de IA por empresa por minuto (mesmo do Studio): sem isso, um clique repetido ou um
+    script gasta o crédito da OpenAI de todas as empresas."""
+    from services.studio_calendar import StudioError
+    from services.studio_engines import throttle
+    try:
+        throttle(cid)
+    except StudioError:
+        raise HTTPException(status_code=429, detail="Muitas perguntas seguidas para a IA. Espere um minuto e tente de novo.") from None
+
+
 @router.post("/business-context/suggest")
 async def intelligence_suggest_business_context(
     client_id: str | None = Query(default=None),
@@ -213,6 +224,7 @@ async def intelligence_generate(
         elapsed_ms=int((time.monotonic() - authorization_started) * 1000),
         client_id=cid,
     )
+    _ai_throttle(cid)
     try:
         return await generate_analysis(
             client_id=cid,
@@ -245,6 +257,7 @@ async def intelligence_ask(
     authorization: str | None = Header(default=None),
 ):
     cid, user_id = await _context(client_id, x_client_id, authorization)
+    _ai_throttle(cid)
     started = time.monotonic()
     try:
         return await ask_intelligence(

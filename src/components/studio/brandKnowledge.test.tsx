@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
 
-import BrandKnowledge, { parseKnowledge } from "./BrandKnowledge";
+import BrandKnowledge from "./BrandKnowledge";
+import { parseKnowledge } from "./brandKnowledge.helpers";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;

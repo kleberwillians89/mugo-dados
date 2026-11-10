@@ -6,8 +6,6 @@ import ClientTasks from "../components/studio/ClientTasks";
 import TaskBoard from "../components/studio/TaskBoard";
 import "../styles/studio.css";
 
-export { sortTasks } from "../components/studio/TaskBoard";
-
 /** Tarefas da empresa ativa, em quadro, guardadas no Mugoverso. Quem gerencia cria, edita e move. */
 export default function Tasks({ canManage = true, isAgency = true }: { canManage?: boolean; isAgency?: boolean }) {
   const refresh = useRef<() => void>(() => undefined);

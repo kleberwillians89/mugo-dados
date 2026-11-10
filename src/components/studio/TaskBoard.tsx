@@ -2,22 +2,10 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, updateTask, type CrmTask, type CrmUnavailable, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
+import { OPEN, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
-const OPEN: TaskStatus[] = ["pending", "in_progress"];
-const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
-/** Ordem do card dentro da coluna: atrasadas primeiro, depois prazo mais próximo, depois prioridade. */
-export function sortTasks(list: CrmTask[], today = new Date()): CrmTask[] {
-  return [...list].sort((a, b) => {
-    const la = dueInfo(a.due_date, today).late && OPEN.includes(a.status) ? 0 : 1;
-    const lb = dueInfo(b.due_date, today).late && OPEN.includes(b.status) ? 0 : 1;
-    if (la !== lb) return la - lb;
-    const da = a.due_date || "9999", db = b.due_date || "9999";
-    if (da !== db) return da < db ? -1 : 1;
-    return (PRIORITY_RANK[a.priority || ""] ?? 9) - (PRIORITY_RANK[b.priority || ""] ?? 9);
-  });
-}
 
 const NEXT: Partial<Record<TaskStatus, TaskStatus>> = { pending: "in_progress", in_progress: "completed" };
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
