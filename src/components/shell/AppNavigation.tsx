@@ -42,6 +42,7 @@ const PRODUCT_ITEMS: NavItem[] = [
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
   { route: "origins", label: "Origem das vendas" },
+  { route: "whatsapp", label: "WhatsApp" },
   { route: "calendar", label: "Calendário" },
   { route: "brand_ai", label: "IA da marca" },
   { route: "media", label: "Mídia On" },

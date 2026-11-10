@@ -18,6 +18,7 @@ export type AppRoute =
   | "automations"
   | "integrations"
   | "origins"
+  | "whatsapp"
   | "intelligence"
   | "companies"
   | "users"
@@ -66,6 +67,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   ) return "meta";
   if (normalized.startsWith("/integracoes")) return "integrations";
   if (normalized.startsWith("/origem-das-vendas")) return "origins";
+  if (normalized === "/whatsapp" || normalized.startsWith("/whatsapp/")) return "whatsapp";
   if (normalized.startsWith("/inteligencia")) return "intelligence";
   if (normalized.startsWith("/ecommerce")) return "ecommerce";
   if (normalized.startsWith("/clientes")) return "customers";
@@ -83,6 +85,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";
   if (route === "origins") return "/origem-das-vendas";
+  if (route === "whatsapp") return "/whatsapp";
   if (route === "intelligence") return "/inteligencia";
   if (route === "google") return "/google";
   if (route === "ecommerce") return "/ecommerce";

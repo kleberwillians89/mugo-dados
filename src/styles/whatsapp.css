@@ -1,0 +1,92 @@
+/* WhatsApp da marca — mesma linguagem editorial do painel; cor só onde significa algo (origem, venda, alerta). */
+.waPage{display:flex;flex-direction:column;gap:var(--space-5,24px);--wa-ink:var(--text-primary,#15181b);--wa-line:var(--border-subtle,rgba(21,24,27,.09));--wa-gold:#c79830;--wa-gold-soft:#f6ecd6}
+.waMuted{color:var(--text-secondary,#4d565d);font-size:13px;margin:0}
+.waSmall{font-size:12px}
+.waPad{padding:16px}
+
+.waPage .waKpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 20px;align-items:start}
+@media (min-width:1100px){.waPage .waKpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.waKpis .ds-kpi{min-width:0;container-type:inline-size}
+.waKpis .ds-kpiValue{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:clamp(20px,13cqi,36px)}
+.waKpis .ds-kpiDelta{font-size:12px;color:var(--text-secondary,#4d565d)}
+
+.waCard{background:var(--surface,#fff);border:1px solid var(--wa-line);border-radius:var(--radius-lg,16px);padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.waCardHead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}
+.waCard h2{margin:0;font-family:var(--font-display);font-size:18px;letter-spacing:-.01em}
+
+.waStack{display:flex;height:14px;border-radius:99px;overflow:hidden;gap:2px}
+.waStack span{flex-basis:0;min-width:4px}
+.waLegend{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;font-size:13px;color:var(--text-secondary,#4d565d)}
+.waLegend li{display:flex;gap:8px;align-items:flex-start}
+.waLegend b{color:var(--wa-ink)}
+.waSwatch{width:10px;height:10px;border-radius:3px;margin-top:4px;flex:none}
+
+.waTableWrap{overflow-x:auto}
+.waTable{width:100%;min-width:680px;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.waTable th,.waTable td{padding:12px 8px;border-bottom:1px solid var(--wa-line);text-align:right;white-space:nowrap}
+.waTable thead th{font-size:12px;font-weight:600;color:var(--text-secondary,#4d565d)}
+.waTable th:first-child,.waTable td:last-child,.waTable thead th:last-child{text-align:left}
+.waTable th[scope=row]{font-weight:400;white-space:normal;max-width:320px}
+.waTable th[scope=row] small{display:block;font-size:12px;color:var(--text-secondary,#4d565d)}
+.waTable tbody tr:last-child th,.waTable tbody tr:last-child td{border-bottom:0}
+
+.waPill{display:inline-block;font-size:12px;font-weight:600;padding:4px 9px;border-radius:99px;background:#e3edf3;color:var(--accent,#004f6e)}
+.waPill.is-scale{background:#dff0e5;color:#1d5c34}
+.waPill.is-weak,.waPill.is-talk_no_sale{background:#fbe3dc;color:#8a2a12}
+.waAlert{margin:0;font-size:13px;color:var(--wa-ink);background:var(--wa-gold-soft);border-radius:12px;padding:12px 14px}
+
+/* Caixa de entrada: lista · conversa · origem da venda */
+.waInbox{flex-direction:row;flex-wrap:wrap;padding:0;gap:0;overflow:hidden;min-height:560px}
+.waInboxList{flex:1 1 300px;border-right:1px solid var(--wa-line);display:flex;flex-direction:column;min-width:0;max-height:720px}
+.waInboxTools{padding:16px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--wa-line)}
+.waSearch{font-size:12px;color:var(--text-secondary,#4d565d);display:flex;flex-direction:column;gap:4px}
+.waSearch input{font:inherit;font-size:14px;color:var(--wa-ink);border:1px solid rgba(0,79,110,.2);border-radius:10px;padding:10px 12px;min-height:44px;box-sizing:border-box;background:var(--surface,#fff)}
+.waChips{display:flex;flex-wrap:wrap;gap:6px}
+.waChips button{font:inherit;font-size:12px;font-weight:600;border:1px solid rgba(0,79,110,.2);background:var(--surface,#fff);color:var(--wa-ink);padding:8px 12px;border-radius:99px;min-height:34px;cursor:pointer}
+.waChips button.is-active{background:var(--accent,#004f6e);border-color:var(--accent,#004f6e);color:#fff}
+.waConvList{list-style:none;margin:0;padding:0;overflow-y:auto}
+.waConvList li{border-bottom:1px solid var(--wa-line);border-left:3px solid transparent}
+.waConvList li.is-open{background:#eef3f6;border-left-color:var(--accent,#004f6e)}
+.waConvList button{font:inherit;text-align:left;width:100%;border:0;background:transparent;padding:14px 16px;display:flex;flex-direction:column;gap:4px;cursor:pointer;color:var(--wa-ink)}
+.waConvTop{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+.waConvTop small{font-size:12px;color:var(--text-secondary,#4d565d);white-space:nowrap}
+.waConvPreview{font-size:13px;color:var(--text-secondary,#4d565d);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waTags{display:flex;gap:6px;flex-wrap:wrap}
+.waTag{font-size:11px;font-weight:600;padding:3px 8px;border-radius:99px;background:#e7eaec;color:var(--wa-ink);white-space:nowrap}
+.waTag.is-ad{background:var(--accent,#004f6e);color:#fff}
+.waTag.is-instagram{background:#4f86a8;color:#fff}
+.waTag.is-link{background:var(--wa-gold);color:#15181b}
+.waTag.is-site{background:#e2c887;color:#15181b}
+.waTag.is-bought{background:#dff0e5;color:#1d5c34}
+.waTag.is-waiting{background:#fbe3dc;color:#8a2a12}
+
+.waThread{flex:999 1 380px;min-width:0;display:flex;flex-direction:column;background:#f3f0ea;max-height:720px}
+.waThreadHead{padding:14px 18px;background:var(--surface,#fff);border-bottom:1px solid var(--wa-line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center}
+.waThreadHead div{display:flex;flex-direction:column}
+.waThreadHead small{font-size:12px;color:var(--text-secondary,#4d565d)}
+.waMessages{list-style:none;margin:0;padding:18px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1}
+.waBubble{align-self:flex-start;max-width:72%;background:var(--surface,#fff);padding:10px 12px;border-radius:12px 12px 12px 4px;font-size:14px}
+.waBubble.is-out{align-self:flex-end;background:#d9e6ee;border-radius:12px 12px 4px 12px}
+.waBubble.is-failed{outline:1px solid var(--negative,#b22234)}
+.waBubble p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.waBubble small{display:block;margin-top:4px;font-size:11px;color:var(--text-secondary,#4d565d)}
+.waEvent{align-self:center;font-size:12px;font-weight:600;color:var(--accent,#004f6e);background:#e3edf3;padding:6px 12px;border-radius:99px;text-align:center}
+.waEvent.is-sale{color:#1d5c34;background:#dff0e5}
+.waEvent.is-plain{background:transparent;color:var(--text-secondary,#4d565d);font-weight:400}
+
+.waJourney{flex:1 1 250px;min-width:0;border-left:1px solid var(--wa-line);padding:18px;display:flex;flex-direction:column;gap:16px;background:var(--surface,#fff)}
+.waJourney h3{margin:0;font-family:var(--font-display);font-size:16px}
+.waSteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px;font-size:13px}
+.waSteps li{display:flex;gap:10px}
+.waSteps li>span{width:24px;height:24px;border-radius:99px;background:var(--accent,#004f6e);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.waSteps li.is-done>span{background:var(--positive,#1d7a4b)}
+.waSteps li.is-pending>span{background:#c9cfd4;color:#15181b}
+.waSteps div{display:flex;flex-direction:column}
+.waSteps small{color:var(--text-secondary,#4d565d)}
+
+.waNotes{color:var(--text-secondary,#4d565d);font-size:13px;padding-left:18px;margin:0}
+
+@media (max-width:760px){
+  .waInboxList,.waThread{max-height:none}
+  .waInboxList,.waJourney{border:0;border-bottom:1px solid var(--wa-line)}
+}
