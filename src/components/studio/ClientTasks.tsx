@@ -46,7 +46,7 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
 
   return <section className="clientTasks" aria-label="Em andamento com a Mugô">
     <h2 className="crmGroupTitle">Em andamento com a Mugô {open.length ? <span>{open.length}</span> : null}</h2>
-    {isAgency ? <p className="libHint">{unavailable ? CRM_UNAVAILABLE_TEXT[unavailable] : "O cliente vê aqui só as tarefas com a etiqueta \"cliente\" no CRM, sem observações nem nomes da equipe."}</p> : null}
+    {isAgency ? <p className="libHint">{unavailable ? CRM_UNAVAILABLE_TEXT[unavailable] : "O cliente vê aqui só as tarefas marcadas como visíveis ao cliente (em Tarefas), sem observações nem nomes da equipe."}</p> : null}
     {tasks.length ? <ul className="crmTaskList">{[...open, ...done].map((t) => {
       const due = dueInfo(t.due_date);
       const late = due.late && t.status !== "completed";
@@ -54,6 +54,6 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
         <div className="crmTaskMain"><b>{t.title}</b><small>{TASK_STATUS[t.status]}</small></div>
         <div className="crmTaskSide">{t.status === "completed" ? <span className="crmDue">✓ Concluída</span> : <span className={late ? "crmDue is-late" : "crmDue"}>{due.label}</span>}</div>
       </li>;
-    })}</ul> : isAgency && !unavailable ? <p className="studioEmpty">Nenhuma tarefa com a etiqueta "cliente" para esta empresa.</p> : null}
+    })}</ul> : isAgency && !unavailable ? <p className="studioEmpty">Nenhuma tarefa visível ao cliente para esta empresa.</p> : null}
   </section>;
 }
