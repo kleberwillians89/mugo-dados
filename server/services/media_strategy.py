@@ -37,8 +37,10 @@ from .studio_calendar import StudioError, parse_month
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 CHANNELS = {"meta": "Meta Ads", "google_ads": "Google Ads"}
-OBJECTIVES = {"vendas": "Vendas", "leads": "Leads/cadastros", "trafego": "Tráfego para o site", "alcance": "Alcance e marca"}
-OBJECTIVE_METRIC = {"vendas": "revenue", "leads": "conversions", "trafego": "clicks", "alcance": "impressions"}
+OBJECTIVES = {"vendas": "Vendas", "leads": "Leads/cadastros", "trafego": "Tráfego para o site", "alcance": "Alcance e marca",
+              "retencao": "Retenção de clientes", "remarketing": "Remarketing"}
+OBJECTIVE_METRIC = {"vendas": "revenue", "leads": "conversions", "trafego": "clicks", "alcance": "impressions",
+                    "retencao": "revenue", "remarketing": "conversions"}
 METRIC_LABEL = {"revenue": "receita atribuída", "conversions": "conversões", "clicks": "cliques", "impressions": "impressões"}
 # Elasticidade de referência quando a conta não tem variação de verba suficiente para medir.
 DEFAULT_B = {"revenue": 0.7, "conversions": 0.7, "clicks": 0.85, "impressions": 0.9}
@@ -73,6 +75,10 @@ SUGGESTED_CAMPAIGNS = {
                   ("Remarketing de engajados (teste)", 0.3, "reimpacta quem interagiu com o perfil")],
         "trafego": [("Tráfego para o site com Reels (teste)", 1.0, "leva visitas qualificadas para a loja")],
         "alcance": [("Alcance com Reels do calendário (teste)", 1.0, "amplia o alcance das pautas aprovadas")],
+        "retencao": [("Compradores 180 dias: recompra (teste)", 0.7, "traz de volta quem já comprou, com lançamento ou reposição"),
+                     ("Clientes engajados no Instagram (teste)", 0.3, "mantém a marca presente para quem já é cliente")],
+        "remarketing": [("Visitantes do site 30 dias (teste)", 0.7, "fecha a venda de quem visitou a loja e não comprou"),
+                        ("Engajados no Instagram 60 dias (teste)", 0.3, "reimpacta quem interagiu com o perfil")],
     },
     "google_ads": {
         "vendas": [("Search de marca e produtos (teste)", 0.6, "captura quem já procura a marca ou o produto"),
@@ -80,6 +86,8 @@ SUGGESTED_CAMPAIGNS = {
         "leads": [("Search com palavras de intenção (teste)", 1.0, "captura quem busca o serviço")],
         "trafego": [("Search + Demand Gen (teste)", 1.0, "visitas de quem tem intenção de compra")],
         "alcance": [("YouTube / Demand Gen (teste)", 1.0, "alcance em vídeo com custo baixo por mil")],
+        "retencao": [("Demand Gen para clientes (teste)", 1.0, "lista de clientes para recompra em YouTube, Gmail e Discover")],
+        "remarketing": [("Remarketing Display / Demand Gen (teste)", 1.0, "reimpacta visitantes do site pela rede do Google")],
     },
 }
 ACTION_WEIGHT = {"escalar": 1.3, "manter": 1.0, "otimizar": 0.7, "aprender": 0.6, "testar": 1.0, "pausar": 0.0}

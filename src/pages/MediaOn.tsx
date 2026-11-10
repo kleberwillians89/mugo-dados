@@ -84,6 +84,18 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     } catch (cause) { setError(message(cause, "Não foi possível carregar o plano.")); }
   }, [month, clientId, canManage]);
 
+  // Estratégia pronta (a mais recente de cada objetivo no mês): gerada no dia 1 ou pela equipe.
+  const readyByObjective = useMemo(() => {
+    const map = new Map<Objective, StrategySummary>();
+    for (const h of history) if (!map.has(h.objective)) map.set(h.objective, h);
+    return map;
+  }, [history]);
+  function pickObjective(next: Objective) {
+    setObjective(next);
+    const ready = readyByObjective.get(next);
+    if (ready && !(view?.source !== "plan" && view?.strategy && "objective" in view.strategy && view.strategy.objective === next)) void openHistory(ready.id);
+  }
+
   async function openHistory(id: string) {
     setBusy("history"); setError(null); setSaved(null);
     try { showGenerated(await getStrategy(id), "history"); }
@@ -179,7 +191,10 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     {canManage ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
     {canManage ? <section className="mediaControls" aria-label="Parâmetros da estratégia">
       <div><span className="mediaControlLabel">Objetivo</span>
-        <SegmentedControl ariaLabel="Objetivo" value={objective} onSelect={(id) => setObjective(id as Objective)} options={(Object.keys(OBJECTIVES) as Objective[]).map((o) => ({ id: o, label: OBJECTIVES[o] }))} /></div>
+        <SegmentedControl ariaLabel="Objetivo" value={objective} onSelect={(id) => pickObjective(id as Objective)}
+          options={(Object.keys(OBJECTIVES) as Objective[]).map((o) => ({ id: o, label: readyByObjective.has(o) ? `${OBJECTIVES[o]} ✓` : OBJECTIVES[o] }))} />
+        <small className="mediaReadyNote">{readyByObjective.size ? `${readyByObjective.size} de ${Object.keys(OBJECTIVES).length} estratégias prontas para ${monthLabel} (✓). Escolha o objetivo para revisar, ajuste o que não concordar e salve o plano.`
+          : "As estratégias do mês são geradas sozinhas no dia 1. Para gerar agora, escolha o objetivo e clique em Gerar estratégia."}</small></div>
       <div><span className="mediaControlLabel">Distribuição</span>
         <SegmentedControl ariaLabel="Distribuição" value={distribution} onSelect={(id) => setDistribution(id as Distribution)} options={(Object.keys(DISTRIBUTIONS) as Distribution[]).map((d) => ({ id: d, label: DISTRIBUTIONS[d] }))} /></div>
       <label>Margem de contribuição <small>(opcional, %)</small><input type="number" min={2} max={95} step={1} value={margin} placeholder="ex.: 40" onChange={(e) => setMargin(e.target.value)} /></label>

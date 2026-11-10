@@ -34,6 +34,15 @@ OBJECTIVES: Dict[str, Dict[str, Any]] = {
     "engajamento": {"label": "Engajamento", "objective": "OUTCOME_ENGAGEMENT", "optimization": "POST_ENGAGEMENT"},
     "vendas": {"label": "Vendas no site (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS", "event": "PURCHASE", "destination": "WEBSITE"},
     "leads": {"label": "Cadastros no site (pixel)", "objective": "OUTCOME_LEADS", "optimization": "OFFSITE_CONVERSIONS", "event": "LEAD", "destination": "WEBSITE"},
+    # Públicos personalizados criados pelo pixel (ou reaproveitados se já existem com o mesmo nome).
+    "retencao": {"label": "Retenção: compradores 180 dias (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS",
+                 "event": "PURCHASE", "destination": "WEBSITE", "audience": "compradores_180"},
+    "remarketing": {"label": "Remarketing: visitantes do site 30 dias (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS",
+                    "event": "PURCHASE", "destination": "WEBSITE", "audience": "visitantes_30"},
+}
+AUDIENCES = {
+    "compradores_180": {"name": "Mugô · Compradores 180 dias", "days": 180, "event": "Purchase"},
+    "visitantes_30": {"name": "Mugô · Visitantes do site 30 dias", "days": 30, "event": None, "exclude": "compradores_180"},
 }
 CTAS = {"LEARN_MORE": "Saiba mais", "SHOP_NOW": "Comprar agora", "SIGN_UP": "Cadastre-se", "CONTACT_US": "Fale conosco",
         "SEND_WHATSAPP_MESSAGE": "Enviar mensagem no WhatsApp", "GET_OFFER": "Ver oferta", "BOOK_TRAVEL": "Reservar", "SUBSCRIBE": "Assinar"}
@@ -333,6 +342,27 @@ async def _pixel_id(act: str, token: str) -> str:
     return str(pixels[0]["id"])
 
 
+def audience_rule(pixel_id: str, days: int, event: Optional[str]) -> Dict[str, Any]:
+    """Regra do público pelo pixel: todo visitante (event=None) ou quem disparou o evento (ex.: Purchase)."""
+    filters = [{"field": "event", "operator": "eq", "value": event}] if event else [{"field": "url", "operator": "i_contains", "value": ""}]
+    return {"inclusions": {"operator": "or", "rules": [{"event_sources": [{"id": pixel_id, "type": "pixel"}],
+                                                          "retention_seconds": days * 86400,
+                                                          "filter": {"operator": "and", "filters": filters}}]}}
+
+
+async def ensure_audience(act: str, token: str, key: str, pixel_id: str) -> str:
+    """Público personalizado do Mugô na conta: reaproveita pelo nome; senão cria pelo pixel."""
+    spec = AUDIENCES[key]
+    found = await _graph("GET", f"/{act}/customaudiences", token=token, params={"fields": "id,name", "limit": 200})
+    for item in found.get("data") or []:
+        if item.get("name") == spec["name"] and item.get("id"):
+            return str(item["id"])
+    made = await _graph("POST", f"/{act}/customaudiences", token=token, data={
+        "name": spec["name"], "description": "Criado pelo Mídia On (Mugoverso)", "prefill": "1",
+        "rule": json.dumps(audience_rule(pixel_id, spec["days"], spec["event"]))})
+    return str(made["id"])
+
+
 def _ts(day: str, end: bool = False) -> str:
     return f"{day}T{'23:59:00' if end else '08:00:00'}-0300"
 
@@ -362,14 +392,27 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         if not ids.get("adset_id"):
             interests = await _interest_ids(payload["audience"]["interests"], token)
             regions = await _region_keys(payload["audience"]["regions"], token)
+            targeting = targeting_for(payload, interests, regions)
+            pixel = await _pixel_id(act, token) if cfg.get("event") else ""
+            if cfg.get("audience"):
+                # Retenção/remarketing: o público é a lista (não amplia com Advantage+ nem interesses).
+                key = cfg["audience"]
+                ids.setdefault("audiences", {})[key] = await ensure_audience(act, token, key, pixel)
+                targeting.pop("flexible_spec", None)
+                targeting["targeting_automation"] = {"advantage_audience": 0}
+                targeting["custom_audiences"] = [{"id": ids["audiences"][key]}]
+                exclude = AUDIENCES[key].get("exclude")
+                if exclude:
+                    ids["audiences"][exclude] = await ensure_audience(act, token, exclude, pixel)
+                    targeting["excluded_custom_audiences"] = [{"id": ids["audiences"][exclude]}]
             adset = {"name": f"{payload['name']} · público", "campaign_id": ids["campaign_id"], "status": "PAUSED",
                      "billing_event": "IMPRESSIONS", "optimization_goal": cfg["optimization"],
-                     "targeting": json.dumps(targeting_for(payload, interests, regions)),
+                     "targeting": json.dumps(targeting),
                      "start_time": _ts(payload["start_date"]), "end_time": _ts(payload["end_date"], end=True)}
             if cfg.get("destination"):
                 adset["destination_type"] = cfg["destination"]
             if cfg.get("event"):
-                adset["promoted_object"] = json.dumps({"pixel_id": await _pixel_id(act, token), "custom_event_type": cfg["event"]})
+                adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
         if not ids.get("creative_id"):
             image_hash = await _image_hash(act, ad["image_url"], token)

@@ -122,6 +122,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-clipping":
         from services.studio_clipping import refresh_all
         return await refresh_all()
+    if args.command == "media-strategies-monthly":
+        from services.media_monthly import run_monthly as media_monthly
+        return await media_monthly(args.client_id, args.month)
     if args.command == "brand-profile-monthly":
         from services.studio_brand_brain import run_monthly
         return await run_monthly(args.client_id)
@@ -281,6 +284,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
+    media_monthly = sub.add_parser(
+        "media-strategies-monthly",
+        help="Mídia On: gera, no começo do mês, uma estratégia por objetivo para cada empresa (não duplica).",
+    )
+    media_monthly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    media_monthly.add_argument("--month", default=None, help="Mês AAAA-MM (padrão: o atual, horário de São Paulo).")
     monthly = sub.add_parser(
         "brand-profile-monthly",
         help="Dia 1: gera a sugestão do perfil da marca (IA avançada) de cada marca ativa, pendente de revisão da equipe.",

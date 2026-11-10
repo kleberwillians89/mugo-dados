@@ -22,7 +22,7 @@ PLANS = "studio_media_plans"
 HISTORY = "studio_media_strategies"
 HISTORY_LIMIT = 15
 CHANNELS = {"meta": "Meta Ads", "google_ads": "Google Ads"}
-OBJECTIVES = ("vendas", "leads", "trafego", "alcance")
+OBJECTIVES = ("vendas", "leads", "trafego", "alcance", "retencao", "remarketing")
 SCENARIOS = ("ritmo_atual", "meta", "eficiencia", "personalizado")
 MAX_STRATEGY_BYTES = 300_000
 
