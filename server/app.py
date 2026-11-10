@@ -54,6 +54,7 @@ from routes.meta_legacy import router as meta_legacy_router
 from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
 from routes.team import router as team_router
+from routes.meta_ads_publish import router as meta_ads_publish_router
 from routes.goals import router as goals_router
 from routes.creators import router as creators_router
 from routes.automations import client_router as automations_client_router, router as automations_router
@@ -356,6 +357,7 @@ app.include_router(invitations_router)
 app.include_router(intelligence_router)
 app.include_router(client_access_router)
 app.include_router(team_router)
+app.include_router(meta_ads_publish_router)
 app.include_router(customers_router)
 app.include_router(goals_router)
 app.include_router(creators_router)
