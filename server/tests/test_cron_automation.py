@@ -145,7 +145,8 @@ def test_tick_runs_due_commands_per_five_minute_window():
     from datetime import timedelta
     for i in range(0, 7 * 24 * 60, 5):
         seen.update(due(start + timedelta(minutes=i))[1])
-    assert seen >= {cmd for cron, cmd in _module().SCHEDULE if not cron.startswith("20 12 1 ")}
+    # Jobs mensais (dia do mês fixo) ficam fora da conta semanal.
+    assert seen >= {cmd for cron, cmd in _module().SCHEDULE if cron.split()[2] == "*"}
 
 
 def test_manual_workflow_has_no_schedule_and_tick_dedupes():

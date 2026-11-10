@@ -17,7 +17,7 @@ import csv
 import io
 import re
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree
 
@@ -400,3 +400,48 @@ async def list_documents(client_id: str) -> List[Dict[str, Any]]:
                                    order="created_at.desc", limit=100, filters={"client_id": f"eq.{client_id}"})
         except Exception:  # noqa: BLE001
             return []
+
+
+# ---- Reprocessamento automático (job ``brand-knowledge-retry``) --------------------------------------
+# Material que a IA não conseguiu ler (sem crédito, fora do ar, demorou) ou que ficou "pendente" porque o
+# servidor reiniciou no meio fica guardado, mas fora da memória. Uma vez por dia o job tenta de novo, do
+# mais antigo para o mais novo, para a memória da marca não ficar desatualizada esperando um clique.
+# Se duas tentativas seguidas falharem, para: a IA provavelmente está indisponível e não adianta gastar.
+RETRY_BATCH = 10
+STALE_PENDING_MINUTES = 30
+NOT_RETRYABLE = {"AI_TENANT_LEAK"}
+
+
+async def retry_failed(client_id: Optional[str] = None, *, batch: int = RETRY_BATCH) -> Dict[str, Any]:
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=STALE_PENDING_MINUTES)).isoformat()
+    filters = {"or": f"(status.eq.falhou,and(status.eq.pendente,created_at.lt.{stale}))"}
+    if client_id:
+        filters["client_id"] = f"eq.{client_id}"
+    rows = await sb_select(DOCUMENTS, select="id,client_id,name,kind,status,error,created_at", filters=filters,
+                           order="created_at.asc", limit=max(1, min(int(batch), 50)))
+    learned = failed = skipped = 0
+    streak = 0
+    for doc in rows:
+        if doc.get("error") in NOT_RETRYABLE:
+            skipped += 1
+            continue
+        cid = str(doc.get("client_id") or "")
+        try:
+            text = await source_text(cid, str(doc["id"]))
+        except Exception:  # noqa: BLE001
+            text = ""
+        if not text.strip():
+            skipped += 1
+            continue
+        result = await _process(cid, doc, text=text, user_id=None)
+        if (result.get("document") or {}).get("status") == "aprendido":
+            learned += 1
+            streak = 0
+        else:
+            failed += 1
+            streak += 1
+            if streak >= 2:
+                break
+    summary = {"ok": True, "found": len(rows), "learned": learned, "failed": failed, "skipped": skipped}
+    print(f"[brand_knowledge] retry_failed {' '.join(f'{k}={v}' for k, v in summary.items() if k != 'ok')}")
+    return summary
