@@ -240,18 +240,31 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     req = normalize_request(data, profile, today=today)
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
-    raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=build_prompt(req, profile, intel),
-                         schema_name="studio_content_matrix", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
-    cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"])
-                           for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
-    items = cap_to_plan(cleaned, req)
+    prompt = build_prompt(req, profile, intel)
     expected = req["posts_per_week"] * WEEKS
-    if len(items) != expected:
-        raise StudioError("AI_INVALID_OUTPUT")
-    if any(sum(1 for item in items if item["platform"] == platform and item["week"] == week) != quota
-           for platform, quota in req["platform_quotas"].items() for week in range(1, WEEKS + 1)):
+
+    async def attempt() -> tuple:
+        raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt,
+                             schema_name="studio_content_matrix", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
+        cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"])
+                               for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
+        return raw, cleaned, cap_to_plan(cleaned, req)
+
+    # A IA raramente acerta a contagem exata (ou erra um pilar/semana): antes a matriz inteira era recusada.
+    # Agora tenta de novo uma vez e, se ainda faltar, salva o que veio e avisa o que falta.
+    raw, cleaned, items = await attempt()
+    if len(items) < expected:
+        try:
+            retry = await attempt()
+            if len(retry[2]) > len(items):
+                raw, cleaned, items = retry
+        except StudioError:
+            pass
+    if not items:
         raise StudioError("AI_INVALID_OUTPUT")
     notes: List[str] = []
+    if len(items) < expected:
+        notes.append(f"A IA sugeriu {len(items)} de {expected} pautas planejadas. Complete à mão ou gere de novo.")
     discarded = len(raw.get("oportunidades") or []) - len(cleaned)
     if discarded > 0:
         notes.append(f"{discarded} sugestão(ões) da IA fora da plataforma, do pilar ou da semana foram descartadas.")
