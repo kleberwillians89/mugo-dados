@@ -350,6 +350,17 @@ describe("Redação (página própria, editor de texto)", () => {
     expect(host.querySelector(".redacaoEditor")?.textContent).toContain("Primeiro parágrafo.");
   });
 
+  it("esconde a IA e libera a coluna central sem desmontar o editor", async () => {
+    api.listDocuments.mockResolvedValue({ documents: [doc] });
+    api.getDocument.mockResolvedValue({ document: doc });
+    await show(<RedacaoPage />);
+    await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
+    expect(host.querySelector(".redacaoBody")?.classList.contains("has-ai")).toBe(true);
+    await act(async () => { byText("Esconder IA").click(); });
+    expect(host.querySelector(".redacaoBody")?.classList.contains("has-ai")).toBe(false);
+    expect(host.querySelector(".redacaoEditor")).not.toBeNull();
+  });
+
   it("sem permissão de alterar, não cria nem usa a IA", async () => {
     api.listDocuments.mockResolvedValue({ documents: [doc] });
     api.getDocument.mockResolvedValue({ document: doc });

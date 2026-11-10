@@ -17,7 +17,7 @@ export default function RedacaoPage({ canManage = true }: { canManage?: boolean 
     window.history.pushState({}, document.title, `${getPathForRoute("campaigns")}?aba=calendario`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
-  return <Shell title="Redação" variant="editorial"><div className="ds-page studioPage">
+  return <Shell title="Redação" variant="editorial" themeClass="redacaoShell"><div className="ds-page studioPage redacaoPage">
     <PageHeader company={clientName} title="Redação" />
     <Redacao key={`redacao:${clientId}`} canManage={canManage} onOpenCalendar={openCalendar} />
   </div></Shell>;

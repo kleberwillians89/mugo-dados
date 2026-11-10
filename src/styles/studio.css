@@ -937,7 +937,9 @@
 @media (max-width:640px){.socialSectionHeader h2{font-size:19px}.socialWorkspaceSection{margin-top:22px;padding-top:20px}.matrixGrid thead th:first-child,.matrixGrid tbody th{width:120px}.matrixGrid{min-width:900px}.matrixBar{padding:8px 10px}}
 
 /* Social Media → Redação: editor de texto estilo Word (trazido da iAgência) */
-.redacao{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start;margin-top:8px}
+.appShell.redacaoShell .content.ds-content{max-width:none;padding-inline:clamp(12px,1.5vw,24px)}
+.studioPage.redacaoPage{max-width:1720px;padding-inline:clamp(14px,2vw,28px)}
+.redacao{display:grid;grid-template-columns:228px minmax(0,1fr);gap:12px;align-items:start;margin-top:8px}
 .redacaoList{display:grid;gap:8px;position:sticky;top:12px}
 .redacaoList input[type=search]{padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:8px;font:inherit}
 .redacaoList ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:70vh;overflow:auto}
@@ -967,10 +969,10 @@
 .redacaoToolbar button:disabled{opacity:.35;cursor:default}
 .redacaoToolbar select{height:32px;border:1px solid var(--border,#dedbd4);border-radius:6px;font:inherit;padding:0 6px}
 .redacaoToolbar .sep{width:1px;height:20px;background:var(--border,#dedbd4);margin:0 4px}
-.redacaoBody{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
-.redacaoBody.has-ai{grid-template-columns:minmax(0,1fr) 320px}
-.redacaoPaper{background:#e9e7e2;border-radius:12px;padding:28px 16px;cursor:text;min-height:70vh}
-.redacaoEditor{max-width:816px;margin:0 auto;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:2px;min-height:62vh;padding:64px 72px;cursor:text}
+.redacaoBody{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+.redacaoBody.has-ai{grid-template-columns:minmax(0,1fr) 290px}
+.redacaoPaper{background:#e9e7e2;border-radius:12px;padding:18px 10px;cursor:text;min-height:70vh}
+.redacaoEditor{width:100%;max-width:none;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:2px;min-height:62vh;padding:48px clamp(36px,4vw,60px);cursor:text}
 .redacaoEditor .tiptap{outline:none;font-size:16px;line-height:1.65;color:#1d1d1b;min-height:50vh}
 .redacaoEditor .tiptap h1{font-size:28px;margin:.6em 0 .3em}.redacaoEditor .tiptap h2{font-size:22px;margin:.6em 0 .3em}.redacaoEditor .tiptap h3{font-size:18px;margin:.6em 0 .3em}
 .redacaoEditor .tiptap p{margin:0 0 .8em}
@@ -989,7 +991,8 @@
 .redacaoAIText{max-height:320px;overflow:auto;background:#faf8f5;border-radius:8px;padding:10px 12px;font-size:14px;line-height:1.55}
 .redacaoAIText p{margin:0 0 .6em}
 @media (max-width:1100px){.redacaoBody.has-ai{grid-template-columns:minmax(0,1fr)}.redacaoAI{position:static}}
-@media (max-width:820px){.redacao{grid-template-columns:minmax(0,1fr)}.redacaoList{position:static}.redacaoList ul{max-height:none}.redacaoEditor{padding:28px 20px}.redacaoPaper{padding:12px 6px}}
+@media (max-width:820px){.studioPage.redacaoPage{padding-inline:16px}.redacao{grid-template-columns:minmax(0,1fr)}.redacaoList{position:static}.redacaoList ul{max-height:none}.redacaoEditor{padding:32px 24px}.redacaoPaper{padding:12px 6px}}
+@media (max-width:480px){.studioPage.redacaoPage{padding-inline:12px}.redacaoEditor{padding:24px 18px}}
 
 /* Matriz Tática no layout da iAgência: Canal × Pilar × Semana 1–4, separada por plataforma */
 .tacticalMatrix{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:20px;padding:20px;display:grid;gap:14px}
