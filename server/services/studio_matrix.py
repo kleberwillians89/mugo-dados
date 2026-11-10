@@ -268,7 +268,7 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     discarded = len(raw.get("oportunidades") or []) - len(cleaned)
     if discarded > 0:
         notes.append(f"{discarded} sugestão(ões) da IA fora da plataforma, do pilar ou da semana foram descartadas.")
-    missing = [p for p in req["platform_quotas"] if sum(1 for i in items if i["platform"] == p) < req["platform_quotas"][p] * WEEKS]
+    missing = [p for p in req["platforms"] if not any(i["platform"] == p for i in items)]
     if missing:
         notes.append(f"A IA não sugeriu nada para {', '.join(CHANNEL_LABELS[p] for p in missing)}. Gere de novo ou crie à mão.")
     pillars = [p for p in profile.get("pillars") or [] if p.get("name") in req["pillars"]]
