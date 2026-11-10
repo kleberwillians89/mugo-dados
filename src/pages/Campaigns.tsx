@@ -9,6 +9,7 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import ContentMatrix from "../components/studio/ContentMatrix";
+import Redacao from "../components/studio/Redacao";
 import "../styles/studio.css";
 
 const Calendar = lazy(() => import("./Calendar"));
@@ -82,7 +83,7 @@ function PieceCard({ campaignId, piece, busy, onSaved, run }: {
   </section>;
 }
 
-export type SocialMediaTab = "matriz" | "criacao" | "calendario";
+export type SocialMediaTab = "matriz" | "redacao" | "criacao" | "calendario";
 
 type SocialMediaProps = {
   /** Compatibilidade com os consumidores anteriores: controla a edição de Matriz/Criação. */
@@ -98,8 +99,9 @@ function tabFromLocation(): SocialMediaTab {
   if (typeof window === "undefined") return "matriz";
   const pathname = window.location.pathname.toLowerCase();
   if (pathname.startsWith("/calendario") || pathname.startsWith("/aprovacao") || pathname.startsWith("/atendimento")) return "calendario";
-  if (pathname.startsWith("/redacao")) return "criacao";
+  if (pathname.startsWith("/redacao")) return "redacao";
   const requested = new URLSearchParams(window.location.search).get("aba");
+  if (requested === "redacao") return "redacao";
   if (requested === "calendario" || requested === "calendar") return "calendario";
   if (requested === "criacao" || requested === "campanhas") return "criacao";
   return "matriz";
@@ -112,8 +114,8 @@ function allowedTab(requested: SocialMediaTab, canViewSocial: boolean, canViewCa
 }
 
 /**
- * Social Media unifica Matriz, Criação e o Calendário existente sem misturar permissões:
- * social_media.* controla as duas primeiras abas e calendar.* controla a terceira.
+ * Social Media unifica Matriz, Redação (editor de texto da iAgência), Criação e o Calendário existente
+ * sem misturar permissões: social_media.* controla Matriz, Redação e Criação; calendar.* controla o Calendário.
  */
 export default function Campaigns({
   canManage = true,
@@ -154,13 +156,17 @@ export default function Campaigns({
   return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Social Media" controls={<div className="studioTabs" role="tablist" aria-label="Social Media">
       {canViewSocial ? <button id="social-tab-matriz" type="button" role="tab" aria-controls="social-panel-matriz" aria-selected={tab === "matriz"} className={tab === "matriz" ? "is-active" : ""} onClick={() => openTab("matriz")}>Matriz de Conteúdo</button> : null}
+      {canViewSocial ? <button id="social-tab-redacao" type="button" role="tab" aria-controls="social-panel-redacao" aria-selected={tab === "redacao"} className={tab === "redacao" ? "is-active" : ""} onClick={() => openTab("redacao")}>Redação</button> : null}
       {canViewSocial ? <button id="social-tab-criacao" type="button" role="tab" aria-controls="social-panel-criacao" aria-selected={tab === "criacao"} className={tab === "criacao" ? "is-active" : ""} onClick={() => openTab("criacao")}>Criação</button> : null}
       {canViewCalendar ? <button id="social-tab-calendario" type="button" role="tab" aria-controls="social-panel-calendario" aria-selected={tab === "calendario"} className={tab === "calendario" ? "is-active" : ""} onClick={() => openTab("calendario")}>Calendário</button> : null}
     </div>} />
-    {canViewSocial && tab !== "calendario" ? <BrandContextPanel clientId={clientId} /> : null}
+    {canViewSocial && tab !== "calendario" && tab !== "redacao" ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial && visited.has("matriz") ? <section id="social-panel-matriz" role="tabpanel" aria-labelledby="social-tab-matriz" hidden={tab !== "matriz"}>
       <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openTab("calendario"); } : undefined} />
+    </section> : null}
+    {canViewSocial && visited.has("redacao") ? <section id="social-panel-redacao" role="tabpanel" aria-labelledby="social-tab-redacao" hidden={tab !== "redacao"}>
+      <Redacao key={`redacao:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
     </section> : null}
     {canViewSocial && visited.has("criacao") ? <section id="social-panel-criacao" role="tabpanel" aria-labelledby="social-tab-criacao" hidden={tab !== "criacao"}>
       <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />

@@ -255,6 +255,7 @@ _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "calendar": ("calendar", True),
     "campaigns": ("social_media", True),
     "matrix": ("social_media", True),
+    "documents": ("social_media", True),
     "approvals": ("calendar", True),
     "assist": ("calendar", False),
     "references": ("calendar", False),

@@ -157,18 +157,18 @@ class AgencyOnlyTests(unittest.TestCase):
                 self.assertIn("is_agency_user", route)
                 continue
             first = route.splitlines()[0]
-            if '"/campaigns' in first or '"/matrix' in first:
+            if '"/campaigns' in first or '"/matrix' in first or '"/documents' in first:
                 self.assertIn("allowed_roles=SOCIAL_MEDIA", route, first)
                 social += 1
                 continue
             self.assertIn("allowed_roles=AGENCY_ONLY", route, first)
-        self.assertGreaterEqual(social, 14)
+        self.assertGreaterEqual(social, 20)
         self.assertEqual(content_ops.AGENCY_ONLY, ("agency_admin",))
         self.assertEqual(content_ops.SOCIAL_MEDIA, ("agency_admin", "client_admin"))
 
     def test_social_media_routes_belong_to_the_opt_in_module(self):
         from services import team_access as ta
-        for path in ("/api/clients/c1/studio/campaigns", "/api/clients/c1/studio/matrix/m1/calendar"):
+        for path in ("/api/clients/c1/studio/campaigns", "/api/clients/c1/studio/matrix/m1/calendar", "/api/clients/c1/studio/documents/ai"):
             self.assertEqual(ta.route_module("POST", path), ("social_media", "social_media.edit"))
         self.assertEqual(ta.route_module("GET", "/api/clients/c1/studio/matrix"), ("social_media", "social_media.view"))
         self.assertTrue({"social_media.view", "social_media.edit"} <= ta.OPT_IN_CODES)

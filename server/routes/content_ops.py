@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from services import studio_campaigns as campaigns
 from services import studio_clipping as clipping
+from services import studio_documents as documents
 from services import studio_matrix as matrix
 from services.studio_calendar import StudioError
 from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
@@ -37,6 +38,15 @@ ERRORS = {
     "CAMPAIGN_NOT_FOUND": (404, "Campanha não encontrada."),
     "CHANNEL_INVALID": (400, "Peça inválida."),
     "NOTHING_FOR_CALENDAR": (409, "Esta campanha não tem post, Reels ou Stories para o Calendário."),
+    "DOCUMENT_NOT_FOUND": (404, "Documento não encontrado."),
+    "DOCUMENT_KIND_INVALID": (422, "Tipo de texto inválido."),
+    "DOCUMENT_SAVE_FAILED": (502, "Não foi possível salvar o documento. Tente de novo."),
+    "DOCUMENT_SELECTION_REQUIRED": (422, "Selecione o trecho do texto antes de pedir para a IA."),
+    "DOCUMENT_INSTRUCTION_REQUIRED": (422, "Diga o que a IA deve escrever."),
+    "DOCUMENT_EMPTY": (422, "O documento está vazio."),
+    "DOCUMENT_DATE_REQUIRED": (422, "Escolha a data do post."),
+    "ACTION_INVALID": (400, "Ação inválida."),
+    "CHANNEL_INVALID": (422, "Plataforma inválida."),
     "MATRIX_PILLARS_REQUIRED": (422, "Cadastre os pilares editoriais no Perfil da marca (IA da marca) antes de gerar a matriz."),
     "MATRIX_PLATFORMS_REQUIRED": (422, "Defina as plataformas do planejamento no Perfil da marca antes de gerar a matriz."),
     "MATRIX_FREQUENCY_TOO_HIGH": (422, "A frequência semanal configurada ultrapassa o limite de 80 oportunidades por matriz."),
@@ -460,4 +470,102 @@ async def matrix_to_calendar(client_id: str, matrix_id: UUID, body: Optional[Exp
         author = _chat_author(authorization, uid)
         for item_id in result["created_ids"]:
             await record(cid, item_id, "criou a pauta pela Matriz de conteúdo", actor_name=author, actor_id=uid)
+    return result
+
+
+# ---------------------------------------------------------------- redação (editor de texto)
+
+DocKind = Literal["livre", "post", "legenda", "roteiro", "artigo", "email", "release", "campanha"]
+
+
+class DocumentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(default="Sem título", max_length=200)
+    kind: DocKind = "livre"
+    content_html: str = Field(default="", max_length=300_000)
+
+
+class DocumentPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: Optional[str] = Field(default=None, max_length=200)
+    kind: Optional[DocKind] = None
+    content_html: Optional[str] = Field(default=None, max_length=300_000)
+    status: Optional[Literal["rascunho", "arquivado"]] = None
+
+
+class DocumentAIInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["escrever", "continuar", "reescrever", "encurtar", "expandir", "corrigir", "titulos"]
+    kind: DocKind = "livre"
+    title: str = Field(default="", max_length=200)
+    instruction: str = Field(default="", max_length=1500)
+    selection: str = Field(default="", max_length=12000)
+    document_text: str = Field(default="", max_length=100_000)
+
+
+class DocumentCalendarInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scheduled_at: Optional[str] = Field(default=None, max_length=40)
+    channel: Platform = "instagram"
+    format: MatrixFormat = "imagem"
+
+
+@router.get("/documents")
+async def read_documents(client_id: str, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    return {"documents": await documents.list_documents(cid), "kinds": documents.KINDS}
+
+
+@router.post("/documents", status_code=201)
+async def create_document(client_id: str, body: DocumentCreate, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    uid = await require_user_id(authorization)
+    try:
+        return {"document": await documents.create_document(cid, body.model_dump(), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/documents/ai")
+async def document_ai(client_id: str, body: DocumentAIInput, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return await documents.ai_write(cid, body.model_dump())
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/documents/{document_id}")
+async def read_document(client_id: str, document_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"document": await documents.get_document(cid, str(document_id))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.patch("/documents/{document_id}")
+async def update_document(client_id: str, document_id: UUID, body: DocumentPatch, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    uid = await require_user_id(authorization)
+    try:
+        return {"document": await documents.update_document(cid, str(document_id), body.model_dump(exclude_none=True), user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/documents/{document_id}/calendar")
+async def document_to_calendar(client_id: str, document_id: UUID, body: DocumentCalendarInput,
+                               authorization: Optional[str] = Header(default=None)):
+    """O texto vira post em rascunho no Calendário. Repetir atualiza a mesma pauta (não duplica)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    uid = await require_user_id(authorization)
+    try:
+        result = await documents.to_calendar(cid, str(document_id), body.model_dump(), user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    if result.get("created"):
+        from routes.studio import _chat_author
+        from services.studio_history import record
+        await record(cid, result["calendar_item_id"], "criou a pauta pela Redação", actor_name=_chat_author(authorization, uid), actor_id=uid)
     return result
