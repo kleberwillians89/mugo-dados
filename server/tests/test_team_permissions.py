@@ -51,6 +51,24 @@ class RouteModuleTests(unittest.TestCase):
         self.assertEqual(ta.route_module("PUT", "/api/clients/roove/studio/brand-profile"), ("brand_ai", "brand_ai.edit"))
         self.assertIsNone(ta.route_module("GET", "/api/dashboard/summary"))
 
+    def test_social_media_and_calendar_keep_independent_permissions(self):
+        self.assertEqual(
+            ta.route_module("GET", "/api/clients/roove/studio/matrix"),
+            ("social_media", "social_media.view"),
+        )
+        self.assertEqual(
+            ta.route_module("POST", "/api/clients/roove/studio/matrix"),
+            ("social_media", "social_media.edit"),
+        )
+        self.assertEqual(
+            ta.route_module("GET", "/api/clients/roove/studio/calendar"),
+            ("calendar", "calendar.view"),
+        )
+        self.assertEqual(
+            ta.route_module("POST", "/api/clients/roove/studio/calendar"),
+            ("calendar", "calendar.edit"),
+        )
+
 
 def access(codes, *, status="active", total=False, role="viewer"):
     return {"role": role, "status": status, "preset": "personalizado", "view_all": False, "access_total": total,

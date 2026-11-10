@@ -19,7 +19,7 @@ import {
 import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
-import { OPT_IN_CODES, ROUTE_MODULE } from "./app/teamRules";
+import { canViewAppRoute, OPT_IN_CODES } from "./app/teamRules";
 import type { MyAccess } from "./app/team";
 import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
 import Login from "./pages/Login";
@@ -34,8 +34,6 @@ const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
-const Calendar = lazy(() => import("./pages/Calendar"));
-const Approval = lazy(() => import("./pages/Approval"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
@@ -799,11 +797,10 @@ function PrivateApp() {
     return code.endsWith(".view") && code !== "team.view";
   };
   const canView = (target: AppRoute): boolean => {
-    const module = ROUTE_MODULE[target];
-    return !module || can(`${module}.view`);
+    return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
-  const firstAllowed = (["central", "meta", "ecommerce", "calendar", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
+  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "calendar", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
   if (view === "loading") {
@@ -874,7 +871,7 @@ function PrivateApp() {
       <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
       <AppNavigation
-        route={route}
+        route={route === "calendar" || route === "approval" ? "campaigns" : route}
         platformAdmin={platformAdmin}
         agencyAdmin={agencyAdmin}
         teamHere={teamHere}
@@ -913,10 +910,10 @@ function PrivateApp() {
         <Central key={`central:${activeClientId}`} />
       ) : route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
-      ) : route === "calendar" ? (
-        <Calendar key={`calendar:${activeClientId}`} isAgency={teamHere} canManage={canEdit("calendar")} />
-      ) : route === "approval" ? (
-        <Approval key={`approval:${activeClientId}`} isAgency={teamHere} canManage={canEdit("calendar")} />
+      ) : route === "calendar" || route === "approval" || route === "campaigns" ? (
+        <Campaigns key={`social-media:${activeClientId}`} initialTab={route === "calendar" || route === "approval" ? "calendario" : undefined}
+          isAgency={teamHere} canViewSocial={can("social_media.view")} canManage={canEdit("social_media")}
+          canViewCalendar={can("calendar.view")} canManageCalendar={canEdit("calendar")} />
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
       ) : route === "tasks" ? (
@@ -929,8 +926,6 @@ function PrivateApp() {
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (
         <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={canEdit("engagement")} />
-      ) : route === "campaigns" ? (
-        <Campaigns key={`campaigns:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "creators" ? (
         <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={canEdit("creators")} />
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (

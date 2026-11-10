@@ -56,6 +56,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Metas")).toBeUndefined();
     expect(link("Inteligência")).toBeUndefined();
     expect(link("Integrações")?.getAttribute("href")).toBe("/integracoes");
+    expect(link("Calendário")).toBeUndefined();
     expect(link("Empresas")).toBeUndefined();
   });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
@@ -9,8 +9,9 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import ContentMatrix from "../components/studio/ContentMatrix";
-import { navigateToAppRoute } from "../app/routes";
 import "../styles/studio.css";
+
+const Calendar = lazy(() => import("./Calendar"));
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const emptyBriefing: Briefing = { name: "", objective: "", offer: "", audience: "", start: "", end: "", notes: "", channels: ["post", "reels", "stories", "meta_ads", "google_ads"] };
@@ -81,31 +82,95 @@ function PieceCard({ campaignId, piece, busy, onSaved, run }: {
   </section>;
 }
 
-type Tab = "matriz" | "campanhas";
+export type SocialMediaTab = "matriz" | "criacao" | "calendario";
+
+type SocialMediaProps = {
+  /** Compatibilidade com os consumidores anteriores: controla a edição de Matriz/Criação. */
+  canManage?: boolean;
+  canViewSocial?: boolean;
+  canViewCalendar?: boolean;
+  canManageCalendar?: boolean;
+  isAgency?: boolean;
+  initialTab?: SocialMediaTab;
+};
+
+function tabFromLocation(): SocialMediaTab {
+  if (typeof window === "undefined") return "matriz";
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith("/calendario") || pathname.startsWith("/aprovacao") || pathname.startsWith("/atendimento")) return "calendario";
+  if (pathname.startsWith("/redacao")) return "criacao";
+  const requested = new URLSearchParams(window.location.search).get("aba");
+  if (requested === "calendario" || requested === "calendar") return "calendario";
+  if (requested === "criacao" || requested === "campanhas") return "criacao";
+  return "matriz";
+}
+
+function allowedTab(requested: SocialMediaTab, canViewSocial: boolean, canViewCalendar: boolean): SocialMediaTab {
+  if (requested === "calendario" && canViewCalendar) return requested;
+  if (requested !== "calendario" && canViewSocial) return requested;
+  return canViewCalendar ? "calendario" : "matriz";
+}
 
 /**
- * Social Media (antes Redação): Matriz de conteúdo (trazida da iAgência) + Redação de campanha.
- * Equipe Mugô sempre; usuário do cliente só com o módulo Social Media liberado pela Mugô.
- * Tudo que vai ao ar passa pelo Calendário: rascunho → arte → aprovação → agendamento.
+ * Social Media unifica Matriz, Criação e o Calendário existente sem misturar permissões:
+ * social_media.* controla as duas primeiras abas e calendar.* controla a terceira.
  */
-export default function Campaigns({ canManage = true }: { canManage?: boolean }) {
+export default function Campaigns({
+  canManage = true,
+  canViewSocial = true,
+  canViewCalendar = true,
+  canManageCalendar = true,
+  isAgency = false,
+  initialTab,
+}: SocialMediaProps) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("aba") === "campanhas" ? "campanhas" : "matriz"));
+  const [tab, setTab] = useState<SocialMediaTab>(() => allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar));
+  const [visited, setVisited] = useState<Set<SocialMediaTab>>(() => new Set([allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar)]));
+
+  const openTab = useCallback((next: SocialMediaTab, updateUrl = true) => {
+    const allowed = allowedTab(next, canViewSocial, canViewCalendar);
+    setTab(allowed);
+    setVisited((current) => current.has(allowed) ? current : new Set([...current, allowed]));
+    if (!updateUrl || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.pathname = "/social-media";
+    url.searchParams.set("aba", allowed);
+    window.history.pushState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  }, [canViewCalendar, canViewSocial]);
+
+  useEffect(() => {
+    const onPopState = () => openTab(tabFromLocation(), false);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [openTab]);
+
+  useEffect(() => {
+    const next = allowedTab(tab, canViewSocial, canViewCalendar);
+    if (next !== tab) openTab(next, false);
+  }, [canViewCalendar, canViewSocial, openTab, tab]);
+
   return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Social Media" controls={<div className="studioTabs" role="tablist" aria-label="Social Media">
-      <button type="button" role="tab" aria-selected={tab === "matriz"} className={tab === "matriz" ? "is-active" : ""} onClick={() => setTab("matriz")}>Matriz de conteúdo</button>
-      <button type="button" role="tab" aria-selected={tab === "campanhas"} className={tab === "campanhas" ? "is-active" : ""} onClick={() => setTab("campanhas")}>Campanhas</button>
+      {canViewSocial ? <button id="social-tab-matriz" type="button" role="tab" aria-controls="social-panel-matriz" aria-selected={tab === "matriz"} className={tab === "matriz" ? "is-active" : ""} onClick={() => openTab("matriz")}>Matriz de Conteúdo</button> : null}
+      {canViewSocial ? <button id="social-tab-criacao" type="button" role="tab" aria-controls="social-panel-criacao" aria-selected={tab === "criacao"} className={tab === "criacao" ? "is-active" : ""} onClick={() => openTab("criacao")}>Criação</button> : null}
+      {canViewCalendar ? <button id="social-tab-calendario" type="button" role="tab" aria-controls="social-panel-calendario" aria-selected={tab === "calendario"} className={tab === "calendario" ? "is-active" : ""} onClick={() => openTab("calendario")}>Calendário</button> : null}
     </div>} />
-    <BrandContextPanel clientId={clientId} />
-    {tab === "matriz"
-      ? <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => { navigateToAppRoute("calendar"); window.dispatchEvent(new PopStateEvent("popstate")); }} />
-      : <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} />}
+    {canViewSocial && tab !== "calendario" ? <BrandContextPanel clientId={clientId} /> : null}
+    {canViewSocial && visited.has("matriz") ? <section id="social-panel-matriz" role="tabpanel" aria-labelledby="social-tab-matriz" hidden={tab !== "matriz"}>
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
+    </section> : null}
+    {canViewSocial && visited.has("criacao") ? <section id="social-panel-criacao" role="tabpanel" aria-labelledby="social-tab-criacao" hidden={tab !== "criacao"}>
+      <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
+    </section> : null}
+    {canViewCalendar && visited.has("calendario") ? <section id="social-panel-calendario" role="tabpanel" aria-labelledby="social-tab-calendario" hidden={tab !== "calendario"}>
+      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} /></Suspense>
+    </section> : null}
   </div></Shell>;
 }
 
 /** Redação de campanha: briefing -> pacote de peças pela IA com os dados da marca. */
-function CampaignsPanel({ canManage }: { canManage: boolean }) {
+function CampaignsPanel({ canManage, onOpenCalendar }: { canManage: boolean; onOpenCalendar?: () => void }) {
   const clientId = getActiveClientId();
   const [list, setList] = useState<Campaign[]>([]);
   const [current, setCurrent] = useState<Campaign | null>(null);
@@ -159,7 +224,7 @@ function CampaignsPanel({ canManage }: { canManage: boolean }) {
     </div>
     <p className="libHint">A IA escreve com o Perfil de Marca e os dados reais da conta (o que alcançou, o que vendeu, Origem das vendas). Limites de caracteres conferidos pelo sistema. Posts, Reels e Stories vão para o Calendário e seguem a aprovação do cliente.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {notice ? <p className="studioOk">{notice}</p> : null}
+    {notice ? <p className="studioOk">{notice}{onOpenCalendar && current?.calendar_item_ids?.length ? <> <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p> : null}
     {busy === "generate" ? <p className="studioOk">Escrevendo a campanha com os dados da marca… (até 2 minutos)</p> : null}
 
     {!current ? <>

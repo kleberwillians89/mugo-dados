@@ -33,7 +33,7 @@ function firstOfNextMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-export default function Calendar({ canManage, isAgency = false }: { canManage: boolean; isAgency?: boolean }) {
+export default function Calendar({ canManage, isAgency = false, embedded = false }: { canManage: boolean; isAgency?: boolean; embedded?: boolean }) {
   // Equipe Mugô: tudo. Cliente: vê o que está com ele/aprovado/publicado, edita texto e data, aprova ou pede ajuste.
   const team = canManage && isAgency;
   const clientId = getActiveClientId();
@@ -269,7 +269,7 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
 
   const common = { items: visible, canManage, canCreate: team, onOpen: openItem, onMove: (i: CalendarItem, d: string) => void move(i, d), onCreate: openNew };
 
-  return <Shell title="Calendário" variant="editorial"><div className="ds-page studioPage">
+  const content = <div className={embedded ? "studioEmbeddedPage" : "ds-page studioPage"}>
     <PageHeader company={clientName} title="Calendário editorial" controls={team ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={() => void openProfile()} disabled={Boolean(busy)}>Perfil da marca</button>
       <button type="button" className="ds-button" onClick={() => setImportOpen(true)} disabled={Boolean(busy)}>Importar calendário</button>
@@ -447,5 +447,6 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setProfileOpen(false)}>Cancelar</button><button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "profile-save" ? "Salvando…" : "Salvar perfil"}</button></div>
       </form> : null}
     </Drawer>
-  </div></Shell>;
+  </div>;
+  return embedded ? content : <Shell title="Calendário" variant="editorial">{content}</Shell>;
 }
