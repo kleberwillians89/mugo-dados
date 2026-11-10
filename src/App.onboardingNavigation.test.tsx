@@ -426,7 +426,7 @@ describe("App — shell global: empresa, administração e conta", () => {
     expect(findNavItem("Empresas")).toBeUndefined();
   });
 
-  it("viewer não recebe nenhuma função administrativa", async () => {
+  it("viewer mantém IA da marca, sem receber funções administrativas privilegiadas", async () => {
     backend.memberships = [{ client_id: "roove", role: "viewer" }];
     backend.clients = [{ id: "roove", name: "Roove", trade_name: "Roove" }];
     await renderApp();
@@ -434,7 +434,9 @@ describe("App — shell global: empresa, administração e conta", () => {
     expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
     expect(findNavItem("Integrações")).toBeUndefined();
     expect(findNavItem("Empresas")).toBeUndefined();
-    expect(container.textContent).not.toContain("Administração");
+    expect(findNavItem("Usuários")).toBeUndefined();
+    expect(findNavItem("Automações")).toBeUndefined();
+    expect(findNavItem("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
   });
 
   it("administração da plataforma vê Integrações e Empresas no grupo Administração", async () => {
@@ -508,7 +510,7 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
       .filter((src) => src.startsWith("/clients/"));
   }
 
-  it("viewer: Ecommerce sem sync, sem atalho de Integrações e sem administração", async () => {
+  it("viewer: Ecommerce sem sync nem atalhos administrativos privilegiados", async () => {
     backend.memberships = [{ client_id: "origami", role: "viewer" }];
     backend.clients = [{ id: "origami", name: "Origami", trade_name: "Origami" }];
     await renderApp();
@@ -517,7 +519,9 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
     expect(ecommerce()?.getAttribute("data-integrations-shortcut")).toBe("false");
     expect(findNavItem("Integrações")).toBeUndefined();
     expect(findNavItem("Empresas")).toBeUndefined();
-    expect(container.textContent).not.toContain("Administração");
+    expect(findNavItem("Usuários")).toBeUndefined();
+    expect(findNavItem("Automações")).toBeUndefined();
+    expect(findNavItem("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
   });
 
   it("client_admin autorizado: Ecommerce com sync e atalho de Integrações", async () => {

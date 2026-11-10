@@ -35,29 +35,27 @@ type Props = {
 type NavItem = { route: AppRoute; label: string; also?: AppRoute[] };
 const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 
-// Produto: o que a empresa analisa. A ordem segue a leitura comercial
-// (resultado de vendas → mídia → site).
-const PRODUCT_ITEMS: NavItem[] = [
-  { route: "central", label: "Central da marca" },
-  { route: "ecommerce", label: "Ecommerce" },
-  { route: "customers", label: "Clientes e vendas", also: ["origins"] },
-  { route: "meta", label: "Meta" },
-  { route: "google", label: "Google" },
-  { route: "whatsapp", label: "WhatsApp" },
-  { route: "brand_ai", label: "IA da marca" },
-  { route: "media", label: "Mídia On" },
-  { route: "social_report", label: "Relatório social" },
-];
-
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
+  { route: "central", label: "Central da Marca" },
+  { route: "tasks", label: "Tarefas" },
   { route: "campaigns", label: "Social Media" },
   { route: "redacao", label: "Redação" },
-  { route: "tasks", label: "Tarefas" },
-  { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
+];
+
+const INTELLIGENCE_ITEMS: NavItem[] = [
+  { route: "meta", label: "Meta" },
+  { route: "google", label: "Google" },
+  { route: "ecommerce", label: "Ecommerce" },
+  { route: "origins", label: "Origem das vendas" },
+  { route: "whatsapp", label: "WhatsApp" },
+  { route: "media", label: "Mídia On" },
+  { route: "customers", label: "Clientes" },
   { route: "engagement", label: "Comentários" },
+  { route: "clipping", label: "Clipping" },
+  { route: "social_report", label: "Relatório" },
 ];
 const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao"]);
 
@@ -105,6 +103,10 @@ export default function AppNavigation({
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
+  // A posição é administrativa, mas a visibilidade continua obedecendo apenas
+  // à permissão preexistente do módulo, sem exigir um papel administrativo.
+  if (!canView || canView("brand_ai")) adminItems.push({ route: "brand_ai", label: "IA da marca" });
+  if (adminItems.length && (!canView || canView("central"))) adminItems.push({ route: "central", label: "Central da Marca" });
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
   const roleLabel = activeClient?.role ? ACCOUNT_ROLE_LABELS[activeClient.role] || null : null;
@@ -222,11 +224,16 @@ export default function AppNavigation({
         ) : null}
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
-          <ul className="appNavList">{PRODUCT_ITEMS.filter(visible).map(renderItem)}</ul>
           <div className="appNavGroup">
             <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
             <ul className="appNavList" aria-labelledby="app-nav-agency">
               {OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))).filter(visible).map(renderItem)}
+            </ul>
+          </div>
+          <div className="appNavGroup">
+            <p className="appNavGroupLabel" id="app-nav-intelligence">Inteligência</p>
+            <ul className="appNavList" aria-labelledby="app-nav-intelligence">
+              {INTELLIGENCE_ITEMS.filter(visible).map(renderItem)}
             </ul>
           </div>
           {adminItems.length ? (
