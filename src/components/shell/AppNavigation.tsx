@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
 import { ACCOUNT_ROLE_LABELS } from "../../app/roles";
@@ -32,6 +32,7 @@ type Props = {
 };
 
 type NavItem = { route: AppRoute; label: string };
+const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 
 // Produto: o que a empresa analisa. A ordem segue a leitura comercial
 // (resultado de vendas → mídia → site).
@@ -80,6 +81,15 @@ export default function AppNavigation({
   canView,
 }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Desktop: menu recolhido (lembrado neste navegador). No celular o menu já é gaveta.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return window.localStorage.getItem(COLLAPSE_KEY) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle("is-sidebar-collapsed", collapsed);
+    try { window.localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch { /* storage bloqueado */ }
+    return () => document.documentElement.classList.remove("is-sidebar-collapsed");
+  }, [collapsed]);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
 
@@ -195,6 +205,10 @@ export default function AppNavigation({
           <button type="button" className="appSidebarClose" aria-label="Fechar navegação" onClick={() => closeDrawer(true)}>
             <X size={20} aria-hidden="true" />
           </button>
+          <button type="button" className="appSidebarCollapse" aria-label="Recolher menu" title="Recolher menu"
+            aria-controls="app-sidebar" aria-expanded={!collapsed} onClick={() => setCollapsed(true)}>
+            <PanelLeftClose size={18} aria-hidden="true" />
+          </button>
         </div>
 
         {clients && activeClientId && onClientChange ? (
@@ -228,6 +242,12 @@ export default function AppNavigation({
           />
         </div>
       </aside>
+      {collapsed ? (
+        <button type="button" className="appSidebarExpand" aria-label="Abrir menu" title="Abrir menu"
+          aria-controls="app-sidebar" aria-expanded={false} onClick={() => setCollapsed(false)}>
+          <PanelLeftOpen size={18} aria-hidden="true" />
+        </button>
+      ) : null}
       {drawerOpen ? <div className="appSidebarBackdrop" aria-hidden="true" onClick={() => closeDrawer(true)} /> : null}
     </>
   );
