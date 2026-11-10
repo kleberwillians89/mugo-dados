@@ -1046,6 +1046,8 @@ button, input, select { font: inherit; }
   overflow: hidden;
 }
 .cardWide .tableWrap{
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
   max-height: min(48vh, 440px);
   overscroll-behavior: contain;

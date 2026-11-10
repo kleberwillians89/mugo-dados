@@ -21,6 +21,7 @@ from .shopify_oauth import resolve_shopify_reconciliation_since, sync_shopify_co
 from .sync_locks import acquire_sync_lock, guarded_sync
 from .runtime_cache import invalidate_namespace
 from .request_performance import current_request
+from .memory_budget import reject_if_memory_busy
 
 RefreshProvider = Literal["fbits", "shopify", "meta", "google"]
 
@@ -45,6 +46,9 @@ async def _refresh_google_ads(client_id: str, start: str, end: str) -> dict:
 
 
 async def refresh_provider_data(client_id: str, provider: RefreshProvider, start: str, end: str) -> dict:
+    # A refused operation must not consume the provider cooldown. Concrete syncs
+    # still enforce capacity if another operation starts during the DB awaits.
+    reject_if_memory_busy(provider)
     if provider in {"fbits", "meta"}:
         print(f"[{provider}][manual_refresh_start] pid={os.getpid()} client_id={client_id} start={start} end={end}")
     # Lease compartilhada entre processos. O cooldown NÃO é liberado no fim:
@@ -137,6 +141,9 @@ async def refresh_provider_data(client_id: str, provider: RefreshProvider, start
                     if seconds:
                         print(f"[meta][manual_refresh_cooldown] client_id={client_id} retry_after={seconds}")
                         raise HTTPException(429, "Aguarde antes de atualizar novamente.", headers={"Retry-After": str(seconds)})
+            busy = next((result for result in results if isinstance(result, IntegrationError) and result.code == "PROCESS_MEMORY_BUSY"), None)
+            if busy is not None:
+                raise busy
             # Nunca devolver payloads dos providers ou texto de exceções cruas.
             if any(isinstance(result, BaseException) or (isinstance(result, dict) and (result.get("ok") is False or result.get("partial") is True or result.get("sync_outcome") == "partial" or result.get("read_model_refreshed") is False)) for result in results):
                 if provider == "meta":

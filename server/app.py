@@ -8,7 +8,7 @@ import hashlib
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
-from services.env_loader import ensure_env_loaded
+from services.env_loader import ensure_env_loaded, _is_production_runtime
 
 ensure_env_loaded()
 
@@ -282,6 +282,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.on_event("startup")
 async def startup_bootstrap():
+    # Bootstrap is local-only. A production marker must win even when
+    # environment aliases conflict; seed configuration cannot opt it back in.
+    if _is_production_runtime() or any(
+        (os.getenv(name) or "").strip().lower() in {"production", "prod"}
+        for name in ("APP_ENV", "ENVIRONMENT", "PYTHON_ENV")
+    ):
+        return
     try:
         applied = await bootstrap_meta_from_env()
         if applied:

@@ -93,10 +93,12 @@ class AuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.call("PUT",f"/{GID}",body=BODY)).status_code,200)
         self.assertEqual((await self.call("DELETE",f"/{GID}")).status_code,200)
         self.assertEqual(routes.sb_delete.await_args.kwargs["filters"],{"client_id":f"eq.{CID}","id":f"eq.{GID}"})
-    async def test_viewer_crud_is_scoped_to_own_tenant(self):
+    async def test_viewer_reads_but_cannot_create_edit_or_delete_even_own_tenant(self):
         self.role="viewer"
         self.assertEqual((await self.call("GET")).status_code,200)
-        await self.test_create_edit_delete_and_scoped_filters()
+        for method,path in [("POST",""),("PUT",f"/{GID}"),("DELETE",f"/{GID}")]:
+            self.assertEqual((await self.call(method,path,body=BODY if method!="DELETE" else None)).status_code,403)
+        routes.sb_insert.assert_not_awaited(); routes.sb_update.assert_not_awaited(); routes.sb_delete.assert_not_awaited()
     async def test_viewer_cannot_create_edit_or_delete_cross_tenant(self):
         self.role="viewer"
         for method,path in [("POST",""),("PUT",f"/{GID}"),("DELETE",f"/{GID}")]:

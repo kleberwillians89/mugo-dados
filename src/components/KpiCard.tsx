@@ -1,3 +1,4 @@
+import MetricHelp from "./data/MetricHelp";
 type Props = {
   label: string;
   value?: string | number;
@@ -51,15 +52,11 @@ export default function KpiCard(props: Props) {
     <div
       className={`kpiCard ${props.active ? "kpiActive" : ""} ${tone === "ads" ? "kpiCardAds" : "kpiCardOrganic"}`}
       onClick={props.onClick}
-      role={props.onClick ? "button" : undefined}
-      tabIndex={props.onClick ? 0 : -1}
-      onKeyDown={(e) => {
-        if (!props.onClick) return;
-        if (e.key === "Enter" || e.key === " ") props.onClick();
-      }}
+      role={props.onClick ? "group" : undefined}
+      aria-label={props.onClick ? props.label : undefined}
     >
       <div className="kpiTop">
-        <div className="kpiLabel">{props.label}</div>
+        <div className="kpiLabel">{props.label}<MetricHelp label={props.label} /></div>
         {showDelta ? (
           deltaLabel ? (
             <span className="pill pillSoft">{deltaLabel}</span>
@@ -69,6 +66,7 @@ export default function KpiCard(props: Props) {
         ) : null}
       </div>
 
+      {props.onClick ? <button type="button" className="kpiSelect" aria-label={`Selecionar ${props.label}`} /> : null}
       <div className="kpiValue">{main}</div>
 
       {showToday ? (

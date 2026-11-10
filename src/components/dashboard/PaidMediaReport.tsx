@@ -10,6 +10,7 @@ import {
 import Delta from "../data/Delta";
 import HeroFigure from "../data/HeroFigure";
 import KpiFigure from "../data/KpiFigure";
+import MetricHelp from "../data/MetricHelp";
 import PerformanceChart from "./PerformanceChart";
 import TopCampaignsRanking from "./TopCampaignsRanking";
 
@@ -93,6 +94,7 @@ export default function PaidMediaReport({ source, totals, changes, comparisonNot
           exactValue={formatCurrency(totals.spend)}
           rawValue={totals.spend}
           label={`investidos em ${source}${conversionText} no período`}
+          metricId="investment"
           delta={changes ? <Delta change={changes.spend} sentiment="neutral" showReference /> : undefined}
           testId={`${testId || "paid"}-spend`}
         />
@@ -126,13 +128,13 @@ export default function PaidMediaReport({ source, totals, changes, comparisonNot
         </div>
         <div className="ds-secondary">
           <dl className="ds-inlineStats">
-            <div><dt>Impressões</dt><dd>{optional(totals.impressions, formatInteger)}</dd></div>
-            {totals.reach != null ? <div><dt>Alcance</dt><dd>{formatInteger(totals.reach)}</dd></div> : null}
-            <div><dt>Cliques</dt><dd>{optional(totals.clicks, formatInteger)}</dd></div>
-            {totals.linkClicks != null ? <div><dt>Cliques no link</dt><dd>{formatInteger(totals.linkClicks)}</dd></div> : null}
-            <div><dt>CTR</dt><dd>{optional(totals.ctr, (value) => formatPercent(value))}</dd></div>
-            <div><dt>CPC</dt><dd>{optional(totals.cpc, formatCurrency)}</dd></div>
-            <div><dt>CPM</dt><dd>{optional(totals.cpm, formatCurrency)}</dd></div>
+            <div><dt>Impressões<MetricHelp label="Impressões" /></dt><dd>{optional(totals.impressions, formatInteger)}</dd></div>
+            {totals.reach != null ? <div><dt>Alcance<MetricHelp label="Alcance" /></dt><dd>{formatInteger(totals.reach)}</dd></div> : null}
+            <div><dt>Cliques<MetricHelp label="Cliques" /></dt><dd>{optional(totals.clicks, formatInteger)}</dd></div>
+            {totals.linkClicks != null ? <div><dt>Cliques no link<MetricHelp label="Cliques no link" /></dt><dd>{formatInteger(totals.linkClicks)}</dd></div> : null}
+            <div><dt>CTR<MetricHelp label="CTR" /></dt><dd>{optional(totals.ctr, (value) => formatPercent(value))}</dd></div>
+            <div><dt>CPC<MetricHelp label="CPC" /></dt><dd>{optional(totals.cpc, formatCurrency)}</dd></div>
+            <div><dt>CPM<MetricHelp label="CPM" /></dt><dd>{optional(totals.cpm, formatCurrency)}</dd></div>
             {totals.videoViews != null ? <div><dt>Visualizações de vídeo</dt><dd>{formatInteger(totals.videoViews)}</dd></div> : null}
             {ticket != null ? <div><dt>Valor médio por {words.one}</dt><dd>{formatCurrency(ticket)}</dd></div> : null}
           </dl>

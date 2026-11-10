@@ -42,7 +42,7 @@ const report = {
 } as unknown as Ga4ReportResponse;
 
 const hooks = vi.hoisted(() => ({ reloadGa4: vi.fn(), reloadCampaigns: vi.fn() }));
-const api = vi.hoisted(() => ({ refreshProviderData: vi.fn(), getClientIntegrations: vi.fn() }));
+const api = vi.hoisted(() => ({ getProviderRefreshStatus: vi.fn(), refreshProviderData: vi.fn(), getClientIntegrations: vi.fn() }));
 
 vi.mock("../hooks/dashboard/useDashboardGa4", () => ({
   default: () => ({
@@ -85,6 +85,7 @@ let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
+  api.getProviderRefreshStatus.mockResolvedValue({client_id:"curavino",provider:"google",authorized:true,running:false,cooldown_seconds:0});
   Object.values(hooks).forEach((fn) => fn.mockReset());
   api.getClientIntegrations.mockResolvedValue({
     ok: true,
@@ -117,7 +118,7 @@ afterEach(async () => {
 
 async function render() {
   await act(async () => {
-    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync={false} />);
+    root.render(<GoogleAnalytics onLogout={() => {}} onOpenDashboard={() => {}} isAuthenticated canSync={true} />);
   });
   await act(async () => Promise.resolve());
   await act(async () => Promise.resolve());
@@ -136,7 +137,7 @@ async function refresh() {
   await act(async () => Promise.resolve());
 }
 
-describe("GoogleAnalytics — refresh seguro para viewer", () => {
+describe("GoogleAnalytics — refresh seguro para administrador", () => {
   it("solicita a fachada sem IDs e relê o snapshot", async () => {
     await render();
     await refresh();
@@ -172,7 +173,7 @@ describe("GoogleAnalytics — refresh seguro para viewer", () => {
       action.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(api.refreshProviderData).toHaveBeenCalledTimes(1);
-    expect(button("Atualizando...")?.disabled).toBe(true);
+    expect(button("Atualizando dados...")?.disabled).toBe(true);
     expect(container.querySelector('[data-testid="ga4-sessions-chart"]')).toBe(chart);
     expect(container.querySelector('[class*="skeleton"]')).toBeNull();
     await act(async () => finish({ ok: true }));

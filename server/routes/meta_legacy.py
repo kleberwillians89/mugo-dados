@@ -981,7 +981,8 @@ async def api_refresh_all(
     end: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
-    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    # Sync manual é mutação: viewer não dispara (mesma regra de /meta-ads/sync).
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
     validated_connection_id = await _validated_connection_id(
         client_id=cid,
         connection_id=connection_id,
@@ -1072,7 +1073,8 @@ async def api_instagram_debug_identity(
     connection_id: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
-    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    # Identity discovery can persist connection/client configuration.
+    cid = await require_client_role(_pick_client_id(client_id, x_client_id), authorization)
     validated_connection_id = await _validated_connection_id(
         client_id=cid,
         connection_id=connection_id,

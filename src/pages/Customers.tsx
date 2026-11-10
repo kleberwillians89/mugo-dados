@@ -1,3 +1,4 @@
+import MetricHelp from "../components/data/MetricHelp";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getCustomerDetail, getCustomers } from "../app/api";
@@ -71,7 +72,7 @@ const STATUS_LABEL: Record<CustomerSummary["status"], string> = {
 function SummaryCard({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <article className="customerCard">
-      <span className="customerCardLabel">{label}</span>
+      <span className="customerCardLabel">{label}<MetricHelp label={label} /></span>
       <strong className="customerCardValue">{value}</strong>
       {note ? <small className="customerCardNote">{note}</small> : null}
     </article>
@@ -272,7 +273,7 @@ export default function Customers() {
             />
           </section>
 
-          <section className="customerTableWrap" aria-label="Clientes">
+          <section className="customerTableWrap" tabIndex={0} aria-label="Clientes">
             {!loading && !error && customers.length === 0 ? (
               <p className="customerEmpty">
                 {applied

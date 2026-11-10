@@ -25,7 +25,7 @@ const stable = vi.hoisted(() => {
   };
 });
 
-const refreshApi = vi.hoisted(() => ({ refreshProviderData: vi.fn(), refetch: vi.fn(), reloadSummary: vi.fn() }));
+const refreshApi = vi.hoisted(() => ({ getProviderRefreshStatus: vi.fn(), refreshProviderData: vi.fn(), refetch: vi.fn(), reloadSummary: vi.fn() }));
 vi.mock("../app/api", async (original) => ({
   ...(await original<typeof import("../app/api")>()),
   ...refreshApi,
@@ -133,6 +133,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  refreshApi.getProviderRefreshStatus.mockResolvedValue({client_id:"curavino",provider:"meta",authorized:true,running:false,cooldown_seconds:0});
   refreshApi.refetch.mockReset();
   refreshApi.reloadSummary.mockReset();
   refreshApi.refetch.mockResolvedValue({ daily: [], sources: [], campaigns: [], products: [] });
@@ -178,10 +179,10 @@ describe("Meta — leitura editorial", () => {
     expect(container.querySelector('[data-testid="meta-connection-assets"]')?.textContent).toContain("act_8024076734300108");
   });
 
-  it("viewer vê Atualizar dados", async () => {
+  it("viewer lê cards sem ação de sincronização", async () => {
     state.role = "viewer";
     await render(false);
-    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(true);
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Atualizar dados")).toBe(false);
   });
 
   it("conectado e ainda não sincronizado não vira investimento zero", async () => {
@@ -219,9 +220,9 @@ describe("Meta — leitura editorial", () => {
 });
 
 
-it("viewer atualiza somente Meta, falha preserva cards e freshness", async () => {
-  state.role = "viewer";
-  await render(false);
+it("admin atualiza somente Meta, falha preserva cards e freshness", async () => {
+  state.role = "client_admin";
+  await render(true);
   const card = container.querySelector('[data-testid="meta-ads-spend"]');
   expect(card).not.toBeNull();
   const header = container.querySelector(".ds-dateline")?.textContent;
@@ -235,6 +236,8 @@ it("viewer atualiza somente Meta, falha preserva cards e freshness", async () =>
   expect(container.querySelector(".ds-dateline")?.textContent).toBe(header);
   expect(container.querySelector('[class*="skeleton"]')).toBeNull();
   expect(container.textContent).toContain("Mantendo a última leitura disponível");
+  expect(container.textContent).not.toContain("Seus dados foram atualizados.");
+  expect(container.querySelector('[data-refresh-state="failed"]')).not.toBeNull();
 });
 
 
@@ -258,15 +261,18 @@ it("Meta não anuncia sucesso quando a releitura falha", async () => {
   await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
   expect(refreshApi.reloadSummary).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Mantendo a última leitura disponível");
+  expect(container.textContent).not.toContain("Seus dados foram atualizados.");
+  expect(container.querySelector('[data-refresh-state="failed"]')).not.toBeNull();
 });
 
 
-it("Ads sem dados é consulta concluída e não ausência de sync", async () => {
+it("consulta Ads sem dados não inventa horário de sucesso no indicador", async () => {
   state.paid = false;
   refreshApi.refreshProviderData.mockResolvedValue({ ok:true, sources:{ "Instagram":{status:"success"}, "Meta Ads":{status:"no_data"} } });
   await render(true);
   await act(async () => { [...container.querySelectorAll("button")].find((item) => item.textContent === "Atualizar dados")!.click(); });
-  expect(container.textContent).toContain("sem dados de anúncios no período consultado");
+  expect(container.querySelector(".ds-dateline")?.textContent).toContain("Ainda não atualizado");
+  expect(refreshApi.refetch).toHaveBeenCalledTimes(1);
 });
 
 it("falha Ads identificada não vira conclusão total após orgânico sucesso", async () => {

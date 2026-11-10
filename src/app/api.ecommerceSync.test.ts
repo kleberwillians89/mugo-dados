@@ -116,3 +116,22 @@ describe("sync de e-commerce sempre no tenant ativo e no provider certo", () => 
   });
 
 });
+
+it("refresh manual aguarda operação de 201s sem abortar aos 25s nem repetir POST", async () => {
+ vi.useFakeTimers();
+ let signal: AbortSignal | undefined;
+ let finish!: (response: Response)=>void;
+ const fetch = vi.fn((_input:RequestInfo|URL, init?:RequestInit)=>{
+  signal=init?.signal as AbortSignal;
+  return new Promise<Response>(resolve=>{finish=resolve;});
+ });
+ vi.stubGlobal("fetch",fetch);
+ try {
+  const request=refreshProviderData("meta",{start:"2026-10-01",end:"2026-10-19"});
+  await vi.advanceTimersByTimeAsync(201_680);
+  expect(signal?.aborted).toBe(false);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  finish(jsonResponse({ok:true,client_id:tenant.id,provider:"meta"}));
+  await expect(request).resolves.toMatchObject({ok:true});
+ } finally {vi.useRealTimers();vi.unstubAllGlobals();}
+});

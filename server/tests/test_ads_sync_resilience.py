@@ -340,7 +340,7 @@ class ProjectionFreshnessTests(_BaseAdsSyncTest):
 
 class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
     """Real Ads/facade/router/finally boundaries, synthetic provider and DB only."""
-    async def request_refresh(self, *, organic=None, outer_release_error=False, finish_error=False):
+    async def request_refresh(self, *, organic=None, outer_release_error=False, finish_error=False, ads_release_error=False):
         import httpx
         from fastapi import FastAPI
         from routes import integrations
@@ -358,6 +358,8 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
                 print(f"[test][release] {args['p_job_name']}")
             if outer_release_error and name == 'release_client_job_lock' and args['p_job_name'] == 'sync:data_refresh:meta':
                 raise RuntimeError('synthetic cleanup failure')
+            if ads_release_error and name == 'release_client_job_lock' and args['p_job_name'] == 'sync:meta_ads:conn-1':
+                raise OSError('synthetic Ads cleanup failure')
             return True
         async def resolve(**kwargs):
             return {"connection_id": ('organic' if organic is not None else None) if kwargs['platform']=='instagram' else 'conn-1',
@@ -369,7 +371,7 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
         self._install(provider_refresh, 'resolve_connection_for_scope', resolve)
         self._install(provider_refresh, 'invalidate_namespace', AsyncMock())
         self._install(provider_refresh, 'sync_instagram_for_client', AsyncMock(side_effect=organic) if isinstance(organic, Exception) else AsyncMock(return_value=organic))
-        self._install(integrations, 'require_client_read', AsyncMock(return_value='amalie'))
+        self._install(integrations, 'require_client_role', AsyncMock(return_value='amalie'))
         if finish_error:
             self._install(ads_sync, 'finish_job_run', AsyncMock(side_effect=RuntimeError('synthetic finish failure')))
         import io
@@ -400,6 +402,16 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
         released = [args['p_job_name'] for name, args in self.rpc_calls if name == 'release_client_job_lock']
         self.assertEqual(released, ['sync:meta_ads:conn-1','sync:data_refresh:meta'])
         self.assertNotIn('refresh_cooldown:meta', released)
+
+    async def test_ads_release_failure_keeps_persisted_success_and_reports_unconfirmed_lock(self):
+        response = await self.request_refresh(ads_release_error=True)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['sources']['Meta Ads']['status'], 'success')
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
+        self.assertEqual(self.finish_job_run_calls[-1]['rows_upserted'], 1)
+        self.assertIn('lock_release_failed', self.output)
+        self.assertIn('released=false', self.output)
+        self.assertEqual(self.mark_error_calls, [])
 
     async def test_ads_success_does_not_mask_partial_instagram_http_502(self):
         response = await self.request_refresh(organic={'ok':True,'partial':True,'read_model_refreshed':True})
@@ -445,3 +457,77 @@ class ManualRefreshHttpFinalizationTests(_BaseAdsSyncTest):
         ads_sync.refresh_dashboard_read_model_safely.assert_awaited_once()
         self.assertEqual([args['p_job_name'] for name, args in self.rpc_calls if name=='release_client_job_lock'],
                          ['sync:meta_ads:conn-1', 'sync:data_refresh:meta'])
+
+
+class BusyAdsOutcomeTests(_BaseAdsSyncTest):
+    async def test_capacity_refusal_is_skipped_without_marking_provider_failure(self):
+        from services import memory_budget
+        self._install(ads_sync,'fetch_ad_account_insights',AsyncMock())
+        async with memory_budget.operation_memory('instagram',limit=True):
+            with self.assertRaises(IntegrationError) as error:
+                await ads_sync.sync_ads_for_client_period(client_id='roove',connection_id='conn-1',since='2026-05-01',until='2026-05-01')
+        self.assertEqual(error.exception.code,'PROCESS_MEMORY_BUSY')
+        self.assertEqual(self.mark_error_calls,[])
+        self.assertEqual(self.finish_job_run_calls[-1]['status'],'skipped')
+        self.assertEqual(self.finish_job_run_calls[-1]['payload_json']['error_code'],'PROCESS_MEMORY_BUSY')
+        self.assertEqual(len(self.release_lock_calls),1)
+        ads_sync.fetch_ad_account_insights.assert_not_awaited()
+
+
+class ReleaseFailureRegressionTests(_BaseAdsSyncTest):
+    async def test_cancelled_release_timeout_preserves_cancellation_and_drains_rpc(self):
+        import io
+        from contextlib import redirect_stdout
+        entered = asyncio.Event()
+        rpc_tasks = []
+
+        async def blocked_release(*_args):
+            rpc_tasks.append(asyncio.current_task())
+            entered.set()
+            await asyncio.Event().wait()
+
+        output = io.StringIO()
+        with patch.object(ads_sync, 'release_sync_lock', blocked_release), patch.object(ads_sync, '_ADS_CLEANUP_TIMEOUT_SECONDS', 0.01), redirect_stdout(output):
+            task = asyncio.create_task(ads_sync._release_lock_reliably('amalie', 'synthetic-lock'))
+            await entered.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertTrue(all(rpc.done() for rpc in rpc_tasks))
+        self.assertIn('lock_release_failed', output.getvalue())
+        self.assertIn('error_type=TimeoutError', output.getvalue())
+
+    async def test_original_provider_error_survives_release_error(self):
+        original = RuntimeError('synthetic provider failure')
+        self._install(ads_sync, 'fetch_ad_account_insights', AsyncMock(side_effect=original))
+        self._install(ads_sync, 'release_sync_lock', AsyncMock(side_effect=OSError('synthetic cleanup failure')))
+        with self.assertRaises(RuntimeError) as caught:
+            await ads_sync.sync_ads_for_client_period(client_id='amalie', connection_id='conn-1', since='2026-05-01', until='2026-05-01')
+        self.assertIs(caught.exception, original)
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'error')
+
+    async def test_successful_release_is_confirmed(self):
+        self.assertIs(await ads_sync._release_lock_reliably('amalie', 'synthetic-lock'), True)
+        self.assertEqual(self.release_lock_calls, [('amalie', 'synthetic-lock')])
+
+    async def test_successful_persistence_is_not_rewritten_when_release_fails(self):
+        import io
+        from contextlib import redirect_stdout
+        self._install(ads_sync, 'fetch_ad_account_insights', AsyncMock(side_effect=[[{'date_start': '2026-05-01', 'spend': '10'}], [], []]))
+        ads_sync._upsert_ad_account_daily_stats.return_value = {'upserted': 1, 'skipped': False}
+        ads_sync._readback_persisted_rows.return_value = {**_empty_readback(), 'ad_account_daily_stats': {'count': 1, 'mode': 'connection_scope'}}
+        self._install(ads_sync, 'release_sync_lock', AsyncMock(side_effect=OSError('synthetic cleanup failure')))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = await ads_sync.sync_ads_for_client_period(client_id='amalie', connection_id='conn-1', since='2026-05-01', until='2026-05-01')
+        self.assertEqual(result['job_status'], 'success')
+        self.assertEqual(self.finish_job_run_calls[-1]['status'], 'success')
+        self.assertEqual(self.finish_job_run_calls[-1]['rows_upserted'], 1)
+        self.assertIn('lock_release_failed', output.getvalue())
+        self.assertIn('released=false', output.getvalue())
+        self.assertNotIn('released=true', output.getvalue())
+        self.assertEqual(self.mark_error_calls, [])
+
+    async def test_release_failure_returns_false_instead_of_confirmation(self):
+        self._install(ads_sync, 'release_sync_lock', AsyncMock(side_effect=OSError('synthetic cleanup failure')))
+        self.assertIs(await ads_sync._release_lock_reliably('amalie', 'synthetic-lock'), False)

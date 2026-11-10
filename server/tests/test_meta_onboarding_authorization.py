@@ -701,5 +701,84 @@ class DiscoverExistingMetaAdAccountsRoute(_Base):
         discover.assert_not_awaited()
 
 
+
+# ---------------------------------------------------------------------------
+# Sync manual é mutação: viewer é somente leitura também no backend
+# ---------------------------------------------------------------------------
+class ManualSyncRequiresManageRole(_Base):
+    async def _viewer_status(self, coro_factory, *patches):
+        with ExitStack() as stack:
+            stack.enter_context(acting_as("viewer-amalie", role="viewer"))
+            for target, attribute, mock in patches:
+                stack.enter_context(patch.object(target, attribute, mock))
+            return await _route_status(coro_factory())
+
+    async def test_viewer_cannot_trigger_instagram_refresh(self):
+        refresh = AsyncMock(return_value={"ok": True})
+        kind, code = await self._viewer_status(
+            lambda: meta_legacy.api_refresh_all(client_id=AMALIE, x_client_id=None, limit=40, connection_id=None, start=None, end=None, authorization="Bearer valid"),
+            (meta_legacy, "refresh_all", refresh),
+        )
+        self.assertEqual((kind, code), ("raise", 403))
+        refresh.assert_not_awaited()
+
+    async def test_viewer_cannot_trigger_instagram_sync_alias(self):
+        refresh = AsyncMock(return_value={"ok": True})
+        kind, code = await self._viewer_status(
+            lambda: meta_legacy.api_instagram_sync(client_id=AMALIE, x_client_id=None, limit=40, connection_id=None, start=None, end=None, authorization="Bearer valid"),
+            (meta_legacy, "refresh_all", refresh),
+        )
+        self.assertEqual((kind, code), ("raise", 403))
+        refresh.assert_not_awaited()
+
+    async def test_viewer_cannot_trigger_meta_ads_sync(self):
+        import app as app_module
+        sync = AsyncMock(return_value={})
+        kind, code = await self._viewer_status(
+            lambda: app_module.api_ads_sync(
+                request=_request(), payload={"client_id": AMALIE}, x_client_id=None, authorization="Bearer valid",
+            ),
+            (app_module, "sync_ads_for_client_period", sync),
+        )
+        self.assertIn(kind, {"raise", "json"})
+        self.assertEqual(code, 403)
+        sync.assert_not_awaited()
+
+    async def test_viewer_cannot_trigger_google_ads_sync(self):
+        from routes import google
+        sync = AsyncMock(return_value={"ok": True})
+        kind, code = await self._viewer_status(
+            lambda: google.google_ads_sync(client_id=AMALIE, x_client_id=None, start=None, end=None, days=30, connection_id=None, authorization="Bearer valid"),
+            (google, "sync_google_ads", sync),
+        )
+        self.assertEqual((kind, code), ("raise", 403))
+        sync.assert_not_awaited()
+
+    async def test_viewer_cannot_trigger_ga4_sync(self):
+        from routes import google
+        sync = AsyncMock(return_value={"ok": True})
+        context = AsyncMock(return_value=(AMALIE, "property-1", "ga4-conn"))
+        kind, code = await self._viewer_status(
+            lambda: google.ga4_sync(client_id=AMALIE, x_client_id=None, start=None, end=None, days=30, connection_id=None, authorization="Bearer valid"),
+            (google, "sync_ga4_for_period", sync),
+            (google, "_ga4_request_context", context),
+        )
+        self.assertEqual((kind, code), ("raise", 403))
+        sync.assert_not_awaited()
+
+    async def test_client_admin_still_triggers_instagram_refresh_and_google_ads_sync(self):
+        from routes import google
+        refresh = AsyncMock(return_value={"ok": True})
+        sync = AsyncMock(return_value={"ok": True})
+        with ExitStack() as stack:
+            stack.enter_context(acting_as("admin-amalie", role="client_admin"))
+            stack.enter_context(patch.object(meta_legacy, "refresh_all", refresh))
+            stack.enter_context(patch.object(google, "sync_google_ads", sync))
+            await meta_legacy.api_refresh_all(client_id=AMALIE, x_client_id=None, limit=40, connection_id=None, start=None, end=None, authorization="Bearer valid")
+            await google.google_ads_sync(client_id=AMALIE, x_client_id=None, start=None, end=None, days=30, connection_id=None, authorization="Bearer valid")
+        self.assertEqual(refresh.await_args.kwargs["client_id"], AMALIE)
+        self.assertEqual(sync.await_args.kwargs["client_id"], AMALIE)
+
+
 if __name__ == "__main__":
     unittest.main()

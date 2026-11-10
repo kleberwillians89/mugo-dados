@@ -17,3 +17,7 @@ Desktop/
 Downloads/
 stabilization_patch.diff.env.save
 supabase/.temp/
+
+# OpenCode local dependencies
+.opencode/node_modules/
+.opencode/package-lock.json

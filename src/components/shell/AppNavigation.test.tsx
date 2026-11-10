@@ -47,6 +47,19 @@ describe("AppNavigation — sidebar global", () => {
     return [...container.querySelectorAll<HTMLAnchorElement>(".appSidebar a")].find((item) => item.textContent?.trim() === text);
   }
 
+  it("renderiza Metas e Meta como destinos independentes na ordem do produto", async () => {
+    const { onOpen } = await render({ route: "goals", canManageIntegrations: false });
+    const items = container.querySelector(".appNavList")!.querySelectorAll<HTMLAnchorElement>("a");
+    expect([...items].map((item) => item.textContent?.trim())).toEqual([
+      "Ecommerce", "Clientes", "Metas", "Meta", "Google", "Inteligência",
+    ]);
+    expect(link("Metas")?.getAttribute("href")).toBe("/metas");
+    expect(link("Metas")?.getAttribute("aria-current")).toBe("page");
+    expect(link("Meta")?.getAttribute("href")).toBe("/meta");
+    await act(async () => { link("Metas")!.click(); });
+    expect(onOpen).toHaveBeenCalledWith("goals");
+  });
+
   it("separa produto, empresa, navegação e conta; o ativo é marcado com aria-current", async () => {
     await render();
     expect(container.querySelector(".appProductName")?.textContent).toBe("Mugô Dados");

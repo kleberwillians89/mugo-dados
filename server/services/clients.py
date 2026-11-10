@@ -1,49 +1,46 @@
 from __future__ import annotations
 
 import time
+import json
 from typing import Any, Dict, List, Optional
 
 from .ig_supabase import sb_get_client_memberships, sb_insert, sb_select, sb_update
 from .meta_tokens import upsert_meta_connection
+from .client_lifecycle import is_operational
 
 
 async def list_clients_for_user(user_id: str) -> Dict[str, Any]:
     started = time.perf_counter()
-    memberships = await sb_get_client_memberships(user_id)
+    memberships = await sb_get_client_memberships(user_id, include_clients=False)
 
     is_agency_admin = any(str(row.get("role") or "").strip() == "agency_admin" for row in memberships)
-    if is_agency_admin:
-        rows = await sb_select("clients", select="id,name,created_at", order="name.asc")
+    from .platform_admin import is_platform_admin
+    platform_admin = await is_platform_admin(user_id) if not is_agency_admin else False
+    if is_agency_admin or platform_admin:
+        rows = await sb_select("clients", select="id,name,trade_name,created_at,status", order="name.asc")
         return {
             "ok": True,
             "clients": [
-                {"client_id": row.get("id"), "role": "agency_admin", "name": row.get("name") or "Sem nome", "created_at": row.get("created_at")}
-                for row in rows
+                {"client_id": row.get("id"), "role": "platform_admin" if platform_admin else "agency_admin", "name": row.get("trade_name") or row.get("name") or "Sem nome", "created_at": row.get("created_at")}
+                for row in rows if is_operational(row)
             ],
         }
 
+    ids = sorted({str(m.get("client_id") or "").strip() for m in memberships if m.get("client_id")})
+    by_id = {}
+    for offset in range(0, len(ids), 100):
+        batch = ids[offset:offset+100]
+        rows = await sb_select("clients", select="id,name,trade_name,created_at,status",
+            filters={"id": "in.(" + ",".join(json.dumps(cid) for cid in batch) + ")"}, limit=len(batch))
+        by_id.update({str(row.get("id")): row for row in rows if str(row.get("id")) in batch and is_operational(row)})
     clients: List[Dict[str, Any]] = []
     for m in memberships:
         cid = str(m.get("client_id") or "").strip()
-        c = m.get("clients") or {}
-        if not c and cid:
-            try:
-                c = await sb_select("clients", filters={"id": f"eq.{cid}"}, limit=1)
-                c = c[0] if c else {}
-            except Exception as exc:
-                print(
-                    "[clients] membership_lookup_warning "
-                    f"user_id={user_id} client_id={cid} error={str(exc)[:220]}"
-                )
-                c = {}
-        clients.append(
-            {
-                "client_id": cid or m.get("client_id"),
-                "role": m.get("role"),
-                "name": c.get("name") or "Sem nome",
-                "created_at": c.get("created_at"),
-            }
-        )
+        c = by_id.get(cid)
+        if c is None:
+            continue
+        clients.append({"client_id": cid, "role": m.get("role"),
+            "name": c.get("trade_name") or c.get("name") or "Sem nome", "created_at": c.get("created_at")})
 
     print(
         "[clients] result "

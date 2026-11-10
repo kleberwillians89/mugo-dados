@@ -22,7 +22,7 @@ from services.ga4_sync import sync_ga4_for_period
 from services.ga4_connections import resolve_ga4_connection_context
 from services.google_oauth import get_google_access_token
 from services.google_ads import build_google_ads_report, resolve_google_ads_context, sync_google_ads
-from services.tenant import require_user_id, resolve_client_id
+from services.tenant import require_client_role, require_user_id, resolve_client_id
 
 router = APIRouter(tags=["google"])
 
@@ -45,7 +45,8 @@ async def google_ads_sync(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    cid = await resolve_client_id(_pick_ga4_client_id(client_id, x_client_id), authorization)
+    # Sync manual é mutação: viewer não dispara (mesma regra do sync via OAuth).
+    cid = await require_client_role(_pick_ga4_client_id(client_id, x_client_id), authorization)
     await require_user_id(authorization)
     return await sync_google_ads(
         client_id=cid, connection_id=connection_id, start=start, end=end, days=days,
@@ -105,6 +106,9 @@ async def ga4_sync(
     started = _started()
     endpoint = "/api/google/ga4/sync"
     requested_client_id = client_id
+    # Authorize before resolving credentials or connection state, including viewers
+    # without a configured GA4 property. Read routes keep their existing contract.
+    client_id = await require_client_role(_pick_ga4_client_id(client_id, x_client_id), authorization)
     client_id, property_id, connection_id = await _ga4_request_context(client_id, x_client_id, authorization, connection_id)
     user_for_log = await _log_endpoint_call(
         endpoint=endpoint,

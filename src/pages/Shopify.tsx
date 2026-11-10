@@ -1,5 +1,5 @@
-import { useDataHealth } from "../app/DataHealthContext";
-import { DataFreshness } from "../components/data/DataFreshness";
+import { useProviderRefresh } from "../hooks/useProviderRefresh";
+import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import { readOnce } from "../hooks/dashboard/readOnce";
 import useSectionDemand from "../hooks/useSectionDemand";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
@@ -48,7 +48,6 @@ import type {
   ShopifyReportResponse,
 } from "../app/types";
 import "../styles/shopify-report.css";
-import { formatFreshness } from "../app/dataRefresh";
 
 type Props = {
   /** Permissão administrativa; refresh de dados usa membership no backend. */
@@ -165,8 +164,7 @@ function buildCustomerSummary(customers: ShopifyCustomerRow[]) {
 }
 
 // Navegação e saída vivem na sidebar global (onLogout segue no tipo por compatibilidade).
-export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) {
-  const health = useDataHealth();
+export default function Shopify({ canSync, onOpenDashboard, onOpenGoogleReport }: Props) {
   const { period, periodDays, setPeriod, setDayPeriod, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
   const [shopifyChartMetric, setShopifyChartMetric] = useState<ShopifyMetricKey>("revenue");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -178,6 +176,8 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
   const model = useDashboardSnapshot(period.start, period.end);
   const historicalModel = useDashboardSnapshot();
   const [error, setError] = useState<string | null>(null);
+  const refreshControl = useProviderRefresh(getActiveClientId(), "shopify", period, canSync);
+  const {run: runRefresh, disabled: refreshDisabled, label: refreshLabel, error: refreshAccessError} = refreshControl;
   const [syncingShopify, setSyncingShopify] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -201,6 +201,9 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
     setCustomerData(cachedDetails?.customers || null);
     setDetailReport(cachedDetails?.report || null);
     setDetailsLoading(!cachedDetails);
+    setSyncingShopify(false);
+    setError(null);
+    setSyncNotice(null);
   }
 
   useEffect(() => {
@@ -258,32 +261,37 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
   }, [detailReport?.recent_orders, model, period.end, period.start, periodDays]);
 
   const onRefreshData = useCallback(async () => {
+    if (!canSync) return;
     const requestedClientId = getActiveClientId();
+    const requestedKey = detailKey;
     setSyncNotice(null);
     setSyncingShopify(true);
     try {
-      await runExclusiveSync(
-        { clientId: requestedClientId, provider: "shopify" },
-        () => refreshProviderData("shopify", { start: period.start, end: period.end })
-      );
-      if (getActiveClientId() !== requestedClientId) return;
-      // Só depois do sucesso, relê os dados persistidos.
-      await model.refetch();
-      if (getActiveClientId() !== requestedClientId) return;
-      const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
-      const [nextReport, nextCustomers] = await Promise.all([
-        getShopifyReport(selectedPeriod),
-        getShopifyCustomers(selectedPeriod),
-      ]);
-      if (getActiveClientId() !== requestedClientId || nextReport.client_id !== requestedClientId || nextCustomers.client_id !== requestedClientId) return;
-      setDetailReport(nextReport);
-      setCustomerData(nextCustomers);
+      await runRefresh(async () => {
+        await runExclusiveSync(
+          { clientId: requestedClientId, provider: "shopify" },
+          () => refreshProviderData("shopify", { start: period.start, end: period.end })
+        );
+        if (getActiveClientId() !== requestedClientId || currentDetails.current !== requestedKey) return;
+        // Só depois do sucesso, relê os dados persistidos.
+        await model.refetch();
+        if (getActiveClientId() !== requestedClientId || currentDetails.current !== requestedKey) return;
+        const selectedPeriod = { start: period.start, end: period.end, days: periodDays };
+        const [nextReport, nextCustomers] = await Promise.all([
+          getShopifyReport(selectedPeriod),
+          getShopifyCustomers(selectedPeriod),
+        ]);
+        if (getActiveClientId() !== requestedClientId || currentDetails.current !== requestedKey || nextReport.client_id !== requestedClientId || nextCustomers.client_id !== requestedClientId) return;
+        setDetailReport(nextReport);
+        setCustomerData(nextCustomers);
+      });
     } catch (cause) {
+      if (getActiveClientId() !== requestedClientId || currentDetails.current !== requestedKey) return;
       setError(describeSyncError(cause, "Não foi possível atualizar a loja. Mantendo os dados anteriores."));
     } finally {
-      setSyncingShopify(false);
+      if (getActiveClientId() === requestedClientId && currentDetails.current === requestedKey) setSyncingShopify(false);
     }
-  }, [model, period.end, period.start, periodDays]);
+  }, [canSync, detailKey, model, period.end, period.start, periodDays, runRefresh]);
 
   const currency = report?.recent_orders[0]?.currency || "BRL";
   const summary = report?.summary;
@@ -446,17 +454,17 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
           dateline={
             <>
               <span className="ds-datelineSource">Shopify</span>
-              <span>{health ? <DataFreshness provider="shopify" /> : report?.technical.last_success_at ? `Dados atualizados ${formatFreshness(report.technical.last_success_at)}` : "Sem atualização concluída"}</span>
+              <span><DataFreshness provider="shopify" compact /></span>
               <span>
                   <button
                     className="btn intelHeaderAction"
-                    disabled={syncingShopify || model.refreshing}
+                    disabled={!canSync || refreshDisabled || syncingShopify || model.refreshing}
                     onClick={() => {
                       void onRefreshData();
                     }}
                     type="button"
                   >
-                    {syncingShopify || model.refreshing ? "Atualizando..." : "Atualizar dados"}
+                    {canSync ? refreshLabel : "Atualizar dados"}
                   </button>
                 </span>
             </>
@@ -515,6 +523,8 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
         />
 
         {syncNotice ? <p className="ds-status" role="status">{syncNotice}</p> : null}
+        <ProviderRefreshNotice provider="shopify" control={refreshControl} />
+        {refreshAccessError ? <p role="alert">{refreshAccessError}</p> : null}
 
         {model.loading && !report ? <p className="ds-status" role="status">Carregando vendas da Shopify...</p> : null}
 
@@ -541,6 +551,7 @@ export default function Shopify({ onOpenDashboard, onOpenGoogleReport }: Props) 
                 exactValue={formatShopifyCurrency(summary?.net_revenue || 0, currency)}
                 rawValue={summary?.net_revenue || 0}
                 label="vendidos no período"
+                metricId="revenue"
                 testId="shopify-receita"
               />
               <div className="ds-kpis">

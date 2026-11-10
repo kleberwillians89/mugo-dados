@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from zoneinfo import ZoneInfo
 
 from .ads_sync import sync_ads_connection
+from .client_lifecycle import operational_connections
 from .ig_supabase import sb_get_active_meta_connections, sb_rpc, sb_select
 from .instagram_sync import sync_instagram_connection
 from .meta_live_trace import live_scope
@@ -67,6 +68,7 @@ async def _safe_finish_job_run(run: Dict[str, Any] | None, **kwargs: Any) -> Non
 
 async def run_token_refresh_job() -> Dict[str, Any]:
     conns = await sb_get_active_meta_connections()
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
     for c in conns:
@@ -128,7 +130,7 @@ async def run_token_refresh_job() -> Dict[str, Any]:
 
     ok_count = len([r for r in results if r.get("ok")])
     return {
-        "ok": True,
+        "ok": ok_count == len(results),
         "job": "token_refresh",
         "connections_total": len(conns),
         "connections_ok": ok_count,
@@ -139,6 +141,7 @@ async def run_token_refresh_job() -> Dict[str, Any]:
 
 async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool = True) -> Dict[str, Any]:
     conns = await sb_get_active_meta_connections(platform="instagram", connection_type="organic")
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
     for c in conns:
@@ -218,7 +221,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
 
     ok_count = len([r for r in results if r.get("ok")])
     return {
-        "ok": True,
+        "ok": ok_count == len(results),
         "job": "organic_sync" if process_thumbnails else "organic_wide_reconciliation",
         "connections_total": len(conns),
         "connections_ok": ok_count,
@@ -229,6 +232,7 @@ async def run_daily_instagram_sync(limit: int = 40, *, process_thumbnails: bool 
 
 async def run_hourly_ads_sync(window_days: int = 7) -> Dict[str, Any]:
     conns = await sb_get_active_meta_connections(platform="meta_ads", connection_type="paid")
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
     for c in conns:
@@ -276,7 +280,7 @@ async def run_hourly_ads_sync(window_days: int = 7) -> Dict[str, Any]:
 
     ok_count = len([r for r in results if r.get("ok")])
     return {
-        "ok": True,
+        "ok": ok_count == len(results),
         "job": "paid_sync_hourly",
         "connections_total": len(conns),
         "connections_ok": ok_count,
@@ -298,6 +302,7 @@ async def run_ga4_sync_all(window_days: int = 3) -> Dict[str, Any]:
         "integration_connections", filters={"provider": "eq.ga4", "status": "eq.connected"},
         order="updated_at.asc", limit=500,
     )
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
     for connection in conns:
         client_id = str(connection.get("client_id") or "").strip()
@@ -327,6 +332,7 @@ async def run_google_ads_sync_all(window_days: int = 7) -> Dict[str, Any]:
         "integration_connections", filters={"provider": "eq.google_ads", "status": "eq.connected"},
         order="updated_at.asc", limit=500,
     )
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
     for connection in conns:
         client_id = str(connection.get("client_id") or "").strip()
@@ -367,6 +373,7 @@ async def run_fbits_sync_all(window_days: int = 1) -> Dict[str, Any]:
         "integration_connections", filters={"provider": f"eq.{FBITS_PROVIDER}"},
         order="updated_at.asc", limit=500,
     )
+    conns = await operational_connections(conns)
     active = [
         row for row in conns
         if not row.get("disconnected_at")
@@ -404,7 +411,7 @@ def _provider_job_summary(
 ) -> Dict[str, Any]:
     ok_count = sum(1 for result in results if result.get("ok"))
     return {
-        "ok": True, "job": job, "window_days": window_days,
+        "ok": ok_count == len(results), "job": job, "window_days": window_days,
         "connections_total": len(connections), "connections_ok": ok_count,
         "connections_fail": len(results) - ok_count, "results": results,
     }
@@ -413,6 +420,7 @@ def _provider_job_summary(
 async def run_shopify_incremental(fallback_days: int = 30) -> Dict[str, Any]:
     """Frequent RAW-watermark sync; webhooks remain the fastest path."""
     conns = await list_active_shopify_connections()
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
 
     for c in conns:
@@ -462,7 +470,7 @@ async def run_shopify_incremental(fallback_days: int = 30) -> Dict[str, Any]:
 
     ok_count = len([r for r in results if r.get("ok")])
     return {
-        "ok": True,
+        "ok": ok_count == len(results),
         "job": "shopify_incremental",
         "connections_total": len(conns),
         "connections_ok": ok_count,
@@ -479,6 +487,7 @@ async def run_shopify_historical_reconciliation(
     period_end = today or datetime.now(ZoneInfo(DEFAULT_TENANT_TIMEZONE)).date()
     period_start = period_end - timedelta(days=safe_days - 1)
     conns = await list_active_shopify_connections()
+    conns = await operational_connections(conns)
     results: List[Dict[str, Any]] = []
     for connection in conns:
         connection_id = str(connection.get("id") or "").strip()
@@ -533,7 +542,7 @@ async def run_shopify_historical_reconciliation(
             )
     ok_count = sum(1 for result in results if result.get("ok"))
     return {
-        "ok": True, "job": "shopify_historical_reconciliation", "window_days": safe_days,
+        "ok": ok_count == len(results), "job": "shopify_historical_reconciliation", "window_days": safe_days,
         "period": {"start": period_start.isoformat(), "end": period_end.isoformat()},
         "connections_total": len(conns), "connections_ok": ok_count,
         "connections_fail": len(results) - ok_count, "results": results,

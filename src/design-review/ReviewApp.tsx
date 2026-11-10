@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { DataHealthProvider } from "../app/DataHealthContext";
+import Intelligence from "../pages/Intelligence";
 // HARNESS DE REVISÃO VISUAL — somente desenvolvimento (fora do build).
 // Monta o frame real (AppNavigation + páginas reais) com um perfil simulado.
 
@@ -19,6 +21,7 @@ import { REVIEW_PROFILES, type ReviewChannelScenario, type ReviewCompany, type R
 const ROUTE_TITLE: Record<AppRoute, string> = {
   ecommerce: "Ecommerce",
   customers: "Clientes",
+  goals: "Metas",
   meta: "Meta",
   google: "Google",
   intelligence: "Inteligência",
@@ -120,6 +123,7 @@ export default function ReviewApp({ profile, companies, initialCompanyId, initia
         user={REVIEW_PROFILES[profile].user}
       />
       <div className="appFrameMain">
+        <DataHealthProvider clientId={active.client_id} enabled>
         <DashboardDataProvider clientId={active.client_id} tenantReady enabled>
         {route === "ecommerce" ? (
           <Ecommerce
@@ -151,12 +155,15 @@ export default function ReviewApp({ profile, companies, initialCompanyId, initia
               onOpenDashboard={() => open("meta")}
             />
           </ReviewReadModelState>
+        ) : route === "intelligence" ? (
+          <Intelligence key={`intelligence:${active.client_id}`} onLogout={noop} canEditBusinessContext={canManage} />
         ) : route === "integrations" && canManage ? (
           <Onboarding key={`integrations:${active.client_id}`} isAuthenticated onCompleted={() => open("meta")} />
         ) : (
           <ReviewPlaceholder route={route} company={active.name} />
         )}
         </DashboardDataProvider>
+        </DataHealthProvider>
       </div>
     </div>
   );

@@ -255,6 +255,37 @@ class CreateInvitationRoleTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["role"], "owner")
 
+    async def test_failed_email_revokes_the_invitation_so_it_can_be_sent_again(self):
+        update = AsyncMock(return_value=None)
+        with (
+            patch.object(invitations, "sb_select", AsyncMock(return_value=[])),
+            patch.object(invitations, "sb_insert", AsyncMock(return_value={"id": "inv-1"})),
+            patch.object(invitations, "sb_update", update),
+            patch.object(invitations, "send_supabase_invite", AsyncMock(side_effect=RuntimeError("Supabase não conseguiu enviar o convite."))),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "não conseguiu enviar"):
+                await invitations.create_invitation(
+                    email="viewer@acme.test", client_id="c1", role="viewer", invited_by="u1"
+                )
+        update.assert_awaited_once()
+        self.assertEqual(update.await_args.args[0], "user_invitations")
+        self.assertEqual(update.await_args.kwargs["filters"], {"id": "eq.inv-1", "accepted_at": "is.null"})
+        self.assertIn("revoked_at", update.await_args.kwargs["patch"])
+
+    async def test_existing_account_keeps_the_invitation_valid(self):
+        update = AsyncMock(return_value=None)
+        with (
+            patch.object(invitations, "sb_select", AsyncMock(return_value=[])),
+            patch.object(invitations, "sb_insert", AsyncMock(return_value={"id": "inv-1"})),
+            patch.object(invitations, "sb_update", update),
+            patch.object(invitations, "send_supabase_invite", AsyncMock(side_effect=invitations.SupabaseAccountExistsError("conta existe"))),
+        ):
+            result = await invitations.create_invitation(
+                email="viewer@acme.test", client_id="c1", role="viewer", invited_by="u1"
+            )
+        self.assertTrue(result["account_exists"])
+        update.assert_not_awaited()
+
 
 class IdempotentCompanyCreationTests(unittest.IsolatedAsyncioTestCase):
     """BLOCO 1.2 — idempotência server-side na criação de empresa.

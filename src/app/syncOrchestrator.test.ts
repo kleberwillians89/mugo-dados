@@ -53,3 +53,12 @@ describe("describeSyncError / isSyncAlreadyRunningError", () => {
     expect(describeSyncError(new Error("network down"), "fallback")).toBe("fallback");
   });
 });
+
+it("ocupação de memória é explicada sem retry e libera o clique recusado", async () => {
+ const busy = new ApiError("ocupado", {status:503,code:"PROCESS_MEMORY_BUSY"});
+ const task = vi.fn(async () => {throw busy;});
+ const identity = {clientId:"roove",provider:"shopify"};
+ await expect(runExclusiveSync(identity,task)).rejects.toBe(busy);
+ expect(task).toHaveBeenCalledTimes(1);
+ expect(describeSyncError(busy,"fallback")).toContain("dados anteriores continuam disponíveis");
+});

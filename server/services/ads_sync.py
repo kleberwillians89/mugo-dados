@@ -78,17 +78,22 @@ async def _finish_job_run_reliably(job_run_id: str, **kwargs: Any) -> Dict[str, 
     """Bound observability writes so a stuck PATCH cannot retain the provider lock."""
     last_error: BaseException | None = None
     for attempt in range(1, _ADS_CLEANUP_ATTEMPTS + 1):
+        task = None
         try:
             task = asyncio.create_task(finish_job_run(job_run_id, **kwargs))
             return await asyncio.wait_for(asyncio.shield(task), timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
         except asyncio.CancelledError:
             # Cancellation of the HTTP request must not cancel the terminal DB write.
             try:
-                return await task
+                return await asyncio.wait_for(task, timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
             except Exception as exc:
                 last_error = exc
         except Exception as exc:
             last_error = exc
+        finally:
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
         print(
             "[ads_sync][job_finish_retry] "
             f"job_run_id={job_run_id} attempt={attempt} error_type={last_error.__class__.__name__ if last_error else '-'}"
@@ -96,18 +101,32 @@ async def _finish_job_run_reliably(job_run_id: str, **kwargs: Any) -> Dict[str, 
     raise RuntimeError(f"Falha ao finalizar cron_job_runs: {last_error.__class__.__name__ if last_error else 'unknown'}")
 
 
-async def _release_lock_reliably(client_id: str, lock_name: str) -> None:
+async def _release_lock_reliably(client_id: str, lock_name: str) -> bool:
+    """Report RPC acknowledgement separately from the persisted sync outcome."""
+    task = None
+    cancellation = None
     try:
         task = asyncio.create_task(release_sync_lock(client_id, lock_name))
-        await asyncio.wait_for(asyncio.shield(task), timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
-    except asyncio.CancelledError:
-        await task
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+            # Finish bounded cleanup, but never turn request cancellation into success.
+            await asyncio.wait_for(task, timeout=_ADS_CLEANUP_TIMEOUT_SECONDS)
+        return True
     except Exception as exc:
         # TTL remains the fallback when Supabase itself is unavailable.
         print(
             "[ads_sync][lock_release_failed] "
             f"client_id={client_id} lock_name={lock_name} error_type={exc.__class__.__name__}"
         )
+        return False
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if cancellation is not None:
+            raise cancellation
 
 
 def _safe_float(value: Any) -> float:
@@ -2026,6 +2045,15 @@ async def sync_ads_for_client_period(
                 )
         raise
     except Exception as exc:
+        if isinstance(exc, IntegrationError) and exc.code == "PROCESS_MEMORY_BUSY":
+            # Admission refusal is not a failed provider collection. Preserve the
+            # previous connection outcome and finish only the attempted job.
+            if job_run:
+                await _finish_job_run_reliably(job_run["id"], status="skipped", rows_upserted=0,
+                    client_id=cid, connection_id=resolved_connection_id, ad_account_id=ad_account_id,
+                    payload_json={"error_code": "PROCESS_MEMORY_BUSY", "sync_outcome": "busy",
+                                  "date_range": {"since": period_since, "until": period_until}})
+            raise
         is_timeout = isinstance(exc, (asyncio.TimeoutError, TimeoutError))
         message = (
             f"Sincronização Meta Ads excedeu o tempo limite de {_ADS_SYNC_TOTAL_TIMEOUT_SECONDS}s."
@@ -2086,11 +2114,12 @@ async def sync_ads_for_client_period(
             "[ads_sync][lock_release_start] "
             f"client_id={cid} connection_id={resolved_connection_id} lock_name={lock_name}"
         )
-        await _release_lock_reliably(cid, lock_name)
+        released = await _release_lock_reliably(cid, lock_name)
         print(
             "[ads_sync][lock_release_complete] "
             f"request_id={sync_request_id} client_id={cid} connection_id={resolved_connection_id} "
-            f"lock_name={lock_name} duration_ms={int((time.monotonic() - sync_started_at) * 1000)}"
+            f"lock_name={lock_name} duration_ms={int((time.monotonic() - sync_started_at) * 1000)} "
+            f"released={str(released).lower()}"
         )
 
 

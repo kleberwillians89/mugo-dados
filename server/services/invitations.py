@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 import httpx
 
-from .ig_supabase import sb_insert, sb_rpc, sb_select
+from .ig_supabase import sb_insert, sb_rpc, sb_select, sb_update
 
 
 def _env(name: str) -> str:
@@ -96,6 +96,16 @@ async def create_invitation(
         # E-mail já tem conta Mugô: a invitation registrada acima continua
         # válida e o convidado a aceita explicitamente (link / login normal).
         account_exists = True
+    except Exception:
+        # E-mail não saiu: o convite não pode ficar válido sem ter sido
+        # entregue, senão bloqueia o reenvio por "convite já existente".
+        await sb_update(
+            "user_invitations",
+            filters={"id": f"eq.{invitation.get('id')}", "accepted_at": "is.null"},
+            patch={"revoked_at": datetime.now(timezone.utc).isoformat()},
+            returning="minimal",
+        )
+        raise
     return {
         "id": invitation.get("id"),
         "email": normalized_email,
