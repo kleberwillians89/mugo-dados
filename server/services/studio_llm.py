@@ -118,9 +118,7 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
     if response.status_code >= 400:
         detail = provider_error_detail(response)
         print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code} detail={detail}")
-        if any(code in detail for code in ("insufficient_quota", "billing_hard_limit")):
-            raise StudioError("AI_PROVIDER_QUOTA", detail)
-        raise StudioError("AI_PROVIDER_ERROR", detail)
+        raise StudioError(provider_error_code(detail), detail)
     try:
         data = json.loads(_extract_output_text(response.json()))
     except (ValueError, TypeError):
@@ -139,6 +137,19 @@ def provider_error_detail(response: Any) -> str:
     except Exception:  # noqa: BLE001
         code = ""
     return f"{detail}:{code}" if code else detail
+
+
+def provider_error_code(detail: str) -> str:
+    """Traduz o erro da OpenAI num código que a tela explica (sem crédito, chave, limite por minuto...)."""
+    if any(code in detail for code in ("insufficient_quota", "billing_hard_limit")):
+        return "AI_PROVIDER_QUOTA"
+    if detail.startswith("http_401") or "invalid_api_key" in detail:
+        return "AI_PROVIDER_AUTH"
+    if detail.startswith("http_429"):
+        return "AI_PROVIDER_RATE"
+    if detail.startswith("http_400") or detail.startswith("http_404"):
+        return "AI_PROVIDER_REQUEST"
+    return "AI_PROVIDER_ERROR"
 
 
 def obj(properties: Dict[str, Any]) -> Dict[str, Any]:

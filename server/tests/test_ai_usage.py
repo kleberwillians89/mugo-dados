@@ -63,6 +63,15 @@ class TrackInLLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out.code, "AI_PROVIDER_QUOTA")
         self.assertEqual((rows[0]["status"], rows[0]["error_code"]), ("erro", "http_429:insufficient_quota"))
 
+    async def test_other_provider_errors_get_their_own_code(self):
+        for status, body, code in ((401, {"error": {"code": "invalid_api_key"}}, "AI_PROVIDER_AUTH"),
+                                   (429, {"error": {"code": "rate_limit_exceeded"}}, "AI_PROVIDER_RATE"),
+                                   (400, {"error": {"type": "invalid_request_error"}}, "AI_PROVIDER_REQUEST"),
+                                   (500, {}, "AI_PROVIDER_ERROR")):
+            out, rows = await self.call(httpx.Response(status, json=body))
+            self.assertEqual(out.code, code)
+            self.assertTrue(rows[0]["error_code"].startswith(f"http_{status}"))
+
     async def test_record_failure_never_breaks_the_ai(self):
         body = {"output": [{"type": "message", "content": [{"type": "output_text", "text": '{"texto": "oi"}'}]}], "usage": {}}
         with patch("services.ig_supabase.sb_insert", AsyncMock(side_effect=RuntimeError("db fora"))):

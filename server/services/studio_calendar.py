@@ -447,7 +447,8 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
         print(f"[studio][llm] status={response.status_code}")
         from .studio_llm import provider_error_detail
         detail = provider_error_detail(response)
-        raise StudioError("AI_PROVIDER_QUOTA" if "insufficient_quota" in detail else "AI_PROVIDER_ERROR", detail)
+        from .studio_llm import provider_error_code
+        raise StudioError(provider_error_code(detail), detail)
     try:
         return json.loads(_extract_output_text(response.json()))
     except (ValueError, TypeError):
