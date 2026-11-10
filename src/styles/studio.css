@@ -873,11 +873,24 @@
 .engageLastRun.is-error{background:#fdecec;color:#8a1f1f}
 
 /* Social Media: Matriz de conteúdo (trazida da iAgência) e plataformas do Calendário */
+.socialWorkspaceSection{scroll-margin-top:24px;margin-top:28px;padding-top:24px;border-top:1px solid var(--border,#dedbd4)}
+.socialWorkspaceSection:first-of-type{margin-top:18px}
+.socialSectionHeader{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+.socialSectionHeader>span{display:grid;place-items:center;width:32px;height:32px;flex:0 0 auto;border-radius:50%;background:#004f6e;color:#fff;font-size:12px;font-weight:800}
+.socialSectionHeader h2{margin:0;color:var(--text-primary,#17313d);font-size:22px}
+.socialSectionHeader p{margin:3px 0 0;color:var(--text-secondary,#6b665d);font-size:14px}
+.socialPlannerAssistant{margin-bottom:18px;padding:16px;border:1px solid var(--border,#dedbd4);border-radius:14px;background:var(--surface,#fff)}
+.socialPlannerAssistant .aiChat{max-width:none}
+.socialPlannerAssistant .aiChatEmpty{padding:4px 0 10px}
+.socialPlannerAssistant .aiChatEmpty p{margin:5px 0 10px}
 .matrixToolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end;justify-content:flex-end;margin:4px 0 8px}
 .matrixPick{display:grid;gap:4px;font-size:13px;margin-right:auto}
 .matrixPick select{padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:8px;font:inherit;max-width:420px}
 .matrixSummary{margin:8px 0;padding:10px 14px;border-left:3px solid #004f6e;background:var(--surface,#fff);border-radius:0 8px 8px 0}
 .matrixFilters{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.matrixWeekTabs{flex-basis:100%}
+.matrixWeekTabs button{display:grid;gap:1px;text-align:left}
+.matrixWeekTabs small{font-size:10px;font-weight:500;opacity:.7}
 .matrixGridWrap{overflow-x:auto;border:1px solid var(--border,#dedbd4);border-radius:12px;background:var(--surface,#fff)}
 .matrixGrid{width:100%;border-collapse:collapse;min-width:880px;table-layout:fixed}
 .matrixGrid th,.matrixGrid td{border-bottom:1px solid var(--border,#ece9e3);padding:10px;vertical-align:top;text-align:left}
@@ -887,9 +900,17 @@
 .matrixGrid tbody th{font-size:13px;background:#faf8f5}
 .matrixGrid td{display:table-cell}
 .matrixGrid td>*+*{margin-top:8px}
+.matrixTacticalGrid{min-width:1040px}
+.matrixTacticalGrid thead th:first-child,.matrixTacticalGrid tbody th{width:180px}
+.matrixTacticalGrid tbody th{display:grid;gap:7px;position:sticky;left:0;z-index:1}
+.matrixTacticalGrid td{min-width:170px;background:#fff}
+.matrixTacticalGrid td.is-unavailable{background:repeating-linear-gradient(135deg,#faf9f6,#faf9f6 8px,#f2f0eb 8px,#f2f0eb 9px)}
 .matrixCard{border:1px solid var(--border,#dedbd4);border-radius:10px;padding:8px 10px;background:#fff;display:grid;gap:4px}
 .matrixCard header{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
-.matrixCard header small{margin-left:auto;opacity:.65;font-size:11px}
+.matrixCard header small{opacity:.65;font-size:11px}
+.matrixCardDetails{all:unset;margin-left:auto;cursor:pointer;color:#004f6e;font-size:11px;font-weight:700}
+.matrixCardDetails:hover{text-decoration:underline}
+.matrixCardDetails:focus-visible{outline:2px solid #004f6e;outline-offset:2px;border-radius:3px}
 .matrixCard footer{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px}
 .matrixCard.is-selecionada{border-color:#004f6e;box-shadow:0 0 0 1px #004f6e inset}
 .matrixCard.is-descartada{opacity:.5}
@@ -897,6 +918,12 @@
 .matrixCardTitle{all:unset;cursor:pointer;font-weight:600;font-size:14px;line-height:1.3}
 .matrixCardTitle:hover{text-decoration:underline}
 .matrixCardTitle:focus-visible{outline:2px solid #004f6e;outline-offset:2px;border-radius:4px}
+.matrixCellEditor{width:100%;min-height:68px;resize:vertical;border:1px solid transparent;border-radius:7px;padding:6px;background:#fbfaf8;color:inherit;font:inherit;font-size:13px;font-weight:600;line-height:1.35;box-sizing:border-box}
+.matrixCellEditor:hover{border-color:#c9c4ba}
+.matrixCellEditor:focus{outline:2px solid #004f6e;outline-offset:1px;background:#fff}
+.matrixCellAdd{width:100%;min-height:34px;border:1px dashed #b8b2a8;border-radius:8px;background:transparent;color:#004f6e;font-size:20px;cursor:pointer}
+.matrixCellAdd:hover{background:#eef5f8;border-color:#004f6e}
+.matrixCellAdd:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
 .matrixHook{margin:0;font-size:12px;opacity:.75}
 .matrixBar{position:sticky;bottom:0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 14px;background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:12px;box-shadow:0 -4px 16px rgba(0,0,0,.05)}
 .matrixBar>span{margin-right:auto}
@@ -905,5 +932,6 @@
 .studioChip.is-platform.is-linkedin{background:#e5eef8;color:#0a4b84}
 .studioChip.is-platform.is-youtube{background:#f9e9e7;color:#8a2216}
 .studioChip.is-platform.is-facebook{background:#e7edf9;color:#1d3f8a}
+.studioChip.is-platform.is-pinterest{background:#f8e6e8;color:#9d1c2e}
 .calChipPlatform{font-size:10px;font-weight:600;border-radius:4px;padding:0 4px;background:rgba(0,0,0,.08)}
-@media (max-width:640px){.matrixGrid thead th:first-child,.matrixGrid tbody th{width:92px}.matrixGrid{min-width:760px}.matrixBar{padding:8px 10px}}
+@media (max-width:640px){.socialSectionHeader h2{font-size:19px}.socialWorkspaceSection{margin-top:22px;padding-top:20px}.matrixGrid thead th:first-child,.matrixGrid tbody th{width:120px}.matrixGrid{min-width:900px}.matrixBar{padding:8px 10px}}
