@@ -134,6 +134,36 @@ class GenerateTests(unittest.IsolatedAsyncioTestCase):
         insert.assert_not_awaited()
 
 
+class PartialGenerateTests(unittest.IsolatedAsyncioTestCase):
+    def patches(self, llm, insert, many):
+        return [patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})),
+                patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "throttle"),
+                patch.object(mx, "llm_json", llm), patch.object(mx, "sb_insert", insert), patch.object(mx, "sb_insert_many", many),
+                patch.object(mx, "get_matrix", AsyncMock(return_value={"id": "m1", "opportunities": []}))]
+
+    async def run_generate(self, llm):
+        from contextlib import ExitStack
+        insert, many = AsyncMock(return_value={"id": "m1"}), AsyncMock()
+        with ExitStack() as stack:
+            for p in self.patches(llm, insert, many):
+                stack.enter_context(p)
+            await mx.generate("ruah", {}, user_id="u1", today=date(2026, 11, 9))
+        return insert.await_args.args[1], many.await_args.args[1]
+
+    async def test_short_answer_retries_once_and_keeps_the_better_one(self):
+        llm = AsyncMock(side_effect=[{"oportunidades": [op(semana=1)]}, {"oportunidades": [op(semana=1), op(semana=2)]}])
+        saved, rows = await self.run_generate(llm)
+        self.assertEqual(llm.await_count, 2)
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(any("Complete à mão" in n for n in saved["notes"]))
+
+    async def test_partial_matrix_is_saved_instead_of_refused(self):
+        llm = AsyncMock(return_value={"oportunidades": [op(semana=1), op(semana=3)]})
+        saved, rows = await self.run_generate(llm)
+        self.assertEqual([r["week"] for r in rows], [1, 3])
+        self.assertIn("de", saved["notes"][0])
+
+
 class EditTests(unittest.IsolatedAsyncioTestCase):
     CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "reels"}
 
