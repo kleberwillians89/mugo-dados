@@ -18,6 +18,7 @@ vi.mock("./Calendar", () => ({ default: () => <label>Calendário incorporado<inp
 
 import Clipping from "./Clipping";
 import Campaigns from "./Campaigns";
+import RedacaoPage from "./RedacaoPage";
 import { pieceText } from "../app/contentOps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -243,10 +244,9 @@ describe("Social Media unificado", () => {
     expect(host.textContent).toContain("Calendário incorporado");
   });
 
-  it("links legados abrem a aba correspondente", async () => {
-    window.history.replaceState({}, "", "/redacao");
+  it("links legados abrem a aba correspondente; a Redação não é mais aba de Social Media", async () => {
     await show(<Campaigns />);
-    expect(tab("Redação").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Redação")).toBeUndefined();
     await act(async () => root.unmount());
     root = createRoot(host);
     window.history.replaceState({}, "", "/calendario");
@@ -255,16 +255,15 @@ describe("Social Media unificado", () => {
   });
 });
 
-const openRedacao = async () => { await act(async () => { tab("Redação").click(); }); await act(async () => {}); };
 const doc = { id: "d1", title: "Legenda Oud", kind: "legenda", status: "rascunho", calendar_item_id: null, updated_at: "2026-11-09T20:00:00Z",
   created_at: "2026-11-09T20:00:00Z", content_html: "<p>Texto inicial</p>", content_text: "Texto inicial" };
 
-describe("Social Media: Redação (editor de texto)", () => {
+describe("Redação (página própria, editor de texto)", () => {
   it("abre na Redação, lista os documentos e abre o editor estilo Word", async () => {
     api.listDocuments.mockResolvedValue({ documents: [{ ...doc, excerpt: "Texto inicial" }] });
     api.getDocument.mockResolvedValue({ document: doc });
-    await show(<Campaigns />); await openRedacao();
-    expect(tab("Redação").getAttribute("aria-selected")).toBe("true");
+    await show(<RedacaoPage />);
+    expect(host.querySelector("h1")?.textContent || host.textContent).toContain("Redação");
     const item = [...host.querySelectorAll<HTMLButtonElement>(".redacaoList li button")][0];
     expect(item.textContent).toContain("Legenda Oud");
     await act(async () => { item.click(); }); await act(async () => {});
@@ -276,7 +275,7 @@ describe("Social Media: Redação (editor de texto)", () => {
 
   it("cria documento novo", async () => {
     api.createDocument.mockResolvedValue({ document: { ...doc, id: "d2", title: "Sem título", content_html: "", content_text: "" } });
-    await show(<Campaigns />); await openRedacao();
+    await show(<RedacaoPage />);
     await act(async () => { byText("+ Novo documento").click(); }); await act(async () => {});
     expect(api.createDocument).toHaveBeenCalledWith({ title: "Sem título", kind: "livre" });
     expect(host.querySelector(".redacaoEditor")).not.toBeNull();
@@ -288,7 +287,7 @@ describe("Social Media: Redação (editor de texto)", () => {
       api.listDocuments.mockResolvedValue({ documents: [doc] });
       api.getDocument.mockResolvedValue({ document: doc });
       api.saveDocument.mockResolvedValue({ document: { ...doc, title: "Novo título" } });
-      await show(<Campaigns />); await openRedacao();
+      await show(<RedacaoPage />);
       await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
       const input = host.querySelector<HTMLInputElement>(".redacaoTitle")!;
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -303,7 +302,7 @@ describe("Social Media: Redação (editor de texto)", () => {
     api.listDocuments.mockResolvedValue({ documents: [doc] });
     api.getDocument.mockResolvedValue({ document: doc });
     api.documentAI.mockResolvedValue({ action: "escrever", text: "Primeiro parágrafo.\n\nSegundo parágrafo.", titles: [], flags: [], guard: [] });
-    await show(<Campaigns />); await openRedacao();
+    await show(<RedacaoPage />);
     await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
     const ask = host.querySelector<HTMLTextAreaElement>(".redacaoAI textarea")!;
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -318,7 +317,7 @@ describe("Social Media: Redação (editor de texto)", () => {
   it("sem permissão de alterar, não cria nem usa a IA", async () => {
     api.listDocuments.mockResolvedValue({ documents: [doc] });
     api.getDocument.mockResolvedValue({ document: doc });
-    await show(<Campaigns canManage={false} />); await openRedacao();
+    await show(<RedacaoPage canManage={false} />);
     expect(byText("+ Novo documento")).toBeUndefined();
     await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
     expect(host.querySelector(".redacaoAI")).toBeNull();
