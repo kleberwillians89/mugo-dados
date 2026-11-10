@@ -165,8 +165,15 @@ async def _run(args: argparse.Namespace) -> Any:
         from services.automation_triggers import confirm_publications
         return await confirm_publications()
     if args.command == "calendar-sync":
-        from services.google_calendar import renew_watch_if_needed, sync
-        return {"sync": await sync(full=args.full), "watch": await renew_watch_if_needed()}
+        from services.google_calendar import CalendarError, renew_watch_if_needed, sync
+        try:
+            return {"sync": await sync(full=args.full), "watch": await renew_watch_if_needed()}
+        except CalendarError as exc:
+            # Conta desconectada ou autorização vencida: o aviso "reconectar" já está na tela de Automações.
+            # Não adianta falhar a cada 15 min até alguém reconectar.
+            if exc.code in ("REAUTH_REQUIRED", "NOT_CONNECTED", "CALENDAR_NOT_SELECTED"):
+                return {"skipped": exc.code}
+            raise
     if args.command == "attribution-backfill":
         from services.sales_by_origin import reprocess_unknown_origins
         return await reprocess_unknown_origins(args.client_id, dry_run=args.dry_run)
