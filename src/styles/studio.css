@@ -1049,6 +1049,64 @@
 .aiUsageBar{height:10px;border-radius:5px;background:#eef2f5;overflow:hidden}
 @media (max-width:900px){.aiUsageKpis{grid-template-columns:repeat(2,minmax(0,1fr))}.aiUsageTwo{grid-template-columns:minmax(0,1fr)}}
 
+/* ====== Matriz de conteúdo: layout profissional ====== */
+.matrixPanel{display:flex;flex-direction:column;gap:16px}
+.matrixTop{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+.matrixTopInfo{display:flex;flex-direction:column;gap:6px;min-width:0}
+.matrixPeriod{margin:0;font-size:13px;font-weight:600;color:var(--text-secondary);letter-spacing:.02em}
+.matrixStats{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.matrixStats li{padding:4px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--border-subtle);font-size:12px;color:var(--text-secondary)}
+.matrixStats b{color:var(--text-primary);font-weight:700;margin-right:2px}
+.matrixIntro{margin:0;max-width:68ch;font-size:14px;color:var(--text-secondary)}
+.matrixTopActions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.matrixPick{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--text-muted)}
+.matrixPick select{min-height:36px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);font:400 13px var(--font-body);max-width:320px}
+.matrixMuted{margin:0;font-size:13px;color:var(--text-muted)}
+
+.matrixBrief{display:grid;gap:10px;padding:16px 18px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:12px}
+.matrixSummary{margin:0;padding:0;border:0;background:none;border-radius:0}
+.matrixSummary span{display:block;margin-bottom:4px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.matrixSummary p{margin:0;max-width:110ch;font-size:14px;line-height:1.55;color:var(--text-primary)}
+.matrixNotes{display:grid;gap:4px;margin:0;padding:10px 0 0;border-top:1px solid var(--border-subtle);list-style:none}
+.matrixNotes li{position:relative;padding-left:18px;font-size:13px;color:#8a5a00}
+.matrixNotes li::before{content:"!";position:absolute;left:0;top:1px;display:grid;place-items:center;width:13px;height:13px;border-radius:50%;background:#f4d58d;color:#5c3d00;font-size:9px;font-weight:800}
+
+.tacticalMatrix{border-radius:14px;padding:0;gap:0;overflow:hidden;border-color:var(--border-subtle)}
+.tacticalPlatforms{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:12px 16px;border-bottom:1px solid var(--border-subtle)}
+.tacticalPlatforms button{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font:500 13px var(--font-body);cursor:pointer}
+.tacticalPlatforms button:hover{color:var(--text-primary)}
+.tacticalPlatforms button[aria-selected="true"]{background:rgba(21,24,27,.07);color:var(--text-primary);font-weight:600}
+.tacticalPlatforms button span{min-width:18px;padding:1px 6px;border-radius:999px;background:rgba(21,24,27,.06);font-size:11px;font-weight:600}
+.tacticalDiscarded{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.tacticalDiscarded input{accent-color:var(--text-primary)}
+
+.tacticalMatrix .matrixGridWrap{border:0;border-radius:0}
+.tacticalGrid{min-width:960px;table-layout:fixed}
+.tacticalGrid thead th{padding:10px 12px;background:var(--surface-subtle,#f7f6f3);font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+.tacticalGrid thead th small{margin-top:2px;font-size:11px;color:var(--text-muted)}
+.tacticalGrid thead th:nth-child(1){width:150px}
+.tacticalGrid thead th:nth-child(2){width:140px}
+.tacticalGrid td{min-width:0;padding:10px;border-left:1px solid var(--border-subtle)}
+.tacticalGrid td:hover{background:#fafbfc}
+.tacticalGrid tbody.tacticalGroup{border-top:1px solid var(--border-subtle)}
+.tacticalChannel{padding:14px 12px;background:var(--surface-subtle,#faf8f5)}
+.tacticalChannel .studioChip{font-size:12px;padding:3px 10px}
+.tacticalChannel small{line-height:1.4}
+.tacticalChannel .studioLink{font-size:12px;text-align:left}
+.tacticalPillar{padding:14px 12px;font-size:13px;line-height:1.3;color:var(--text-primary)}
+.tacticalGrid .matrixCard{border-radius:10px;padding:10px;gap:6px;border-color:var(--border-subtle);box-shadow:0 1px 2px rgba(21,24,27,.04)}
+.tacticalGrid .matrixCard.is-exportada{background:#f6fbf8;border-color:#cfe7d8}
+.tacticalGrid .matrixCellEditor{min-height:0;padding:4px;font-size:13px;background:transparent}
+.matrixCellAdd{min-height:28px;font-size:16px;color:var(--text-muted);border-color:var(--border-subtle);opacity:.6;transition:opacity .15s,background-color .15s}
+.tacticalGrid td:hover .matrixCellAdd,.matrixCellAdd:focus-visible{opacity:1;color:#004f6e;border-color:#9bb8c6}
+
+.matrixBar{margin-top:0;padding:10px 16px;border-color:var(--border-subtle);border-radius:12px;box-shadow:0 -6px 20px rgba(21,24,27,.06);font-size:13px;color:var(--text-secondary)}
+.matrixBar b{color:var(--text-primary)}
+@media (max-width:640px){.matrixTop{align-items:stretch}.matrixTopActions{width:100%}.matrixTopActions .ds-button{flex:1}}
+.tacticalChannel .studioLink{color:var(--text-secondary);font-weight:500;text-decoration:underline;text-decoration-color:rgba(21,24,27,.22);text-underline-offset:3px}
+.tacticalChannel .studioLink:hover{color:var(--text-primary);text-decoration-color:currentColor}
+.tacticalGrid .matrixCellEditor{resize:none;overflow:hidden}
+.tacticalGrid tbody th{border-bottom:1px solid var(--border-subtle)}
 /* Tarefas no Mugoverso: criar/editar no Drawer */
 .taskNew{margin-left:auto}
 .taskAdvance{margin-left:auto;font-size:12px}

@@ -146,52 +146,53 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   const counts = (p: Platform) => (matrix?.opportunities || []).filter((o) => o.platform === p && o.status !== "descartada").length;
   const pillars = (profile?.pillars || []).map((pillar) => pillar.name).filter(Boolean);
   const missingProfile = [!pillars.length ? "pilares editoriais" : "", !(profile?.editorial_platforms || []).length ? "plataformas" : ""].filter(Boolean);
-  const premises = matrix
-    ? `Planejamento de 4 semanas · ${matrix.pillars.length} pilar(es) · ${matrix.opportunities.filter((op) => op.status !== "descartada").length} oportunidade(s) · plataformas do perfil`
-    : null;
+
+  const period = matrix ? `${weekRange(matrix.week_start, 1).slice(0, 5)} a ${weekRange(matrix.week_start, 4).slice(-5)}` : "";
+  const activeCount = (matrix?.opportunities || []).filter((op) => op.status !== "descartada").length;
 
   return <section className="matrixPanel" aria-label="Matriz de conteúdo">
-    <div className="matrixToolbar">
-      {list.length > 1 ? <label className="matrixPick">Matriz<select value={matrix?.id || ""} disabled={Boolean(busy)} onChange={(e) => void open(e.target.value)}>
-        {list.map((m) => <option key={m.id} value={m.id}>Semanas de {weekRange(m.week_start, 1).slice(0, 5)} a {weekRange(m.week_start, 4).slice(-5)} · {m.platforms.map((p) => PLATFORM_LABEL[p]).join(", ")}</option>)}
-      </select></label> : null}
-      {canManage ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || Boolean(missingProfile.length)} onClick={() => void generate()}>
-        {busy === "generate" ? "Gerando…" : "Gerar matriz"}</button> : null}
+    <div className="matrixTop">
+      <div className="matrixTopInfo">
+        {matrix ? <>
+          <p className="matrixPeriod">{period}</p>
+          <ul className="matrixStats" aria-label="Resumo da matriz">
+            <li><b>{matrix.pillars.length}</b> pilares</li>
+            <li><b>{activeCount}</b> oportunidades</li>
+            <li><b>{exported}</b> no Calendário</li>
+          </ul>
+        </> : <p className="matrixIntro">A IA monta 4 semanas de pautas por plataforma a partir dos pilares do Perfil da marca. Você escolhe as que valem e envia ao Calendário como rascunho.</p>}
+      </div>
+      <div className="matrixTopActions">
+        {list.length > 1 ? <label className="matrixPick"><span>Matriz</span><select value={matrix?.id || ""} disabled={Boolean(busy)} onChange={(e) => void open(e.target.value)}>
+          {list.map((m) => <option key={m.id} value={m.id}>{weekRange(m.week_start, 1).slice(0, 5)} a {weekRange(m.week_start, 4).slice(-5)} · {m.platforms.map((p) => PLATFORM_LABEL[p]).join(", ")}</option>)}
+        </select></label> : null}
+        {canManage ? <button type="button" className={`ds-button${matrix ? "" : " is-primary"}`} disabled={Boolean(busy) || Boolean(missingProfile.length)} onClick={() => void generate()}>
+          {busy === "generate" ? "Gerando…" : matrix ? "Gerar nova matriz" : "Gerar matriz"}</button> : null}
+        {canManage && matrix ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !pending(visible).length} onClick={() => void exportIds(pending(visible))}
+          title="Os conteúdos visíveis que ainda não estão no Calendário viram rascunho">
+          {busy === "export" ? "Enviando…" : `Enviar ${platform === "todas" ? "tudo" : PLATFORM_LABEL[platform]} ao Calendário (${pending(visible).length})`}</button> : null}
+      </div>
     </div>
-    <p className="libHint">A IA monta 4 semanas de oportunidades por plataforma a partir dos pilares do Perfil de Marca e dos dados da marca. Selecione as que valem e envie ao Calendário: entram como rascunho e seguem a aprovação do cliente.</p>
-    {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {notice ? <p className="studioOk">{notice}{onOpenCalendar ? <> <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p> : null}
-    {busy === "generate" ? <p className="studioOk">Montando a matriz com os pilares e os dados da marca… (até 3 minutos)</p> : null}
-    {loading ? <p>Carregando…</p> : null}
+    {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
+    {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}{onOpenCalendar ? <> <button type="button" className="ds-link" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p></div> : null}
+    {busy === "generate" ? <div className="ds-notice" role="status"><p className="ds-noticeTitle">Montando a matriz com os pilares e os dados da marca… pode levar até 3 minutos.</p></div> : null}
+    {loading ? <p className="matrixMuted">Carregando…</p> : null}
     {!loading && !matrix ? <div className="studioEmpty"><p>Nenhuma matriz ainda.{canManage ? <> Clique em <b>Gerar matriz</b>.</> : null}</p>
       {missingProfile.length ? <p className="libHint">Falta configurar {missingProfile.join(" e ")} no Perfil da marca.
         {onOpenBrandProfile ? <> <button type="button" className="studioLink" onClick={onOpenBrandProfile}>Abrir Perfil da marca</button></> : null}</p> : null}</div> : null}
 
     {matrix ? <>
-      {premises ? <p className="libHint matrixPremises">{premises}</p> : null}
-      {matrix.summary ? <p className="matrixSummary">{matrix.summary}</p> : null}
-      {(matrix.notes || []).map((n) => <p key={n} className="clipWarn">{n}</p>)}
+      {matrix.summary || (matrix.notes || []).length ? <div className="matrixBrief">
+        {matrix.summary ? <div className="matrixSummary"><span>Direção do mês</span><p>{matrix.summary}</p></div> : null}
+        {(matrix.notes || []).length ? <ul className="matrixNotes">{(matrix.notes || []).map((n) => <li key={n}>{n}</li>)}</ul> : null}
+      </div> : null}
 
       <section className="tacticalMatrix" aria-label="Matriz Tática de Conteúdo">
-        <header className="tacticalHead">
-          <div>
-            <h3>Matriz Tática de Conteúdo</h3>
-            <p>Estratégia por canal, pilar, formato e ideia · {weekRange(matrix.week_start, 1).slice(0, 5)} a {weekRange(matrix.week_start, 4).slice(-5)}</p>
-          </div>
-          {canManage ? <div className="tacticalActions">
-            <button type="button" className="ds-button" disabled={Boolean(busy) || !selected.length} onClick={() => void exportIds(selected.map((o) => o.id))}>
-              Enviar selecionadas ({selected.length})</button>
-            <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !pending(visible).length} onClick={() => void exportIds(pending(visible))}
-              title="Todos os conteúdos visíveis que ainda não estão no Calendário viram rascunho">
-              {busy === "export" ? "Enviando…" : `Enviar ${platform === "todas" ? "tudo" : PLATFORM_LABEL[platform]} ao Calendário (${pending(visible).length})`}</button>
-          </div> : null}
-        </header>
-
-        <div className="studioTabs tacticalPlatforms" role="tablist" aria-label="Plataforma">
+        <div className="tacticalPlatforms" role="tablist" aria-label="Plataforma">
           <button type="button" role="tab" aria-selected={platform === "todas"} className={platform === "todas" ? "is-active" : ""} onClick={() => setPlatform("todas")}>Todas</button>
           {PLATFORM_ORDER.filter((p) => matrix.platforms.includes(p)).map((p) => <button key={p} type="button" role="tab" aria-selected={platform === p}
             className={platform === p ? "is-active" : ""} onClick={() => setPlatform(p)}>{PLATFORM_LABEL[p]}<span>{counts(p)}</span></button>)}
-          <label className="studioCheck tacticalDiscarded"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
+          <label className="tacticalDiscarded"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
         </div>
 
         <div className="matrixGridWrap"><table className="matrixGrid tacticalGrid">
@@ -225,11 +226,11 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
       </section>
 
       {canManage ? <div className="matrixBar" aria-live="polite">
-        <span><b>{selected.length}</b> selecionada(s){exported ? ` · ${exported} já no Calendário` : ""}</span>
+        <span><b>{selected.length}</b> selecionada(s) · marque as pautas e envie só elas</span>
         <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !selected.length} onClick={() => void exportIds(selected.map((o) => o.id))}>
-          {busy === "export" ? "Enviando…" : "Enviar ao Calendário"}</button>
-        {onOpenCalendar && exported ? <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button> : null}
-        <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => {
+          {busy === "export" ? "Enviando…" : `Enviar selecionadas (${selected.length})`}</button>
+        {onOpenCalendar && exported ? <button type="button" className="ds-link is-quiet" onClick={onOpenCalendar}>Abrir o Calendário</button> : null}
+        <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => {
           if (window.confirm("Arquivar esta matriz? O que já foi para o Calendário continua lá.")) void run("archive", () => archiveMatrix(matrix.id), "Não foi possível arquivar.").then((r) => { if (r) { setMatrix(null); void load(); } });
         }}>Arquivar matriz</button>
       </div> : null}

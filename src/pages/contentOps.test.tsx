@@ -107,6 +107,7 @@ const opp = (id: string, extra: Record<string, unknown> = {}) => ({ id, matrix_i
 const matrix = (ops: ReturnType<typeof opp>[]) => ({ id: "m1", week_start: "2026-11-16", platforms: ["instagram", "tiktok"], pillars: [{ name: "Produto" }, { name: "Bastidores" }],
   focus: null, summary: "Mês do lançamento.", status: "ativa", created_at: "x", notes: [], opportunities: ops });
 const byText = (text: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
+const sendSelected = () => [...host.querySelectorAll<HTMLButtonElement>(".matrixBar button")].find((b) => b.textContent?.startsWith("Enviar selecionadas"))!;
 
 describe("Social Media: Matriz de conteúdo", () => {
   it("layout da iAgência: Canal × Pilar × Semana 1–4, separado por plataforma", async () => {
@@ -154,8 +155,8 @@ describe("Social Media: Matriz de conteúdo", () => {
     await act(async () => { byText("Gerar matriz").click(); }); await act(async () => {});
     expect(api.createMatrix).toHaveBeenCalledWith();
     expect(host.textContent).not.toContain("Semana inicial (segunda)");
-    expect(host.textContent).toContain("Planejamento de 4 semanas");
-    expect(host.textContent).toContain("plataformas do perfil");
+    expect(host.querySelector(".matrixStats")?.textContent).toContain("2 pilares");
+    expect(host.querySelector(".matrixStats")?.textContent).toContain("1 oportunidades");
     expect(host.querySelectorAll(".matrixCard").length).toBe(1);
   });
 
@@ -169,13 +170,13 @@ describe("Social Media: Matriz de conteúdo", () => {
     const card = (id: string) => [...host.querySelectorAll(".matrixCard")].find((c) => c.getAttribute("aria-label") === `Pauta ${id}`)!;
     expect(card("c").textContent).toContain("No Calendário");
     expect(card("c").querySelector('input[type="checkbox"]')).toBeNull(); // exportada não volta a ser selecionada
-    expect(byText("Enviar ao Calendário").disabled).toBe(true);
+    expect(sendSelected().disabled).toBe(true);
     await act(async () => { card("a").querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); }); await act(async () => {});
     expect(api.updateOpportunity).toHaveBeenCalledWith("m1", "a", { status: "selecionada" });
     const discard = [...card("b").querySelectorAll("button")].find((b) => b.textContent === "Descartar")!;
     await act(async () => { discard.click(); }); await act(async () => {});
     expect(card("b")).toBeUndefined(); // descartada some da grade
-    await act(async () => { byText("Enviar ao Calendário").click(); }); await act(async () => {});
+    await act(async () => { sendSelected().click(); }); await act(async () => {});
     expect(api.matrixToCalendar).toHaveBeenCalledWith("m1", ["a"]);
     expect(host.textContent).toContain("1 conteúdo(s) no Calendário como rascunho");
     await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
@@ -211,7 +212,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
     await show(<Campaigns canManage={false} />);
     expect(byText("Gerar matriz")).toBeUndefined();
-    expect(byText("Enviar ao Calendário")).toBeUndefined();
+    expect(sendSelected()).toBeUndefined();
     expect(host.querySelector('.matrixCard input[type="checkbox"]')).toBeNull();
   });
 
