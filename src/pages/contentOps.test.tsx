@@ -196,13 +196,13 @@ describe("Social Media: Matriz de conteúdo", () => {
     await act(async () => { byText("Salvar").click(); }); await act(async () => {});
     expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", format: "reels", week: 1 }));
     expect(host.textContent).toContain("Pauta adicionada");
-    await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>('button[title="Detalhes"]')!.click(); });
+    await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>('button[title="Legenda, roteiro e detalhes"]')!.click(); });
     vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     await act(async () => { byText("Excluir").click(); }); await act(async () => {});
     expect(api.deleteOpportunity).toHaveBeenCalledWith("m1", "new-id");
     expect(host.textContent).not.toContain("Pauta adicionada");
     const exported = [...host.querySelectorAll(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta x")!;
-    await act(async () => { exported.querySelector<HTMLButtonElement>('button[title="Detalhes"]')!.click(); });
+    await act(async () => { exported.querySelector<HTMLButtonElement>('button[title="Legenda, roteiro e detalhes"]')!.click(); });
     expect(exported.querySelector('button[title="Enviar ao Calendário"]')).toBeNull();
     expect(byText("Excluir")).toBeUndefined();
     expect(host.textContent).toContain("edite por lá");
@@ -234,12 +234,25 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(byText("Gerar matriz").disabled).toBe(true);
   });
 
+  it("edita o texto de pauta já no Calendário direto no card, sem abrir o painel", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("x", { status: "exportada", calendar_item_id: "item-x" })]) });
+    api.updateOpportunity.mockResolvedValue({ opportunity: opp("x", { title: "Texto novo", status: "exportada", calendar_item_id: "item-x" }) });
+    await show(<Campaigns />);
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Editar texto da pauta Pauta x"]')!;
+    await act(async () => { editor.click(); });
+    expect(document.querySelector(".drawer, [role='dialog']")).toBeNull();
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Texto novo"); editor.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { editor.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); }); await act(async () => {});
+    expect(api.updateOpportunity).toHaveBeenCalledWith("m1", "x", { title: "Texto novo" });
+  });
+
   it("salva a edição direta de uma célula sem alterar a geração", async () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
     api.updateOpportunity.mockResolvedValue({ opportunity: opp("a", { title: "Pauta ajustada", edited: true }) });
     await show(<Campaigns />);
-    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Editar pauta Pauta a"]')!;
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Editar texto da pauta Pauta a"]')!;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Pauta ajustada"); editor.dispatchEvent(new Event("input", { bubbles: true })); });
     await act(async () => { editor.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); }); await act(async () => {});
     expect(api.updateOpportunity).toHaveBeenCalledWith("m1", "a", { title: "Pauta ajustada" });

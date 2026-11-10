@@ -319,10 +319,26 @@ def _clean_patch(patch: Dict[str, Any]) -> Dict[str, Any]:
     return clean
 
 
+async def _retitle_exported(client_id: str, current: Dict[str, Any], title: Any) -> Dict[str, Any]:
+    """Texto da pauta editado direto no card, mesmo depois de ir ao Calendário: a pauta lá muda junto."""
+    clean = _clean_patch({"title": title})
+    now = _now().isoformat()
+    rows = await sb_update(OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{current['id']}"},
+                           patch={**clean, "edited": True, "updated_at": now})
+    if not rows:
+        raise StudioError("OPPORTUNITY_NOT_FOUND")
+    if current.get("calendar_item_id"):
+        await sb_update(ITEMS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{current['calendar_item_id']}"},
+                        patch={"title": clean["title"], "updated_at": now})
+    return rows[0]
+
+
 async def update_opportunity(client_id: str, opportunity_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
     """Equipe edita a oportunidade (texto, plataforma, pilar, semana) ou muda o status (selecionar/descartar)."""
     current = await _opportunity(client_id, opportunity_id)
     if current.get("status") == "exportada":
+        if set(patch) == {"title"}:
+            return await _retitle_exported(client_id, current, patch["title"])
         raise StudioError("OPPORTUNITY_EXPORTED")
     clean = _clean_patch(patch)
     status = patch.get("status")

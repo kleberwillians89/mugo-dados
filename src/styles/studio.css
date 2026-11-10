@@ -1140,3 +1140,10 @@
 .postFromMatrix div{margin-top:8px}
 .postFromMatrix b{font-size:13px}
 .postFromMatrix p{margin:4px 0 0;white-space:pre-wrap;font-size:13px;line-height:1.5}
+
+/* Texto da pauta editado no próprio card (sem abrir o painel) */
+.tacticalGrid .matrixCellEditor{display:block;width:100%;min-height:0;margin:0;padding:4px 6px;border:1px solid transparent;border-radius:6px;background:transparent;
+  font:600 14px/1.35 var(--font-body);color:var(--text-primary);resize:none;overflow:hidden;cursor:text;box-sizing:border-box}
+.tacticalGrid .matrixCellEditor:hover{border-color:var(--border-subtle);background:rgba(255,255,255,.7)}
+.tacticalGrid .matrixCellEditor:focus{outline:none;border-color:#004f6e;background:#fff;box-shadow:0 0 0 3px rgba(0,79,110,.12)}
+.matrixCardText{margin:0;padding:4px 6px;font:600 14px/1.35 var(--font-body);color:var(--text-primary)}
