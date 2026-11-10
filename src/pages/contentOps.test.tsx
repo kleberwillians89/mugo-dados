@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({
   getClipping: vi.fn(), getClippingInsights: vi.fn(), getClippingReport: vi.fn(), exportClipping: vi.fn(), refreshClipping: vi.fn(), saveClippingSettings: vi.fn(), setClippingStatus: vi.fn(), clippingToCalendar: vi.fn(),
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), regeneratePiece: vi.fn(), editPiece: vi.fn(), setCampaignStatus: vi.fn(), campaignToCalendar: vi.fn(),
-  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), refineOpportunity: vi.fn(),
+  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(),
   setOpportunitiesStatus: vi.fn(), matrixToCalendar: vi.fn(),
 }));
 const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn() }));
@@ -22,7 +22,8 @@ import { pieceText } from "../app/contentOps";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement; let root: Root;
 beforeEach(() => { window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
-  studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }] }, saved: true }); host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
+  studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }],
+    editorial_platforms: ["instagram", "tiktok"], posts_per_week: 3, posts_per_week_by_platform: {} }, saved: true }); host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); window.history.replaceState({}, "", "/"); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
@@ -138,17 +139,14 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect([...host.querySelectorAll(".matrixCard")].map((c) => c.getAttribute("aria-label"))).toEqual(["Pauta b"]);
   });
 
-  it("gera a matriz com plataformas, pilares e semana inicial", async () => {
+  it("gera diretamente com as premissas do Perfil, sem configuração intermediária", async () => {
     api.createMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
     await show(<Campaigns />);
     await act(async () => { byText("Gerar matriz").click(); }); await act(async () => {});
-    const tiktok = [...document.querySelectorAll<HTMLLabelElement>(".studioForm fieldset label")].find((l) => l.textContent === "TikTok")!;
-    await act(async () => { tiktok.querySelector("input")!.click(); });
-    const submit = [...document.querySelectorAll<HTMLButtonElement>(".studioForm button")].find((b) => b.textContent === "Gerar matriz")!;
-    await act(async () => { submit.click(); }); await act(async () => {});
-    const input = api.createMatrix.mock.calls[0][0];
-    expect(input.platforms).toEqual(["instagram", "tiktok"]);
-    expect(input.week_start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(api.createMatrix).toHaveBeenCalledWith();
+    expect(host.textContent).not.toContain("Semana inicial (segunda)");
+    expect(host.textContent).toContain("Planejamento de 4 semanas");
+    expect(host.textContent).toContain("plataformas do perfil");
     expect(host.querySelectorAll(".matrixCard").length).toBe(1);
   });
 
@@ -175,6 +173,29 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
   });
 
+  it("acrescenta, edita e exclui oportunidade sem tocar nas exportadas", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("x", { status: "exportada", calendar_item_id: "item-x" })]) });
+    api.addOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada", edited: true }) });
+    api.deleteOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada" }) });
+    await show(<Campaigns />);
+    await act(async () => { byText("+ Oportunidade").click(); });
+    const title = document.querySelector<HTMLInputElement>('input[required][maxlength="200"]')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Pauta adicionada"); title.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { byText("Salvar").click(); }); await act(async () => {});
+    expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", week: 1 }));
+    expect(host.textContent).toContain("Pauta adicionada");
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>(".matrixCardTitle")].find((button) => button.textContent === "Pauta adicionada")!.click(); });
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    await act(async () => { byText("Excluir").click(); }); await act(async () => {});
+    expect(api.deleteOpportunity).toHaveBeenCalledWith("m1", "new-id");
+    expect(host.textContent).not.toContain("Pauta adicionada");
+    const exported = [...host.querySelectorAll(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta x")!;
+    await act(async () => { exported.querySelector<HTMLButtonElement>(".matrixCardTitle")!.click(); });
+    expect(byText("Excluir")).toBeUndefined();
+    expect(host.textContent).toContain("edite por lá");
+  });
+
   it("sem permissão de alterar, só lê", async () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
@@ -185,9 +206,10 @@ describe("Social Media: Matriz de conteúdo", () => {
   });
 
   it("sem pilares no Perfil de Marca, avisa antes de gerar", async () => {
-    studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [] }, saved: true });
+    studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [], editorial_platforms: [] }, saved: true });
     await show(<Campaigns />);
-    expect(host.textContent).toContain("ainda não tem pilares editoriais");
+    expect(host.textContent).toContain("Falta configurar pilares editoriais e plataformas");
+    expect(byText("Gerar matriz").disabled).toBe(true);
   });
 });
 

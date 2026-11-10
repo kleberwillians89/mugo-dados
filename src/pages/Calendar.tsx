@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  CONTENT_LANGUAGES, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
+  CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
   getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
@@ -33,7 +33,7 @@ function firstOfNextMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-export default function Calendar({ canManage, isAgency = false, embedded = false }: { canManage: boolean; isAgency?: boolean; embedded?: boolean }) {
+export default function Calendar({ canManage, isAgency = false, embedded = false, openProfileRequest = 0 }: { canManage: boolean; isAgency?: boolean; embedded?: boolean; openProfileRequest?: number }) {
   // Equipe Mugô: tudo. Cliente: vê o que está com ele/aprovado/publicado, edita texto e data, aprova ou pede ajuste.
   const team = canManage && isAgency;
   const clientId = getActiveClientId();
@@ -88,6 +88,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [months, clientId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
+  useEffect(() => { if (openProfileRequest > 0 && team) void openProfile(); }, [openProfileRequest]);
 
   // Plano do Mídia On salvo: as pautas escolhidas para impulsionar ganham data de início no calendário.
   const [boosts, setBoosts] = useState<Record<string, BoostPost>>({});
@@ -435,6 +436,30 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
           <fieldset><legend>Formatos</legend>{Object.entries(STUDIO_FORMATS).map(([k, v]) => <label key={k} className="studioCheck">
             <input type="checkbox" checked={profile.formats_enabled.includes(k as StudioFormat)} onChange={(e) => setProfile({ ...profile, formats_enabled: e.target.checked ? [...profile.formats_enabled, k as StudioFormat] : profile.formats_enabled.filter((f) => f !== k) })} />{v}</label>)}</fieldset>
         </div>
+        <fieldset><legend>Plataformas do planejamento editorial</legend>
+          <p className="libHint">Independem das contas conectadas. Sem frequência específica, o total semanal é distribuído entre as redes conforme a estratégia.</p>
+          {Object.entries(STUDIO_CHANNELS).map(([key, label]) => {
+            const channel = key as keyof typeof STUDIO_CHANNELS;
+            const selected = (profile.editorial_platforms || []).includes(channel);
+            const frequencies = profile.posts_per_week_by_platform || {};
+            return <div key={channel} className="studioRow">
+              <label className="studioCheck"><input type="checkbox" checked={selected} onChange={(e) => {
+                const editorial_platforms = e.target.checked
+                  ? [...(profile.editorial_platforms || []), channel]
+                  : (profile.editorial_platforms || []).filter((item) => item !== channel);
+                const posts_per_week_by_platform = { ...frequencies };
+                if (!e.target.checked) delete posts_per_week_by_platform[channel];
+                setProfile({ ...profile, editorial_platforms, posts_per_week_by_platform });
+              }} />{label}</label>
+              {selected ? <label>Posts/semana nesta rede (opcional)<input type="number" min={1} max={14}
+                value={frequencies[channel] ?? ""} placeholder="Distribuição automática" onChange={(e) => {
+                  const posts_per_week_by_platform = { ...frequencies };
+                  if (e.target.value) posts_per_week_by_platform[channel] = Number(e.target.value); else delete posts_per_week_by_platform[channel];
+                  setProfile({ ...profile, posts_per_week_by_platform });
+                }} /></label> : null}
+            </div>;
+          })}
+        </fieldset>
         <fieldset><legend>Datas da marca (MM-DD todo ano, ou AAAA-MM-DD)</legend>
           {profile.custom_dates.map((d, idx) => <div key={idx} className="studioDateRow">
             <input aria-label="Data" required pattern="(\d{4}-)?\d{2}-\d{2}" placeholder="11-03" value={d.date} onChange={(e) => setProfile({ ...profile, custom_dates: profile.custom_dates.map((x, i) => (i === idx ? { ...x, date: e.target.value } : x)) })} />

@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import httpx
 
 from .brand_guard import check as brand_check
-from .ig_supabase import sb_insert, sb_insert_many, sb_select, sb_update
+from .ig_supabase import sb_delete, sb_insert, sb_insert_many, sb_select, sb_update
 from .studio_calendar import (
     CHANNEL_LABELS, CHANNELS, FORMATS, SAO_PAULO, StudioError, _peak_hour_in_block, best_block_for,
     create_item, language_rule, load_profile,
@@ -39,7 +39,6 @@ OPPORTUNITIES = "studio_matrix_opportunities"
 ITEMS = "studio_calendar_items"
 
 WEEKS = 4
-MAX_PER_WEEK = 5
 MAX_OPPORTUNITIES = 80
 STATUSES = ("sugerida", "selecionada", "descartada", "exportada")
 USER_STATUSES = ("sugerida", "selecionada", "descartada")
@@ -50,6 +49,7 @@ PLATFORM_FORMATS: Dict[str, tuple] = {
     "tiktok": ("video",),
     "linkedin": ("imagem", "carrossel", "video"),
     "youtube": ("video",),
+    "pinterest": ("imagem", "carrossel", "video"),
 }
 PLATFORM_TASKS = {
     "instagram": "Instagram: Reels com gancho nos 3 primeiros segundos, carrossel que ensina ou conta história, imagem única forte, Stories com interação.",
@@ -57,6 +57,7 @@ PLATFORM_TASKS = {
     "tiktok": "TikTok: vídeo nativo, cru, com tendência ou formato da plataforma; gancho imediato; nada com cara de anúncio.",
     "linkedin": "LinkedIn: bastidores, aprendizado, autoridade e números do negócio; tom profissional sem ser frio.",
     "youtube": "YouTube: vídeo (Shorts ou longo) com título buscável e promessa clara.",
+    "pinterest": "Pinterest: Pin visual e buscável, com utilidade duradoura, título descritivo e destino coerente.",
 }
 EDIT_FIELDS = ("platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale")
 LIMITS = {"title": 200, "hook": 400, "angle": 600, "caption_draft": 4000, "rationale": 1200, "pillar": 120}
@@ -98,27 +99,24 @@ def _match_pillar(value: Any, pillars: Iterable[str]) -> Optional[str]:
 
 
 def normalize_request(data: Dict[str, Any], profile: Dict[str, Any], *, today: Optional[date] = None) -> Dict[str, Any]:
-    """Pedido de geração conferido: semana inicial (segunda), plataformas, pilares do perfil e ritmo."""
+    """Plano automático: o corpo legado não altera as premissas salvas no Perfil da marca."""
     pillars_all = _pillar_names(profile)
     if not pillars_all:
         raise StudioError("MATRIX_PILLARS_REQUIRED")
-    platforms = [p for p in dict.fromkeys(data.get("platforms") or []) if p in CHANNELS] or ["instagram"]
-    chosen = [n for n in (_match_pillar(p, pillars_all) for p in data.get("pillars") or []) if n]
-    raw_start = str(data.get("week_start") or "").strip()[:10]
+    platforms = [p for p in dict.fromkeys(profile.get("editorial_platforms") or []) if p in CHANNELS]
+    if not platforms:
+        raise StudioError("MATRIX_PLATFORMS_REQUIRED")
     today = today or datetime.now(SAO_PAULO).date()
-    if raw_start:
-        try:
-            start = date.fromisoformat(raw_start)
-        except ValueError:
-            raise StudioError("MATRIX_DATE_INVALID") from None
-        start -= timedelta(days=start.weekday())  # sempre começa na segunda
-        if start < today - timedelta(days=today.weekday()) or start > today + timedelta(days=120):
-            raise StudioError("MATRIX_DATE_INVALID")
-    else:
-        start = next_monday(today)
-    per_week = int(data.get("per_week") or 3)
-    return {"week_start": start, "platforms": platforms, "pillars": list(dict.fromkeys(chosen)) or pillars_all,
-            "per_week": max(1, min(MAX_PER_WEEK, per_week)), "focus": _clip(data.get("focus"), 1000)}
+    specific = profile.get("posts_per_week_by_platform") if isinstance(profile.get("posts_per_week_by_platform"), dict) else {}
+    quotas = {p: max(1, min(14, int(specific[p]))) for p in platforms if specific.get(p)}
+    configured_total = max(1, min(14, int(profile.get("posts_per_week") or 3)))
+    # Frequências específicas são pisos exatos das redes configuradas. Quando somente algumas
+    # redes têm ritmo próprio, o restante do total continua disponível para as demais.
+    total = max(configured_total, sum(quotas.values())) if quotas else configured_total
+    if total * WEEKS > MAX_OPPORTUNITIES:
+        raise StudioError("MATRIX_FREQUENCY_TOO_HIGH")
+    return {"week_start": next_monday(today), "platforms": platforms, "pillars": pillars_all,
+            "posts_per_week": total, "platform_quotas": quotas, "focus": ""}
 
 
 def week_dates(start: date, week: int) -> tuple[date, date]:
@@ -165,15 +163,20 @@ def _guard(op: Dict[str, Any], avoid: List[str], context: str) -> List[Dict[str,
     return issues[:6]
 
 
-def cap_per_slot(items: List[Dict[str, Any]], per_week: int) -> List[Dict[str, Any]]:
-    """No máximo ``per_week`` oportunidades por plataforma em cada semana, na ordem da IA."""
+def cap_to_plan(items: List[Dict[str, Any]], request: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Aplica o ritmo do Perfil sem multiplicá-lo pela quantidade de plataformas."""
     count: Dict[tuple, int] = {}
+    per_week: Dict[int, int] = {}
+    quotas = request.get("platform_quotas") or {}
     out: List[Dict[str, Any]] = []
     for it in items:
         key = (it["platform"], it["week"])
-        if count.get(key, 0) >= per_week:
+        if it["platform"] in quotas and count.get(key, 0) >= int(quotas[it["platform"]]):
+            continue
+        if per_week.get(it["week"], 0) >= int(request["posts_per_week"]):
             continue
         count[key] = count.get(key, 0) + 1
+        per_week[it["week"]] = per_week.get(it["week"], 0) + 1
         out.append(it)
     return out[:MAX_OPPORTUNITIES]
 
@@ -187,8 +190,11 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
         f"PERÍODO (4 semanas, começando na segunda):\n{weeks}\n"
         f"\nPLATAFORMAS E COMO PENSAR CADA UMA:\n" + "\n".join(f"- {p} ({', '.join(PLATFORM_FORMATS[p])}): {PLATFORM_TASKS[p]}" for p in req["platforms"])
         + f"\n\nPILARES EDITORIAIS (use exatamente estes nomes; respeite o peso de cada um):\n{json.dumps(pillars, ensure_ascii=False)}"
-        + f"\n\nRITMO: {req['per_week']} oportunidade(s) por plataforma em cada semana. Distribua os pilares pelas semanas."
-        + (f"\n\nFOCO PEDIDO PELA EQUIPE: {req['focus']}" if req["focus"] else "")
+        + f"\n\nRITMO TOTAL: exatamente {req['posts_per_week']} oportunidade(s) por semana, somadas entre todas as plataformas; "
+          "não multiplique pela quantidade de plataformas. "
+        + (f"Use exatamente estas quantidades por rede e distribua o restante entre as demais: "
+           f"{json.dumps(req['platform_quotas'], ensure_ascii=False)}."
+           if req["platform_quotas"] else "Escolha a distribuição mais pertinente à estratégia da marca.")
         + "\n\nCada oportunidade: plataforma (um dos nomes acima, minúsculo), pilar, semana (1 a 4), dia_semana "
           "(0 = segunda ... 6 = domingo), formato (um dos da plataforma), título da pauta, gancho (primeira frase ou cena), "
           "ângulo (o que torna esta pauta diferente), rascunho de legenda e por que (cite o dado da marca que sustenta). "
@@ -238,14 +244,18 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
                          schema_name="studio_content_matrix", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
     cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"])
                            for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
-    items = cap_per_slot(cleaned, req["per_week"])
-    if not items:
+    items = cap_to_plan(cleaned, req)
+    expected = req["posts_per_week"] * WEEKS
+    if len(items) != expected:
+        raise StudioError("AI_INVALID_OUTPUT")
+    if any(sum(1 for item in items if item["platform"] == platform and item["week"] == week) != quota
+           for platform, quota in req["platform_quotas"].items() for week in range(1, WEEKS + 1)):
         raise StudioError("AI_INVALID_OUTPUT")
     notes: List[str] = []
     discarded = len(raw.get("oportunidades") or []) - len(cleaned)
     if discarded > 0:
         notes.append(f"{discarded} sugestão(ões) da IA fora da plataforma, do pilar ou da semana foram descartadas.")
-    missing = [p for p in req["platforms"] if not any(i["platform"] == p for i in items)]
+    missing = [p for p in req["platform_quotas"] if sum(1 for i in items if i["platform"] == p) < req["platform_quotas"][p] * WEEKS]
     if missing:
         notes.append(f"A IA não sugeriu nada para {', '.join(CHANNEL_LABELS[p] for p in missing)}. Gere de novo ou crie à mão.")
     pillars = [p for p in profile.get("pillars") or [] if p.get("name") in req["pillars"]]
@@ -323,6 +333,45 @@ async def update_opportunity(client_id: str, opportunity_id: str, patch: Dict[st
     if not rows:
         raise StudioError("OPPORTUNITY_EXPORTED")
     return rows[0]
+
+
+async def create_opportunity(client_id: str, matrix_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Acrescenta uma oportunidade editável à matriz ativa, sempre dentro do mesmo tenant."""
+    matrix = await get_matrix(client_id, matrix_id)
+    if matrix.get("status") != "ativa":
+        raise StudioError("MATRIX_NOT_FOUND")
+    required = {"platform", "pillar", "week", "weekday", "format", "title"}
+    if not required <= {k for k, value in data.items() if value is not None and value != ""}:
+        raise StudioError("OPPORTUNITY_INVALID")
+    clean = _clean_patch(data)
+    if clean.get("platform") not in (matrix.get("platforms") or []):
+        raise StudioError("CHANNEL_INVALID")
+    known_pillars = _pillar_names({"pillars": matrix.get("pillars") or []})
+    if clean.get("pillar") not in known_pillars:
+        raise StudioError("OPPORTUNITY_INVALID")
+    if clean.get("format") not in PLATFORM_FORMATS[clean["platform"]]:
+        raise StudioError("FORMAT_INVALID")
+    position = max((int(o.get("position") or 0) for o in matrix.get("opportunities") or []), default=-1) + 1
+    row = await sb_insert(OPPORTUNITIES, {**clean, "matrix_id": matrix_id, "client_id": client_id, "position": position,
+                                          "status": "sugerida", "edited": True, "guard": []})
+    if not row or not row.get("id"):
+        raise StudioError("MATRIX_SAVE_FAILED")
+    return row
+
+
+async def delete_opportunity(client_id: str, matrix_id: str, opportunity_id: str) -> Dict[str, Any]:
+    """Exclui somente uma oportunidade não exportada; o vínculo com Calendário nunca é apagado."""
+    current = await _opportunity(client_id, opportunity_id)
+    if current.get("matrix_id") != matrix_id:
+        raise StudioError("OPPORTUNITY_NOT_FOUND")
+    if current.get("status") == "exportada" or current.get("calendar_item_id"):
+        raise StudioError("OPPORTUNITY_EXPORTED")
+    rows = await sb_delete(OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "matrix_id": f"eq.{matrix_id}",
+                                                   "id": f"eq.{opportunity_id}",
+                                                   "status": "neq.exportada"})
+    if not rows:
+        raise StudioError("OPPORTUNITY_NOT_FOUND")
+    return current
 
 
 async def set_many_status(client_id: str, matrix_id: str, ids: List[str], status: str) -> Dict[str, Any]:

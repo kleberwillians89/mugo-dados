@@ -116,13 +116,14 @@ export function pieceText(channel: Channel, content: unknown): string {
 
 /* ------------------------------------------------------------------ Matriz de conteúdo (Social Media) */
 
-export type Platform = "instagram" | "facebook" | "tiktok" | "linkedin" | "youtube";
-export const PLATFORM_LABEL: Record<Platform, string> = { instagram: "Instagram", facebook: "Facebook", tiktok: "TikTok", linkedin: "LinkedIn", youtube: "YouTube" };
-export const PLATFORM_ORDER: Platform[] = ["instagram", "tiktok", "facebook", "linkedin", "youtube"];
+export type Platform = "instagram" | "facebook" | "tiktok" | "linkedin" | "youtube" | "pinterest";
+export const PLATFORM_LABEL: Record<Platform, string> = { instagram: "Instagram", facebook: "Facebook", tiktok: "TikTok", linkedin: "LinkedIn", youtube: "YouTube", pinterest: "Pinterest" };
+export const PLATFORM_ORDER: Platform[] = ["instagram", "tiktok", "facebook", "linkedin", "youtube", "pinterest"];
 /** Formatos de cada plataforma (mesma regra do backend: studio_matrix.PLATFORM_FORMATS). */
 export const PLATFORM_FORMATS: Record<Platform, StudioFormat[]> = {
   instagram: ["reels", "carrossel", "imagem", "stories"], facebook: ["imagem", "video", "carrossel", "stories"],
   tiktok: ["video"], linkedin: ["imagem", "carrossel", "video"], youtube: ["video"],
+  pinterest: ["imagem", "carrossel", "video"],
 };
 export const WEEKDAY_LABEL = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 export type OpportunityStatus = "sugerida" | "selecionada" | "descartada" | "exportada";
@@ -136,16 +137,23 @@ export type MatrixSummary = { id: string; week_start: string; platforms: Platfor
 export type ContentMatrix = MatrixSummary & { notes?: string[]; opportunities: Opportunity[] };
 export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars: string[]; per_week: number; focus: string };
 export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale">> & { status?: Exclude<OpportunityStatus, "exportada"> };
+export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale">;
 
 const mx = (path = "") => base(`/matrix${path}`);
 export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
 export function getMatrix(id: string) { return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}`)); }
-export function createMatrix(input: MatrixRequest) {
-  return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify(input), timeoutMs: 180_000 });
+export function createMatrix() {
+  return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify({}), timeoutMs: 180_000 });
 }
 export function archiveMatrix(id: string) { return http<{ matrix: MatrixSummary }>(mx(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 export function updateOpportunity(matrixId: string, id: string, patch: OpportunityPatch) {
   return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(patch) });
+}
+export function addOpportunity(matrixId: string, input: OpportunityCreate) {
+  return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities`), { method: "POST", body: JSON.stringify(input) });
+}
+export function deleteOpportunity(matrixId: string, id: string) {
+  return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 export function refineOpportunity(matrixId: string, id: string, instruction?: string) {
   return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}/refine`),

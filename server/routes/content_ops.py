@@ -38,6 +38,8 @@ ERRORS = {
     "CHANNEL_INVALID": (400, "Peça inválida."),
     "NOTHING_FOR_CALENDAR": (409, "Esta campanha não tem post, Reels ou Stories para o Calendário."),
     "MATRIX_PILLARS_REQUIRED": (422, "Cadastre os pilares editoriais no Perfil da marca (IA da marca) antes de gerar a matriz."),
+    "MATRIX_PLATFORMS_REQUIRED": (422, "Defina as plataformas do planejamento no Perfil da marca antes de gerar a matriz."),
+    "MATRIX_FREQUENCY_TOO_HIGH": (422, "A frequência semanal configurada ultrapassa o limite de 80 oportunidades por matriz."),
     "MATRIX_DATE_INVALID": (422, "Escolha uma semana a partir desta, até 4 meses à frente."),
     "MATRIX_NOT_FOUND": (404, "Matriz não encontrada."),
     "MATRIX_SAVE_FAILED": (502, "Não foi possível salvar a matriz. Tente de novo."),
@@ -301,14 +303,15 @@ async def campaign_to_calendar(client_id: str, campaign_id: UUID, authorization:
 
 # ---------------------------------------------------------------- matriz de conteúdo
 
-Platform = Literal["instagram", "facebook", "tiktok", "linkedin", "youtube"]
+Platform = Literal["instagram", "facebook", "tiktok", "linkedin", "youtube", "pinterest"]
 MatrixFormat = Literal["reels", "carrossel", "imagem", "stories", "video"]
 
 
 class MatrixInput(BaseModel):
+    """Campos legados são aceitos durante o rollout, mas a geração usa somente o Perfil da marca."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     week_start: str = Field(default="", max_length=10)
-    platforms: List[Platform] = Field(default_factory=lambda: ["instagram"], min_length=1, max_length=5)
+    platforms: List[Platform] = Field(default_factory=list, max_length=6)
     pillars: List[str] = Field(default_factory=list, max_length=8)
     per_week: int = Field(default=3, ge=1, le=5)
     focus: str = Field(default="", max_length=1000)
@@ -327,6 +330,20 @@ class OpportunityPatch(BaseModel):
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Literal["sugerida", "selecionada", "descartada"]] = None
+
+
+class OpportunityCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    platform: Platform
+    pillar: str = Field(min_length=1, max_length=120)
+    week: int = Field(ge=1, le=4)
+    weekday: int = Field(ge=0, le=6)
+    format: MatrixFormat
+    title: str = Field(min_length=1, max_length=200)
+    hook: Optional[str] = Field(default=None, max_length=400)
+    angle: Optional[str] = Field(default=None, max_length=600)
+    caption_draft: Optional[str] = Field(default=None, max_length=4000)
+    rationale: Optional[str] = Field(default=None, max_length=1200)
 
 
 class BulkStatusInput(BaseModel):
@@ -349,11 +366,11 @@ async def read_matrices(client_id: str, authorization: Optional[str] = Header(de
 
 
 @router.post("/matrix", status_code=201)
-async def create_matrix(client_id: str, body: MatrixInput, authorization: Optional[str] = Header(default=None)):
+async def create_matrix(client_id: str, body: Optional[MatrixInput] = None, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
     uid = await require_user_id(authorization)
     try:
-        return {"matrix": await matrix.generate(cid, body.model_dump(), user_id=uid)}
+        return {"matrix": await matrix.generate(cid, body.model_dump() if body else {}, user_id=uid)}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -383,6 +400,26 @@ async def update_opportunity(client_id: str, matrix_id: UUID, opportunity_id: UU
     cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
     try:
         return {"opportunity": await matrix.update_opportunity(cid, str(opportunity_id), body.model_dump(exclude_none=True))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/matrix/{matrix_id}/opportunities", status_code=201)
+async def add_opportunity(client_id: str, matrix_id: UUID, body: OpportunityCreate,
+                          authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"opportunity": await matrix.create_opportunity(cid, str(matrix_id), body.model_dump())}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/matrix/{matrix_id}/opportunities/{opportunity_id}")
+async def remove_opportunity(client_id: str, matrix_id: UUID, opportunity_id: UUID,
+                             authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"opportunity": await matrix.delete_opportunity(cid, str(matrix_id), str(opportunity_id))}
     except StudioError as exc:
         raise _http(exc) from None
 

@@ -7,7 +7,7 @@ membership resolvida no backend; o client_id da URL é só um pedido.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -37,7 +37,7 @@ from services.tenant import is_agency_user, require_client_read, require_client_
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
 
 Format = Literal["reels", "carrossel", "imagem", "stories", "video"]
-Channel = Literal["instagram", "facebook", "tiktok", "linkedin", "youtube"]
+Channel = Literal["instagram", "facebook", "tiktok", "linkedin", "youtube", "pinterest"]
 Status = Literal["rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"]
 
 ERRORS = {
@@ -105,6 +105,8 @@ class ProfileInput(BaseModel):
     restrictions: str = Field(default="", max_length=1500)
     visual_identity: str = Field(default="", max_length=1500)
     posts_per_week: int = Field(default=3, ge=1, le=14)
+    editorial_platforms: List[Channel] = Field(default_factory=list, max_length=6)
+    posts_per_week_by_platform: Dict[Channel, Annotated[int, Field(ge=1, le=14)]] = Field(default_factory=dict)
     formats_enabled: List[Format] = Field(default_factory=lambda: ["reels", "carrossel", "imagem"], max_length=5)
     custom_dates: List[CustomDate] = Field(default_factory=list, max_length=30)
     content_language: Literal["pt-BR", "en", "es"] = "pt-BR"

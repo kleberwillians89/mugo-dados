@@ -37,8 +37,9 @@ SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 FORMATS = ("reels", "carrossel", "imagem", "stories", "video")
 # Plataformas do calendário. Só o Instagram publica sozinho; nas demais o post é agendado e, na hora,
 # fica marcado para publicar à mão (ig_publish.publish_item).
-CHANNELS = ("instagram", "facebook", "tiktok", "linkedin", "youtube")
-CHANNEL_LABELS = {"instagram": "Instagram", "facebook": "Facebook", "tiktok": "TikTok", "linkedin": "LinkedIn", "youtube": "YouTube"}
+CHANNELS = ("instagram", "facebook", "tiktok", "linkedin", "youtube", "pinterest")
+CHANNEL_LABELS = {"instagram": "Instagram", "facebook": "Facebook", "tiktok": "TikTok", "linkedin": "LinkedIn", "youtube": "YouTube",
+                  "pinterest": "Pinterest"}
 AUTO_PUBLISH_CHANNELS = ("instagram",)
 DEFAULT_FORMATS = ("reels", "carrossel", "imagem")
 STATUSES = ("rascunho", "em_revisao", "aprovado", "rejeitado", "publicado")
@@ -127,6 +128,16 @@ def normalize_profile(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         ppw = 3
     formats = [f for f in _str_list(raw.get("formats_enabled"), item_limit=20, max_items=5) if f in FORMATS]
+    editorial_platforms = [p for p in _str_list(raw.get("editorial_platforms"), item_limit=20, max_items=len(CHANNELS)) if p in CHANNELS]
+    raw_frequency = raw.get("posts_per_week_by_platform") if isinstance(raw.get("posts_per_week_by_platform"), dict) else {}
+    frequency: Dict[str, int] = {}
+    for platform in editorial_platforms:
+        try:
+            value = int(raw_frequency.get(platform))
+        except (TypeError, ValueError):
+            continue
+        if 0 < value <= 14:
+            frequency[platform] = value
     custom_dates = []
     for entry in raw.get("custom_dates") or []:
         if isinstance(entry, dict) and _text(entry.get("label"), 80) and _text(entry.get("date"), 10):
@@ -144,6 +155,8 @@ def normalize_profile(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         "restrictions": _text(raw.get("restrictions"), 1500),
         "visual_identity": _text(raw.get("visual_identity"), 1500),
         "posts_per_week": max(1, min(14, ppw)),
+        "editorial_platforms": editorial_platforms,
+        "posts_per_week_by_platform": frequency,
         "formats_enabled": formats or list(DEFAULT_FORMATS),
         "custom_dates": custom_dates,
         "content_language": content_language(raw),
