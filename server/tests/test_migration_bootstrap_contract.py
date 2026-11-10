@@ -35,7 +35,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_auth_oauth_migration_is_nineteenth(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 92)
+        self.assertEqual(len(names), 93)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
         self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
@@ -92,21 +92,22 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertEqual(names[-11], "20261203_000082_engagement_ai_greeting.sql")
         self.assertEqual(names[-10], "20261204_000083_team_permissions.sql")
         self.assertEqual(names[-9], "20261205_000084_social_media_matrix.sql")
-        self.assertEqual(names[-8], "20261206_000085_studio_documents.sql")
-        self.assertEqual(names[-7], "20261207_000086_content_matrix_pinterest.sql")
-        self.assertEqual(names[-6], "20261208_000087_whatsapp_native.sql")
-        self.assertEqual(names[-5], "20261209_000088_ai_usage_events.sql")
-        self.assertEqual(names[-4], "20261210_000089_studio_tasks.sql")
-        self.assertEqual(names[-3], "20261211_000090_matrix_content_creation.sql")
-        self.assertEqual(names[-2], "20261212_000091_meta_ad_drafts.sql")
-        self.assertEqual(names[-1], "20261213_000092_media_retention_remarketing.sql")
+        self.assertEqual(names[-9], "20261206_000085_studio_documents.sql")
+        self.assertEqual(names[-8], "20261207_000086_content_matrix_pinterest.sql")
+        self.assertEqual(names[-7], "20261208_000087_whatsapp_native.sql")
+        self.assertEqual(names[-6], "20261209_000088_ai_usage_events.sql")
+        self.assertEqual(names[-5], "20261210_000089_studio_tasks.sql")
+        self.assertEqual(names[-4], "20261211_000090_matrix_content_creation.sql")
+        self.assertEqual(names[-3], "20261212_000091_meta_ad_drafts.sql")
+        self.assertEqual(names[-2], "20261213_000092_media_retention_remarketing.sql")
+        self.assertEqual(names[-1], "20261214_000093_ig_direct.sql")
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 93)))
+        self.assertEqual(logical_numbers, list(range(1, 94)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
