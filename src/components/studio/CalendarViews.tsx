@@ -1,5 +1,5 @@
 import { useState, type DragEvent } from "react";
-import { STUDIO_FORMATS, localParts, type CalendarItem, type StudioFormat } from "../../app/studio";
+import { STUDIO_CHANNELS, STUDIO_FORMATS, localParts, type CalendarItem, type StudioFormat } from "../../app/studio";
 import { addDays, fromKey, mondayOf, todayKey } from "../../app/studioCalendar";
 
 const FORMAT_ICON: Record<StudioFormat, string> = { reels: "▶", carrossel: "▤", imagem: "▢", stories: "◯", video: "▶" };
@@ -43,8 +43,8 @@ function Chip({ item, canManage, onOpen, compact }: { item: CalendarItem; canMan
   const when = localParts(item.scheduled_at);
   return <button type="button" className={`calChip is-${item.status}`} draggable={canManage}
     onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}
-    onClick={() => onOpen(item)} title={`${when.time} · ${STUDIO_FORMATS[item.format]} · ${item.title}`}>
-    <span className="calChipMeta">{when.time} <span aria-label={STUDIO_FORMATS[item.format]}>{FORMAT_ICON[item.format]}</span>{item.signals?.seasonal ? " 📅" : ""}{item.boost ? <span className="calChipBoost" aria-label={`Impulsionar a partir de ${item.boost.start.slice(8, 10)}/${item.boost.start.slice(5, 7)}`}> ⚡</span> : null}</span>
+    onClick={() => onOpen(item)} title={`${when.time} · ${item.channel && item.channel !== "instagram" ? `${STUDIO_CHANNELS[item.channel]} · ` : ""}${STUDIO_FORMATS[item.format]} · ${item.title}`}>
+    <span className="calChipMeta">{when.time} {item.channel && item.channel !== "instagram" ? <span className={`calChipPlatform is-${item.channel}`}>{STUDIO_CHANNELS[item.channel]}</span> : null} <span aria-label={STUDIO_FORMATS[item.format]}>{FORMAT_ICON[item.format]}</span>{item.signals?.seasonal ? " 📅" : ""}{item.boost ? <span className="calChipBoost" aria-label={`Impulsionar a partir de ${item.boost.start.slice(8, 10)}/${item.boost.start.slice(5, 7)}`}> ⚡</span> : null}</span>
     <span className="calChipTitle">{item.title}</span>
     {!compact && item.pillar ? <span className="calChipPillar">{item.pillar}</span> : null}
   </button>;
@@ -109,7 +109,7 @@ export function DayView({ day, ...p }: Common & { day: string }) {
     {hours.map((h) => <div key={h} className="calHour">
       <span>{String(h).padStart(2, "0")}:00</span>
       <div className="calChips">{(byHour.get(h) || []).map((item) => <article key={item.id} className={`calDayCard is-${item.status}`} onClick={() => p.onOpen(item)}>
-        <header><b>{localParts(item.scheduled_at).time}</b><span className="studioChip">{STUDIO_FORMATS[item.format]}</span>{item.pillar ? <span className="studioChip is-pillar">{item.pillar}</span> : null}</header>
+        <header><b>{localParts(item.scheduled_at).time}</b>{item.channel && item.channel !== "instagram" ? <span className={`studioChip is-platform is-${item.channel}`}>{STUDIO_CHANNELS[item.channel]}</span> : null}<span className="studioChip">{STUDIO_FORMATS[item.format]}</span>{item.pillar ? <span className="studioChip is-pillar">{item.pillar}</span> : null}</header>
         <h3>{item.title}</h3>
         {item.hook ? <p className="studioHook">“{item.hook}”</p> : null}
       </article>)}

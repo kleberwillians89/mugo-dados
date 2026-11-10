@@ -21,7 +21,7 @@ function Card({ title, route, children, empty }: { title: string; route: AppRout
   </section>;
 }
 
-/** Central da marca: números da campanha, Calendário, Mídia On, Redação, Clipping e Tarefas no mesmo lugar. */
+/** Central da marca: números da campanha, Calendário, Mídia On, Social Media, Clipping e Tarefas no mesmo lugar. */
 export default function Central() {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
@@ -91,7 +91,7 @@ export default function Central() {
         </> : null}
       </Card>
 
-      {view.agency ? <Card title="Campanhas (Redação)" route="campaigns" empty={view.campaigns?.length ? null : "Nenhuma campanha em andamento."}>
+      {view.agency ? <Card title="Campanhas (Social Media)" route="campaigns" empty={view.campaigns?.length ? null : "Nenhuma campanha em andamento."}>
         <ul className="centralList">{(view.campaigns || []).map((c) => <li key={c.id}><small>{c.status === "pronta" ? "Pronta" : "Rascunho"}{c.start ? ` · ${c.start.slice(8, 10)}/${c.start.slice(5, 7)}` : ""}{c.end ? ` a ${c.end.slice(8, 10)}/${c.end.slice(5, 7)}` : ""} · {c.posts_no_calendario} post(s) no Calendário</small><span>{c.name}</span></li>)}</ul>
       </Card> : null}
 
@@ -109,6 +109,6 @@ export default function Central() {
         </> : null}
       </Card>
     </div> : null}
-    {view?.agency ? <p className="libHint">Calendário, Redação, Mídia On, mensagens e Clipping usam o mesmo cérebro da marca: perfil, o que o cliente aprovou, o que vendeu, o plano de mídia e as campanhas ativas.</p> : null}
+    {view?.agency ? <p className="libHint">Calendário, Social Media, Mídia On, mensagens e Clipping usam o mesmo cérebro da marca: perfil, o que o cliente aprovou, o que vendeu, o plano de mídia e as campanhas ativas.</p> : null}
   </div></Shell>;
 }

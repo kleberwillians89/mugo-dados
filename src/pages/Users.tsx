@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, listTeamMembers, removeTeamMember,
+  OPT_IN_CODES, USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, listTeamMembers, removeTeamMember,
   resetTeamMemberPassword, setTeamMemberStatus, updateTeamMember,
   type PermissionInput, type TeamCatalog, type TeamMember, type TeamPreset,
 } from "../app/team";
@@ -69,8 +69,10 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
   function choosePreset(code: TeamPreset) {
     const preset = presetOf(code);
     if (!editing || !preset) return;
+    // Social Media (liberado pela Mugô) não faz parte de preset: trocar o perfil mantém o que já estava liberado.
+    const kept = editing.codes.filter((c) => OPT_IN_CODES.has(c));
     setEditing({ ...editing, preset: code, view_all: preset.view_all, access_total: preset.access_total,
-      codes: code === "personalizado" ? editing.codes : preset.codes });
+      codes: code === "personalizado" ? editing.codes : [...new Set([...preset.codes, ...kept])] });
   }
 
   function toggleCode(code: string) {
@@ -125,10 +127,15 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
   }
 
   const shown = (members || []).filter((m) => filter === "all" || m.status === filter);
+  const isOptIn = (code: string) => OPT_IN_CODES.has(code);
   const groups = useMemo(() => (catalog?.modules || []).map((m) => ({
-    ...m, items: (catalog?.permissions || []).filter((p) => p.module === m.code),
-  })), [catalog]);
-  const selected = new Set(editing?.access_total ? (catalog?.permissions || []).map((p) => p.code) : editing?.codes || []);
+    ...m, items: (catalog?.permissions || []).filter((p) => p.module === m.code && !OPT_IN_CODES.has(p.code)),
+  })).filter((g) => g.items.length), [catalog]);
+  const optInItems = (catalog?.permissions || []).filter((p) => OPT_IN_CODES.has(p.code));
+  const selected = new Set([
+    ...(editing?.access_total ? (catalog?.permissions || []).map((p) => p.code).filter((c) => !isOptIn(c)) : (editing?.codes || []).filter((c) => !isOptIn(c))),
+    ...(editing?.codes || []).filter(isOptIn),
+  ]);
 
   return <Shell title="Usuários" variant="editorial"><div className="ds-page usersPage">
     <PageHeader company={clientName} title="Usuários" />
@@ -190,7 +197,7 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
           onChange={(e) => setEditing({ ...editing, access_total: e.target.checked, preset: e.target.checked ? "administrador" : editing.preset === "administrador" ? "personalizado" : editing.preset })} /> Acesso total (pode tudo nesta empresa, inclusive integrações e usuários)</label>
         <label className="usersCheck"><input type="checkbox" checked={editing.view_all} disabled={editing.access_total}
           onChange={(e) => {
-            const views = catalog.permissions.filter((p) => p.code.endsWith(".view") && p.code !== "team.view").map((p) => p.code);
+            const views = catalog.permissions.filter((p) => p.code.endsWith(".view") && p.code !== "team.view" && !isOptIn(p.code)).map((p) => p.code);
             const codes = new Set(editing.codes);
             views.forEach((c) => (e.target.checked ? codes.add(c) : undefined));
             setEditing({ ...editing, view_all: e.target.checked, codes: [...codes] });
@@ -205,6 +212,16 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
             </label>)}
           </div>)}
         </fieldset>
+        {optInItems.length ? <fieldset className="usersGrid" disabled={!isTeam}>
+          <legend>Liberado pela Mugô</legend>
+          <div className="usersModule">
+            <b>Social Media</b>
+            {optInItems.map((p) => <label key={p.code} className="usersCheck">
+              <input type="checkbox" checked={selected.has(p.code)} onChange={() => toggleCode(p.code)} /> {p.label}
+            </label>)}
+            <small className="usersHint">{isTeam ? "Não vem com Acesso total nem com perfil: só quem você marcar aqui vê a Matriz de conteúdo e as Campanhas." : "Só a equipe Mugô libera o Social Media."}</small>
+          </div>
+        </fieldset> : null}
         <div className="usersFormActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
           <button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "save" ? "Salvando…" : editing.member ? "Salvar permissões" : "Criar usuário"}</button></div>
       </form> : null}

@@ -8,6 +8,8 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import ContentMatrix from "../components/studio/ContentMatrix";
+import { navigateToAppRoute } from "../app/routes";
 import "../styles/studio.css";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -79,10 +81,32 @@ function PieceCard({ campaignId, piece, busy, onSaved, run }: {
   </section>;
 }
 
-/** Redação de campanha: briefing -> pacote de peças pela IA com os dados da marca. Só a equipe Mugô. */
-export default function Campaigns() {
+type Tab = "matriz" | "campanhas";
+
+/**
+ * Social Media (antes Redação): Matriz de conteúdo (trazida da iAgência) + Redação de campanha.
+ * Equipe Mugô sempre; usuário do cliente só com o módulo Social Media liberado pela Mugô.
+ * Tudo que vai ao ar passa pelo Calendário: rascunho → arte → aprovação → agendamento.
+ */
+export default function Campaigns({ canManage = true }: { canManage?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("aba") === "campanhas" ? "campanhas" : "matriz"));
+  return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={clientName} title="Social Media" controls={<div className="studioTabs" role="tablist" aria-label="Social Media">
+      <button type="button" role="tab" aria-selected={tab === "matriz"} className={tab === "matriz" ? "is-active" : ""} onClick={() => setTab("matriz")}>Matriz de conteúdo</button>
+      <button type="button" role="tab" aria-selected={tab === "campanhas"} className={tab === "campanhas" ? "is-active" : ""} onClick={() => setTab("campanhas")}>Campanhas</button>
+    </div>} />
+    <BrandContextPanel clientId={clientId} />
+    {tab === "matriz"
+      ? <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => { navigateToAppRoute("calendar"); window.dispatchEvent(new PopStateEvent("popstate")); }} />
+      : <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} />}
+  </div></Shell>;
+}
+
+/** Redação de campanha: briefing -> pacote de peças pela IA com os dados da marca. */
+function CampaignsPanel({ canManage }: { canManage: boolean }) {
+  const clientId = getActiveClientId();
   const [list, setList] = useState<Campaign[]>([]);
   const [current, setCurrent] = useState<Campaign | null>(null);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
@@ -128,13 +152,12 @@ export default function Campaigns() {
   const pieces = current?.package?.pieces || {};
   const toggle = (c: Channel) => briefing && setBriefing({ ...briefing, channels: briefing.channels.includes(c) ? briefing.channels.filter((x) => x !== c) : [...briefing.channels, c] });
 
-  return <Shell title="Redação" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Redação de campanha" controls={<div className="studioControls">
-      {current ? <button type="button" className="ds-button" onClick={() => setCurrent(null)}>Campanhas</button> : null}
-      <button type="button" className="ds-button is-primary" onClick={() => setBriefing({ ...emptyBriefing })} disabled={Boolean(busy)}>Nova campanha</button>
-    </div>} />
-    <BrandContextPanel clientId={clientId} />
-    <p className="libHint">A IA escreve com o Perfil de Marca e os dados reais da conta (o que alcançou, o que vendeu, Origem das vendas). Limites de caracteres conferidos pelo sistema. Só a equipe Mugô vê esta tela; posts, Reels e Stories vão para o Calendário e seguem a aprovação do cliente.</p>
+  return <section aria-label="Campanhas">
+    <div className="matrixToolbar">
+      {current ? <button type="button" className="ds-button" onClick={() => setCurrent(null)}>Todas as campanhas</button> : null}
+      {canManage ? <button type="button" className="ds-button is-primary" onClick={() => setBriefing({ ...emptyBriefing })} disabled={Boolean(busy)}>Nova campanha</button> : null}
+    </div>
+    <p className="libHint">A IA escreve com o Perfil de Marca e os dados reais da conta (o que alcançou, o que vendeu, Origem das vendas). Limites de caracteres conferidos pelo sistema. Posts, Reels e Stories vão para o Calendário e seguem a aprovação do cliente.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioOk">{notice}</p> : null}
     {busy === "generate" ? <p className="studioOk">Escrevendo a campanha com os dados da marca… (até 2 minutos)</p> : null}
@@ -177,5 +200,5 @@ export default function Campaigns() {
           <button className="ds-button is-primary" disabled={Boolean(busy) || !briefing.channels.length}>{busy === "generate" ? "Gerando… (até 2 min)" : "Gerar campanha"}</button></div>
       </form> : null}
     </Drawer>
-  </div></Shell>;
+  </section>;
 }

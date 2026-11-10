@@ -1,7 +1,8 @@
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioFormat, type StudioStatus } from "../../app/studio";
+import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
+import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import PostComments from "./PostComments";
@@ -69,6 +70,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   }, [busy, onClose]);
 
   const vertical = VERTICAL.includes(draft.format);
+  const channel: StudioChannel = draft.channel || "instagram";
+  const channelLabel = STUDIO_CHANNELS[channel];
+  // Só o Instagram publica sozinho; nas outras plataformas o agendamento lembra a equipe de publicar à mão.
+  const autoPublish = AUTO_PUBLISH_CHANNELS.includes((item?.channel || "instagram") as StudioChannel);
+  const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
@@ -145,19 +151,26 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         <div className="postPanelHead">
           {item ? <span className={`studioStatus is-${item.status}`}>{STUDIO_STATUS[item.status]}</span> : <span className="studioStatus">Nova pauta</span>}
           {item?.origin === "ia" ? <span className="studioChip">Sugerida pela IA</span> : null}
+          {item?.origin === "matriz" ? <span className="studioChip">Da Matriz de conteúdo</span> : null}
+          {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
         <label>Pauta<input required maxLength={200} value={draft.title} disabled={!canManage} onChange={(e) => set({ title: e.target.value })} /></label>
         <div className="studioRow">
           <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
           <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
           <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
-            {Object.entries(STUDIO_FORMATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
         </div>
+        {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
+          const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
+          set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
+        }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
+        {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
         <label>Pilar<input list="studio-pillars" maxLength={120} value={draft.pillar} disabled={!canManage || clientMode} onChange={(e) => set({ pillar: e.target.value })} />
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {canManage && !clientMode ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
+        {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">Arte do post {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
@@ -213,7 +226,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
         {item?.status === "aprovado" || item?.status === "publicado" ? <div className="studioPublish">
           <button type="button" onClick={() => void copyCaption()}>{copied ? "Legenda copiada ✓" : "Copiar legenda"}</button>
-          <a href={publisherUrl || PUBLISHER_URL} target="_blank" rel="noreferrer noopener">Abrir no Meta Business Suite ↗</a>
+          {channel === "instagram" || channel === "facebook" ? <a href={publisherUrl || PUBLISHER_URL} target="_blank" rel="noreferrer noopener">Abrir no Meta Business Suite ↗</a> : null}
         </div> : null}
 
         {rejectNote !== null ? <div className="postReject">
@@ -231,26 +244,27 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           </>}
           {dirty ? <button type="button" className="ds-button" disabled={busy} onClick={() => setDraft(initial)}>Descartar</button> : null}
         </div> : null}
-        {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? <p className="postPublishWarn">
-          Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p> : null}
+        {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? (autoPublish ? <p className="postPublishWarn">
+          Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p>
+          : <p className="postPublishWarn">Aprovado. <b>{channelLabel} não publica sozinho</b>: agende para a equipe ser lembrada na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null}
         {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
-          Marcado como publicado à mão: o Mugoverso não enviou este post ao Instagram.</p> : null}
+          Marcado como publicado à mão: o Mugoverso não enviou este post ao {channelLabel}.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
           {dirty || !item ? <button className="ds-button is-primary" disabled={busy}>{busy ? "Salvando…" : item ? "Salvar alterações" : "Criar pauta"}</button> : null}
           {item && !dirty ? <>
             {onSendForApproval && ["rascunho", "em_revisao", "rejeitado"].includes(item.status) ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={onSendForApproval}>Enviar para o cliente aprovar</button> : null}
             {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at && new Date(item.scheduled_at).getTime() > Date.now() ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void onConfirmSchedule(false)}>
               Agendar para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button> : null}
-            {onConfirmSchedule && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
+            {onConfirmSchedule && autoPublish && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
               onClick={() => { if (window.confirm("Publicar agora no Instagram? O post sai em até 5 minutos.")) void onConfirmSchedule(true); }}>Publicar agora</button> : null}
-            {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: publica sozinho no Instagram</span> : null}
+            {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: {autoPublish ? "publica sozinho no Instagram" : `na hora fica marcado para publicar à mão no ${channelLabel}`}</span> : null}
             {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
             {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
             {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
-            {onRetryPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}
+            {onRetryPublish && autoPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}
             {item.status !== "aprovado" && item.status !== "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("aprovado")}>Aprovar</button> : null}
-            {item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className="studioLink" disabled={busy}
-              onClick={() => { if (window.confirm("Isso NÃO publica no Instagram: só marca no Mugoverso que você já publicou à mão. Continuar?")) void onStatus("publicado"); }}>Já publiquei à mão</button> : null}
+            {item.status === "aprovado" && (!item.schedule_confirmed_at || item.publish_status === "manual") ? <button type="button" className="studioLink" disabled={busy}
+              onClick={() => { if (window.confirm(`Isso NÃO publica no ${channelLabel}: só marca no Mugoverso que você já publicou à mão. Continuar?`)) void onStatus("publicado"); }}>Já publiquei à mão</button> : null}
             {item.status === "rascunho" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("em_revisao")}>Enviar p/ revisão</button> : null}
             {item.status !== "rejeitado" && item.status !== "publicado" && rejectNote === null ? <button type="button" className="ds-button" disabled={busy} onClick={() => setRejectNote(item.review_note || "")}>Rejeitar</button> : null}
             {item.status === "aprovado" || item.status === "rejeitado" || item.status === "publicado" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onStatus("rascunho")}>Reabrir</button> : null}

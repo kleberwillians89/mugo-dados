@@ -1,7 +1,8 @@
 import { http, clientClientPath } from "./api";
-import type { GuardIssue } from "./studio";
+import type { GuardIssue, StudioFormat } from "./studio";
 
-/** Clipping da marca e Redação de campanha — só a equipe Mugô (o backend exige agency_admin). */
+/** Clipping da marca (só a equipe Mugô) e Social Media: Redação de campanha + Matriz de conteúdo
+ * (módulo social_media, que a Mugô libera por usuário; o backend confere cada chamada). */
 const base = (path: string) => clientClientPath(`/studio${path}`);
 
 export type Sentiment = "positivo" | "neutro" | "negativo" | "misto";
@@ -111,4 +112,49 @@ export function pieceText(channel: Channel, content: unknown): string {
   if (channel === "whatsapp" && !Array.isArray(c)) return s(c.mensagem);
   if (channel === "email" && !Array.isArray(c)) return `Assunto: ${s(c.assunto)}\nPré-cabeçalho: ${s(c.preheader)}\n\n${s(c.corpo)}`;
   return JSON.stringify(c, null, 2);
+}
+
+/* ------------------------------------------------------------------ Matriz de conteúdo (Social Media) */
+
+export type Platform = "instagram" | "facebook" | "tiktok" | "linkedin" | "youtube";
+export const PLATFORM_LABEL: Record<Platform, string> = { instagram: "Instagram", facebook: "Facebook", tiktok: "TikTok", linkedin: "LinkedIn", youtube: "YouTube" };
+export const PLATFORM_ORDER: Platform[] = ["instagram", "tiktok", "facebook", "linkedin", "youtube"];
+/** Formatos de cada plataforma (mesma regra do backend: studio_matrix.PLATFORM_FORMATS). */
+export const PLATFORM_FORMATS: Record<Platform, StudioFormat[]> = {
+  instagram: ["reels", "carrossel", "imagem", "stories"], facebook: ["imagem", "video", "carrossel", "stories"],
+  tiktok: ["video"], linkedin: ["imagem", "carrossel", "video"], youtube: ["video"],
+};
+export const WEEKDAY_LABEL = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+export type OpportunityStatus = "sugerida" | "selecionada" | "descartada" | "exportada";
+export type Opportunity = {
+  id: string; matrix_id: string; platform: Platform; pillar: string; week: number; weekday: number; format: StudioFormat;
+  title: string; hook: string | null; angle: string | null; caption_draft: string | null; rationale: string | null;
+  guard?: { type: string; text: string; fix: string }[]; status: OpportunityStatus; edited: boolean; position: number; calendar_item_id: string | null; updated_at?: string;
+};
+export type MatrixSummary = { id: string; week_start: string; platforms: Platform[]; pillars: { name: string; weight?: number }[];
+  focus: string | null; summary: string | null; status: string; created_at: string };
+export type ContentMatrix = MatrixSummary & { notes?: string[]; opportunities: Opportunity[] };
+export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars: string[]; per_week: number; focus: string };
+export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale">> & { status?: Exclude<OpportunityStatus, "exportada"> };
+
+const mx = (path = "") => base(`/matrix${path}`);
+export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
+export function getMatrix(id: string) { return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}`)); }
+export function createMatrix(input: MatrixRequest) {
+  return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify(input), timeoutMs: 180_000 });
+}
+export function archiveMatrix(id: string) { return http<{ matrix: MatrixSummary }>(mx(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
+export function updateOpportunity(matrixId: string, id: string, patch: OpportunityPatch) {
+  return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(patch) });
+}
+export function refineOpportunity(matrixId: string, id: string, instruction?: string) {
+  return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}/refine`),
+    { method: "POST", body: JSON.stringify({ instruction: instruction || null }), timeoutMs: 120_000 });
+}
+export function setOpportunitiesStatus(matrixId: string, ids: string[], status: Exclude<OpportunityStatus, "exportada">) {
+  return http<{ updated: number; matrix: ContentMatrix }>(mx(`/${encodeURIComponent(matrixId)}/status`), { method: "POST", body: JSON.stringify({ ids, status }) });
+}
+export function matrixToCalendar(matrixId: string, ids?: string[]) {
+  return http<{ created: number; already: number; calendar_item_ids: string[]; matrix: ContentMatrix }>(
+    mx(`/${encodeURIComponent(matrixId)}/calendar`), { method: "POST", body: JSON.stringify(ids?.length ? { ids } : {}), timeoutMs: 120_000 });
 }

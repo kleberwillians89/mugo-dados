@@ -171,6 +171,14 @@ async def _set(item: Dict[str, Any], patch: Dict[str, Any], *, expect: Optional[
 
 
 async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> str:
+    from .studio_calendar import AUTO_PUBLISH_CHANNELS, CHANNEL_LABELS
+    channel = str(item.get("channel") or "instagram")
+    if channel not in AUTO_PUBLISH_CHANNELS:
+        # Outras plataformas não publicam sozinhas: na hora do post, fica avisado para publicar à mão.
+        label = CHANNEL_LABELS.get(channel, channel)
+        await _set(item, {"publish_status": "manual",
+                          "publish_error": f"{label} não publica sozinho pelo Mugoverso. Publique à mão e marque como publicado."})
+        return "manual"
     container, manual = media_for(item)
     if manual:
         await _set(item, {"publish_status": "manual", "publish_error": manual[:300]})
@@ -199,7 +207,7 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
 
 async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
     now = now or datetime.now(timezone.utc)
-    base = "id,client_id,format,art_url,caption_draft,scheduled_at,status,schedule_confirmed_at,publish_status"
+    base = "id,client_id,channel,format,art_url,caption_draft,scheduled_at,status,schedule_confirmed_at,publish_status"
     query = dict(order="scheduled_at.asc", limit=MAX_PER_RUN,
                  filters={"status": "eq.aprovado", "schedule_confirmed_at": "not.is.null", "publish_status": "is.null",
                           "scheduled_at": f"lte.{now.isoformat()}"})

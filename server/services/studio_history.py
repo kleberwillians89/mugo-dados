@@ -57,6 +57,9 @@ def describe_patch(patch: Dict[str, Any]) -> List[str]:
         out.append("trocou a arte" if patch.get("art_url") else "tirou a arte")
     if patch.get("scheduled_at"):
         out.append(f"mudou a data para {_when(patch['scheduled_at'])}".strip())
+    if patch.get("channel"):
+        from .studio_calendar import CHANNEL_LABELS
+        out.append(f"mudou a plataforma para {CHANNEL_LABELS.get(patch['channel'], patch['channel'])}")
     if patch.get("format"):
         out.append(f"mudou o formato para {FORMAT_LABEL.get(patch['format'], patch['format'])}")
     if "collaborators" in patch:

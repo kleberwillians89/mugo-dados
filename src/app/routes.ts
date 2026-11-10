@@ -49,6 +49,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
+  // Social Media (antes Redação): o endereço antigo continua abrindo a mesma tela.
+  if (normalized === "/social-media" || normalized.startsWith("/social-media/")) return "campaigns";
   if (normalized === "/redacao" || normalized.startsWith("/redacao/")) return "campaigns";
   if (normalized === "/criadores" || normalized.startsWith("/criadores/")) return "creators";
   if (normalized === "/automacoes" || normalized.startsWith("/automacoes/")) return "automations";
@@ -94,7 +96,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";
   if (route === "brand_ai") return "/ia-da-marca";
-  if (route === "campaigns") return "/redacao";
+  if (route === "campaigns") return "/social-media";
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
   if (route === "customers") return "/clientes";

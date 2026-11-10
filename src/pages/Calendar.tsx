@@ -144,11 +144,11 @@ export default function Calendar({ canManage, isAgency = false }: { canManage: b
   function openNew(at: string) {
     setError(null);
     const [date, time] = at.includes("T") ? at.split("T") : [at, "19:00"];
-    setModal({ item: null, draft: { date, time, format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
+    setModal({ item: null, draft: { date, time, channel: "instagram", format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
   }
 
   async function saveDraft(draft: PostDraft) {
-    const body = { scheduled_at: toSaoPauloIso(draft.date, draft.time), format: draft.format, pillar: draft.pillar || undefined,
+    const body = { scheduled_at: toSaoPauloIso(draft.date, draft.time), channel: draft.channel || "instagram", format: draft.format, pillar: draft.pillar || undefined,
       title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined,
       art_url: (draft.art_url || "").trim(),
       // Colaboradores só vão quando mudam (não registra "marcou" a cada salvar).

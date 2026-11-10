@@ -144,19 +144,34 @@ class CampaignFlowTests(unittest.IsolatedAsyncioTestCase):
 
 class AgencyOnlyTests(unittest.TestCase):
     def test_every_route_is_agency_only(self):
-        # Exceção única: a leitura do clipping é aberta ao cliente (versão filtrada, ver
-        # test_clipping_client_view). Toda escrita e o restante continuam só da agência.
+        # Clipping: só a agência (exceto a leitura filtrada, ver test_clipping_client_view).
+        # Social Media (campanhas e matriz): papel de escrita + permissão do módulo social_media,
+        # que só a equipe Mugô libera (team_access.OPT_IN_CODES).
         source = Path(content_ops.__file__).read_text(encoding="utf-8")
         routes = source.split("\n@router.")[1:]
         self.assertGreaterEqual(len(routes), 12)
+        social = 0
         for route in routes:
             if route.startswith('get("/clipping")') or route.startswith('get("/clipping/insights")'):
                 self.assertIn("require_client_read", route)
                 self.assertIn("is_agency_user", route)
                 continue
-            self.assertIn("allowed_roles=AGENCY_ONLY", route, route.splitlines()[0])
+            first = route.splitlines()[0]
+            if '"/campaigns' in first or '"/matrix' in first:
+                self.assertIn("allowed_roles=SOCIAL_MEDIA", route, first)
+                social += 1
+                continue
+            self.assertIn("allowed_roles=AGENCY_ONLY", route, first)
+        self.assertGreaterEqual(social, 14)
         self.assertEqual(content_ops.AGENCY_ONLY, ("agency_admin",))
+        self.assertEqual(content_ops.SOCIAL_MEDIA, ("agency_admin", "client_admin"))
 
+    def test_social_media_routes_belong_to_the_opt_in_module(self):
+        from services import team_access as ta
+        for path in ("/api/clients/c1/studio/campaigns", "/api/clients/c1/studio/matrix/m1/calendar"):
+            self.assertEqual(ta.route_module("POST", path), ("social_media", "social_media.edit"))
+        self.assertEqual(ta.route_module("GET", "/api/clients/c1/studio/matrix"), ("social_media", "social_media.view"))
+        self.assertTrue({"social_media.view", "social_media.edit"} <= ta.OPT_IN_CODES)
 
 if __name__ == "__main__":
     unittest.main()

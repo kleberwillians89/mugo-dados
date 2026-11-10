@@ -35,6 +35,11 @@ from .studio_llm import CREATIVE_GUIDANCE
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 FORMATS = ("reels", "carrossel", "imagem", "stories", "video")
+# Plataformas do calendário. Só o Instagram publica sozinho; nas demais o post é agendado e, na hora,
+# fica marcado para publicar à mão (ig_publish.publish_item).
+CHANNELS = ("instagram", "facebook", "tiktok", "linkedin", "youtube")
+CHANNEL_LABELS = {"instagram": "Instagram", "facebook": "Facebook", "tiktok": "TikTok", "linkedin": "LinkedIn", "youtube": "YouTube"}
+AUTO_PUBLISH_CHANNELS = ("instagram",)
 DEFAULT_FORMATS = ("reels", "carrossel", "imagem")
 STATUSES = ("rascunho", "em_revisao", "aprovado", "rejeitado", "publicado")
 DEFAULT_WEEKDAY_ORDER = (1, 3, 2, 0, 4, 5, 6)  # ter, qui, qua, seg, sex, sáb, dom
@@ -578,7 +583,7 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
 
 
-EDITABLE = ("scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators")
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -612,6 +617,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             clean["published_at"] = datetime.now(timezone.utc).isoformat()
     if "format" in clean and clean["format"] not in FORMATS:
         raise StudioError("FORMAT_INVALID")
+    if "channel" in clean and clean["channel"] not in CHANNELS:
+        raise StudioError("CHANNEL_INVALID")
     if "scheduled_at" in clean:
         when = datetime.fromisoformat(str(clean["scheduled_at"]).replace("Z", "+00:00"))
         if when.tzinfo is None:
@@ -630,8 +637,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         except Exception as exc:  # noqa: BLE001
             print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
-    if "scheduled_at" in clean or clean.get("status", "aprovado") != "aprovado":
-        # Data mudou ou saiu de "aprovado": o agendamento confirmado não vale mais.
+    if "scheduled_at" in clean or "channel" in clean or clean.get("status", "aprovado") != "aprovado":
+        # Data ou plataforma mudou, ou saiu de "aprovado": o agendamento confirmado não vale mais.
         try:
             rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None,
                                                                     **({} if clean.get("status") == "publicado" else {"publish_status": None, "publish_error": None})})
@@ -657,10 +664,12 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
     item = rows[0]
     if item.get("status") != "aprovado":
         raise StudioError("SCHEDULE_NEEDS_APPROVAL")
-    from .ig_publish import media_for
-    _plan, problem = media_for(item)
-    if problem:
-        raise StudioError("SCHEDULE_ART_INVALID", problem)
+    if str(item.get("channel") or "instagram") in AUTO_PUBLISH_CHANNELS:
+        # Só confere a arte de quem publica sozinho; nas outras plataformas a equipe publica à mão.
+        from .ig_publish import media_for
+        _plan, problem = media_for(item)
+        if problem:
+            raise StudioError("SCHEDULE_ART_INVALID", problem)
     patch: Dict[str, Any] = {"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id}
     if now:
         moment = datetime.now(timezone.utc)
@@ -677,20 +686,26 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
     return updated[0]
 
 
-async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
+async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, origin: str = "manual",
+                      matrix_opportunity_id: Optional[str] = None) -> Dict[str, Any]:
     when = datetime.fromisoformat(str(data["scheduled_at"]).replace("Z", "+00:00"))
     if when.tzinfo is None:
         when = when.replace(tzinfo=SAO_PAULO)
     if data.get("format") not in FORMATS:
         raise StudioError("FORMAT_INVALID")
+    channel = data.get("channel") or "instagram"
+    if channel not in CHANNELS:
+        raise StudioError("CHANNEL_INVALID")
     row = {
         "client_id": client_id, "month": when.astimezone(SAO_PAULO).date().replace(day=1).isoformat(),
-        "scheduled_at": when.isoformat(), "channel": "instagram", "format": data["format"],
+        "scheduled_at": when.isoformat(), "channel": channel, "format": data["format"],
         "pillar": data.get("pillar"), "title": data["title"], "hook": data.get("hook"),
         "caption_draft": data.get("caption_draft"), "rationale": data.get("rationale"),
-        "status": "rascunho", "origin": "manual", "created_by": user_id,
+        "status": "rascunho", "origin": origin, "created_by": user_id,
         "art_url": clean_art_url(data.get("art_url")),
     }
+    if matrix_opportunity_id:
+        row["matrix_opportunity_id"] = matrix_opportunity_id
     if data.get("collaborators"):
         from .ig_publish import clean_collaborators
         row["collaborators"] = clean_collaborators(data["collaborators"])
