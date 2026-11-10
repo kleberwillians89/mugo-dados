@@ -12,6 +12,7 @@ import PageHeader from "../components/data/PageHeader";
 import PeriodSelector from "../components/data/PeriodSelector";
 import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
+import WhatsAppNumbers from "../components/whatsapp/WhatsAppNumbers";
 import "../styles/whatsapp.css";
 
 type Filter = "all" | "ad" | "bought" | "waiting";
@@ -132,9 +133,10 @@ export default function WhatsApp() {
         ) : null}
         {data?.status === "no_brand_number" ? (
           <DataNotice title="O WhatsApp desta marca ainda não está ligado.">
-            Quando o número oficial da marca for ligado a ela no CRM, as conversas, a origem de cada uma e as vendas aparecem aqui.
+            Quando o número oficial da marca for ligado ao MUGOVERSO, as conversas, a origem de cada uma e as vendas aparecem aqui.
           </DataNotice>
         ) : null}
+        <WhatsAppNumbers key={clientId || "none"} onChange={() => window.location.reload()} />
 
         {totals ? (
           <>

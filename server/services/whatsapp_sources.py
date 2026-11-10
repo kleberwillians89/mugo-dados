@@ -3,8 +3,8 @@
 - Empresa com CRM próprio (hoje só a Ruah): ponte só de leitura desse CRM (`mugoverso-bridge`),
   configurada em WHATSAPP_BRAND_BRIDGES = {"<client_id>": {"url": "...", "key": "..."}}. Esse CRM também
   manda as vendas que ele registra (a Ruah vende pelo WhatsApp e cadastra no CRM, não no Shopify).
-- As demais: número ligado à empresa no CRM Mugô (`dados-ops-api`). Quando o WhatsApp das marcas nascer
-  dentro do MUGOVERSO, a leitura nativa entra aqui como mais uma fonte, sem mudar a tela nem os números.
+- Número ligado direto no MUGOVERSO (app da Mugô na Meta → função `whatsapp-webhook`): `whatsapp_native`.
+- Sem nenhum dos dois: número ligado à empresa no CRM Mugô (`dados-ops-api`) — hoje, o da própria Mugô.
 
 Mesmo contrato de saída de `crm_bridge`: {"available": True, ...dados} ou {"available": False, "reason"}.
 O telefone nunca chega aqui: só mascarado e a chave (hash) para casar com a venda.
@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from . import crm_bridge
+from . import crm_bridge, whatsapp_native
 from .studio_calendar import StudioError
 
 TIMEOUT_SECONDS = 20
@@ -78,6 +78,8 @@ async def brand_leads(client_id: str, start: str, end: str) -> Dict[str, Any]:
     cfg = bridge_for(client_id)
     if cfg:
         return await _bridge_call(cfg, "leads", client_id, {"period_start": start[:10], "period_end": end[:10]})
+    if await whatsapp_native.active_number_ids(client_id):
+        return await whatsapp_native.leads(client_id, start, end)
     return await crm_bridge.brand_leads(client_id, start, end)
 
 
@@ -85,6 +87,8 @@ async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]
     cfg = bridge_for(client_id)
     if cfg:
         return await _bridge_call(cfg, "conversations", client_id, {"limit": max(1, min(int(limit), 200))})
+    if await whatsapp_native.active_number_ids(client_id):
+        return await whatsapp_native.conversations(client_id, limit=limit)
     return await crm_bridge.brand_conversations(client_id, limit=limit)
 
 
@@ -94,6 +98,11 @@ async def brand_messages(client_id: str, conversation_id: str, limit: int = 100)
     cfg = bridge_for(client_id)
     if cfg:
         return await _bridge_call(cfg, "messages", client_id, {"conversation_id": conversation_id, "limit": max(1, min(int(limit), 300))})
+    if await whatsapp_native.active_number_ids(client_id):
+        native = await whatsapp_native.messages(client_id, conversation_id, limit=limit)
+        if not native.pop("found", False):
+            raise StudioError("CONVERSATION_NOT_FOUND")
+        return native
     return await crm_bridge.list_messages(client_id, conversation_id, limit=limit)
 
 

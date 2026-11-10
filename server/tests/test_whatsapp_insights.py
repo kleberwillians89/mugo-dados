@@ -175,6 +175,7 @@ class SourcesTests(unittest.TestCase):
     def test_without_bridge_falls_back_to_crm_mugo(self):
         from services import whatsapp_sources as ws
         with patch.object(ws, "bridge_for", return_value=None), \
+             patch.object(ws.whatsapp_native, "active_number_ids", AsyncMock(return_value=[])), \
              patch.object(ws.crm_bridge, "brand_leads", AsyncMock(return_value={"available": True, "connected": False})) as mugo:
             out = asyncio.run(ws.brand_leads("roove", "2026-11-01", "2026-11-07"))
         mugo.assert_awaited_once()
