@@ -1170,3 +1170,32 @@
 .aiUsageTable{table-layout:fixed;min-width:0 !important}
 .aiUsageTable th:first-child{width:46%}
 .aiUsageTable td:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Mídia On → Meta Ads */
+.mediaPrepareMeta{display:block;margin-top:6px;font-size:12px}
+.metaAdsTable td{vertical-align:middle}
+.metaAdsTable td b{display:block;font-weight:600}
+.metaAdsErr{color:var(--negative,#b22234) !important}
+.metaAdsActions{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+.metaAdsForm{display:flex;flex-direction:column;gap:18px}
+.metaAdsForm fieldset{display:flex;flex-direction:column;gap:12px;margin:0;padding:14px 16px;border:1px solid var(--border-subtle);border-radius:12px;min-width:0}
+.metaAdsForm legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.metaAdsForm .ds-field input,.metaAdsForm .ds-field select,.metaAdsForm .ds-field textarea{min-height:36px;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font:400 14px var(--font-body)}
+.metaAdsRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.metaAdsCheck{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--text-primary)}
+.metaAdsCheck input{margin-top:2px;accent-color:var(--text-primary)}
+.metaAdsArts{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:4px 0 8px}
+.metaAdsArt{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:4px;border:2px solid transparent;border-radius:10px;background:var(--surface-subtle,#f7f6f3)}
+.metaAdsArt img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:7px}
+.metaAdsArt span{font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.metaAdsArt.is-selected{border-color:#004f6e}
+.metaAdsArt:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
+.metaAdsMissing{color:#8a5a00 !important}
+.metaAdsFormActions{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border-subtle)}
+.metaAdsButtons{display:flex;gap:8px}
+.metaAdsTable{width:100%}
+.metaAdsTable td:first-child{max-width:320px;white-space:normal}
+.metaAdsTable td:first-child .ds-tableSub{white-space:normal}
+.metaAdsTable td:last-child{width:1%;white-space:nowrap}
+.metaAdsTable th:nth-child(n+3):not(:last-child),.metaAdsTable td:nth-child(n+3):not(:last-child){white-space:nowrap}
+.metaAdsTable .metaAdsActions{flex-wrap:nowrap}
