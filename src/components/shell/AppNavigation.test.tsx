@@ -47,6 +47,13 @@ describe("AppNavigation — sidebar global", () => {
     return [...container.querySelectorAll<HTMLAnchorElement>(".appSidebar a")].find((item) => item.textContent?.trim() === text);
   }
 
+  function groupLinks(label: string) {
+    const heading = [...container.querySelectorAll<HTMLElement>(".appNavGroupLabel")]
+      .find((item) => item.textContent?.trim() === label);
+    return [...(heading?.nextElementSibling?.querySelectorAll<HTMLAnchorElement>("a") || [])]
+      .map((item) => item.textContent?.trim());
+  }
+
   it("separa produto, empresa, navegação e conta; o ativo é marcado com aria-current", async () => {
     await render();
     expect(container.querySelector(".appProductName")?.textContent).toBe("MUGOVERSO");
@@ -58,6 +65,23 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Integrações")?.getAttribute("href")).toBe("/integracoes");
     expect(link("Calendário")).toBeUndefined();
     expect(link("Empresas")).toBeUndefined();
+  });
+
+  it("organiza os itens na nova ordem visual sem alterar suas rotas", async () => {
+    await render({ agencyAdmin: true });
+    expect(groupLinks("Operação")).toEqual([
+      "Central da Marca", "Tarefas", "Social Media", "Redação", "Criadores", "IA da marca",
+    ]);
+    expect(groupLinks("Inteligência")).toEqual([
+      "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",
+      "Clientes", "Comentários", "Clipping", "Relatório",
+    ]);
+    expect(groupLinks("Administração")).toEqual([
+      "Integrações", "Usuários", "Empresas", "Consumo de IA", "Automações", "Central da Marca",
+    ]);
+    expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
+    expect(link("Relatório social")).toBeUndefined();
+    expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
   });
 
   it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {
@@ -145,5 +169,11 @@ describe("AppNavigation — sidebar global", () => {
     expect(container.textContent).toContain("Administração");
     expect(link("Integrações")).toBeTruthy();
     expect(link("Empresas")?.getAttribute("href")).toBe("/empresas");
+  });
+
+  it("aplica a permissão da Central da Marca aos dois atalhos", async () => {
+    await render({ agencyAdmin: true, canView: (route) => route !== "central" });
+    expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
+    expect(groupLinks("Administração")).not.toContain("Central da Marca");
   });
 });
