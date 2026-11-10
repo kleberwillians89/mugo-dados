@@ -52,6 +52,7 @@ const Campaigns = lazy(() => import("./pages/Campaigns"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
+const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const loadCustomers = () => import("./pages/Customers");
 const loadCompanies = () => import("./pages/Companies");
 const loadIntelligence = () => import("./pages/Intelligence");
@@ -938,6 +939,8 @@ function PrivateApp() {
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />
+      ) : route === "whatsapp" ? (
+        <WhatsApp key={`whatsapp:${activeClientId}`} />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${resolvedUserId}:${activeClientId}`}

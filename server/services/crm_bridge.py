@@ -96,6 +96,16 @@ async def list_messages(client_id: str, conversation_id: str, limit: int = 100) 
     return await _call("messages", client_id, {"conversation_id": conversation_id, "limit": max(1, min(int(limit), 200))})
 
 
+
+async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
+    """Caixa de entrada do número de WhatsApp DA MARCA (conversas com os clientes dela)."""
+    return await _call("brand-conversations", client_id, {"limit": max(1, min(int(limit), 200))})
+
+
+async def brand_leads(client_id: str, period_start: str, period_end: str) -> Dict[str, Any]:
+    """Conversas novas no número da marca no período, com a origem e a chave do telefone (nunca o número)."""
+    return await _call("brand-leads", client_id, {"period_start": period_start[:10], "period_end": period_end[:10]})
+
 def _events_url(api_url: str) -> str:
     # Mesmo projeto e mesma chave: dados-ops-api (leitura) e dados-ops-events (escrita) ficam lado a lado.
     return api_url[: -len("dados-ops-api")] + "dados-ops-events" if api_url.endswith("dados-ops-api") else ""

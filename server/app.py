@@ -59,6 +59,7 @@ from routes.creators import router as creators_router
 from routes.automations import client_router as automations_client_router, router as automations_router
 from routes.studio import public_router as studio_public_router, router as studio_router
 from routes.sales_origin import router as sales_origin_router
+from routes.whatsapp import router as whatsapp_router
 from routes.customers import router as customers_router
 from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
@@ -366,6 +367,7 @@ app.include_router(crm_router)
 app.include_router(hooks_router)
 app.include_router(content_ops_router)
 app.include_router(sales_origin_router)
+app.include_router(whatsapp_router)
 app.include_router(connections_router)
 app.include_router(integrations_router)
 app.include_router(platform_admin_router)

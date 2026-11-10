@@ -248,6 +248,7 @@ _CLIENT_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "crm": ("tasks", True),
     "goals": ("central", False),
     "sales-by-origin": ("origins", True),
+    "whatsapp": ("origins", True),
     # Integrações (conexões, sincronização, OAuth) seguem só para quem tem acesso total (papel client_admin).
 }
 _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
