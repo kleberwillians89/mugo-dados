@@ -152,7 +152,7 @@ class AgencyOnlyTests(unittest.TestCase):
         self.assertGreaterEqual(len(routes), 12)
         social = 0
         for route in routes:
-            if route.startswith('get("/clipping")') or route.startswith('get("/clipping/insights")'):
+            if route.startswith(('get("/clipping")', 'get("/clipping/insights")', 'get("/clipping/health")')):
                 self.assertIn("require_client_read", route)
                 self.assertIn("is_agency_user", route)
                 continue

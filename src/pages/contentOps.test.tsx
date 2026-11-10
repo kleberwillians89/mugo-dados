@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
 const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn(), strategyChat: vi.fn() }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studioApi }));
+vi.mock("../components/clipping/BrandHealth", () => ({ default: () => <p>Painel saúde da marca</p> }));
+vi.mock("../components/clipping/BrandHealthAlerts", () => ({ default: () => <p>Alertas da marca</p> }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("./Calendar", () => ({ default: () => <label>Calendário incorporado<input aria-label="Rascunho local do calendário" defaultValue="" /></label> }));
 
@@ -43,16 +45,26 @@ const show = async (node: React.ReactNode) => { await act(async () => { root.ren
 const week = { current: { total: 5, marca: 4, concorrente: 1, positivo: 2, neutro: 1, negativo: 1 }, previous: { total: 2, marca: 2, concorrente: 0, positivo: 1, neutro: 1, negativo: 0 }, marca_variacao: 2 };
 
 describe("Clipping", () => {
+  it("abre na Saúde da marca; Alertas só para a agência", async () => {
+    api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: true, last_run_at: null } });
+    await show(<Clipping canManage />);
+    expect(host.textContent).toContain("Painel saúde da marca");
+    expect(host.textContent).toContain("Alertas");
+    await show(<Clipping />);
+    expect(host.textContent).toContain("Painel saúde da marca");
+    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Saúde da marca", "Matérias"]);
+  });
+
   it("sem termos, pede a configuração", async () => {
     api.getClipping.mockResolvedValue({ items: [], week, settings: { brand_terms: [], competitor_terms: [], exclude_terms: [], active: true, last_run_at: null, saved: false } });
-    await show(<Clipping canManage />);
+    await show(<Clipping canManage initialTab="materias" />);
     expect(host.textContent).toContain("Configure os termos");
   });
 
   it("mostra o resumo da semana e cada notícia com fonte e leitura da IA", async () => {
     api.getClipping.mockResolvedValue({ week, settings: { brand_terms: ["Curavino"], competitor_terms: [], exclude_terms: [], active: true, last_run_at: null, saved: true },
       items: [{ id: "n1", url: "https://news/1", title: "Curavino lança linha natural", source: "Revista Adega", published_at: "2026-10-28T12:00:00Z", kind: "marca", term: "Curavino", sentiment: "positivo", summary: "Lançamento bem recebido", relevant: true, status: "novo", calendar_item_id: null, created_at: "2026-10-28T12:00:00Z" }] });
-    await show(<Clipping canManage />);
+    await show(<Clipping canManage initialTab="materias" />);
     expect(host.textContent).toContain("menções da marca em 7 dias");
     expect(host.textContent).toContain("+2 vs. semana anterior");
     expect(host.querySelector('a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
@@ -63,7 +75,7 @@ describe("Clipping", () => {
   it("cliente lê as notícias sem termos nem ações", async () => {
     api.getClipping.mockResolvedValue({ week, settings: { saved: true, last_run_at: null },
       items: [{ id: "n1", url: "https://news/1", title: "Curavino lança linha natural", source: "Revista Adega", published_at: "2026-10-28T12:00:00Z", kind: "marca", term: "Curavino", sentiment: "positivo", summary: null, relevant: true, status: "novo", calendar_item_id: null, created_at: "2026-10-28T12:00:00Z" }] });
-    await show(<Clipping />);
+    await show(<Clipping initialTab="materias" />);
     expect(host.textContent).toContain("Curavino lança linha natural");
     for (const action of ["Virar pauta", "Arquivar", "Termos", "Atualizar agora"]) expect(host.textContent).not.toContain(action);
   });
@@ -74,18 +86,18 @@ describe("Clipping", () => {
       sources: [{ key: "G1", count: 2 }], mentions: [{ key: "marca:Curavino", count: 2 }, { key: "concorrente:Evino", count: 1 }],
       timeline: [{ day: "2026-10-29", count: 1 }, { day: "2026-10-30", count: 2 }],
       critical: [{ id: "c1", title: "Recall de vinho", url: "https://g1/x", source: "G1", published_at: null, criticality: "critica", relevance: 90, sentiment: "negativo", risks: [] }] });
-    await show(<Clipping canManage />);
+    await show(<Clipping canManage initialTab="materias" />);
     expect(host.textContent).toContain("1 matéria(s) crítica(s) aguardando revisão");
     expect(host.textContent).toContain("Evino (Concorrente)");
     expect(host.textContent).toContain("Gerar relatório");
-    await act(async () => { root.render(<Clipping />); }); await act(async () => {});
+    await act(async () => { root.render(<Clipping initialTab="materias" />); }); await act(async () => {});
     expect(host.textContent).not.toContain("Gerar relatório");
     expect(host.textContent).not.toContain("Exportar CSV");
   });
 
   it("cliente sem clipping ativo não vê convite para configurar", async () => {
     api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: false, last_run_at: null } });
-    await show(<Clipping />);
+    await show(<Clipping initialTab="materias" />);
     expect(host.textContent).toContain("ainda não foi ativado pela Mugô");
     expect(host.textContent).not.toContain("Configure os termos");
   });

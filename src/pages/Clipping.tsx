@@ -9,10 +9,14 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import BrandHealth from "../components/clipping/BrandHealth";
+import BrandHealthAlerts from "../components/clipping/BrandHealthAlerts";
 import "../styles/studio.css";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
 type RadarDraft = Record<string, string>;
+type ClipTab = "saude" | "alertas" | "materias";
+const CLIP_TABS: [ClipTab, string][] = [["saude", "Saúde da marca"], ["alertas", "Alertas"], ["materias", "Matérias"]];
 
 function Bars({ title, rows, label }: { title: string; rows: Count[]; label?: (key: string) => string }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -25,9 +29,10 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt
 const toList = (text: string) => text.split(/[\n,]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
 
 /** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. O cliente só lê; a equipe Mugô configura e trata. */
-export default function Clipping({ canManage = false }: { canManage?: boolean }) {
+export default function Clipping({ canManage = false, initialTab = "saude" }: { canManage?: boolean; initialTab?: ClipTab }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
+  const [tab, setTab] = useState<ClipTab>(initialTab);
   const [view, setView] = useState<ClippingView | null>(null);
   const [kind, setKind] = useState<Kind>("");
   const [sentiment, setSentiment] = useState<"" | Sentiment>("");
@@ -119,6 +124,12 @@ export default function Clipping({ canManage = false }: { canManage?: boolean })
       <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void download()}>Exportar CSV</button>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !settings?.saved} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Atualizar agora"}</button>
     </div> : undefined} />
+    <nav className="clipTabs" aria-label="Clipping">
+      {CLIP_TABS.filter(([key]) => canManage || key !== "alertas").map(([key, label]) => <button key={key} type="button" aria-pressed={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{label}</button>)}
+    </nav>
+    {tab === "saude" ? <BrandHealth canManage={canManage} onOpenAlerts={() => setTab("alertas")} /> : null}
+    {tab === "alertas" && canManage ? <BrandHealthAlerts /> : null}
+    {tab === "materias" ? <>
     {canManage ? <BrandContextPanel clientId={clientId} /> : null}
     <p className="libHint">Notícias do Google Notícias sobre a marca e os concorrentes, buscadas todo dia às 7h40. A IA lê só a manchete e a fonte.{canManage ? " O cliente vê só as notícias relevantes, sem os termos nem as ações." : ""}{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
@@ -211,6 +222,8 @@ export default function Clipping({ canManage = false }: { canManage?: boolean })
         <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "arquivado")}>Arquivar</button>
       </div> : null}
     </li>)}</ul>
+
+    </> : null}
 
     <Drawer open={Boolean(editing)} title="Radar de notícias" description="Até 6 termos por campo, separados por vírgula. Use o nome exato (ex.: Curavino, vinho natural Curavino)." onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form className="studioForm" onSubmit={saveSettings}>

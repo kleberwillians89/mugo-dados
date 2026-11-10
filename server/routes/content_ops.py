@@ -7,6 +7,7 @@ A ponte para o Calendário são pautas em rascunho, que seguem a aprovação de 
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
@@ -588,3 +589,57 @@ async def document_to_calendar(client_id: str, document_id: UUID, body: Document
         from services.studio_history import record
         await record(cid, result["calendar_item_id"], "criou a pauta pela Redação", actor_name=_chat_author(authorization, uid), actor_id=uid)
     return result
+
+
+# ---------------------------------------------------------------- saúde da marca
+# Painel: quem lê o clipping lê o painel (cliente vê sem os alertas). Alertas e termos sensíveis: só a agência.
+
+class BrandHealthSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sensitive_terms: Optional[List[str]] = Field(default=None, max_length=40)
+    index_drop_points: Optional[int] = Field(default=None, ge=3, le=50)
+    negative_day_pct: Optional[int] = Field(default=None, ge=5, le=80)
+
+
+def _health_error(exc: StudioError) -> HTTPException:
+    status = {"PERIOD_INVALID": 422, "ALERT_NOT_FOUND": 404}.get(exc.code, 502)
+    return HTTPException(status, str(exc) or "Não foi possível carregar a saúde da marca agora.")
+
+
+@router.get("/clipping/health")
+async def brand_health_summary(client_id: str, start: date, end: date,
+                               grain: Literal["day", "week", "month", "quarter", "year"] = "week",
+                               sources: str = Query(default="news,comments,direct", max_length=40),
+                               authorization: Optional[str] = Header(default=None)):
+    from services import brand_health
+    cid = await require_client_read(client_id, authorization)
+    agency = await is_agency_user(authorization)
+    try:
+        return await brand_health.summary(cid, start=start, end=end, grain=grain,
+                                          sources=[s.strip() for s in sources.split(",") if s.strip()], with_alerts=agency)
+    except StudioError as exc:
+        raise _health_error(exc) from None
+
+
+@router.get("/clipping/health/alerts")
+async def brand_health_alerts(client_id: str, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    return {"alerts": await brand_health.list_alerts(cid), "settings": await brand_health.get_settings(cid)}
+
+
+@router.post("/clipping/health/alerts/{alert_id}/resolve")
+async def brand_health_resolve(client_id: str, alert_id: UUID, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    try:
+        return await brand_health.resolve_alert(cid, str(alert_id), user_id=await require_user_id(authorization))
+    except StudioError as exc:
+        raise _health_error(exc) from None
+
+
+@router.put("/clipping/health/settings")
+async def brand_health_settings(client_id: str, body: BrandHealthSettings, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    return await brand_health.save_settings(cid, user_id=await require_user_id(authorization), **body.model_dump(exclude_unset=True))
