@@ -70,14 +70,14 @@ describe("AppNavigation — sidebar global", () => {
   it("organiza os itens na nova ordem visual sem alterar suas rotas", async () => {
     await render({ agencyAdmin: true });
     expect(groupLinks("Operação")).toEqual([
-      "Central da Marca", "Tarefas", "Social Media", "Redação", "Criadores", "IA da marca",
+      "Central da Marca", "Tarefas", "Social Media", "Redação", "Criadores",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
       "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",
       "Clientes", "Comentários", "Clipping", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
-      "Integrações", "Usuários", "Empresas", "Consumo de IA", "Automações", "Central da Marca",
+      "Integrações", "Usuários", "Empresas", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
     ]);
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
     expect(link("Relatório social")).toBeUndefined();
@@ -160,10 +160,12 @@ describe("AppNavigation — sidebar global", () => {
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
-  it("administração só aparece com as permissões já existentes", async () => {
+  it("administração exibe somente os itens permitidos pelas regras existentes", async () => {
     await render({ canManageIntegrations: false });
     expect(link("Integrações")).toBeUndefined();
-    expect(container.textContent).not.toContain("Administração");
+    expect(groupLinks("Administração")).toEqual(["IA da marca", "Central da Marca"]);
+    expect(link("Empresas")).toBeUndefined();
+    expect(link("Automações")).toBeUndefined();
 
     await render({ agencyAdmin: true });
     expect(container.textContent).toContain("Administração");
@@ -175,5 +177,15 @@ describe("AppNavigation — sidebar global", () => {
     await render({ agencyAdmin: true, canView: (route) => route !== "central" });
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
     expect(groupLinks("Administração")).not.toContain("Central da Marca");
+  });
+
+  it("mantém IA da marca visível pela permissão do módulo, sem exigir papel administrativo", async () => {
+    await render({ canManageIntegrations: false, canView: (route) => route !== "users" });
+    expect(groupLinks("Operação")).not.toContain("IA da marca");
+    expect(groupLinks("Administração")).toContain("IA da marca");
+    expect(link("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
+
+    await render({ canManageIntegrations: false, canView: (route) => route !== "users" && route !== "brand_ai" });
+    expect(link("IA da marca")).toBeUndefined();
   });
 });

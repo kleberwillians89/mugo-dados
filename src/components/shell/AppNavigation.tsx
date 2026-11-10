@@ -42,7 +42,6 @@ const OPERATION_ITEMS: NavItem[] = [
   { route: "campaigns", label: "Social Media" },
   { route: "redacao", label: "Redação" },
   { route: "creators", label: "Criadores" },
-  { route: "brand_ai", label: "IA da marca" },
 ];
 
 const INTELLIGENCE_ITEMS: NavItem[] = [
@@ -103,6 +102,9 @@ export default function AppNavigation({
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
+  // A posição é administrativa, mas a visibilidade continua obedecendo apenas
+  // à permissão preexistente do módulo, sem exigir um papel administrativo.
+  if (!canView || canView("brand_ai")) adminItems.push({ route: "brand_ai", label: "IA da marca" });
   if (adminItems.length && (!canView || canView("central"))) adminItems.push({ route: "central", label: "Central da Marca" });
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
