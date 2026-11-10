@@ -5,6 +5,8 @@ export type StudioFormat = keyof typeof STUDIO_FORMATS;
 /** Plataformas do Calendário. Só o Instagram publica sozinho; nas outras a equipe publica à mão. */
 export const STUDIO_CHANNELS = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube", pinterest: "Pinterest" } as const;
 export type StudioChannel = keyof typeof STUDIO_CHANNELS;
+/** Evento da janela disparado quando o Perfil da marca é salvo (detail = perfil novo). */
+export const BRAND_PROFILE_SAVED = "mugo:brand-profile-saved";
 export const AUTO_PUBLISH_CHANNELS: StudioChannel[] = ["instagram"];
 export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Ajuste pedido", publicado: "Publicado" } as const;
 export type StudioStatus = keyof typeof STUDIO_STATUS;
