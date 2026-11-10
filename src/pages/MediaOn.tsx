@@ -14,6 +14,7 @@ import HeroFigure from "../components/data/HeroFigure";
 import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
+import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
 import "../styles/studio.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -33,6 +34,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(nextMonth);
   const [objective, setObjective] = useState<Objective>("vendas");
+  const [prepare, setPrepare] = useState<PrepareRequest>(null);
   const [margin, setMargin] = useState("");
   const [customBudget, setCustomBudget] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -309,13 +311,18 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
             <td>{canManage && !r.boost && r.action !== "pausar" ? <input className="mediaCampaignBudget" type="number" min={0} step={50} value={Math.round(r.planned_budget)} aria-label={`Verba de ${r.campaign}`}
               onChange={(e) => editCampaign(i, { planned_budget: Math.max(0, Number(e.target.value)) })} /> : money(r.planned_budget)}
               {r.planned_budget > 0 && strategy ? <span className="ds-tableSub">{money(r.planned_budget / strategy.days)}/dia</span> : null}</td>
-            <td>{r.suggested || r.boost ? "—" : money(r.spend)}</td><td>{ratio(r.roas)}</td><td>{money(r.cpa)}</td><td className="mediaWhy">{r.why}</td></tr>)}</tbody></table></div>
+            <td>{r.suggested || r.boost ? "—" : money(r.spend)}</td><td>{ratio(r.roas)}</td><td>{money(r.cpa)}</td><td className="mediaWhy">{r.why}
+              {canManage && r.channel === "meta" && !r.boost && r.action !== "pausar" ? <button type="button" className="ds-link mediaPrepareMeta"
+                onClick={() => { setPrepare({ nonce: Date.now(), campaign: { campaign: r.campaign, action: r.action, why: r.why, planned_budget: r.planned_budget } });
+                  window.setTimeout(() => document.getElementById("media-meta-ads")?.scrollIntoView?.({ behavior: "smooth" }), 50); }}>Preparar no Meta Ads →</button> : null}</td></tr>)}</tbody></table></div>
           : <p className="ds-emptyLine">Sem campanhas com investimento relevante nos últimos 30 dias.</p>}
         {campaigns.length ? <p className="ds-footnote">{(Object.keys(allocation) as Channel[]).map((c) => `${CHANNELS[c]}: campanhas ${money(planned[c] || 0)} de ${money(allocation[c])}`).join(" · ")}.
           {" "}O que você ajustar aqui vira aprendizado: no próximo plano, cada campanha é comparada com a decisão e a verba definidas agora.</p> : null}
         {mismatch.length ? <p role="alert" className="studioError">A soma das campanhas não bate com a verba de {mismatch.map((c) => CHANNELS[c]).join(" e ")}. Ajuste as verbas ou a divisão por canal.</p> : null}
         {lowCampaigns.length ? <p role="alert" className="studioError">{lowCampaigns.map((c) => c.campaign).join(", ")} abaixo de {money(MIN_DAILY)} por dia. Aumente a verba ou pause.</p> : null}
       </section>
+
+      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy.days || 14} request={prepare} /> : null}
 
       <section className="ds-section" aria-labelledby="media-weeks">
         <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-weeks" className="ds-sectionTitle">Calendário de investimento</h2>

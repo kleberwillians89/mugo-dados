@@ -132,6 +132,8 @@ def _default_scopes() -> List[str]:
         "instagram_basic",
         "instagram_manage_insights",
         "ads_read",
+        # Mídia On cria campanhas (sempre pausadas) na conta de anúncios do cliente.
+        "ads_management",
         "business_management",
     ]
 

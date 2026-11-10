@@ -34,6 +34,7 @@ EXPECTED_META_SCOPES = [
     "instagram_basic",
     "instagram_manage_insights",
     "ads_read",
+    "ads_management",  # Mídia On cria campanhas pausadas no Meta Ads
     "business_management",
 ]
 
