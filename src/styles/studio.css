@@ -938,7 +938,7 @@
 
 /* Social Media → Redação: editor de texto estilo Word (trazido da iAgência) */
 .appShell.redacaoShell .content.ds-content{max-width:none;padding-inline:clamp(12px,1.5vw,24px)}
-.studioPage.redacaoPage{max-width:1720px;padding-inline:clamp(14px,2vw,28px)}
+.studioPage.redacaoPage{max-width:none;padding-inline:clamp(14px,2vw,28px)}
 .redacao{display:grid;grid-template-columns:228px minmax(0,1fr);gap:12px;align-items:start;margin-top:8px}
 .redacaoList{display:grid;gap:8px;position:sticky;top:12px}
 .redacaoList input[type=search]{padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:8px;font:inherit}
