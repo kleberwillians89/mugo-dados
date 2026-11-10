@@ -170,6 +170,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+        {item?.script || item?.visual_idea ? <details className="postFromMatrix" open>
+          <summary>Criado na Matriz</summary>
+          {item.script ? <div><b>Roteiro</b><p>{item.script}</p></div> : null}
+          {item.visual_idea ? <div><b>Ideia de imagem</b><p>{item.visual_idea}</p></div> : null}
+        </details> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode ? <div className="postArt">

@@ -4,7 +4,7 @@ import { BRAND_PROFILE_SAVED, getBrandProfile, STUDIO_FORMATS, type BrandProfile
 import { getActiveClientId } from "../../app/activeClient";
 import {
   PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, archiveMatrix, createMatrix, getMatrix, listMatrices,
-  addOpportunity, deleteOpportunity, matrixToCalendar, refineOpportunity, updateOpportunity,
+  addOpportunity, createOpportunityContent, deleteOpportunity, matrixToCalendar, refineOpportunity, updateOpportunity,
   type ContentMatrix as Matrix, type MatrixSummary, type Opportunity, type OpportunityCreate, type OpportunityPatch, type Platform,
 } from "../../app/contentOps";
 
@@ -33,6 +33,21 @@ function slotFromDate(weekStart: string, value: string): { week: number; weekday
   if (days < 0 || days >= 28) return null;
   return { week: Math.floor(days / 7) + 1, weekday: days % 7 };
 }
+
+/** Colunas da matriz: formatos (modelo iAgência). Reels e vídeo dividem a coluna. */
+const FORMAT_COLUMNS: { key: string; label: string; formats: StudioFormat[] }[] = [
+  { key: "carrossel", label: "Carrossel", formats: ["carrossel"] },
+  { key: "reels", label: "Reels / Vídeo", formats: ["reels", "video"] },
+  { key: "stories", label: "Stories", formats: ["stories"] },
+  { key: "imagem", label: "Imagem única", formats: ["imagem"] },
+];
+
+function shortDate(weekStart: string, week: number, weekday: number): string {
+  const [y, m, d] = opportunityDate(weekStart, week, weekday).split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return `${WEEKDAY_LABEL[weekday].slice(0, 3)} ${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+}
+const hasContent = (op: Opportunity) => Boolean(op.script || op.visual_idea);
 
 type Props = {
   canManage: boolean;
@@ -89,6 +104,10 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
     return () => { window.removeEventListener(BRAND_PROFILE_SAVED, onSaved); window.removeEventListener("focus", onFocus); };
   }, [clientId]);
 
+  async function createContent(op: Opportunity, instruction?: string) {
+    const r = await run(`c:${op.id}`, () => createOpportunityContent(op.matrix_id, op.id, instruction), "Não foi possível criar o conteúdo.");
+    if (r) { replace(r.opportunity); setEditing((current) => (current && current.id === op.id ? r.opportunity : current)); }
+  }
   const replace = (op: Opportunity) => setMatrix((m) => (m ? { ...m, opportunities: m.opportunities.map((o) => (o.id === op.id ? op : o)) } : m));
 
   async function generate() {
@@ -138,9 +157,9 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
     try { await navigator.clipboard.writeText(text); setNotice("Texto copiado."); } catch { /* segue na tela */ }
   }
 
-  const newOpportunity = (rowPlatform: Platform, pillar: string, rowWeek: number): Opportunity | null => matrix ? {
-    id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: rowPlatform, pillar, week: rowWeek, weekday: 0,
-    format: PLATFORM_FORMATS[rowPlatform][0], title: "", hook: null, angle: null, caption_draft: null, rationale: null,
+  const newOpportunity = (rowPlatform: Platform, pillar: string, format: StudioFormat): Opportunity | null => matrix ? {
+    id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: rowPlatform, pillar, week: 1, weekday: 2,
+    format, title: "", hook: null, angle: null, caption_draft: null, rationale: null,
     status: "sugerida", edited: true, position: matrix.opportunities.length, calendar_item_id: null, guard: [] } : null;
 
   const counts = (p: Platform) => (matrix?.opportunities || []).filter((o) => o.platform === p && o.status !== "descartada").length;
@@ -195,9 +214,10 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
           <label className="tacticalDiscarded"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
         </div>
 
+        <p className="matrixHint">Cada pauta já vem com a data sugerida. Clique numa pauta para criar com a IA a legenda, o roteiro e a ideia de imagem.</p>
         <div className="matrixGridWrap"><table className="matrixGrid tacticalGrid">
           <thead><tr><th scope="col">Canal</th><th scope="col">Pilar</th>
-            {[1, 2, 3, 4].map((w) => <th key={w} scope="col">Semana {w}<small>{weekRange(matrix.week_start, w)}</small></th>)}</tr></thead>
+            {FORMAT_COLUMNS.map((col) => <th key={col.key} scope="col">{col.label}</th>)}</tr></thead>
           {matrix.platforms.filter((p) => platform === "todas" || p === platform).map((rowPlatform) => {
             const pillarRows = rows.filter((row) => row.platform === rowPlatform);
             const platformOps = visible.filter((o) => o.platform === rowPlatform);
@@ -210,14 +230,18 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
                   {busy === `export:${rowPlatform}` ? "Enviando…" : `Enviar ${PLATFORM_LABEL[rowPlatform]} ao Calendário (${pending(platformOps).length})`}</button> : null}
               </th> : null}
               <th scope="row" className="tacticalPillar">{row.pillar}</th>
-              {[1, 2, 3, 4].map((w) => {
-                const cell = visible.filter((o) => o.platform === row.platform && o.pillar === row.pillar && o.week === w);
-                return <td key={w}>{cell.map((op) =>
-                  <OpportunityCard key={op.id} op={op} busy={busy} canManage={canManage} onEdit={() => setEditing(op)} onStatus={(status) => void setStatus(op, status)}
+              {FORMAT_COLUMNS.map((col) => {
+                const supported = col.formats.filter((f) => PLATFORM_FORMATS[row.platform].includes(f));
+                if (!supported.length) return <td key={col.key} className="is-unavailable" aria-label={`${PLATFORM_LABEL[row.platform]} não tem ${col.label}`}><span className="matrixNa">—</span></td>;
+                const cell = visible.filter((o) => o.platform === row.platform && o.pillar === row.pillar && col.formats.includes(o.format))
+                  .sort((a, b) => a.week * 7 + a.weekday - (b.week * 7 + b.weekday));
+                return <td key={col.key}>{cell.map((op) =>
+                  <OpportunityCard key={op.id} op={op} weekStart={matrix.week_start} busy={busy} canManage={canManage} onEdit={() => setEditing(op)} onStatus={(status) => void setStatus(op, status)}
                     onCopy={() => void copyText(op)} onExport={() => void exportIds([op.id], `export:${op.id}`)}
+                    onCreate={() => void createContent(op)}
                     onTitle={async (title) => { const result = await run(`e:${op.id}`, () => updateOpportunity(op.matrix_id, op.id, { title }), "Não foi possível salvar a pauta."); if (result) replace(result.opportunity); return Boolean(result); }} />)}
-                  {canManage ? <button type="button" className="matrixCellAdd" aria-label={`Adicionar conteúdo em ${PLATFORM_LABEL[row.platform]}, ${row.pillar}, semana ${w}`}
-                    onClick={() => setEditing(newOpportunity(row.platform, row.pillar, w))}>+</button> : null}</td>;
+                  {canManage ? <button type="button" className="matrixCellAdd" aria-label={`Adicionar ${col.label} em ${PLATFORM_LABEL[row.platform]}, ${row.pillar}`}
+                    onClick={() => setEditing(newOpportunity(row.platform, row.pillar, supported[0]))}>+</button> : null}</td>;
               })}
             </tr>)}</tbody>;
           })}
@@ -244,7 +268,7 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
           const draft = { ...editing, ...patch };
           const input: OpportunityCreate = { platform: draft.platform, pillar: draft.pillar, week: draft.week, weekday: draft.weekday,
             format: draft.format, title: draft.title, hook: draft.hook, angle: draft.angle,
-            caption_draft: draft.caption_draft, rationale: draft.rationale };
+            caption_draft: draft.caption_draft, rationale: draft.rationale, script: draft.script || null, visual_idea: draft.visual_idea || null };
           const r = await run(`e:${NEW_OPPORTUNITY_ID}`, () => addOpportunity(editing.matrix_id, input), "Não foi possível acrescentar a oportunidade.");
           if (r) { setMatrix((current) => current ? { ...current, opportunities: [...current.opportunities, r.opportunity] } : current); setEditing(null); }
         } else {
@@ -256,7 +280,7 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
         if (!editing) return;
         const r = await run(`r:${editing.id}`, () => refineOpportunity(editing.matrix_id, editing.id, instruction), "Não foi possível refinar.");
         if (r) { replace(r.opportunity); setEditing(r.opportunity); }
-      }} onDelete={async () => {
+      }} onCreate={async (instruction) => { if (editing) await createContent(editing, instruction); }} onDelete={async () => {
         if (!editing || editing.id === NEW_OPPORTUNITY_ID) { setEditing(null); return; }
         if (!window.confirm("Excluir esta oportunidade da matriz?")) return;
         const r = await run(`d:${editing.id}`, () => deleteOpportunity(editing.matrix_id, editing.id), "Não foi possível excluir a oportunidade.");
@@ -265,15 +289,15 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   </section>;
 }
 
-function OpportunityCard({ op, busy, canManage, onEdit, onStatus, onTitle, onCopy, onExport }: {
-  op: Opportunity; busy: string | null; canManage: boolean; onEdit: () => void; onStatus: (s: "sugerida" | "selecionada" | "descartada") => void;
-  onTitle: (title: string) => Promise<boolean>; onCopy: () => void; onExport: () => void;
+function OpportunityCard({ op, weekStart, busy, canManage, onEdit, onStatus, onTitle, onCopy, onExport, onCreate }: {
+  op: Opportunity; weekStart: string; busy: string | null; canManage: boolean; onEdit: () => void; onStatus: (s: "sugerida" | "selecionada" | "descartada") => void;
+  onTitle: (title: string) => Promise<boolean>; onCopy: () => void; onExport: () => void; onCreate: () => void;
 }) {
   const locked = op.status === "exportada";
   return <article className={`matrixCard tacticalCell is-${op.status}`} aria-label={op.title}>
     <header>
-      <span className="studioChip">{STUDIO_FORMATS[op.format]}</span>
-      <small title={WEEKDAY_LABEL[op.weekday]}>{WEEKDAY_LABEL[op.weekday].slice(0, 3)}</small>
+      <small className="matrixDate" title="Data sugerida para publicar">{shortDate(weekStart, op.week, op.weekday)}</small>
+      {op.format === "video" ? <span className="studioChip">{STUDIO_FORMATS[op.format]}</span> : null}
       <span className="tacticalCellActions">
         <button type="button" title="Copiar" aria-label={`Copiar ${op.title}`} onClick={onCopy}>⧉</button>
         <button type="button" title="Detalhes" aria-label={`Detalhes de ${op.title}`} onClick={onEdit}>✎</button>
@@ -285,6 +309,9 @@ function OpportunityCard({ op, busy, canManage, onEdit, onStatus, onTitle, onCop
       onBlur={(event) => { const field = event.currentTarget; const next = field.value.trim(); if (next && next !== op.title) void onTitle(next).then((saved) => { if (!saved) field.value = op.title; }); else if (!next) field.value = op.title; }} />
       : <button type="button" className="matrixCardTitle" onClick={onEdit}>{op.title}</button>}
     {op.guard?.length ? <p className="clipWarn">⚠ {op.guard[0].fix}</p> : null}
+    {hasContent(op) ? <button type="button" className="matrixContentReady" onClick={onEdit}>✓ Legenda, roteiro e ideia de imagem</button>
+      : canManage && op.status !== "exportada" && op.status !== "descartada"
+        ? <button type="button" className="matrixCreate" disabled={Boolean(busy)} onClick={onCreate}>{busy === `c:${op.id}` ? "Criando…" : "✦ Criar conteúdo"}</button> : null}
     <footer>
       {locked ? <span className="studioChip is-on">✓ No Calendário</span> : canManage ? <>
         <label className="studioCheck"><input type="checkbox" checked={op.status === "selecionada"} disabled={Boolean(busy)}
@@ -297,10 +324,10 @@ function OpportunityCard({ op, busy, canManage, onEdit, onStatus, onTitle, onCop
   </article>;
 }
 
-function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart, isNew, onClose, onSave, onRefine, onDelete }: {
+function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart, isNew, onClose, onSave, onRefine, onCreate, onDelete }: {
   op: Opportunity | null; busy: string | null; canManage: boolean; pillars: string[]; platforms: Platform[];
   weekStart: string; isNew: boolean; onClose: () => void; onSave: (patch: OpportunityPatch) => Promise<void>;
-  onRefine: (instruction: string) => Promise<void>; onDelete: () => Promise<void>;
+  onRefine: (instruction: string) => Promise<void>; onCreate: (instruction: string) => Promise<void>; onDelete: () => Promise<void>;
 }) {
   // O componente é recriado (key) a cada oportunidade aberta ou refinada: o rascunho nasce dela.
   const [draft, setDraft] = useState<Opportunity | null>(op);
@@ -310,12 +337,12 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart,
   const formats = PLATFORM_FORMATS[draft.platform];
   const set = (patch: Partial<Opportunity>) => setDraft((d) => (d ? { ...d, ...patch } : d));
   const changed: OpportunityPatch = {};
-  (["platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale"] as const).forEach((k) => {
+  (["platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale", "script", "visual_idea"] as const).forEach((k) => {
     if (draft[k] !== op[k]) (changed as Record<string, unknown>)[k] = draft[k] ?? "";
   });
   const dirty = Object.keys(changed).length > 0;
-  return <Drawer open title={isNew ? "Nova oportunidade" : locked && op.status === "exportada" ? "No Calendário" : "Oportunidade"} width="lg" onClose={() => { if (!busy) onClose(); }}
-    description={op.status === "exportada" ? "Já virou post no Calendário: edite por lá (arte, aprovação e agendamento)." : "Edite à mão ou peça para a IA refinar."}>
+  return <Drawer open title={isNew ? "Nova pauta" : locked && op.status === "exportada" ? "No Calendário" : "Pauta"} width="lg" onClose={() => { if (!busy) onClose(); }}
+    description={op.status === "exportada" ? "Já virou post no Calendário: edite por lá (arte, aprovação e agendamento)." : "Crie o conteúdo com a IA ou edite à mão. Depois envie ao Calendário para publicar."}>
     <form className="studioForm" onSubmit={(e) => { e.preventDefault(); if (dirty) void onSave(changed); }}>
       <div className="studioRow">
         <label>Plataforma<select value={draft.platform} disabled={locked} onChange={(e) => {
@@ -327,23 +354,28 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart,
       <div className="studioRow">
         <label>Pilar<select value={draft.pillar} disabled={locked} onChange={(e) => set({ pillar: e.target.value })}>
           {[...new Set([draft.pillar, ...pillars])].map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
-        <label>Semana<select value={draft.week} disabled={locked} onChange={(e) => set({ week: Number(e.target.value) })}>
-          {[1, 2, 3, 4].map((w) => <option key={w} value={w}>Semana {w}</option>)}</select></label>
-        <label>Data sugerida<input type="date" value={opportunityDate(weekStart, draft.week, draft.weekday)} disabled={locked}
+        <label>Data sugerida para publicar<input type="date" value={opportunityDate(weekStart, draft.week, draft.weekday)} disabled={locked}
           min={weekStart.slice(0, 10)} max={opportunityDate(weekStart, 4, 6)} onChange={(e) => { const slot = slotFromDate(weekStart, e.target.value); if (slot) set(slot); }} /></label>
       </div>
       <label>Pauta<input required maxLength={200} value={draft.title} disabled={locked} onChange={(e) => set({ title: e.target.value })} /></label>
       <label>Gancho<input maxLength={400} value={draft.hook || ""} disabled={locked} onChange={(e) => set({ hook: e.target.value })} /></label>
       <label>Ângulo<textarea rows={2} maxLength={600} value={draft.angle || ""} disabled={locked} onChange={(e) => set({ angle: e.target.value })} /></label>
-      <label>Rascunho de legenda<textarea rows={6} maxLength={4000} value={draft.caption_draft || ""} disabled={locked} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+      {!locked && !isNew ? <div className="matrixCreatePanel">
+        <div><b>Criar o conteúdo com a IA</b><small>Legenda, roteiro ({draft.format === "carrossel" ? "texto de cada slide" : draft.format === "stories" ? "telas" : draft.format === "imagem" ? "texto da arte" : "cenas"}) e ideia de imagem, no tom da marca. Use o campo abaixo para pedir algo específico.</small></div>
+        <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || dirty} title={dirty ? "Salve ou descarte as edições antes" : undefined}
+          onClick={() => void onCreate(ask)}>{busy === `c:${op.id}` ? "Criando…" : hasContent(op) ? "✦ Criar de novo" : "✦ Criar conteúdo"}</button>
+      </div> : null}
+      <label>Legenda<textarea rows={6} maxLength={4000} value={draft.caption_draft || ""} disabled={locked} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+      <label>Roteiro<textarea rows={7} maxLength={4000} value={draft.script || ""} disabled={locked} placeholder="Cenas do vídeo, slides do carrossel, telas do Stories ou texto da arte" onChange={(e) => set({ script: e.target.value })} /></label>
+      <label>Ideia de imagem<textarea rows={4} maxLength={2000} value={draft.visual_idea || ""} disabled={locked} placeholder="Direção da arte: cena, enquadramento, cores, texto na arte" onChange={(e) => set({ visual_idea: e.target.value })} /></label>
       <label>Por que esta pauta<textarea rows={2} maxLength={1200} value={draft.rationale || ""} disabled={locked} onChange={(e) => set({ rationale: e.target.value })} /></label>
       {(op.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn">⚠ {g.fix}</p>)}
       {!locked ? <>
         {!isNew ?
         <div className="pieceAsk">
-          <input placeholder="Refinar com a IA (opcional): mais direto, citar o frete grátis, virar carrossel…" value={ask} maxLength={600} onChange={(e) => setAsk(e.target.value)} />
-          <button type="button" className="ds-button" disabled={Boolean(busy) || dirty} title={dirty ? "Salve ou descarte as edições antes de refinar" : undefined}
-            onClick={() => void onRefine(ask)}>{busy === `r:${op.id}` ? "Refinando…" : "Refinar com a IA"}</button>
+          <input placeholder="Pedido para a IA (opcional): mais direto, citar o frete grátis, tom mais leve…" value={ask} maxLength={600} onChange={(e) => setAsk(e.target.value)} />
+          <button type="button" className="ds-button" disabled={Boolean(busy) || dirty} title={dirty ? "Salve ou descarte as edições antes de refinar" : "Troca a ideia da pauta (título, gancho, ângulo)"}
+            onClick={() => void onRefine(ask)}>{busy === `r:${op.id}` ? "Refinando…" : "Trocar a ideia"}</button>
         </div> : null}
         <div className="studioActions">
           {!isNew ? <button type="button" className="studioLink is-danger" disabled={Boolean(busy)} onClick={() => void onDelete()}>Excluir</button> : null}

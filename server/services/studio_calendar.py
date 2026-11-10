@@ -726,6 +726,10 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
     }
     if matrix_opportunity_id:
         row["matrix_opportunity_id"] = matrix_opportunity_id
+    # Conteúdo criado na Matriz (migração 000090): só manda quando existe, para não exigir a coluna sem uso.
+    for key, limit in (("script", 4000), ("visual_idea", 2000)):
+        if data.get(key):
+            row[key] = str(data[key]).strip()[:limit]
     if data.get("collaborators"):
         from .ig_publish import clean_collaborators
         row["collaborators"] = clean_collaborators(data["collaborators"])
