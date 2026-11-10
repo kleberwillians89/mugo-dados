@@ -613,6 +613,31 @@ async def list_rules(client_id: str) -> List[Dict[str, Any]]:
     return await sb_select(RULES, select="*", filters={"client_id": f"eq.{client_id}"}, order="created_at.asc", limit=100)
 
 
+async def rule_stats(client_id: str) -> Dict[str, Dict[str, Any]]:
+    """Quantas vezes cada gatilho disparou: comentários atendidos e Directs por status, e o último disparo."""
+    rows = await sb_select(ACTIONS, select="rule_id,comment_id,kind,status,created_at", order="created_at.desc", limit=5000,
+                           filters={"client_id": f"eq.{client_id}", "rule_id": "not.is.null"})
+    stats: Dict[str, Dict[str, Any]] = {}
+    seen: Dict[str, set] = {}
+    for row in rows:
+        rid = str(row.get("rule_id") or "")
+        if not rid:
+            continue
+        item = stats.setdefault(rid, {"comments": 0, "direct_sent": 0, "direct_simulated": 0, "direct_failed": 0,
+                                      "reply_sent": 0, "last_at": row.get("created_at")})
+        if str(row.get("comment_id")) not in seen.setdefault(rid, set()):
+            seen[rid].add(str(row.get("comment_id")))
+            item["comments"] += 1
+        status = row.get("status")
+        if row.get("kind") == "direct":
+            key = {"enviado": "direct_sent", "simulado": "direct_simulated", "falhou": "direct_failed"}.get(status)
+            if key:
+                item[key] += 1
+        elif status == "enviado":
+            item["reply_sent"] += 1
+    return stats
+
+
 async def run_rules(client_id: str, *, refresh: bool = True, ai: bool = False) -> Dict[str, Any]:
     """Gatilhos sempre; a IA só quando ``ai=True`` (rodada diária) e a marca ligou o botão."""
     rules = [r for r in await list_rules(client_id) if r.get("active")]

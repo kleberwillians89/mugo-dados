@@ -4,8 +4,8 @@ import type { RuleInput } from "../../app/engagement";
  * Modelos prontos de gatilho (Comentários > Gatilhos). Abrem o formulário já preenchido e DESLIGADO:
  * a equipe troca o link {LINK} e liga quando quiser.
  *
- * Instagram não avisa "acabou de seguir" (não existe evento de novo seguidor na API oficial), e a marca
- * não pode mandar Direct primeiro. O jeito permitido é o "siga e comente": a legenda pede para seguir e
+ * "Acabou de seguir": a Meta só oferece o Follow to DM num beta exclusivo com o ManyChat (out/2025); a API
+ * aberta não tem evento de novo seguidor e a marca não pode mandar Direct primeiro. O jeito permitido é o "siga e comente": a legenda pede para seguir e
  * comentar a palavra, e o comentário dispara o Direct.
  */
 export type TriggerTemplate = {
@@ -36,10 +36,10 @@ export const TRIGGER_TEMPLATES: TriggerTemplate[] = [
     id: "siga-comente",
     title: "Siga e comente (boas-vindas)",
     summary: "O jeito permitido de dar oi pra quem acabou de seguir: a legenda pede para seguir e comentar.",
-    caption: "Segue o perfil e comenta EU que eu te mando um presente no Direct 🎁",
+    caption: "Segue o perfil e comenta PRESENTE que eu te mando no Direct 🎁",
     rule: {
       name: "Siga e comente → boas-vindas",
-      keywords: ["eu", "eu quero", "presente"],
+      keywords: ["presente"],
       public_reply: "Bem-vindo(a), {nome}! Olha o Direct 🎁",
       dm_message: "Seu presente de boas-vindas: {LINK}",
       ai_greeting: true,

@@ -343,3 +343,16 @@ class InboxAnsweredTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await ie.inbox("roove"))["items"], [])
             items = (await ie.inbox("roove", only_open=False))["items"]
         self.assertTrue(items[0]["answered"])
+class RuleStatsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_counts_people_and_directs_per_rule(self):
+        rows = [
+            {"rule_id": "r1", "comment_id": "1", "kind": "direct", "status": "enviado", "created_at": "2026-11-10T19:00:00Z"},
+            {"rule_id": "r1", "comment_id": "1", "kind": "resposta_publica", "status": "enviado", "created_at": "2026-11-10T19:00:00Z"},
+            {"rule_id": "r1", "comment_id": "2", "kind": "direct", "status": "falhou", "created_at": "2026-11-10T18:00:00Z"},
+            {"rule_id": "r2", "comment_id": "3", "kind": "direct", "status": "simulado", "created_at": "2026-11-09T18:00:00Z"},
+        ]
+        with patch.object(ie, "sb_select", AsyncMock(return_value=rows)):
+            stats = await ie.rule_stats("ruah")
+        self.assertEqual(stats["r1"], {"comments": 2, "direct_sent": 1, "direct_simulated": 0, "direct_failed": 1,
+                                       "reply_sent": 1, "last_at": "2026-11-10T19:00:00Z"})
+        self.assertEqual(stats["r2"]["direct_simulated"], 1)

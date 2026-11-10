@@ -3,7 +3,7 @@ import RepliedPosts from "../components/studio/RepliedPosts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveReplyTone, saveRule, sendReply, suggestReply,
-  type EngagementRule, type EngagementSettings, type InboxComment, type LastAiRun, type RuleInput,
+  type EngagementRule, type EngagementSettings, type RuleStats, type InboxComment, type LastAiRun, type RuleInput,
 } from "../app/engagement";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -18,6 +18,21 @@ const KIND: Record<string, string> = { resposta_publica: "Resposta automática",
   resposta_ia: "Resposta da IA", revisao: "IA pediu revisão da equipe" };
 const hasLinkPlaceholder = (rule: { dm_message?: string | null; public_reply?: string | null }) =>
   /\{LINK\}/i.test(`${rule.dm_message || ""} ${rule.public_reply || ""}`);
+/** "{https://…}" → "https://…": as chaves iriam junto no Direct e quebram o link. */
+const unwrapLinks = (text: string) => text.replace(/\{\s*(https?:\/\/[^\s{}]+)\s*\}/gi, "$1");
+const hasWrappedLink = (text?: string | null) => /\{\s*https?:\/\//i.test(text || "");
+/** Palavras comuns demais: o gatilho dispararia em quase todo comentário ("eu amei", "que lindo"). */
+const BROAD_WORDS = new Set(["eu", "e", "a", "o", "que", "de", "sim", "amei", "lindo", "linda", "top"]);
+const broadKeywords = (keywords: string[]) =>
+  keywords.filter((k) => BROAD_WORDS.has(k.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+function statsLine(s: RuleStats | undefined): string {
+  if (!s || !s.comments) return "Ainda não disparou.";
+  const parts = [`Disparou para ${plural(s.comments, "pessoa", "pessoas")}`, `Direct: ${s.direct_sent} enviado${s.direct_sent === 1 ? "" : "s"}`];
+  if (s.direct_simulated) parts.push(`${s.direct_simulated} em modo teste`);
+  if (s.direct_failed) parts.push(`${s.direct_failed} falh${s.direct_failed === 1 ? "ou" : "aram"}`);
+  return `${parts.join(" · ")}${s.last_at ? ` · último em ${when(s.last_at)}` : ""}`;
+}
 const EMPTY_RULE: RuleInput = { name: "", keywords: [], media_id: null, public_reply: "Te mandei no Direct, {nome}! 💌", dm_message: "", ai_greeting: false, active: false };
 
 /**
@@ -31,6 +46,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
   const [openOnly, setOpenOnly] = useState(true);
   const [items, setItems] = useState<InboxComment[] | null>(null);
   const [rules, setRules] = useState<EngagementRule[] | null>(null);
+  const [stats, setStats] = useState<Record<string, RuleStats>>({});
   const [live, setLive] = useState(false);
   const [settings, setSettings] = useState<EngagementSettings | null>(null);
   const [lastRun, setLastRun] = useState<LastAiRun | null>(null);
@@ -55,7 +71,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     } catch (cause) { setError(message(cause, "Não foi possível carregar os comentários.")); }
   }, [openOnly, clientId]);
   const loadRules = useCallback(async () => {
-    try { const data = await listRules(); if (getActiveClientId() === clientId) { setRules(data.rules); setLive(data.autoreply_enabled); } }
+    try { const data = await listRules(); if (getActiveClientId() === clientId) { setRules(data.rules); setStats(data.stats || {}); setLive(data.autoreply_enabled); } }
     catch (cause) { setError(message(cause, "Não foi possível carregar os gatilhos.")); }
   }, [clientId]);
   useEffect(() => { if (tab === "caixa") void loadInbox(); else if (tab === "gatilhos") void loadRules(); }, [tab, loadInbox, loadRules]);
@@ -87,7 +103,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     if (!editing) return;
     const keywords = editing.keywordsText.split(/[,\n]/).map((k) => k.trim()).filter(Boolean).slice(0, 20);
     const input: RuleInput = { name: editing.name, keywords, media_id: editing.media_id?.trim() || null,
-      public_reply: editing.public_reply?.trim() || null, dm_message: editing.dm_message?.trim() || null, ai_greeting: Boolean(editing.ai_greeting), active: editing.active };
+      public_reply: unwrapLinks(editing.public_reply?.trim() || "") || null, dm_message: unwrapLinks(editing.dm_message?.trim() || "") || null, ai_greeting: Boolean(editing.ai_greeting), active: editing.active };
     const ok = await run("rule", () => saveRule(input, editing.id), "Não foi possível salvar o gatilho.");
     if (ok) { setEditing(null); await loadRules(); }
   }
@@ -194,7 +210,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
           <li>A cada 5 minutos o MUGOVERSO lê os comentários novos. Achou a palavra: responde no post e manda o Direct.</li>
           <li>Teste comentando de outra conta. O Instagram só deixa mandar Direct até 7 dias depois do comentário, uma vez por pessoa.</li>
         </ol>
-        <p className="libHint"><b>"Acabou de seguir":</b> o Instagram não avisa quem seguiu e não deixa a marca mandar Direct primeiro. O jeito permitido é o modelo <b>Siga e comente</b>: a legenda pede para seguir e comentar, e o comentário dispara o oi com o link.</p>
+        <p className="libHint"><b>"Acabou de seguir":</b> a Meta só libera o Direct automático para novo seguidor num beta exclusivo do ManyChat; a API aberta, que o MUGOVERSO usa, não avisa quem seguiu. Aqui o jeito é o modelo <b>Siga e comente</b>: a legenda pede para seguir e comentar, e o comentário dispara o oi com o link. Dá para usar o ManyChat só para o "seguiu → oi" junto com os gatilhos daqui (use palavras diferentes nos dois).</p>
       </details>
       {canManage ? <div className="engTemplates" aria-label="Modelos prontos">
         {TRIGGER_TEMPLATES.map((t) => <div key={t.id} className="engTemplate">
@@ -207,7 +223,10 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
       {!rules ? <p>Carregando…</p> : !rules.length ? <div className="studioEmpty"><p>Nenhum gatilho ainda. Comece por um modelo acima.</p></div> : null}
       <ul className="engList">{(rules || []).map((r) => <li key={r.id} className="engItem">
         <div className="engRuleHead"><b>{r.name}</b><span className={`studioChip${r.active ? " is-on" : ""}`}>{r.active ? "Ligado" : "Desligado"}</span></div>
+        <p className="engRuleStats"><b>{statsLine(stats[r.id])}</b></p>
         <p>Palavras: {r.keywords.join(", ")}{r.media_id ? ` · só no post ${r.media_id}` : " · todos os posts"}</p>
+        {broadKeywords(r.keywords).length ? <p className="clipWarn">“{broadKeywords(r.keywords).join("”, “")}” é comum demais: o gatilho dispara em quase todo comentário (ex.: “eu amei”). Edite e deixe só a palavra da legenda.</p> : null}
+        {hasWrappedLink(r.dm_message) || hasWrappedLink(r.public_reply) ? <p className="clipWarn">O link está entre chaves {"{ }"} e vai assim no Direct. Clique em Editar e salve de novo: o MUGOVERSO tira as chaves.</p> : null}
         {r.public_reply ? <p><small>Resposta no post:</small> {r.public_reply}</p> : null}
         {r.ai_greeting ? <p><small>Direct:</small> ✦ oi feito pela IA no tom do perfil{r.dm_message ? <> + {r.dm_message}</> : null}</p>
           : r.dm_message ? <p><small>Direct:</small> {r.dm_message}</p> : null}
@@ -227,6 +246,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         <label>Resposta no comentário (pública, curta)<textarea rows={2} maxLength={300} value={editing.public_reply || ""} onChange={(e) => setEditing({ ...editing, public_reply: e.target.value })} /></label>
         <label className="studioCheck"><input type="checkbox" checked={Boolean(editing.ai_greeting)} onChange={(e) => setEditing({ ...editing, ai_greeting: e.target.checked })} /> ✦ Oi feito pela IA no Direct (a IA escreve o oi no tom do perfil da marca, ligado ao comentário e ao post)</label>
         <label>{editing.ai_greeting ? "O que o Direct precisa levar (opcional: link, cupom; a IA escreve o oi em volta)" : "Mensagem no Direct"}<textarea rows={4} maxLength={1000} value={editing.dm_message || ""} onChange={(e) => setEditing({ ...editing, dm_message: e.target.value })} placeholder={editing.ai_greeting ? "https://…" : "Oi {nome}! Aqui está o link: https://…"} /></label>
+        {broadKeywords(editing.keywordsText.split(/[,\n]/)).length ? <p className="clipWarn" role="status">“{broadKeywords(editing.keywordsText.split(/[,\n]/)).join("”, “")}” é comum demais e dispara em quase todo comentário. Use só a palavra que a legenda pede.</p> : null}
         {hasLinkPlaceholder(editing) ? <p className="clipWarn" role="status">Troque <code>{"{LINK}"}</code> pelo link de verdade antes de salvar.</p> : null}
         <label className="studioCheck"><input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} /> Ligado</label>
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
