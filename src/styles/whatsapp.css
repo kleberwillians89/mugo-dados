@@ -91,6 +91,19 @@
   .waInboxList,.waJourney{border:0;border-bottom:1px solid var(--wa-line)}
 }
 
+/* Número da marca (agência) */
+.waNumbers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.waNumbers li{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px}
+.waNumbers small{display:block;font-size:12px;color:var(--text-secondary,#4d565d)}
+.waPrimary{align-self:flex-start;font:inherit;font-size:14px;font-weight:600;border:0;border-radius:12px;padding:12px 16px;min-height:44px;background:var(--accent,#004f6e);color:#fff;cursor:pointer}
+.waPrimary:disabled{opacity:.6;cursor:progress}
+.waLinkButton{font:inherit;font-size:13px;font-weight:600;border:0;background:transparent;color:var(--accent,#004f6e);padding:10px 4px;min-height:44px;cursor:pointer;text-decoration:underline}
+.waForm{display:flex;flex-direction:column;gap:12px;max-width:520px}
+.waForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-secondary,#4d565d)}
+.waForm input{font:inherit;font-size:14px;color:var(--text-primary,#15181b);border:1px solid rgba(0,79,110,.2);border-radius:10px;padding:10px 12px;min-height:44px;box-sizing:border-box}
+.waFormActions{display:flex;gap:12px;align-items:center}
+.waError{margin:0;font-size:13px;color:#8a2a12;background:#fbe3dc;border-radius:10px;padding:10px 12px}
+
 /* Leitura da IA de atendimento: funil por fase, objeções e ficha da conversa */
 .waFunnel { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .waFunnel li { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 10px; }

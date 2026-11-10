@@ -85,3 +85,18 @@ export const isOutbound = (direction: string | null | undefined) => direction ==
 export const ORIGIN_COLORS: Record<WaOriginKey, string> = {
   ad: "#004f6e", instagram: "#4f86a8", link: "#c79830", site: "#e2c887", google: "#7a8b99", direct: "#c9cfd4",
 };
+
+/** Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência vê e cadastra. */
+export type WaNumber = {
+  id: string; waba_id: string; phone_number_id: string; display_phone_number: string | null; verified_name: string | null;
+  status: "active" | "disconnected"; subscribed_at: string | null; created_at: string | null;
+};
+export function listWhatsAppNumbers() {
+  return http<{ ok: true; numbers: WaNumber[] }>(base("/numbers"));
+}
+export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id: string; access_token: string }) {
+  return http<{ ok: true; number: WaNumber }>(base("/numbers"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 });
+}
+export function disconnectWhatsAppNumber(id: string) {
+  return http<{ ok: true }>(base(`/numbers/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
