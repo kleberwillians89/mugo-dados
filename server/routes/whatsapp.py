@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
-from services.crm_bridge import list_messages
+from services.whatsapp_sources import brand_messages
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
@@ -52,7 +52,7 @@ async def read_whatsapp_messages(client_id: str, conversation_id: str, limit: in
                                  authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     try:
-        return await list_messages(cid, conversation_id, limit=limit)
+        return await brand_messages(cid, conversation_id, limit=limit)
     except StudioError as exc:
         if exc.code == "CONVERSATION_NOT_FOUND":
             raise HTTPException(404, "Conversa não encontrada para esta empresa.") from None
