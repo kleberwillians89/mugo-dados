@@ -410,11 +410,14 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
       throw error;
     }
     const warning = getActiveClientConfigurationWarning();
+    const timedOut = controller.signal.aborted;
     throw new ApiError(
-      [warning, "Não foi possível acessar os dados agora. Tente novamente em alguns instantes."]
+      [warning, timedOut
+        ? "A resposta demorou mais que o esperado. Se era uma geração com IA, ela pode ter terminado: recarregue a página antes de tentar de novo."
+        : "Não foi possível acessar os dados agora. Tente novamente em alguns instantes."]
         .filter(Boolean)
         .join(" "),
-      { status: 0, code: controller.signal.aborted ? "REQUEST_TIMEOUT" : "NETWORK_ERROR", retryable: true }
+      { status: 0, code: timedOut ? "REQUEST_TIMEOUT" : "NETWORK_ERROR", retryable: true }
     );
   } finally {
     window.clearTimeout(timeoutId);

@@ -1024,3 +1024,27 @@
 .studioChip.is-platform.is-pinterest{background:#fbe8ea;color:#9b1c2c}
 @media (max-width:640px){.tacticalMatrix{padding:12px;border-radius:14px}.tacticalDiscarded{margin-left:0}}
 .tacticalCell header{flex-wrap:nowrap;min-width:0}.tacticalCell header small{margin-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tacticalCell header .studioChip{white-space:nowrap}.tacticalCellActions{flex:none}
+
+/* Administração → Consumo de IA */
+.aiUsage{display:grid;gap:14px}
+.aiUsageAlert{padding:14px 16px;border-radius:12px;background:#fdecec;border:1px solid #f2b8b8;color:#7a1f1f}
+.aiUsageKpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.aiUsageKpis>div{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:14px;padding:14px 16px;display:grid;gap:4px}
+.aiUsageKpis small{font-size:12px;opacity:.7}.aiUsageKpis b{font-size:24px}.aiUsageKpis span{font-size:12px;opacity:.65}
+.aiUsageCard{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:16px;padding:16px;display:grid;gap:10px}
+.aiUsageCard h3{margin:0;font-size:15px}
+.aiUsageTable{width:100%;border-collapse:collapse;min-width:760px}
+.aiUsageTable th,.aiUsageTable td{padding:9px 10px;border-bottom:1px solid var(--border,#ece9e3);text-align:left;font-size:13px;white-space:nowrap}
+.aiUsageTable thead th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;background:#f7f6f3}
+.aiUsageTable td{font-variant-numeric:tabular-nums}
+.aiUsageSub th{padding-left:34px;font-weight:400;opacity:.8}.aiUsageSub td{opacity:.8}
+.aiUsageShare{display:inline-block;vertical-align:middle;width:60px;height:6px;border-radius:3px;background:#eef2f5;margin-right:8px;overflow:hidden}
+.aiUsageShare span,.aiUsageBar span{display:block;height:100%;background:#004f6e;border-radius:3px}
+.aiUsageTwo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.aiUsageList,.aiUsageDays{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.aiUsageList li{display:grid;grid-template-columns:1fr auto 90px;gap:10px;font-size:13px;align-items:center;font-variant-numeric:tabular-nums}
+.aiUsageList small{opacity:.65;text-align:right}
+.aiUsageDays li{display:grid;grid-template-columns:44px 1fr 80px;gap:10px;align-items:center;font-size:12px;font-variant-numeric:tabular-nums}
+.aiUsageDays b{text-align:right;font-weight:600}
+.aiUsageBar{height:10px;border-radius:5px;background:#eef2f5;overflow:hidden}
+@media (max-width:900px){.aiUsageKpis{grid-template-columns:repeat(2,minmax(0,1fr))}.aiUsageTwo{grid-template-columns:minmax(0,1fr)}}
