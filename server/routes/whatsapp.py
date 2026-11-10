@@ -95,3 +95,54 @@ async def delete_whatsapp_number(client_id: str, number_id: str, authorization: 
     if not await disconnect_number(cid, number_id):
         raise HTTPException(404, "Número não encontrado para esta empresa.")
     return {"ok": True}
+
+
+# ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
+class InstagramReply(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+_IG_ERRORS = {
+    "CONVERSATION_NOT_FOUND": (404, "Conversa não encontrada para esta empresa."),
+    "DIRECT_WINDOW_CLOSED": (409, "Passou de 24 h desde a última mensagem da pessoa: o Instagram só deixa responder dentro desse prazo."),
+    "REPLY_EMPTY": (422, "Escreva a resposta."),
+    "IG_NOT_CONNECTED": (409, "Instagram não conectado: conecte em Integrações."),
+    "IG_PAGE_NOT_FOUND": (409, "Não achei a página do Facebook ligada a este Instagram: reconecte em Integrações."),
+    "IG_PERMISSION_MISSING": (409, "Falta permissão de mensagens no login do Meta: reconecte o Instagram em Integrações."),
+}
+
+
+def _ig_http(exc: StudioError) -> HTTPException:
+    status, detail = _IG_ERRORS.get(exc.code, (502, "O Instagram não aceitou agora. Tente de novo em instantes."))
+    return HTTPException(status, detail)
+
+
+@router.get("/instagram")
+async def read_instagram_inbox(client_id: str, authorization: Optional[str] = Header(None)):
+    from services.ig_direct import inbox
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    return await inbox(cid)
+
+
+@router.get("/instagram/{sender_id}")
+async def read_instagram_thread(client_id: str, sender_id: str, authorization: Optional[str] = Header(None)):
+    from services.ig_direct import thread_messages
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    if not sender_id.isdigit() or len(sender_id) > 40:
+        raise HTTPException(404, "Conversa não encontrada para esta empresa.")
+    try:
+        return await thread_messages(cid, sender_id)
+    except StudioError as exc:
+        raise _ig_http(exc) from None
+
+
+@router.post("/instagram/{sender_id}/reply")
+async def reply_instagram_thread(client_id: str, sender_id: str, body: InstagramReply, authorization: Optional[str] = Header(None)):
+    from services.ig_direct import manual_reply
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    if not sender_id.isdigit() or len(sender_id) > 40:
+        raise HTTPException(404, "Conversa não encontrada para esta empresa.")
+    try:
+        return await manual_reply(cid, sender_id, body.text)
+    except StudioError as exc:
+        raise _ig_http(exc) from None

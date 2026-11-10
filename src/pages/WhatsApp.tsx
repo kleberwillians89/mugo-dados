@@ -13,6 +13,7 @@ import PeriodSelector from "../components/data/PeriodSelector";
 import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
 import WhatsAppNumbers from "../components/whatsapp/WhatsAppNumbers";
+import InstagramInbox from "../components/whatsapp/InstagramInbox";
 import "../styles/whatsapp.css";
 
 type Filter = "all" | "ad" | "bought" | "waiting";
@@ -52,6 +53,7 @@ export default function WhatsApp() {
   const [inbox, setInbox] = useState<{ data: WhatsAppInbox | null; error: boolean }>({ data: null, error: false });
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
+  const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ id: string; messages: CrmMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
 
@@ -254,7 +256,14 @@ export default function WhatsApp() {
           </>
         ) : null}
 
-        <section className="waCard waInbox" aria-labelledby="wa-inbox">
+        <div className="waChannel" role="group" aria-label="Canal das conversas">
+          {([["whatsapp", "WhatsApp"], ["instagram", "Instagram"]] as const).map(([key, label]) => (
+            <button key={key} type="button" className={channel === key ? "is-active" : ""} aria-pressed={channel === key} onClick={() => setChannel(key)}>{label}</button>
+          ))}
+        </div>
+
+        {channel === "instagram" ? <InstagramInbox key={clientId} /> : null}
+        <section className="waCard waInbox" aria-labelledby="wa-inbox" hidden={channel !== "whatsapp"}>
           <div className="waInboxList">
             <div className="waInboxTools">
               <h2 id="wa-inbox">Conversas</h2>

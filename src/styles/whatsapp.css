@@ -124,3 +124,14 @@
 .waInsight h3 { font-size: 14px; margin: 0; }
 .waInsight p { margin: 0; }
 @media (max-width: 640px) { .waFunnel li { grid-template-columns: 96px 1fr auto; } }
+
+/* Canal: WhatsApp | Instagram */
+.waChannel{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 -4px}
+.waChannel button{font:inherit;font-size:14px;font-weight:600;min-height:38px;padding:6px 16px;border-radius:999px;border:1px solid var(--wa-line);background:var(--surface,#fff);color:var(--wa-ink);cursor:pointer}
+.waChannel button.is-active{background:var(--accent,#004f6e);border-color:var(--accent,#004f6e);color:#fff}
+.waComposer{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--wa-line);background:var(--surface,#fff)}
+.waComposer textarea{flex:1 1 240px;font:inherit;font-size:14px;border:1px solid var(--wa-line);border-radius:10px;padding:8px 10px;resize:vertical;min-height:44px}
+.waComposer .ds-button{align-self:flex-end}
+.waComposer p{flex-basis:100%;margin:0}
+.waSrOnly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.waCard[hidden]{display:none}

@@ -100,3 +100,16 @@ export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id:
 export function disconnectWhatsAppNumber(id: string) {
   return http<{ ok: true }>(base(`/numbers/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
+
+/** Direct do Instagram da marca (mesma tela do WhatsApp). */
+export type IgThreadSummary = {
+  sender_id: string; username: string | null; follows: boolean | null; last_at: string; last_text: string;
+  last_direction: "in" | "out"; last_by_app: boolean; waiting: boolean; review: boolean; window_open: boolean; messages: number;
+};
+export type IgInbox = { threads: IgThreadSummary[]; counts: { conversations: number; waiting: number; review: number } };
+export type IgMessage = { id: string; direction: "in" | "out"; text: string | null; by_app: boolean; status: string; reply_kind: "oi" | "ia" | null; at: string; note: string | null };
+export type IgThread = { sender_id: string; username: string | null; follows: boolean | null; window_open: boolean; messages: IgMessage[] };
+export const getInstagramInbox = () => http<IgInbox>(base("/instagram"));
+export const getInstagramThread = (senderId: string) => http<IgThread>(base(`/instagram/${encodeURIComponent(senderId)}`));
+export const replyInstagram = (senderId: string, text: string) =>
+  http<{ status: string; at: string }>(base(`/instagram/${encodeURIComponent(senderId)}/reply`), { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
