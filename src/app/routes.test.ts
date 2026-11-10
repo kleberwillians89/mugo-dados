@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { approvalTokenFromPath, getAppRouteFromPath, getPathForRoute, getPublicAppRouteFromPath } from "./routes";
+import { canViewAppRoute } from "./teamRules";
 
 describe("platform routes", () => {
   it("distinguishes goals from the existing Meta route", () => {
@@ -11,6 +12,15 @@ describe("platform routes", () => {
     expect(getPathForRoute("campaigns")).toBe("/social-media");
     expect(getAppRouteFromPath("/social-media")).toBe("campaigns");
     expect(getAppRouteFromPath("/redacao")).toBe("campaigns");
+  });
+  it("preserva acesso ao ambiente unificado para quem tem apenas Calendário, sem conceder Social Media", () => {
+    const calendarOnly = (code: string) => code === "calendar.view";
+    expect(canViewAppRoute("campaigns", calendarOnly)).toBe(true);
+    expect(canViewAppRoute("calendar", calendarOnly)).toBe(true);
+    expect(calendarOnly("social_media.view")).toBe(false);
+    const socialOnly = (code: string) => code === "social_media.view";
+    expect(canViewAppRoute("campaigns", socialOnly)).toBe(true);
+    expect(canViewAppRoute("calendar", socialOnly)).toBe(false);
   });
   it("maps the protected companies URL", () => {
     expect(getAppRouteFromPath("/empresas")).toBe("companies");

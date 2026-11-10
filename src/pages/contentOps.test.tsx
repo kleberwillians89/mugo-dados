@@ -13,6 +13,7 @@ const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn() }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studioApi }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock("./Calendar", () => ({ default: () => <label>Calendário incorporado<input aria-label="Rascunho local do calendário" defaultValue="" /></label> }));
 
 import Clipping from "./Clipping";
 import Campaigns from "./Campaigns";
@@ -20,9 +21,9 @@ import { pieceText } from "../app/contentOps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement; let root: Root;
-beforeEach(() => { api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] });
+beforeEach(() => { window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
   studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }] }, saved: true }); host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); window.history.replaceState({}, "", "/"); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
 const week = { current: { total: 5, marca: 4, concorrente: 1, positivo: 2, neutro: 1, negativo: 1 }, previous: { total: 2, marca: 2, concorrente: 0, positivo: 1, neutro: 1, negativo: 0 }, marca_variacao: 2 };
@@ -87,7 +88,7 @@ describe("Social Media: Campanhas (antes Redação)", () => {
           limits: [{ field: "titulos", index: 0, length: 19, limit: 30, over: false }, { field: "titulos", index: 1, length: 39, limit: 30, over: true }, { field: "descricoes", index: 0, length: 12, limit: 90, over: false }], flags: [] } } } } });
     await show(<Campaigns />);
     expect(host.textContent).toContain("Social Media");
-    await act(async () => { tab("Campanhas").click(); }); await act(async () => {});
+    await act(async () => { tab("Criação").click(); }); await act(async () => {});
     const button = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Black Friday"))!;
     await act(async () => { button.click(); }); await act(async () => {});
     expect(host.textContent).toContain("Presente certo");
@@ -99,6 +100,20 @@ describe("Social Media: Campanhas (antes Redação)", () => {
   it("texto para copiar sai na ordem da plataforma", () => {
     expect(pieceText("google_ads", { titulos: ["T1", "T2"], descricoes: ["D1"] })).toBe("Títulos:\nT1\nT2\n\nDescrições:\nD1");
     expect(pieceText("email", { assunto: "A", preheader: "P", corpo: "C" })).toBe("Assunto: A\nPré-cabeçalho: P\n\nC");
+  });
+
+  it("campanha exportada abre a aba Calendário existente", async () => {
+    const campaign = { id: "c1", name: "Black Friday", status: "pronta", briefing: {}, calendar_item_ids: [], updated_at: "x", package: { concept: { nome: "Conceito", ideia: "Ideia", por_que: "Motivo" }, titles: [], pieces: {} } };
+    api.listCampaigns.mockResolvedValue({ campaigns: [campaign] });
+    api.getCampaign.mockResolvedValue({ campaign });
+    api.campaignToCalendar.mockResolvedValue({ created: 1, already: false, calendar_item_ids: ["item-1"] });
+    await show(<Campaigns />);
+    await act(async () => { tab("Criação").click(); }); await act(async () => {});
+    await act(async () => { [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Black Friday"))!.click(); }); await act(async () => {});
+    await act(async () => { byText("Mandar pro Calendário").click(); }); await act(async () => {});
+    await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
+    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
+    expect(api.campaignToCalendar).toHaveBeenCalledWith("c1");
   });
 });
 
@@ -114,7 +129,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video", week: 3, pillar: "Bastidores" })]) });
     await show(<Campaigns />);
-    expect(tab("Matriz de conteúdo").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Matriz de Conteúdo").getAttribute("aria-selected")).toBe("true");
     expect(host.textContent).toContain("Mês do lançamento.");
     expect(host.querySelectorAll(".matrixGrid thead th").length).toBe(5); // pilar + 4 semanas
     expect(host.textContent).toContain("16/11 a 22/11");
@@ -156,6 +171,8 @@ describe("Social Media: Matriz de conteúdo", () => {
     await act(async () => { byText("Enviar ao Calendário").click(); }); await act(async () => {});
     expect(api.matrixToCalendar).toHaveBeenCalledWith("m1");
     expect(host.textContent).toContain("1 conteúdo(s) no Calendário como rascunho");
+    await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
+    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
   });
 
   it("sem permissão de alterar, só lê", async () => {
@@ -171,5 +188,39 @@ describe("Social Media: Matriz de conteúdo", () => {
     studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [] }, saved: true });
     await show(<Campaigns />);
     expect(host.textContent).toContain("ainda não tem pilares editoriais");
+  });
+});
+
+describe("Social Media unificado", () => {
+  it("mantém Matriz, Criação e Calendário na mesma página sem perder o estado montado", async () => {
+    await show(<Campaigns />);
+    expect(tab("Matriz de Conteúdo").getAttribute("aria-selected")).toBe("true");
+    await act(async () => { tab("Calendário").click(); }); await act(async () => {});
+    const draft = host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')!;
+    draft.value = "edição preservada";
+    await act(async () => { tab("Criação").click(); }); await act(async () => {});
+    await act(async () => { tab("Calendário").click(); }); await act(async () => {});
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')?.value).toBe("edição preservada");
+    expect(window.location.pathname).toBe("/social-media");
+    expect(new URLSearchParams(window.location.search).get("aba")).toBe("calendario");
+  });
+
+  it("usuário com somente Calendário não recebe acesso às abas de Matriz ou Criação", async () => {
+    await show(<Campaigns canViewSocial={false} canViewCalendar canManageCalendar={false} initialTab="calendario" />);
+    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Matriz de Conteúdo")).toBeUndefined();
+    expect(tab("Criação")).toBeUndefined();
+    expect(host.textContent).toContain("Calendário incorporado");
+  });
+
+  it("links legados abrem a aba correspondente", async () => {
+    window.history.replaceState({}, "", "/redacao");
+    await show(<Campaigns />);
+    expect(tab("Criação").getAttribute("aria-selected")).toBe("true");
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    window.history.replaceState({}, "", "/calendario");
+    await show(<Campaigns />);
+    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
   });
 });

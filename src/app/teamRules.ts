@@ -20,3 +20,10 @@ export const ROUTE_MODULE: Record<string, string> = {
 
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
 export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit"]);
+
+/** Social Media reúne recursos distintos sem fundir suas permissões. */
+export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {
+  if (route === "campaigns") return can("social_media.view") || can("calendar.view");
+  const module = ROUTE_MODULE[route];
+  return !module || can(`${module}.view`);
+}

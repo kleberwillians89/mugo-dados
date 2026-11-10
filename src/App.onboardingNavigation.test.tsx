@@ -66,6 +66,8 @@ vi.mock("./app/api", () => ({
     requestId = "";
   },
   setApiAccessToken: vi.fn(),
+  clientClientPath: (path: string) => `/api/clients/amalie${path}`,
+  http: vi.fn(async () => ({ unread: {} })),
   listClients: vi.fn(async () => ({ clients: backend.clients.filter(row => row.status !== "inactive" &&
     (backend.platformAdmin || backend.memberships.some(m => m.role === "agency_admin" || m.client_id === row.id)))
     .map(row => ({client_id: row.id, name: row.trade_name || row.name,
