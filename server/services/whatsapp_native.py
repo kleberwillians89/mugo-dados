@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .ig_supabase import sb_insert, sb_select, sb_update
+from .ig_supabase import sb_insert, sb_select, sb_update, sb_upsert
 
 GRAPH_TIMEOUT = 20
 _DIGITS = re.compile(r"^[0-9]{5,30}$")
@@ -43,10 +44,11 @@ def mask_phone(value: Any) -> str:
     return f"•••• {digits[-4:]}" if len(digits) >= 4 else "••••"
 
 
-async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, Any]] = None,
+                 json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=GRAPH_TIMEOUT) as client:
-            resp = await client.request(method, f"{_graph_base()}/{path}", params=params,
+            resp = await client.request(method, f"{_graph_base()}/{path}", params=params, json=json_body,
                                         headers={"Authorization": f"Bearer {token}"})
         body = resp.json() if resp.content else {}
     except (httpx.HTTPError, ValueError):
@@ -59,6 +61,8 @@ async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, 
             raise WhatsAppNativeError("TOKEN_INVALID", "A Meta recusou o token. Gere um token do usuário do sistema com acesso a esta WABA.")
         if code in {"100", "803"} or resp.status_code == 404:
             raise WhatsAppNativeError("NOT_FOUND", "A Meta não encontrou esse ID. Confira o ID da WABA e o ID do número.")
+        if code == "131047":
+            raise WhatsAppNativeError("OUTSIDE_WINDOW", "Passaram 24 horas desde a última mensagem da pessoa: o WhatsApp só aceita resposta livre dentro desse prazo.")
         if code in {"10", "200", "294"} or resp.status_code == 403:
             raise WhatsAppNativeError("PERMISSION", "O token não tem permissão nesta WABA (whatsapp_business_management e whatsapp_business_messaging).")
         raise WhatsAppNativeError("META_FAILED", "A Meta recusou o pedido. Tente de novo ou confira as permissões.")
@@ -219,3 +223,38 @@ async def messages(client_id: str, thread_id: str, limit: int = 100) -> Dict[str
             "text": r.get("text"), "template_name": None, "at": r.get("sent_at"), "read_at": r.get("read_at"),
             "failed": r.get("status") == "failed", "error_code": r.get("error_code")} for r in reversed(rows)]
     return {"available": True, "messages": out, "found": True}
+
+
+async def send_text(client_id: str, thread_id: str, text: str) -> Dict[str, Any]:
+    """Equipe responde pelo MUGOVERSO, pelo número da marca (Cloud API), dentro da janela de 24 h."""
+    body = re.sub(r"[ \t]+", " ", str(text or "")).strip()[:4096]
+    if not body:
+        raise WhatsAppNativeError("EMPTY", "Escreva a mensagem.")
+    if not _UUID.match(str(thread_id)):
+        raise WhatsAppNativeError("NOT_FOUND", "Conversa não encontrada.")
+    threads = await sb_select("whatsapp_threads", select="id,number_id,wa_id,last_inbound_at",
+                              filters={"id": f"eq.{thread_id}", "client_id": f"eq.{client_id}"}, limit=1)
+    if not threads:
+        raise WhatsAppNativeError("NOT_FOUND", "Conversa não encontrada.")
+    thread = threads[0]
+    inbound = thread.get("last_inbound_at")
+    now = datetime.now(timezone.utc)
+    if not inbound or datetime.fromisoformat(str(inbound).replace("Z", "+00:00")) + timedelta(hours=24) <= now:
+        raise WhatsAppNativeError("OUTSIDE_WINDOW", "Passaram 24 horas desde a última mensagem da pessoa: o WhatsApp só aceita resposta livre dentro desse prazo.")
+    numbers = await sb_select("whatsapp_numbers", select="id,phone_number_id,access_token,status",
+                              filters={"id": f"eq.{thread['number_id']}", "client_id": f"eq.{client_id}", "status": "eq.active"}, limit=1)
+    if not numbers:
+        raise WhatsAppNativeError("NOT_FOUND", "O número desta conversa foi desligado do MUGOVERSO.")
+    number = numbers[0]
+    out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
+                       json_body={"messaging_product": "whatsapp", "to": thread["wa_id"], "type": "text",
+                                  "text": {"body": body, "preview_url": False}})
+    provider_id = str(((out.get("messages") or [{}])[0] or {}).get("id") or f"mugoverso:{uuid.uuid4()}")
+    stamp = now.isoformat()
+    await sb_upsert("whatsapp_messages", [{"client_id": client_id, "thread_id": thread["id"], "number_id": number["id"],
+                                           "provider_message_id": provider_id, "direction": "out", "type": "text", "text": body,
+                                           "status": "sent", "sent_at": stamp}], on_conflict="number_id,provider_message_id")
+    await sb_update("whatsapp_threads", filters={"id": f"eq.{thread['id']}", "client_id": f"eq.{client_id}"},
+                    patch={"last_message_at": stamp, "last_preview": body[:160], "last_direction": "out", "unread_count": 0},
+                    returning="minimal")
+    return {"status": "sent", "at": stamp}

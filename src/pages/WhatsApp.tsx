@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
 import { CRM_UNAVAILABLE_TEXT, windowOpen, type CrmMessage } from "../app/crm";
 import {
-  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound,
+  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound, replyWhatsApp,
   type WaConversation, type WhatsAppInbox, type WhatsAppInsights,
 } from "../app/whatsapp";
 import Shell from "../components/Shell";
@@ -54,6 +54,9 @@ export default function WhatsApp() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ id: string; messages: CrmMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
 
@@ -68,10 +71,11 @@ export default function WhatsApp() {
 
   // Só a última conversa pedida pode preencher a tela: resposta atrasada de outra é descartada.
   const wanted = useRef<string | null>(null);
-  const openConversation = useCallback(async (id: string) => {
+  const openConversation = useCallback(async (id: string, keep = false) => {
     wanted.current = id;
     setOpenId(id);
-    setThread({ id, messages: [], loading: true, error: false });
+    if (!keep) { setDraft(""); setSendNote(null); }
+    setThread((t) => (keep && t.id === id ? { ...t, loading: true } : { id, messages: [], loading: true, error: false }));
     try {
       const res = await getWhatsAppMessages(id);
       if (wanted.current !== id) return;
@@ -94,6 +98,23 @@ export default function WhatsApp() {
       .catch(() => { if (alive) setInbox({ data: null, error: true }); });
     return () => { alive = false; };
   }, [clientId, openConversation]);
+
+  async function sendReply(event: FormEvent) {
+    event.preventDefault();
+    if (!openId || !draft.trim()) return;
+    setSending(true); setSendNote(null);
+    try {
+      const out = await replyWhatsApp(openId, draft.trim());
+      setDraft("");
+      setSendNote({ ok: true, text: out.ai_paused_minutes ? `Enviada. A IA fica quieta nesta conversa por ${Math.round(out.ai_paused_minutes / 60)} h.` : "Enviada." });
+      await openConversation(openId, true);
+      getWhatsAppInbox().then((data) => { if (getActiveClientId() === clientId) setInbox({ data, error: false }); }).catch(() => undefined);
+    } catch (cause) {
+      setSendNote({ ok: false, text: cause instanceof Error && cause.message ? cause.message : "Não foi possível enviar agora." });
+    } finally {
+      setSending(false);
+    }
+  }
 
   const current = insights.scope === scope ? insights : { data: null, error: false };
   const data = current.data;
@@ -329,6 +350,16 @@ export default function WhatsApp() {
                     </li>
                   ) : null}
                 </ol>
+                {windowOpen(open.service_window_expires_at) ? (
+                  <form className="waComposer" onSubmit={sendReply}>
+                    <label className="waSrOnly" htmlFor="wa-reply">Responder no WhatsApp</label>
+                    <textarea id="wa-reply" rows={2} maxLength={4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
+                    <button type="submit" className="ds-button is-primary" disabled={sending || !draft.trim()}>{sending ? "Enviando…" : "Enviar"}</button>
+                    {sendNote ? <p className="waMuted waSmall" role={sendNote.ok ? "status" : "alert"}>{sendNote.text}</p>
+                      : <p className="waMuted waSmall">Sai pelo número da marca e fica registrada na conversa. Respondendo aqui, a IA para nesta conversa por um tempo. Ctrl/⌘ + Enter envia.</p>}
+                  </form>
+                ) : <p className="waMuted waPad">Passou de 24 h desde a última mensagem da pessoa: o WhatsApp só aceita resposta livre dentro desse prazo (use um modelo aprovado pelo CRM).</p>}
               </>
             ) : <p className="waMuted waPad">Escolha uma conversa.</p>}
           </div>

@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from services.whatsapp_sources import brand_messages
+from services.whatsapp_sources import brand_messages, brand_reply
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
@@ -59,6 +59,33 @@ async def read_whatsapp_messages(client_id: str, conversation_id: str, limit: in
         if exc.code == "CONVERSATION_NOT_FOUND":
             raise HTTPException(404, "Conversa não encontrada para esta empresa.") from None
         raise HTTPException(502, "Não foi possível abrir a conversa agora.") from None
+
+
+class WhatsAppReply(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+
+
+_REPLY_ERRORS = {
+    "CONVERSATION_NOT_FOUND": 404, "EMPTY_MESSAGE": 422, "OUTSIDE_WINDOW": 409, "REPLY_UNSUPPORTED": 409,
+    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502,
+}
+
+
+@router.post("/conversations/{conversation_id}/reply")
+async def reply_whatsapp_conversation(client_id: str, conversation_id: str, body: WhatsAppReply,
+                                      authorization: Optional[str] = Header(None)):
+    """Equipe (agência ou admin da marca) responde a conversa pelo número da marca."""
+    from services.tenant import is_agency_user
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    author = "equipe Mugô" if await is_agency_user(authorization) else "equipe da marca"
+    try:
+        return await brand_reply(cid, conversation_id, body.text, author=author)
+    except StudioError as exc:
+        status = _REPLY_ERRORS.get(exc.code, 502)
+        detail = str(exc) if str(exc) and str(exc) != exc.code else "Não foi possível enviar agora."
+        if exc.code == "CONVERSATION_NOT_FOUND":
+            detail = "Conversa não encontrada para esta empresa."
+        raise HTTPException(status, detail) from None
 
 
 # ---- Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência cadastra e vê.
