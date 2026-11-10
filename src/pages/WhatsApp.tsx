@@ -4,7 +4,7 @@ import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
 import { CRM_UNAVAILABLE_TEXT, windowOpen, type CrmMessage } from "../app/crm";
 import {
-  ORIGIN_COLORS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound,
+  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound,
   type WaConversation, type WhatsAppInbox, type WhatsAppInsights,
 } from "../app/whatsapp";
 import Shell from "../components/Shell";
@@ -105,7 +105,7 @@ export default function WhatsApp() {
       if (filter === "bought" && !conv.purchase) return false;
       if (filter === "waiting" && !isWaiting(conv)) return false;
       if (!term) return true;
-      return [conv.contact.name, conv.contact.phone_masked, conv.purchase?.last_order, conv.origin.label]
+      return [conv.contact.name, conv.contact.phone_masked, conv.purchase?.last_order, conv.origin.label, conv.insight?.summary, ...(conv.insight?.interests || [])]
         .some((value) => String(value || "").toLowerCase().includes(term));
     });
   }, [inbox.data, filter, query]);
@@ -187,7 +187,7 @@ export default function WhatsApp() {
                   <table className="waTable">
                     <thead><tr>
                       <th scope="col">Anúncio</th><th scope="col">Investido</th><th scope="col">Conversas</th><th scope="col">Vendas</th>
-                      <th scope="col">Custo/venda</th><th scope="col">Retorno</th><th scope="col">Leitura</th>
+                      <th scope="col">Avançaram</th><th scope="col">Custo/venda</th><th scope="col">Retorno</th><th scope="col">Leitura</th>
                     </tr></thead>
                     <tbody>{data!.ads.map((ad) => (
                       <tr key={ad.ad_id}>
@@ -195,6 +195,7 @@ export default function WhatsApp() {
                         <td>{money(ad.spend)}</td>
                         <td>{formatInteger(ad.conversations)}</td>
                         <td>{formatInteger(ad.sales)}</td>
+                        <td>{ad.advanced == null ? "—" : formatInteger(ad.advanced)}{ad.top_objection ? <small>trava: {ad.top_objection.label.toLowerCase()}</small> : null}</td>
                         <td>{money(ad.cost_per_sale)}</td>
                         <td><b>{times(ad.roas)}</b></td>
                         <td>{ad.verdict ? <span className={`waPill is-${ad.verdict.code}`}>{ad.verdict.label}</span> : <span className="waMuted">Pouco gasto ainda</span>}</td>
@@ -207,6 +208,34 @@ export default function WhatsApp() {
                 <p key={alert.ad_id} className="waAlert"><b>Alerta:</b> {alert.text}</p>
               ))}
             </section>
+
+            {data!.stages?.length ? (
+              <section className="waCard" aria-labelledby="wa-funnel">
+                <div className="waCardHead">
+                  <h2 id="wa-funnel">Onde as conversas estão</h2>
+                  <span className="waMuted">leitura da IA de atendimento · {formatInteger(data!.interpreted_conversations || 0)} conversas</span>
+                </div>
+                <ul className="waFunnel">
+                  {data!.stages.map((row) => (
+                    <li key={row.key} className={`is-${row.key}`}>
+                      <span className="waFunnelLabel">{row.label}</span>
+                      <span className="waFunnelBar"><span style={{ width: `${Math.max(row.share, 2)}%` }} /></span>
+                      <b>{formatInteger(row.count)}</b>
+                    </li>
+                  ))}
+                </ul>
+                {data!.objections?.length ? (
+                  <>
+                    <h3 className="waSubhead">O que trava a venda</h3>
+                    <ul className="waObjections">
+                      {data!.objections.slice(0, 6).map((row) => (
+                        <li key={row.key}><span>{row.label}</span><b>{formatInteger(row.count)}</b></li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </section>
+            ) : null}
 
             {data!.links?.length ? (
               <section className="waCard" aria-labelledby="wa-links">
@@ -255,6 +284,7 @@ export default function WhatsApp() {
                     </span>
                     <span className="waTags">
                       <span className={`waTag is-${conv.origin.bucket}`}>{conv.origin.label}</span>
+                      {conv.insight ? <span className={`waTag is-stage-${conv.insight.stage}`}>{STAGE_LABELS[conv.insight.stage] || conv.insight.stage}</span> : null}
                       {conv.purchase ? <span className="waTag is-bought">Comprou {money(conv.purchase.revenue)}</span> : null}
                       {!conv.purchase && isWaiting(conv) ? <span className="waTag is-waiting">Aguardando resposta</span> : null}
                     </span>
@@ -304,6 +334,17 @@ export default function WhatsApp() {
                 <li className={open.purchase ? "is-done" : "is-pending"}><span>3</span><div><b>{open.purchase ? "Comprou" : "Ainda não comprou"}</b>
                   <small>{open.purchase ? `${open.purchase.orders} ${open.purchase.orders === 1 ? "pedido" : "pedidos"} · ${money(open.purchase.revenue)}` : "nenhum pedido com este telefone"}</small></div></li>
               </ol>
+            ) : null}
+            {open?.insight ? (
+              <div className="waInsight" aria-label="Leitura da IA">
+                <h3>Leitura da IA</h3>
+                <p><span className={`waTag is-stage-${open.insight.stage}`}>{STAGE_LABELS[open.insight.stage] || open.insight.stage}</span></p>
+                {open.insight.summary ? <p>{open.insight.summary}</p> : null}
+                {open.insight.interests.length ? <p><b>Interesses:</b> {open.insight.interests.join(", ")}</p> : null}
+                {open.insight.objections.length ? <p><b>Trava:</b> {open.insight.objections.map((key) => OBJECTION_LABELS[key] || key).join(", ")}</p> : null}
+                {open.insight.next_step ? <p><b>Próximo passo:</b> {open.insight.next_step}</p> : null}
+                {open.insight.updated_at ? <p className="waMuted waSmall">Atualizada {fullWhen(open.insight.updated_at)}</p> : null}
+              </div>
             ) : null}
             {data?.attribution_label ? <p className="waMuted waSmall">{data.attribution_label}</p> : null}
           </aside>

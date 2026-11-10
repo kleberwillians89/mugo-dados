@@ -44,6 +44,29 @@ ORIGIN_LABELS = {
 }
 ORIGIN_ORDER = ["ad", "instagram", "link", "site", "google", "direct"]
 
+# Ficha da IA de atendimento (CRM da marca): fase da conversa e o que trava a venda.
+STAGE_LABELS = {
+    "novo": "Lead novo",
+    "interessada": "Interessada",
+    "negociando": "Negociando",
+    "comprou": "Comprou",
+    "recorrente": "Recorrente",
+    "perdida": "Perdida",
+    "suporte": "Pós-venda",
+}
+STAGE_ORDER = ["novo", "interessada", "negociando", "comprou", "recorrente", "perdida", "suporte"]
+ADVANCED_STAGES = {"negociando", "comprou", "recorrente"}
+OBJECTION_LABELS = {
+    "preco": "Preço",
+    "frete": "Frete",
+    "prazo": "Prazo de entrega",
+    "confianca": "Confiança na loja",
+    "pagamento": "Forma de pagamento",
+    "estoque": "Disponibilidade",
+    "produto": "Dúvida sobre o produto",
+    "outro": "Outro motivo",
+}
+
 _PHONE_FIELDS = (
     "phone:raw_payload->>phone",
     "customer_phone:raw_payload->customer->>phone",
@@ -195,6 +218,8 @@ def aggregate(leads: List[Dict[str, Any]], orders_in_window: List[Dict[str, Any]
     converted = 0
     wa_orders = 0
     wa_revenue = 0.0
+    stages: Dict[str, int] = defaultdict(int)
+    objections: Dict[str, int] = defaultdict(int)
     for index, lead in enumerate(leads):
         origin = lead.get("origin") or {}
         bucket = origin_bucket(origin)
@@ -209,14 +234,28 @@ def aggregate(leads: List[Dict[str, Any]], orders_in_window: List[Dict[str, Any]
             converted += 1
             wa_orders += len(lead_orders)
             wa_revenue += revenue
+        stage = _text(lead.get("stage"))
+        stage = stage if stage in STAGE_LABELS else ""
+        # Venda registrada vale mais que a leitura da IA: quem comprou conta como "Comprou".
+        if lead_orders and stage not in {"comprou", "recorrente"}:
+            stage = "comprou"
+        if stage:
+            stages[stage] += 1
+        lead_objections = [o for o in dict.fromkeys(lead.get("objections") or []) if o in OBJECTION_LABELS]
+        for objection in lead_objections:
+            objections[objection] += 1
         ad_id = _text(origin.get("ad_id"))
         if bucket == "ad" and ad_id:
             ad = ads.setdefault(ad_id, {"ad_id": ad_id, "headline": _text(origin.get("ad_headline")) or None,
-                                        "conversations": 0, "sales": 0, "orders": 0, "revenue": 0.0})
+                                        "conversations": 0, "sales": 0, "orders": 0, "revenue": 0.0,
+                                        "advanced": 0, "_objections": defaultdict(int)})
             ad["conversations"] += 1
             ad["orders"] += len(lead_orders)
             ad["revenue"] += revenue
             ad["sales"] += 1 if lead_orders else 0
+            ad["advanced"] += 1 if stage in ADVANCED_STAGES else 0
+            for objection in lead_objections:
+                ad["_objections"][objection] += 1
         code = _text(origin.get("entry_code"))
         if bucket == "link" and code:
             link = links.setdefault(code, {"code": code, "conversations": 0, "sales": 0, "revenue": 0.0})
@@ -226,6 +265,9 @@ def aggregate(leads: List[Dict[str, Any]], orders_in_window: List[Dict[str, Any]
 
     ad_rows = []
     for ad_id, ad in ads.items():
+        ad_objections = ad.pop("_objections")
+        top = max(ad_objections.items(), key=lambda item: (item[1], item[0]), default=None)
+        ad["top_objection"] = {"key": top[0], "label": OBJECTION_LABELS[top[0]], "count": top[1]} if top else None
         stats = ad_stats.get(ad_id) or {}
         spend = round(_num(stats.get("spend")), 2)
         roas = round(ad["revenue"] / spend, 2) if spend else None
@@ -281,6 +323,17 @@ def aggregate(leads: List[Dict[str, Any]], orders_in_window: List[Dict[str, Any]
         "origins": [finish(origins[key]) for key in ORIGIN_ORDER if origins[key]["conversations"]],
         "ads": ad_rows[:30],
         "links": sorted(({**l, "revenue": round(l["revenue"], 2)} for l in links.values()), key=lambda r: -r["conversations"])[:30],
+        # Leitura da IA de atendimento: só conversas que a IA já interpretou (ou que viraram venda).
+        "stages": [
+            {"key": key, "label": STAGE_LABELS[key], "count": stages[key],
+             "share": round(stages[key] / sum(stages.values()) * 100, 1) if stages else 0.0}
+            for key in STAGE_ORDER if stages.get(key)
+        ],
+        "interpreted_conversations": sum(stages.values()),
+        "objections": sorted(
+            ({"key": key, "label": OBJECTION_LABELS[key], "count": count} for key, count in objections.items()),
+            key=lambda row: (-row["count"], row["key"]),
+        ),
         "alerts": alerts[:3],
     }
 
