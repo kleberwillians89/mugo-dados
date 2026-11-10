@@ -691,3 +691,8 @@
 .ds-funnelLabel{ font-size: 13px; color: var(--text-secondary); }
 .ds-funnelValue{ font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .ds-funnelRate{ font-size: 12px; color: var(--text-muted); }
+
+/* Abas "Clientes e vendas" (Clientes · Origem das vendas) */
+.clientsSalesTabs{display:flex;gap:6px;flex-wrap:wrap;margin:-8px 0 8px}
+.clientsSalesTabs a{display:inline-flex;align-items:center;min-height:40px;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.12));background:var(--surface,#fff);color:var(--text-primary,#15181b);font-size:14px;font-weight:600;text-decoration:none}
+.clientsSalesTabs a.is-active{background:var(--accent,#004f6e);border-color:var(--accent,#004f6e);color:#fff}

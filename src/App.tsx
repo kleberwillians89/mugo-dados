@@ -941,7 +941,7 @@ function PrivateApp() {
       ) : route === "automations" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
-        <SalesOrigin key={`origins:${activeClientId}`} />
+        <SalesOrigin key={`origins:${activeClientId}`} canView={canView} />
       ) : route === "whatsapp" ? (
         <WhatsApp key={`whatsapp:${activeClientId}`} />
       ) : route === "intelligence" ? (
@@ -960,7 +960,7 @@ function PrivateApp() {
           onOpenDashboard={() => openRoute("meta")}
         />
       ) : route === "customers" ? (
-        <Customers key={`customers:${activeClientId}`} />
+        <Customers key={`customers:${activeClientId}`} canView={canView} />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}
