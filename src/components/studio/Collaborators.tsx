@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { cleanHandle } from "./collaborators.helpers";
 
-/** Mesma regra do servidor: sem @, minúsculo, letras/números/ponto/sublinhado, até 30. */
-export function cleanHandle(value: string): string | null {
-  const user = value.trim().replace(/^@+/, "").toLowerCase().replace(/^https?:\/\/(www\.)?instagram\.com\//, "").replace(/\/.*$/, "");
-  return /^[a-z0-9._]{1,30}$/.test(user) ? user : null;
-}
 
 /**
  * Colaboradores do post no Instagram (até 3). O convite aparece para cada @ no Instagram dele;

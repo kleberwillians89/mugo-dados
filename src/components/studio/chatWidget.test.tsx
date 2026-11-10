@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const studio = vi.hoisted(() => ({ chatUnread: vi.fn(), listTimeline: vi.fn(), listChat: vi.fn(), sendChat: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
 
-import ChatWidget, { newDone } from "./ChatWidget";
+import ChatWidget from "./ChatWidget";
+import { newDone } from "./chatWidget.helpers";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;

@@ -11,7 +11,7 @@ const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0,
 const digitsOnly = (value: unknown) => String(value ?? '').replace(/\D/g, '')
 
 // Só "ref:codigo" (com dois-pontos e começando por letra): "tênis ref 4432" é referência de produto.
-const ENTRY_CODE = /(?:^|[\s(\[])ref:\s?([a-z][a-z0-9_-]{1,39})(?=$|[\s)\].,!?])/i
+const ENTRY_CODE = /(?:^|[\s([])ref:\s?([a-z][a-z0-9_-]{1,39})(?=$|[\s)\].,!?])/i
 
 export function extractEntryCode(text: string) {
   const match = ENTRY_CODE.exec(String(text ?? ''))

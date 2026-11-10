@@ -8,7 +8,8 @@ const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), listClientTasks: vi.fn() 
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 
-import ClientHub, { ago } from "./ClientHub";
+import ClientHub from "./ClientHub";
+import { ago } from "../../app/ago";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;

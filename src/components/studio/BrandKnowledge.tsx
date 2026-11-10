@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { FileText, MessageSquare, Pencil, RotateCw, Sparkles, Type, UploadCloud } from "lucide-react";
 import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromFile, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
+import { parseKnowledge } from "./brandKnowledge.helpers";
 
 const KINDS: Record<KnowledgeKind, string> = { institucional: "Institucional", produto: "Produtos e preços", campanha: "Campanha",
   tom_de_voz: "Tom de voz", restricao: "Restrições", outro: "Outro", conversa: "Conversa" };
@@ -9,21 +10,6 @@ const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md";
 const MAX = 6000;
 const when = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 
-export type KnowledgeSection = { title: string; items: string[] };
-/** Quebra o texto da IA em blocos: linha de título ("Produtos:", "# Produtos", "**Produtos**") + marcadores. */
-export function parseKnowledge(text: string): KnowledgeSection[] {
-  const out: KnowledgeSection[] = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const bullet = /^([-•*·]|\d+[.)])\s+/.test(line);
-    const heading = !bullet && (/^#{1,4}\s/.test(line) || /^\*\*[^*]+\*\*:?$/.test(line) || (/:$/.test(line) && line.length <= 60));
-    if (heading) { out.push({ title: line.replace(/^#+\s*|\*\*|:$/g, "").replace(/:$/, "").trim(), items: [] }); continue; }
-    if (!out.length) out.push({ title: "Sobre a marca", items: [] });
-    out[out.length - 1].items.push(line.replace(/^([-•*·]|\d+[.)])\s+/, "").replace(/\*\*/g, ""));
-  }
-  return out.filter((s) => s.items.length);
-}
 
 /**
  * Marca & IA → Conhecimento. À esquerda, ensinar (arrastar arquivos ou colar texto); à direita, o que a IA já sabe.

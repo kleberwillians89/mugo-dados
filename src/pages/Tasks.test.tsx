@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CrmTask } from "../app/crm";
-import { sortTasks } from "./Tasks";
+import { sortTasks } from "../components/studio/taskBoard.helpers";
 
 const t = (id: string, over: Partial<CrmTask>): CrmTask => ({ id, title: id, status: "pending", priority: null, due_date: null, due_time: null,
   starts_at: null, category: null, task_type: null, tags: [], notes: null, updated_at: null, assignee: null, ...over });

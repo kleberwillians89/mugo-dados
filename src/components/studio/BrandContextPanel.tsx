@@ -22,13 +22,16 @@ const LACUNA: Record<string, string> = {
 
 /** O mesmo contexto que a IA de Calendário, Social Media, Mídia On e Clipping usa (studio_intelligence), visível para a equipe. */
 export default function BrandContextPanel({ clientId }: { clientId: string }) {
-  const [ctx, setCtx] = useState<Ctx | null>(null);
+  // O dado fica marcado com a empresa que o pediu: ao trocar de empresa, o da anterior some sem setState no efeito.
+  const [loaded, setLoaded] = useState<{ clientId: string; ctx: Ctx | null } | null>(null);
   useEffect(() => {
     let alive = true;
-    setCtx(null);
-    http<Ctx>(clientClientPath("/studio/brand-context")).then((d) => { if (alive) setCtx(d); }).catch(() => { if (alive) setCtx(null); });
+    http<Ctx>(clientClientPath("/studio/brand-context"))
+      .then((d) => { if (alive) setLoaded({ clientId, ctx: d }); })
+      .catch(() => { if (alive) setLoaded({ clientId, ctx: null }); });
     return () => { alive = false; };
   }, [clientId]);
+  const ctx = loaded?.clientId === clientId ? loaded.ctx : null;
   if (!ctx) return null;
   const m = ctx.marca || {};
   const status = ctx.calendario_do_mes?.por_status || {};
