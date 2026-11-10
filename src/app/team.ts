@@ -5,7 +5,7 @@ import { http } from "./api";
 export type TeamPreset = "administrador" | "gestor" | "marketing" | "comercial" | "visualizacao" | "personalizado";
 export type TeamCatalog = {
   modules: { code: string; label: string }[];
-  permissions: { code: string; module: string; label: string }[];
+  permissions: { code: string; module: string; label: string; opt_in?: boolean }[];
   presets: { code: TeamPreset; label: string; view_all: boolean; access_total: boolean; codes: string[] }[];
 };
 export type TeamMember = {
@@ -40,4 +40,4 @@ export function generatePassword(): string {
   return Array.from(bytes, (n) => alphabet[n % alphabet.length]).join("");
 }
 
-export { INTERNAL_LOGIN_DOMAIN, USERNAME_RE, normalizeLoginIdentifier, ROUTE_MODULE } from "./teamRules";
+export { INTERNAL_LOGIN_DOMAIN, USERNAME_RE, normalizeLoginIdentifier, ROUTE_MODULE, OPT_IN_CODES } from "./teamRules";

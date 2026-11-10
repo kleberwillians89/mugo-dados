@@ -13,6 +13,10 @@ E em ``client_member_permissions`` os ajustes finos (código concedido ou retira
 Ordem de resolução (igual ao CRM): inativo nega tudo → acesso total concede tudo → ver tudo concede
 ``*.view`` (menos ``team.view``) → preset + ajustes.
 
+Módulos "liberados pela Mugô" (``OPT_IN_CODES``, hoje o Social Media): não vêm de acesso total, de ver tudo
+nem de preset. Só existem para o membro quando a equipe Mugô concede o código na tela de Usuários
+(ajuste fino em ``client_member_permissions``); quem é do cliente não concede nem retira esses códigos.
+
 Membro antigo (sem preset gravado) segue o papel: client_admin/owner/admin = acesso total; viewer = ver tudo.
 Equipe Mugô (platform_admin, agency_admin, gestora da conta) não passa por aqui: pode tudo.
 
@@ -39,6 +43,7 @@ MODULES: List[Tuple[str, str]] = [
     ("google", "Google"),
     ("origins", "Origem das vendas"),
     ("calendar", "Calendário"),
+    ("social_media", "Social Media"),
     ("brand_ai", "IA da marca"),
     ("media", "Mídia On"),
     ("social_report", "Relatório social"),
@@ -55,6 +60,7 @@ MODULE_LABEL = dict(MODULES)
 _EDIT_LABEL = {
     "central": "Editar metas",
     "calendar": "Criar, editar e aprovar pautas",
+    "social_media": "Gerar matriz de conteúdo e campanhas e enviar ao Calendário",
     "brand_ai": "Editar perfil e conhecimento da marca",
     "media": "Editar plano de mídia",
     "social_report": "Gerar relatório social",
@@ -71,7 +77,13 @@ for _module, _label in MODULES:
     if _module in _EDIT_LABEL:
         CATALOG.append({"code": f"{_module}.edit", "module": _module, "label": _EDIT_LABEL[_module]})
 ALL_CODES: Set[str] = {entry["code"] for entry in CATALOG}
-VIEW_ALL_EXCLUDED = {"team.view"}
+# Liberados só pela equipe Mugô, código a código (custo de IA e trabalho da agência).
+OPT_IN_CODES: Set[str] = {"social_media.view", "social_media.edit"}
+for _entry in CATALOG:
+    _entry["opt_in"] = _entry["code"] in OPT_IN_CODES  # type: ignore[assignment]
+# O que "acesso total" concede sozinho.
+TOTAL_CODES: Set[str] = ALL_CODES - OPT_IN_CODES
+VIEW_ALL_EXCLUDED = {"team.view"} | OPT_IN_CODES
 VIEW_CODES: Set[str] = {c for c in ALL_CODES if c.endswith(".view") and c not in VIEW_ALL_EXCLUDED}
 
 
@@ -80,7 +92,7 @@ def _codes(*items: str) -> Set[str]:
 
 
 PRESETS: Dict[str, Dict[str, Any]] = {
-    "administrador": {"label": "Administrador", "view_all": True, "access_total": True, "codes": set(ALL_CODES)},
+    "administrador": {"label": "Administrador", "view_all": True, "access_total": True, "codes": set(TOTAL_CODES)},
     "gestor": {"label": "Gestor", "view_all": True, "access_total": False, "codes": VIEW_CODES | _codes(
         "central.edit", "calendar.edit", "brand_ai.edit", "media.edit", "social_report.edit", "tasks.edit",
         "clipping.edit", "creators.edit", "engagement.edit")},
@@ -117,7 +129,10 @@ def resolve_codes(*, status: str, preset: Optional[str], view_all: bool, access_
     if status != "active":
         return set()
     if access_total:
-        return set(ALL_CODES)
+        # Acesso total = tudo menos os módulos liberados pela Mugô, que só valem quando concedidos.
+        codes = set(TOTAL_CODES)
+        codes |= {c for c, granted in overrides if granted and c in OPT_IN_CODES}
+        return codes
     codes = base_codes(preset)
     if view_all:
         codes |= VIEW_CODES
@@ -134,6 +149,8 @@ def resolve_codes(*, status: str, preset: Optional[str], view_all: bool, access_
 def overrides_for(preset: Optional[str], view_all: bool, wanted: Iterable[str]) -> List[Tuple[str, bool]]:
     """Diferença entre o que a tela marcou e o que o preset (+ ver tudo) já dá."""
     base = base_codes(preset) | (VIEW_CODES if view_all else set())
+    if preset == "administrador":
+        base = set(TOTAL_CODES)
     target = {c for c in wanted if c in ALL_CODES}
     return sorted([(c, True) for c in target - base] + [(c, False) for c in base - target])
 
@@ -235,6 +252,8 @@ _CLIENT_SEGMENTS: Dict[str, Tuple[str, bool]] = {
 }
 _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "calendar": ("calendar", True),
+    "campaigns": ("social_media", True),
+    "matrix": ("social_media", True),
     "approvals": ("calendar", True),
     "assist": ("calendar", False),
     "references": ("calendar", False),

@@ -17,7 +17,8 @@ from services.client_access import AccessError
 class ResolveTests(unittest.TestCase):
     def test_order_inactive_total_viewall_overrides(self):
         self.assertEqual(ta.resolve_codes(status="inactive", preset="administrador", view_all=True, access_total=True), set())
-        self.assertEqual(ta.resolve_codes(status="active", preset="personalizado", view_all=False, access_total=True), ta.ALL_CODES)
+        # Acesso total = tudo menos os módulos liberados pela Mugô (Social Media).
+        self.assertEqual(ta.resolve_codes(status="active", preset="personalizado", view_all=False, access_total=True), ta.TOTAL_CODES)
         seen = ta.resolve_codes(status="active", preset="personalizado", view_all=True, access_total=False)
         self.assertIn("creators.view", seen)
         self.assertNotIn("team.view", seen)

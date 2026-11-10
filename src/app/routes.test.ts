@@ -7,6 +7,11 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/meta")).toBe("meta");
     expect(getPathForRoute("goals")).toBe("/metas");
   });
+  it("Social Media mora em /social-media e o endereço antigo da Redação continua abrindo", () => {
+    expect(getPathForRoute("campaigns")).toBe("/social-media");
+    expect(getAppRouteFromPath("/social-media")).toBe("campaigns");
+    expect(getAppRouteFromPath("/redacao")).toBe("campaigns");
+  });
   it("maps the protected companies URL", () => {
     expect(getAppRouteFromPath("/empresas")).toBe("companies");
     expect(getPathForRoute("companies")).toBe("/empresas");

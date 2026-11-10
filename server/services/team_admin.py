@@ -60,6 +60,14 @@ def _preset(value: Any) -> str:
     return preset
 
 
+def _opt_in_guard(actor: Dict[str, Any], wanted: set, current: set) -> set:
+    """Módulos liberados pela Mugô (team_access.OPT_IN_CODES): só a equipe concede ou retira.
+    Quem é do cliente mantém o que o membro já tinha desses códigos, mesmo que a tela mande outra coisa."""
+    if actor["team"]:
+        return wanted
+    return (wanted - ta.OPT_IN_CODES) | (current & ta.OPT_IN_CODES)
+
+
 def _check_grant(actor: Dict[str, Any], *, access_total: bool, codes: set) -> None:
     """Quem não pode tudo só repassa o que tem."""
     if actor["team"] or actor["access_total"]:
@@ -162,10 +170,10 @@ async def create_member(*, client_id: str, actor: Dict[str, Any], name: Any, log
     secret = validate_password(password, password)
     safe_preset = _preset(preset)
     total, see_all = bool(access_total), bool(view_all)
-    wanted = set(codes) if codes is not None else ta.base_codes(safe_preset)
+    wanted = _opt_in_guard(actor, set(codes) if codes is not None else ta.base_codes(safe_preset), set())
     effective = ta.resolve_codes(status="active", preset=safe_preset, view_all=see_all, access_total=total,
                                  overrides=ta.overrides_for(safe_preset, see_all, wanted))
-    _check_grant(actor, access_total=total, codes=effective)
+    _check_grant(actor, access_total=total, codes=effective - ta.OPT_IN_CODES)
 
     existing = await find_auth_user_by_email(email)
     created_now = False
@@ -221,10 +229,14 @@ async def update_permissions(*, client_id: str, actor: Dict[str, Any], user_id: 
     await _target(client_id, actor, user_id)
     safe_preset = _preset(preset)
     total, see_all = bool(access_total), bool(view_all)
-    wanted = set(codes) if codes is not None else ta.base_codes(safe_preset)
+    current: set = set()
+    if not actor["team"]:
+        current = set((await ta.member_access(client_id, _text(user_id)) or {}).get("codes") or set())
+    wanted = _opt_in_guard(actor, set(codes) if codes is not None else ta.base_codes(safe_preset), current)
     overrides = ta.overrides_for(safe_preset, see_all, wanted)
     effective = ta.resolve_codes(status="active", preset=safe_preset, view_all=see_all, access_total=total, overrides=overrides)
-    _check_grant(actor, access_total=total, codes=effective)
+    # Os códigos liberados pela Mugô que ficaram foram preservados pelo guard, não concedidos por quem edita.
+    _check_grant(actor, access_total=total, codes=effective - (ta.OPT_IN_CODES if not actor["team"] else set()))
     await sb_update("client_memberships", filters={"client_id": f"eq.{client_id}", "user_id": f"eq.{user_id}"},
                     patch=_permission_fields(safe_preset, see_all, total))
     await _save_overrides(client_id, user_id, overrides)

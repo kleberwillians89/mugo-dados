@@ -19,7 +19,7 @@ import {
 import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
-import { ROUTE_MODULE } from "./app/teamRules";
+import { OPT_IN_CODES, ROUTE_MODULE } from "./app/teamRules";
 import type { MyAccess } from "./app/team";
 import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
 import Login from "./pages/Login";
@@ -791,6 +791,8 @@ function PrivateApp() {
   const accessForClient = myAccess && myAccess.client_id === activeClientId ? myAccess : null;
   const can = (code: string): boolean => {
     if (teamHere || localMode) return true;
+    // Social Media é liberado pela Mugô código a código: não vem de acesso total nem do papel.
+    if (OPT_IN_CODES.has(code)) return Boolean(accessForClient?.codes.includes(code));
     if (accessForClient) return accessForClient.access_total || accessForClient.codes.includes(code);
     if (["client_admin", "owner", "admin"].includes(activeClientRole)) return true;
     return code.endsWith(".view") && code !== "team.view";
@@ -926,13 +928,13 @@ function PrivateApp() {
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (
         <Engagement key={`engagement:${activeClientId}`} isAgency={teamHere} canManage={canEdit("engagement")} />
-      ) : route === "campaigns" && (teamHere) ? (
-        <Campaigns key={`campaigns:${activeClientId}`} />
+      ) : route === "campaigns" ? (
+        <Campaigns key={`campaigns:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "creators" ? (
         <Creators key={`creators:${activeClientId}`} isAgency={teamHere} canAct={canEdit("creators")} />
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (
         <Automations />
-      ) : route === "campaigns" || route === "automations" ? (
+      ) : route === "automations" ? (
         <NotFound onGoHome={() => openRoute("meta")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} />

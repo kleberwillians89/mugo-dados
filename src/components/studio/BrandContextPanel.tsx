@@ -20,7 +20,7 @@ const LACUNA: Record<string, string> = {
   sem_historico_de_posts: "histórico de posts", sem_metas_no_mes: "metas do mês",
 };
 
-/** O mesmo contexto que a IA de Calendário, Redação, Mídia On e Clipping usa (studio_intelligence), visível para a equipe. */
+/** O mesmo contexto que a IA de Calendário, Social Media, Mídia On e Clipping usa (studio_intelligence), visível para a equipe. */
 export default function BrandContextPanel({ clientId }: { clientId: string }) {
   const [ctx, setCtx] = useState<Ctx | null>(null);
   useEffect(() => {
@@ -40,7 +40,7 @@ export default function BrandContextPanel({ clientId }: { clientId: string }) {
     ["Negócio", ctx.negocio?.segment || ctx.negocio?.product_description || ""],
     ["Aprovado pelo cliente", (ctx.aprendizados?.aprovados || []).filter((a) => a.pelo_cliente).map((a) => a.pauta).filter(Boolean).slice(0, 3).join(" · ")],
     ["Ajustes pedidos", (ctx.aprendizados?.ajustes_pedidos || []).map((a) => a.comentario).filter(Boolean).slice(0, 3).join(" · ")],
-    ["Redação", (ctx.campanhas_ativas || []).map((c) => `${c.campanha}${c.status ? ` (${c.status})` : ""}`).join(" · ")],
+    ["Social Media", (ctx.campanhas_ativas || []).map((c) => `${c.campanha}${c.status ? ` (${c.status})` : ""}`).join(" · ")],
     ["Mídia On", ctx.plano_de_midia?.objetivo ? `${ctx.plano_de_midia.objetivo}${ctx.plano_de_midia.verba_total ? ` · verba ${ctx.plano_de_midia.verba_total.toLocaleString("pt-BR")}` : ""}` : ""],
     ["Calendário do mês", ctx.calendario_do_mes?.posts ? `${ctx.calendario_do_mes.posts} pauta(s) · ${Object.entries(status).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(", ")}` : ""],
     ["Referências do cliente", (ctx.referencias_do_cliente || []).map((r) => r.o_que_gostou || "link").slice(0, 3).join(" · ")],

@@ -37,6 +37,7 @@ from services.tenant import is_agency_user, require_client_read, require_client_
 router = APIRouter(prefix="/api/clients/{client_id}/studio", tags=["studio"])
 
 Format = Literal["reels", "carrossel", "imagem", "stories", "video"]
+Channel = Literal["instagram", "facebook", "tiktok", "linkedin", "youtube"]
 Status = Literal["rascunho", "em_revisao", "aprovado", "rejeitado", "publicado"]
 
 ERRORS = {
@@ -52,6 +53,7 @@ ERRORS = {
     "ITEM_NOT_FOUND": (404, "Pauta não encontrada nesta empresa."),
     "STATUS_INVALID": (422, "Status inválido."),
     "FORMAT_INVALID": (422, "Formato inválido."),
+    "CHANNEL_INVALID": (422, "Plataforma inválida."),
     "EMPTY_PATCH": (422, "Nada para alterar."),
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
     "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
@@ -116,6 +118,7 @@ class GenerateInput(BaseModel):
 class ItemCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     scheduled_at: datetime
+    channel: Channel = "instagram"
     format: Format
     title: str = Field(min_length=1, max_length=200)
     pillar: Optional[str] = Field(default=None, max_length=120)
@@ -129,6 +132,7 @@ class ItemCreate(BaseModel):
 class ItemPatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     scheduled_at: Optional[datetime] = None
+    channel: Optional[Channel] = None
     format: Optional[Format] = None
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     pillar: Optional[str] = Field(default=None, max_length=120)

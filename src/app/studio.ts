@@ -2,6 +2,10 @@ import { http, clientClientPath, publicHttp } from "./api";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
+/** Plataformas do Calendário. Só o Instagram publica sozinho; nas outras a equipe publica à mão. */
+export const STUDIO_CHANNELS = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube" } as const;
+export type StudioChannel = keyof typeof STUDIO_CHANNELS;
+export const AUTO_PUBLISH_CHANNELS: StudioChannel[] = ["instagram"];
 export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Ajuste pedido", publicado: "Publicado" } as const;
 export type StudioStatus = keyof typeof STUDIO_STATUS;
 
@@ -29,8 +33,10 @@ export type CalendarSignals = {
 
 export type CalendarItem = {
   id: string; client_id: string; month: string; scheduled_at: string; format: StudioFormat;
+  /** Plataforma (padrão Instagram). */
+  channel?: StudioChannel;
   pillar: string | null; title: string; hook: string | null; caption_draft: string | null; rationale: string | null;
-  signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado";
+  signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado" | "matriz";
   /** Link da arte (Canva/Google Drive). */
   art_url?: string | null;
   /** @ dos colaboradores no Instagram (até 3; sem @). */
@@ -49,7 +55,7 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators">>;
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };

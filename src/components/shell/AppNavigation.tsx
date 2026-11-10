@@ -49,14 +49,15 @@ const PRODUCT_ITEMS: NavItem[] = [
 ];
 
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
-// Redação continua só da agência/plataforma (o backend também recusa os demais).
+// Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
+  { route: "campaigns", label: "Social Media" },
   { route: "tasks", label: "Tarefas" },
   { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
   { route: "engagement", label: "Comentários" },
 ];
-const AGENCY_ONLY_ITEMS: NavItem[] = [{ route: "campaigns", label: "Redação" }];
+const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns"]);
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);
@@ -205,7 +206,7 @@ export default function AppNavigation({
           <div className="appNavGroup">
             <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
             <ul className="appNavList" aria-labelledby="app-nav-agency">
-              {(platformAdmin || agencyAdmin || teamHere ? [...OPERATION_ITEMS, ...AGENCY_ONLY_ITEMS] : OPERATION_ITEMS).filter(visible).map(renderItem)}
+              {OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))).filter(visible).map(renderItem)}
             </ul>
           </div>
           {adminItems.length ? (
