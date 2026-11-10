@@ -13,6 +13,8 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/social-media")).toBe("campaigns");
     expect(getAppRouteFromPath("/redacao")).toBe("redacao");
     expect(getPathForRoute("redacao")).toBe("/redacao");
+    expect(getAppRouteFromPath("/consumo-ia")).toBe("ai_usage");
+    expect(getPathForRoute("ai_usage")).toBe("/consumo-ia");
   });
   it("preserva acesso ao ambiente unificado para quem tem apenas Calendário, sem conceder Social Media", () => {
     const calendarOnly = (code: string) => code === "calendar.view";

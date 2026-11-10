@@ -50,7 +50,10 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
     if cid is None and leak_check:
         from .tenant import _REQUEST_CLIENT
         cid = _REQUEST_CLIENT.get()
-    extra = {"guidance": guidance, "max_output_tokens": max_output_tokens}
+    if cid is None:
+        from .tenant import _REQUEST_CLIENT
+        cid = _REQUEST_CLIENT.get()
+    extra = {"guidance": guidance, "max_output_tokens": max_output_tokens, "client_id": cid}
     data = await _llm_json_once(instructions=instructions, prompt=prompt, schema_name=schema_name, schema=schema,
                                 temperature=temperature, timeout=timeout, model=model, images=images, **extra)
     if not (leak_check and cid):
@@ -77,8 +80,9 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
 async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
                          temperature: float = 0.6, timeout: float = 90, model: str | None = None,
                          images: tuple | list = (), guidance: bool = True,
-                         max_output_tokens: int | None = None) -> Dict[str, Any]:
+                         max_output_tokens: int | None = None, client_id: str | None = None) -> Dict[str, Any]:
     from .ai_summary import _extract_output_text
+    from .ai_usage import track, track_response
     from .studio_calendar import StudioError
 
     api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
@@ -105,12 +109,16 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
             response = await client.post("https://api.openai.com/v1/responses",
                                          headers={"Authorization": f"Bearer {api_key}"}, json=payload)
     except httpx.TimeoutException:
+        track(feature=schema_name, model=chosen, client_id=client_id, error_code="timeout")
         raise StudioError("AI_PROVIDER_TIMEOUT") from None
     except httpx.HTTPError:
+        track(feature=schema_name, model=chosen, client_id=client_id, error_code="network")
         raise StudioError("AI_PROVIDER_ERROR") from None
+    track_response(response, feature=schema_name, model=chosen, client_id=client_id)
     if response.status_code >= 400:
-        print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code}")
-        raise StudioError("AI_PROVIDER_ERROR", provider_error_detail(response))
+        detail = provider_error_detail(response)
+        print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code} detail={detail}")
+        raise StudioError(provider_error_code(detail), detail)
     try:
         data = json.loads(_extract_output_text(response.json()))
     except (ValueError, TypeError):
@@ -129,6 +137,19 @@ def provider_error_detail(response: Any) -> str:
     except Exception:  # noqa: BLE001
         code = ""
     return f"{detail}:{code}" if code else detail
+
+
+def provider_error_code(detail: str) -> str:
+    """Traduz o erro da OpenAI num código que a tela explica (sem crédito, chave, limite por minuto...)."""
+    if any(code in detail for code in ("insufficient_quota", "billing_hard_limit")):
+        return "AI_PROVIDER_QUOTA"
+    if detail.startswith("http_401") or "invalid_api_key" in detail:
+        return "AI_PROVIDER_AUTH"
+    if detail.startswith("http_429"):
+        return "AI_PROVIDER_RATE"
+    if detail.startswith("http_400") or detail.startswith("http_404"):
+        return "AI_PROVIDER_REQUEST"
+    return "AI_PROVIDER_ERROR"
 
 
 def obj(properties: Dict[str, Any]) -> Dict[str, Any]:

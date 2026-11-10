@@ -22,6 +22,7 @@ export type AppRoute =
   | "whatsapp"
   | "intelligence"
   | "companies"
+  | "ai_usage"
   | "users"
   | "not_found";
 
@@ -39,6 +40,7 @@ export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | nu
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";
+  if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
   if (normalized === "/usuarios" || normalized.startsWith("/usuarios/")) return "users";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
@@ -83,6 +85,7 @@ export function getCurrentAppRoute(): AppRoute {
 
 export function getPathForRoute(route: AppRoute): string {
   if (route === "companies") return "/empresas";
+  if (route === "ai_usage") return "/consumo-ia";
   if (route === "users") return "/usuarios";
   if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";
