@@ -40,6 +40,7 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("2 19 * * *", "ig-ai-replies"),
     ("40 10 * * *", "studio-clipping"),
     ("20 12 1 * *", "brand-profile-monthly"),
+    ("40 12 1 * *", "media-strategies-monthly"),  # dia 1, 09:40 em São Paulo: estratégias prontas do mês
 ]
 SLOT_MINUTES = 5
 

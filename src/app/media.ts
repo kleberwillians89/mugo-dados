@@ -2,7 +2,7 @@ import { http, clientClientPath } from "./api";
 
 export const CHANNELS = { meta: "Meta Ads", google_ads: "Google Ads" } as const;
 export type Channel = keyof typeof CHANNELS;
-export const OBJECTIVES = { vendas: "Vendas", leads: "Leads", trafego: "Tráfego", alcance: "Alcance" } as const;
+export const OBJECTIVES = { vendas: "Vendas", leads: "Leads", trafego: "Tráfego", alcance: "Alcance", retencao: "Retenção", remarketing: "Remarketing" } as const;
 export type Objective = keyof typeof OBJECTIVES;
 export type Metric = "revenue" | "conversions" | "clicks" | "impressions";
 export const CONFIDENCE = { boa: "Dados consistentes", baixa: "Poucos dados", sem_dados: "Sem investimento", referencia: "Estimativa (sem histórico)" } as const;

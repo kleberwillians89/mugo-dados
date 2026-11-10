@@ -1202,3 +1202,4 @@
 .metaAdsTable td:last-child{width:1%;white-space:nowrap}
 .metaAdsTable th:nth-child(n+3):not(:last-child),.metaAdsTable td:nth-child(n+3):not(:last-child){white-space:nowrap}
 .metaAdsTable .metaAdsActions{flex-wrap:nowrap}
+.mediaReadyNote{display:block;margin-top:6px;font-size:12px;color:var(--text-secondary)}

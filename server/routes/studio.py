@@ -891,7 +891,7 @@ ERRORS.update({
     "HISTORY_SAVE_FAILED": (502, "Não foi possível gravar a estratégia no histórico."),
 })
 
-Objective = Literal["vendas", "leads", "trafego", "alcance"]
+Objective = Literal["vendas", "leads", "trafego", "alcance", "retencao", "remarketing"]
 Channel = Literal["meta", "google_ads"]
 
 

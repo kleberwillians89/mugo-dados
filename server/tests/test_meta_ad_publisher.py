@@ -100,5 +100,39 @@ class PublishTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "AD_PERMISSION_MISSING")
 
 
+
+class AudienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remarketing_uses_visitors_and_excludes_buyers(self):
+        row = {"id": "d1", "client_id": "roove", "status": "rascunho", "meta_ids": {}, "payload": {**READY, "objective": "remarketing"}}
+        posts = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            if method == "GET" and path.endswith("/adspixels"):
+                return {"data": [{"id": "px1"}]}
+            if method == "GET" and path.endswith("/customaudiences"):
+                return {"data": [{"id": "aud-buy", "name": pub.AUDIENCES["compradores_180"]["name"]}]}
+            if method == "GET":
+                return {"data": []}
+            posts.append((path, data or {}))
+            return {"id": f"id{len(posts)}"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", "d1")
+        audience_posts = [d for p, d in posts if p.endswith("/customaudiences")]
+        self.assertEqual(len(audience_posts), 1)  # visitantes criado; compradores reaproveitado pelo nome
+        rule = json.loads(audience_posts[0]["rule"])
+        self.assertEqual(rule["inclusions"]["rules"][0]["retention_seconds"], 30 * 86400)
+        adset = next(d for p, d in posts if p.endswith("/adsets"))
+        targeting = json.loads(adset["targeting"])
+        self.assertEqual(targeting["excluded_custom_audiences"], [{"id": "aud-buy"}])
+        self.assertEqual(targeting["targeting_automation"], {"advantage_audience": 0})
+        self.assertNotIn("flexible_spec", targeting)
+        self.assertEqual(json.loads(adset["promoted_object"])["pixel_id"], "px1")
+
+    def test_buyers_rule_filters_purchase(self):
+        rule = pub.audience_rule("px", 180, "Purchase")
+        self.assertEqual(rule["inclusions"]["rules"][0]["filter"]["filters"][0]["value"], "Purchase")
+
 if __name__ == "__main__":
     unittest.main()
