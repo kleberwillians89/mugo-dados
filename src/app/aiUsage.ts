@@ -1,4 +1,4 @@
-import { http } from "./api";
+import { clientClientPath, http } from "./api";
 
 /** Consumo de IA por cliente (só a equipe Mugô; o backend exige agency/platform admin). */
 export type UsageBucket = { calls: number; errors: number; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number };
@@ -22,6 +22,9 @@ export function featureLabel(feature: string): string {
     studio_doc_escrever: "Redação: escrever", studio_doc_continuar: "Redação: continuar", studio_doc_reescrever: "Redação: reescrever",
     studio_doc_encurtar: "Redação: encurtar", studio_doc_expandir: "Redação: expandir", studio_doc_corrigir: "Redação: corrigir",
     studio_doc_titles: "Redação: títulos", ai_summary: "Resumo com IA",
+    studio_matrix_content: "Matriz: criar conteúdo", ig_comment_reply: "Comentários: respostas da IA", ig_trigger_greeting: "Comentários: oi do gatilho",
+    media_briefing: "Mídia On: briefing", media_strategy_narrative: "Mídia On: estratégia", social_report_insights: "Relatório social",
+    studio_calendar_import: "Calendário: importar", studio_message_sentence: "Mensagens ao cliente", studio_strategy_chat: "Estratégia (chat)",
   };
   if (map[feature]) return map[feature];
   if (feature.startsWith("intelligence:")) return "Inteligência (chat/relatório)";
@@ -42,4 +45,23 @@ export function errorLabel(code: string | null | undefined): string {
   if (c === "network") return "Falha de conexão com a OpenAI";
   if (c.startsWith("http_5")) return "OpenAI fora do ar";
   return c || "Erro";
+}
+
+
+/** Consumo de UMA empresa (Central da marca): hoje, mês, média por chamada, 30 dias e recursos do mês. */
+export type ClientAiUsage = {
+  client_id: string; currency: "USD"; estimated: true; today: UsageBucket; month: UsageBucket; per_call: UsageBucket;
+  days: (UsageBucket & { day: string })[]; features: (UsageBucket & { feature: string })[]; last_error: UsageError | null;
+};
+export function getClientAiUsage() {
+  return http<ClientAiUsage>(clientClientPath("/studio/ai-usage"));
+}
+/** Câmbio de referência para estimar em reais (mesmo do CRM Ruah). */
+export const USD_BRL = 5.5;
+export const formatUsd = (v: number) => `US$ ${v < 0.01 && v > 0 ? v.toFixed(4) : v.toFixed(2)}`.replace(".", ",");
+export const formatBrl = (usd: number) => (usd * USD_BRL).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 });
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} mi`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(".", ",")} mil`;
+  return String(Math.round(n));
 }

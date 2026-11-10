@@ -164,6 +164,14 @@ async def write_profile(client_id: str, body: ProfileInput, authorization: str |
     return await save_profile(cid, body.model_dump(mode="json"), user_id=uid)
 
 
+@router.get("/ai-usage")
+async def read_ai_usage(client_id: str, authorization: str | None = Header(default=None)):
+    """Consumo de IA desta empresa (tokens e custo estimado). Equipe Mugô e qualquer membro da própria empresa."""
+    from services.ai_usage import client_summary
+    cid = await require_client_read(client_id, authorization)
+    return await client_summary(cid)
+
+
 @router.get("/central")
 async def read_central(client_id: str, month: str, authorization: str | None = Header(default=None)):
     """Central da marca: o mês numa página. Cliente vê a versão filtrada (o que já pode ver em cada módulo)."""
