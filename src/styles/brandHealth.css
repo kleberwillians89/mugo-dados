@@ -97,3 +97,4 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .clipTabs{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 14px}
 .clipTabs button{font:inherit;font-weight:600;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.09));background:#fff;color:var(--text-secondary,#4d565d);cursor:pointer;min-height:38px}
 .clipTabs button.is-on{background:var(--accent,#004f6e);color:#fff;border-color:var(--accent,#004f6e)}
+.bhPending{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fff8e6;border:1px solid #f0d9a3;color:#6b4705;border-radius:10px;padding:10px 14px;font-size:13.5px}

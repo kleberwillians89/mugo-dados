@@ -638,6 +638,16 @@ async def brand_health_resolve(client_id: str, alert_id: UUID, authorization: Op
         raise _health_error(exc) from None
 
 
+@router.post("/clipping/health/analyze")
+async def brand_health_analyze(client_id: str, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    try:
+        return await brand_health.analyze_now(cid)
+    except StudioError as exc:
+        raise _health_error(exc) from None
+
+
 @router.put("/clipping/health/settings")
 async def brand_health_settings(client_id: str, body: BrandHealthSettings, authorization: Optional[str] = Header(default=None)):
     from services import brand_health

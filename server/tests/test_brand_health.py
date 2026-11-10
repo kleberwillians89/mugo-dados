@@ -82,3 +82,67 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(bh, "sb_rpc", AsyncMock(return_value=[])), patch.object(bh, "open_alerts", AsyncMock(return_value=[{"severity": "alto"}])):
             out = await bh.summary("ruah", start=date(2026, 11, 1), end=date(2026, 11, 10), grain="day", sources=[], with_alerts=False)
         self.assertEqual((out["alerts"], out["kpis"]["alerts_open"], out["kpis"]["index"]), ([], None, None))
+
+
+class ScopeAndBackfillTests(unittest.IsolatedAsyncioTestCase):
+    def test_view_counts_only_brand_news_and_not_own_comments(self):
+        sql = (Path(__file__).resolve().parents[2] / "supabase/migrations/20261216_000095_brand_mentions_scope.sql").read_text(encoding="utf-8")
+        self.assertIn("c.kind in ('marca', 'pessoa')", sql)
+        self.assertIn("lower(mc.username) = lower(coalesce(m.username, ''))", sql)
+
+    async def test_pending_news_get_analyzed_and_relevance_applied(self):
+        from services import studio_clipping as sc
+        pending = [{"id": f"c{i}", "url": f"https://n/{i}", "url_hash": "a" * 40, "title": f"Mugô {i}", "source": "G1",
+                    "published_at": None, "kind": "marca", "term": "Mugô"} for i in range(3)]
+        label = lambda rel: {"sentiment": "positivo", "summary": None, "main_theme": "agência", "entities": [], "relevance": rel,
+                             "criticality": "baixa", "opportunities": [], "risks": [], "justification": None, "evidence": [], "analyzed_at": "x"}
+        updates = []
+
+        async def select(table, **kw):
+            return pending if table == sc.CLIPPINGS else []
+        async def update(table, *, filters, patch, returning="representation"):
+            updates.append((filters["id"], patch))
+        with patch.object(sc, "get_settings", AsyncMock(return_value={"saved": True, "min_relevance": 40, "ai_daily_limit": 60, "brand_terms": ["Mugô"]})), \
+             patch.object(sc, "sb_select", side_effect=select), patch.object(sc, "sb_update", side_effect=update), \
+             patch.object(sc, "_ai_budget", AsyncMock(return_value=2)), patch.object(sc, "_spend", AsyncMock()), \
+             patch.object(sc, "_alert_team", AsyncMock(return_value=0)), \
+             patch.object(sc, "_classify", AsyncMock(return_value={0: label(80), 1: label(10)})), \
+             patch("services.studio_messages._client_name", AsyncMock(return_value="Mugô")):
+            out = await sc.analyze_pending("mugo")
+        self.assertEqual(out, {"news_analyzed": 2, "news_pending": 1})  # orçamento do dia = 2
+        self.assertEqual([(i, p["relevant"]) for i, p in updates], [("eq.c0", True), ("eq.c1", False)])
+
+    async def test_pending_stops_when_ai_down(self):
+        from services import studio_clipping as sc
+        with patch.object(sc, "get_settings", AsyncMock(return_value={"saved": True, "brand_terms": ["x"]})), \
+             patch.object(sc, "sb_select", AsyncMock(return_value=[{"id": "c1", "url_hash": "b" * 40, "title": "t", "kind": "marca", "term": "x"}])), \
+             patch.object(sc, "_classify", AsyncMock(return_value={})), patch.object(sc, "sb_update", AsyncMock()) as upd, \
+             patch("services.studio_messages._client_name", AsyncMock(return_value="x")):
+            out = await sc.analyze_pending("x", ignore_budget=True)
+        self.assertEqual(out, {"news_analyzed": 0, "news_pending": 1})
+        upd.assert_not_awaited()
+
+
+class AudienceVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_summarizes_tone_and_themes_without_alerts(self):
+        async def rpc(name, args):
+            if name == "brand_health_themes":
+                return [{"theme": "decant", "sentiment": "positivo", "n": 9}, {"theme": "prazo de entrega", "sentiment": "negativo", "n": 4},
+                        {"theme": "tamanho", "sentiment": "neutro", "n": 3}]
+            return [{"bucket": "2026-01-01", "source": "comments", "sentiment": "positivo", "n": 12},
+                    {"bucket": "2026-01-01", "source": "comments", "sentiment": "negativo", "n": 4},
+                    {"bucket": "2026-01-01", "source": "news", "sentiment": "sem_analise", "n": 50}]
+        with patch.object(bh, "sb_rpc", side_effect=rpc):
+            text = await bh.audience_voice("ruah")
+        self.assertIn("16 menções analisadas", text)
+        self.assertIn("sentimento líquido +50", text)
+        self.assertIn("Elogiam: decant (9)", text)
+        self.assertIn("Reclamam de: prazo de entrega (4)", text)
+        self.assertIn("Perguntam sobre: tamanho (3)", text)
+        self.assertNotIn("alerta", text.lower())
+
+    async def test_none_without_analyzed_mentions_and_never_raises(self):
+        with patch.object(bh, "sb_rpc", AsyncMock(return_value=[{"bucket": "2026-01-01", "source": "news", "sentiment": "sem_analise", "n": 5}])):
+            self.assertIsNone(await bh.audience_voice("ruah"))
+        with patch.object(bh, "sb_rpc", AsyncMock(side_effect=RuntimeError("db"))):
+            self.assertIsNone(await bh.audience_voice("ruah"))

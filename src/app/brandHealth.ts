@@ -69,3 +69,5 @@ export function bucketLabel(bucket: string, grain: Grain, long = false): string 
   const short = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
   return grain === "week" && long ? `Semana de ${short}` : short;
 }
+export type AnalyzeResult = { classified: number; failed: number; news_analyzed: number; news_pending: number; alerts_opened: number };
+export const analyzeBrandHealth = () => http<AnalyzeResult>(base("/analyze"), { method: "POST", timeoutMs: 180_000 });
