@@ -35,7 +35,8 @@ export const suggestReply = (commentId: string) =>
   http<{ reply: string; needs_human: boolean; reason: string; guard: GuardIssue[] }>(base(`/comments/${encodeURIComponent(commentId)}/suggest`), { method: "POST", timeoutMs: 60_000 });
 export const sendReply = (commentId: string, text: string, direct: boolean) =>
   http<{ status: string }>(base(`/comments/${encodeURIComponent(commentId)}/reply`), { method: "POST", body: JSON.stringify({ text, direct }) });
-export const listRules = () => http<{ rules: EngagementRule[]; autoreply_enabled: boolean }>(base("/rules"));
+export type RuleStats = { comments: number; direct_sent: number; direct_simulated: number; direct_failed: number; reply_sent: number; last_at: string | null };
+export const listRules = () => http<{ rules: EngagementRule[]; stats?: Record<string, RuleStats>; autoreply_enabled: boolean }>(base("/rules"));
 export const saveRule = (input: RuleInput, id?: string) =>
   http<{ rule: EngagementRule }>(base(`/rules${id ? `/${encodeURIComponent(id)}` : ""}`), { method: id ? "PUT" : "POST", body: JSON.stringify(input) });
 export const deleteRule = (id: string) => http<{ ok: true }>(base(`/rules/${encodeURIComponent(id)}`), { method: "DELETE" });

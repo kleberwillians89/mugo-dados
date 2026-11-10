@@ -1130,10 +1130,15 @@ async def engagement_reply(client_id: str, comment_id: str, body: EngagementRepl
 
 @router.get("/engagement/rules")
 async def engagement_rules(client_id: str, authorization: str | None = Header(default=None)):
-    from services.ig_engagement import autoreply_enabled, list_rules
+    from services.ig_engagement import autoreply_enabled, list_rules, rule_stats
     # Gatilhos: equipe Mugô e admin da própria empresa (WRITERS); viewer não vê nem mexe.
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    return {"rules": await list_rules(cid), "autoreply_enabled": autoreply_enabled()}
+    try:
+        stats = await rule_stats(cid)
+    except Exception as exc:  # noqa: BLE001 — a contagem nunca derruba a lista de gatilhos
+        print(f"[engagement] rule_stats client_id={cid} error_type={exc.__class__.__name__}")
+        stats = {}
+    return {"rules": await list_rules(cid), "stats": stats, "autoreply_enabled": autoreply_enabled()}
 
 
 @router.post("/engagement/rules", status_code=201)

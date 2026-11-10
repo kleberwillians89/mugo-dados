@@ -316,3 +316,43 @@ class RepliesByPostTests(unittest.IsolatedAsyncioTestCase):
             out = await ie.replies_by_post("latinas")
         self.assertEqual(out["posts"], [])
         self.assertEqual(select.await_count, 1)
+
+
+class InboxAnsweredTests(unittest.IsolatedAsyncioTestCase):
+    def test_old_ai_failure_hidden_after_ai_success(self):
+        actions = [{"kind": "resposta_ia", "status": "enviado", "text": "Boa!"},
+                   {"kind": "resposta_ia", "status": "falhou", "text": "sem crédito"},
+                   {"kind": "direct", "status": "falhou", "text": "x"}]
+        self.assertEqual([a["status"] for a in ie.visible_actions(actions)], ["enviado", "falhou"])
+        self.assertEqual(ie.visible_actions(actions)[1]["kind"], "direct")
+        # Falha mais nova que o sucesso continua aparecendo.
+        self.assertEqual(len(ie.visible_actions(list(reversed(actions[:2])))), 2)
+
+    def test_credit_balance_exhausted_is_no_credit(self):
+        from services.studio_llm import provider_error_code
+        self.assertEqual(provider_error_code("http_429:credit_balance_exhausted"), "AI_PROVIDER_QUOTA")
+        self.assertIn("sem crédito", ie.failure_reason("AI_PROVIDER_ERROR", "http_429:credit_balance_exhausted"))
+
+    async def test_ai_reply_sent_leaves_open_list(self):
+        c = comment()
+        sent = {"comment_id": c["comment_id"], "kind": "resposta_ia", "status": "enviado", "text": "Boa!", "created_at": NOW.isoformat()}
+
+        async def select(table, **_):
+            return {"ig_comments": [c], "ig_engagement_actions": [sent]}.get(table, [])
+        with patch.object(ie, "sb_select", side_effect=select):
+            self.assertEqual((await ie.inbox("roove"))["items"], [])
+            items = (await ie.inbox("roove", only_open=False))["items"]
+        self.assertTrue(items[0]["answered"])
+class RuleStatsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_counts_people_and_directs_per_rule(self):
+        rows = [
+            {"rule_id": "r1", "comment_id": "1", "kind": "direct", "status": "enviado", "created_at": "2026-11-10T19:00:00Z"},
+            {"rule_id": "r1", "comment_id": "1", "kind": "resposta_publica", "status": "enviado", "created_at": "2026-11-10T19:00:00Z"},
+            {"rule_id": "r1", "comment_id": "2", "kind": "direct", "status": "falhou", "created_at": "2026-11-10T18:00:00Z"},
+            {"rule_id": "r2", "comment_id": "3", "kind": "direct", "status": "simulado", "created_at": "2026-11-09T18:00:00Z"},
+        ]
+        with patch.object(ie, "sb_select", AsyncMock(return_value=rows)):
+            stats = await ie.rule_stats("ruah")
+        self.assertEqual(stats["r1"], {"comments": 2, "direct_sent": 1, "direct_simulated": 0, "direct_failed": 1,
+                                       "reply_sent": 1, "last_at": "2026-11-10T19:00:00Z"})
+        self.assertEqual(stats["r2"]["direct_simulated"], 1)
