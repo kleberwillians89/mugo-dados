@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
+  CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
   BRAND_PROFILE_SAVED, getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
@@ -133,13 +133,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     : view === "semana" ? (() => { const s = mondayOf(cursor); const e = addDays(s, 6);
       return `${fromKey(s).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")} – ${fromKey(e).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")} ${e.slice(0, 4)}`; })()
     : dayLabel(cursor);
-
-  async function generate() {
-    if (monthItems.some((i) => i.origin === "ia" && i.status === "rascunho") &&
-      !window.confirm(`Os rascunhos da IA de ${MONTH_NAMES[Number(month.slice(5)) - 1]} serão substituídos. Itens aprovados, em revisão ou criados à mão ficam. Continuar?`)) return;
-    const result = await run("generate", () => generateCalendar(month), "Não foi possível gerar o calendário.");
-    if (result) { setNotes(result.observacoes || []); await load(); }
-  }
 
   function openItem(item: CalendarItem) { setError(null); setModal({ item: withBoost(item), draft: draftFrom(item) }); }
   function openNew(at: string) {
@@ -279,7 +272,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       <button type="button" className="ds-button" onClick={() => { setError(null); setChat((c) => ({ ...c, open: true })); }} disabled={Boolean(busy)}>Estratégia (IA)</button>
       <button type="button" className="ds-button" onClick={() => openNew(view === "dia" ? cursor : `${month}-01`)} disabled={Boolean(busy)}>+ Pauta</button>
       <button type="button" className="ds-button" onClick={() => openSend()} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
-      <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : `Gerar ${MONTH_NAMES[Number(month.slice(5)) - 1]} com IA`}</button>
     </div> : undefined} />
     {team && showBrandContext ? <BrandContextPanel clientId={clientId} /> : null}
     <div className="calToolbar">
@@ -306,7 +298,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     <ClientHub team={team} canManage={canManage} isAgency={isAgency} month={month}
       posts={monthItems.map((i) => ({ id: i.id, title: i.title || "Post sem título", status: i.status }))}
       onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} />
-    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty is-slim"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p>Preencha o <b>perfil da marca</b> e clique em <b>Gerar com IA</b>, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
+    {!loading && !monthItems.length && !error && view === "mes" ? <div className="studioEmpty is-slim"><p>{team ? "Nenhuma pauta neste mês." : "Nenhum post para você neste mês ainda. Quando a Mugô mandar conteúdo para aprovar, ele aparece aqui."}</p>{team ? <p> crie o conteúdo na <b>Matriz</b> e envie para cá, ou use o <b>+</b> de um dia.</p> : null}</div> : null}
 
     {view === "mes" ? <MonthView month={month} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}
     {view === "semana" ? <WeekView weekStart={mondayOf(cursor)} {...common} onPickDay={(d) => { setCursor(d); setView("dia"); }} /> : null}

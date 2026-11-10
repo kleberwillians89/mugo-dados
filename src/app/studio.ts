@@ -42,6 +42,8 @@ export type CalendarItem = {
   signals: CalendarSignals; status: StudioStatus; review_note: string | null; origin: "ia" | "manual" | "importado" | "matriz";
   /** Link da arte (Canva/Google Drive). */
   art_url?: string | null;
+  /** Conteúdo criado na Matriz: roteiro e direção da arte (referência para produzir a peça). */
+  script?: string | null; visual_idea?: string | null;
   /** @ dos colaboradores no Instagram (até 3; sem @). */
   collaborators?: string[];
   /** Equipe validou o agendamento depois da aprovação do cliente. */

@@ -59,8 +59,8 @@ PLATFORM_TASKS = {
     "youtube": "YouTube: vídeo (Shorts ou longo) com título buscável e promessa clara.",
     "pinterest": "Pinterest: Pin visual e buscável, com utilidade duradoura, título descritivo e destino coerente.",
 }
-EDIT_FIELDS = ("platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale")
-LIMITS = {"title": 200, "hook": 400, "angle": 600, "caption_draft": 4000, "rationale": 1200, "pillar": 120}
+EDIT_FIELDS = ("platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale", "script", "visual_idea")
+LIMITS = {"title": 200, "hook": 400, "angle": 600, "caption_draft": 4000, "rationale": 1200, "pillar": 120, "script": 4000, "visual_idea": 2000}
 
 ROLE = ("Você é estrategista de conteúdo e social media sênior de agência. Monta a matriz de conteúdo do próximo "
         "mês para a marca descrita nos DADOS: oportunidades concretas, ligadas aos pilares editoriais da marca, ao "
@@ -431,6 +431,54 @@ async def refine_opportunity(client_id: str, opportunity_id: str, *, instruction
     return rows[0]
 
 
+# ---------------------------------------------------------------- criação do conteúdo (na Matriz)
+
+SCRIPT_GUIDE = {
+    "reels": "Roteiro de vídeo curto em cenas numeradas (Cena 1, Cena 2…): o que aparece e o que se fala, com o gancho nos 3 primeiros segundos e CTA no fim.",
+    "video": "Roteiro de vídeo em cenas numeradas (Cena 1, Cena 2…): o que aparece e o que se fala, gancho no início e CTA no fim.",
+    "carrossel": "Texto de cada slide numerado (Slide 1 = capa com o gancho, slides do meio desenvolvem, último slide com CTA). Frases curtas.",
+    "stories": "Sequência de telas numeradas (Tela 1, Tela 2…), com o texto de cada uma e a interação sugerida (enquete, caixa, link).",
+    "imagem": "Texto curto que vai na arte (título e, se fizer sentido, uma linha de apoio).",
+}
+CONTENT_SCHEMA = obj({"gancho": STR, "legenda": STR, "roteiro": STR, "ideia_imagem": STR})
+
+
+async def create_content(client_id: str, opportunity_id: str, *, instruction: Optional[str] = None) -> Dict[str, Any]:
+    """A IA cria o conteúdo da pauta: gancho, legenda, roteiro (cenas/slides/telas) e ideia de imagem."""
+    current = await _opportunity(client_id, opportunity_id)
+    if current.get("status") == "exportada":
+        raise StudioError("OPPORTUNITY_EXPORTED")
+    throttle(client_id)
+    profile = (await load_profile(client_id))["profile"]
+    intel = await build_content_intelligence(client_id)
+    fmt = current.get("format") or "imagem"
+    base = {k: current.get(k) for k in ("platform", "pillar", "format", "title", "hook", "angle", "rationale")}
+    prompt = (f"PAUTA (crie o conteúdo completo dela, sem mudar o tema):\n{json.dumps(base, ensure_ascii=False)}\n"
+              f"PLATAFORMA: {PLATFORM_TASKS[current['platform']]}\n"
+              f"ROTEIRO: {SCRIPT_GUIDE.get(fmt, SCRIPT_GUIDE['imagem'])}\n"
+              "IDEIA DE IMAGEM: direção da arte para o designer ou a IA de imagem: cena ou composição, enquadramento, pessoas ou objetos, "
+              "cores e estilo da marca, texto na arte. 3 a 6 linhas, concreto.\n"
+              "LEGENDA: no tom da marca, com CTA e hashtags do perfil se houver.\n"
+              + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
+              + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
+              + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
+    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_matrix_content",
+                          schema=CONTENT_SCHEMA, temperature=0.7)
+    patch = {"hook": _clip(data.get("gancho"), LIMITS["hook"]) or current.get("hook"),
+             "caption_draft": _clip(data.get("legenda"), LIMITS["caption_draft"]) or None,
+             "script": _clip(data.get("roteiro"), LIMITS["script"]) or None,
+             "visual_idea": _clip(data.get("ideia_imagem"), LIMITS["visual_idea"]) or None}
+    if not (patch["caption_draft"] or patch["script"] or patch["visual_idea"]):
+        raise StudioError("AI_INVALID_OUTPUT")
+    merged = {**current, **patch}
+    guard = _guard(merged, list(profile.get("keywords_avoid") or []), _guard_context(profile, intel))
+    rows = await sb_update(OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{opportunity_id}", "status": "neq.exportada"},
+                           patch={**patch, "guard": guard, "edited": True, "updated_at": _now().isoformat()})
+    if not rows:
+        raise StudioError("OPPORTUNITY_EXPORTED")
+    return rows[0]
+
+
 # ---------------------------------------------------------------- exportação para o Calendário
 
 async def _posting_times(client_id: str) -> Dict[str, Any]:
@@ -460,6 +508,7 @@ def _calendar_row(op: Dict[str, Any], when: datetime, summary: Optional[str]) ->
     why = " ".join(x for x in (op.get("rationale"), f"Ângulo: {op['angle']}" if op.get("angle") else None) if x)
     return {"scheduled_at": when.isoformat(), "channel": op["platform"], "format": op["format"], "title": op["title"],
             "pillar": op.get("pillar"), "hook": op.get("hook"), "caption_draft": op.get("caption_draft"),
+            "script": op.get("script"), "visual_idea": op.get("visual_idea"),
             "rationale": (f"Matriz de conteúdo: {why}" if why else (f"Matriz de conteúdo. {summary or ''}".strip()))[:1200]}
 
 

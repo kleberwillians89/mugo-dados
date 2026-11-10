@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({
   getClipping: vi.fn(), getClippingInsights: vi.fn(), getClippingReport: vi.fn(), exportClipping: vi.fn(), refreshClipping: vi.fn(), saveClippingSettings: vi.fn(), setClippingStatus: vi.fn(), clippingToCalendar: vi.fn(),
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), regeneratePiece: vi.fn(), editPiece: vi.fn(), setCampaignStatus: vi.fn(), campaignToCalendar: vi.fn(),
-  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(),
+  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(), createOpportunityContent: vi.fn(),
   setOpportunitiesStatus: vi.fn(), matrixToCalendar: vi.fn(),
   listDocuments: vi.fn(), getDocument: vi.fn(), createDocument: vi.fn(), saveDocument: vi.fn(), documentAI: vi.fn(), documentToCalendar: vi.fn(),
 }));
@@ -110,7 +110,7 @@ const byText = (text: string) => [...host.querySelectorAll<HTMLButtonElement>("b
 const sendSelected = () => [...host.querySelectorAll<HTMLButtonElement>(".matrixBar button")].find((b) => b.textContent?.startsWith("Enviar selecionadas"))!;
 
 describe("Social Media: Matriz de conteúdo", () => {
-  it("layout da iAgência: Canal × Pilar × Semana 1–4, separado por plataforma", async () => {
+  it("layout da iAgência: Canal × Pilar × Formato, com data sugerida no card", async () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video", week: 3, pillar: "Bastidores" })]) });
     await show(<Campaigns />);
@@ -118,9 +118,10 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(host.textContent).toContain("Mês do lançamento.");
     const heads = [...host.querySelectorAll(".matrixGrid thead th")].map((cell) => cell.textContent);
     expect(heads.slice(0, 2)).toEqual(["Canal", "Pilar"]);
-    expect(heads[2]).toContain("Semana 1"); expect(heads[2]).toContain("16/11 a 22/11"); expect(heads[5]).toContain("Semana 4");
+    expect(heads.slice(2)).toEqual(["Carrossel", "Reels / Vídeo", "Stories", "Imagem única"]);
+    expect(host.querySelector(".matrixCard .matrixDate")?.textContent).toMatch(/\d{2}\/\d{2}/); // data sugerida no card
     expect([...host.querySelectorAll(".tacticalGroup")].map((g) => g.querySelector(".tacticalChannel .studioChip")?.textContent)).toEqual(["Instagram", "TikTok"]);
-    expect(host.querySelectorAll(".matrixCard").length).toBe(2); // as 4 semanas ficam na mesma tela
+    expect(host.querySelectorAll(".matrixCard").length).toBe(2);
     await act(async () => { tab("TikTok").click(); }); await act(async () => {});
     expect([...host.querySelectorAll(".matrixCard")].map((c) => c.getAttribute("aria-label"))).toEqual(["Pauta b"]);
   });
@@ -189,11 +190,11 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.addOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada", edited: true }) });
     api.deleteOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada" }) });
     await show(<Campaigns />);
-    await act(async () => { host.querySelector<HTMLButtonElement>('.matrixCellAdd[aria-label*="semana 1"]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('.matrixCellAdd[aria-label*="Reels / Vídeo em Instagram"]')!.click(); });
     const title = document.querySelector<HTMLInputElement>('input[required][maxlength="200"]')!;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Pauta adicionada"); title.dispatchEvent(new Event("input", { bubbles: true })); });
     await act(async () => { byText("Salvar").click(); }); await act(async () => {});
-    expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", week: 1 }));
+    expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", format: "reels", week: 1 }));
     expect(host.textContent).toContain("Pauta adicionada");
     await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>('button[title="Detalhes"]')!.click(); });
     vi.spyOn(window, "confirm").mockReturnValueOnce(true);
@@ -205,6 +206,16 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(exported.querySelector('button[title="Enviar ao Calendário"]')).toBeNull();
     expect(byText("Excluir")).toBeUndefined();
     expect(host.textContent).toContain("edite por lá");
+  });
+
+  it("cria legenda, roteiro e ideia de imagem direto no card da matriz", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a", { format: "carrossel" })]) });
+    api.createOpportunityContent.mockResolvedValue({ opportunity: opp("a", { format: "carrossel", script: "Slide 1: capa", visual_idea: "Frasco em fundo neutro" }) });
+    await show(<Campaigns />);
+    await act(async () => { byText("✦ Criar conteúdo").click(); }); await act(async () => {});
+    expect(api.createOpportunityContent).toHaveBeenCalledWith("m1", "a", undefined);
+    expect(host.textContent).toContain("✓ Legenda, roteiro e ideia de imagem");
   });
 
   it("sem permissão de alterar, só lê", async () => {

@@ -164,6 +164,37 @@ class PartialGenerateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("de", saved["notes"][0])
 
 
+class CreateContentTests(unittest.IsolatedAsyncioTestCase):
+    CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "carrossel",
+               "pillar": "Produto", "title": "Como escolher o perfume certo", "hook": None}
+
+    async def test_ai_writes_caption_script_and_image_idea(self):
+        llm = AsyncMock(return_value={"gancho": "Você erra o perfume?", "legenda": "Legenda com CTA", "roteiro": "Slide 1: capa",
+                                      "ideia_imagem": "Frasco em fundo neutro"})
+        update = AsyncMock(return_value=[{**self.CURRENT, "script": "Slide 1: capa"}])
+        with patch.object(mx, "_opportunity", AsyncMock(return_value=self.CURRENT)), patch.object(mx, "throttle"), \
+             patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
+             patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "llm_json", llm), \
+             patch.object(mx, "sb_update", update):
+            await mx.create_content("ruah", "o1", instruction="tom leve")
+        saved = update.await_args.kwargs["patch"]
+        self.assertEqual((saved["script"], saved["visual_idea"], saved["caption_draft"]), ("Slide 1: capa", "Frasco em fundo neutro", "Legenda com CTA"))
+        self.assertIn("slide", llm.await_args.kwargs["prompt"].lower())  # roteiro no formato do carrossel
+        self.assertIn("tom leve", llm.await_args.kwargs["prompt"])
+        self.assertEqual(update.await_args.kwargs["filters"]["status"], "neq.exportada")
+
+    async def test_exported_cannot_be_recreated(self):
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={**self.CURRENT, "status": "exportada"})):
+            with self.assertRaises(StudioError) as raised:
+                await mx.create_content("ruah", "o1")
+        self.assertEqual(raised.exception.code, "OPPORTUNITY_EXPORTED")
+
+    def test_calendar_row_carries_script_and_image_idea(self):
+        row = mx._calendar_row({**self.CURRENT, "script": "S", "visual_idea": "V", "caption_draft": "C", "rationale": None, "angle": None},
+                               datetime(2026, 11, 18, 19, tzinfo=timezone.utc), None)
+        self.assertEqual((row["script"], row["visual_idea"]), ("S", "V"))
+
+
 class EditTests(unittest.IsolatedAsyncioTestCase):
     CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "reels"}
 

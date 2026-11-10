@@ -130,14 +130,16 @@ export type OpportunityStatus = "sugerida" | "selecionada" | "descartada" | "exp
 export type Opportunity = {
   id: string; matrix_id: string; platform: Platform; pillar: string; week: number; weekday: number; format: StudioFormat;
   title: string; hook: string | null; angle: string | null; caption_draft: string | null; rationale: string | null;
+  /** Conteúdo criado na Matriz: roteiro (cenas, slides ou telas) e direção da arte. */
+  script?: string | null; visual_idea?: string | null;
   guard?: { type: string; text: string; fix: string }[]; status: OpportunityStatus; edited: boolean; position: number; calendar_item_id: string | null; updated_at?: string;
 };
 export type MatrixSummary = { id: string; week_start: string; platforms: Platform[]; pillars: { name: string; weight?: number }[];
   focus: string | null; summary: string | null; status: string; created_at: string };
 export type ContentMatrix = MatrixSummary & { notes?: string[]; opportunities: Opportunity[] };
 export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars: string[]; per_week: number; focus: string };
-export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale">> & { status?: Exclude<OpportunityStatus, "exportada"> };
-export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale">;
+export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale" | "script" | "visual_idea">> & { status?: Exclude<OpportunityStatus, "exportada"> };
+export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale"> & Partial<Pick<Opportunity, "script" | "visual_idea">>;
 
 const mx = (path = "") => base(`/matrix${path}`);
 export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
@@ -157,6 +159,11 @@ export function deleteOpportunity(matrixId: string, id: string) {
 }
 export function refineOpportunity(matrixId: string, id: string, instruction?: string) {
   return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}/refine`),
+    { method: "POST", body: JSON.stringify({ instruction: instruction || null }), timeoutMs: 120_000 });
+}
+/** A IA cria o conteúdo da pauta: gancho, legenda, roteiro e ideia de imagem. */
+export function createOpportunityContent(matrixId: string, id: string, instruction?: string) {
+  return http<{ opportunity: Opportunity }>(mx(`/${encodeURIComponent(matrixId)}/opportunities/${encodeURIComponent(id)}/content`),
     { method: "POST", body: JSON.stringify({ instruction: instruction || null }), timeoutMs: 120_000 });
 }
 export function setOpportunitiesStatus(matrixId: string, ids: string[], status: Exclude<OpportunityStatus, "exportada">) {

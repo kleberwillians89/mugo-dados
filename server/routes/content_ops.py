@@ -343,6 +343,8 @@ class OpportunityPatch(BaseModel):
     angle: Optional[str] = Field(default=None, max_length=600)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
+    script: Optional[str] = Field(default=None, max_length=4000)
+    visual_idea: Optional[str] = Field(default=None, max_length=2000)
     status: Optional[Literal["sugerida", "selecionada", "descartada"]] = None
 
 
@@ -358,6 +360,8 @@ class OpportunityCreate(BaseModel):
     angle: Optional[str] = Field(default=None, max_length=600)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
+    script: Optional[str] = Field(default=None, max_length=4000)
+    visual_idea: Optional[str] = Field(default=None, max_length=2000)
 
 
 class BulkStatusInput(BaseModel):
@@ -444,6 +448,17 @@ async def refine_opportunity(client_id: str, matrix_id: UUID, opportunity_id: UU
     cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
     try:
         return {"opportunity": await matrix.refine_opportunity(cid, str(opportunity_id), instruction=body.instruction)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/matrix/{matrix_id}/opportunities/{opportunity_id}/content")
+async def create_opportunity_content(client_id: str, matrix_id: UUID, opportunity_id: UUID, body: RegenerateInput,
+                                     authorization: Optional[str] = Header(default=None)):
+    """Cria o conteúdo da pauta na Matriz: gancho, legenda, roteiro e ideia de imagem."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"opportunity": await matrix.create_content(cid, str(opportunity_id), instruction=body.instruction)}
     except StudioError as exc:
         raise _http(exc) from None
 

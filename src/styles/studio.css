@@ -1120,3 +1120,23 @@
 .taskFormActions{display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border-subtle)}
 .taskFormButtons{display:flex;gap:var(--space-2)}
 .ds-link.taskDanger{color:var(--negative,#b22234)}
+
+/* Matriz por formato + criação do conteúdo */
+.matrixHint{margin:0;padding:10px 16px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle)}
+.tacticalGrid td.is-unavailable{background:#fbfaf8}
+.matrixNa{display:block;padding:6px 2px;color:var(--text-muted);font-size:13px}
+.matrixDate{font-size:12px !important;font-weight:600;color:var(--text-secondary);opacity:1 !important}
+.matrixCreate{all:unset;cursor:pointer;justify-self:start;padding:3px 10px;border-radius:999px;background:#eef3ff;color:#3346a8;font-size:12px;font-weight:600}
+.matrixCreate:hover{background:#e1e8ff}
+.matrixCreate:disabled{opacity:.6;cursor:default}
+.matrixCreate:focus-visible,.matrixContentReady:focus-visible{outline:2px solid #004f6e;outline-offset:2px}
+.matrixContentReady{all:unset;cursor:pointer;justify-self:start;font-size:12px;color:#2f7a4f;font-weight:600}
+.matrixContentReady:hover{text-decoration:underline}
+.matrixCreatePanel{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border:1px solid #d9e1ff;background:#f6f8ff;border-radius:10px}
+.matrixCreatePanel b{display:block;font-size:14px}
+.matrixCreatePanel small{display:block;margin-top:2px;font-size:12px;color:var(--text-secondary);max-width:52ch}
+.postFromMatrix{border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px;background:#fafaf7}
+.postFromMatrix summary{cursor:pointer;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted)}
+.postFromMatrix div{margin-top:8px}
+.postFromMatrix b{font-size:13px}
+.postFromMatrix p{margin:4px 0 0;white-space:pre-wrap;font-size:13px;line-height:1.5}
