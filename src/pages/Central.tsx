@@ -5,6 +5,7 @@ import { navigateToAppRoute, type AppRoute } from "../app/routes";
 import { formatCurrency, formatInteger } from "../app/dataFormat";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
+import AiUsageButton from "../components/studio/AiUsageButton";
 import KpiFigure from "../components/data/KpiFigure";
 import "../styles/studio.css";
 
@@ -22,7 +23,7 @@ function Card({ title, route, children, empty }: { title: string; route: AppRout
 }
 
 /** Central da marca: números da campanha, Calendário, Mídia On, Social Media, Clipping e Tarefas no mesmo lugar. */
-export default function Central() {
+export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(thisMonth);
@@ -52,6 +53,7 @@ export default function Central() {
       <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
       <h2 className="calRange">{MONTH_NAMES[Number(month.slice(5)) - 1]} {month.slice(0, 4)}</h2>
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
+      <AiUsageButton clientName={clientName} isAgency={isAgency} />
     </div>} />
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {loading && !view ? <p>Montando a Central com os dados de todos os módulos…</p> : null}

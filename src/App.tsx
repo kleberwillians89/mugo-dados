@@ -911,7 +911,7 @@ function PrivateApp() {
       ) : (
       <>
       {route === "central" ? (
-        <Central key={`central:${activeClientId}`} />
+        <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
       ) : route === "calendar" || route === "approval" || route === "campaigns" ? (

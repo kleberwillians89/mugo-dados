@@ -203,3 +203,56 @@ async def report(*, start: Optional[str] = None, end: Optional[str] = None) -> D
             pass
     return {"period": {"start": first.isoformat(), "end": last.isoformat()}, "currency": "USD", "estimated": True,
             **aggregate(rows, names)}
+
+
+# ---------------------------------------------------------------- consumo de UMA empresa (Central da marca)
+
+async def client_summary(client_id: str, *, today: Optional[date] = None) -> Dict[str, Any]:
+    """Hoje, mês, média por chamada, últimos 30 dias e recursos que mais gastaram no mês (modelo do CRM Ruah)."""
+    from .ig_supabase import sb_select
+    today = today or datetime.now(timezone.utc).date()
+    month_start = today.replace(day=1)
+    since = min(month_start, today - timedelta(days=29))
+    rows: List[Dict[str, Any]] = []
+    offset, page = 0, 1000
+    while True:
+        chunk = await sb_select(TABLE, select="feature,model,input_tokens,output_tokens,total_tokens,cost_usd,status,error_code,created_at",
+                                filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since.isoformat()}T00:00:00Z"},
+                                order="created_at.asc", limit=page, offset=offset)
+        rows.extend(chunk or [])
+        if not chunk or len(chunk) < page or len(rows) >= 20_000:
+            break
+        offset += page
+
+    def empty() -> Dict[str, Any]:
+        return {"calls": 0, "errors": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
+
+    def add(bucket: Dict[str, Any], row: Dict[str, Any]) -> None:
+        bucket["calls"] += 1
+        bucket["errors"] += 1 if row.get("status") == "erro" else 0
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            bucket[key] += int(row.get(key) or 0)
+        bucket["cost_usd"] = round(bucket["cost_usd"] + float(row.get("cost_usd") or 0), 6)
+
+    today_b, month_b = empty(), empty()
+    days: Dict[str, Dict[str, Any]] = {}
+    features: Dict[str, Dict[str, Any]] = {}
+    last_error: Optional[Dict[str, Any]] = None
+    first_day = (today - timedelta(days=29)).isoformat()
+    for row in rows:
+        day = _day(row.get("created_at"))
+        if day == today.isoformat():
+            add(today_b, row)
+        if day >= month_start.isoformat():
+            add(month_b, row)
+            add(features.setdefault(row.get("feature") or "ia", {"feature": row.get("feature") or "ia", **empty()}), row)
+        if day >= first_day:
+            add(days.setdefault(day, {"day": day, **empty()}), row)
+        if row.get("status") == "erro":
+            last_error = {"code": row.get("error_code"), "at": row.get("created_at"), "feature": row.get("feature")}
+    avg = {k: (month_b[k] / month_b["calls"] if month_b["calls"] else 0) for k in ("input_tokens", "output_tokens", "total_tokens", "cost_usd")}
+    return {"client_id": client_id, "currency": "USD", "estimated": True, "today": today_b, "month": month_b,
+            "per_call": {**avg, "calls": 1 if month_b["calls"] else 0},
+            "days": sorted(days.values(), key=lambda d: d["day"], reverse=True),
+            "features": sorted(features.values(), key=lambda f: f["cost_usd"], reverse=True)[:10],
+            "last_error": last_error}
