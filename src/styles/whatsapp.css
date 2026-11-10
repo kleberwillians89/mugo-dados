@@ -90,3 +90,24 @@
   .waInboxList,.waThread{max-height:none}
   .waInboxList,.waJourney{border:0;border-bottom:1px solid var(--wa-line)}
 }
+
+/* Leitura da IA de atendimento: funil por fase, objeções e ficha da conversa */
+.waFunnel { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.waFunnel li { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 10px; }
+.waFunnelLabel { font-size: 13px; }
+.waFunnelBar { height: 10px; background: #eef1f3; border-radius: 999px; overflow: hidden; }
+.waFunnelBar span { display: block; height: 100%; background: #004f6e; border-radius: 999px; }
+.waFunnel li.is-comprou .waFunnelBar span, .waFunnel li.is-recorrente .waFunnelBar span { background: #2e7d4f; }
+.waFunnel li.is-perdida .waFunnelBar span { background: #b54a3c; }
+.waFunnel li.is-suporte .waFunnelBar span { background: #7a8b99; }
+.waSubhead { font-size: 14px; margin: 18px 0 8px; }
+.waObjections { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.waObjections li { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid #e3e7ea; border-radius: 999px; font-size: 13px; }
+.waTable td small { display: block; opacity: .7; font-size: 11px; }
+.waTag[class*="is-stage-"] { background: #eef4f7; color: #004f6e; }
+.waTag.is-stage-comprou, .waTag.is-stage-recorrente { background: #e6f3ec; color: #2e7d4f; }
+.waTag.is-stage-perdida { background: #f8e9e6; color: #b54a3c; }
+.waInsight { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e3e7ea; display: grid; gap: 6px; font-size: 13px; }
+.waInsight h3 { font-size: 14px; margin: 0; }
+.waInsight p { margin: 0; }
+@media (max-width: 640px) { .waFunnel li { grid-template-columns: 96px 1fr auto; } }

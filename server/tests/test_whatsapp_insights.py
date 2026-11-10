@@ -183,3 +183,31 @@ class SourcesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AiStageFunnelTests(unittest.TestCase):
+    """Ficha da IA de atendimento do CRM: funil por fase e o que trava a venda."""
+
+    def test_funnel_and_objections(self):
+        leads = [
+            {**lead("k1", "2026-11-01T12:00:00Z", source="ad", ad_id="111"), "stage": "negociando", "objections": ["frete", "frete"]},
+            {**lead("k2", "2026-11-01T12:00:00Z", source="ad", ad_id="111"), "stage": "interessada", "objections": ["preco"]},
+            {**lead("k3", "2026-11-01T12:00:00Z"), "stage": "quase", "objections": ["xpto"]},
+            {**lead("k4", "2026-11-01T12:00:00Z", source="ad", ad_id="111"), "stage": "novo", "objections": ["frete"]},
+        ]
+        crm_sale = {"name": "Venda CRM", "created_at_shopify": "2026-11-02T23:59:00-03:00", "value": 100.0, "phone_keys": ["k2"]}
+        data = wi.aggregate(leads, [crm_sale], [crm_sale], {})
+        stages = {row["key"]: row["count"] for row in data["stages"]}
+        # Venda registrada vence a leitura da IA; fase inválida não entra.
+        self.assertEqual(stages, {"negociando": 1, "comprou": 1, "novo": 1})
+        self.assertEqual(data["interpreted_conversations"], 3)
+        self.assertEqual(data["objections"][0], {"key": "frete", "label": "Frete", "count": 2})
+        ad = data["ads"][0]
+        self.assertEqual(ad["advanced"], 2)
+        self.assertEqual(ad["top_objection"]["key"], "frete")
+
+    def test_without_ai_data_lists_are_empty(self):
+        data = wi.aggregate([lead("k1", "2026-11-01T12:00:00Z")], [], [], {})
+        self.assertEqual(data["stages"], [])
+        self.assertEqual(data["objections"], [])
+        self.assertEqual(data["interpreted_conversations"], 0)

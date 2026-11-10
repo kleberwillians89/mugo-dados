@@ -27,3 +27,16 @@ deploy de `whatsapp-webhook` e `mugoverso-bridge`.
   primeiro contato. Cada venda conta uma vez. Sem telefone, não entra.
 - O telefone nunca chega ao MUGOVERSO: os dois lados calculam a mesma chave (`phone_key`).
 - O ID do anúncio só existe para conversas que chegaram depois da captura entrar no ar.
+
+## Leitura da IA de atendimento (CRM da Ruah)
+
+A atendente de IA do CRM da Ruah (Claude) mantém uma ficha de cada conversa, atualizada a cada resposta:
+fase (`novo`, `interessada`, `negociando`, `comprou`, `recorrente`, `perdida`, `suporte`), interesses,
+objeções (`preco`, `frete`, `prazo`, `confianca`, `pagamento`, `estoque`, `produto`, `outro`), próximo passo e resumo.
+
+- Ponte: `conversations` traz `insight`; `leads` traz `stage` e `objections`.
+- Aba: card "Onde as conversas estão" (funil por fase + "O que trava a venda"), coluna "Avançaram" e a
+  objeção mais comum por anúncio, selo de fase na lista e "Leitura da IA" na lateral da conversa.
+- Venda registrada vence a leitura da IA: conversa que virou venda conta como "Comprou".
+- No CRM da Ruah: migração `202611100005_whatsapp_conversation_insight.sql` e deploy de
+  `whatsapp-webhook` e `mugoverso-bridge`. Sem a migração, a ponte manda `insight: null` e a aba esconde o card.

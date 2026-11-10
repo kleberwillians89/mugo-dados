@@ -107,4 +107,27 @@ describe("Página WhatsApp — troca rápida de conversa", () => {
     expect(thread).toContain("Mensagem do Rafael");
     expect(thread).not.toContain("Mensagem da Mariana");
   });
+
+  it("mostra o funil da IA, o que trava a venda e a leitura da conversa", async () => {
+    api.getWhatsAppInsights.mockResolvedValue({ ...INSIGHTS,
+      stages: [{ key: "interessada", label: "Interessada", count: 5, share: 50 }, { key: "negociando", label: "Negociando", count: 3, share: 30 }, { key: "comprou", label: "Comprou", count: 2, share: 20 }],
+      interpreted_conversations: 10,
+      objections: [{ key: "frete", label: "Frete", count: 4 }, { key: "preco", label: "Preço", count: 2 }],
+      ads: [{ ...INSIGHTS.ads[0], advanced: 3, top_objection: { key: "frete", label: "Frete", count: 2 } }] });
+    api.getWhatsAppInbox.mockResolvedValue({ ...INBOX, conversations: [{ ...INBOX.conversations[0],
+      insight: { stage: "negociando", interests: ["Oud", "splits 10 ml"], objections: ["frete"], next_step: "mandar link do cartão em 3x", summary: "Quer Oud em 10 ml.", updated_at: "2026-11-09T20:40:00Z" } }] });
+    api.getWhatsAppMessages.mockResolvedValue({ available: true, messages: [] });
+    await act(async () => root.render(<WhatsApp />));
+    await flush();
+    const text = container.textContent || "";
+    expect(text).toContain("Onde as conversas estão");
+    expect(text).toContain("10 conversas");
+    expect(text).toContain("O que trava a venda");
+    expect(text).toContain("Frete4");
+    expect(text).toContain("trava: frete");
+    expect(text).toContain("Leitura da IA");
+    expect(text).toContain("Quer Oud em 10 ml.");
+    expect(text).toContain("Próximo passo: mandar link do cartão em 3x");
+    expect(text).toContain("Interesses: Oud, splits 10 ml");
+  });
 });

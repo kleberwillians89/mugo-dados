@@ -10,8 +10,22 @@ export type WaAdRow = {
   ad_id: string; ad_name: string | null; headline: string | null; campaign_name: string | null;
   spend: number | null; conversations: number; sales: number; orders: number; revenue: number;
   cost_per_conversation: number | null; cost_per_sale: number | null; roas: number | null; verdict: WaVerdict | null;
+  advanced?: number; top_objection?: WaObjectionRow | null;
 };
 export type WaLinkRow = { code: string; conversations: number; sales: number; revenue: number };
+export type WaStageKey = "novo" | "interessada" | "negociando" | "comprou" | "recorrente" | "perdida" | "suporte";
+export type WaStageRow = { key: WaStageKey; label: string; count: number; share: number };
+export type WaObjectionRow = { key: string; label: string; count: number };
+/** Ficha que a IA de atendimento do CRM da marca mantém de cada conversa. */
+export type WaInsight = { stage: WaStageKey; interests: string[]; objections: string[]; next_step: string | null; summary: string | null; updated_at: string | null };
+export const STAGE_LABELS: Record<WaStageKey, string> = {
+  novo: "Lead novo", interessada: "Interessada", negociando: "Negociando", comprou: "Comprou",
+  recorrente: "Recorrente", perdida: "Perdida", suporte: "Pós-venda",
+};
+export const OBJECTION_LABELS: Record<string, string> = {
+  preco: "Preço", frete: "Frete", prazo: "Prazo de entrega", confianca: "Confiança na loja",
+  pagamento: "Forma de pagamento", estoque: "Disponibilidade", produto: "Dúvida sobre o produto", outro: "Outro motivo",
+};
 
 export type WhatsAppInsights = {
   ok: true;
@@ -32,6 +46,9 @@ export type WhatsAppInsights = {
   ads?: WaAdRow[];
   links?: WaLinkRow[];
   alerts?: { ad_id: string; text: string }[];
+  stages?: WaStageRow[];
+  interpreted_conversations?: number;
+  objections?: WaObjectionRow[];
 };
 
 export type WaConversation = {
@@ -41,6 +58,7 @@ export type WaConversation = {
   origin: { bucket: WaOriginKey; label: string; ad_headline: string | null; entry_code: string | null; at: string | null };
   purchase: { orders: number; revenue: number; last_order: string | null; last_order_at: string | null } | null;
   last_message: { direction: string; at: string; text: string } | null;
+  insight?: WaInsight | null;
 };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
