@@ -73,7 +73,7 @@ export default function Approval({ canManage, isAgency = false, embedded = false
       setChannel(cts.whatsapp_channel); setMissing(cts.whatsapp_missing || []); setMessages(msgs.messages || []);
     } catch (cause) { setError(message(cause, "Não foi possível carregar a aprovação.")); }
     finally { setLoading(false); }
-  }, [month, clientId]);
+  }, [month, clientId, team]);
   useEffect(() => { void load(); }, [load]);
 
   async function run<T>(key: string, fn: () => Promise<T>, fallback: string) {

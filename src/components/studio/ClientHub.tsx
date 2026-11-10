@@ -20,8 +20,25 @@ const CLIENT_KINDS = ["ajuste_solicitado", "editado_pelo_cliente", "comentario",
 const TAGS: Record<string, [string, string]> = { ajuste_solicitado: ["Ajuste pedido", "r"], editado_pelo_cliente: ["Editado pelo cliente", "y"],
   comentario: ["Comentário", "b"], aprovado: ["Aprovado", "g"] };
 
-export { ago };
 const clip = (text: string | null | undefined, n: number) => { const t = String(text || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+
+/** Lê o resumo do hub (sem estado): null quando a empresa ativa mudou no meio da leitura. */
+async function fetchSummary(clientId: string, team: boolean): Promise<Summary | null> {
+  const settle = <T,>(p: Promise<T>) => p.then((v) => v, () => null);
+  const [timeline, unread, chat, tasks, knowledge] = await Promise.all([
+    settle(listTimeline()), settle(chatUnread()), settle(listChat("cliente")),
+    settle<{ available: boolean; tasks?: { status: string; due_date: string | null }[] }>(team ? listCrmTasks() : listClientTasks()), settle(getKnowledge()),
+  ]);
+  if (getActiveClientId() !== clientId) return null;
+  const events = (timeline?.events || []).filter((e) => CLIENT_KINDS.includes(e.kind));
+  const messages = chat?.messages || [];
+  const list = tasks && tasks.available ? tasks.tasks || [] : null;
+  const open = list?.filter((t) => t.status === "pending" || t.status === "in_progress") || null;
+  return { events, lastAdjust: events.find((e) => e.kind === "ajuste_solicitado") || null, unread: unread?.unread || {},
+    lastMessage: [...messages].reverse().find((m) => !m.mine) || null,
+    lateTasks: open ? open.filter((t) => dueInfo(t.due_date).late).length : null, openTasks: open ? open.length : null,
+    sources: knowledge ? knowledge.sources : null };
+}
 
 /**
  * Proposta A: quatro cartões de resumo acima do calendário (o que pede atenção em um olhar)
@@ -33,27 +50,23 @@ export default function ClientHub({ team, canManage, isAgency, month, posts, onO
 }) {
   const clientId = getActiveClientId();
   const brand = getActiveClientName() || "Cliente";
-  const [summary, setSummary] = useState<Summary>(EMPTY);
+  // O resumo fica marcado com a empresa/papel que o pediu: ao trocar, o anterior some sem setState no efeito.
+  const scope = `${clientId}:${team}`;
+  const [loaded, setLoaded] = useState<{ scope: string; summary: Summary } | null>(null);
+  const summary = loaded?.scope === scope ? loaded.summary : EMPTY;
   const [panel, setPanel] = useState<Panel | null>(null);
   const [cite, setCite] = useState<string>("");
 
-  const load = useCallback(async () => {
-    const settle = <T,>(p: Promise<T>) => p.then((v) => v, () => null);
-    const [timeline, unread, chat, tasks, knowledge] = await Promise.all([
-      settle(listTimeline()), settle(chatUnread()), settle(listChat("cliente")),
-      settle<{ available: boolean; tasks?: { status: string; due_date: string | null }[] }>(team ? listCrmTasks() : listClientTasks()), settle(getKnowledge()),
-    ]);
-    if (getActiveClientId() !== clientId) return;
-    const events = (timeline?.events || []).filter((e) => CLIENT_KINDS.includes(e.kind));
-    const messages = chat?.messages || [];
-    const list = tasks && tasks.available ? tasks.tasks || [] : null;
-    const open = list?.filter((t) => t.status === "pending" || t.status === "in_progress") || null;
-    setSummary({ events, lastAdjust: events.find((e) => e.kind === "ajuste_solicitado") || null, unread: unread?.unread || {},
-      lastMessage: [...messages].reverse().find((m) => !m.mine) || null,
-      lateTasks: open ? open.filter((t) => dueInfo(t.due_date).late).length : null, openTasks: open ? open.length : null,
-      sources: knowledge ? knowledge.sources : null });
+  const load = useCallback(() => fetchSummary(clientId, team).then((next) => {
+    if (next) setLoaded({ scope: `${clientId}:${team}`, summary: next });
+  }), [clientId, team]);
+  useEffect(() => {
+    let alive = true;
+    const run = () => fetchSummary(clientId, team).then((next) => { if (alive && next) setLoaded({ scope: `${clientId}:${team}`, summary: next }); });
+    void run();
+    const t = window.setInterval(() => void run(), 60000);
+    return () => { alive = false; window.clearInterval(t); };
   }, [clientId, team]);
-  useEffect(() => { setSummary(EMPTY); void load(); const t = window.setInterval(() => void load(), 60000); return () => window.clearInterval(t); }, [load]);
   // Estável: a conversa avisa "li" a cada leitura; uma função nova a cada render faria ela recarregar em laço.
   const refresh = useCallback(() => { void load(); }, [load]);
 

@@ -18,7 +18,7 @@ describe("prévia da arte", () => {
   });
 });
 
-import { feedRatio } from "../components/studio/ArtCarousel";
+import { feedRatio } from "../components/studio/artCarousel.helpers";
 describe("proporção no feed (regra do Instagram)", () => {
   it("fica entre 4:5 e 1,91:1", () => {
     expect(feedRatio(1080, 1350)).toBeCloseTo(0.8);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, useEffectEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
@@ -88,7 +88,9 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [months, clientId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
-  useEffect(() => { if (openProfileRequest > 0 && team) void openProfile(); }, [openProfileRequest]);
+  // Pedido de fora ("abrir perfil da marca"): reage só a um pedido novo, usando o openProfile/team atuais.
+  const onProfileRequest = useEffectEvent(() => { if (team) void openProfile(); });
+  useEffect(() => { if (openProfileRequest > 0) onProfileRequest(); }, [openProfileRequest]);
 
   // Plano do Mídia On salvo: as pautas escolhidas para impulsionar ganham data de início no calendário.
   const [boosts, setBoosts] = useState<Record<string, BoostPost>>({});

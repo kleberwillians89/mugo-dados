@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ArtFiles, { moveArt } from "./ArtFiles";
+import ArtFiles from "./ArtFiles";
+import { moveArt } from "./artFiles.helpers";
 import { getPathForRoute, getAppRouteFromPath } from "../../app/routes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

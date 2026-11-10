@@ -1,17 +1,10 @@
 import { ChevronLeft, ChevronRight, Download, Film, Link2, X } from "lucide-react";
 import { canImport } from "../../app/artUpload";
 import { artImage, artKind, artList } from "../../app/artLinks";
+import { moveArt } from "./artFiles.helpers";
 
 const isVideo = (url: string) => /\.(mp4|mov)(\?|$)/i.test(url);
 
-/** Mover um item da lista (ordem = slides do carrossel). */
-export function moveArt(list: string[], index: number, delta: number): string[] {
-  const to = index + delta;
-  if (to < 0 || to >= list.length) return list;
-  const next = [...list];
-  [next[index], next[to]] = [next[to], next[index]];
-  return next;
-}
 
 /**
  * Artes do post em miniatura, na ordem dos slides: tirar uma imagem errada ou mudar a ordem sem mexer em link.
