@@ -323,6 +323,63 @@ async def refresh(client_id: str, *, manual: bool = False) -> Dict[str, Any]:
             "not_analyzed": len(rows) - len(labels)}
 
 
+PENDING_LOOKBACK = timedelta(days=120)
+
+
+async def analyze_pending(client_id: str, *, limit: int = AI_BATCH * 2, ignore_budget: bool = False) -> Dict[str, int]:
+    """Matéria que entrou sem análise (IA sem crédito, fora do ar ou acima do limite do dia) é analisada depois.
+
+    Mesma análise da busca (relevância, sentimento, criticidade, evidência). Para na primeira rodada sem resposta
+    da IA. ``ignore_budget``: botão "Analisar agora" da equipe, que limpa o atraso sem esperar o limite diário."""
+    settings = await get_settings(client_id)
+    out = {"news_analyzed": 0, "news_pending": 0}
+    if not settings["saved"]:
+        return out
+    since = (datetime.now(timezone.utc) - PENDING_LOOKBACK).isoformat()
+    pending = await sb_select(CLIPPINGS, select="id,url,url_hash,title,source,published_at,kind,term", order="published_at.desc.nullslast",
+                              limit=500, filters={"client_id": f"eq.{client_id}", "analyzed_at": "is.null", "created_at": f"gte.{since}"})
+    out["news_pending"] = len(pending)
+    if not pending:
+        return out
+    cap = limit if ignore_budget else min(limit, await _ai_budget(client_id, settings.get("ai_daily_limit", 60)))
+    todo = pending[:max(0, cap)]
+    if not todo:
+        return out
+    try:
+        texts = await sb_select(ARTICLES, select="url_hash,excerpt,content_text", limit=len(todo),
+                                filters={"url_hash": f"in.({','.join(r['url_hash'] for r in todo)})"})
+    except Exception:  # noqa: BLE001 — sem catálogo, analisa só pelo título
+        texts = []
+    by_hash = {t["url_hash"]: t for t in texts}
+    items = [{**r, **{k: (by_hash.get(r["url_hash"]) or {}).get(k) for k in ("excerpt", "content_text")}} for r in todo]
+    from .studio_messages import _client_name
+    brand = await _client_name(client_id)
+    context = _context(brand, settings)
+    for start in range(0, len(items), AI_BATCH):
+        batch = items[start:start + AI_BATCH]
+        labels = await _classify(context, batch)
+        if not labels:
+            break
+        try:
+            await _spend(client_id, len(batch))
+        except Exception:  # noqa: BLE001
+            pass
+        rows = []
+        for idx, label in labels.items():
+            row = {**batch[idx], **label, "relevant": label["relevance"] >= int(settings.get("min_relevance", 40))}
+            rows.append(row)
+        await _alert_team(client_id, brand, rows)
+        for row in rows:
+            patch = {k: row[k] for k in ("sentiment", "summary", "main_theme", "entities", "relevance", "criticality", "opportunities",
+                                         "risks", "justification", "evidence", "analyzed_at", "relevant")}
+            if row.get("alert_status"):
+                patch["alert_status"] = row["alert_status"]
+            await sb_update(CLIPPINGS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"}, patch=patch, returning="minimal")
+            out["news_analyzed"] += 1
+    out["news_pending"] = len(pending) - out["news_analyzed"]
+    return out
+
+
 async def refresh_all() -> Dict[str, Any]:
     rows = await sb_select(SETTINGS, select="client_id", filters={"active": "eq.true"}, limit=200)
     done, failed = 0, 0

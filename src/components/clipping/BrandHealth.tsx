@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  GRAIN_NAME, SENTIMENT_NAME, SENTIMENT_ORDER, SOURCE_CHIP, SOURCE_NAME, bucketLabel, getBrandHealth, presetRange,
+  GRAIN_NAME, SENTIMENT_NAME, analyzeBrandHealth, SENTIMENT_ORDER, SOURCE_CHIP, SOURCE_NAME, bucketLabel, getBrandHealth, presetRange,
   type BrandHealth as Health, type Grain, type HealthSentiment, type Preset, type Source, type Split,
 } from "../../app/brandHealth";
 import DateRangePicker from "./DateRangePicker";
@@ -132,7 +132,8 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
   const [result, setResult] = useState<{ key: string; data: Health | null; error: string | null }>({ key: "", data: null, error: null });
 
   const tooManyDays = grain === "day" && (new Date(range.end).getTime() - new Date(range.start).getTime()) / 864e5 > 400;
-  const requestKey = `${clientId}|${range.start}|${range.end}|${grain}|${sources.join(",")}`;
+  const [nonce, setNonce] = useState(0);
+  const requestKey = `${clientId}|${range.start}|${range.end}|${grain}|${sources.join(",")}|${nonce}`;
   const load = useCallback(async (key: string) => {
     try {
       const data = await getBrandHealth({ start: range.start, end: range.end, grain, sources });
@@ -144,6 +145,21 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
   useEffect(() => { if (!tooManyDays) void load(requestKey); }, [load, requestKey, tooManyDays]);
   const state = { data: result.data, error: result.key === requestKey ? result.error : null, loading: !tooManyDays && result.key !== requestKey };
 
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeNote, setAnalyzeNote] = useState<string | null>(null);
+  async function analyzeNow() {
+    setAnalyzing(true); setAnalyzeNote(null);
+    try {
+      const out = await analyzeBrandHealth();
+      const parts = [`${nf.format(out.classified)} comentários/Direct`, `${nf.format(out.news_analyzed)} matérias`];
+      setAnalyzeNote(`Analisados agora: ${parts.join(" e ")}.${out.news_pending ? ` Faltam ${nf.format(out.news_pending)} matérias: clique de novo ou espere a rodada de hora em hora.` : ""}${out.failed ? " A IA não respondeu para parte deles; tenta de novo na próxima rodada." : ""}`);
+      setNonce((n) => n + 1);
+    } catch (cause) {
+      setAnalyzeNote(cause instanceof Error && cause.message ? cause.message : "Não foi possível analisar agora.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
   const toggleSource = (s: Source) => setSources((cur) => (cur.includes(s) ? (cur.length > 1 ? cur.filter((x) => x !== s) : cur) : SOURCES.filter((x) => x === s || cur.includes(x))));
   const d = state.data, k = d?.kpis;
   const analyzed = d ? SENTIMENT_ORDER.reduce((s, key) => s + d.split[key], 0) : 0;
@@ -156,6 +172,11 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
       <span className="bhMuted">vs período anterior</span>
       <div className="bhChips">{SOURCES.map((s) => <button key={s} type="button" aria-pressed={sources.includes(s)} className={sources.includes(s) ? "is-on" : ""} onClick={() => toggleSource(s)}>{SOURCE_CHIP[s]}</button>)}</div>
     </div>
+    {canManage && k && k.unanalyzed > 0 ? <div className="bhPending" role="status">
+      <span><b>{nf.format(k.unanalyzed)}</b> menções ainda sem análise da IA (entram só no volume, não no sentimento).</span>
+      <button type="button" className="ds-button is-primary" disabled={analyzing} onClick={() => void analyzeNow()}>{analyzing ? "Analisando… (até 2 min)" : "Analisar agora"}</button>
+    </div> : null}
+    {analyzeNote ? <p className="studioOk" role="status">{analyzeNote}</p> : null}
     {tooManyDays ? <p className="clipWarn">Por dia, escolha até 13 meses. Para períodos maiores, veja por semana ou mês.</p> : null}
     {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
     {state.loading && !d ? <p className="bhMuted" role="status">Carregando…</p> : null}

@@ -177,13 +177,23 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
     rows = await sb_select("client_business_context", select="*", filters={"client_id": f"eq.{client_id}"}, limit=1)
     business = {k: v for k, v in (rows[0] if rows else {}).items() if k not in ("client_id", "id", "created_at", "updated_at", "updated_by") and v}
     obj_key = objective if objective in OBJECTIVES else "trafego"
+    from .brand_health import audience_voice
+    from .brand_knowledge import knowledge_for_prompt
+    voice = await audience_voice(client_id)
+    try:
+        knowledge = (await knowledge_for_prompt(client_id, 1500)).strip()
+    except Exception:  # noqa: BLE001 — memória indisponível não impede o rascunho
+        knowledge = ""
     schema = obj({"name": STR, "primary_text": STR, "headline": STR, "description": STR, "cta": STR,
                   "age_min": INT, "age_max": INT, "gender": STR, "regions": arr(STR), "interests": arr(STR)})
     prompt = (f"CAMPANHA DO PLANO (Mídia On): {json.dumps({k: campaign.get(k) for k in ('campaign', 'action', 'why', 'planned_budget')}, ensure_ascii=False)}\n"
               f"OBJETIVO NO META: {OBJECTIVES[obj_key]['label']}\n"
               f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
               f"NEGÓCIO: {json.dumps(business, ensure_ascii=False, default=str)[:2500]}\n"
-              f"BOTÕES POSSÍVEIS (cta): {', '.join(CTAS)}\n"
+              + (f"CONHECIMENTO DA MARCA (documentos): {knowledge}\n" if knowledge else "")
+              + (f"COMO O PÚBLICO FALA DA MARCA (Saúde da marca; use para escolher o gancho, responder o que mais perguntam "
+                 f"e não prometer o que gera reclamação): {voice}\n" if voice else "")
+              + f"BOTÕES POSSÍVEIS (cta): {', '.join(CTAS)}\n"
               "Monte o anúncio: name (nome interno curto), primary_text (até 3 frases, gancho na primeira, no tom da marca), "
               "headline (até 40 caracteres), description (até 30), cta (um dos botões), público: age_min/age_max (18 a 65), "
               "gender (todos, mulheres ou homens), regions (estados do Brasil só se o negócio for local; senão vazio), "

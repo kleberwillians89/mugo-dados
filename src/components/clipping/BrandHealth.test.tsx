@@ -26,7 +26,9 @@ const fixture = {
 
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah" }));
 const getBrandHealth = vi.fn(async () => fixture);
-vi.mock("../../app/brandHealth", async (orig) => ({ ...(await orig<typeof import("../../app/brandHealth")>()), getBrandHealth: (q: unknown) => getBrandHealth(q) }));
+const analyzeBrandHealth = vi.fn(async () => ({ classified: 40, failed: 0, news_analyzed: 36, news_pending: 84, alerts_opened: 0 }));
+vi.mock("../../app/brandHealth", async (orig) => ({ ...(await orig<typeof import("../../app/brandHealth")>()), getBrandHealth: (q: unknown) => getBrandHealth(q),
+  analyzeBrandHealth: () => analyzeBrandHealth() }));
 
 import BrandHealth from "./BrandHealth";
 import { presetRange, bucketLabel } from "../../app/brandHealth";
@@ -62,12 +64,27 @@ describe("Saúde da marca", () => {
     root.unmount();
   });
 
+  it("equipe analisa na hora o que ficou sem análise e a tela recarrega", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => root.render(<BrandHealth canManage />));
+    const calls = getBrandHealth.mock.calls.length;
+    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === "Analisar agora") as HTMLButtonElement;
+    expect(container.textContent).toContain("12 menções ainda sem análise");
+    await act(async () => button.click());
+    expect(analyzeBrandHealth).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Faltam 84 matérias");
+    expect(getBrandHealth.mock.calls.length).toBeGreaterThan(calls);
+    root.unmount();
+  });
+
   it("cliente não vê alertas", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     await act(async () => root.render(<BrandHealth canManage={false} />));
     expect(container.textContent).not.toContain("Alertas de termos sensíveis");
     expect(container.textContent).toContain("Analisadas pela IA");
+    expect(container.textContent).not.toContain("Analisar agora");
     root.unmount();
   });
 });

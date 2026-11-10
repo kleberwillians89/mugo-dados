@@ -5,8 +5,9 @@ comentários do Instagram (``ig_comments``) e mensagens recebidas no Direct (``i
 ``brand_mentions``, e mostra volume e sentimento por dia/semana/mês/trimestre/ano, comparando com o
 período anterior do mesmo tamanho.
 
-Sentimento: notícia já vem analisada pelo clipping; comentário e Direct são classificados pela IA aqui
-(``classify_pending``, job ``brand-health``), com assunto curto. Sem IA, a menção conta no volume e fica
+Sentimento: notícia vem analisada pelo clipping (a que ficou sem análise é refeita aqui, ``analyze_pending``);
+comentário e Direct são classificados pela IA aqui (``classify_pending``, job ``brand-health``), com assunto curto.
+Botão "Analisar agora" (equipe) roda tudo na hora. Sem IA, a menção conta no volume e fica
 "sem análise" (nunca entra sentimento inventado).
 
 Índice de saúde (0–100) = 80% sentimento líquido (−100..+100 → 0..100) + 20% alertas abertos
@@ -230,6 +231,36 @@ async def summary(client_id: str, *, start: date, end: date, grain: str, sources
         "themes": top_themes(themes_cur, themes_prev),
         "alerts": alerts[:5] if with_alerts else [],
     }
+
+
+async def audience_voice(client_id: str, *, days: int = 30) -> Optional[str]:
+    """Como o público fala da marca, em poucas linhas, para a IA de campanha e a IA da marca usarem.
+
+    Só números e assuntos agregados (sem alertas, nomes nem textos de pessoas). None sem menção analisada."""
+    try:
+        end = _now().astimezone(SAO_PAULO).date()
+        start = end - timedelta(days=days - 1)
+        split = _split(await _buckets(client_id, start, end, "year", list(SOURCES)))
+        net = net_sentiment(split)
+        if net is None:
+            return None
+        themes = top_themes(await _themes(client_id, start, end, list(SOURCES)), [], limit=8)
+        analyzed = sum(split[s] for s in SENTIMENTS)
+        parts = [f"Últimos {days} dias: {analyzed} menções analisadas (notícias, comentários e Direct), sentimento líquido {net:+d} "
+                 f"({round(split['positivo'] / analyzed * 100)}% positivas, {round(split['negativo'] / analyzed * 100)}% negativas)."]
+        liked = [f"{t['theme']} ({t['mentions']})" for t in themes if t["tone"] == "positivo"][:4]
+        complaints = [f"{t['theme']} ({t['mentions']})" for t in themes if t["tone"] in ("negativo", "misto")][:4]
+        asked = [f"{t['theme']} ({t['mentions']})" for t in themes if t["tone"] == "neutro"][:4]
+        if liked:
+            parts.append("Elogiam: " + ", ".join(liked) + ".")
+        if asked:
+            parts.append("Perguntam sobre: " + ", ".join(asked) + ".")
+        if complaints:
+            parts.append("Reclamam de: " + ", ".join(complaints) + ".")
+        return " ".join(parts)[:700]
+    except Exception as exc:  # noqa: BLE001 — sinal opcional: sem ele, a IA segue com o resto do contexto
+        print(f"[brand_health] audience_voice_failed client_id={client_id} {type(exc).__name__}")
+        return None
 
 
 # ------------------------------------------------------------------ configurações e alertas
@@ -472,12 +503,23 @@ async def _clients() -> List[str]:
     return sorted(ids)
 
 
+async def analyze_now(client_id: str) -> Dict[str, Any]:
+    """Botão "Analisar agora" (equipe): comentários/Direct e matérias atrasadas, sem esperar o job. Limites
+    menores que o job para caber numa requisição; o que sobrar sai nas próximas rodadas de hora em hora."""
+    from .studio_clipping import analyze_pending
+    social = await classify_pending(client_id, limit=150)
+    news = await analyze_pending(client_id, limit=36, ignore_budget=True)
+    alerts = await detect(client_id)
+    return {**social, **news, "alerts_opened": alerts.get("opened", 0)}
+
+
 async def run_all() -> Dict[str, Any]:
+    from .studio_clipping import analyze_pending
     total: Dict[str, Any] = {"clients": 0, "errors": 0}
     for cid in await _clients():
         total["clients"] += 1
         try:
-            for result in (await classify_pending(cid), await detect(cid)):
+            for result in (await classify_pending(cid), await analyze_pending(cid), await detect(cid)):
                 for key, value in result.items():
                     total[key] = total.get(key, 0) + value
         except Exception as exc:  # noqa: BLE001 — uma marca não para as outras

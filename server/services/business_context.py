@@ -105,7 +105,12 @@ async def load_business_context_for_ai(client_id: str, *, memory_chars: int = BR
     except Exception as exc:  # noqa: BLE001 — memória indisponível não derruba a análise
         print(f"[intelligence][brand_memory] client_id={_text(client_id)} status=unavailable error_type={exc.__class__.__name__}")
         memory = ""
-    context = {**(business.get("context") or {}), "brand_memory": memory or None}
+    try:
+        from .brand_health import audience_voice
+        voice = await audience_voice(client_id)
+    except Exception:  # noqa: BLE001
+        voice = None
+    context = {**(business.get("context") or {}), "brand_memory": memory or None, "public_voice": voice}
     return {**business, "context": context, "available": bool(business.get("available") or memory),
             "brand_memory_available": bool(memory)}
 
@@ -115,7 +120,7 @@ def compact_brand_context(context: Dict[str, Any] | None, *, field_chars: int = 
     """Versão curta para prompts com teto de tamanho (chat da Inteligência). None quando não há nada."""
     source = context if isinstance(context, dict) else {}
     out: Dict[str, str] = {}
-    for field in (*FIELDS, "brand_memory"):
+    for field in (*FIELDS, "brand_memory", "public_voice"):
         value = _text(source.get(field))
         if value:
             out[field] = value[: memory_chars if field == "brand_memory" else field_chars]
