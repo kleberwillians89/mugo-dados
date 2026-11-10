@@ -11,7 +11,8 @@ describe("platform routes", () => {
   it("Social Media mora em /social-media e o endereço antigo da Redação continua abrindo", () => {
     expect(getPathForRoute("campaigns")).toBe("/social-media");
     expect(getAppRouteFromPath("/social-media")).toBe("campaigns");
-    expect(getAppRouteFromPath("/redacao")).toBe("campaigns");
+    expect(getAppRouteFromPath("/redacao")).toBe("redacao");
+    expect(getPathForRoute("redacao")).toBe("/redacao");
   });
   it("preserva acesso ao ambiente unificado para quem tem apenas Calendário, sem conceder Social Media", () => {
     const calendarOnly = (code: string) => code === "calendar.view";

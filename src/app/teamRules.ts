@@ -15,7 +15,7 @@ export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
   google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai",
   media: "media", social_report: "social_report", tasks: "tasks", clipping: "clipping", creators: "creators",
-  engagement: "engagement", users: "team", campaigns: "social_media",
+  engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
 };
 
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
