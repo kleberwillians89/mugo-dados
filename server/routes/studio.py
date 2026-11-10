@@ -1094,6 +1094,38 @@ async def engagement_settings(client_id: str, body: EngagementSettings, authoriz
                                set_tone="reply_tone" in body.model_fields_set)
 
 
+class DirectSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    welcome_enabled: Optional[bool] = None
+    welcome_followers_only: Optional[bool] = None
+    welcome_content: Optional[str] = Field(default=None, max_length=1000)
+    ai_enabled: Optional[bool] = None
+
+
+@router.get("/engagement/direct")
+async def engagement_direct(client_id: str, authorization: str | None = Header(default=None)):
+    from services.ig_direct import overview
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return await overview(cid)
+
+
+@router.put("/engagement/direct/settings")
+async def engagement_direct_settings(client_id: str, body: DirectSettings, authorization: str | None = Header(default=None)):
+    from services.ig_direct import save_settings, subscribe_page
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    changes = body.model_dump(exclude_unset=True)
+    settings = await save_settings(cid, user_id=uid, **changes)
+    subscribed: Optional[str] = None
+    if settings["welcome_enabled"] or settings["ai_enabled"]:
+        try:  # liga a página ao webhook do app (idempotente)
+            await subscribe_page(cid)
+            subscribed = "ok"
+        except StudioError as exc:
+            subscribed = exc.code
+    return {"settings": settings, "subscribed": subscribed}
+
+
 @router.post("/engagement/refresh")
 async def engagement_refresh(client_id: str, authorization: str | None = Header(default=None)):
     from services.ig_engagement import capabilities, credentials, refresh_comments

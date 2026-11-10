@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import RepliedPosts from "../components/studio/RepliedPosts";
+import DirectPanel from "../components/studio/DirectPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   deleteRule, getInbox, listRules, refreshInbox, runRules, saveEngagementSettings, saveReplyTone, saveRule, sendReply, suggestReply,
@@ -11,7 +12,7 @@ import Drawer from "../components/Drawer";
 import { TRIGGER_TEMPLATES, type TriggerTemplate } from "../components/studio/triggerTemplates";
 import "../styles/studio.css";
 
-type Tab = "caixa" | "respondidos" | "gatilhos";
+type Tab = "caixa" | "respondidos" | "gatilhos" | "direct";
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe",
@@ -164,10 +165,11 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     {notice ? <p className="studioOk">{notice}</p> : null}
 
     <div className="studioTabs" role="tablist" aria-label="Seção">
-      {((canManage ? [["caixa", "Caixa"], ["respondidos", "Respondidos por post"], ["gatilhos", "Gatilhos"]] : [["caixa", "Caixa"], ["respondidos", "Respondidos por post"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      {((canManage ? [["caixa", "Caixa"], ["respondidos", "Respondidos por post"], ["gatilhos", "Gatilhos"], ["direct", "Direct"]] : [["caixa", "Caixa"], ["respondidos", "Respondidos por post"]]) as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-active" : ""} onClick={() => setTab(k)}>{l}</button>)}
     </div>
 
     {tab === "respondidos" ? <RepliedPosts /> : null}
+    {tab === "direct" ? <DirectPanel key={clientId} /> : null}
 
     {tab === "caixa" ? <>
       <div className="studioTabs" role="tablist" aria-label="Filtro">
@@ -199,7 +201,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
           </div>}
         </li>;
       })}</ul>
-    </> : <>
+    </> : tab === "gatilhos" ? <>
       <div className="studioActions"><button type="button" className="ds-button" disabled={Boolean(busy) || !rules?.some((r) => r.active)} onClick={() => void runNow()}>{busy === "run" ? "Rodando…" : "Rodar gatilhos agora"}</button>
         <span className="libHint">Rodam sozinhos a cada 5 minutos.</span></div>
       <details className="engHowTo" open={rules !== null && !rules.length}>
@@ -236,7 +238,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
           <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void remove(r)}>Excluir</button>
         </div>
       </li>)}</ul>
-    </>}
+    </> : null}
 
     <Drawer open={Boolean(editing)} title={editing?.id ? "Editar gatilho" : "Novo gatilho"} description="Quem comentar uma das palavras recebe a resposta no post e/ou a mensagem no Direct. Use {nome} para chamar a pessoa pelo @." onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form className="studioForm" onSubmit={submitRule}>

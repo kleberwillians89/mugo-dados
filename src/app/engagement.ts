@@ -41,3 +41,15 @@ export const saveRule = (input: RuleInput, id?: string) =>
   http<{ rule: EngagementRule }>(base(`/rules${id ? `/${encodeURIComponent(id)}` : ""}`), { method: id ? "PUT" : "POST", body: JSON.stringify(input) });
 export const deleteRule = (id: string) => http<{ ok: true }>(base(`/rules/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const runRules = () => http<{ sent: number; simulated: number; failed: number; live: boolean }>(base("/rules/run"), { method: "POST", timeoutMs: 120_000 });
+
+/** Direct do Instagram: oi no primeiro Direct (pode ser só para quem segue) e IA respondendo o Direct. */
+export type DirectSettings = { welcome_enabled: boolean; welcome_followers_only: boolean; welcome_content: string | null; ai_enabled: boolean };
+export type DirectMessage = { direction: "in" | "out"; text: string | null; by_app: boolean; status: string; created_at: string };
+export type DirectThread = { sender_id: string; username: string | null; follows: boolean | null; last_at: string; status: string | null; messages: DirectMessage[] };
+export type DirectOverview = {
+  settings: DirectSettings; autoreply_enabled: boolean; threads: DirectThread[];
+  counts: { conversations: number; oi: number; ia: number; review: number; followers: number };
+};
+export const getDirect = () => http<DirectOverview>(base("/direct"));
+export const saveDirectSettings = (input: Partial<DirectSettings>) =>
+  http<{ settings: DirectSettings; subscribed: string | null }>(base("/direct/settings"), { method: "PUT", body: JSON.stringify(input), timeoutMs: 60_000 });

@@ -54,3 +54,18 @@ async def crm_hook(body: CrmHook, x_dados_ops_key: Optional[str] = Header(defaul
     if body.type == "message_status" and body.status:
         return await apply_status(body.status.provider_message_id, body.status.status, body.status.error)
     raise HTTPException(status_code=400, detail="Evento desconhecido.")
+
+
+class InstagramDmHook(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    client_id: str = Field(min_length=1, max_length=120)
+
+
+@router.post("/instagram-dm")
+async def instagram_dm_hook(body: InstagramDmHook, x_ig_dm_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Aviso da Edge Function instagram-webhook: chegou Direct novo nesta marca → responde agora."""
+    expected = (os.getenv("IG_DM_HOOK_KEY") or "").strip()
+    if not expected or not hmac.compare_digest(expected, (x_ig_dm_key or "").strip()):
+        raise HTTPException(status_code=401, detail="Chave inválida.")
+    from services.ig_direct import process_client
+    return await process_client(body.client_id)

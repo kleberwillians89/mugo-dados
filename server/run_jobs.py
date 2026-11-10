@@ -138,8 +138,14 @@ async def _run(args: argparse.Namespace) -> Any:
         from services.ig_publish import publish_due
         return await publish_due()
     if args.command == "ig-engagement-run":
+        from services.ig_direct import process_all
         from services.ig_engagement import run_all
-        return await run_all()
+        result = await run_all()
+        try:  # Direct que o aviso do webhook não respondeu na hora
+            result["direct"] = await process_all()
+        except Exception as exc:  # noqa: BLE001 — o Direct não derruba os gatilhos
+            result["direct"] = {"error": type(exc).__name__}
+        return result
     if args.command == "ig-ai-replies":
         from services.ig_engagement import run_all
         return await run_all(ai=True)
