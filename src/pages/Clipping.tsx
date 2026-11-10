@@ -29,10 +29,10 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt
 const toList = (text: string) => text.split(/[\n,]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
 
 /** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. O cliente só lê; a equipe Mugô configura e trata. */
-export default function Clipping({ canManage = false }: { canManage?: boolean }) {
+export default function Clipping({ canManage = false, initialTab = "saude" }: { canManage?: boolean; initialTab?: ClipTab }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [tab, setTab] = useState<ClipTab>("saude");
+  const [tab, setTab] = useState<ClipTab>(initialTab);
   const [view, setView] = useState<ClippingView | null>(null);
   const [kind, setKind] = useState<Kind>("");
   const [sentiment, setSentiment] = useState<"" | Sentiment>("");
