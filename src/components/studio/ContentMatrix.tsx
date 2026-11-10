@@ -4,7 +4,7 @@ import { getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat }
 import { getActiveClientId } from "../../app/activeClient";
 import {
   PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, archiveMatrix, createMatrix, getMatrix, listMatrices,
-  addOpportunity, deleteOpportunity, matrixToCalendar, refineOpportunity, setOpportunitiesStatus, updateOpportunity,
+  addOpportunity, deleteOpportunity, matrixToCalendar, refineOpportunity, updateOpportunity,
   type ContentMatrix as Matrix, type MatrixSummary, type Opportunity, type OpportunityCreate, type OpportunityPatch, type Platform,
 } from "../../app/contentOps";
 
@@ -57,7 +57,6 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [platform, setPlatform] = useState<Platform | "todas">("todas");
-  const [week, setWeek] = useState(1);
   const [showDiscarded, setShowDiscarded] = useState(false);
   const [editing, setEditing] = useState<Opportunity | null>(null);
 
@@ -110,23 +109,10 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
     const pillars = [...new Set([...(matrix.pillars || []).map((item) => item.name), ...visible.map((item) => item.pillar)])];
     return platforms.flatMap((rowPlatform) => pillars.map((pillar) => ({ platform: rowPlatform, pillar })));
   }, [matrix, platform, visible]);
-  const formats = useMemo(() => {
-    if (!matrix) return [];
-    const platforms = matrix.platforms.filter((item) => platform === "todas" || item === platform);
-    return [...new Set(platforms.flatMap((item) => PLATFORM_FORMATS[item]))];
-  }, [matrix, platform]);
-
-  async function selectVisible() {
-    if (!matrix) return;
-    const ids = visible.filter((o) => o.week === week && o.status === "sugerida").map((o) => o.id);
-    if (!ids.length) return;
-    const r = await run("bulk", () => setOpportunitiesStatus(matrix.id, ids, "selecionada"), "Não foi possível selecionar.");
-    if (r) setMatrix(r.matrix);
-  }
-
-  async function exportSelected() {
-    if (!matrix || !selected.length) return;
-    const r = await run("export", () => matrixToCalendar(matrix.id), "Não foi possível enviar ao Calendário.");
+  /** Envia ao Calendário como rascunho. Repetir não duplica (o servidor guarda a pauta de cada oportunidade). */
+  async function exportIds(ids: string[], key = "export") {
+    if (!matrix || !ids.length) return;
+    const r = await run(key, () => matrixToCalendar(matrix.id, ids), "Não foi possível enviar ao Calendário.");
     if (r) {
       setMatrix(r.matrix);
       setNotice(r.created
@@ -134,6 +120,17 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
         : "Esses conteúdos já estavam no Calendário.");
     }
   }
+  const pending = (items: Opportunity[]) => items.filter((o) => o.status !== "descartada" && o.status !== "exportada").map((o) => o.id);
+
+  async function copyText(op: Opportunity) {
+    const text = [op.title, op.hook, op.caption_draft].filter(Boolean).join("\n\n");
+    try { await navigator.clipboard.writeText(text); setNotice("Texto copiado."); } catch { /* segue na tela */ }
+  }
+
+  const newOpportunity = (rowPlatform: Platform, pillar: string, rowWeek: number): Opportunity | null => matrix ? {
+    id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: rowPlatform, pillar, week: rowWeek, weekday: 0,
+    format: PLATFORM_FORMATS[rowPlatform][0], title: "", hook: null, angle: null, caption_draft: null, rationale: null,
+    status: "sugerida", edited: true, position: matrix.opportunities.length, calendar_item_id: null, guard: [] } : null;
 
   const counts = (p: Platform) => (matrix?.opportunities || []).filter((o) => o.platform === p && o.status !== "descartada").length;
   const pillars = (profile?.pillars || []).map((pillar) => pillar.name).filter(Boolean);
@@ -163,50 +160,64 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
       {premises ? <p className="libHint matrixPremises">{premises}</p> : null}
       {matrix.summary ? <p className="matrixSummary">{matrix.summary}</p> : null}
       {(matrix.notes || []).map((n) => <p key={n} className="clipWarn">{n}</p>)}
-      <div className="matrixFilters">
-        <div className="studioTabs matrixWeekTabs" role="tablist" aria-label="Semana da matriz">
-          {[1, 2, 3, 4].map((item) => <button key={item} type="button" role="tab" aria-selected={week === item} className={week === item ? "is-active" : ""}
-            onClick={() => setWeek(item)}>Semana {item}<small>{weekRange(matrix.week_start, item)}</small></button>)}
-        </div>
-        <div className="studioTabs" role="tablist" aria-label="Plataforma">
+
+      <section className="tacticalMatrix" aria-label="Matriz Tática de Conteúdo">
+        <header className="tacticalHead">
+          <div>
+            <h3>Matriz Tática de Conteúdo</h3>
+            <p>Estratégia por canal, pilar, formato e ideia · {weekRange(matrix.week_start, 1).slice(0, 5)} a {weekRange(matrix.week_start, 4).slice(-5)}</p>
+          </div>
+          {canManage ? <div className="tacticalActions">
+            <button type="button" className="ds-button" disabled={Boolean(busy) || !selected.length} onClick={() => void exportIds(selected.map((o) => o.id))}>
+              Enviar selecionadas ({selected.length})</button>
+            <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !pending(visible).length} onClick={() => void exportIds(pending(visible))}
+              title="Todos os conteúdos visíveis que ainda não estão no Calendário viram rascunho">
+              {busy === "export" ? "Enviando…" : `Enviar ${platform === "todas" ? "tudo" : PLATFORM_LABEL[platform]} ao Calendário (${pending(visible).length})`}</button>
+          </div> : null}
+        </header>
+
+        <div className="studioTabs tacticalPlatforms" role="tablist" aria-label="Plataforma">
           <button type="button" role="tab" aria-selected={platform === "todas"} className={platform === "todas" ? "is-active" : ""} onClick={() => setPlatform("todas")}>Todas</button>
           {PLATFORM_ORDER.filter((p) => matrix.platforms.includes(p)).map((p) => <button key={p} type="button" role="tab" aria-selected={platform === p}
             className={platform === p ? "is-active" : ""} onClick={() => setPlatform(p)}>{PLATFORM_LABEL[p]}<span>{counts(p)}</span></button>)}
+          <label className="studioCheck tacticalDiscarded"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
         </div>
-        <label className="studioCheck"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
-        {canManage ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void selectVisible()}>Selecionar todas as visíveis</button> : null}
-        {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => {
-          const firstPlatform = matrix.platforms[0]; const firstPillar = matrix.pillars[0]?.name;
-          if (!firstPlatform || !firstPillar) return;
-          setEditing({ id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: firstPlatform, pillar: firstPillar, week, weekday: 0,
-            format: PLATFORM_FORMATS[firstPlatform][0], title: "", hook: null, angle: null, caption_draft: null, rationale: null,
-            status: "sugerida", edited: true, position: matrix.opportunities.length, calendar_item_id: null, guard: [] });
-        }}>+ Oportunidade</button> : null}
-      </div>
 
-      <div className="matrixGridWrap"><table className="matrixGrid matrixTacticalGrid">
-        <thead><tr><th scope="col">Canal / pilar</th>{formats.map((format) => <th key={format} scope="col">{STUDIO_FORMATS[format]}</th>)}</tr></thead>
-        <tbody>{rows.map((row) => <tr key={`${row.platform}:${row.pillar}`}>
-          <th scope="row"><span className={`studioChip is-platform is-${row.platform}`}>{PLATFORM_LABEL[row.platform]}</span><b>{row.pillar}</b></th>
-          {formats.map((format) => {
-            const allowed = PLATFORM_FORMATS[row.platform].includes(format);
-            const opportunities = visible.filter((item) => item.week === week && item.platform === row.platform && item.pillar === row.pillar && item.format === format);
-            return <td key={format} className={allowed ? "" : "is-unavailable"}>{opportunities.map((op) =>
-              <OpportunityCard key={op.id} op={op} busy={busy} canManage={canManage} onEdit={() => setEditing(op)} onStatus={(status) => void setStatus(op, status)}
-                onTitle={async (title) => { const result = await run(`e:${op.id}`, () => updateOpportunity(op.matrix_id, op.id, { title }), "Não foi possível salvar a pauta."); if (result) replace(result.opportunity); return Boolean(result); }} />)}
-              {allowed && canManage ? <button type="button" className="matrixCellAdd" aria-label={`Adicionar ${STUDIO_FORMATS[format]} em ${PLATFORM_LABEL[row.platform]} — ${row.pillar}`}
-                onClick={() => setEditing({ id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: row.platform, pillar: row.pillar, week, weekday: 0,
-                  format, title: "", hook: null, angle: null, caption_draft: null, rationale: null, status: "sugerida", edited: true,
-                  position: matrix.opportunities.length, calendar_item_id: null, guard: [] })}>+</button> : null}</td>;
+        <div className="matrixGridWrap"><table className="matrixGrid tacticalGrid">
+          <thead><tr><th scope="col">Canal</th><th scope="col">Pilar</th>
+            {[1, 2, 3, 4].map((w) => <th key={w} scope="col">Semana {w}<small>{weekRange(matrix.week_start, w)}</small></th>)}</tr></thead>
+          {matrix.platforms.filter((p) => platform === "todas" || p === platform).map((rowPlatform) => {
+            const pillarRows = rows.filter((row) => row.platform === rowPlatform);
+            const platformOps = visible.filter((o) => o.platform === rowPlatform);
+            return <tbody key={rowPlatform} className={`tacticalGroup is-${rowPlatform}`}>{pillarRows.map((row, index) => <tr key={`${row.platform}:${row.pillar}`}>
+              {index === 0 ? <th scope="rowgroup" rowSpan={pillarRows.length} className="tacticalChannel">
+                <span className={`studioChip is-platform is-${rowPlatform}`}>{PLATFORM_LABEL[rowPlatform]}</span>
+                <small>{PLATFORM_FORMATS[rowPlatform].map((f) => STUDIO_FORMATS[f]).join(" · ")}</small>
+                {canManage && pending(platformOps).length ? <button type="button" className="studioLink" disabled={Boolean(busy)}
+                  onClick={() => void exportIds(pending(platformOps), `export:${rowPlatform}`)}>
+                  {busy === `export:${rowPlatform}` ? "Enviando…" : `Enviar ${PLATFORM_LABEL[rowPlatform]} ao Calendário (${pending(platformOps).length})`}</button> : null}
+              </th> : null}
+              <th scope="row" className="tacticalPillar">{row.pillar}</th>
+              {[1, 2, 3, 4].map((w) => {
+                const cell = visible.filter((o) => o.platform === row.platform && o.pillar === row.pillar && o.week === w);
+                return <td key={w}>{cell.map((op) =>
+                  <OpportunityCard key={op.id} op={op} busy={busy} canManage={canManage} onEdit={() => setEditing(op)} onStatus={(status) => void setStatus(op, status)}
+                    onCopy={() => void copyText(op)} onExport={() => void exportIds([op.id], `export:${op.id}`)}
+                    onTitle={async (title) => { const result = await run(`e:${op.id}`, () => updateOpportunity(op.matrix_id, op.id, { title }), "Não foi possível salvar a pauta."); if (result) replace(result.opportunity); return Boolean(result); }} />)}
+                  {canManage ? <button type="button" className="matrixCellAdd" aria-label={`Adicionar conteúdo em ${PLATFORM_LABEL[row.platform]}, ${row.pillar}, semana ${w}`}
+                    onClick={() => setEditing(newOpportunity(row.platform, row.pillar, w))}>+</button> : null}</td>;
+              })}
+            </tr>)}</tbody>;
           })}
-        </tr>)}</tbody>
-      </table></div>
-      {!rows.length ? <div className="studioEmpty is-slim"><p>Nenhuma oportunidade nesta semana e plataforma.</p></div> : null}
+        </table></div>
+        {!rows.length ? <div className="studioEmpty is-slim"><p>Nenhuma oportunidade nesta plataforma.</p></div> : null}
+      </section>
 
       {canManage ? <div className="matrixBar" aria-live="polite">
         <span><b>{selected.length}</b> selecionada(s){exported ? ` · ${exported} já no Calendário` : ""}</span>
-        <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !selected.length} onClick={() => void exportSelected()}>
+        <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !selected.length} onClick={() => void exportIds(selected.map((o) => o.id))}>
           {busy === "export" ? "Enviando…" : "Enviar ao Calendário"}</button>
+        {onOpenCalendar && exported ? <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button> : null}
         <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => {
           if (window.confirm("Arquivar esta matriz? O que já foi para o Calendário continua lá.")) void run("archive", () => archiveMatrix(matrix.id), "Não foi possível arquivar.").then((r) => { if (r) { setMatrix(null); void load(); } });
         }}>Arquivar matriz</button>
@@ -242,30 +253,34 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   </section>;
 }
 
-function OpportunityCard({ op, busy, canManage, onEdit, onStatus, onTitle }: {
+function OpportunityCard({ op, busy, canManage, onEdit, onStatus, onTitle, onCopy, onExport }: {
   op: Opportunity; busy: string | null; canManage: boolean; onEdit: () => void; onStatus: (s: "sugerida" | "selecionada" | "descartada") => void;
-  onTitle: (title: string) => Promise<boolean>;
+  onTitle: (title: string) => Promise<boolean>; onCopy: () => void; onExport: () => void;
 }) {
   const locked = op.status === "exportada";
-  return <article className={`matrixCard is-${op.status}`} aria-label={op.title}>
+  return <article className={`matrixCard tacticalCell is-${op.status}`} aria-label={op.title}>
     <header>
-      <small>{WEEKDAY_LABEL[op.weekday]}</small>
-      <button type="button" className="matrixCardDetails" onClick={onEdit}>Detalhes</button>
+      <span className="studioChip">{STUDIO_FORMATS[op.format]}</span>
+      <small title={WEEKDAY_LABEL[op.weekday]}>{WEEKDAY_LABEL[op.weekday].slice(0, 3)}</small>
+      <span className="tacticalCellActions">
+        <button type="button" title="Copiar" aria-label={`Copiar ${op.title}`} onClick={onCopy}>⧉</button>
+        <button type="button" title="Detalhes" aria-label={`Detalhes de ${op.title}`} onClick={onEdit}>✎</button>
+        {canManage && !locked && op.status !== "descartada" ? <button type="button" title="Enviar ao Calendário" aria-label={`Enviar ${op.title} ao Calendário`}
+          disabled={Boolean(busy)} onClick={onExport}>➤</button> : null}
+      </span>
     </header>
     {canManage && !locked ? <textarea key={op.title} className="matrixCellEditor" aria-label={`Editar pauta ${op.title}`} rows={3} maxLength={200} defaultValue={op.title} disabled={Boolean(busy)}
       onBlur={(event) => { const field = event.currentTarget; const next = field.value.trim(); if (next && next !== op.title) void onTitle(next).then((saved) => { if (!saved) field.value = op.title; }); else if (!next) field.value = op.title; }} />
       : <button type="button" className="matrixCardTitle" onClick={onEdit}>{op.title}</button>}
-    {op.hook ? <p className="matrixHook">“{op.hook}”</p> : null}
     {op.guard?.length ? <p className="clipWarn">⚠ {op.guard[0].fix}</p> : null}
     <footer>
-      {locked ? <span className="studioChip is-on">No Calendário</span> : canManage ? <>
+      {locked ? <span className="studioChip is-on">✓ No Calendário</span> : canManage ? <>
         <label className="studioCheck"><input type="checkbox" checked={op.status === "selecionada"} disabled={Boolean(busy)}
           onChange={(e) => onStatus(e.target.checked ? "selecionada" : "sugerida")} />Selecionar</label>
         {op.status === "descartada"
           ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => onStatus("sugerida")}>Recuperar</button>
           : <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => onStatus("descartada")}>Descartar</button>}
       </> : null}
-      {op.edited && !locked ? <span className="studioChip">editada</span> : null}
     </footer>
   </article>;
 }

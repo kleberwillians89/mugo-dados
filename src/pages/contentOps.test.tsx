@@ -138,19 +138,43 @@ const matrix = (ops: ReturnType<typeof opp>[]) => ({ id: "m1", week_start: "2026
 const byText = (text: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
 
 describe("Social Media: Matriz de conteúdo", () => {
-  it("organiza a matriz por canal e pilar, com formatos e navegação pelas 4 semanas", async () => {
+  it("layout da iAgência: Canal × Pilar × Semana 1–4, separado por plataforma", async () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video", week: 3, pillar: "Bastidores" })]) });
     await show(<Campaigns />);
     expect(host.textContent).toContain("Matriz Tática de Conteúdo");
     expect(host.textContent).toContain("Mês do lançamento.");
-    expect([...host.querySelectorAll(".matrixGrid thead th")].map((cell) => cell.textContent)).toEqual(expect.arrayContaining(["Canal / pilar", "Carrossel", "Reels", "Stories", "Imagem", "Vídeo"]));
-    expect(tab("Semana 1").textContent).toContain("16/11 a 22/11");
-    expect(host.querySelectorAll(".matrixCard").length).toBe(1);
-    await act(async () => { tab("Semana 3").click(); }); await act(async () => {});
-    expect(host.querySelectorAll(".matrixCard").length).toBe(1);
+    const heads = [...host.querySelectorAll(".matrixGrid thead th")].map((cell) => cell.textContent);
+    expect(heads.slice(0, 2)).toEqual(["Canal", "Pilar"]);
+    expect(heads[2]).toContain("Semana 1"); expect(heads[2]).toContain("16/11 a 22/11"); expect(heads[5]).toContain("Semana 4");
+    expect([...host.querySelectorAll(".tacticalGroup")].map((g) => g.querySelector(".tacticalChannel .studioChip")?.textContent)).toEqual(["Instagram", "TikTok"]);
+    expect(host.querySelectorAll(".matrixCard").length).toBe(2); // as 4 semanas ficam na mesma tela
     await act(async () => { tab("TikTok").click(); }); await act(async () => {});
     expect([...host.querySelectorAll(".matrixCard")].map((c) => c.getAttribute("aria-label"))).toEqual(["Pauta b"]);
+  });
+
+  it("exporta para o Calendário: um conteúdo, uma plataforma ou tudo, sem reenviar o que já foi", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video" }), opp("c", { status: "exportada", calendar_item_id: "i1" }), opp("d", { status: "descartada" })]) });
+    api.matrixToCalendar.mockResolvedValue({ created: 1, already: 0, calendar_item_ids: ["i2"], matrix: matrix([opp("a", { status: "exportada", calendar_item_id: "i2" })]) });
+    await show(<Campaigns />);
+    const card = (id: string) => [...host.querySelectorAll(".matrixCard")].find((c) => c.getAttribute("aria-label") === `Pauta ${id}`)!;
+    await act(async () => { card("a").querySelector<HTMLButtonElement>('button[title="Enviar ao Calendário"]')!.click(); }); await act(async () => {});
+    expect(api.matrixToCalendar).toHaveBeenLastCalledWith("m1", ["a"]);
+    expect(host.textContent).toContain("1 conteúdo(s) no Calendário como rascunho");
+  });
+
+  it("botão Enviar tudo manda só o que falta (nem exportada nem descartada)", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video" }), opp("c", { status: "exportada", calendar_item_id: "i1" }), opp("d", { status: "descartada" })]) });
+    api.matrixToCalendar.mockResolvedValue({ created: 2, already: 0, calendar_item_ids: ["i2", "i3"], matrix: matrix([]) });
+    await show(<Campaigns />);
+    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.startsWith("Enviar tudo ao Calendário"))!;
+    expect(all.textContent).toContain("(2)");
+    await act(async () => { all.click(); }); await act(async () => {});
+    expect(api.matrixToCalendar).toHaveBeenLastCalledWith("m1", ["a", "b"]);
+    const perPlatform = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.startsWith("Enviar TikTok ao Calendário"));
+    expect(perPlatform === undefined || perPlatform.textContent?.includes("(")).toBe(true);
   });
 
   it("gera diretamente com as premissas do Perfil, sem configuração intermediária", async () => {
@@ -181,7 +205,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     await act(async () => { discard.click(); }); await act(async () => {});
     expect(card("b")).toBeUndefined(); // descartada some da grade
     await act(async () => { byText("Enviar ao Calendário").click(); }); await act(async () => {});
-    expect(api.matrixToCalendar).toHaveBeenCalledWith("m1");
+    expect(api.matrixToCalendar).toHaveBeenCalledWith("m1", ["a"]);
     expect(host.textContent).toContain("1 conteúdo(s) no Calendário como rascunho");
     await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
     expect(scrollTargets).toContain("social-calendario");
@@ -193,19 +217,20 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.addOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada", edited: true }) });
     api.deleteOpportunity.mockResolvedValue({ opportunity: opp("new-id", { title: "Pauta adicionada" }) });
     await show(<Campaigns />);
-    await act(async () => { byText("+ Oportunidade").click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('.matrixCellAdd[aria-label*="semana 1"]')!.click(); });
     const title = document.querySelector<HTMLInputElement>('input[required][maxlength="200"]')!;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Pauta adicionada"); title.dispatchEvent(new Event("input", { bubbles: true })); });
     await act(async () => { byText("Salvar").click(); }); await act(async () => {});
     expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", week: 1 }));
     expect(host.textContent).toContain("Pauta adicionada");
-    await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>(".matrixCardDetails")!.click(); });
+    await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>('button[title="Detalhes"]')!.click(); });
     vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     await act(async () => { byText("Excluir").click(); }); await act(async () => {});
     expect(api.deleteOpportunity).toHaveBeenCalledWith("m1", "new-id");
     expect(host.textContent).not.toContain("Pauta adicionada");
     const exported = [...host.querySelectorAll(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta x")!;
-    await act(async () => { exported.querySelector<HTMLButtonElement>(".matrixCardDetails")!.click(); });
+    await act(async () => { exported.querySelector<HTMLButtonElement>('button[title="Detalhes"]')!.click(); });
+    expect(exported.querySelector('button[title="Enviar ao Calendário"]')).toBeNull();
     expect(byText("Excluir")).toBeUndefined();
     expect(host.textContent).toContain("edite por lá");
   });

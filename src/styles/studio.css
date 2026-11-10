@@ -990,3 +990,37 @@
 .redacaoAIText p{margin:0 0 .6em}
 @media (max-width:1100px){.redacaoBody.has-ai{grid-template-columns:minmax(0,1fr)}.redacaoAI{position:static}}
 @media (max-width:820px){.redacao{grid-template-columns:minmax(0,1fr)}.redacaoList{position:static}.redacaoList ul{max-height:none}.redacaoEditor{padding:28px 20px}.redacaoPaper{padding:12px 6px}}
+
+/* Matriz Tática no layout da iAgência: Canal × Pilar × Semana 1–4, separada por plataforma */
+.tacticalMatrix{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:20px;padding:20px;display:grid;gap:14px}
+.tacticalHead{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.tacticalHead h3{margin:0;font-size:18px}
+.tacticalHead p{margin:2px 0 0;font-size:12px;opacity:.7}
+.tacticalActions{display:flex;flex-wrap:wrap;gap:8px}
+.tacticalPlatforms{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tacticalDiscarded{margin-left:auto}
+.tacticalGrid{min-width:1080px}
+.tacticalGrid thead th{text-transform:uppercase;font-size:11px;letter-spacing:.03em;background:#f7f6f3}
+.tacticalGrid thead th small{text-transform:none;letter-spacing:0}
+.tacticalGrid thead th:nth-child(1){width:170px}
+.tacticalGrid thead th:nth-child(2){width:130px}
+.tacticalGrid tbody.tacticalGroup{border-top:3px solid #ece9e3}
+.tacticalGrid tbody.tacticalGroup:first-of-type{border-top:0}
+.tacticalChannel{background:#faf8f5;vertical-align:top}
+.tacticalChannel{display:table-cell}
+.tacticalChannel>*{display:block;margin-bottom:8px}
+.tacticalChannel small{font-size:11px;opacity:.65;font-weight:400}
+.tacticalChannel .studioChip{display:inline-block;font-size:13px;padding:4px 10px}
+.tacticalPillar{font-size:12px;font-weight:700;color:#004f6e;background:#fff}
+.tacticalGrid td{min-width:190px;background:#fff}
+.tacticalGrid td:hover{background:#f6f9fb}
+.tacticalCell header{gap:6px}
+.tacticalCellActions{margin-left:auto;display:inline-flex;gap:2px;opacity:.35;transition:opacity .15s}
+.tacticalCell:hover .tacticalCellActions,.tacticalCell:focus-within .tacticalCellActions{opacity:1}
+.tacticalCellActions button{all:unset;cursor:pointer;width:22px;height:22px;display:inline-grid;place-items:center;border-radius:6px;font-size:12px;color:#21414f}
+.tacticalCellActions button:hover{background:#e8eef2}
+.tacticalCellActions button:focus-visible{outline:2px solid #004f6e}
+.tacticalCellActions button:disabled{opacity:.3;cursor:default}
+.studioChip.is-platform.is-pinterest{background:#fbe8ea;color:#9b1c2c}
+@media (max-width:640px){.tacticalMatrix{padding:12px;border-radius:14px}.tacticalDiscarded{margin-left:0}}
+.tacticalCell header{flex-wrap:nowrap;min-width:0}.tacticalCell header small{margin-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tacticalCell header .studioChip{white-space:nowrap}.tacticalCellActions{flex:none}
