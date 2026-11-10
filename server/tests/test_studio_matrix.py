@@ -195,6 +195,23 @@ class CreateContentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((row["script"], row["visual_idea"]), ("S", "V"))
 
 
+class RetitleExportedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_title_of_exported_changes_here_and_in_calendar(self):
+        current = {"id": "o1", "client_id": "ruah", "status": "exportada", "calendar_item_id": "i1", "title": "Velho"}
+        update = AsyncMock(return_value=[{**current, "title": "Novo"}])
+        with patch.object(mx, "_opportunity", AsyncMock(return_value=current)), patch.object(mx, "sb_update", update):
+            out = await mx.update_opportunity("ruah", "o1", {"title": "Novo"})
+        self.assertEqual(out["title"], "Novo")
+        tables = [c.args[0] for c in update.await_args_list]
+        self.assertEqual(tables, [mx.OPPORTUNITIES, mx.ITEMS])
+        self.assertEqual(update.await_args_list[1].kwargs["filters"], {"client_id": "eq.ruah", "id": "eq.i1"})
+
+    async def test_other_fields_of_exported_stay_locked(self):
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o1", "status": "exportada"})):
+            with self.assertRaises(StudioError):
+                await mx.update_opportunity("ruah", "o1", {"title": "Novo", "format": "reels"})
+
+
 class EditTests(unittest.IsolatedAsyncioTestCase):
     CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "reels"}
 
@@ -207,10 +224,10 @@ class EditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(filters["status"], "neq.exportada")
         self.assertEqual((patch_["format"], patch_["status"], patch_["edited"]), ("video", "selecionada", True))
 
-    async def test_exported_cannot_be_edited(self):
+    async def test_exported_cannot_be_edited_beyond_the_text(self):
         with patch.object(mx, "_opportunity", AsyncMock(return_value={**self.CURRENT, "status": "exportada"})):
             with self.assertRaises(StudioError) as ctx:
-                await mx.update_opportunity("ruah", "o1", {"title": "x"})
+                await mx.update_opportunity("ruah", "o1", {"hook": "x"})
         self.assertEqual(ctx.exception.code, "OPPORTUNITY_EXPORTED")
 
     async def test_wrong_format_for_platform_is_refused(self):

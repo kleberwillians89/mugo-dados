@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Drawer from "../Drawer";
 import { BRAND_PROFILE_SAVED, getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat } from "../../app/studio";
 import { getActiveClientId } from "../../app/activeClient";
@@ -300,14 +300,13 @@ function OpportunityCard({ op, weekStart, busy, canManage, onEdit, onStatus, onT
       {op.format === "video" ? <span className="studioChip">{STUDIO_FORMATS[op.format]}</span> : null}
       <span className="tacticalCellActions">
         <button type="button" title="Copiar" aria-label={`Copiar ${op.title}`} onClick={onCopy}>⧉</button>
-        <button type="button" title="Detalhes" aria-label={`Detalhes de ${op.title}`} onClick={onEdit}>✎</button>
+        <button type="button" title="Legenda, roteiro e detalhes" aria-label={`Detalhes de ${op.title}`} onClick={onEdit}>✎</button>
         {canManage && !locked && op.status !== "descartada" ? <button type="button" title="Enviar ao Calendário" aria-label={`Enviar ${op.title} ao Calendário`}
           disabled={Boolean(busy)} onClick={onExport}>➤</button> : null}
       </span>
     </header>
-    {canManage && !locked ? <textarea key={op.title} className="matrixCellEditor" aria-label={`Editar pauta ${op.title}`} rows={3} maxLength={200} defaultValue={op.title} disabled={Boolean(busy)}
-      onBlur={(event) => { const field = event.currentTarget; const next = field.value.trim(); if (next && next !== op.title) void onTitle(next).then((saved) => { if (!saved) field.value = op.title; }); else if (!next) field.value = op.title; }} />
-      : <button type="button" className="matrixCardTitle" onClick={onEdit}>{op.title}</button>}
+    {canManage ? <InlineTitle key={op.title} op={op} disabled={Boolean(busy)} onSave={onTitle} />
+      : <p className="matrixCardText">{op.title}</p>}
     {op.guard?.length ? <p className="clipWarn">⚠ {op.guard[0].fix}</p> : null}
     {hasContent(op) ? <button type="button" className="matrixContentReady" onClick={onEdit}>✓ Legenda, roteiro e ideia de imagem</button>
       : canManage && op.status !== "exportada" && op.status !== "descartada"
@@ -322,6 +321,25 @@ function OpportunityCard({ op, weekStart, busy, canManage, onEdit, onStatus, onT
       </> : null}
     </footer>
   </article>;
+}
+
+/** Texto da pauta editado no próprio card: clica, escreve e sai (ou Enter) para salvar; Esc desfaz. */
+function InlineTitle({ op, disabled, onSave }: { op: Opportunity; disabled: boolean; onSave: (title: string) => Promise<boolean> }) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const fit = () => { const el = ref.current; if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } };
+  useEffect(fit, []);
+  const save = () => {
+    const field = ref.current; if (!field) return;
+    const next = field.value.replace(/\s+/g, " ").trim();
+    if (!next) { field.value = op.title; fit(); return; }
+    if (next !== op.title) void onSave(next).then((saved) => { if (!saved && ref.current) { ref.current.value = op.title; fit(); } });
+  };
+  return <textarea ref={ref} className="matrixCellEditor" aria-label={`Editar texto da pauta ${op.title}`} rows={1} maxLength={200}
+    defaultValue={op.title} disabled={disabled} title="Clique para editar o texto" onInput={fit} onBlur={save}
+    onKeyDown={(e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); }
+      if (e.key === "Escape") { e.currentTarget.value = op.title; fit(); e.currentTarget.blur(); }
+    }} />;
 }
 
 function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart, isNew, onClose, onSave, onRefine, onCreate, onDelete }: {
