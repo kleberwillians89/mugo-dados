@@ -166,3 +166,29 @@ export function matrixToCalendar(matrixId: string, ids?: string[]) {
   return http<{ created: number; already: number; calendar_item_ids: string[]; matrix: ContentMatrix }>(
     mx(`/${encodeURIComponent(matrixId)}/calendar`), { method: "POST", body: JSON.stringify(ids?.length ? { ids } : {}), timeoutMs: 120_000 });
 }
+
+/* ------------------------------------------------------------------ Redação (editor de texto da marca) */
+
+export type DocKind = "livre" | "post" | "legenda" | "roteiro" | "artigo" | "email" | "release" | "campanha";
+export const DOC_KIND_LABEL: Record<DocKind, string> = { livre: "Texto livre", post: "Post", legenda: "Legenda", roteiro: "Roteiro de vídeo",
+  artigo: "Artigo / blog", email: "E-mail", release: "Release", campanha: "Texto de campanha" };
+export type DocSummary = { id: string; title: string; kind: DocKind; status: string; calendar_item_id: string | null; updated_at: string; created_at: string; excerpt?: string };
+export type StudioDocument = DocSummary & { content_html: string; content_text: string };
+export type DocAIAction = "escrever" | "continuar" | "reescrever" | "encurtar" | "expandir" | "corrigir" | "titulos";
+export type DocAIResult = { action: DocAIAction; text: string; titles: string[]; flags: string[]; guard: { type: string; text: string; fix: string }[] };
+
+const docs = (path = "") => base(`/documents${path}`);
+export function listDocuments() { return http<{ documents: DocSummary[] }>(docs()); }
+export function getDocument(id: string) { return http<{ document: StudioDocument }>(docs(`/${encodeURIComponent(id)}`)); }
+export function createDocument(input: { title?: string; kind?: DocKind; content_html?: string }) {
+  return http<{ document: StudioDocument }>(docs(), { method: "POST", body: JSON.stringify(input) });
+}
+export function saveDocument(id: string, patch: Partial<Pick<StudioDocument, "title" | "kind" | "content_html" | "status">>) {
+  return http<{ document: StudioDocument }>(docs(`/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(patch) });
+}
+export function documentAI(input: { action: DocAIAction; kind: DocKind; title?: string; instruction?: string; selection?: string; document_text?: string }) {
+  return http<DocAIResult>(docs("/ai"), { method: "POST", body: JSON.stringify(input), timeoutMs: 150_000 });
+}
+export function documentToCalendar(id: string, input: { scheduled_at?: string; channel: Platform; format: StudioFormat }) {
+  return http<{ calendar_item_id: string; created: boolean; updated: boolean }>(docs(`/${encodeURIComponent(id)}/calendar`), { method: "POST", body: JSON.stringify(input) });
+}

@@ -99,7 +99,6 @@ function sectionFromLocation(): SocialMediaTab {
   if (typeof window === "undefined") return "matriz";
   const pathname = window.location.pathname.toLowerCase();
   if (pathname.startsWith("/calendario") || pathname.startsWith("/aprovacao") || pathname.startsWith("/atendimento")) return "calendario";
-  if (pathname.startsWith("/redacao")) return "criacao";
   const requested = new URLSearchParams(window.location.search).get("aba") || window.location.hash.replace(/^#social-/, "");
   if (requested === "calendario" || requested === "calendar") return "calendario";
   if (requested === "criacao" || requested === "campanhas") return "criacao";
@@ -115,6 +114,7 @@ function allowedSection(requested: SocialMediaTab, canViewSocial: boolean, canVi
 /**
  * Social Media unifica Matriz, Planejador e Calendário em seções verticais sem misturar permissões:
  * social_media.* controla as duas primeiras e calendar.* controla a terceira.
+ * A Redação (editor de texto da iAgência) é uma página própria: pages/RedacaoPage.tsx.
  */
 export default function Campaigns({
   canManage = true,

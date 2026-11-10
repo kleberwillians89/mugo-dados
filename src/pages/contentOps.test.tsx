@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), regeneratePiece: vi.fn(), editPiece: vi.fn(), setCampaignStatus: vi.fn(), campaignToCalendar: vi.fn(),
   listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(),
   setOpportunitiesStatus: vi.fn(), matrixToCalendar: vi.fn(),
+  listDocuments: vi.fn(), getDocument: vi.fn(), createDocument: vi.fn(), saveDocument: vi.fn(), documentAI: vi.fn(), documentToCalendar: vi.fn(),
 }));
 const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn(), strategyChat: vi.fn() }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
@@ -17,13 +18,21 @@ vi.mock("./Calendar", () => ({ default: () => <label>Calendário incorporado<inp
 
 import Clipping from "./Clipping";
 import Campaigns from "./Campaigns";
+import RedacaoPage from "./RedacaoPage";
 import { pieceText } from "../app/contentOps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom não mede layout; o editor (ProseMirror) pede retângulos ao rolar até o cursor.
+const noRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
+const zeroRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }) as DOMRect;
+Range.prototype.getClientRects = Range.prototype.getClientRects || noRects;
+Range.prototype.getBoundingClientRect = Range.prototype.getBoundingClientRect || zeroRect;
+for (const proto of [Text.prototype, Node.prototype] as unknown as { getClientRects?: () => DOMRectList }[]) proto.getClientRects = proto.getClientRects || noRects;
+document.elementFromPoint = document.elementFromPoint || (() => null);
 let host: HTMLDivElement; let root: Root;
 let scrollTargets: string[];
 beforeEach(() => { scrollTargets = []; Element.prototype.scrollIntoView = function () { scrollTargets.push((this as HTMLElement).id); };
-  window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
+  window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listDocuments.mockResolvedValue({ documents: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
   studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }],
     editorial_platforms: ["instagram", "tiktok"], posts_per_week: 3, posts_per_week_by_platform: {} }, saved: true });
   studioApi.strategyChat.mockResolvedValue({ reply: "Use Produto como eixo principal.", suggested_actions: ["Criar carrossel"], based_on: { posts_analisados: 3 } });
@@ -250,7 +259,7 @@ describe("Social Media unificado", () => {
   });
 
   it("links legados posicionam a página na seção correspondente", async () => {
-    window.history.replaceState({}, "", "/redacao");
+    window.history.replaceState({}, "", "/social-media?aba=criacao");
     await show(<Campaigns />);
     expect(scrollTargets).toContain("social-criacao");
     await act(async () => root.unmount());
@@ -270,5 +279,75 @@ describe("Social Media unificado", () => {
       { role: "user", content: "Equilibre os pilares nas próximas quatro semanas" },
     ]);
     expect(host.textContent).toContain("Use Produto como eixo principal.");
+  });
+});
+
+const doc = { id: "d1", title: "Legenda Oud", kind: "legenda", status: "rascunho", calendar_item_id: null, updated_at: "2026-11-09T20:00:00Z",
+  created_at: "2026-11-09T20:00:00Z", content_html: "<p>Texto inicial</p>", content_text: "Texto inicial" };
+
+describe("Redação (página própria, editor de texto)", () => {
+  it("abre na Redação, lista os documentos e abre o editor estilo Word", async () => {
+    api.listDocuments.mockResolvedValue({ documents: [{ ...doc, excerpt: "Texto inicial" }] });
+    api.getDocument.mockResolvedValue({ document: doc });
+    await show(<RedacaoPage />);
+    expect(host.querySelector("h1")?.textContent || host.textContent).toContain("Redação");
+    const item = [...host.querySelectorAll<HTMLButtonElement>(".redacaoList li button")][0];
+    expect(item.textContent).toContain("Legenda Oud");
+    await act(async () => { item.click(); }); await act(async () => {});
+    expect((host.querySelector(".redacaoTitle") as HTMLInputElement).value).toBe("Legenda Oud");
+    expect(host.querySelector(".redacaoEditor")?.textContent).toContain("Texto inicial");
+    expect(host.querySelector('[role="toolbar"][aria-label="Formatação"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Negrito (Ctrl+B)"]')).not.toBeNull();
+  });
+
+  it("cria documento novo", async () => {
+    api.createDocument.mockResolvedValue({ document: { ...doc, id: "d2", title: "Sem título", content_html: "", content_text: "" } });
+    await show(<RedacaoPage />);
+    await act(async () => { byText("+ Novo documento").click(); }); await act(async () => {});
+    expect(api.createDocument).toHaveBeenCalledWith({ title: "Sem título", kind: "livre" });
+    expect(host.querySelector(".redacaoEditor")).not.toBeNull();
+  });
+
+  it("salva sozinho alguns instantes depois de editar o título", async () => {
+    vi.useFakeTimers();
+    try {
+      api.listDocuments.mockResolvedValue({ documents: [doc] });
+      api.getDocument.mockResolvedValue({ document: doc });
+      api.saveDocument.mockResolvedValue({ document: { ...doc, title: "Novo título" } });
+      await show(<RedacaoPage />);
+      await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
+      const input = host.querySelector<HTMLInputElement>(".redacaoTitle")!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      await act(async () => { setter.call(input, "Novo título"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      expect(api.saveDocument).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(1300); }); await act(async () => {});
+      expect(api.saveDocument).toHaveBeenCalledWith("d1", { title: "Novo título" });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("IA da marca escreve e o texto entra no documento", async () => {
+    api.listDocuments.mockResolvedValue({ documents: [doc] });
+    api.getDocument.mockResolvedValue({ document: doc });
+    api.documentAI.mockResolvedValue({ action: "escrever", text: "Primeiro parágrafo.\n\nSegundo parágrafo.", titles: [], flags: [], guard: [] });
+    await show(<RedacaoPage />);
+    await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
+    const ask = host.querySelector<HTMLTextAreaElement>(".redacaoAI textarea")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => { setter.call(ask, "legenda curta"); ask.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { byText("Escrever").click(); }); await act(async () => {});
+    expect(api.documentAI.mock.calls[0][0]).toMatchObject({ action: "escrever", kind: "legenda", instruction: "legenda curta" });
+    expect(host.querySelector(".redacaoAIText")?.textContent).toContain("Segundo parágrafo.");
+    await act(async () => { byText("Inserir no texto").click(); }); await act(async () => {});
+    expect(host.querySelector(".redacaoEditor")?.textContent).toContain("Primeiro parágrafo.");
+  });
+
+  it("sem permissão de alterar, não cria nem usa a IA", async () => {
+    api.listDocuments.mockResolvedValue({ documents: [doc] });
+    api.getDocument.mockResolvedValue({ document: doc });
+    await show(<RedacaoPage canManage={false} />);
+    expect(byText("+ Novo documento")).toBeUndefined();
+    await act(async () => { host.querySelector<HTMLButtonElement>(".redacaoList li button")!.click(); }); await act(async () => {});
+    expect(host.querySelector(".redacaoAI")).toBeNull();
+    expect(host.querySelector('[role="toolbar"]')).toBeNull();
   });
 });

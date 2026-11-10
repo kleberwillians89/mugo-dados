@@ -52,12 +52,13 @@ const PRODUCT_ITEMS: NavItem[] = [
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
   { route: "campaigns", label: "Social Media" },
+  { route: "redacao", label: "Redação" },
   { route: "tasks", label: "Tarefas" },
   { route: "clipping", label: "Clipping" },
   { route: "creators", label: "Criadores" },
   { route: "engagement", label: "Comentários" },
 ];
-const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns"]);
+const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao"]);
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);

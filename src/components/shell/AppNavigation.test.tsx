@@ -60,7 +60,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Empresas")).toBeUndefined();
   });
 
-  it("cliente vê Tarefas, Clipping e Criadores; Social Media (antes Redação) fica com a agência", async () => {
+  it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {
     await render();
     expect(link("Tarefas")?.getAttribute("href")).toBe("/tarefas");
     expect(link("Clipping")?.getAttribute("href")).toBe("/clipping");
@@ -70,15 +70,17 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Automações")).toBeUndefined();
     await render({ agencyAdmin: true });
     expect(link("Social Media")?.getAttribute("href")).toBe("/social-media");
-    expect(link("Redação")).toBeUndefined();
+    expect(link("Redação")?.getAttribute("href")).toBe("/redacao"); // página própria
     expect(link("Automações")?.getAttribute("href")).toBe("/automacoes");
   });
 
   it("cliente com o módulo Social Media liberado pela Mugô vê o item; sem ele, não", async () => {
     await render({ canView: (r) => r !== "users" });
     expect(link("Social Media")?.getAttribute("href")).toBe("/social-media");
-    await render({ canView: (r) => r !== "campaigns" && r !== "users" });
+    expect(link("Redação")?.getAttribute("href")).toBe("/redacao");
+    await render({ canView: (r) => r !== "campaigns" && r !== "redacao" && r !== "users" });
     expect(link("Social Media")).toBeUndefined();
+    expect(link("Redação")).toBeUndefined();
   });
 
   it("links reais: clique simples navega no app; Ctrl/Cmd+clique fica com o navegador", async () => {
