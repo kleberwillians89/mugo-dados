@@ -34,8 +34,10 @@ class MigrationBootstrapContractTests(unittest.TestCase):
             )
 
     def test_auth_oauth_migration_is_nineteenth(self):
-        names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        all_names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        names = [name for name in all_names if int(name.split("_", 2)[1]) <= 84]
         self.assertEqual(len(names), 84)
+        self.assertIn("20261207_000086_content_matrix_pinterest.sql", all_names)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
         self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
@@ -98,7 +100,9 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 85)))
+        # 085 está reservado pela PR de documentos do Social Media; esta branch não copia esse trabalho pendente.
+        expected = list(range(1, 85)) + ([85] if 85 in logical_numbers else []) + [86]
+        self.assertEqual(logical_numbers, expected)
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (

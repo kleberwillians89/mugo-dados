@@ -3,7 +3,7 @@ import { http, clientClientPath, publicHttp } from "./api";
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
 export type StudioFormat = keyof typeof STUDIO_FORMATS;
 /** Plataformas do Calendário. Só o Instagram publica sozinho; nas outras a equipe publica à mão. */
-export const STUDIO_CHANNELS = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube" } as const;
+export const STUDIO_CHANNELS = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube", pinterest: "Pinterest" } as const;
 export type StudioChannel = keyof typeof STUDIO_CHANNELS;
 export const AUTO_PUBLISH_CHANNELS: StudioChannel[] = ["instagram"];
 export const STUDIO_STATUS = { rascunho: "Rascunho", em_revisao: "Em revisão", aprovado: "Aprovado", rejeitado: "Ajuste pedido", publicado: "Publicado" } as const;
@@ -15,7 +15,8 @@ export type BrandProfile = {
   keywords_use: string[]; keywords_avoid: string[]; hashtags: string[]; restrictions: string;
   /** Cores, composição, estilo de foto e de arte (a IA tira das imagens dos posts mais curtidos). */
   visual_identity?: string;
-  posts_per_week: number; formats_enabled: StudioFormat[]; custom_dates: { date: string; label: string }[];
+  posts_per_week: number; editorial_platforms?: StudioChannel[]; posts_per_week_by_platform?: Partial<Record<StudioChannel, number>>;
+  formats_enabled: StudioFormat[]; custom_dates: { date: string; label: string }[];
   /** Idioma do que vai ao ar (legendas, roteiros, hashtags, respostas de comentário). Pautas e notas seguem em português. */
   content_language?: ContentLanguage;
 };

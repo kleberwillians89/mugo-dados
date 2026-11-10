@@ -20,7 +20,8 @@ from services import team_admin as tadmin
 from services.studio_calendar import StudioError
 
 PROFILE = {"pillars": [{"name": "Bastidores", "weight": 40, "description": ""}, {"name": "Produto", "weight": 60, "description": ""}],
-           "keywords_avoid": ["barato"], "content_language": "pt-BR"}
+           "keywords_avoid": ["barato"], "content_language": "pt-BR", "posts_per_week": 1,
+           "editorial_platforms": ["instagram", "tiktok"], "posts_per_week_by_platform": {}}
 
 
 def op(**kw):
@@ -36,18 +37,33 @@ class NormalizeTests(unittest.TestCase):
             mx.normalize_request({}, {"pillars": []})
         self.assertEqual(ctx.exception.code, "MATRIX_PILLARS_REQUIRED")
 
-    def test_starts_on_monday_and_keeps_only_known_platforms_and_pillars(self):
+    def test_uses_profile_and_ignores_legacy_generation_overrides(self):
         req = mx.normalize_request({"week_start": "2026-11-18", "platforms": ["tiktok", "orkut", "tiktok"], "pillars": ["produto", "x"],
                                     "per_week": 9}, PROFILE, today=date(2026, 11, 9))
         self.assertEqual(req["week_start"], date(2026, 11, 16))
-        self.assertEqual(req["platforms"], ["tiktok"])
-        self.assertEqual(req["pillars"], ["Produto"])
-        self.assertEqual(req["per_week"], mx.MAX_PER_WEEK)
+        self.assertEqual(req["platforms"], ["instagram", "tiktok"])
+        self.assertEqual(req["pillars"], ["Bastidores", "Produto"])
+        self.assertEqual(req["posts_per_week"], 1)
 
-    def test_default_is_next_monday_and_past_week_is_refused(self):
+    def test_default_is_next_monday(self):
         self.assertEqual(mx.normalize_request({}, PROFILE, today=date(2026, 11, 9))["week_start"], date(2026, 11, 16))
-        with self.assertRaises(StudioError):
-            mx.normalize_request({"week_start": "2026-10-01"}, PROFILE, today=date(2026, 11, 9))
+
+    def test_requires_editorial_platforms(self):
+        with self.assertRaises(StudioError) as ctx:
+            mx.normalize_request({}, {**PROFILE, "editorial_platforms": []})
+        self.assertEqual(ctx.exception.code, "MATRIX_PLATFORMS_REQUIRED")
+
+    def test_specific_platform_frequency_replaces_global_total(self):
+        req = mx.normalize_request({}, {**PROFILE, "posts_per_week": 2,
+                                         "posts_per_week_by_platform": {"instagram": 2, "tiktok": 1}})
+        self.assertEqual(req["posts_per_week"], 3)
+        self.assertEqual(req["platform_quotas"], {"instagram": 2, "tiktok": 1})
+
+    def test_partial_platform_frequency_preserves_global_total(self):
+        req = mx.normalize_request({}, {**PROFILE, "posts_per_week": 3,
+                                         "posts_per_week_by_platform": {"instagram": 1}})
+        self.assertEqual(req["posts_per_week"], 3)
+        self.assertEqual(req["platform_quotas"], {"instagram": 1})
 
 
 class CleanTests(unittest.TestCase):
@@ -65,31 +81,44 @@ class CleanTests(unittest.TestCase):
         self.assertEqual((out["platform"], out["format"], out["pillar"]), ("tiktok", "video", "Produto"))
         self.assertEqual(out["title"], "A, B")  # sem travessão
 
-    def test_cap_per_platform_and_week(self):
-        items = [mx.clean_opportunity(op(titulo=f"t{i}"), platforms=self.P, pillars=self.PL) for i in range(5)]
-        items.append(mx.clean_opportunity(op(semana=2), platforms=self.P, pillars=self.PL))
-        capped = mx.cap_per_slot(items, 2)
-        self.assertEqual([(i["week"], i["title"]) for i in capped], [(1, "t0"), (1, "t1"), (2, "Como nasce o perfume")])
+    def test_total_frequency_is_not_multiplied_by_platforms(self):
+        items = [mx.clean_opportunity(op(titulo=f"ig{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        items += [mx.clean_opportunity(op(plataforma="tiktok", formato="video", titulo=f"tt{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        capped = mx.cap_to_plan(items, {"posts_per_week": 3, "platform_quotas": {}})
+        self.assertEqual(len(capped), 3)
+
+    def test_specific_frequency_caps_each_platform(self):
+        items = [mx.clean_opportunity(op(titulo=f"ig{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        items += [mx.clean_opportunity(op(plataforma="tiktok", formato="video", titulo=f"tt{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        capped = mx.cap_to_plan(items, {"posts_per_week": 3, "platform_quotas": {"instagram": 2, "tiktok": 1}})
+        self.assertEqual([item["platform"] for item in capped], ["instagram", "instagram", "tiktok"])
+
+    def test_partial_frequency_leaves_remaining_slots_for_other_platforms(self):
+        items = [mx.clean_opportunity(op(titulo=f"ig{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        items += [mx.clean_opportunity(op(plataforma="tiktok", formato="video", titulo=f"tt{i}"), platforms=self.P, pillars=self.PL) for i in range(3)]
+        capped = mx.cap_to_plan(items, {"posts_per_week": 3, "platform_quotas": {"instagram": 1}})
+        self.assertEqual([item["platform"] for item in capped], ["instagram", "tiktok", "tiktok"])
 
 
 class GenerateTests(unittest.IsolatedAsyncioTestCase):
     async def test_generate_saves_matrix_and_validated_opportunities(self):
         llm = AsyncMock(return_value={"resumo": "Mês de lançamento.", "oportunidades": [
-            op(), op(plataforma="tiktok", formato="video", semana=3), op(plataforma="linkedin"), "lixo"]})
+            op(semana=1), op(plataforma="tiktok", formato="video", semana=2), op(semana=3),
+            op(plataforma="tiktok", formato="video", semana=4), op(plataforma="linkedin"), "lixo"]})
         insert = AsyncMock(return_value={"id": "m1"})
         many = AsyncMock()
         with patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
              patch.object(mx, "build_content_intelligence", AsyncMock(return_value={"marca": {}})), \
              patch.object(mx, "llm_json", llm), patch.object(mx, "sb_insert", insert), patch.object(mx, "sb_insert_many", many), \
              patch.object(mx, "get_matrix", AsyncMock(return_value={"id": "m1", "opportunities": []})), patch.object(mx, "throttle"):
-            out = await mx.generate("ruah", {"platforms": ["instagram", "tiktok"]}, user_id="u1", today=date(2026, 11, 9))
+            out = await mx.generate("ruah", {"platforms": ["linkedin"], "per_week": 5}, user_id="u1", today=date(2026, 11, 9))
         self.assertEqual(out["id"], "m1")
         saved = insert.await_args.args[1]
         self.assertEqual(saved["client_id"], "ruah")
         self.assertEqual(saved["week_start"], "2026-11-16")
         self.assertIn("descartada", saved["notes"][0])  # o LinkedIn não foi pedido
         rows = many.await_args.args[1]
-        self.assertEqual([(r["platform"], r["week"]) for r in rows], [("instagram", 1), ("tiktok", 3)])
+        self.assertEqual([(r["platform"], r["week"]) for r in rows], [("instagram", 1), ("tiktok", 2), ("instagram", 3), ("tiktok", 4)])
         self.assertTrue(all(r["client_id"] == "ruah" and r["matrix_id"] == "m1" and r["status"] == "sugerida" for r in rows))
         self.assertIn("Bastidores", llm.await_args.kwargs["prompt"])
 
@@ -128,6 +157,32 @@ class EditTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(StudioError) as ctx:
                 await mx.update_opportunity("ruah", "o1", {"platform": "tiktok", "format": "carrossel"})
         self.assertEqual(ctx.exception.code, "FORMAT_INVALID")
+
+    async def test_add_and_delete_use_tenant_and_preserve_exported(self):
+        matrix = {"id": "m1", "status": "ativa", "platforms": ["instagram"], "pillars": [{"name": "Produto"}],
+                  "opportunities": [{"position": 2}]}
+        insert = AsyncMock(return_value={"id": "o2"})
+        delete = AsyncMock(return_value=[{"id": "o2"}])
+        payload = {"platform": "instagram", "pillar": "Produto", "week": 2, "weekday": 3, "format": "imagem", "title": "Nova"}
+        with patch.object(mx, "get_matrix", AsyncMock(return_value=matrix)), patch.object(mx, "sb_insert", insert):
+            await mx.create_opportunity("ruah", "m1", payload)
+        self.assertEqual((insert.await_args.args[1]["client_id"], insert.await_args.args[1]["position"]), ("ruah", 3))
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o2", "matrix_id": "m1", "status": "sugerida"})), patch.object(mx, "sb_delete", delete):
+            await mx.delete_opportunity("ruah", "m1", "o2")
+        self.assertEqual(delete.await_args.kwargs["filters"]["client_id"], "eq.ruah")
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o3", "matrix_id": "m1", "status": "exportada", "calendar_item_id": "i1"})), patch.object(mx, "sb_delete", delete):
+            with self.assertRaises(StudioError) as ctx:
+                await mx.delete_opportunity("ruah", "m1", "o3")
+        self.assertEqual(ctx.exception.code, "OPPORTUNITY_EXPORTED")
+
+    async def test_delete_refuses_opportunity_from_another_matrix(self):
+        delete = AsyncMock()
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o2", "matrix_id": "other", "status": "sugerida"})), \
+             patch.object(mx, "sb_delete", delete):
+            with self.assertRaises(StudioError) as ctx:
+                await mx.delete_opportunity("ruah", "m1", "o2")
+        self.assertEqual(ctx.exception.code, "OPPORTUNITY_NOT_FOUND")
+        delete.assert_not_awaited()
 
 
 class ExportTests(unittest.IsolatedAsyncioTestCase):
@@ -208,6 +263,15 @@ class CalendarChannelTests(unittest.IsolatedAsyncioTestCase):
             result = await ig_publish.publish_item({"id": "i1", "client_id": "ruah", "channel": "tiktok", "format": "video"}, creds_cache={})
         self.assertEqual(result, "manual")
         self.assertIn("TikTok", setter.await_args.args[1]["publish_error"])
+        publish.assert_not_awaited()
+
+    async def test_pinterest_is_planned_but_never_published_automatically(self):
+        setter = AsyncMock(return_value=True)
+        publish = AsyncMock()
+        with patch.object(ig_publish, "_set", setter), patch.object(ig_publish, "publish", publish):
+            result = await ig_publish.publish_item({"id": "i1", "client_id": "ruah", "channel": "pinterest", "format": "imagem"}, creds_cache={})
+        self.assertEqual(result, "manual")
+        self.assertIn("Pinterest", setter.await_args.args[1]["publish_error"])
         publish.assert_not_awaited()
 
     async def test_schedule_on_other_platform_does_not_check_instagram_art(self):

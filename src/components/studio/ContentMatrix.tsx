@@ -1,22 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Drawer from "../Drawer";
-import { getBrandProfile, STUDIO_FORMATS, type StudioFormat } from "../../app/studio";
+import { getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat } from "../../app/studio";
 import { getActiveClientId } from "../../app/activeClient";
 import {
   PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, archiveMatrix, createMatrix, getMatrix, listMatrices,
-  matrixToCalendar, refineOpportunity, setOpportunitiesStatus, updateOpportunity,
-  type ContentMatrix as Matrix, type MatrixRequest, type MatrixSummary, type Opportunity, type OpportunityPatch, type Platform,
+  addOpportunity, deleteOpportunity, matrixToCalendar, refineOpportunity, setOpportunitiesStatus, updateOpportunity,
+  type ContentMatrix as Matrix, type MatrixSummary, type Opportunity, type OpportunityCreate, type OpportunityPatch, type Platform,
 } from "../../app/contentOps";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
+const NEW_OPPORTUNITY_ID = "__new_opportunity__";
 const pad = (n: number) => String(n).padStart(2, "0");
 const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-function nextMonday(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7));
-  return isoDay(d);
-}
 
 /** "16/11 a 22/11" da semana N a partir da segunda inicial. */
 function weekRange(weekStart: string, week: number): string {
@@ -26,10 +21,25 @@ function weekRange(weekStart: string, week: number): string {
   return `${pad(first.getDate())}/${pad(first.getMonth() + 1)} a ${pad(last.getDate())}/${pad(last.getMonth() + 1)}`;
 }
 
+function opportunityDate(weekStart: string, week: number, weekday: number): string {
+  const [year, month, day] = weekStart.slice(0, 10).split("-").map(Number);
+  return isoDay(new Date(year, month - 1, day + 7 * (week - 1) + weekday));
+}
+
+function slotFromDate(weekStart: string, value: string): { week: number; weekday: number } | null {
+  const start = new Date(`${weekStart.slice(0, 10)}T12:00:00`);
+  const chosen = new Date(`${value}T12:00:00`);
+  const days = Math.round((chosen.getTime() - start.getTime()) / 86_400_000);
+  if (days < 0 || days >= 28) return null;
+  return { week: Math.floor(days / 7) + 1, weekday: days % 7 };
+}
+
 type Props = {
   canManage: boolean;
   /** Abre o Calendário depois de exportar (opcional). */
   onOpenCalendar?: () => void;
+  /** Abre o cadastro canônico das premissas editoriais. */
+  onOpenBrandProfile?: () => void;
 };
 
 /**
@@ -37,16 +47,15 @@ type Props = {
  * a partir dos pilares do Perfil de Marca e do contexto da marca. A equipe edita, refina, seleciona e
  * descarta; as selecionadas vão para o Calendário como rascunho e seguem a aprovação de sempre.
  */
-export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
+export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandProfile }: Props) {
   const clientId = getActiveClientId();
   const [list, setList] = useState<MatrixSummary[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
-  const [pillars, setPillars] = useState<string[]>([]);
+  const [profile, setProfile] = useState<BrandProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [form, setForm] = useState<MatrixRequest | null>(null);
   const [platform, setPlatform] = useState<Platform | "todas">("todas");
   const [showDiscarded, setShowDiscarded] = useState(false);
   const [editing, setEditing] = useState<Opportunity | null>(null);
@@ -62,7 +71,7 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
       const [data, profile] = await Promise.all([listMatrices(), getBrandProfile().catch(() => null)]);
       if (getActiveClientId() !== clientId) return;
       setList(data.matrices || []);
-      setPillars((profile?.profile.pillars || []).map((p) => p.name).filter(Boolean));
+      setProfile(profile?.profile || null);
       if (data.matrices?.[0]) setMatrix((await getMatrix(data.matrices[0].id)).matrix);
     } catch (cause) { setError(message(cause, "Não foi possível carregar a matriz.")); }
     finally { setLoading(false); }
@@ -71,12 +80,10 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
 
   const replace = (op: Opportunity) => setMatrix((m) => (m ? { ...m, opportunities: m.opportunities.map((o) => (o.id === op.id ? op : o)) } : m));
 
-  async function generate(event: FormEvent) {
-    event.preventDefault();
-    if (!form) return;
-    const r = await run("generate", () => createMatrix(form), "Não foi possível gerar a matriz.");
+  async function generate() {
+    const r = await run("generate", () => createMatrix(), "Não foi possível gerar a matriz.");
     if (r) {
-      setForm(null); setMatrix(r.matrix); setPlatform("todas");
+      setMatrix(r.matrix); setPlatform("todas");
       setList((l) => [r.matrix, ...l.filter((x) => x.id !== r.matrix.id)]);
     }
   }
@@ -122,14 +129,19 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
 
   const months = matrix ? [1, 2, 3, 4] : [];
   const counts = (p: Platform) => (matrix?.opportunities || []).filter((o) => o.platform === p && o.status !== "descartada").length;
+  const pillars = (profile?.pillars || []).map((pillar) => pillar.name).filter(Boolean);
+  const missingProfile = [!pillars.length ? "pilares editoriais" : "", !(profile?.editorial_platforms || []).length ? "plataformas" : ""].filter(Boolean);
+  const premises = matrix
+    ? `Planejamento de 4 semanas · ${matrix.pillars.length} pilar(es) · ${matrix.opportunities.filter((op) => op.status !== "descartada").length} oportunidade(s) · plataformas do perfil`
+    : null;
 
   return <section className="matrixPanel" aria-label="Matriz de conteúdo">
     <div className="matrixToolbar">
       {list.length > 1 ? <label className="matrixPick">Matriz<select value={matrix?.id || ""} disabled={Boolean(busy)} onChange={(e) => void open(e.target.value)}>
         {list.map((m) => <option key={m.id} value={m.id}>Semanas de {weekRange(m.week_start, 1).slice(0, 5)} a {weekRange(m.week_start, 4).slice(-5)} · {m.platforms.map((p) => PLATFORM_LABEL[p]).join(", ")}</option>)}
       </select></label> : null}
-      {canManage ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => setForm({
-        week_start: nextMonday(), platforms: matrix?.platforms?.length ? matrix.platforms : ["instagram"], pillars: [], per_week: 3, focus: "" })}>Gerar matriz</button> : null}
+      {canManage ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || Boolean(missingProfile.length)} onClick={() => void generate()}>
+        {busy === "generate" ? "Gerando…" : "Gerar matriz"}</button> : null}
     </div>
     <p className="libHint">A IA monta 4 semanas de oportunidades por plataforma a partir dos pilares do Perfil de Marca e dos dados da marca. Selecione as que valem e envie ao Calendário: entram como rascunho e seguem a aprovação do cliente.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
@@ -137,9 +149,11 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
     {busy === "generate" ? <p className="studioOk">Montando a matriz com os pilares e os dados da marca… (até 3 minutos)</p> : null}
     {loading ? <p>Carregando…</p> : null}
     {!loading && !matrix ? <div className="studioEmpty"><p>Nenhuma matriz ainda.{canManage ? <> Clique em <b>Gerar matriz</b>.</> : null}</p>
-      {!pillars.length ? <p className="libHint">Esta marca ainda não tem pilares editoriais. Cadastre em <b>IA da marca → Perfil</b> antes de gerar.</p> : null}</div> : null}
+      {missingProfile.length ? <p className="libHint">Falta configurar {missingProfile.join(" e ")} no Perfil da marca.
+        {onOpenBrandProfile ? <> <button type="button" className="studioLink" onClick={onOpenBrandProfile}>Abrir Perfil da marca</button></> : null}</p> : null}</div> : null}
 
     {matrix ? <>
+      {premises ? <p className="libHint matrixPremises">{premises}</p> : null}
       {matrix.summary ? <p className="matrixSummary">{matrix.summary}</p> : null}
       {(matrix.notes || []).map((n) => <p key={n} className="clipWarn">{n}</p>)}
       <div className="matrixFilters">
@@ -150,6 +164,13 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
         </div>
         <label className="studioCheck"><input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />Mostrar descartadas{discarded ? ` (${discarded})` : ""}</label>
         {canManage ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void selectVisible()}>Selecionar todas as visíveis</button> : null}
+        {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => {
+          const firstPlatform = matrix.platforms[0]; const firstPillar = matrix.pillars[0]?.name;
+          if (!firstPlatform || !firstPillar) return;
+          setEditing({ id: NEW_OPPORTUNITY_ID, matrix_id: matrix.id, platform: firstPlatform, pillar: firstPillar, week: 1, weekday: 0,
+            format: PLATFORM_FORMATS[firstPlatform][0], title: "", hook: null, angle: null, caption_draft: null, rationale: null,
+            status: "sugerida", edited: true, position: matrix.opportunities.length, calendar_item_id: null, guard: [] });
+        }}>+ Oportunidade</button> : null}
       </div>
 
       <div className="matrixGridWrap"><table className="matrixGrid">
@@ -172,36 +193,31 @@ export default function ContentMatrix({ canManage, onOpenCalendar }: Props) {
       </div> : null}
     </> : null}
 
-    <Drawer open={Boolean(form)} title="Gerar matriz de conteúdo" description="4 semanas de oportunidades a partir dos pilares do Perfil de Marca." width="lg"
-      onClose={() => { if (busy !== "generate") setForm(null); }}>
-      {form ? <form className="studioForm" onSubmit={generate}>
-        <label>Semana inicial (segunda)<input type="date" required value={form.week_start} onChange={(e) => setForm({ ...form, week_start: e.target.value })} /></label>
-        <fieldset><legend>Plataformas</legend>{PLATFORM_ORDER.map((p) => <label key={p} className="studioCheck">
-          <input type="checkbox" checked={form.platforms.includes(p)} onChange={() => setForm({ ...form, platforms: form.platforms.includes(p) ? form.platforms.filter((x) => x !== p) : [...form.platforms, p] })} />{PLATFORM_LABEL[p]}</label>)}
-          <small className="libHint">Só o Instagram publica sozinho. Nas outras, o post é agendado e, na hora, fica marcado para publicar à mão.</small></fieldset>
-        <fieldset><legend>Pilares (vazio = todos)</legend>
-          {pillars.length ? pillars.map((p) => <label key={p} className="studioCheck"><input type="checkbox" checked={form.pillars.includes(p)}
-            onChange={() => setForm({ ...form, pillars: form.pillars.includes(p) ? form.pillars.filter((x) => x !== p) : [...form.pillars, p] })} />{p}</label>)
-            : <p className="studioError">Esta marca ainda não tem pilares editoriais. Cadastre em IA da marca → Perfil.</p>}</fieldset>
-        <label>Conteúdos por plataforma por semana<select value={form.per_week} onChange={(e) => setForm({ ...form, per_week: Number(e.target.value) })}>
-          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-        <label>Foco do mês (opcional)<textarea rows={3} maxLength={1000} value={form.focus} onChange={(e) => setForm({ ...form, focus: e.target.value })} placeholder="Ex.: lançamento do kit Oud na semana 2; Black Friday na semana 4" /></label>
-        <div className="studioActions"><button type="button" className="ds-button" disabled={busy === "generate"} onClick={() => setForm(null)}>Cancelar</button>
-          <button className="ds-button is-primary" disabled={Boolean(busy) || !form.platforms.length || !pillars.length}>{busy === "generate" ? "Gerando… (até 3 min)" : "Gerar matriz"}</button></div>
-      </form> : null}
-    </Drawer>
-
     <OpportunityDrawer key={editing ? `${editing.id}:${editing.updated_at || ""}:${editing.title}` : "none"} op={editing} busy={busy} canManage={canManage} pillars={[...new Set([...(matrix?.pillars || []).map((p) => p.name), ...pillars])]}
-      platforms={matrix?.platforms || PLATFORM_ORDER} onClose={() => setEditing(null)}
+      platforms={matrix?.platforms || PLATFORM_ORDER} weekStart={matrix?.week_start || ""} isNew={editing?.id === NEW_OPPORTUNITY_ID} onClose={() => setEditing(null)}
       onSave={async (patch) => {
         if (!editing) return;
-        const r = await run(`e:${editing.id}`, () => updateOpportunity(editing.matrix_id, editing.id, patch), "Não foi possível salvar.");
-        if (r) { replace(r.opportunity); setEditing(null); }
+        if (editing.id === NEW_OPPORTUNITY_ID) {
+          const draft = { ...editing, ...patch };
+          const input: OpportunityCreate = { platform: draft.platform, pillar: draft.pillar, week: draft.week, weekday: draft.weekday,
+            format: draft.format, title: draft.title, hook: draft.hook, angle: draft.angle,
+            caption_draft: draft.caption_draft, rationale: draft.rationale };
+          const r = await run(`e:${NEW_OPPORTUNITY_ID}`, () => addOpportunity(editing.matrix_id, input), "Não foi possível acrescentar a oportunidade.");
+          if (r) { setMatrix((current) => current ? { ...current, opportunities: [...current.opportunities, r.opportunity] } : current); setEditing(null); }
+        } else {
+          const r = await run(`e:${editing.id}`, () => updateOpportunity(editing.matrix_id, editing.id, patch), "Não foi possível salvar.");
+          if (r) { replace(r.opportunity); setEditing(null); }
+        }
       }}
       onRefine={async (instruction) => {
         if (!editing) return;
         const r = await run(`r:${editing.id}`, () => refineOpportunity(editing.matrix_id, editing.id, instruction), "Não foi possível refinar.");
         if (r) { replace(r.opportunity); setEditing(r.opportunity); }
+      }} onDelete={async () => {
+        if (!editing || editing.id === NEW_OPPORTUNITY_ID) { setEditing(null); return; }
+        if (!window.confirm("Excluir esta oportunidade da matriz?")) return;
+        const r = await run(`d:${editing.id}`, () => deleteOpportunity(editing.matrix_id, editing.id), "Não foi possível excluir a oportunidade.");
+        if (r) { setMatrix((current) => current ? { ...current, opportunities: current.opportunities.filter((op) => op.id !== editing.id) } : current); setEditing(null); }
       }} />
   </section>;
 }
@@ -232,9 +248,10 @@ function OpportunityCard({ op, busy, canManage, onEdit, onStatus }: {
   </article>;
 }
 
-function OpportunityDrawer({ op, busy, canManage, pillars, platforms, onClose, onSave, onRefine }: {
+function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart, isNew, onClose, onSave, onRefine, onDelete }: {
   op: Opportunity | null; busy: string | null; canManage: boolean; pillars: string[]; platforms: Platform[];
-  onClose: () => void; onSave: (patch: OpportunityPatch) => Promise<void>; onRefine: (instruction: string) => Promise<void>;
+  weekStart: string; isNew: boolean; onClose: () => void; onSave: (patch: OpportunityPatch) => Promise<void>;
+  onRefine: (instruction: string) => Promise<void>; onDelete: () => Promise<void>;
 }) {
   // O componente é recriado (key) a cada oportunidade aberta ou refinada: o rascunho nasce dela.
   const [draft, setDraft] = useState<Opportunity | null>(op);
@@ -248,7 +265,7 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, onClose, o
     if (draft[k] !== op[k]) (changed as Record<string, unknown>)[k] = draft[k] ?? "";
   });
   const dirty = Object.keys(changed).length > 0;
-  return <Drawer open title={locked && op.status === "exportada" ? "No Calendário" : "Oportunidade"} width="lg" onClose={() => { if (!busy) onClose(); }}
+  return <Drawer open title={isNew ? "Nova oportunidade" : locked && op.status === "exportada" ? "No Calendário" : "Oportunidade"} width="lg" onClose={() => { if (!busy) onClose(); }}
     description={op.status === "exportada" ? "Já virou post no Calendário: edite por lá (arte, aprovação e agendamento)." : "Edite à mão ou peça para a IA refinar."}>
     <form className="studioForm" onSubmit={(e) => { e.preventDefault(); if (dirty) void onSave(changed); }}>
       <div className="studioRow">
@@ -263,8 +280,8 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, onClose, o
           {[...new Set([draft.pillar, ...pillars])].map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
         <label>Semana<select value={draft.week} disabled={locked} onChange={(e) => set({ week: Number(e.target.value) })}>
           {[1, 2, 3, 4].map((w) => <option key={w} value={w}>Semana {w}</option>)}</select></label>
-        <label>Dia<select value={draft.weekday} disabled={locked} onChange={(e) => set({ weekday: Number(e.target.value) })}>
-          {WEEKDAY_LABEL.map((d, i) => <option key={d} value={i}>{d}</option>)}</select></label>
+        <label>Data sugerida<input type="date" value={opportunityDate(weekStart, draft.week, draft.weekday)} disabled={locked}
+          min={weekStart.slice(0, 10)} max={opportunityDate(weekStart, 4, 6)} onChange={(e) => { const slot = slotFromDate(weekStart, e.target.value); if (slot) set(slot); }} /></label>
       </div>
       <label>Pauta<input required maxLength={200} value={draft.title} disabled={locked} onChange={(e) => set({ title: e.target.value })} /></label>
       <label>Gancho<input maxLength={400} value={draft.hook || ""} disabled={locked} onChange={(e) => set({ hook: e.target.value })} /></label>
@@ -273,14 +290,16 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, onClose, o
       <label>Por que esta pauta<textarea rows={2} maxLength={1200} value={draft.rationale || ""} disabled={locked} onChange={(e) => set({ rationale: e.target.value })} /></label>
       {(op.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn">⚠ {g.fix}</p>)}
       {!locked ? <>
+        {!isNew ?
         <div className="pieceAsk">
           <input placeholder="Refinar com a IA (opcional): mais direto, citar o frete grátis, virar carrossel…" value={ask} maxLength={600} onChange={(e) => setAsk(e.target.value)} />
           <button type="button" className="ds-button" disabled={Boolean(busy) || dirty} title={dirty ? "Salve ou descarte as edições antes de refinar" : undefined}
             onClick={() => void onRefine(ask)}>{busy === `r:${op.id}` ? "Refinando…" : "Refinar com a IA"}</button>
-        </div>
+        </div> : null}
         <div className="studioActions">
-          <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => (dirty ? setDraft(op) : onClose())}>{dirty ? "Descartar edições" : "Fechar"}</button>
-          <button className="ds-button is-primary" disabled={Boolean(busy) || !dirty}>{busy === `e:${op.id}` ? "Salvando…" : "Salvar"}</button>
+          {!isNew ? <button type="button" className="studioLink is-danger" disabled={Boolean(busy)} onClick={() => void onDelete()}>Excluir</button> : null}
+          <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => (dirty && !isNew ? setDraft(op) : onClose())}>{dirty && !isNew ? "Descartar edições" : "Fechar"}</button>
+          <button className="ds-button is-primary" disabled={Boolean(busy) || !draft.title.trim() || (!dirty && !isNew)}>{busy === `e:${op.id}` ? "Salvando…" : "Salvar"}</button>
         </div>
       </> : null}
     </form>

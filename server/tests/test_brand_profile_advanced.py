@@ -36,7 +36,8 @@ class RankTests(unittest.TestCase):
 class ProtectTests(unittest.TestCase):
     def test_manual_avoid_and_restrictions_survive(self):
         current = {"keywords_avoid": ["barato"], "restrictions": "Nunca prometer frete grátis.",
-                   "custom_dates": [{"date": "03-15", "label": "Aniversário"}]}
+                   "custom_dates": [{"date": "03-15", "label": "Aniversário"}],
+                   "editorial_platforms": ["instagram", "linkedin"], "posts_per_week_by_platform": {"instagram": 2, "linkedin": 1}}
         suggested = {"tone_of_voice": "leve", "keywords_avoid": ["imperdível", "Barato"], "restrictions": "Evitar contagem regressiva.",
                      "pillars": [], "posts_per_week": 3, "formats_enabled": ["reels"]}
         out = bb.protect_manual(suggested, current)
@@ -44,6 +45,8 @@ class ProtectTests(unittest.TestCase):
         self.assertIn("Nunca prometer frete grátis.", out["restrictions"])
         self.assertIn("Evitar contagem regressiva.", out["restrictions"])
         self.assertEqual(out["custom_dates"], current["custom_dates"])
+        self.assertEqual(out["editorial_platforms"], current["editorial_platforms"])
+        self.assertEqual(out["posts_per_week_by_platform"], current["posts_per_week_by_platform"])
 
     def test_same_restriction_not_duplicated(self):
         out = bb.protect_manual({"restrictions": "nunca prometer frete grátis."}, {"restrictions": "Nunca prometer frete grátis."})

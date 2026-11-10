@@ -127,6 +127,7 @@ export default function Campaigns({
   const clientName = getActiveClientName() || "empresa";
   const [tab, setTab] = useState<SocialMediaTab>(() => allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar));
   const [visited, setVisited] = useState<Set<SocialMediaTab>>(() => new Set([allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar)]));
+  const [profileOpenRequest, setProfileOpenRequest] = useState(0);
 
   const openTab = useCallback((next: SocialMediaTab, updateUrl = true) => {
     const allowed = allowedTab(next, canViewSocial, canViewCalendar);
@@ -158,13 +159,14 @@ export default function Campaigns({
     </div>} />
     {canViewSocial && tab !== "calendario" ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial && visited.has("matriz") ? <section id="social-panel-matriz" role="tabpanel" aria-labelledby="social-tab-matriz" hidden={tab !== "matriz"}>
-      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")}
+        onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openTab("calendario"); } : undefined} />
     </section> : null}
     {canViewSocial && visited.has("criacao") ? <section id="social-panel-criacao" role="tabpanel" aria-labelledby="social-tab-criacao" hidden={tab !== "criacao"}>
       <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
     </section> : null}
     {canViewCalendar && visited.has("calendario") ? <section id="social-panel-calendario" role="tabpanel" aria-labelledby="social-tab-calendario" hidden={tab !== "calendario"}>
-      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} /></Suspense>
+      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} /></Suspense>
     </section> : null}
   </div></Shell>;
 }
