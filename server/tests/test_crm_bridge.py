@@ -106,19 +106,25 @@ class ClientAudienceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
-    async def test_every_agency_crm_route_is_agency_only(self):
+    async def test_conversations_stay_agency_only(self):
         guard = AsyncMock(return_value="roove-test")
         with patch.object(crm_routes, "require_client_role", guard), \
              patch.object(crm_routes, "list_contacts", AsyncMock(return_value=[])), \
-             patch.object(crm_routes, "list_tasks", AsyncMock(return_value={})), \
              patch.object(crm_routes, "list_conversations", AsyncMock(return_value={})), \
              patch.object(crm_routes, "list_messages", AsyncMock(return_value={})):
-            await crm_routes.crm_tasks("roove-test", authorization="Bearer x")
             await crm_routes.crm_conversations("roove-test", authorization="Bearer x")
             await crm_routes.crm_messages("roove-test", CONV, authorization="Bearer x")
-        self.assertEqual(guard.await_count, 3)
+        self.assertEqual(guard.await_count, 2)
         for call in guard.await_args_list:
             self.assertEqual(call.kwargs["allowed_roles"], ("agency_admin",))
+
+    async def test_tasks_come_from_mugoverso_and_client_sees_only_visible(self):
+        listing = AsyncMock(return_value={"available": True, "tasks": []})
+        with patch.object(crm_routes, "require_client_read", AsyncMock(return_value="roove-test")), \
+             patch.object(crm_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(crm_routes.studio_tasks, "list_tasks", listing):
+            await crm_routes.crm_tasks("roove-test", authorization="Bearer x")
+        self.assertTrue(listing.await_args.kwargs["client_view"])
 
     async def test_conversation_phones_come_from_the_server_side_contacts(self):
         convs = AsyncMock(return_value={"available": True, "conversations": []})
@@ -129,17 +135,14 @@ class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
         contacts.assert_awaited_once_with("roove-test")
         self.assertEqual(convs.await_args.kwargs["phones"], ["5511999990000", "34600000000"])
 
-    async def test_client_tasks_accept_any_member_and_never_use_the_agency_reader(self):
+    async def test_client_tasks_accept_any_member(self):
         read = AsyncMock(return_value="roove-test")
         role = AsyncMock()
-        agency = AsyncMock()
         with patch.object(crm_routes, "require_client_read", read), patch.object(crm_routes, "require_client_role", role), \
-             patch.object(crm_routes, "list_tasks", agency), \
-             patch.object(crm_routes, "list_client_tasks", AsyncMock(return_value={"available": True, "tasks": []})):
+             patch.object(crm_routes.studio_tasks, "list_client_tasks", AsyncMock(return_value={"available": True, "tasks": []})):
             await crm_routes.crm_client_tasks("roove-test", authorization="Bearer viewer")
         read.assert_awaited_once()
         role.assert_not_awaited()
-        agency.assert_not_awaited()
 
     async def test_client_viewer_is_denied_before_any_crm_call(self):
         denied = HTTPException(status_code=403, detail="Papel sem permissão para esta ação.")

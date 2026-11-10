@@ -923,7 +923,9 @@ function PrivateApp() {
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
       ) : route === "tasks" ? (
-        teamHere ? <Tasks key={`tasks:${activeClientId}`} /> : <ClientTasksPage key={`tasks:${activeClientId}`} />
+        teamHere || canEdit("tasks")
+          ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere} />
+          : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (

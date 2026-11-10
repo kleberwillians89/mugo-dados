@@ -102,7 +102,7 @@ async def _clipping(client_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def _tasks(client_id: str, *, agency: bool) -> Optional[Dict[str, Any]]:
-    from .crm_bridge import list_client_tasks, list_tasks
+    from .studio_tasks import list_client_tasks, list_tasks
     data = await (list_tasks(client_id) if agency else list_client_tasks(client_id))
     if not data.get("available"):
         return {"available": False, "reason": data.get("reason")}
