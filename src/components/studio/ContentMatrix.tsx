@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Drawer from "../Drawer";
-import { getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat } from "../../app/studio";
+import { BRAND_PROFILE_SAVED, getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat } from "../../app/studio";
 import { getActiveClientId } from "../../app/activeClient";
 import {
   PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, archiveMatrix, createMatrix, getMatrix, listMatrices,
@@ -77,6 +77,17 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
     finally { setLoading(false); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
+  // Perfil salvo na aba Calendário (ou em outra tela): usa o novo na hora, sem recarregar a página.
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const next = (event as CustomEvent<BrandProfile>).detail;
+      if (next) setProfile(next); else void getBrandProfile().then((r) => setProfile(r?.profile || null)).catch(() => undefined);
+    };
+    const onFocus = () => { void getBrandProfile().then((r) => { if (getActiveClientId() === clientId) setProfile(r?.profile || null); }).catch(() => undefined); };
+    window.addEventListener(BRAND_PROFILE_SAVED, onSaved);
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener(BRAND_PROFILE_SAVED, onSaved); window.removeEventListener("focus", onFocus); };
+  }, [clientId]);
 
   const replace = (op: Opportunity) => setMatrix((m) => (m ? { ...m, opportunities: m.opportunities.map((o) => (o.id === op.id ? op : o)) } : m));
 

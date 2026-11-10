@@ -376,3 +376,18 @@ describe("Redação (página própria, editor de texto)", () => {
     expect(host.querySelector('[role="toolbar"]')).toBeNull();
   });
 });
+
+describe("Matriz relê o Perfil da marca salvo em outra aba", () => {
+  it("destrava Gerar matriz assim que as plataformas são salvas, sem recarregar a página", async () => {
+    studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }], editorial_platforms: [] }, saved: true });
+    await show(<Campaigns />);
+    const generate = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === "Gerar matriz")!;
+    expect(host.textContent).toContain("Falta configurar plataformas");
+    expect(generate().disabled).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("mugo:brand-profile-saved", { detail: { pillars: [{ name: "Produto", weight: 60, description: "" }], editorial_platforms: ["instagram", "tiktok"] } }));
+    });
+    expect(host.textContent).not.toContain("Falta configurar plataformas");
+    expect(generate().disabled).toBe(false);
+  });
+});

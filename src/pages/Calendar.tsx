@@ -3,7 +3,7 @@ import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, generateCalendar, getBrandProfile,
-  getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
+  BRAND_PROFILE_SAVED, getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus, type WhatsappChannel,
@@ -265,6 +265,8 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     if (result) {
       if (suggestion?.pendingId) await resolveProfileSuggestion(suggestion.pendingId, "aplicada").catch(() => undefined);
       setProfile(result.profile); setProfileOpen(false); setSuggestion(null);
+      // A Matriz (outra aba da mesma página) fica montada: avisa que o perfil mudou para ela reler.
+      window.dispatchEvent(new CustomEvent(BRAND_PROFILE_SAVED, { detail: result.profile }));
     }
   }
 
