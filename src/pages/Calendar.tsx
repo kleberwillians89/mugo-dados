@@ -33,7 +33,7 @@ function firstOfNextMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-export default function Calendar({ canManage, isAgency = false, embedded = false, openProfileRequest = 0 }: { canManage: boolean; isAgency?: boolean; embedded?: boolean; openProfileRequest?: number }) {
+export default function Calendar({ canManage, isAgency = false, embedded = false, openProfileRequest = 0, showBrandContext = true }: { canManage: boolean; isAgency?: boolean; embedded?: boolean; openProfileRequest?: number; showBrandContext?: boolean }) {
   // Equipe Mugô: tudo. Cliente: vê o que está com ele/aprovado/publicado, edita texto e data, aprova ou pede ajuste.
   const team = canManage && isAgency;
   const clientId = getActiveClientId();
@@ -279,7 +279,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       <button type="button" className="ds-button" onClick={() => openSend()} disabled={Boolean(busy) || !monthItems.some((i) => i.status !== "rejeitado")}>Enviar ao cliente</button>
       <button type="button" className="ds-button is-primary" onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "generate" ? "Gerando… (até 1 min)" : `Gerar ${MONTH_NAMES[Number(month.slice(5)) - 1]} com IA`}</button>
     </div> : undefined} />
-    {team ? <BrandContextPanel clientId={clientId} /> : null}
+    {team && showBrandContext ? <BrandContextPanel clientId={clientId} /> : null}
     <div className="calToolbar">
       <div className="calNav">
         <button type="button" className="ds-button" aria-label="Anterior" onClick={() => step(-1)}>‹</button>

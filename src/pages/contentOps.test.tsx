@@ -10,7 +10,7 @@ const api = vi.hoisted(() => ({
   setOpportunitiesStatus: vi.fn(), matrixToCalendar: vi.fn(),
   listDocuments: vi.fn(), getDocument: vi.fn(), createDocument: vi.fn(), saveDocument: vi.fn(), documentAI: vi.fn(), documentToCalendar: vi.fn(),
 }));
-const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn() }));
+const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn(), strategyChat: vi.fn() }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studioApi }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
@@ -30,9 +30,13 @@ Range.prototype.getBoundingClientRect = Range.prototype.getBoundingClientRect ||
 for (const proto of [Text.prototype, Node.prototype] as unknown as { getClientRects?: () => DOMRectList }[]) proto.getClientRects = proto.getClientRects || noRects;
 document.elementFromPoint = document.elementFromPoint || (() => null);
 let host: HTMLDivElement; let root: Root;
-beforeEach(() => { window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listDocuments.mockResolvedValue({ documents: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
+let scrollTargets: string[];
+beforeEach(() => { scrollTargets = []; Element.prototype.scrollIntoView = function () { scrollTargets.push((this as HTMLElement).id); };
+  window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listDocuments.mockResolvedValue({ documents: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
   studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }],
-    editorial_platforms: ["instagram", "tiktok"], posts_per_week: 3, posts_per_week_by_platform: {} }, saved: true }); host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
+    editorial_platforms: ["instagram", "tiktok"], posts_per_week: 3, posts_per_week_by_platform: {} }, saved: true });
+  studioApi.strategyChat.mockResolvedValue({ reply: "Use Produto como eixo principal.", suggested_actions: ["Criar carrossel"], based_on: { posts_analisados: 3 } });
+  host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); window.history.replaceState({}, "", "/"); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
@@ -98,7 +102,6 @@ describe("Social Media: Campanhas (antes Redação)", () => {
           limits: [{ field: "titulos", index: 0, length: 19, limit: 30, over: false }, { field: "titulos", index: 1, length: 39, limit: 30, over: true }, { field: "descricoes", index: 0, length: 12, limit: 90, over: false }], flags: [] } } } } });
     await show(<Campaigns />);
     expect(host.textContent).toContain("Social Media");
-    await act(async () => { tab("Criação").click(); }); await act(async () => {});
     const button = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Black Friday"))!;
     await act(async () => { button.click(); }); await act(async () => {});
     expect(host.textContent).toContain("Presente certo");
@@ -118,11 +121,11 @@ describe("Social Media: Campanhas (antes Redação)", () => {
     api.getCampaign.mockResolvedValue({ campaign });
     api.campaignToCalendar.mockResolvedValue({ created: 1, already: false, calendar_item_ids: ["item-1"] });
     await show(<Campaigns />);
-    await act(async () => { tab("Criação").click(); }); await act(async () => {});
     await act(async () => { [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Black Friday"))!.click(); }); await act(async () => {});
     await act(async () => { byText("Mandar pro Calendário").click(); }); await act(async () => {});
     await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
-    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
+    expect(scrollTargets).toContain("social-calendario");
+    expect(window.location.hash).toBe("#social-calendario");
     expect(api.campaignToCalendar).toHaveBeenCalledWith("c1");
   });
 });
@@ -135,15 +138,17 @@ const matrix = (ops: ReturnType<typeof opp>[]) => ({ id: "m1", week_start: "2026
 const byText = (text: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
 
 describe("Social Media: Matriz de conteúdo", () => {
-  it("abre na Matriz, organizada por pilar e 4 semanas, com filtro por plataforma", async () => {
+  it("organiza a matriz por canal e pilar, com formatos e navegação pelas 4 semanas", async () => {
     api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a"), opp("b", { platform: "tiktok", format: "video", week: 3, pillar: "Bastidores" })]) });
     await show(<Campaigns />);
-    expect(tab("Matriz de Conteúdo").getAttribute("aria-selected")).toBe("true");
+    expect(host.textContent).toContain("Matriz Tática de Conteúdo");
     expect(host.textContent).toContain("Mês do lançamento.");
-    expect(host.querySelectorAll(".matrixGrid thead th").length).toBe(5); // pilar + 4 semanas
-    expect(host.textContent).toContain("16/11 a 22/11");
-    expect(host.querySelectorAll(".matrixCard").length).toBe(2);
+    expect([...host.querySelectorAll(".matrixGrid thead th")].map((cell) => cell.textContent)).toEqual(expect.arrayContaining(["Canal / pilar", "Carrossel", "Reels", "Stories", "Imagem", "Vídeo"]));
+    expect(tab("Semana 1").textContent).toContain("16/11 a 22/11");
+    expect(host.querySelectorAll(".matrixCard").length).toBe(1);
+    await act(async () => { tab("Semana 3").click(); }); await act(async () => {});
+    expect(host.querySelectorAll(".matrixCard").length).toBe(1);
     await act(async () => { tab("TikTok").click(); }); await act(async () => {});
     expect([...host.querySelectorAll(".matrixCard")].map((c) => c.getAttribute("aria-label"))).toEqual(["Pauta b"]);
   });
@@ -179,7 +184,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(api.matrixToCalendar).toHaveBeenCalledWith("m1");
     expect(host.textContent).toContain("1 conteúdo(s) no Calendário como rascunho");
     await act(async () => { byText("Abrir o Calendário").click(); }); await act(async () => {});
-    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
+    expect(scrollTargets).toContain("social-calendario");
   });
 
   it("acrescenta, edita e exclui oportunidade sem tocar nas exportadas", async () => {
@@ -194,13 +199,13 @@ describe("Social Media: Matriz de conteúdo", () => {
     await act(async () => { byText("Salvar").click(); }); await act(async () => {});
     expect(api.addOpportunity).toHaveBeenCalledWith("m1", expect.objectContaining({ title: "Pauta adicionada", platform: "instagram", week: 1 }));
     expect(host.textContent).toContain("Pauta adicionada");
-    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>(".matrixCardTitle")].find((button) => button.textContent === "Pauta adicionada")!.click(); });
+    await act(async () => { [...host.querySelectorAll<HTMLElement>(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta adicionada")!.querySelector<HTMLButtonElement>(".matrixCardDetails")!.click(); });
     vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     await act(async () => { byText("Excluir").click(); }); await act(async () => {});
     expect(api.deleteOpportunity).toHaveBeenCalledWith("m1", "new-id");
     expect(host.textContent).not.toContain("Pauta adicionada");
     const exported = [...host.querySelectorAll(".matrixCard")].find((card) => card.getAttribute("aria-label") === "Pauta x")!;
-    await act(async () => { exported.querySelector<HTMLButtonElement>(".matrixCardTitle")!.click(); });
+    await act(async () => { exported.querySelector<HTMLButtonElement>(".matrixCardDetails")!.click(); });
     expect(byText("Excluir")).toBeUndefined();
     expect(host.textContent).toContain("edite por lá");
   });
@@ -220,38 +225,60 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(host.textContent).toContain("Falta configurar pilares editoriais e plataformas");
     expect(byText("Gerar matriz").disabled).toBe(true);
   });
+
+  it("salva a edição direta de uma célula sem alterar a geração", async () => {
+    api.listMatrices.mockResolvedValue({ matrices: [matrix([])] });
+    api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
+    api.updateOpportunity.mockResolvedValue({ opportunity: opp("a", { title: "Pauta ajustada", edited: true }) });
+    await show(<Campaigns />);
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Editar pauta Pauta a"]')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Pauta ajustada"); editor.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { editor.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); }); await act(async () => {});
+    expect(api.updateOpportunity).toHaveBeenCalledWith("m1", "a", { title: "Pauta ajustada" });
+  });
 });
 
 describe("Social Media unificado", () => {
-  it("mantém Matriz, Criação e Calendário na mesma página sem perder o estado montado", async () => {
+  it("mantém Matriz, Planejador e Calendário visíveis na mesma página", async () => {
     await show(<Campaigns />);
-    expect(tab("Matriz de Conteúdo").getAttribute("aria-selected")).toBe("true");
-    await act(async () => { tab("Calendário").click(); }); await act(async () => {});
+    expect(host.querySelector("#social-matriz")).not.toBeNull();
+    expect(host.querySelector("#social-criacao")).not.toBeNull();
+    expect(host.querySelector("#social-calendario")).not.toBeNull();
     const draft = host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')!;
     draft.value = "edição preservada";
-    await act(async () => { tab("Criação").click(); }); await act(async () => {});
-    await act(async () => { tab("Calendário").click(); }); await act(async () => {});
+    await act(async () => { byText("Equilibre os pilares nas próximas quatro semanas").click(); }); await act(async () => {});
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Rascunho local do calendário"]')?.value).toBe("edição preservada");
-    expect(window.location.pathname).toBe("/social-media");
-    expect(new URLSearchParams(window.location.search).get("aba")).toBe("calendario");
   });
 
-  it("usuário com somente Calendário não recebe acesso às abas de Matriz ou Criação", async () => {
+  it("usuário com somente Calendário não recebe acesso às seções de Matriz ou Planejador", async () => {
     await show(<Campaigns canViewSocial={false} canViewCalendar canManageCalendar={false} initialTab="calendario" />);
-    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
-    expect(tab("Matriz de Conteúdo")).toBeUndefined();
-    expect(tab("Criação")).toBeUndefined();
+    expect(host.querySelector("#social-matriz")).toBeNull();
+    expect(host.querySelector("#social-criacao")).toBeNull();
+    expect(host.querySelector("#social-calendario")).not.toBeNull();
     expect(host.textContent).toContain("Calendário incorporado");
   });
 
-  it("links legados abrem a aba correspondente; a Redação não é mais aba de Social Media", async () => {
+  it("links legados posicionam a página na seção correspondente", async () => {
+    window.history.replaceState({}, "", "/social-media?aba=criacao");
     await show(<Campaigns />);
-    expect(tab("Redação")).toBeUndefined();
+    expect(scrollTargets).toContain("social-criacao");
     await act(async () => root.unmount());
     root = createRoot(host);
+    scrollTargets = [];
     window.history.replaceState({}, "", "/calendario");
     await show(<Campaigns />);
-    expect(tab("Calendário").getAttribute("aria-selected")).toBe("true");
+    expect(scrollTargets).toContain("social-calendario");
+  });
+
+  it("assistente usa o chat estratégico existente sem chamada automática", async () => {
+    await show(<Campaigns />);
+    expect(studioApi.strategyChat).not.toHaveBeenCalled();
+    await act(async () => { byText("Equilibre os pilares nas próximas quatro semanas").click(); });
+    await act(async () => { byText("Enviar").click(); }); await act(async () => {});
+    expect(studioApi.strategyChat).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}$/), [
+      { role: "user", content: "Equilibre os pilares nas próximas quatro semanas" },
+    ]);
+    expect(host.textContent).toContain("Use Produto como eixo principal.");
   });
 });
 

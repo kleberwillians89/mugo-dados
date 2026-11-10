@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { basedOnText, strategyChat, type BasedOn, type ChatTurn } from "../app/studio";
 import {
   CHANNEL_LABEL, CHANNEL_ORDER, campaignToCalendar, createCampaign, editPiece, getCampaign, listCampaigns, pieceText,
   regeneratePiece, setCampaignStatus, type Briefing, type Campaign, type Channel, type LimitCheck, type Piece,
@@ -94,25 +95,25 @@ type SocialMediaProps = {
   initialTab?: SocialMediaTab;
 };
 
-function tabFromLocation(): SocialMediaTab {
+function sectionFromLocation(): SocialMediaTab {
   if (typeof window === "undefined") return "matriz";
   const pathname = window.location.pathname.toLowerCase();
   if (pathname.startsWith("/calendario") || pathname.startsWith("/aprovacao") || pathname.startsWith("/atendimento")) return "calendario";
-  const requested = new URLSearchParams(window.location.search).get("aba");
+  const requested = new URLSearchParams(window.location.search).get("aba") || window.location.hash.replace(/^#social-/, "");
   if (requested === "calendario" || requested === "calendar") return "calendario";
   if (requested === "criacao" || requested === "campanhas") return "criacao";
   return "matriz";
 }
 
-function allowedTab(requested: SocialMediaTab, canViewSocial: boolean, canViewCalendar: boolean): SocialMediaTab {
+function allowedSection(requested: SocialMediaTab, canViewSocial: boolean, canViewCalendar: boolean): SocialMediaTab {
   if (requested === "calendario" && canViewCalendar) return requested;
   if (requested !== "calendario" && canViewSocial) return requested;
   return canViewCalendar ? "calendario" : "matriz";
 }
 
 /**
- * Social Media unifica Matriz, Criação e o Calendário existente sem misturar permissões:
- * social_media.* controla as duas primeiras abas e calendar.* controla a terceira.
+ * Social Media unifica Matriz, Planejador e Calendário em seções verticais sem misturar permissões:
+ * social_media.* controla as duas primeiras e calendar.* controla a terceira.
  * A Redação (editor de texto da iAgência) é uma página própria: pages/RedacaoPage.tsx.
  */
 export default function Campaigns({
@@ -125,50 +126,84 @@ export default function Campaigns({
 }: SocialMediaProps) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [tab, setTab] = useState<SocialMediaTab>(() => allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar));
-  const [visited, setVisited] = useState<Set<SocialMediaTab>>(() => new Set([allowedTab(initialTab || tabFromLocation(), canViewSocial, canViewCalendar)]));
   const [profileOpenRequest, setProfileOpenRequest] = useState(0);
 
-  const openTab = useCallback((next: SocialMediaTab, updateUrl = true) => {
-    const allowed = allowedTab(next, canViewSocial, canViewCalendar);
-    setTab(allowed);
-    setVisited((current) => current.has(allowed) ? current : new Set([...current, allowed]));
+  const openSection = useCallback((next: SocialMediaTab, updateUrl = true) => {
+    const allowed = allowedSection(next, canViewSocial, canViewCalendar);
+    const target = document.getElementById(`social-${allowed}`);
+    target?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     if (!updateUrl || typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    url.pathname = "/social-media";
-    url.searchParams.set("aba", allowed);
-    window.history.pushState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    window.history.pushState({}, document.title, `/social-media#social-${allowed}`);
   }, [canViewCalendar, canViewSocial]);
 
   useEffect(() => {
-    const onPopState = () => openTab(tabFromLocation(), false);
+    const focus = () => openSection(initialTab || sectionFromLocation(), false);
+    focus();
+    const onPopState = () => focus();
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [openTab]);
-
-  useEffect(() => {
-    const next = allowedTab(tab, canViewSocial, canViewCalendar);
-    if (next !== tab) openTab(next, false);
-  }, [canViewCalendar, canViewSocial, openTab, tab]);
+  }, [initialTab, openSection]);
 
   return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Social Media" controls={<div className="studioTabs" role="tablist" aria-label="Social Media">
-      {canViewSocial ? <button id="social-tab-matriz" type="button" role="tab" aria-controls="social-panel-matriz" aria-selected={tab === "matriz"} className={tab === "matriz" ? "is-active" : ""} onClick={() => openTab("matriz")}>Matriz de Conteúdo</button> : null}
-      {canViewSocial ? <button id="social-tab-criacao" type="button" role="tab" aria-controls="social-panel-criacao" aria-selected={tab === "criacao"} className={tab === "criacao" ? "is-active" : ""} onClick={() => openTab("criacao")}>Criação</button> : null}
-      {canViewCalendar ? <button id="social-tab-calendario" type="button" role="tab" aria-controls="social-panel-calendario" aria-selected={tab === "calendario"} className={tab === "calendario" ? "is-active" : ""} onClick={() => openTab("calendario")}>Calendário</button> : null}
-    </div>} />
-    {canViewSocial && tab !== "calendario" ? <BrandContextPanel clientId={clientId} /> : null}
-    {canViewSocial && visited.has("matriz") ? <section id="social-panel-matriz" role="tabpanel" aria-labelledby="social-tab-matriz" hidden={tab !== "matriz"}>
-      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")}
-        onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openTab("calendario"); } : undefined} />
+    <PageHeader company={clientName} title="Social Media" />
+    {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
+    {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
+      <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial das próximas quatro semanas.</p></div></header>
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
+        onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />
     </section> : null}
-    {canViewSocial && visited.has("criacao") ? <section id="social-panel-criacao" role="tabpanel" aria-labelledby="social-tab-criacao" hidden={tab !== "criacao"}>
-      <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} onOpenCalendar={() => openTab("calendario")} />
+    {canViewSocial ? <section id="social-criacao" className="socialWorkspaceSection" aria-labelledby="social-criacao-title">
+      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-criacao-title">Planejador de Conteúdo</h2><p>Converse com a IA e desenvolva campanhas com o contexto da marca.</p></div></header>
+      {canManage ? <ContentPlannerAssistant key={`planner:${clientId}`} /> : null}
+      <CampaignsPanel key={`campaigns:${clientId}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")} />
     </section> : null}
-    {canViewCalendar && visited.has("calendario") ? <section id="social-panel-calendario" role="tabpanel" aria-labelledby="social-tab-calendario" hidden={tab !== "calendario"}>
-      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} /></Suspense>
+    {canViewCalendar ? <section id="social-calendario" className="socialWorkspaceSection" aria-labelledby="social-calendario-title">
+      <header className="socialSectionHeader"><span>03</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>Edição, programação, aprovações e publicação no calendário existente.</p></div></header>
+      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
     </section> : null}
   </div></Shell>;
+}
+
+function ContentPlannerAssistant() {
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [input, setInput] = useState("");
+  const [actions, setActions] = useState<string[]>([]);
+  const [basis, setBasis] = useState<BasedOn | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const month = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }).slice(0, 7);
+
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    const question = input.trim();
+    if (!question || busy) return;
+    const history: ChatTurn[] = [...turns, { role: "user", content: question }];
+    setTurns(history); setInput(""); setBusy(true); setError(null);
+    try {
+      const result = await strategyChat(month, history);
+      setTurns([...history, { role: "assistant", content: result.reply }]);
+      setActions(result.suggested_actions || []); setBasis(result.based_on);
+    } catch (cause) { setError(message(cause, "O assistente não respondeu agora.")); }
+    finally { setBusy(false); }
+  }
+
+  return <div className="socialPlannerAssistant" aria-label="Assistente de planejamento">
+    <div className="aiChat">
+      {!turns.length ? <div className="aiChatEmpty"><b>Assistente de IA</b><p>Use para criar pautas, explorar campanhas ou refinar uma oportunidade da Matriz.</p>
+        <div className="agentSuggest">{["Equilibre os pilares nas próximas quatro semanas", "Sugira três abordagens para uma pauta", "O que falta no calendário deste mês?"].map((question) =>
+          <button key={question} type="button" onClick={() => setInput(question)}>{question}</button>)}</div></div> : null}
+      {turns.map((turn, index) => <div key={`${turn.role}:${index}`} className={`aiTurn is-${turn.role}`}>{turn.content}</div>)}
+      {busy ? <div className="aiTurn is-assistant">Pensando…</div> : null}
+      {basis ? <p className="aiBasis">{basedOnText(basis)}</p> : null}
+      {actions.length ? <ul className="aiList">{actions.map((action) => <li key={action}>→ {action}</li>)}</ul> : null}
+      {error ? <p role="alert" className="studioError">{error}</p> : null}
+      <form className="aiChatForm" onSubmit={ask}>
+        <textarea rows={2} maxLength={2000} value={input} placeholder="Peça uma pauta, abordagem ou refinamento…" onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <button className="ds-button is-primary" disabled={busy || !input.trim()}>Enviar</button>
+      </form>
+    </div>
+  </div>;
 }
 
 /** Redação de campanha: briefing -> pacote de peças pela IA com os dados da marca. */
