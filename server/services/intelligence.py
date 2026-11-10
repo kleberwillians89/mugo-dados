@@ -2225,9 +2225,13 @@ async def _call_provider(
             provider="openai", model=model, success="false",
             error_code="AI_PROVIDER_TIMEOUT" if isinstance(exc, httpx.TimeoutException) else "AI_PROVIDER_TRANSPORT_ERROR",
         )
+        from .ai_usage import track
+        track(feature=f"intelligence:{schema.get('name') or 'chat'}", model=str(model), error_code="timeout" if isinstance(exc, httpx.TimeoutException) else "network")
         if isinstance(exc, httpx.TimeoutException):
             raise RuntimeError("AI_PROVIDER_TIMEOUT") from exc
         raise
+    from .ai_usage import track_response
+    track_response(response, feature=f"intelligence:{schema.get('name') or 'chat'}", model=str(model))
     if response.status_code >= 400:
         log_stage_failed(
             stage=LOG_STAGE_MODEL_RESPONSE, request_id=request_id,

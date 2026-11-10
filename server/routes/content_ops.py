@@ -63,6 +63,7 @@ ERRORS = {
     "AI_RATE_LIMIT": (429, "Muitas gerações em sequência. Aguarde um minuto."),
     "AI_PROVIDER_NOT_CONFIGURED": (503, "IA não configurada no servidor."),
     "AI_PROVIDER_TIMEOUT": (504, "A IA demorou demais. Tente de novo."),
+    "AI_PROVIDER_QUOTA": (503, "A IA está sem crédito na OpenAI. Recarregue em platform.openai.com → Billing e tente de novo. O consumo por cliente está em Administração → Consumo de IA."),
     "AI_PROVIDER_ERROR": (502, "A IA não respondeu agora. Tente de novo."),
     "AI_INVALID_OUTPUT": (502, "A IA devolveu algo fora do formato. Tente de novo."),
 }

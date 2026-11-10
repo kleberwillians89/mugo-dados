@@ -48,6 +48,7 @@ const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const RedacaoPage = lazy(() => import("./pages/RedacaoPage"));
+const AiUsage = lazy(() => import("./pages/AiUsage"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -896,6 +897,8 @@ function PrivateApp() {
         <Users key={`users:${activeClientId}`} canManage={can("team.edit")} isTeam={teamHere}
           myAccessTotal={Boolean(accessForClient?.access_total) || ["client_admin", "owner", "admin"].includes(activeClientRole)}
           myCodes={accessForClient?.codes} />
+      ) : route === "ai_usage" && (platformAdmin || agencyAdmin) ? (
+        <AiUsage />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}

@@ -94,6 +94,8 @@ async def _call_openai_json(prompt: str) -> Dict[str, Any]:
 
     async with httpx.AsyncClient(timeout=90) as client:
         r = await client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
+        from .ai_usage import track_response
+        track_response(r, feature="ai_summary", model=str(payload.get("model") or ""))
         if r.status_code >= 400:
             raise RuntimeError(f"OpenAI error {r.status_code}: {r.text}")
 

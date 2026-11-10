@@ -42,3 +42,14 @@ async def sync_run(run_id: str, authorization: str | None = Header(default=None)
             code="SYNC_RUN_NOT_FOUND", provider="integration",
         )
     return {"ok": True, "run": row}
+
+
+@router.get("/ai-usage")
+async def ai_usage_report(
+    start: str | None = Query(default=None, max_length=10), end: str | None = Query(default=None, max_length=10),
+    authorization: str | None = Header(default=None),
+):
+    """Consumo de IA por cliente (tokens e custo estimado). Só a equipe Mugô."""
+    await require_agency_admin(authorization)
+    from services.ai_usage import report
+    return {"ok": True, **(await report(start=start, end=end))}

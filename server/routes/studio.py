@@ -48,6 +48,7 @@ ERRORS = {
     "AI_GENERATION_COOLDOWN": (429, "Um calendário acabou de ser gerado. Aguarde um instante."),
     "AI_PROVIDER_NOT_CONFIGURED": (503, "O provedor de IA ainda não está configurado no backend."),
     "AI_PROVIDER_TIMEOUT": (502, "A IA demorou mais que o esperado. Tente novamente."),
+    "AI_PROVIDER_QUOTA": (503, "A IA está sem crédito na OpenAI. Recarregue em platform.openai.com → Billing e tente de novo. O consumo por cliente está em Administração → Consumo de IA."),
     "AI_PROVIDER_ERROR": (502, "A IA não respondeu agora. Tente novamente."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu pautas válidas. Tente novamente."),
     "ITEM_NOT_FOUND": (404, "Pauta não encontrada nesta empresa."),

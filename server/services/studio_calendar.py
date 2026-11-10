@@ -438,10 +438,16 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
             response = await client.post("https://api.openai.com/v1/responses",
                                          headers={"Authorization": f"Bearer {api_key}"}, json=payload)
     except httpx.TimeoutException:
+        from .ai_usage import track
+        track(feature="studio_calendar_month", model=payload["model"], error_code="timeout")
         raise StudioError("AI_PROVIDER_TIMEOUT") from None
+    from .ai_usage import track_response
+    track_response(response, feature="studio_calendar_month", model=payload["model"])
     if response.status_code >= 400:
         print(f"[studio][llm] status={response.status_code}")
-        raise StudioError("AI_PROVIDER_ERROR")
+        from .studio_llm import provider_error_detail
+        detail = provider_error_detail(response)
+        raise StudioError("AI_PROVIDER_QUOTA" if "insufficient_quota" in detail else "AI_PROVIDER_ERROR", detail)
     try:
         return json.loads(_extract_output_text(response.json()))
     except (ValueError, TypeError):
