@@ -404,3 +404,77 @@ async def overview(client_id: str, *, days: int = 30) -> Dict[str, Any]:
     counts["followers"] = sum(1 for t in threads.values() if t["follows"])
     return {"settings": await get_settings(client_id), "counts": counts, "threads": list(threads.values())[:40],
             "autoreply_enabled": autoreply_enabled()}
+
+
+# ------------------------------------------------------------------ caixa de entrada (tela WhatsApp → Instagram)
+
+DONE = ("respondido", "simulado")
+
+
+async def inbox(client_id: str, *, days: int = 30, limit: int = 80) -> Dict[str, Any]:
+    """Conversas do Direct da marca, mais recente primeiro (como a caixa do WhatsApp)."""
+    since = (_now() - timedelta(days=days)).isoformat()
+    rows = await sb_select(MESSAGES, select="sender_id,direction,text,by_app,status,follows,username,created_at",
+                           order="created_at.desc", limit=3000, filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}"})
+    threads: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        sid = str(row["sender_id"])
+        t = threads.get(sid)
+        if t is None:
+            t = threads[sid] = {"sender_id": sid, "username": None, "follows": None, "last_at": row["created_at"],
+                                "last_text": row.get("text") or "", "last_direction": row["direction"], "last_by_app": bool(row.get("by_app")),
+                                "waiting": row["direction"] == "in" and row["status"] not in DONE, "review": False,
+                                "window_open": False, "messages": 0}
+        t["messages"] += 1
+        if row.get("username") and not t["username"]:
+            t["username"] = row["username"]
+        if row.get("follows") is not None and t["follows"] is None:
+            t["follows"] = row["follows"]
+        if row["direction"] == "in" and row["status"] == "revisao":
+            t["review"] = True
+        if row["direction"] == "in" and not t["window_open"] and _ts(row["created_at"]) > _now() - REPLY_WINDOW:
+            t["window_open"] = True
+    items = list(threads.values())[:limit]
+    return {"threads": items, "counts": {"conversations": len(threads), "waiting": sum(1 for t in threads.values() if t["waiting"]),
+                                          "review": sum(1 for t in threads.values() if t["review"])}}
+
+
+async def thread_messages(client_id: str, sender_id: str, *, limit: int = 200) -> Dict[str, Any]:
+    rows = await sb_select(MESSAGES, select="id,direction,text,by_app,status,reply_kind,username,follows,error,created_at",
+                           order="created_at.desc", limit=limit, filters={"client_id": f"eq.{client_id}", "sender_id": f"eq.{sender_id}"})
+    if not rows:
+        raise StudioError("CONVERSATION_NOT_FOUND")
+    last_in = next((r for r in rows if r["direction"] == "in"), None)
+    return {"sender_id": sender_id,
+            "username": next((r["username"] for r in rows if r.get("username")), None),
+            "follows": next((r["follows"] for r in rows if r.get("follows") is not None), None),
+            "window_open": bool(last_in) and _ts(last_in["created_at"]) > _now() - REPLY_WINDOW,
+            "messages": [{"id": r["id"], "direction": r["direction"], "text": r.get("text"), "by_app": bool(r.get("by_app")),
+                          "status": r["status"], "reply_kind": r.get("reply_kind"), "at": r["created_at"],
+                          "note": (r.get("error") if r["status"] == "revisao" else None)} for r in reversed(rows)]}
+
+
+async def manual_reply(client_id: str, sender_id: str, text: str) -> Dict[str, Any]:
+    """Equipe responde pelo MUGOVERSO: sai de verdade (como a resposta manual dos comentários) e a IA para
+    nesta conversa por 12 h (a mensagem conta como resposta da equipe)."""
+    from .ig_engagement import _page_token, credentials
+    text = re.sub(r"[ \t]+", " ", str(text or "")).strip()[:1000]
+    if not text:
+        raise StudioError("REPLY_EMPTY")
+    rows = await sb_select(MESSAGES, select="created_at", order="created_at.desc", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "sender_id": f"eq.{sender_id}", "direction": "eq.in"})
+    if not rows:
+        raise StudioError("CONVERSATION_NOT_FOUND")
+    if _ts(rows[0]["created_at"]) <= _now() - REPLY_WINDOW:
+        raise StudioError("DIRECT_WINDOW_CLOSED")
+    creds = await credentials(client_id)
+    page_id, page_token = await _page_token(creds)
+    mid = await _send(sender_id, text, page_id=page_id, page_token=page_token) or f"team:{uuid.uuid4()}"
+    now = _now().isoformat()
+    await sb_upsert(MESSAGES, [{"client_id": client_id, "ig_user_id": creds["ig_user_id"], "sender_id": sender_id, "mid": mid,
+                                "direction": "out", "text": text, "by_app": False, "status": "respondido", "created_at": now}],
+                    on_conflict="mid")
+    await sb_update(MESSAGES, filters={"client_id": f"eq.{client_id}", "sender_id": f"eq.{sender_id}", "direction": "eq.in",
+                                       "status": "in.(revisao,falhou,pendente)"},
+                    patch={"status": "respondido", "error": "equipe", "processed_at": now}, returning="minimal")
+    return {"status": "enviado", "at": now}

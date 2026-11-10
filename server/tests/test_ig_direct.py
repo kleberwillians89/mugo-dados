@@ -88,3 +88,41 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
             out, send, upsert, final = await self.run_process(settings={**ON, "ai_enabled": True}, thread=[old, self.pending()])
         self.assertEqual(out["review"], 1)
         upsert.assert_not_awaited()
+
+
+class InboxTests(unittest.IsolatedAsyncioTestCase):
+    async def test_groups_threads_and_flags_waiting_review_window(self):
+        rows = [
+            {"sender_id": "1", "direction": "in", "text": "tem frete?", "by_app": False, "status": "revisao", "follows": True,
+             "username": "ana", "created_at": (NOW - timedelta(hours=1)).isoformat()},
+            {"sender_id": "1", "direction": "out", "text": "Oi!", "by_app": True, "status": "respondido", "follows": None,
+             "username": None, "created_at": (NOW - timedelta(hours=2)).isoformat()},
+            {"sender_id": "2", "direction": "out", "text": "valeu", "by_app": False, "status": "respondido", "follows": None,
+             "username": "bia", "created_at": (NOW - timedelta(days=3)).isoformat()},
+        ]
+        with patch.object(dm, "sb_select", AsyncMock(return_value=rows)):
+            out = await dm.inbox("ruah")
+        first, second = out["threads"]
+        self.assertEqual((first["username"], first["waiting"], first["review"], first["window_open"], first["messages"]),
+                         ("ana", True, True, True, 2))
+        self.assertEqual((second["waiting"], second["window_open"]), (False, False))
+        self.assertEqual(out["counts"], {"conversations": 2, "waiting": 1, "review": 1})
+
+    async def test_manual_reply_blocked_after_24h(self):
+        old = [{"created_at": (NOW - timedelta(hours=30)).isoformat()}]
+        with patch.object(dm, "sb_select", AsyncMock(return_value=old)):
+            with self.assertRaises(dm.StudioError) as ctx:
+                await dm.manual_reply("ruah", "1", "oi")
+        self.assertEqual(ctx.exception.code, "DIRECT_WINDOW_CLOSED")
+
+    async def test_manual_reply_counts_as_team(self):
+        recent = [{"created_at": (NOW - timedelta(hours=1)).isoformat()}]
+        upsert, update = AsyncMock(), AsyncMock(return_value=[])
+        with patch.object(dm, "sb_select", AsyncMock(return_value=recent)), patch.object(dm, "sb_upsert", upsert), \
+             patch.object(dm, "sb_update", update), patch.object(dm, "_send", AsyncMock(return_value="mid-9")), \
+             patch("services.ig_engagement.credentials", AsyncMock(return_value={"ig_user_id": "1784"})), \
+             patch("services.ig_engagement._page_token", AsyncMock(return_value=("999", "pt"))):
+            out = await dm.manual_reply("ruah", "1", " Temos sim! ")
+        row = upsert.await_args.args[1][0]
+        self.assertEqual((out["status"], row["by_app"], row["text"], row["mid"]), ("enviado", False, "Temos sim!", "mid-9"))
+        self.assertEqual(update.await_args.kwargs["patch"]["status"], "respondido")
