@@ -141,7 +141,7 @@ def provider_error_detail(response: Any) -> str:
 
 def provider_error_code(detail: str) -> str:
     """Traduz o erro da OpenAI num código que a tela explica (sem crédito, chave, limite por minuto...)."""
-    if any(code in detail for code in ("insufficient_quota", "billing_hard_limit")):
+    if any(code in detail for code in ("insufficient_quota", "billing_hard_limit", "credit_balance_exhausted")):
         return "AI_PROVIDER_QUOTA"
     if detail.startswith("http_401") or "invalid_api_key" in detail:
         return "AI_PROVIDER_AUTH"

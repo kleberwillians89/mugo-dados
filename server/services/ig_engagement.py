@@ -147,6 +147,24 @@ async def refresh_comments(client_id: str, *, media_limit: int = 12, creds: Opti
     return len(rows)
 
 
+# Resposta pública que tira o comentário de "Sem resposta" (IA, gatilho ou equipe).
+ANSWER_KINDS = ("resposta_publica", "resposta_manual", "resposta_ia")
+
+
+def visible_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ações em ordem mais nova primeiro. Falha da IA que já foi superada por uma resposta da IA
+    (enviada/simulada) depois deixa de aparecer: era só a tentativa antiga (ex.: sem crédito)."""
+    out: List[Dict[str, Any]] = []
+    ai_done = False
+    for a in actions:
+        if a.get("kind") == "resposta_ia" and a.get("status") in ("enviado", "simulado"):
+            ai_done = True
+        elif ai_done and a.get("kind") == "resposta_ia" and a.get("status") == "falhou":
+            continue
+        out.append(a)
+    return out
+
+
 async def inbox(client_id: str, *, only_open: bool = True, days: int = 30) -> Dict[str, Any]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     comments = await sb_select("ig_comments", select="comment_id,media_id,username,text,like_count,timestamp",
@@ -170,10 +188,10 @@ async def inbox(client_id: str, *, only_open: bool = True, days: int = 30) -> Di
     items = []
     for c in comments:
         done = [a for a in by_comment.get(str(c["comment_id"]), []) if a["status"] in ("enviado", "simulado")]
-        answered = any(a["status"] == "enviado" and a["kind"] in ("resposta_publica", "resposta_manual") for a in done)
+        answered = any(a["status"] == "enviado" and a["kind"] in ANSWER_KINDS for a in done)
         if only_open and answered:
             continue
-        items.append({**c, "answered": answered, "actions": by_comment.get(str(c["comment_id"]), [])[:5],
+        items.append({**c, "answered": answered, "actions": visible_actions(by_comment.get(str(c["comment_id"]), []))[:5],
                       "media": media_by_id.get(str(c["media_id"])),
                       "direct_open": bool(c.get("timestamp")) and datetime.fromisoformat(str(c["timestamp"]).replace("Z", "+00:00"))
                       > datetime.now(timezone.utc) - DIRECT_WINDOW})
@@ -445,6 +463,7 @@ AI_FAILURE_REASONS = {
 }
 PROVIDER_DETAILS = {
     "insufficient_quota": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
+    "credit_balance_exhausted": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
     "invalid_api_key": "Chave da OpenAI inválida: atualize OPENAI_API_KEY no Render e no segredo MUGO_JOBS_ENV do GitHub.",
     "rate_limit_exceeded": "Limite de uso da OpenAI por minuto atingido.",
     "model_not_found": "O modelo configurado em OPENAI_MODEL não existe ou não está liberado na conta.",

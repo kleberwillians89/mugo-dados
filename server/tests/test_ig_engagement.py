@@ -316,3 +316,30 @@ class RepliesByPostTests(unittest.IsolatedAsyncioTestCase):
             out = await ie.replies_by_post("latinas")
         self.assertEqual(out["posts"], [])
         self.assertEqual(select.await_count, 1)
+
+
+class InboxAnsweredTests(unittest.IsolatedAsyncioTestCase):
+    def test_old_ai_failure_hidden_after_ai_success(self):
+        actions = [{"kind": "resposta_ia", "status": "enviado", "text": "Boa!"},
+                   {"kind": "resposta_ia", "status": "falhou", "text": "sem crédito"},
+                   {"kind": "direct", "status": "falhou", "text": "x"}]
+        self.assertEqual([a["status"] for a in ie.visible_actions(actions)], ["enviado", "falhou"])
+        self.assertEqual(ie.visible_actions(actions)[1]["kind"], "direct")
+        # Falha mais nova que o sucesso continua aparecendo.
+        self.assertEqual(len(ie.visible_actions(list(reversed(actions[:2])))), 2)
+
+    def test_credit_balance_exhausted_is_no_credit(self):
+        from services.studio_llm import provider_error_code
+        self.assertEqual(provider_error_code("http_429:credit_balance_exhausted"), "AI_PROVIDER_QUOTA")
+        self.assertIn("sem crédito", ie.failure_reason("AI_PROVIDER_ERROR", "http_429:credit_balance_exhausted"))
+
+    async def test_ai_reply_sent_leaves_open_list(self):
+        c = comment()
+        sent = {"comment_id": c["comment_id"], "kind": "resposta_ia", "status": "enviado", "text": "Boa!", "created_at": NOW.isoformat()}
+
+        async def select(table, **_):
+            return {"ig_comments": [c], "ig_engagement_actions": [sent]}.get(table, [])
+        with patch.object(ie, "sb_select", side_effect=select):
+            self.assertEqual((await ie.inbox("roove"))["items"], [])
+            items = (await ie.inbox("roove", only_open=False))["items"]
+        self.assertTrue(items[0]["answered"])
