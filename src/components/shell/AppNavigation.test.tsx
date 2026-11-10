@@ -60,6 +60,20 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Empresas")).toBeUndefined();
   });
 
+  it("Clientes e Origem das vendas viram um item só, ativo nas duas telas", async () => {
+    await render({ route: "origins" });
+    expect(link("Clientes")).toBeUndefined();
+    expect(link("Origem das vendas")).toBeUndefined();
+    expect(link("Clientes e vendas")?.getAttribute("aria-current")).toBe("page");
+    expect(link("Clientes e vendas")?.getAttribute("href")).toBe("/clientes");
+  });
+
+  it("sem acesso a Clientes, o item abre direto a Origem das vendas", async () => {
+    await render({ canView: (route) => route !== "customers" });
+    const item = link("Clientes e vendas");
+    expect(item?.getAttribute("href")).toBe("/origem-das-vendas");
+  });
+
   it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {
     await render();
     expect(link("Tarefas")?.getAttribute("href")).toBe("/tarefas");

@@ -5,6 +5,8 @@ import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataF
 import { getSalesByOrigin, type SalesByOrigin } from "../app/salesByOrigin";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
+import ClientsSalesTabs from "../components/data/ClientsSalesTabs";
+import type { AppRoute } from "../app/routes";
 import PeriodSelector from "../components/data/PeriodSelector";
 import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
@@ -26,7 +28,7 @@ function percent(value: number | null | undefined) {
  * de cada pedido. Sempre escopada pela empresa ativa — o backend revalida o
  * acesso (`require_client_read`) e só devolve pedidos daquele `client_id`.
  */
-export default function SalesOrigin() {
+export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) => boolean } = {}) {
   const { period } = usePeriod();
   const clientId = getActiveClientId();
   const scope = `${clientId}:${period.start}:${period.end}`;
@@ -82,6 +84,7 @@ export default function SalesOrigin() {
           }
           controls={<PeriodSelector />}
         />
+        <ClientsSalesTabs current="origins" canView={canView} />
 
         {current.error ? (
           <DataNotice tone="negative" role="alert" title="Origem das vendas indisponível no momento.">

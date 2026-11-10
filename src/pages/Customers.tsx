@@ -10,6 +10,8 @@ import type {
 } from "../app/intelligenceTypes";
 import DataNotice from "../components/data/DataNotice";
 import PageHeader from "../components/data/PageHeader";
+import ClientsSalesTabs from "../components/data/ClientsSalesTabs";
+import type { AppRoute } from "../app/routes";
 import Drawer from "../components/Drawer";
 import Shell from "../components/Shell";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
@@ -79,7 +81,7 @@ function SummaryCard({ label, value, note }: { label: string; value: string; not
   );
 }
 
-export default function Customers() {
+export default function Customers({ canView }: { canView?: (route: AppRoute) => boolean } = {}) {
   const clientId = getActiveClientId();
   const base = readDashboardCache<CachedBase>(baseCacheKey(clientId));
   const cached = base?.payload.client_id === clientId ? base : null;
@@ -219,6 +221,7 @@ export default function Customers() {
           </>
         }
       />
+      <ClientsSalesTabs current="customers" canView={canView} />
       <p className="customerLead">Conheça e acompanhe a base de clientes desta empresa.</p>
 
       {error ? <DataNotice tone="negative" role="alert" title="Não foi possível carregar os clientes.">{error}</DataNotice> : null}

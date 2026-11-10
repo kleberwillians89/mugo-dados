@@ -8,6 +8,7 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import { TRIGGER_TEMPLATES, type TriggerTemplate } from "../components/studio/triggerTemplates";
 import "../styles/studio.css";
 
 type Tab = "caixa" | "respondidos" | "gatilhos";
@@ -15,6 +16,8 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const KIND: Record<string, string> = { resposta_publica: "Resposta automática", direct: "Direct", resposta_manual: "Resposta da equipe",
   resposta_ia: "Resposta da IA", revisao: "IA pediu revisão da equipe" };
+const hasLinkPlaceholder = (rule: { dm_message?: string | null; public_reply?: string | null }) =>
+  /\{LINK\}/i.test(`${rule.dm_message || ""} ${rule.public_reply || ""}`);
 const EMPTY_RULE: RuleInput = { name: "", keywords: [], media_id: null, public_reply: "Te mandei no Direct, {nome}! 💌", dm_message: "", ai_greeting: false, active: false };
 
 /**
@@ -87,6 +90,10 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
       public_reply: editing.public_reply?.trim() || null, dm_message: editing.dm_message?.trim() || null, ai_greeting: Boolean(editing.ai_greeting), active: editing.active };
     const ok = await run("rule", () => saveRule(input, editing.id), "Não foi possível salvar o gatilho.");
     if (ok) { setEditing(null); await loadRules(); }
+  }
+
+  function applyTemplate(template: TriggerTemplate) {
+    setEditing({ ...EMPTY_RULE, ...template.rule, keywordsText: template.rule.keywords.join(", ") });
   }
 
   async function toggle(rule: EngagementRule) {
@@ -179,8 +186,25 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
     </> : <>
       <div className="studioActions"><button type="button" className="ds-button" disabled={Boolean(busy) || !rules?.some((r) => r.active)} onClick={() => void runNow()}>{busy === "run" ? "Rodando…" : "Rodar gatilhos agora"}</button>
         <span className="libHint">Rodam sozinhos a cada 5 minutos.</span></div>
-      {!rules ? <p>Carregando…</p> : !rules.length ? <div className="studioEmpty"><p>Nenhum gatilho. Exemplo: quem comentar <b>QUERO</b> recebe o link no Direct.</p>
-        <button type="button" className="ds-button is-primary" onClick={() => setEditing({ ...EMPTY_RULE, name: "Quero o link", keywordsText: "quero, link, eu quero" })}>Criar esse gatilho</button></div> : null}
+      <details className="engHowTo" open={rules !== null && !rules.length}>
+        <summary>Como o gatilho dispara</summary>
+        <ol>
+          <li>Escolha um modelo abaixo (ou <b>+ Gatilho</b>), troque o <code>{"{LINK}"}</code> pelo seu link e marque <b>Ligado</b>.</li>
+          <li>No post ou na legenda, peça a palavra: <i>"Comenta QUERO que eu te mando o link"</i>. Para valer só em um post, cole o ID dele no gatilho.</li>
+          <li>A cada 5 minutos o MUGOVERSO lê os comentários novos. Achou a palavra: responde no post e manda o Direct.</li>
+          <li>Teste comentando de outra conta. O Instagram só deixa mandar Direct até 7 dias depois do comentário, uma vez por pessoa.</li>
+        </ol>
+        <p className="libHint"><b>"Acabou de seguir":</b> o Instagram não avisa quem seguiu e não deixa a marca mandar Direct primeiro. O jeito permitido é o modelo <b>Siga e comente</b>: a legenda pede para seguir e comentar, e o comentário dispara o oi com o link.</p>
+      </details>
+      {canManage ? <div className="engTemplates" aria-label="Modelos prontos">
+        {TRIGGER_TEMPLATES.map((t) => <div key={t.id} className="engTemplate">
+          <b>{t.title}</b>
+          <p>{t.summary}</p>
+          <p className="libHint">Na legenda: “{t.caption}”</p>
+          <button type="button" className="ds-button" onClick={() => applyTemplate(t)}>Usar modelo</button>
+        </div>)}
+      </div> : null}
+      {!rules ? <p>Carregando…</p> : !rules.length ? <div className="studioEmpty"><p>Nenhum gatilho ainda. Comece por um modelo acima.</p></div> : null}
       <ul className="engList">{(rules || []).map((r) => <li key={r.id} className="engItem">
         <div className="engRuleHead"><b>{r.name}</b><span className={`studioChip${r.active ? " is-on" : ""}`}>{r.active ? "Ligado" : "Desligado"}</span></div>
         <p>Palavras: {r.keywords.join(", ")}{r.media_id ? ` · só no post ${r.media_id}` : " · todos os posts"}</p>
@@ -203,9 +227,10 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         <label>Resposta no comentário (pública, curta)<textarea rows={2} maxLength={300} value={editing.public_reply || ""} onChange={(e) => setEditing({ ...editing, public_reply: e.target.value })} /></label>
         <label className="studioCheck"><input type="checkbox" checked={Boolean(editing.ai_greeting)} onChange={(e) => setEditing({ ...editing, ai_greeting: e.target.checked })} /> ✦ Oi feito pela IA no Direct (a IA escreve o oi no tom do perfil da marca, ligado ao comentário e ao post)</label>
         <label>{editing.ai_greeting ? "O que o Direct precisa levar (opcional: link, cupom; a IA escreve o oi em volta)" : "Mensagem no Direct"}<textarea rows={4} maxLength={1000} value={editing.dm_message || ""} onChange={(e) => setEditing({ ...editing, dm_message: e.target.value })} placeholder={editing.ai_greeting ? "https://…" : "Oi {nome}! Aqui está o link: https://…"} /></label>
+        {hasLinkPlaceholder(editing) ? <p className="clipWarn" role="status">Troque <code>{"{LINK}"}</code> pelo link de verdade antes de salvar.</p> : null}
         <label className="studioCheck"><input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} /> Ligado</label>
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setEditing(null)}>Cancelar</button>
-          <button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "rule" ? "Salvando…" : "Salvar"}</button></div>
+          <button className="ds-button is-primary" disabled={Boolean(busy) || hasLinkPlaceholder(editing)}>{busy === "rule" ? "Salvando…" : "Salvar"}</button></div>
       </form> : null}
     </Drawer>
   </div></Shell>;
