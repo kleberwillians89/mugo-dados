@@ -1,13 +1,14 @@
 import { http, clientClientPath } from "./api";
 
 /** Leitura do CRM Mugô (fonte da verdade) — só agência. Nada é copiado para o Dados. */
-export type CrmUnavailable = { available: false; reason: "not_configured" | "not_linked" | "auth_failed" | "function_missing" };
+export type CrmUnavailable = { available: false; reason: "not_configured" | "not_linked" | "auth_failed" | "function_missing" | "migration_pending" };
 
 export const CRM_UNAVAILABLE_TEXT: Record<CrmUnavailable["reason"], string> = {
   not_configured: "A ligação com o CRM ainda não foi configurada no servidor do Dados.",
   not_linked: "Esta empresa ainda não está ligada a um cliente do CRM.",
   auth_failed: "O CRM recusou a chave de acesso. Confira a chave nos dois lados.",
   function_missing: "A ponte do CRM ainda não foi publicada (ou está desatualizada). Rode o deploy da dados-ops-api no CRM.",
+  migration_pending: "As tarefas ainda não foram ativadas no banco (falta a migração 000089).",
 };
 
 export const TASK_STATUS = { pending: "Pendente", in_progress: "Em andamento", completed: "Concluída", cancelled: "Cancelada" } as const;
@@ -18,6 +19,8 @@ export type CrmTask = {
   id: string; title: string; status: TaskStatus; priority: string | null; due_date: string | null; due_time: string | null;
   starts_at: string | null; category: string | null; task_type: string | null; tags: string[]; notes: string | null;
   updated_at: string | null; assignee: { name: string; color: string | null } | null;
+  /** Tarefas do Mugoverso: aparece também para o cliente. */
+  visible_to_client?: boolean;
 };
 export type CrmConversation = {
   id: string; status: string | null; attendance_mode: string | null; unread_count: number | null; last_message_at: string | null;
@@ -34,6 +37,18 @@ const base = (path: string) => clientClientPath(`/crm${path}`);
 
 export function listCrmTasks(status?: TaskStatus) {
   return http<Result<{ tasks: CrmTask[] }>>(base(`/tasks${status ? `?status=${status}` : ""}`));
+}
+/** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
+export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;
+  due_time: string | null; category: string | null; assignee_name: string | null; visible_to_client: boolean }>;
+export function createTask(input: TaskInput) {
+  return http<{ task: CrmTask }>(base("/tasks"), { method: "POST", body: JSON.stringify(input) });
+}
+export function updateTask(id: string, input: TaskInput) {
+  return http<{ task: CrmTask }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(input) });
+}
+export function deleteTask(id: string) {
+  return http<{ ok: true }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 /** Tarefas que a Mugô marcou com a etiqueta "cliente" no CRM — visíveis a qualquer membro da empresa. */
 export type ClientTask = { id: string; title: string; status: "pending" | "in_progress" | "completed"; due_date: string | null; updated_at: string | null };

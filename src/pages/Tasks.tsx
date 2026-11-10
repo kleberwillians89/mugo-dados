@@ -8,16 +8,16 @@ import "../styles/studio.css";
 
 export { sortTasks } from "../components/studio/TaskBoard";
 
-/** Tarefas da agência para a empresa ativa, em quadro, lidas do CRM Mugô. Financeiro fica de fora. */
-export default function Tasks() {
+/** Tarefas da empresa ativa, em quadro, guardadas no Mugoverso. Quem gerencia cria, edita e move. */
+export default function Tasks({ canManage = true, isAgency = true }: { canManage?: boolean; isAgency?: boolean }) {
   const refresh = useRef<() => void>(() => undefined);
   return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas da agência" controls={<button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>} />
-    <TaskBoard onRefreshRef={(fn) => { refresh.current = fn; }} />
+    <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" controls={<button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>} />
+    <TaskBoard canManage={canManage} isAgency={isAgency} onRefreshRef={(fn) => { refresh.current = fn; }} />
   </div></Shell>;
 }
 
-/** Tarefas para o cliente: só o que a Mugô marcou com a etiqueta "cliente" no CRM, sem nada interno. */
+/** Tarefas para o cliente (só leitura): as que a Mugô marcou como visíveis ao cliente, sem nada interno. */
 export function ClientTasksPage() {
   const clientId = getActiveClientId();
   return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
