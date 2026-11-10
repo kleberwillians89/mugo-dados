@@ -148,10 +148,12 @@ class SourcesTests(unittest.TestCase):
     def test_bridge_config_from_env(self):
         from services import whatsapp_sources as ws
         cid = "b1281853-ab59-4fd2-b824-df88ebddabb6"
-        env = '{"%s": {"url": "https://x.supabase.co/functions/v1/mugoverso-bridge", "key": "k"}, "nao-uuid": {"url": "https://y", "key": "k"}}' % cid
+        env = '{"%s": {"url": "https://x.supabase.co/functions/v1/mugoverso-bridge", "key": "k"}, "roove": {"url": "https://y.supabase.co/x", "key": "r"}, "../x": {"url": "https://z", "key": "k"}, "sem-https": {"url": "http://z", "key": "k"}}' % cid
         with patch.dict(os.environ, {"WHATSAPP_BRAND_BRIDGES": env}):
             self.assertEqual(ws.bridge_for(cid.upper())["key"], "k")
-            self.assertIsNone(ws.bridge_for("nao-uuid"))
+            self.assertEqual(ws.bridge_for("roove")["key"], "r")
+            self.assertIsNone(ws.bridge_for("../x"))
+            self.assertIsNone(ws.bridge_for("sem-https"))
         with patch.dict(os.environ, {"WHATSAPP_BRAND_BRIDGES": "{quebrado"}):
             self.assertIsNone(ws.bridge_for(cid))
 

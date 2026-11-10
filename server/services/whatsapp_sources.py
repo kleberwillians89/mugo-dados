@@ -24,6 +24,8 @@ from .studio_calendar import StudioError
 
 TIMEOUT_SECONDS = 20
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+# Id de empresa no MUGOVERSO: UUID ou slug antigo (ex.: "roove").
+_CLIENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.I)
 
 
 def _bridges() -> Dict[str, Dict[str, str]]:
@@ -39,7 +41,7 @@ def _bridges() -> Dict[str, Dict[str, str]]:
     for client_id, cfg in (data or {}).items() if isinstance(data, dict) else []:
         url = str((cfg or {}).get("url") or "").strip()
         key = str((cfg or {}).get("key") or "").strip()
-        if _UUID.match(str(client_id)) and url.startswith("https://") and key:
+        if _CLIENT_ID.match(str(client_id)) and url.startswith("https://") and key:
             out[str(client_id).lower()] = {"url": url, "key": key}
     return out
 
