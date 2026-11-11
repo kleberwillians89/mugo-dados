@@ -90,6 +90,11 @@ export function generateCalendar(month: string): Promise<{ created: number; kept
 export function updateCalendarItem(id: string, patch: ItemPatch) {
   return http<{ item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(patch) });
 }
+/** Aprovar ou pedir ajuste (comentário obrigatório no ajuste). Vale para quem só vê o Calendário, como o link de aprovação. */
+export function decideCalendarItem(id: string, status: "aprovado" | "rejeitado", reviewNote?: string) {
+  return http<{ item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(id)}/decision`), { method: "POST",
+    body: JSON.stringify({ status, ...(reviewNote ? { review_note: reviewNote } : {}) }) });
+}
 export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch) {
   return http<{ item: CalendarItem }>(base("/calendar/items"), { method: "POST", body: JSON.stringify(item) });
 }

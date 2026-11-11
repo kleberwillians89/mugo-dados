@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import { getPathForRoute } from "../../app/routes";
-import { STUDIO_FORMATS, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
+import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
 import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
 
@@ -188,7 +188,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   async function decidePost(post: PipelineItem, status: Extract<StudioStatus, "aprovado" | "rejeitado">, note?: string) {
     setBusy(true); setReviewError(null);
     try {
-      await updateCalendarItem(post.id, { status, ...(note ? { review_note: note } : {}) });
+      await decideCalendarItem(post.id, status, note);
       setReview(null); setNotice(status === "aprovado" ? "Post aprovado." : "Ajuste pedido: a equipe foi avisada.");
       await load();
     } catch (cause) { setReviewError(message(cause, "Não foi possível salvar a decisão.")); }

@@ -3,7 +3,7 @@ import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
-  BRAND_PROFILE_SAVED, getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
+  BRAND_PROFILE_SAVED, decideCalendarItem, getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus, type WhatsappChannel,
@@ -160,7 +160,10 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
 
   async function setStatus(status: StudioStatus, review_note?: string) {
     const current = modal?.item; if (!current) return;
-    const result = await run("status", () => updateCalendarItem(current.id, { status, ...(review_note !== undefined ? { review_note } : {}) }), "Não foi possível atualizar a pauta.");
+    // Cliente aprova ou pede ajuste pela rota de decisão (basta ver o Calendário); o resto segue a edição normal.
+    const decision = !team && (status === "aprovado" || status === "rejeitado");
+    const result = await run("status", () => (decision ? decideCalendarItem(current.id, status, review_note || undefined)
+      : updateCalendarItem(current.id, { status, ...(review_note !== undefined ? { review_note } : {}) })), "Não foi possível atualizar a pauta.");
     if (result) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); }
   }
 

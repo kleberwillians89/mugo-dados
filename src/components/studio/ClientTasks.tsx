@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_STATUS, dueInfo, listClientTasks, type ClientTask, type CrmUnavailable, type TaskStatus } from "../../app/crm";
-import { getPipeline, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
+import { decideCalendarItem, getPipeline, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
 import { PostCard } from "./TaskBoard";
 import { handleFromName, monthKey } from "./taskBoard.helpers";
@@ -46,7 +46,7 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
   async function decide(post: PipelineItem, status: Extract<StudioStatus, "aprovado" | "rejeitado">, note?: string) {
     setBusy(true); setReviewError(null);
     try {
-      await updateCalendarItem(post.id, { status, ...(note ? { review_note: note } : {}) });
+      await decideCalendarItem(post.id, status, note);
       setReview(null); setNotice(status === "aprovado" ? "Post aprovado. Obrigado!" : "Ajuste pedido: a equipe Mugô foi avisada.");
       await loadPosts();
     } catch (cause) { setReviewError(cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar a decisão."); }

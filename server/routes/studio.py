@@ -304,6 +304,29 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     return {"ok": True, "item": item}
 
 
+class ItemDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    status: Literal["aprovado", "rejeitado"]
+    review_note: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/calendar/items/{item_id}/decision")
+async def decide_item(client_id: str, item_id: UUID, body: ItemDecisionInput, authorization: str | None = Header(default=None)):
+    """Aprovar ou pedir ajuste num post. Basta poder ver o Calendário (o mesmo que o link de aprovação já permite):
+    o cliente com acesso só de leitura também aprova e pede ajuste, sem ganhar a edição das pautas."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    patch = body.model_dump(mode="json", exclude_none=True)
+    try:
+        if not await is_agency_user(authorization):
+            item = await client_edit(cid, str(item_id), patch, user_id=uid, actor_name="O cliente pelo painel")
+        else:
+            item = await update_item(cid, str(item_id), patch, user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True, "item": item}
+
+
 class ScheduleInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     now: bool = False

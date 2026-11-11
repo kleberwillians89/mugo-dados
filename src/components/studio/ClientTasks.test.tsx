@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const crm = vi.hoisted(() => ({ listClientTasks: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
-const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(),
+const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(), decideCalendarItem: vi.fn(async () => ({ item: {} })),
   listItemReferences: vi.fn(async () => ({ references: [] })), listItemComments: vi.fn(async () => ({ comments: [] })) }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
@@ -38,7 +38,7 @@ describe("Tarefas do cliente ligadas ao Calendário", () => {
     expect(host.querySelector(".phoneFrame")).toBeTruthy();
     const approve = [...host.querySelectorAll(".postReviewActions button")].find((b) => b.textContent === "Aprovar") as HTMLButtonElement;
     await act(async () => { approve.click(); });
-    expect(studio.updateCalendarItem).toHaveBeenCalledWith("a", { status: "aprovado" });
+    expect(studio.decideCalendarItem).toHaveBeenCalledWith("a", "aprovado", undefined);
     expect(host.textContent).toContain("Post aprovado. Obrigado!");
   });
 });

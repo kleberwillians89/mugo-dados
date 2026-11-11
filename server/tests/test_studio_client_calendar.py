@@ -97,6 +97,26 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         agency_update.assert_not_awaited()
 
 
+    async def test_decision_needs_only_to_see_the_calendar_and_follows_client_rules(self):
+        body = studio_routes.ItemDecisionInput(status="rejeitado", review_note="Trocar a cor")
+        with patch.object(studio_routes, "require_client_role", AsyncMock(return_value="roove")) as role, \
+             patch.object(studio_routes, "require_user_id", AsyncMock(return_value="u1")), \
+             patch.object(studio_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(studio_routes, "client_edit", AsyncMock(return_value=POST)) as edit, \
+             patch.object(studio_routes, "update_item", AsyncMock()) as agency_update:
+            out = await studio_routes.decide_item("roove", "11111111-1111-1111-1111-111111111111", body, authorization="Bearer cliente")
+        self.assertTrue(out["ok"])
+        self.assertIn("viewer", role.await_args.kwargs["allowed_roles"])  # leitor do Calendário também decide
+        self.assertEqual(edit.await_args.args[2], {"status": "rejeitado", "review_note": "Trocar a cor"})
+        agency_update.assert_not_awaited()
+
+    def test_decision_accepts_only_approve_or_adjust(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            studio_routes.ItemDecisionInput(status="publicado")
+        with self.assertRaises(ValidationError):
+            studio_routes.ItemDecisionInput(status="aprovado", caption_draft="x")
+
 class TeamEventTests(unittest.IsolatedAsyncioTestCase):
     async def test_event_is_recorded_before_the_crm_and_survives_a_crm_outage(self):
         with patch.object(st, "sb_insert", AsyncMock()) as insert, patch.object(st, "sb_update", AsyncMock()) as update, \
