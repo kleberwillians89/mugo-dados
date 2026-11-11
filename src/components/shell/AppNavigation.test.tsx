@@ -74,13 +74,14 @@ describe("AppNavigation — sidebar global", () => {
     ]);
     expect(groupLinks("Inteligência")).toEqual([
       "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",
-      "Clientes", "Comentários", "Clipping", "Radar Cultural", "Relatório",
+      "Clientes", "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
       "Integrações", "Usuários", "Empresas", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
     ]);
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
     expect(link("Radar Cultural")?.getAttribute("href")).toBe("/radar");
+    expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
   });
