@@ -14,6 +14,7 @@ export type AppRoute =
   | "production"
   | "central"
   | "radar"
+  | "benchmark"
   | "clipping"
   | "engagement"
   | "social_report"
@@ -60,6 +61,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   // Evento = Produção (RTV e eventos) da iAgência.
   if (normalized === "/evento" || normalized.startsWith("/evento/") || normalized === "/producao" || normalized.startsWith("/producao/")) return "production";
   if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
+  if (normalized === "/benchmark" || normalized.startsWith("/benchmark/")) return "benchmark";
   if (normalized === "/radar" || normalized.startsWith("/radar/")) return "radar";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
@@ -117,6 +119,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "planning") return "/planejamento";
   if (route === "production") return "/evento";
   if (route === "central") return "/central";
+  if (route === "benchmark") return "/benchmark";
   if (route === "radar") return "/radar";
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";
