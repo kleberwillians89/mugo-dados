@@ -1341,3 +1341,35 @@
 .postBriefingForm{display:grid;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-subtle)}
 .postBriefingForm label{display:grid;gap:4px;font-size:12px}
 .postBriefingForm small{font-size:12px;color:var(--text-muted)}
+/* Esteira de agentes (Social Media) */
+.agentPipeline{border:1px solid var(--border,#e3dfd7);border-radius:14px;padding:16px 18px;margin-bottom:16px;background:linear-gradient(180deg,#fbfaf7,#fff);display:flex;flex-direction:column;gap:12px}
+.agentPipelineHead{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.agentPipelineHead h3{margin:0 0 4px;font-size:16px}
+.agentPipelineHead p{margin:0;font-size:13px;color:var(--text-secondary,#5f5b53);max-width:640px}
+.agentPipelineActions{display:flex;gap:10px;align-items:center}
+.agentSteps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.agentSteps li{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border,#e3dfd7);border-radius:10px;padding:10px 12px;background:#fff}
+.agentSteps li div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.agentSteps li b{font-size:13px}
+.agentSteps li small{font-size:12px;color:var(--text-secondary,#5f5b53);line-height:1.35}
+.agentIcon{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:#efede8;color:#7a756b}
+.agentSteps li.is-rodando{border-color:#b98a2c}
+.agentSteps li.is-rodando .agentIcon{background:#f6e7c8;color:#8a5a12;animation:agentPulse 1.2s ease-in-out infinite}
+.agentSteps li.is-feito .agentIcon{background:#dcefe2;color:#1f6b3a}
+.agentSteps li.is-falhou{border-color:#e2b5ba}
+.agentSteps li.is-falhou .agentIcon{background:#f6dcdf;color:#a3212f}
+@keyframes agentPulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.agentSteps li.is-rodando .agentIcon{animation:none}}
+/* Sugestão da IA para o ajuste (post, equipe) */
+.aiSuggestion{border:1px solid #d9cdf2;background:#f8f5ff;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.aiSuggestion.is-empty{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.aiSuggestion.is-empty p{margin:0;font-size:13px;flex:1 1 220px}
+.aiSuggestionHead{margin:0;display:flex;flex-direction:column;gap:2px;font-size:14px}
+.aiSuggestionHead span{font-size:12px;color:#5b4a86}
+.aiSuggestionNote{margin:0;font-size:13px;color:var(--text-secondary,#5f5b53);font-style:italic}
+.aiSuggestion small{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#5b4a86}
+.aiSuggestion div>p,.aiSuggestion details>p{margin:2px 0 0;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.aiSuggestion .is-long{max-height:160px;overflow-y:auto}
+.aiSuggestion details summary{cursor:pointer;font-size:12px;font-weight:600;color:#5b4a86}
+.aiSuggestionActions{display:flex;gap:8px;flex-wrap:wrap}
+.aiSuggestion .libHint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--text-secondary,#5f5b53)}

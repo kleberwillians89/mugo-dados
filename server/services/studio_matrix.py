@@ -464,12 +464,15 @@ SCRIPT_GUIDE = {
 CONTENT_SCHEMA = obj({"gancho": STR, "legenda": STR, "roteiro": STR, "ideia_imagem": STR})
 
 
-async def create_content(client_id: str, opportunity_id: str, *, instruction: Optional[str] = None) -> Dict[str, Any]:
-    """A IA cria o conteúdo da pauta: gancho, legenda, roteiro (cenas/slides/telas) e ideia de imagem."""
+async def create_content(client_id: str, opportunity_id: str, *, instruction: Optional[str] = None,
+                         throttle_calls: bool = True) -> Dict[str, Any]:
+    """A IA cria o conteúdo da pauta: gancho, legenda, roteiro (cenas/slides/telas) e ideia de imagem.
+    ``throttle_calls=False``: a esteira de agentes controla o ritmo dela (2 por vez)."""
     current = await _opportunity(client_id, opportunity_id)
     if current.get("status") == "exportada":
         raise StudioError("OPPORTUNITY_EXPORTED")
-    throttle(client_id)
+    if throttle_calls:
+        throttle(client_id)
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
     fmt = current.get("format") or "imagem"

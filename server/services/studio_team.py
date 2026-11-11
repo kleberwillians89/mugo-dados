@@ -54,6 +54,10 @@ async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, acto
         from .studio_chat import post_decision
         await post_decision(client_id, action, title=str(item.get("title") or ""), actor_name=actor_name or "O cliente",
                             comment=comment, item_id=str(item["id"]) if item.get("id") else None, user_id=user_id)
+        if action == "ajuste_solicitado" and item.get("id"):
+            # A IA prepara a nova versão como sugestão para a equipe (só sugere: nada muda sozinho).
+            from .studio_agents import schedule_adjustment
+            schedule_adjustment(client_id, str(item["id"]), comment)
     try:
         row = {"id": str(uuid.uuid4()), "client_id": client_id, "item_id": str(item["id"]) if item.get("id") else None, "action": action,
                "actor_name": (actor_name or "O cliente")[:120],

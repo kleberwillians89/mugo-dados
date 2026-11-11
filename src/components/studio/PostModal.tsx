@@ -13,6 +13,7 @@ import ArtFiles from "./ArtFiles";
 import ItemHistory from "./ItemHistory";
 import Collaborators from "./Collaborators";
 import ProductTags from "./ProductTags";
+import AiSuggestionCard from "./AiSuggestionCard";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
@@ -42,10 +43,12 @@ type Props = {
   onRetryPublish?: () => Promise<void>;
   /** Business Suite já na Página desta marca (vem da conexão do Instagram). */
   publisherUrl?: string;
+  /** Equipe: o post mudou fora do formulário (ex.: aplicou a sugestão da IA). */
+  onItemChange?: (item: CalendarItem) => void;
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl }: Props) {
+export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl, onItemChange }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
@@ -236,6 +239,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {item && canManage && !clientMode ? <ItemHistory itemId={item.id} refreshKey={`${item.updated_at || ""}:${item.status}`} /> : null}
         {item?.boost ? <p className="postBoost">⚡ Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}
         {item?.review_note ? <p className="studioReview">Nota da revisão: {item.review_note}</p> : null}
+        {item && canManage && !clientMode && onItemChange ? <AiSuggestionCard item={item} onItemChange={onItemChange} /> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}
 
         {item?.status === "aprovado" || item?.status === "publicado" ? <div className="studioPublish">

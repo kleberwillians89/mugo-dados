@@ -376,6 +376,31 @@ class ExportInput(BaseModel):
     ids: Optional[List[UUID]] = Field(default=None, max_length=80)
 
 
+@router.get("/agents/run")
+async def read_agent_run(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Última execução da esteira de agentes (a tela acompanha ao vivo) e a lista de agentes."""
+    from services import studio_agents as agents
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    return {"run": await agents.latest_run(cid), "steps": agents.STEPS}
+
+
+@router.post("/agents/run", status_code=202)
+async def start_agent_run(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Roda a esteira de ponta a ponta em segundo plano: pesquisa → estratégia → redação → briefing visual →
+    revisão de marca → Calendário → revisão interna. Só a equipe Mugô."""
+    from services import studio_agents as agents
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    uid = await require_user_id(authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô roda a esteira de agentes.")
+    try:
+        return {"run": await agents.start_run(cid, user_id=uid), "steps": agents.STEPS}
+    except StudioError as exc:
+        if exc.code == "AGENTS_RUNNING":
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise _http(exc) from None
+
+
 @router.get("/matrix")
 async def read_matrices(client_id: str, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)

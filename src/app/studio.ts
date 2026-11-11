@@ -89,6 +89,8 @@ export type CalendarItem = {
   collaborators?: string[];
   /** Produtos da loja do Instagram marcados no post (publicados junto). */
   product_tags?: ProductTag[];
+  /** Equipe: nova versão preparada pela IA para o ajuste que o cliente pediu (só sugestão; a equipe aplica). */
+  ai_suggestion?: AiSuggestion | null;
   /** Equipe validou o agendamento depois da aprovação do cliente. */
   schedule_confirmed_at?: string | null;
   /** Publicação automática no Instagram (job a cada 5 min no horário do post). */
@@ -138,6 +140,16 @@ export function decideCalendarItem(id: string, status: "aprovado" | "rejeitado",
   return http<{ item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(id)}/decision`), { method: "POST",
     body: JSON.stringify({ status, ...(reviewNote ? { review_note: reviewNote } : {}) }) });
 }
+// ---------------------------------------------------------------- sugestão da IA para o ajuste pedido
+export type AiSuggestion = { hook: string | null; caption_draft: string | null; script: string | null; visual_idea: string | null;
+  summary: string | null; note: string | null; created_at: string };
+const itemPath = (id: string, rest = "") => base(`/calendar/items/${encodeURIComponent(id)}${rest}`);
+export function requestSuggestion(id: string, note?: string) {
+  return http<{ suggestion: AiSuggestion }>(itemPath(id, "/suggestion"), { method: "POST", body: JSON.stringify(note ? { note } : {}), timeoutMs: 120_000 });
+}
+export function applySuggestion(id: string) { return http<{ item: CalendarItem }>(itemPath(id, "/suggestion/apply"), { method: "POST" }); }
+export function dismissSuggestion(id: string) { return http<{ ok: boolean }>(itemPath(id, "/suggestion"), { method: "DELETE" }); }
+
 // ---------------------------------------------------------------- produtos da loja (Instagram Shopping)
 /** Produto marcado: slide = arte do carrossel (0 = primeira); x/y de 0.01 a 1 a partir do canto de cima (só imagem). */
 export type ProductTag = { product_id: string; name?: string | null; image_url?: string | null; slide: number; x: number; y: number };

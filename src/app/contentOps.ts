@@ -141,6 +141,14 @@ export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars
 export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale" | "script" | "visual_idea">> & { status?: Exclude<OpportunityStatus, "exportada"> };
 export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale"> & Partial<Pick<Opportunity, "script" | "visual_idea">>;
 
+// Esteira de agentes: pesquisa → estratégia → redação → briefing visual → revisão de marca → Calendário → revisão interna.
+export type AgentStepStatus = "pendente" | "rodando" | "feito" | "falhou";
+export type AgentStep = { key: string; agent: string; task: string; status?: AgentStepStatus; detail?: string | null };
+export type AgentRun = { id: string; status: "rodando" | "concluida" | "falhou"; steps: AgentStep[]; matrix_id: string | null;
+  item_ids: string[]; summary: string | null; error: string | null; created_at: string; finished_at: string | null };
+export function getAgentRun() { return http<{ run: AgentRun | null; steps: AgentStep[] }>(base("/agents/run")); }
+export function startAgentRun() { return http<{ run: AgentRun; steps: AgentStep[] }>(base("/agents/run"), { method: "POST" }); }
+
 const mx = (path = "") => base(`/matrix${path}`);
 export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
 export function getMatrix(id: string) { return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}`)); }

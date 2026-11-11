@@ -41,7 +41,8 @@ def client_can_see(item: Dict[str, Any], open_ids: Set[str]) -> bool:
 
 async def client_items(client_id: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     open_ids = await open_request_item_ids(client_id)
-    return [i for i in items if client_can_see(i, open_ids)]
+    # A sugestão da IA para o ajuste é interna da equipe.
+    return [{k: v for k, v in i.items() if k != "ai_suggestion"} for i in items if client_can_see(i, open_ids)]
 
 
 def _same(field: str, old: Any, new: Any) -> bool:

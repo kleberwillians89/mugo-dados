@@ -349,6 +349,51 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     return {"ok": True, "item": item}
 
 
+class SuggestionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    note: Optional[str] = Field(default=None, max_length=1500)
+
+
+@router.post("/calendar/items/{item_id}/suggestion")
+async def make_suggestion(client_id: str, item_id: UUID, body: Optional[SuggestionInput] = None,
+                          authorization: str | None = Header(default=None)):
+    """Equipe: a IA prepara (de novo) a versão ajustada do post a partir do pedido do cliente."""
+    from services.studio_agents import suggest_adjustment
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        suggestion = await suggest_adjustment(cid, str(item_id), body.note if body else None)
+    except StudioError as exc:
+        raise _http(exc) from None
+    if not suggestion:
+        raise HTTPException(status_code=422, detail="Sem pedido de ajuste neste post para a IA atender. Escreva o que mudar.")
+    return {"suggestion": suggestion}
+
+
+@router.post("/calendar/items/{item_id}/suggestion/apply")
+async def apply_item_suggestion(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Equipe: aplica a sugestão da IA no post (gancho, legenda, roteiro e briefing visual)."""
+    from services.studio_agents import apply_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return {"item": await apply_suggestion(cid, str(item_id), user_id=uid)}
+    except StudioError as exc:
+        if exc.code == "SUGGESTION_NOT_FOUND":
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        raise _http(exc) from None
+
+
+@router.delete("/calendar/items/{item_id}/suggestion")
+async def drop_item_suggestion(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_agents import dismiss_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    await dismiss_suggestion(cid, str(item_id))
+    return {"ok": True}
+
+
 class ItemDecisionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     status: Literal["aprovado", "rejeitado"]
@@ -826,7 +871,7 @@ async def read_pipeline(client_id: str, month: str, authorization: str | None = 
     except StudioError as exc:
         raise _http(exc) from None
     if not await is_agency_user(authorization):
-        result["items"] = [i for i in result["items"] if i.get("stage") in CLIENT_STAGES]
+        result["items"] = [{k: v for k, v in i.items() if k != "ai_suggestion"} for i in result["items"] if i.get("stage") in CLIENT_STAGES]
         result["counts"] = {stage: (n if stage in CLIENT_STAGES else 0) for stage, n in result["counts"].items()}
     return result
 

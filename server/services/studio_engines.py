@@ -275,12 +275,15 @@ async def _load_item(client_id: str, item_id: str) -> Dict[str, Any]:
     return rows[0]
 
 
-async def generate_briefing(client_id: str, item_id: str, direction: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """A IA monta o briefing da pauta (como o Atendimento do iAgência) e grava na pauta."""
+async def generate_briefing(client_id: str, item_id: str, direction: Optional[Dict[str, Any]] = None, *,
+                            throttle_calls: bool = True) -> Dict[str, Any]:
+    """A IA monta o briefing da pauta (como o Atendimento do iAgência) e grava na pauta.
+    ``throttle_calls=False``: a esteira de agentes controla o ritmo dela."""
     from .ig_supabase import sb_update
     from .studio_calendar import SCRIPT_HINTS
     item = await _load_item(client_id, item_id)
-    throttle(client_id)
+    if throttle_calls:
+        throttle(client_id)
     d = {k: str(v).strip()[:600] for k, v in (direction or {}).items() if isinstance(v, (str, int)) and str(v).strip()}
     boldness = BOLDNESS.get(int(d.get("boldness") or 3), "Equilibrado") if str(d.get("boldness") or "3").isdigit() else "Equilibrado"
     intel = await build_content_intelligence(client_id)

@@ -317,6 +317,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
       publisherUrl={publisherUrl || undefined}
+      onItemChange={team ? (next) => { replace(next); setModal((m) => (m ? { item: next, draft: draftFrom(next) } : m)); } : undefined}
       onSendForApproval={team && modal.item ? () => { const id = modal.item!.id; setModal(null); openSend([id]); } : undefined}
       onConfirmSchedule={team && modal.item ? async (now?: boolean) => {
         const out = await run("schedule", () => confirmSchedule(modal.item!.id, Boolean(now)), now ? "Não foi possível publicar agora." : "Não foi possível agendar.");
