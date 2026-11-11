@@ -25,7 +25,8 @@ describe("PostModal do cliente", () => {
     // Tela enxuta: post no celular, legenda, comentário e os botões — sem os campos de edição da pauta.
     expect(html).toContain("phoneFrame");
     expect(html).toContain("Legenda");
-    expect(html).toContain("Comentário");
+    expect(html).toContain("Seu comentário");
+    expect(html).toContain("Referências");
     expect(html).not.toContain("Gancho (primeira frase/cena)");
     expect(html).not.toContain("Por que esta pauta");
   });

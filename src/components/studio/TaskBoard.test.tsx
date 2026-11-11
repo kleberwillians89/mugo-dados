@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
-const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn() }));
+const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(),
+  listItemReferences: vi.fn(async () => ({ references: [] })), listItemComments: vi.fn(async () => ({ comments: [] })) }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
-vi.mock("./PostComments", () => ({ default: () => null }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
 vi.mock("../Drawer", () => ({ default: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div data-drawer>{children}</div> : null) }));
 
