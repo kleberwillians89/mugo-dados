@@ -21,7 +21,13 @@ describe("PostModal do cliente", () => {
     expect(html).not.toContain("Excluir");
     expect(html).not.toContain("Reabrir");
     expect(html).not.toContain("Enviar p/ revisão");
-    expect(html).toContain("A equipe Mugô já foi avisada");
+    expect(html).toContain("A equipe Mugô é avisada na hora");
+    // Tela enxuta: post no celular, legenda, comentário e os botões — sem os campos de edição da pauta.
+    expect(html).toContain("phoneFrame");
+    expect(html).toContain("Legenda");
+    expect(html).toContain("Comentário");
+    expect(html).not.toContain("Gancho (primeira frase/cena)");
+    expect(html).not.toContain("Por que esta pauta");
   });
 
   it("a equipe vê a marca de edição do cliente e as ações completas", () => {

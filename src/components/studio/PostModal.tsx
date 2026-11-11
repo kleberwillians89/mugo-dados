@@ -1,5 +1,6 @@
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
+import PostReview from "./PostReview";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
@@ -117,6 +118,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   async function copyCaption() {
     try { await navigator.clipboard.writeText([draft.hook, draft.caption_draft].filter(Boolean).join("\n\n") || draft.title); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
     catch { /* o texto continua visível para copiar à mão */ }
+  }
+
+  // Cliente revisando uma peça: tela enxuta (celular, legenda, comentário, Aprovar / Pedir ajuste).
+  if (clientMode && item) {
+    return <PostReview item={item} handle={handle} busy={busy} error={error} onClose={onClose} onDecide={(status, note) => onStatus(status, note)} />;
   }
 
   return <div className="postModalBackdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>

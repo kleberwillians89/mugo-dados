@@ -3,6 +3,8 @@ import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import { getPathForRoute } from "../../app/routes";
+import { STUDIO_FORMATS, getPipeline, localParts, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
+import PostReview from "./PostReview";
 import { OPEN, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -19,6 +21,15 @@ const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.not
   visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
 
 type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
+
+// Posts do Fluxo de aprovação do Calendário no mesmo quadro (etapa do post → coluna da tarefa).
+const STAGE_COLUMN: Record<Stage, TaskStatus> = { rascunho: "in_progress", revisao_interna: "internal_review", com_cliente: "client_review",
+  ajuste: "changes", aprovado: "completed", publicado: "completed" };
+const monthKey = (offset: number) => {
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 const ACTION_DONE: Partial<Record<TaskAction, string>> = {
   submit: "Enviada para a aprovação interna.", internal_approve: "Aprovada internamente.", internal_changes: "Ajuste pedido.",
   client_approve: "Aprovada.", client_changes: "Ajuste pedido.", comment: "Comentário salvo.",
@@ -44,6 +55,9 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [history, setHistory] = useState<{ id: string; events: TaskEvent[] } | null>(null);
   const [comment, setComment] = useState("");
   const [internalNote, setInternalNote] = useState(false);
+  const [posts, setPosts] = useState<PipelineItem[]>([]);
+  const [review, setReview] = useState<PipelineItem | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -57,6 +71,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       const byId = new Map<string, CrmTask>();
       for (const r of results) if (r.available) for (const t of r.tasks || []) byId.set(t.id, t);
       setUnavailable(null); setTasks([...byId.values()]);
+      // Posts do Calendário (este mês e o próximo): sem eles o quadro de tarefas continua funcionando.
+      try {
+        const months = await Promise.all([getPipeline(monthKey(0)), getPipeline(monthKey(1))]);
+        if (getActiveClientId() === clientId) setPosts(months.flatMap((m) => m.items || []));
+      } catch { setPosts([]); }
     } catch (cause) { setError(message(cause, "Não foi possível carregar as tarefas.")); }
     finally { setLoading(false); }
   }, [clientId, showCancelled]);
@@ -123,6 +142,26 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     return [];
   }
 
+  async function decidePost(post: PipelineItem, status: Extract<StudioStatus, "aprovado" | "rejeitado">, note?: string) {
+    setBusy(true); setReviewError(null);
+    try {
+      await updateCalendarItem(post.id, { status, ...(note ? { review_note: note } : {}) });
+      setReview(null); setNotice(status === "aprovado" ? "Post aprovado." : "Ajuste pedido: a equipe foi avisada.");
+      await load();
+    } catch (cause) { setReviewError(message(cause, "Não foi possível salvar a decisão.")); }
+    finally { setBusy(false); }
+  }
+
+  /** Ações do card de post: abrir a revisão (celular + comentário + botões) ou ir ao Calendário. */
+  function postQuick(p: PipelineItem): Quick[] {
+    const actions: Quick[] = [];
+    if (p.stage === "com_cliente" || (isAgency && (p.stage === "revisao_interna" || p.stage === "ajuste"))) {
+      actions.push({ label: p.stage === "ajuste" ? "Revisar" : "Aprovar / ajuste", run: () => { setReviewError(null); setReview(p); }, tone: "primary" });
+    }
+    if (isAgency) actions.push({ label: "Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) });
+    return actions;
+  }
+
   async function remove() {
     if (!draft?.id || busy || !window.confirm(`Excluir a tarefa "${draft.title}"?`)) return;
     setBusy(true); setError(null);
@@ -135,6 +174,14 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     : ["pending", "in_progress", "changes", "client_review", "completed"];
   const columns = (showCancelled ? [...flow, "cancelled"] : flow) as TaskStatus[];
   const current = draft?.id ? tasks.find((t) => t.id === draft.id) : undefined;
+  // Post que já virou tarefa (ajuste) aparece só como tarefa; o resto entra como card de post.
+  const linked = new Set(tasks.map((t) => t.calendar_item_id).filter(Boolean) as string[]);
+  const q = query.trim().toLowerCase();
+  const postCards = posts.filter((p) => !linked.has(p.id) && (!q || `${p.title} ${p.caption_draft || ""}`.toLowerCase().includes(q)));
+  const postsIn = (status: TaskStatus) => postCards.filter((p) => {
+    const column = STAGE_COLUMN[p.stage];
+    return (column === "internal_review" && !isAgency ? "in_progress" : column) === status;
+  }).slice(0, status === "completed" ? 8 : 40);
   const changeAction: TaskAction | null = current?.status === "internal_review" && isAgency ? "internal_changes" : current?.status === "client_review" ? "client_changes" : null;
   const late = visible.filter((t) => OPEN.includes(t.status) && dueInfo(t.due_date).late).length;
 
@@ -155,17 +202,21 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     {notice && !draft ? <p role="status" className="studioOk">{notice}</p> : null}
     {unavailable ? <div className="studioEmpty"><p>{CRM_UNAVAILABLE_TEXT[unavailable]}</p></div> : null}
     {loading && !tasks.length ? <p>Carregando…</p> : null}
-    {!loading && !unavailable && !error && !tasks.length ? <div className="studioEmpty"><p>Nenhuma tarefa para {clientName} ainda.{canManage ? " Clique em + Nova tarefa." : ""}</p></div> : null}
-    {!unavailable && tasks.length ? <div className="kanban is-compact taskBoard" aria-label="Quadro de tarefas">
+    {!loading && !unavailable && !error && !tasks.length && !postCards.length ? <div className="studioEmpty"><p>Nenhuma tarefa para {clientName} ainda.{canManage ? " Clique em + Nova tarefa." : ""}</p></div> : null}
+    {!unavailable && (tasks.length || postCards.length) ? <div className="kanban is-compact taskBoard" aria-label="Quadro de tarefas">
       {columns.map((status) => {
         const list = sortTasks(visible.filter((t) => t.status === status));
+        const colPosts = who ? [] : postsIn(status);
         return <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>
-          <header><b>{TASK_STATUS[status]}</b><span>{list.length}</span></header>
+          <header><b>{TASK_STATUS[status]}</b><span>{list.length + colPosts.length}</span></header>
           {list.map((t) => <TaskCard key={t.id} task={t} onOpen={() => void openTask(t)} actions={busy ? [] : quick(t)} />)}
-          {!list.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
+          {colPosts.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setReview(p); }} actions={busy ? [] : postQuick(p)} />)}
+          {!list.length && !colPosts.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
         </section>;
       })}
     </div> : null}
+    {review ? <PostReview item={review} handle={"@" + clientName.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "")} busy={busy}
+      error={reviewError} onClose={() => setReview(null)} onDecide={(status, note) => decidePost(review, status, note)} /> : null}
     <Drawer open={Boolean(draft)} title={draft?.id ? (canManage ? "Editar tarefa" : draft.title) : "Nova tarefa"} onClose={() => { if (!busy) setDraft(null); }}>
       {draft ? <form className="taskForm" onSubmit={save}>
         <fieldset disabled={!canManage || busy}>
@@ -239,5 +290,17 @@ function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => v
       {t.assignee ? <><i style={{ background: t.assignee.color || "#9aa3ad" }} aria-hidden="true" />{t.assignee.name}</> : null}
       {t.assignee && t.category ? " · " : ""}{t.category}
     </small> : null}
+  </article>;
+}
+
+function PostCard({ post: p, onOpen, actions }: { post: PipelineItem; onOpen: () => void; actions: Quick[] }) {
+  const when = localParts(p.scheduled_at);
+  const feedback = p.client_feedback?.action === "ajuste_solicitado" && p.client_feedback.comment ? p.client_feedback.comment : null;
+  return <article className="kanbanCard taskCard taskPostCard">
+    <span className="taskFromCalendar">Post · {STUDIO_FORMATS[p.format]}</span>
+    <button type="button" className="kanbanTitle" onClick={onOpen}>{p.title}</button>
+    <small className="taskPostMeta">{when.label} · {when.time}{p.request?.contact_name ? ` · com ${p.request.contact_name}` : ""}</small>
+    {feedback ? <p className="kanbanNote">“{feedback}”{p.client_feedback?.reviewer_name ? ` — ${p.client_feedback.reviewer_name}` : ""}</p> : null}
+    {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
   </article>;
 }

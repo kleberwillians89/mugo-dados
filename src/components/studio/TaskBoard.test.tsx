@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
+const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn() }));
+vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
+vi.mock("./PostComments", () => ({ default: () => null }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
 vi.mock("../Drawer", () => ({ default: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div data-drawer>{children}</div> : null) }));
 
@@ -19,6 +22,8 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
   crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true,
     tasks: status === "completed" ? [] : [task("in_progress"), task("internal_review"), task("client_review")] }));
+  studio.getPipeline.mockResolvedValue({ items: [] });
+  studio.updateCalendarItem.mockResolvedValue({ item: {} });
   crm.taskHistory.mockResolvedValue({ events: [{ id: "e1", kind: "enviado_interno", internal: true, comment: null, actor_name: "julia", actor_side: "mugo", created_at: "2026-11-10T20:00:00Z" }] });
   crm.taskApproval.mockImplementation(async (id: string, action: string) => ({ task: task(action === "client_approve" ? "completed" : action === "client_changes" ? "changes" : "internal_review", { id }), events: [] }));
 });
@@ -51,6 +56,26 @@ describe("Tarefas com aprovação", () => {
     await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
     expect(host.querySelector("[data-drawer]")?.textContent).toContain("nasceu de um ajuste no Calendário");
     expect([...host.querySelectorAll("[data-drawer] button")].map((b) => b.textContent)).not.toContain("Enviar para aprovação interna");
+  });
+
+  it("posts do Fluxo de aprovação entram no quadro; cliente aprova ou pede ajuste pela tela do celular", async () => {
+    const post = { id: "p1", title: "Reels Black Friday", format: "reels", scheduled_at: "2026-11-27T22:00:00Z", status: "em_revisao", stage: "com_cliente",
+      caption_draft: "Oferta da semana", art_url: null, hook: null, request: { contact_name: "Gabi" }, client_feedback: null };
+    studio.getPipeline.mockImplementation(async (month: string) => ({ items: month.endsWith(String(new Date().getMonth() + 1).padStart(2, "0")) ? [post] : [] }));
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    await show(<TaskBoard />);
+    const column = [...host.querySelectorAll(".kanbanCol")].find((c) => c.querySelector("header b")?.textContent === "Aprovação do cliente")!;
+    expect(column.textContent).toContain("Reels Black Friday");
+    expect(column.textContent).toContain("com Gabi");
+    await click("Aprovar / ajuste");
+    expect(host.querySelector(".phoneFrame")).toBeTruthy();
+    expect(host.textContent).toContain("Oferta da semana");
+    await click("Pedir ajuste");
+    expect(host.textContent).toContain("Escreva o que precisa mudar");
+    expect(studio.updateCalendarItem).not.toHaveBeenCalled();
+    await click("Aprovar");
+    expect(studio.updateCalendarItem).toHaveBeenCalledWith("p1", { status: "aprovado" });
+    expect(host.textContent).toContain("Post aprovado.");
   });
 
   it("cliente não vê a etapa interna; pede ajuste com comentário pela tarefa aberta", async () => {
