@@ -465,6 +465,11 @@ export default function GoogleAnalytics({
   const ga4Assets = ga4Integration?.assets || {};
   const googleAdsSource = adsModel.sources.find((source) => source.provider === "google_ads");
   const ga4Source = adsModel.sources.find((source) => source.provider === "ga4");
+  // Fonte que parou de chegar antes do período escolhido: o vazio não é "zero sessões", é sincronização parada.
+  const stalledUntil = (source?: { data_max_available?: string | null } | null) =>
+    source?.data_max_available && source.data_max_available < selectedRange.start ? source.data_max_available : null;
+  const ga4StalledUntil = stalledUntil(ga4Source);
+  const brDate = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
   const sumAds = (key: "impressions" | "clicks") => {
     const values = (googleAds?.daily || []).map((row) => row[key]).filter((value): value is number => value != null);
     return values.length ? values.reduce((total, value) => total + Number(value), 0) : null;
@@ -645,7 +650,9 @@ export default function GoogleAnalytics({
                 }}
               />
             ) : (
-              <DataNotice role="status" title={googleAdsSource ? "Sem dados do Google Ads neste período" : "Google Ads ainda não sincronizado"}>
+              stalledUntil(googleAdsSource) ? <DataNotice tone="warning" role="alert" title={`Google Ads parou de atualizar em ${brDate(stalledUntil(googleAdsSource)!)}`}>
+                Os dados chegaram só até {brDate(stalledUntil(googleAdsSource)!)}; não é falta de investimento. Clique em <b>Atualizar dados</b>: se aparecer erro de autorização, reconecte o Google Ads em Integrações.
+              </DataNotice> : <DataNotice role="status" title={googleAdsSource ? "Sem dados do Google Ads neste período" : "Google Ads ainda não sincronizado"}>
                 {googleAdsSource
                   ? "A conta está sincronizada, mas não há investimento registrado no período selecionado."
                   : "Os números aparecem aqui depois que a conta Google Ads da empresa for conectada e sincronizada em Integrações."}
@@ -665,7 +672,9 @@ export default function GoogleAnalytics({
                 Não foi possível carregar os dados do Google Analytics agora. Tente atualizar em instantes.
               </DataNotice>
             ) : ga4Report && !hasData ? (
-              <DataNotice role="status" title={ga4Source ? "Sem dados do Google Analytics neste período" : "Google Analytics ainda não sincronizado"}>
+              ga4StalledUntil ? <DataNotice tone="warning" role="alert" title={`Google Analytics parou de atualizar em ${brDate(ga4StalledUntil)}`}>
+                Os dados chegaram só até {brDate(ga4StalledUntil)}; não é falta de visitas. Clique em <b>Atualizar dados</b>: se aparecer erro de autorização, reconecte o Google Analytics em Integrações.
+              </DataNotice> : <DataNotice role="status" title={ga4Source ? "Sem dados do Google Analytics neste período" : "Google Analytics ainda não sincronizado"}>
                 {ga4Source
                   ? "A propriedade está sincronizada, mas não registrou sessões no período selecionado."
                   : "Os números aparecem aqui depois que a propriedade GA4 da empresa for conectada e sincronizada em Integrações."}
