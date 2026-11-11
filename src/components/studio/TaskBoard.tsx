@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
+import { getPathForRoute } from "../../app/routes";
 import { OPEN, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -113,6 +114,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
 
   /** Ações rápidas do card conforme a etapa e quem está vendo. */
   function quick(t: CrmTask): Quick[] {
+    if (t.calendar_item_id) return [{ label: "Abrir no Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) }];
     if (t.status === "pending" && canManage) return [{ label: "Iniciar →", run: () => void move(t, "in_progress") }];
     if ((t.status === "in_progress" || t.status === "changes") && isAgency) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
     if (t.status === "in_progress" && canManage) return [{ label: "Concluir ✓", run: () => void move(t, "completed") }];
@@ -169,7 +171,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         <fieldset disabled={!canManage || busy}>
           <label className="ds-field">Título<input required maxLength={200} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Ex.: Aprovar fotos do lançamento" /></label>
           <div className="taskFormRow">
-            <label className="ds-field">Etapa<select value={draft.status} disabled={!MANUAL.includes(draft.status)} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
+            <label className="ds-field">Etapa<select value={draft.status} disabled={!MANUAL.includes(draft.status) || Boolean(current?.calendar_item_id)} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
               {(MANUAL.includes(draft.status) ? MANUAL : [draft.status]).map((k) => <option key={k} value={k}>{TASK_STATUS[k]}</option>)}</select></label>
             <label className="ds-field">Prioridade<select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
               <option value="">Sem prioridade</option>{Object.entries(TASK_PRIORITY).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
@@ -190,15 +192,16 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         {current ? <section className="taskApproval" aria-label="Aprovação">
           <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
           {current.deliverable_url ? <a href={current.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir a entrega ↗</a> : null}
-          <div className="taskApprovalActions">
+          {current.calendar_item_id ? <p className="libHint">Esta tarefa nasceu de um ajuste no <b>Calendário</b> e acompanha o post: envie ao cliente, aprove ou peça ajuste por lá (Fluxo de aprovação) que ela anda sozinha. <a href={getPathForRoute("calendar")}>Abrir no Calendário →</a></p> : null}
+          {!current.calendar_item_id ? <div className="taskApprovalActions">
             {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
             {current.status === "internal_review" && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "internal_approve")}>{current.visible_to_client && current.needs_client_approval !== false ? "Aprovar e enviar ao cliente" : "Aprovar"}</button> : null}
             {current.status === "client_review" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "client_approve")}>Aprovar</button> : null}
-          </div>
+          </div> : null}
           <label className="ds-field">{changeAction ? "O que precisa mudar (ou um comentário)" : "Comentário"}<textarea rows={3} maxLength={2000} value={comment} onChange={(e) => setComment(e.target.value)} /></label>
           {isAgency ? <label className="taskCheck"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> Comentário interno (o cliente não vê)</label> : null}
           <div className="taskApprovalActions">
-            {changeAction ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, changeAction, comment)}>Pedir ajuste</button> : null}
+            {changeAction && !current.calendar_item_id ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, changeAction, comment)}>Pedir ajuste</button> : null}
             <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, "comment", comment)}>Comentar</button>
           </div>
           {notice ? <p role="status" className="studioOk">{notice}</p> : null}
@@ -229,6 +232,7 @@ function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => v
       <span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}{t.due_time ? ` ${t.due_time.slice(0, 5)}` : ""}</span>
       {urgent ? <span className={`taskPrio is-${t.priority}`}>{TASK_PRIORITY[t.priority || ""]}</span> : null}
     </div>
+    {t.calendar_item_id ? <span className="taskFromCalendar">Calendário</span> : null}
     {t.deliverable_url ? <a className="taskLink" href={t.deliverable_url} target="_blank" rel="noreferrer noopener">Entrega ↗</a> : null}
     {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
     {t.assignee || t.category ? <small className="taskWho">

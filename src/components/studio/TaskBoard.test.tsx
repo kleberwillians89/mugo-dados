@@ -41,6 +41,18 @@ describe("Tarefas com aprovação", () => {
     expect(crm.taskApproval).toHaveBeenLastCalledWith(expect.stringMatching(/^t-/), "internal_approve", undefined, false);
   });
 
+  it("ajuste do Calendário: tarefa acompanha o post e a aprovação fica no Calendário", async () => {
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true,
+      tasks: status === "completed" ? [] : [task("changes", { id: "t-cal", title: "Ajuste: Black Friday (27/11)", calendar_item_id: "11111111-1111-1111-1111-111111111111" })] }));
+    await show(<TaskBoard canManage isAgency />);
+    expect(host.textContent).toContain("Ajuste: Black Friday (27/11)");
+    expect(host.querySelector(".taskFromCalendar")?.textContent).toBe("Calendário");
+    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toEqual(["Abrir no Calendário →"]);
+    await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
+    expect(host.querySelector("[data-drawer]")?.textContent).toContain("nasceu de um ajuste no Calendário");
+    expect([...host.querySelectorAll("[data-drawer] button")].map((b) => b.textContent)).not.toContain("Enviar para aprovação interna");
+  });
+
   it("cliente não vê a etapa interna; pede ajuste com comentário pela tarefa aberta", async () => {
     await show(<TaskBoard />);
     expect([...host.querySelectorAll(".kanbanCol header b")].map((b) => b.textContent)).not.toContain("Aprovação interna");

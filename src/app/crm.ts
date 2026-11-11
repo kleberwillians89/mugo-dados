@@ -29,6 +29,8 @@ export type CrmTask = {
   needs_client_approval?: boolean;
   approval_round?: number;
   approved_at?: string | null;
+  /** Tarefa criada por ajuste num post do Calendário: acompanha o post e é aprovada por lá. */
+  calendar_item_id?: string | null;
 };
 export type CrmConversation = {
   id: string; status: string | null; attendance_mode: string | null; unread_count: number | null; last_message_at: string | null;

@@ -111,6 +111,10 @@ async def create_request(
     if pending:
         await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"in.({','.join(pending)})"},
                         patch={"status": "em_revisao"})
+        # Tarefa ligada a post em ajuste vai para "Aprovação do cliente" junto com o link.
+        from .studio_tasks import sync_calendar_item
+        for item_id in pending:
+            await sync_calendar_item(client_id, {"id": item_id, "status": "em_revisao"}, with_client=True)
     link = f"{app_origin.rstrip('/')}/aprovar/{token}"
     months = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro",
               "outubro", "novembro", "dezembro")
@@ -208,6 +212,8 @@ async def public_decide(token: str, item_id: str, *, action: str, comment: Optio
     item = (await sb_select(ITEMS_TABLE, select="id,title,scheduled_at", limit=1,
                             filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}"}) or [{"id": item_id}])[0]
     await notify_team(request["client_id"], item, action, actor_name=reviewer, comment=comment)
+    from .studio_tasks import sync_calendar_item
+    await sync_calendar_item(request["client_id"], {**item, "status": patch["status"]}, comment=comment, actor_name=reviewer, by_client=True)
     decided = {str(e["item_id"]) for e in await sb_select(EVENTS, select="item_id",
                                                            filters={"request_id": f"eq.{request['id']}"}, limit=500)}
     if ids <= decided and request["status"] == "aberto":
