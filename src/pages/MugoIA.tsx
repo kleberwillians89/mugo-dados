@@ -32,7 +32,7 @@ const GAP_LABEL: Record<string, string> = {
 const gapLabel = (gap: string) => GAP_LABEL[gap] || gap.replace(/_/g, " ");
 
 /**
- * Mugô IA: a pessoa pergunta qualquer coisa sobre o mundo do cliente e a IA responde lendo TODO o contexto dele
+ * Mugoverso IA: a pessoa pergunta qualquer coisa sobre o mundo do cliente e a IA responde lendo TODO o contexto dele
  * (dados, material enviado, saúde da marca, voz do público, concorrentes, clipping, produtos, calendário, mídia, metas).
  * Cada empresa tem o seu contexto; cada pessoa, a sua conversa. O cliente nunca vê o que é só da equipe.
  */
@@ -63,7 +63,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
-      setError(cause instanceof Error && cause.message ? cause.message : "A Mugô IA não respondeu agora. Tente de novo.");
+      setError(cause instanceof Error && cause.message ? cause.message : "A Mugoverso IA não respondeu agora. Tente de novo.");
     } finally { setBusy(false); }
   }
 
@@ -81,13 +81,13 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
 
   const lastAnswer = [...(messages || [])].reverse().find((m) => m.role === "assistant");
 
-  return <Shell title="Mugô IA" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={company} title="Mugô IA" />
-    <p className="libHint">Pergunte qualquer coisa sobre a {company}. A Mugô IA lê tudo da marca antes de responder: dados e métricas, material enviado,
+  return <Shell title="Mugoverso IA" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={company} title="Mugoverso IA" />
+    <p className="libHint">Pergunte qualquer coisa sobre a {company}. A Mugoverso IA lê tudo da marca antes de responder: dados e métricas, material enviado,
       saúde da marca, o que o público fala, concorrentes, clipping, produtos, calendário, mídia e metas. Sua conversa é só sua.</p>
-    <section className="agentBox mugoIA" aria-label="Conversar com a Mugô IA">
+    <section className="agentBox mugoIA" aria-label="Conversar com a Mugoverso IA">
       <header>
-        <h3><Sparkles size={16} aria-hidden="true" /> Mugô IA · {company}</h3>
+        <h3><Sparkles size={16} aria-hidden="true" /> Mugoverso IA · {company}</h3>
         {messages?.length ? (confirmClear
           ? <span className="kbRow"><small>Apagar sua conversa?</small>
             <button type="button" className="kbLink" onClick={() => void clear()}>Apagar</button>
@@ -104,7 +104,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
           const facts = m.meta?.new_facts || [];
           const isLast = m === lastAnswer;
           return <div key={key} className={`chatMsg ${m.role === "user" ? "is-mine" : "is-agent"}${m.meta?.on_topic === false ? " is-offtopic" : ""}`}>
-            <small>{m.role === "user" ? "Você" : "Mugô IA"}</small>
+            <small>{m.role === "user" ? "Você" : "Mugoverso IA"}</small>
             <p>{m.content}</p>
             {m.meta?.sources?.length ? <small className="agentSources">Com base em: {m.meta.sources.join(", ")}</small> : null}
             {isLast && m.meta?.coverage?.gaps?.length ? <small className="mugoIAGaps">Sem dado agora: {m.meta.coverage.gaps.map(gapLabel).join(", ")}</small> : null}
@@ -120,12 +120,12 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
             </div> : null}
           </div>;
         })}
-        {busy ? <div className="chatMsg is-agent"><small>Mugô IA</small><p className="agentTyping">Lendo tudo da {company} e pensando…</p></div> : null}
+        {busy ? <div className="chatMsg is-agent"><small>Mugoverso IA</small><p className="agentTyping">Lendo tudo da {company} e pensando…</p></div> : null}
         <div ref={end} />
       </div>
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       <div className="chatComposer">
-        <textarea rows={2} value={text} maxLength={1500} placeholder={`Pergunte qualquer coisa sobre a ${company}…`} aria-label="Pergunta para a Mugô IA"
+        <textarea rows={2} value={text} maxLength={1500} placeholder={`Pergunte qualquer coisa sobre a ${company}…`} aria-label="Pergunta para a Mugoverso IA"
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
         <div className="chatActions">
           <button type="button" className="ds-button is-primary" onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? "Pensando…" : "Perguntar"}</button>

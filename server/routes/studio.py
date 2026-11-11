@@ -1771,9 +1771,19 @@ class MugoIAInput(BaseModel):
     question: str = Field(min_length=1, max_length=1500)
 
 
+def _person_name(authorization: str | None, uid: str) -> str:
+    """Nome cadastrado de quem pergunta (nunca o pedaço do e-mail: 'contato' não é nome de gente)."""
+    from services.auth import _bearer_token, _decode_jwt_claims_no_verify
+    claims = _decode_jwt_claims_no_verify(_bearer_token(authorization) or "") or {}
+    if str(claims.get("sub") or "") != uid:
+        return ""
+    meta = claims.get("user_metadata") or {}
+    return " ".join(str(meta.get("full_name") or meta.get("name") or "").split())[:80]
+
+
 @router.get("/mugo-ia")
 async def read_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
-    """Conversa desta pessoa com a Mugô IA desta empresa (privada de cada pessoa)."""
+    """Conversa desta pessoa com a Mugoverso IA desta empresa (privada de cada pessoa)."""
     from services.mugo_ia import history
     cid = await require_client_read(client_id, authorization)
     return {"messages": await history(cid, await require_user_id(authorization))}
@@ -1781,13 +1791,13 @@ async def read_mugo_ia(client_id: str, authorization: str | None = Header(defaul
 
 @router.post("/mugo-ia")
 async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | None = Header(default=None)):
-    """Pergunta à Mugô IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
+    """Pergunta à Mugoverso IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
     from services.mugo_ia import ask
     cid = await require_client_read(client_id, authorization)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
     try:
-        return {"ok": True, **await ask(cid, uid, body.question, team=team)}
+        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
     except StudioError as exc:
         raise _http(exc) from None
 

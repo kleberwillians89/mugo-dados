@@ -38,8 +38,8 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
-  // Mugô IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
-  { route: "mugo_ia", label: "Mugô IA" },
+  // Mugoverso IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
+  { route: "mugo_ia", label: "Mugoverso IA" },
   { route: "central", label: "Central da Marca" },
   { route: "briefing", label: "Briefing" },
   { route: "planning", label: "Planejamento" },
