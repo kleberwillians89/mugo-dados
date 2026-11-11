@@ -6,6 +6,7 @@ import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, 
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
+import BriefingPanel from "./BriefingPanel";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
@@ -81,6 +82,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const caption = draft.caption_draft || "";
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
   const signals = item?.signals;
+
   const set = (patch: Partial<PostDraft>) => setDraft((d) => ({ ...d, ...patch }));
   /** Traz a arte de um link do Drive/Canva. index = troca o link existente nessa posição; sem index = acrescenta no fim. */
   async function bringFromLink(url: string, index?: number) {
@@ -178,11 +180,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {item?.script || item?.visual_idea ? <details className="postFromMatrix" open>
-          <summary>Criado na Matriz</summary>
-          {item.script ? <div><b>Roteiro</b><p>{item.script}</p></div> : null}
-          {item.visual_idea ? <div><b>Ideia de imagem</b><p>{item.visual_idea}</p></div> : null}
-        </details> : null}
+        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
@@ -230,6 +228,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {signals?.seasonal ? <li>📅 {signals.seasonal}</li> : null}
             {signals?.basis?.hours ? <li>⏱ Melhor faixa: {signals.basis.hours}{signals.basis.slot_reach_index ? ` (alcance ${signals.basis.slot_reach_index.toLocaleString("pt-BR")}x a média)` : ""}{signals.basis.confidence ? ` · confiança ${signals.basis.confidence}` : ""}</li> : null}
             {signals?.trend ? <li>🔥 Em alta: <a href={signals.trend.source_url} target="_blank" rel="noreferrer noopener">{signals.trend.topic}</a></li> : null}
+            {(signals?.repetido || []).map((r) => <li key={r} className="is-warning">↻ Parece repetido: {r}</li>)}
             {signals?.palavras_evitar_encontradas?.length ? <li className="is-warning">⚠ Palavra a evitar: {signals.palavras_evitar_encontradas.join(", ")}</li> : null}
             {(signals?.fora_da_marca || []).map((g) => <li key={`${g.type}:${g.text}`} className="is-warning">⚠ {g.fix}</li>)}
           </ul>

@@ -21,7 +21,7 @@ from services.studio_calendar import (
 from services.studio_approvals import (
     cancel_request, create_request, frontend_base_url, list_requests, pipeline, public_decide, public_view,
 )
-from services.studio_engines import ASSIST_ACTIONS, assist, strategy_chat, suggest_profile
+from services.studio_engines import ASSIST_ACTIONS, assist, generate_briefing, strategy_chat, suggest_profile
 from services.studio_intelligence import build_content_intelligence, coverage
 from services.media_plan import get_strategy, list_strategies, plan_vs_actual, record_strategy, save_plan
 from services.media_strategy import build_strategy, narrative as media_narrative
@@ -668,6 +668,27 @@ async def run_assist(client_id: str, body: AssistInput, authorization: str | Non
     try:
         return await assist(cid, body.action, body.item.model_dump(), instruction=body.instruction,
                             item_id=str(body.item_id) if body.item_id else None)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class BriefingInput(BaseModel):
+    """Direcionamento opcional do briefing (como no Atendimento do iAgência)."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    objective: Optional[str] = Field(default=None, max_length=600)
+    target_audience: Optional[str] = Field(default=None, max_length=600)
+    cta: Optional[str] = Field(default=None, max_length=300)
+    boldness: Optional[int] = Field(default=None, ge=1, le=5)
+    references: Optional[str] = Field(default=None, max_length=600)
+    request: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/calendar/items/{item_id}/briefing")
+async def make_briefing(client_id: str, item_id: UUID, body: BriefingInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await generate_briefing(cid, str(item_id), body.model_dump(exclude_none=True))
     except StudioError as exc:
         raise _http(exc) from None
 

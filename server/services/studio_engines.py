@@ -100,8 +100,16 @@ async def assist(client_id: str, action: str, item: Dict[str, Any], *, instructi
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
     refs = await _post_references(client_id, item_id)
+    # Briefing da pauta (iAgência: "BRIEFING DO JOB (PRIORIDADE MÁXIMA)"): legenda, ganchos e roteiro seguem ele.
+    briefing = ""
+    if item_id:
+        try:
+            briefing = briefing_block(((await _load_item(client_id, item_id)).get("signals") or {}).get("briefing"))
+        except Exception:  # noqa: BLE001 — sem a pauta salva, segue sem briefing
+            briefing = ""
     prompt = (
-        f"TAREFA: {ASSIST_TASKS[action]}\n"
+        briefing
+        + f"TAREFA: {ASSIST_TASKS[action]}\n"
         + (f"PEDIDO DA EQUIPE: {instruction.strip()[:600]}\n" if instruction and instruction.strip() else "")
         + f"\nPAUTA:\n{json.dumps(_item_payload(item), ensure_ascii=False)}\n"
         + (f"\nREFERÊNCIAS DESTE POST (o cliente/equipe quer nesse estilo; siga formato, estética e tom, sem copiar):\n"
@@ -211,3 +219,108 @@ async def suggest_profile(client_id: str) -> Dict[str, Any]:
     throttle(client_id)
     return await suggest(client_id)
 
+
+
+# ---------------------------------------------------------------- briefing da peça (trazido do iAgência)
+# No iAgência o Atendimento transforma o pedido em "briefing técnico" (objetivo, mensagem-chave, tom, resumo,
+# público, entregáveis, requisitos técnicos), com direcionamento opcional (objetivo, público, CTA, ousadia 1 a 5,
+# referências) e esse briefing vira PRIORIDADE MÁXIMA quando a IA escreve a peça. Aqui ele mora na pauta:
+# signals.briefing (texto curto) + script e visual_idea (roteiro e direção da arte, migração 000090).
+
+BOLDNESS = {1: "Conservador", 2: "Sério", 3: "Equilibrado", 4: "Arrojado", 5: "Disruptivo"}
+BRIEFING_SCHEMA = obj({
+    "summary": STR, "objective": STR, "key_message": STR, "tone": STR, "target_audience": STR,
+    "angle": {"type": "string", "enum": None},  # preenchido abaixo com os ângulos do rodízio
+    "deliverables": arr(STR), "tech_requirements": arr(STR), "script": STR, "visual_idea": STR,
+})
+BRIEFING_FIELDS = ("summary", "objective", "key_message", "tone", "target_audience", "angle", "deliverables", "tech_requirements")
+
+
+def _briefing_schema() -> Dict[str, Any]:
+    from .content_variety import ANGLES
+    schema = json.loads(json.dumps(BRIEFING_SCHEMA))
+    schema["properties"]["angle"]["enum"] = list(ANGLES)
+    return schema
+
+
+def clean_briefing(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Tamanhos fixos: briefing é para ser lido em 30 segundos por quem produz."""
+    from .content_variety import ANGLES
+    text = lambda v, n: re.sub(r"\s+", " ", str(v or "")).strip()[:n]  # noqa: E731
+    items = lambda v, n: [text(x, 160) for x in (v or []) if text(x, 160)][:n]  # noqa: E731
+    out = {"summary": text(data.get("summary"), 500), "objective": text(data.get("objective"), 300),
+           "key_message": text(data.get("key_message"), 300), "tone": text(data.get("tone"), 200),
+           "target_audience": text(data.get("target_audience"), 300),
+           "angle": data.get("angle") if data.get("angle") in ANGLES else "",
+           "deliverables": items(data.get("deliverables"), 6), "tech_requirements": items(data.get("tech_requirements"), 6)}
+    return {k: v for k, v in out.items() if v}
+
+
+def briefing_block(briefing: Optional[Dict[str, Any]]) -> str:
+    """Bloco de prioridade máxima para os outros motores (legenda, variações, ganchos, roteiro, revisar)."""
+    b = briefing or {}
+    labels = (("objective", "Objetivo"), ("key_message", "Mensagem-chave"), ("tone", "Tom"), ("target_audience", "Público"),
+              ("summary", "Resumo"), ("angle", "Ângulo"))
+    lines = [f"{label}: {b[key]}" for key, label in labels if b.get(key)]
+    if b.get("tech_requirements"):
+        lines.append("Requisitos técnicos: " + "; ".join(b["tech_requirements"]))
+    return ("=== BRIEFING DA PEÇA (PRIORIDADE MÁXIMA) ===\n" + "\n".join(lines) + "\n=============================\n") if lines else ""
+
+
+async def _load_item(client_id: str, item_id: str) -> Dict[str, Any]:
+    from .ig_supabase import sb_select
+    rows = await sb_select("studio_calendar_items", select="*", filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, limit=1)
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    return rows[0]
+
+
+async def generate_briefing(client_id: str, item_id: str, direction: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """A IA monta o briefing da pauta (como o Atendimento do iAgência) e grava na pauta."""
+    from .ig_supabase import sb_update
+    from .studio_calendar import SCRIPT_HINTS
+    item = await _load_item(client_id, item_id)
+    throttle(client_id)
+    d = {k: str(v).strip()[:600] for k, v in (direction or {}).items() if isinstance(v, (str, int)) and str(v).strip()}
+    boldness = BOLDNESS.get(int(d.get("boldness") or 3), "Equilibrado") if str(d.get("boldness") or "3").isdigit() else "Equilibrado"
+    intel = await build_content_intelligence(client_id)
+    refs = await _post_references(client_id, item_id)
+    fmt = item.get("format") if item.get("format") in FORMATS else "imagem"
+    prompt = (
+        "Monte o BRIEFING TÉCNICO desta pauta para quem vai produzir a peça (designer, editor de vídeo, redator).\n"
+        f"DIRETRIZES DA EQUIPE (use quando preenchidas):\n- Objetivo: {d.get('objective') or 'definir a partir da pauta'}\n"
+        f"- Público: {d.get('target_audience') or 'o público do perfil da marca'}\n- CTA: {d.get('cta') or 'definir'}\n"
+        f"- Ousadia: {boldness}\n- Referências: {d.get('references') or 'nenhuma'}\n- Pedido: {d.get('request') or 'nenhum'}\n"
+        f"\nPAUTA:\n{json.dumps(_item_payload(item), ensure_ascii=False)}\n"
+        + (f"\nREFERÊNCIAS DESTE POST (o cliente/equipe quer nesse estilo):\n{json.dumps(refs, ensure_ascii=False)}\n" if refs else "")
+        + "\nCAMPOS (curtos e concretos, nada genérico):\n"
+          "- summary: o que é a peça, em até 2 frases.\n- objective: o que ela precisa fazer, 1 frase.\n"
+          "- key_message: a única ideia que o público deve guardar, 1 frase.\n- tone: o tom, derivado do perfil da marca, em poucas palavras.\n"
+          "- target_audience: para quem é, 1 frase.\n- angle: o ângulo da pauta.\n"
+          "- deliverables: o que precisa ser entregue (ex.: 'Reels 9:16 de 20 a 30 s', 'capa', 'legenda').\n"
+          "- tech_requirements: especificações (proporção, duração, número de slides, legendas na tela, áudio).\n"
+          f"- script: {SCRIPT_HINTS.get(fmt, SCRIPT_HINTS['imagem'])} No máximo 6 itens.\n"
+          "- visual_idea: direção da arte em 2 a 4 linhas (composição, enquadramento, luz, cores da marca, texto na arte).\n"
+          "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
+        + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
+    )
+    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_briefing",
+                          schema=_briefing_schema(), temperature=0.4)
+    briefing = clean_briefing(data)
+    if not briefing.get("objective") and not briefing.get("key_message"):
+        raise StudioError("AI_INVALID_OUTPUT")
+    signals = {**(item.get("signals") or {}), "briefing": briefing}
+    patch: Dict[str, Any] = {"signals": signals}
+    script, visual = str(data.get("script") or "").strip()[:4000], str(data.get("visual_idea") or "").strip()[:2000]
+    if script:
+        patch["script"] = script
+    if visual:
+        patch["visual_idea"] = visual
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
+    try:
+        rows = await sb_update("studio_calendar_items", filters=filters, patch=patch)
+    except Exception as error:  # banco sem a migração 000090: grava só o briefing curto
+        if not re.search(r"script|visual_idea", str(error)):
+            raise
+        rows = await sb_update("studio_calendar_items", filters=filters, patch={"signals": signals})
+    return {"item": rows[0] if rows else {**item, **patch}, "based_on": coverage(intel)}
