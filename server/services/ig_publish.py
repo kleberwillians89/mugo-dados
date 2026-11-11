@@ -67,7 +67,32 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
     collaborators = clean_collaborators(item.get("collaborators"))
     if plan and collaborators and plan["type"] != "story":
         plan["fields"]["collaborators"] = json.dumps(collaborators)
+    if plan and plan["type"] != "story" and item.get("product_tags"):
+        _apply_product_tags(plan, item["product_tags"])
     return plan, problem
+
+
+def _apply_product_tags(plan: Dict[str, Any], raw: Any) -> None:
+    """Produtos da loja no contêiner: imagem com x/y, Reels só o produto, carrossel slide a slide (5 por slide, 20 no total)."""
+    from .ig_shop import MAX_TAGS, clean_product_tags, tags_for_container
+    tags = clean_product_tags(raw)
+    if not tags:
+        return
+    if plan["type"] == "image":
+        found = tags_for_container(tags, image=True, slide=0)
+    elif plan["type"] == "reels":
+        found = tags_for_container(tags, image=False, limit=MAX_TAGS)
+    else:
+        found = []
+        left = 20
+        for index, child in enumerate(plan["children"]):
+            mine = tags_for_container(tags, image="image_url" in child, slide=index, limit=min(5, left))
+            if mine:
+                child["product_tags"] = json.dumps(mine)
+                left -= len(mine)
+        return
+    if found:
+        plan["fields"]["product_tags"] = json.dumps(found)
 
 
 def clean_collaborators(value: Any) -> List[str]:
@@ -196,7 +221,22 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         creds = creds_cache[client_id]
         if creds["scopes"] and PUBLISH_SCOPE not in creds["scopes"]:
             raise StudioError("IG_PUBLISH_FAILED", "A conexão do Instagram desta marca não tem a permissão de publicar. Reconecte em Integrações.")
-        out = await publish(creds, container)
+        from .ig_shop import TAG_SCOPE, has_tags, strip_tags
+        untagged = None
+        if has_tags(container) and creds["scopes"] and TAG_SCOPE not in creds["scopes"]:
+            container, untagged = strip_tags(container), "a conexão ainda não tem a permissão de marcar produtos"
+        try:
+            out = await publish(creds, container)
+        except StudioError as exc:
+            if not has_tags(container):
+                raise
+            # A Meta recusou com as marcações (loja não aprovada, produto inválido…): o post sai sem elas.
+            out = await publish(creds, strip_tags(container))
+            untagged = f"a Meta recusou as marcações ({(str(exc) if str(exc) != exc.code else exc.code)[:120]})"
+        if untagged:
+            from .studio_history import record
+            await record(item["client_id"], item["id"], f"publicou sem marcar os produtos da loja: {untagged}",
+                         actor_name="Publicação automática", side="sistema")
         await _set(item, {"publish_status": "publicado", "status": "publicado", "published_at": datetime.now(timezone.utc).isoformat(),
                           "published_media_id": out["media_id"], "published_permalink": out.get("permalink")}, expect="publicando")
         return "publicado"
@@ -212,9 +252,12 @@ async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
                  filters={"status": "eq.aprovado", "schedule_confirmed_at": "not.is.null", "publish_status": "is.null",
                           "scheduled_at": f"lte.{now.isoformat()}"})
     try:
-        items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators", **query)
-    except Exception:  # noqa: BLE001 — antes da migração 000080 (sem colaboradores): publica igual
-        items = await sb_select(ITEMS_TABLE, select=base, **query)
+        items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators,product_tags", **query)
+    except Exception:  # noqa: BLE001 — antes da migração 000098 (produtos) ou 000080 (colaboradores): publica igual
+        try:
+            items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators", **query)
+        except Exception:  # noqa: BLE001
+            items = await sb_select(ITEMS_TABLE, select=base, **query)
     counts: Dict[str, int] = {"due": len(items)}
     cache: Dict[str, Any] = {}
     for item in items:

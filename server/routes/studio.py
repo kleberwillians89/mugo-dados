@@ -133,6 +133,7 @@ class ItemCreate(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     art_url: Optional[str] = Field(default=None, max_length=1000)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
+    product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
 
 
 class ItemPatch(BaseModel):
@@ -149,6 +150,50 @@ class ItemPatch(BaseModel):
     review_note: Optional[str] = Field(default=None, max_length=1000)
     art_url: Optional[str] = Field(default=None, max_length=1000)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
+    product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
+
+
+class ProductTagInput(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    product_id: str = Field(min_length=1, max_length=30, pattern=r"^\d+$")
+    name: Optional[str] = Field(default=None, max_length=200)
+    image_url: Optional[str] = Field(default=None, max_length=1000)
+    slide: int = Field(default=0, ge=0, le=9)
+    x: float = Field(default=0.5, ge=0, le=1)
+    y: float = Field(default=0.5, ge=0, le=1)
+
+
+ItemPatch.model_rebuild()
+ItemCreate.model_rebuild()
+
+
+@router.get("/calendar/shop")
+async def read_shop(client_id: str, authorization: str | None = Header(default=None)):
+    """Equipe: a marca pode marcar produtos da loja do Instagram? Quais catálogos tem?"""
+    from services.ig_shop import shop_status
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô marca produtos nos posts.")
+    return await shop_status(cid)
+
+
+@router.get("/calendar/shop/products")
+async def read_shop_products(client_id: str, q: str = "", catalog_id: Optional[str] = None,
+                             authorization: str | None = Header(default=None)):
+    """Equipe: busca produtos da loja (nome ou SKU) para marcar no post."""
+    from services.ig_shop import search_products
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô marca produtos nos posts.")
+    if catalog_id is not None and not catalog_id.isdigit():
+        raise HTTPException(status_code=400, detail="Catálogo inválido.")
+    try:
+        return {"products": await search_products(cid, q, catalog_id)}
+    except StudioError as exc:
+        if exc.code.startswith("SHOP_") or exc.code == "IG_NOT_CONNECTED":
+            detail = str(exc) if str(exc) != exc.code else "Conecte o Instagram da marca em Integrações para marcar produtos."
+            raise HTTPException(status_code=409, detail=detail) from None
+        raise _http(exc) from None
 
 
 @router.get("/brand-profile")

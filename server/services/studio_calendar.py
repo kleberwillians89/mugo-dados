@@ -603,7 +603,7 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
 
 
-EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags")
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -627,6 +627,9 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if "collaborators" in clean:
         from .ig_publish import clean_collaborators
         clean["collaborators"] = clean_collaborators(clean["collaborators"])
+    if "product_tags" in clean:
+        from .ig_shop import clean_product_tags
+        clean["product_tags"] = clean_product_tags(clean["product_tags"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -740,6 +743,9 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
     if data.get("collaborators"):
         from .ig_publish import clean_collaborators
         row["collaborators"] = clean_collaborators(data["collaborators"])
+    if data.get("product_tags"):
+        from .ig_shop import clean_product_tags
+        row["product_tags"] = clean_product_tags(data["product_tags"])
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")

@@ -46,6 +46,8 @@ export type CalendarItem = {
   script?: string | null; visual_idea?: string | null;
   /** @ dos colaboradores no Instagram (até 3; sem @). */
   collaborators?: string[];
+  /** Produtos da loja do Instagram marcados no post (publicados junto). */
+  product_tags?: ProductTag[];
   /** Equipe validou o agendamento depois da aprovação do cliente. */
   schedule_confirmed_at?: string | null;
   /** Publicação automática no Instagram (job a cada 5 min no horário do post). */
@@ -60,7 +62,7 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags">>;
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
@@ -95,6 +97,19 @@ export function decideCalendarItem(id: string, status: "aprovado" | "rejeitado",
   return http<{ item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(id)}/decision`), { method: "POST",
     body: JSON.stringify({ status, ...(reviewNote ? { review_note: reviewNote } : {}) }) });
 }
+// ---------------------------------------------------------------- produtos da loja (Instagram Shopping)
+/** Produto marcado: slide = arte do carrossel (0 = primeira); x/y de 0.01 a 1 a partir do canto de cima (só imagem). */
+export type ProductTag = { product_id: string; name?: string | null; image_url?: string | null; slide: number; x: number; y: number };
+export type ShopStatus = { ready: boolean; eligible: boolean | null; catalogs: { id: string; name: string | null; shop_name: string | null; product_count: number | null }[];
+  missing_scopes: string[]; message: string | null };
+export type ShopProduct = { product_id: string; name: string; image_url: string | null; sku: string | null; review_status: string | null;
+  variants: { product_id: string; name: string | null }[] };
+export function getShop() { return http<ShopStatus>(base("/calendar/shop"), { timeoutMs: 30_000 }); }
+export function searchShopProducts(q: string, catalogId?: string) {
+  const params = new URLSearchParams({ q, ...(catalogId ? { catalog_id: catalogId } : {}) });
+  return http<{ products: ShopProduct[] }>(base(`/calendar/shop/products?${params.toString()}`), { timeoutMs: 30_000 });
+}
+
 export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch) {
   return http<{ item: CalendarItem }>(base("/calendar/items"), { method: "POST", body: JSON.stringify(item) });
 }

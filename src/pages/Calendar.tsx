@@ -148,7 +148,8 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       title: draft.title, hook: draft.hook || undefined, caption_draft: draft.caption_draft || undefined, rationale: draft.rationale || undefined,
       art_url: (draft.art_url || "").trim(),
       // Colaboradores só vão quando mudam (não registra "marcou" a cada salvar).
-      ...(JSON.stringify(draft.collaborators || []) !== JSON.stringify(modal?.item?.collaborators || []) ? { collaborators: draft.collaborators || [] } : {}) };
+      ...(JSON.stringify(draft.collaborators || []) !== JSON.stringify(modal?.item?.collaborators || []) ? { collaborators: draft.collaborators || [] } : {}),
+      ...(JSON.stringify(draft.product_tags || []) !== JSON.stringify(modal?.item?.product_tags || []) ? { product_tags: draft.product_tags || [] } : {}) };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;

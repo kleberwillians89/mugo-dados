@@ -38,6 +38,9 @@ def _same(key: str, old: Any, new: Any) -> bool:
             return False
     if key == "collaborators":
         return [str(x).lower().lstrip("@") for x in (old or [])] == [str(x).lower().lstrip("@") for x in (new or [])]
+    if key == "product_tags":
+        ids = lambda tags: [(str(t.get("product_id")), int(t.get("slide") or 0), t.get("x"), t.get("y")) for t in (tags or []) if isinstance(t, dict)]  # noqa: E731
+        return ids(old) == ids(new)
     return (str(old).strip() if old is not None else "") == (str(new).strip() if new is not None else "")
 
 
@@ -65,6 +68,9 @@ def describe_patch(patch: Dict[str, Any]) -> List[str]:
     if "collaborators" in patch:
         names = [f"@{c}" for c in patch.get("collaborators") or []]
         out.append(f"marcou colaborador{'es' if len(names) > 1 else ''} {', '.join(names)}" if names else "tirou os colaboradores")
+    if "product_tags" in patch:
+        count = len(patch.get("product_tags") or [])
+        out.append(f"marcou {count} produto{'s' if count > 1 else ''} da loja" if count else "tirou os produtos marcados")
     edited = [label for key, label in TEXT_FIELDS.items() if key in patch]
     if edited:
         out.append(f"editou {', '.join(edited)}")

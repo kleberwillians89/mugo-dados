@@ -11,6 +11,7 @@ import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
 import ItemHistory from "./ItemHistory";
 import Collaborators from "./Collaborators";
+import ProductTags from "./ProductTags";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
@@ -139,6 +140,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
+          {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados">🛍 {draft.product_tags.length}</span> : null}
         </div>
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -183,6 +185,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         </details> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
+        {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
+          format={draft.format} slides={slides} disabled={busy} /> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">Arte do post {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
