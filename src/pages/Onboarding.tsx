@@ -241,6 +241,9 @@ function canonicalAccountLabel(entry: ClientIntegrationConnection | undefined): 
  */
 function humanizeIntegrationError(rawError: string, providerName: string): string {
   const normalized = rawError.toLowerCase();
+  if (normalized.includes("reauth") || normalized.includes("invalid_grant")) {
+    return `A autorização da ${providerName} venceu ou foi revogada. Reconecte para os dados voltarem a atualizar.`;
+  }
   if (normalized.includes("permission") || normalized.includes("permissão") || normalized.includes("403")) {
     return `A autorização da ${providerName} perdeu uma permissão necessária. Reconecte para continuar atualizando.`;
   }

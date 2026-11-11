@@ -70,7 +70,7 @@ describe("AppNavigation — sidebar global", () => {
   it("organiza os itens na nova ordem visual sem alterar suas rotas", async () => {
     await render({ agencyAdmin: true });
     expect(groupLinks("Operação")).toEqual([
-      "Mugô IA", "Central da Marca", "Briefing", "Tarefas", "Social Media", "Redação", "Criadores",
+      "Mugô IA", "Central da Marca", "Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
       "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",

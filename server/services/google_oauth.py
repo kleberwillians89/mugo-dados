@@ -334,6 +334,16 @@ async def save_google_authorization(
     )
 
 
+async def _mark_reauth(client_id: str, connection_id: str, code: str) -> None:
+    """Autorização vencida/revogada: grava o código em last_error para Integrações mostrar "Reconectar".
+    O status continua "connected": o job tenta de novo e, depois da reconexão, volta sozinho."""
+    try:
+        await sb_update("integration_connections", filters={"id": f"eq.{connection_id}", "client_id": f"eq.{client_id}"},
+                        patch={"last_error": code, "updated_at": datetime.now(timezone.utc).isoformat()}, returning="minimal")
+    except Exception as exc:  # noqa: BLE001 — marcar é aviso; a falha original continua subindo
+        print(f"[google_oauth][mark_reauth] connection_id={connection_id} status=failed error_type={type(exc).__name__}")
+
+
 async def _access_token(
     client_id: str,
     connection_id: str,
@@ -404,6 +414,7 @@ async def _access_token(
                 f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
                 f"client_id={client_id} stage=refresh_blocked code=GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING"
             )
+            await _mark_reauth(client_id, connection_id, "GOOGLE_REAUTH_REQUIRED_REFRESH_MISSING")
             raise IntegrationError(
                 "A conexão Google requer nova autorização.",
                 status_code=409,
@@ -434,6 +445,7 @@ async def _access_token(
                     f"[google_oauth][token_refresh] request_id={request_id} connection_id={connection_id} "
                     f"client_id={client_id} stage=refresh_failed code=GOOGLE_REAUTH_REQUIRED_INVALID_GRANT"
                 )
+                await _mark_reauth(client_id, connection_id, "GOOGLE_REAUTH_REQUIRED_INVALID_GRANT")
                 raise IntegrationError(
                     "A autorização Google foi revogada ou expirou. Conecte novamente.",
                     status_code=409,

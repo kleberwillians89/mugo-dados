@@ -362,12 +362,23 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def google_sync_failed(result: Any) -> bool:
+    """Falha real de alguma conta (pula as que só estavam travadas ou sem propriedade escolhida)."""
+    if not isinstance(result, dict):
+        return False
+    return any(not r.get("ok") and not r.get("skipped") for r in result.get("results") or [] if isinstance(r, dict))
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     result = asyncio.run(_run(args))
     _print_json(result)
     if args.command in {"provider-history", "provider-coverage"} and result.get("ok") is False:
+        raise SystemExit(1)
+    # Google (GA4 e Ads): conta que falhou (ex.: autorização vencida) faz o job falhar e o GitHub abrir o alerta.
+    # Antes saía "ok" mesmo com todas as contas falhando, e o GA4 ficou parado dias sem ninguém saber.
+    if args.command in {"ga4-sync-all", "google-ads-sync"} and google_sync_failed(result):
         raise SystemExit(1)
     # IA dos comentários: se alguma marca ficou sem resposta por falha, o job falha e o GitHub abre o alerta.
     if args.command == "ig-ai-replies" and isinstance(result, dict) and result.get("ai_brands_failed"):
