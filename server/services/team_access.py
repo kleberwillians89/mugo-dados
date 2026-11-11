@@ -261,6 +261,8 @@ _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "matrix": ("social_media", True),
     "agents": ("social_media", True),
     "briefs": ("tasks", True),
+    "projects": ("tasks", True),
+    "library": ("calendar", True),
     "documents": ("social_media", True),
     "approvals": ("calendar", True),
     "assist": ("calendar", False),

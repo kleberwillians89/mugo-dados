@@ -14,7 +14,7 @@ export function normalizeLoginIdentifier(raw: string): string {
 export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
   google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai",
-  media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", clipping: "clipping", creators: "creators",
+  media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", library: "calendar", planning: "tasks", production: "tasks", clipping: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
 };
 
@@ -24,6 +24,8 @@ export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit", "
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
 export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {
   if (route === "campaigns") return can("social_media.view") || can("calendar.view");
+  // Planejamento e Evento são internos: equipe Mugô ou quem aprova internamente (mesma regra do backend).
+  if (route === "planning" || route === "production") return can("tasks.approve");
   const module = ROUTE_MODULE[route];
   return !module || can(`${module}.view`);
 }

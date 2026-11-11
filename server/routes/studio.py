@@ -1816,3 +1816,218 @@ async def read_latest_history(client_id: str, authorization: str | None = Header
     cid = await require_client_read(client_id, authorization)
     await _agency_only(authorization)
     return {"latest": await latest_by_item(cid)}
+
+
+# ---------------------------------------------------------------- Biblioteca (arquivos e links da marca)
+
+ERRORS.update({
+    "LIBRARY_TYPE_INVALID": (422, "Tipo de arquivo não aceito. Envie imagem, vídeo, PDF ou documento do Office."),
+    "LIBRARY_URL_INVALID": (422, "Use um link completo, começando com https://"),
+    "LIBRARY_NOT_FOUND": (404, "Item não encontrado na Biblioteca."),
+    "LIBRARY_FORBIDDEN": (403, "Você só pode apagar o que você enviou."),
+    "LIBRARY_SAVE_FAILED": (503, "Não foi possível salvar na Biblioteca."),
+    "PROJECT_KIND_INVALID": (422, "Tipo inválido."),
+    "PROJECT_NOT_FOUND": (404, "Não encontrado nesta empresa."),
+    "PROJECT_TITLE_REQUIRED": (422, "Dê um nome."),
+    "PROJECT_STATUS_INVALID": (422, "Etapa inválida."),
+    "PROJECT_DATE_INVALID": (422, "Data inválida."),
+    "PROJECT_INPUT_REQUIRED": (422, "Preencha o pedido antes de gerar."),
+    "PROJECT_TOO_LARGE": (413, "O plano ficou grande demais."),
+    "PROJECT_SAVE_FAILED": (503, "Não foi possível salvar."),
+})
+
+
+def _known(exc: StudioError) -> HTTPException:
+    """Erro com a mensagem escrita no serviço (mais específica que a da tabela)."""
+    status = ERRORS.get(exc.code, (502, ""))[0]
+    message = str(exc)
+    return HTTPException(status_code=status, detail=message) if message and message != exc.code else _http(exc)
+
+
+class LibraryUploadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    content_type: str = Field(min_length=3, max_length=120)
+
+
+class LibraryItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    kind: Literal["arquivo", "link"] = "link"
+    category: Literal["produto", "logo", "referencia", "foto", "video", "documento", "outro"] = "outro"
+    title: str = Field(default="", max_length=200)
+    url: str = Field(min_length=9, max_length=1000)
+    mime_type: Optional[str] = Field(default=None, max_length=120)
+    size_bytes: Optional[int] = Field(default=None, ge=0, le=2_000_000_000)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.get("/library")
+async def read_library(client_id: str, authorization: str | None = Header(default=None)):
+    """Materiais (equipe e cliente) + arte dos posts aprovados, lida do Calendário."""
+    from services.studio_library import CATEGORIES, approved_posts, list_items
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization, cid)
+    return {"items": await list_items(cid, user_id=uid, team=team), "approved": await approved_posts(cid),
+            "categories": CATEGORIES, "team": team}
+
+
+@router.post("/library/upload-url")
+async def library_upload_url(client_id: str, body: LibraryUploadInput, authorization: str | None = Header(default=None)):
+    from services.studio_library import upload_target
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    try:
+        return await upload_target(cid, body.content_type)
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.post("/library", status_code=201)
+async def add_library_item(client_id: str, body: LibraryItemInput, authorization: str | None = Header(default=None)):
+    from services.studio_library import add_item
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization, cid)
+    try:
+        item = await add_item(cid, body.model_dump(), user_id=uid, author=_chat_author(authorization, uid) or "",
+                              side="mugo" if team else "cliente")
+    except StudioError as exc:
+        raise _known(exc) from None
+    return {"item": {**item, "can_delete": True}}
+
+
+@router.delete("/library/{item_id}")
+async def remove_library_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_library import delete_item
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    try:
+        await delete_item(cid, str(item_id), user_id=uid, team=await is_agency_user(authorization, cid))
+    except StudioError as exc:
+        raise _known(exc) from None
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- Planejamento e Evento (só a equipe)
+
+ProjectKind = Literal["planejamento", "evento"]
+ProjectStatus = Literal["fila", "em_andamento", "aprovacao_interna", "finalizado"]
+
+
+class ProjectInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    objective: Optional[str] = Field(default=None, max_length=600)
+    audience: Optional[str] = Field(default=None, max_length=600)
+    idea: Optional[str] = Field(default=None, max_length=600)
+    budget: Optional[str] = Field(default=None, max_length=120)
+    location: Optional[str] = Field(default=None, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=600)
+
+
+class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=200)
+    format: Optional[str] = Field(default=None, max_length=60)
+    target_date: Optional[date] = None
+    inputs: ProjectInputs = Field(default_factory=ProjectInputs)
+
+
+class ProjectPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    status: Optional[ProjectStatus] = None
+    format: Optional[str] = Field(default=None, max_length=60)
+    target_date: Optional[date] = None
+    inputs: Optional[ProjectInputs] = None
+    plan: Optional[Dict[str, Any]] = None
+
+
+class ProjectGenerate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    use_chat: bool = False
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+class ProjectChat(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    message: str = Field(min_length=1, max_length=1500)
+
+
+@router.get("/projects/{kind}")
+async def read_projects(client_id: str, kind: ProjectKind, authorization: str | None = Header(default=None)):
+    from services.studio_projects import EVENT_FORMATS, list_projects
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    return {"projects": await list_projects(cid, kind), "formats": list(EVENT_FORMATS)}
+
+
+@router.post("/projects/{kind}", status_code=201)
+async def create_project_route(client_id: str, kind: ProjectKind, body: ProjectCreate, authorization: str | None = Header(default=None)):
+    from services.studio_projects import create_project
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"project": await create_project(cid, kind, body.model_dump(mode="json", exclude_none=True), user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.patch("/projects/{kind}/{project_id}")
+async def edit_project(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectPatch, authorization: str | None = Header(default=None)):
+    from services.studio_projects import update_project
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"project": await update_project(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.delete("/projects/{kind}/{project_id}")
+async def remove_project(client_id: str, kind: ProjectKind, project_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_projects import delete_project
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        await delete_project(cid, str(project_id))
+    except StudioError as exc:
+        raise _known(exc) from None
+    return {"ok": True}
+
+
+@router.post("/projects/{kind}/{project_id}/generate")
+async def generate_project(client_id: str, kind: ProjectKind, project_id: UUID, body: Optional[ProjectGenerate] = None,
+                           authorization: str | None = Header(default=None)):
+    """A IA monta (ou refaz) o plano com os dados reais da marca; com use_chat, leva o que foi combinado no copiloto."""
+    from services.studio_projects import generate_plan
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"project": await generate_plan(cid, str(project_id), use_chat=bool(body and body.use_chat),
+                                               instruction=body.instruction if body else None)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.post("/projects/{kind}/{project_id}/chat")
+async def project_chat(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectChat, authorization: str | None = Header(default=None)):
+    from services.studio_projects import chat
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
+    try:
+        return {"project": await chat(cid, str(project_id), body.message, author=_chat_author(authorization, uid) or "Equipe")}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.post("/projects/{kind}/{project_id}/brief", status_code=201)
+async def project_to_brief(client_id: str, kind: ProjectKind, project_id: UUID, authorization: str | None = Header(default=None)):
+    """Vira Briefing para distribuir às telas (Social Media, Mídia On, Clipping, Redação, Criadores) e às pessoas."""
+    from services.studio_projects import to_brief
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
+    try:
+        return {"brief": await to_brief(cid, str(project_id), user_id=uid, author=_chat_author(authorization, uid) or "Equipe Mugô")}
+    except StudioError as exc:
+        raise _known(exc) from None

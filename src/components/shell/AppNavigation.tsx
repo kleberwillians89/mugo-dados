@@ -40,10 +40,13 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 const OPERATION_ITEMS: NavItem[] = [
   { route: "central", label: "Central da Marca" },
   { route: "briefing", label: "Briefing" },
+  { route: "planning", label: "Planejamento" },
+  { route: "production", label: "Evento" },
   { route: "tasks", label: "Tarefas" },
   { route: "campaigns", label: "Social Media" },
   { route: "redacao", label: "Redação" },
   { route: "creators", label: "Criadores" },
+  { route: "library", label: "Biblioteca" },
 ];
 
 const INTELLIGENCE_ITEMS: NavItem[] = [
@@ -58,7 +61,7 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "clipping", label: "Clipping" },
   { route: "social_report", label: "Relatório" },
 ];
-const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao"]);
+const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", "production"]);
 
 /**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);
