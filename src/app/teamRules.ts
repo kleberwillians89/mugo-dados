@@ -13,7 +13,7 @@ export function normalizeLoginIdentifier(raw: string): string {
 /** Tela (rota do app) → código de permissão para ver. Telas fora da lista não dependem de permissão. */
 export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
-  google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai",
+  google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai", mugo_ia: "brand_ai",
   media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", clipping: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
 };

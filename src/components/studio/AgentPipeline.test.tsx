@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ops = vi.hoisted(() => ({ getAgentRun: vi.fn(), startAgentRun: vi.fn() }));
+const ops = vi.hoisted(() => ({ getAgentRun: vi.fn(), startAgentRun: vi.fn(), continueAgentRun: vi.fn(), cancelAgentRun: vi.fn() }));
 vi.mock("../../app/contentOps", async (original) => ({ ...(await original<typeof import("../../app/contentOps")>()), ...ops }));
 const studio = vi.hoisted(() => ({ applySuggestion: vi.fn(), dismissSuggestion: vi.fn(), requestSuggestion: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
@@ -31,7 +31,39 @@ describe("Esteira de agentes", () => {
     expect(ops.startAgentRun).toHaveBeenCalled();
     expect(host.querySelector(".agentSteps li.is-feito")?.textContent).toContain("40 posts analisados");
     expect(host.querySelector(".agentSteps li.is-rodando")?.textContent).toContain("Estrategista");
-    expect(btn("Rodando…").disabled).toBe(true);
+    expect(btn("Pôr na fila")).toBeTruthy();  // ocupada: novo pedido vai para a fila
+  });
+
+  it("para na Matriz e segue no Gerar conteúdo", async () => {
+    const waiting = { id: "r1", status: "aguardando", created_at: "2026-11-11T18:00:00Z", matrix_id: "m1", item_ids: [], summary: "Matriz pronta.",
+      error: null, finished_at: null, options: { weeks: 2 }, queued: 1,
+      steps: [{ ...STEPS[0], status: "feito" }, { ...STEPS[1], status: "feito", detail: "8 pautas em 2 semanas" }] };
+    ops.getAgentRun.mockResolvedValue({ run: waiting, steps: STEPS });
+    ops.continueAgentRun.mockResolvedValue({ steps: STEPS, run: { ...waiting, status: "rodando", queued: undefined } });
+    await act(async () => { root.render(<AgentPipeline clientId="roove" />); });
+    expect(host.querySelector(".agentPause")?.textContent).toContain("Matriz pronta (2 semanas)");
+    expect(host.textContent).toContain("1 pedido na fila");
+    await act(async () => { btn("Gerar conteúdo").click(); });
+    expect(ops.continueAgentRun).toHaveBeenCalledWith("r1");
+    expect(host.querySelector(".agentPause")).toBeNull();
+  });
+
+  it("manda período e foco ao rodar", async () => {
+    ops.getAgentRun.mockResolvedValue({ run: null, steps: STEPS });
+    ops.startAgentRun.mockResolvedValue({ steps: STEPS, run: { id: "r1", status: "rodando", created_at: "x", matrix_id: null, item_ids: [], summary: null, error: null, finished_at: null, steps: [] } });
+    await act(async () => { root.render(<AgentPipeline clientId="roove" />); });
+    const select = host.querySelector('select[aria-label="Semanas da esteira"]') as HTMLSelectElement;
+    const area = host.querySelector(".agentFocus textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      const setValue = (el: HTMLElement, value: string) => {
+        const proto = Object.getPrototypeOf(el);
+        Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
+        el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+      };
+      setValue(select, "6"); setValue(area, "Natal");
+    });
+    await act(async () => { btn("Rodar esteira de agentes").click(); });
+    expect(ops.startAgentRun).toHaveBeenCalledWith({ weeks: 6, focus: "Natal" });
   });
 
   it("execução concluída mostra o resumo", async () => {

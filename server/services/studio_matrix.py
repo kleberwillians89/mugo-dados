@@ -3,11 +3,11 @@ Matriz de Conteúdo (trazida da iAgência) — parte da tela Social Media.
 
 A partir dos pilares editoriais do Perfil de Marca e do contexto autorizado da marca (o mesmo cérebro
 do Calendário e da Redação: studio_intelligence), a IA sugere oportunidades de conteúdo organizadas por
-plataforma, pilar e quatro semanas. A equipe edita, refina, seleciona e descarta; as selecionadas vão
+plataforma, pilar e semanas (4 por padrão, de 1 a 8 quando pedido). A equipe edita, refina, seleciona e descarta; as selecionadas vão
 para o Calendário existente como rascunho (origem "matriz") e seguem a aprovação de sempre.
 
 Regras que tornam isso confiável:
-* O CÓDIGO confere a saída da IA: plataforma fora do pedido, pilar fora do perfil, semana fora de 1–4
+* O CÓDIGO confere a saída da IA: plataforma fora do pedido, pilar fora do perfil, semana fora do período
   e formato que a plataforma não tem são descartados; textos são cortados no limite do banco.
 * Exportar não duplica: cada oportunidade guarda a pauta criada, e o banco tem índice único em
   studio_calendar_items.matrix_opportunity_id (dois cliques ou duas abas criam uma pauta só).
@@ -38,7 +38,8 @@ MATRICES = "studio_content_matrices"
 OPPORTUNITIES = "studio_matrix_opportunities"
 ITEMS = "studio_calendar_items"
 
-WEEKS = 4
+WEEKS = 4                    # padrão (sem período pedido, a Matriz segue com 4 semanas)
+MAX_WEEKS = 8
 MAX_OPPORTUNITIES = 80
 STATUSES = ("sugerida", "selecionada", "descartada", "exportada")
 USER_STATUSES = ("sugerida", "selecionada", "descartada")
@@ -113,12 +114,49 @@ def normalize_request(data: Dict[str, Any], profile: Dict[str, Any], *, today: O
     # Frequências específicas são pisos exatos das redes configuradas. Quando somente algumas
     # redes têm ritmo próprio, o restante do total continua disponível para as demais.
     total = max(configured_total, sum(quotas.values())) if quotas else configured_total
-    if total * WEEKS > MAX_OPPORTUNITIES:
+    weeks, week_start = request_period(data, today)
+    if total * weeks > MAX_OPPORTUNITIES:
         raise StudioError("MATRIX_FREQUENCY_TOO_HIGH")
-    return {"week_start": next_monday(today), "platforms": platforms, "pillars": pillars_all,
+    focus = data.get("focus") if isinstance(data.get("focus"), str) else data.get("briefing")
+    return {"week_start": week_start, "weeks": weeks, "platforms": platforms, "pillars": pillars_all,
             "posts_per_week": total, "platform_quotas": quotas,
-            # Foco vem do Briefing (não é premissa do perfil): direciona o mês sem mudar plataformas nem ritmo.
-            "focus": _clip(data.get("focus"), 1200) if isinstance(data.get("focus"), str) else ""}
+            # Foco vem do Briefing (não é premissa do perfil): direciona o período sem mudar plataformas nem ritmo.
+            "focus": _clip(focus, 1000) if isinstance(focus, str) else ""}
+
+
+def request_period(data: Dict[str, Any], today: date) -> tuple[int, date]:
+    """Período pedido: ``weeks`` (1 a 8) e ``start`` (data). Sem nada, 4 semanas a partir da próxima segunda.
+
+    O início sempre cai numa segunda (a semana da data pedida); dias que já passaram são remarcados no export."""
+    try:
+        raw_weeks = data.get("weeks")
+        weeks = WEEKS if raw_weeks is None or raw_weeks == "" else int(raw_weeks)
+    except (TypeError, ValueError):
+        raise StudioError("MATRIX_PERIOD_INVALID", "Período inválido: escolha de 1 a 8 semanas.")
+    if not 1 <= weeks <= MAX_WEEKS:
+        raise StudioError("MATRIX_PERIOD_INVALID", "Período inválido: escolha de 1 a 8 semanas.")
+    raw = data.get("start")
+    if not raw:
+        return weeks, next_monday(today)
+    try:
+        start = date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        raise StudioError("MATRIX_PERIOD_INVALID", "Data de início inválida.")
+    if start < today - timedelta(days=6) or start > today + timedelta(days=180):
+        raise StudioError("MATRIX_PERIOD_INVALID", "A data de início precisa ser desta semana até 6 meses à frente.")
+    return weeks, start - timedelta(days=start.weekday())
+
+
+def weeks_for_deadline(deadline: Any, today: Optional[date] = None) -> Optional[int]:
+    """Prazo do briefing → quantas semanas a Matriz cobre (da próxima segunda até o prazo, 1 a 8)."""
+    try:
+        end = date.fromisoformat(str(deadline)[:10])
+    except (TypeError, ValueError):
+        return None
+    start = next_monday(today or datetime.now(SAO_PAULO).date())
+    if end < start:
+        return 1
+    return max(1, min(MAX_WEEKS, (end - start).days // 7 + 1))
 
 
 def week_dates(start: date, week: int) -> tuple[date, date]:
@@ -126,7 +164,7 @@ def week_dates(start: date, week: int) -> tuple[date, date]:
     return first, first + timedelta(days=6)
 
 
-def clean_opportunity(raw: Dict[str, Any], *, platforms: List[str], pillars: List[str]) -> Optional[Dict[str, Any]]:
+def clean_opportunity(raw: Dict[str, Any], *, platforms: List[str], pillars: List[str], weeks: int = WEEKS) -> Optional[Dict[str, Any]]:
     """Uma oportunidade da IA, conferida campo a campo. None = descartada."""
     platform = str(raw.get("plataforma") or "").strip().lower()
     platform = {"ig": "instagram", "fb": "facebook", "tik tok": "tiktok", "yt": "youtube"}.get(platform, platform)
@@ -140,7 +178,7 @@ def clean_opportunity(raw: Dict[str, Any], *, platforms: List[str], pillars: Lis
         week = int(raw.get("semana"))
     except (TypeError, ValueError):
         return None
-    if not 1 <= week <= WEEKS:
+    if not 1 <= week <= weeks:
         return None
     try:
         weekday = int(raw.get("dia_semana"))
@@ -185,11 +223,12 @@ def cap_to_plan(items: List[Dict[str, Any]], request: Dict[str, Any]) -> List[Di
 
 def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, Any], recent: Optional[List[Dict[str, Any]]] = None) -> str:
     start: date = req["week_start"]
+    total_weeks = int(req.get("weeks") or WEEKS)
     weeks = "\n".join(f"- Semana {w}: {week_dates(start, w)[0].strftime('%d/%m')} a {week_dates(start, w)[1].strftime('%d/%m')}"
-                      for w in range(1, WEEKS + 1))
+                      for w in range(1, total_weeks + 1))
     pillars = [p for p in profile.get("pillars") or [] if p.get("name") in req["pillars"]]
     return (
-        f"PERÍODO (4 semanas, começando na segunda):\n{weeks}\n"
+        f"PERÍODO ({total_weeks} semana{'s' if total_weeks > 1 else ''}, começando na segunda):\n{weeks}\n"
         f"\nPLATAFORMAS E COMO PENSAR CADA UMA:\n" + "\n".join(f"- {p} ({', '.join(PLATFORM_FORMATS[p])}): {PLATFORM_TASKS[p]}" for p in req["platforms"])
         + f"\n\nPILARES EDITORIAIS (use exatamente estes nomes; respeite o peso de cada um):\n{json.dumps(pillars, ensure_ascii=False)}"
         + f"\n\nRITMO TOTAL: exatamente {req['posts_per_week']} oportunidade(s) por semana, somadas entre todas as plataformas; "
@@ -197,7 +236,7 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
         + (f"Use exatamente estas quantidades por rede e distribua o restante entre as demais: "
            f"{json.dumps(req['platform_quotas'], ensure_ascii=False)}."
            if req["platform_quotas"] else "Escolha a distribuição mais pertinente à estratégia da marca.")
-        + "\n\nCada oportunidade: plataforma (um dos nomes acima, minúsculo), pilar, semana (1 a 4), dia_semana "
+        + f"\n\nCada oportunidade: plataforma (um dos nomes acima, minúsculo), pilar, semana (1 a {total_weeks}), dia_semana "
           "(0 = segunda ... 6 = domingo), formato (um dos da plataforma), título da pauta, gancho (primeira frase ou cena), "
           "ângulo (o que torna esta pauta diferente), rascunho de legenda e por que (cite o dado da marca que sustenta). "
           "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS."
@@ -205,8 +244,8 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
           "seguidas com o mesmo ângulo, a mesma CTA no máximo 2 vezes, e nada parecido com outra oportunidade nem com o que já foi planejado "
           "recentemente (abaixo). Legenda enxuta, até 600 caracteres."
         + (f"\nJÁ PLANEJADO RECENTEMENTE (não repetir tema nem abertura):\n{json.dumps(recent, ensure_ascii=False)}" if recent else "")
-        + "\nAlém das oportunidades: um resumo da estratégia do mês em 2 frases."
-        + (f"\n\nFOCO DO MÊS (briefing aprovado pela equipe; PRIORIDADE MÁXIMA, sem fugir dos pilares):\n{req['focus']}" if req.get("focus") else "")
+        + "\nAlém das oportunidades: um resumo da estratégia do período em 2 frases."
+        + (f"\n\nFOCO DO PERÍODO (briefing aprovado pela equipe; PRIORIDADE MÁXIMA, sem fugir dos pilares):\n{req['focus']}" if req.get("focus") else "")
         + f"\n\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
     )
 
@@ -220,7 +259,7 @@ def _guard_context(profile: Dict[str, Any], intel: Dict[str, Any], focus: str = 
 # ---------------------------------------------------------------- leitura
 
 async def list_matrices(client_id: str) -> List[Dict[str, Any]]:
-    return await sb_select(MATRICES, select="id,week_start,platforms,pillars,focus,summary,status,created_at,updated_at",
+    return await sb_select(MATRICES, select="*",
                            filters={"client_id": f"eq.{client_id}", "status": "eq.ativa"}, order="created_at.desc", limit=20)
 
 
@@ -249,12 +288,12 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     intel = await build_content_intelligence(client_id)
     from .content_variety import recent_content
     prompt = build_prompt(req, profile, intel, recent=await recent_content(client_id))
-    expected = req["posts_per_week"] * WEEKS
+    expected = req["posts_per_week"] * req["weeks"]
 
     async def attempt() -> tuple:
         raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt,
                              schema_name="studio_content_matrix", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
-        cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"])
+        cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"], weeks=req["weeks"])
                                for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
         return raw, cleaned, cap_to_plan(cleaned, req)
 
@@ -282,6 +321,7 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     pillars = [p for p in profile.get("pillars") or [] if p.get("name") in req["pillars"]]
     matrix = await sb_insert(MATRICES, {
         "client_id": client_id, "week_start": req["week_start"].isoformat(), "platforms": req["platforms"],
+        **({"weeks": req["weeks"]} if req["weeks"] != WEEKS else {}),
         "pillars": pillars, "focus": req["focus"] or None, "summary": _clip(raw.get("resumo"), 1200) or None,
         "notes": notes, "created_by": user_id,
     })
@@ -311,7 +351,7 @@ def _clean_patch(patch: Dict[str, Any]) -> Dict[str, Any]:
             if not value:
                 raise StudioError("OPPORTUNITY_INVALID")
         elif key == "week":
-            if not 1 <= int(value) <= WEEKS:
+            if not 1 <= int(value) <= MAX_WEEKS:
                 raise StudioError("OPPORTUNITY_INVALID")
         elif key == "weekday":
             if not 0 <= int(value) <= 6:

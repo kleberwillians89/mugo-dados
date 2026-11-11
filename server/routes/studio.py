@@ -1766,6 +1766,40 @@ async def clear_brand_agent(client_id: str, authorization: str | None = Header(d
     return {"ok": True}
 
 
+class MugoIAInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=1500)
+
+
+@router.get("/mugo-ia")
+async def read_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
+    """Conversa desta pessoa com a Mugô IA desta empresa (privada de cada pessoa)."""
+    from services.mugo_ia import history
+    cid = await require_client_read(client_id, authorization)
+    return {"messages": await history(cid, await require_user_id(authorization))}
+
+
+@router.post("/mugo-ia")
+async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | None = Header(default=None)):
+    """Pergunta à Mugô IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
+    from services.mugo_ia import ask
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization)
+    try:
+        return {"ok": True, **await ask(cid, uid, body.question, team=team)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.delete("/mugo-ia")
+async def clear_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
+    from services.mugo_ia import clear
+    cid = await require_client_read(client_id, authorization)
+    await clear(cid, await require_user_id(authorization))
+    return {"ok": True}
+
+
 @router.put("/knowledge")
 async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: str | None = Header(default=None)):
     from services.brand_knowledge import save_manual

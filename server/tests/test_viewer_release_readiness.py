@@ -186,6 +186,11 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         # Guardar fatos na memória da marca continua exigindo papel (WRITERS).
         ("studio", "ask_brand_agent"),
         ("studio", "clear_brand_agent"),
+        # Mugô IA: mesmo modelo do agente da marca (cada membro só grava e apaga a
+        # PRÓPRIA conversa; throttle por empresa). O que é só da equipe (alertas,
+        # briefings, tarefas) sai do contexto quando quem pergunta não é da Mugô.
+        ("studio", "ask_mugo_ia"),
+        ("studio", "clear_mugo_ia"),
         # Fachada restrita: membership, allowlist e conexões persistidas;
         # test_provider_refresh prova autorização e rejeição de IDs extras.
         ("integrations", "refresh_client_provider"),

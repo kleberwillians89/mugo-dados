@@ -862,6 +862,12 @@
 .chatMsg.is-agent{background:#eef5f8}
 .chatMsg.is-offtopic{background:#f3f1ec}
 .agentSources{font-style:italic}
+/* Mugô IA (aba própria): conversa maior, lacunas e próximas perguntas */
+.agentBox.mugoIA{margin-top:8px;border-top:0;padding-top:0}
+.mugoIAThread{max-height:min(64vh,720px)}
+.mugoIAThread .chatMsg p{white-space:pre-wrap;overflow-wrap:anywhere}
+.mugoIAGaps{display:block;color:#8a5a12}
+.mugoIAFollow{margin-top:6px}
 .agentFacts{display:grid;gap:4px;margin-top:4px;padding:8px 10px;border-radius:10px;background:#fff;border:1px dashed #c9c4ba}
 .agentFacts ul{margin:0;padding-left:18px;font-size:13.5px}
 .agentSaved{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:#26734d}
@@ -1347,6 +1353,12 @@
 .agentPipelineHead h3{margin:0 0 4px;font-size:16px}
 .agentPipelineHead p{margin:0;font-size:13px;color:var(--text-secondary,#5f5b53);max-width:640px}
 .agentPipelineActions{display:flex;gap:10px;align-items:center}
+.agentPipelineActions{flex-wrap:wrap}
+.agentFocus{display:grid;gap:4px;font-size:12px;color:var(--text-secondary,#5f5b53)}
+.agentFocus textarea{width:100%;font:inherit;font-size:13px;border:1px solid var(--border,#e3dfd7);border-radius:8px;padding:8px 10px;resize:vertical;box-sizing:border-box}
+.agentPause{border:1px solid #b98a2c;background:#fdf6e7;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.agentPause p{margin:0;font-size:13px;line-height:1.45}
+.agentPauseActions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .agentSteps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .agentSteps li{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border,#e3dfd7);border-radius:10px;padding:10px 12px;background:#fff}
 .agentSteps li div{display:flex;flex-direction:column;gap:2px;min-width:0}

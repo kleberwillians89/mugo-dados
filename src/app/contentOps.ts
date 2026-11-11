@@ -134,26 +134,41 @@ export type Opportunity = {
   script?: string | null; visual_idea?: string | null;
   guard?: { type: string; text: string; fix: string }[]; status: OpportunityStatus; edited: boolean; position: number; calendar_item_id: string | null; updated_at?: string;
 };
-export type MatrixSummary = { id: string; week_start: string; platforms: Platform[]; pillars: { name: string; weight?: number }[];
+export type MatrixSummary = { id: string; week_start: string; weeks?: number | null; platforms: Platform[]; pillars: { name: string; weight?: number }[];
   focus: string | null; summary: string | null; status: string; created_at: string };
+/** Quantas semanas a matriz cobre (antes eram sempre 4). */
+export const matrixWeeks = (m: Pick<MatrixSummary, "weeks"> | null | undefined) => Math.min(8, Math.max(1, Number(m?.weeks) || 4));
 export type ContentMatrix = MatrixSummary & { notes?: string[]; opportunities: Opportunity[] };
 export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars: string[]; per_week: number; focus: string };
 export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale" | "script" | "visual_idea">> & { status?: Exclude<OpportunityStatus, "exportada"> };
 export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale"> & Partial<Pick<Opportunity, "script" | "visual_idea">>;
 
-// Esteira de agentes: pesquisa → estratégia → redação → briefing visual → revisão de marca → Calendário → revisão interna.
+// Esteira de agentes em duas fases: pesquisa → Matriz (PAUSA para a equipe conferir) → "Gerar conteúdo" →
+// redação → revisão de marca → Calendário → briefing de arte → revisão interna. Pedido com a esteira ocupada vai para a fila.
 export type AgentStepStatus = "pendente" | "rodando" | "feito" | "falhou";
 export type AgentStep = { key: string; agent: string; task: string; status?: AgentStepStatus; detail?: string | null };
-export type AgentRun = { id: string; status: "rodando" | "concluida" | "falhou"; steps: AgentStep[]; matrix_id: string | null;
-  item_ids: string[]; summary: string | null; error: string | null; created_at: string; finished_at: string | null };
+export type AgentRunStatus = "na_fila" | "rodando" | "aguardando" | "concluida" | "falhou" | "cancelada";
+export type AgentRunOptions = { focus?: string; weeks?: number; start?: string; brief_id?: string; auto?: boolean };
+export type AgentRun = { id: string; status: AgentRunStatus; steps: AgentStep[]; matrix_id: string | null;
+  item_ids: string[]; summary: string | null; error: string | null; created_at: string; finished_at: string | null;
+  options?: AgentRunOptions; queued?: number };
+export type AgentRunInput = { focus?: string; weeks?: number; start?: string; auto?: boolean };
 export function getAgentRun() { return http<{ run: AgentRun | null; steps: AgentStep[] }>(base("/agents/run")); }
-export function startAgentRun() { return http<{ run: AgentRun; steps: AgentStep[] }>(base("/agents/run"), { method: "POST" }); }
+export function startAgentRun(input: AgentRunInput = {}) {
+  return http<{ run: AgentRun; steps: AgentStep[] }>(base("/agents/run"), { method: "POST", body: JSON.stringify(input) });
+}
+export function continueAgentRun(runId: string) {
+  return http<{ run: AgentRun; steps: AgentStep[] }>(base(`/agents/run/${encodeURIComponent(runId)}/continue`), { method: "POST" });
+}
+export function cancelAgentRun(runId: string) {
+  return http<{ run: AgentRun; steps: AgentStep[] }>(base(`/agents/run/${encodeURIComponent(runId)}/cancel`), { method: "POST" });
+}
 
 const mx = (path = "") => base(`/matrix${path}`);
 export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
 export function getMatrix(id: string) { return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}`)); }
-export function createMatrix() {
-  return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify({}), timeoutMs: 180_000 });
+export function createMatrix(period: { weeks?: number; start?: string } = {}) {
+  return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify(period), timeoutMs: 180_000 });
 }
 export function archiveMatrix(id: string) { return http<{ matrix: MatrixSummary }>(mx(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 export function updateOpportunity(matrixId: string, id: string, patch: OpportunityPatch) {
