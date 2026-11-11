@@ -106,7 +106,7 @@ async def history(client_id: str, user_id: str, limit: int = 40) -> List[Dict[st
     try:
         rows = await sb_select(MESSAGES, select="id,role,content,meta,created_at", order="created_at.desc", limit=limit,
                                filters={"client_id": f"eq.{client_id}", "user_id": f"eq.{user_id}",
-                                        "meta->>channel": "is.null"})  # a conversa da Mugô IA fica à parte
+                                        "meta->>channel": "is.null"})  # a conversa da Mugoverso IA fica à parte
     except Exception as exc:  # noqa: BLE001 — migração não aplicada: conversa vazia
         print(f"[brand_agent] history client_id={client_id} status=unavailable error_type={exc.__class__.__name__}")
         return []

@@ -62,7 +62,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
-  if (normalized === "/mugo-ia" || normalized.startsWith("/mugo-ia/")) return "mugo_ia";
+  if (normalized === "/mugo-ia" || normalized.startsWith("/mugo-ia/") || normalized === "/mugoverso-ia" || normalized.startsWith("/mugoverso-ia/")) return "mugo_ia";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
   // Social Media (antes Redação): o endereço antigo continua abrindo a mesma tela.
   if (normalized === "/social-media" || normalized.startsWith("/social-media/")) return "campaigns";

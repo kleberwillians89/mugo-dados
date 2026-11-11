@@ -1,4 +1,4 @@
-"""Mugô IA: responde tudo do mundo do cliente com o contexto inteiro dele, sem vazar o que é só da equipe."""
+"""Mugoverso IA: responde tudo do mundo do cliente com o contexto inteiro dele, sem vazar o que é só da equipe."""
 import io
 import sys
 import unittest
@@ -73,6 +73,22 @@ class AskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(user_row["content"], "Quanto faturamos?")
         self.assertEqual(user_row["meta"], {"channel": "mugo_ia"})
         self.assertEqual(bot_row["meta"]["channel"], "mugo_ia")
+
+    async def test_answer_is_personal_name_tone_and_audience(self):
+        context = {"package": {**PACKAGE, "marca": {"tone_of_voice": "leve, com humor sutil"}}, "live": {}, "gaps": []}
+        llm = AsyncMock(return_value=ANSWER)
+        with patch.object(mi, "history", AsyncMock(return_value=[])), patch.object(mi, "gather_context", AsyncMock(return_value=context)), \
+             patch("services.brand_knowledge.search_chunks", AsyncMock(return_value=[])), patch.object(mi, "_client_name", AsyncMock(return_value="Curavino")), \
+             patch.object(mi, "_doc_names", AsyncMock(return_value={})), patch("services.studio_engines.throttle"), \
+             patch("services.studio_llm.llm_json", llm), patch.object(mi, "sb_insert", AsyncMock(return_value={"id": "m"})):
+            await mi.ask("curavino", "u1", "Como estamos?", team=True, person="Kleber Willians")
+        text = llm.await_args.kwargs["instructions"]
+        for part in ("Mugoverso IA da marca Curavino", "Kleber", "leve, com humor sutil", "colega da equipe Mugô", "O que eu faria agora"):
+            self.assertIn(part, text)
+        self.assertNotIn("Willians", text)  # só o primeiro nome
+        client_voice = mi.voice({}, person="", team=False, name="Curavino")
+        self.assertIn("não use nome", client_voice["person"])
+        self.assertIn("da própria Curavino", client_voice["who"])
 
     async def test_off_topic_drops_facts_and_sources(self):
         out, *_ = await self.ask({**ANSWER, "on_topic": False, "answer": "Só falo sobre a Ruah."})

@@ -862,7 +862,7 @@
 .chatMsg.is-agent{background:#eef5f8}
 .chatMsg.is-offtopic{background:#f3f1ec}
 .agentSources{font-style:italic}
-/* Mugô IA (aba própria): conversa maior, lacunas e próximas perguntas */
+/* Mugoverso IA (aba própria): conversa maior, lacunas e próximas perguntas */
 .agentBox.mugoIA{margin-top:8px;border-top:0;padding-top:0}
 .mugoIAThread{max-height:min(64vh,720px)}
 .mugoIAThread .chatMsg p{white-space:pre-wrap;overflow-wrap:anywhere}

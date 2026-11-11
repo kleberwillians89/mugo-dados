@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === label) as HTMLButtonElement;
 
-describe("Mugô IA", () => {
+describe("Mugoverso IA", () => {
   it("responde com fontes, lacunas e próximas perguntas", async () => {
     studio.getMugoIA.mockResolvedValue({ messages: [] });
     studio.askMugoIA.mockResolvedValue({ ok: true, id: "m1", answer: "Índice 71: saudável.", on_topic: true, sources: ["Saúde da marca", "Concorrentes"],
