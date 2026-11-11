@@ -2,10 +2,11 @@ import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AUTO_PUBLISH_CHANNELS, CONTENT_ANGLES, briefingText, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
+import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
+import BriefingPanel from "./BriefingPanel";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
@@ -81,12 +82,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const caption = draft.caption_draft || "";
   const shortCaption = caption.length > 125 && !captionOpen ? `${caption.slice(0, 125).trimEnd()}…` : caption;
   const signals = item?.signals;
-  const [briefingCopied, setBriefingCopied] = useState(false);
-  const copyBriefing = async () => {
-    if (!item) return;
-    try { await navigator.clipboard.writeText(briefingText({ ...item, hook: draft.hook || item.hook })); setBriefingCopied(true); window.setTimeout(() => setBriefingCopied(false), 2500); }
-    catch { /* navegador sem permissão de copiar */ }
-  };
+
   const set = (patch: Partial<PostDraft>) => setDraft((d) => ({ ...d, ...patch }));
   /** Traz a arte de um link do Drive/Canva. index = troca o link existente nessa posição; sem index = acrescenta no fim. */
   async function bringFromLink(url: string, index?: number) {
@@ -184,15 +180,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
         <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {item && !clientMode && (item.script || item.visual_idea || item.signals?.briefing) ? <details className="postFromMatrix postBriefing" open>
-          <summary>Briefing da peça</summary>
-          {item.signals?.briefing?.angle ? <div><b>Ângulo</b><p>{CONTENT_ANGLES[item.signals.briefing.angle] || item.signals.briefing.angle}</p></div> : null}
-          {item.signals?.briefing?.objective ? <div><b>Objetivo</b><p>{item.signals.briefing.objective}</p></div> : null}
-          {item.signals?.briefing?.key_message ? <div><b>Mensagem central</b><p>{item.signals.briefing.key_message}</p></div> : null}
-          {item.script ? <div><b>Roteiro</b><p>{item.script}</p></div> : null}
-          {item.visual_idea ? <div><b>Direção da arte</b><p>{item.visual_idea}</p></div> : null}
-          <button type="button" className="ds-button" onClick={() => void copyBriefing()}>{briefingCopied ? "Briefing copiado ✓" : "Copiar briefing"}</button>
-        </details> : null}
+        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}

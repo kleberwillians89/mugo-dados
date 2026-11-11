@@ -667,6 +667,15 @@ async def _fix_repetitions(items: List[Dict[str, Any]], *, recent: List[Dict[str
     return items, notes
 
 
+SCRIPT_HINTS = {
+    "reels": "Cenas numeradas (o que aparece e o que se fala), gancho nos 3 primeiros segundos, CTA no fim.",
+    "video": "Cenas numeradas (o que aparece e o que se fala), gancho no início, CTA no fim.",
+    "carrossel": "Texto de cada slide numerado (Slide 1 = capa com o gancho, último com CTA).",
+    "stories": "Telas numeradas com o texto e a interação (enquete, caixa, link).",
+    "imagem": "O texto que vai na arte (título e, se fizer sentido, uma linha de apoio).",
+}
+
+
 EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags")
 
 

@@ -1335,3 +1335,9 @@
 .igShopBadge{position:absolute;left:10px;bottom:10px;z-index:1;font-size:12px;font-weight:600;background:rgba(255,255,255,.92);color:#111;padding:3px 8px;border-radius:999px}
 .postBriefing>button{margin-top:10px}
 .postBriefing p{white-space:pre-wrap}
+.postBriefing ul{margin:2px 0 0;padding-left:18px;font-size:13px}
+.postBriefingEmpty{font-size:13px;color:var(--text-muted);margin:8px 0}
+.postBriefingActions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.postBriefingForm{display:grid;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-subtle)}
+.postBriefingForm label{display:grid;gap:4px;font-size:12px}
+.postBriefingForm small{font-size:12px;color:var(--text-muted)}
