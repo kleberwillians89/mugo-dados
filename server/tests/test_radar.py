@@ -1,8 +1,11 @@
 """Tests for evidence-only Radar aggregation, no external network calls."""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from server.routes import radar
+from routes import radar
 
 
 class RadarTests(unittest.IsolatedAsyncioTestCase):
