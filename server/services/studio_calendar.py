@@ -32,6 +32,7 @@ from .posting_times import WEEKDAYS, build_posting_times
 from .studio_dates import COMMERCIAL, CUSTOM, dates_for_month
 from .studio_trends import fetch_trends_br
 from .studio_llm import CREATIVE_GUIDANCE
+from .content_variety import ANGLES, BRIEFING_RULES, VARIETY_RULES, find_repetitions, recent_content
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 FORMATS = ("reels", "carrossel", "imagem", "stories", "video")
@@ -334,8 +335,14 @@ LLM_SCHEMA = {
                         "caption_draft": {"type": "string"},
                         "rationale": {"type": "string"},
                         "trend_id": {"type": ["string", "null"]},
+                        "angle": {"type": "string", "enum": list(ANGLES)},
+                        "objective": {"type": "string"},
+                        "key_message": {"type": "string"},
+                        "script": {"type": "string"},
+                        "visual_idea": {"type": "string"},
                     },
-                    "required": ["slot_id", "pillar", "title", "hook", "caption_draft", "rationale", "trend_id"],
+                    "required": ["slot_id", "pillar", "title", "hook", "caption_draft", "rationale", "trend_id",
+                                 "angle", "objective", "key_message", "script", "visual_idea"],
                 },
             }
         },
@@ -376,7 +383,8 @@ async def content_signals(client_id: str) -> Dict[str, Any]:
 def build_prompt(
     *, slots: List[Dict[str, Any]], profile: Dict[str, Any], business: Dict[str, Any],
     top: List[Dict[str, Any]], trends: List[Dict[str, Any]], seasonal: List[Dict[str, Any]], month: date,
-    signals: Optional[Dict[str, Any]] = None,
+    signals: Optional[Dict[str, Any]] = None, recent: Optional[List[Dict[str, Any]]] = None,
+    avoid: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     payload = {
         "mes": month.strftime("%Y-%m"),
@@ -392,6 +400,12 @@ def build_prompt(
     }
     if signals:
         payload["inteligencia_da_conta"] = signals
+    payload["angulos_disponiveis"] = ANGLES
+    if recent:
+        payload["ja_planejado_recente"] = recent
+    if avoid:
+        # Refação das pautas repetidas: as outras pautas do mês, que estas não podem repetir.
+        payload["outras_pautas_do_mes"] = avoid
     return (
         "Monte o calendário editorial de Instagram do mês para a marca abaixo.\n"
         "Preencha UMA pauta para CADA slot (mesmo slot_id). Não mude data, horário nem formato.\n"
@@ -415,7 +429,10 @@ def build_prompt(
         "estética, gancho e tom (o 'o_que_gostou' diz o porquê); várias pautas do mês devem seguir essas referências, "
         "adaptadas à marca, sem copiar texto. Quando uma pauta seguir uma referência, diga no rationale qual "
         "(ex.: 'segue a referência de luz natural que o cliente enviou').\n"
-        f"{language_rule(profile)}\n\n"
+        + VARIETY_RULES + BRIEFING_RULES
+        + ("- Estas pautas substituem pautas repetidas: tema, gancho e CTA precisam ser diferentes de tudo em "
+           "outras_pautas_do_mes e ja_planejado_recente.\n" if avoid else "")
+        + f"{language_rule(profile)}\n\n"
         f"DADOS:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 
@@ -430,7 +447,7 @@ async def call_llm(prompt: str) -> Dict[str, Any]:
         "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip(),
         "instructions": "Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.\n\n" + CREATIVE_GUIDANCE,
         "input": prompt,
-        "temperature": 0.5,
+        "temperature": float(os.getenv("STUDIO_CALENDAR_TEMPERATURE") or 0.8),
         "text": {"format": {"type": "json_schema", "name": LLM_SCHEMA["name"], "schema": LLM_SCHEMA["schema"], "strict": True}},
     }
     try:
@@ -506,9 +523,16 @@ def validate_items(
         if flagged:
             signals["palavras_evitar_encontradas"] = flagged
             warnings.append(f"{slot['date']}: contém palavra a evitar ({', '.join(flagged)}); revisar.")
+        angle = str(item.get("angle") or "")
+        briefing = {k: v for k, v in (("objective", _text(item.get("objective"), 300)), ("key_message", _text(item.get("key_message"), 300)),
+                                      ("angle", angle if angle in ANGLES else "")) if v}
+        if briefing:
+            signals["briefing"] = briefing
         out.append({
             "slot": slot, "pillar": pillar, "title": title, "hook": hook or None,
             "caption_draft": caption or None, "rationale": _text(item.get("rationale"), 1200) or None,
+            "script": str(item.get("script") or "").strip()[:4000] or None,
+            "visual_idea": str(item.get("visual_idea") or "").strip()[:2000] or None,
             "signals": signals,
         })
     missing = [s["date"] for s in slots if s["slot_id"] not in used]
@@ -568,8 +592,9 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
     top = await top_posts(client_id)
     trends = (await fetch_trends_br()).get("items") or []
     signals = await content_signals(client_id)
+    recent = await recent_content(client_id, exclude_month=month.isoformat())
     prompt = build_prompt(slots=slots, profile=profile, business=business, top=top,
-                          trends=trends, seasonal=seasonal, month=month, signals=signals)
+                          trends=trends, seasonal=seasonal, month=month, signals=signals, recent=recent)
     raw = await call_llm(prompt)
     guard_context = json.dumps({"perfil": profile, "negocio": business, "campanhas_ativas": signals.get("campanhas_ativas"),
                                 "vendas_por_origem": signals.get("vendas_por_origem")}, ensure_ascii=False, default=str)
@@ -578,6 +603,10 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
                                      leak_terms=await _leak_terms(client_id))
     if not items:
         raise StudioError("AI_INVALID_OUTPUT", "A IA não devolveu pautas válidas. Tente de novo.")
+    items, variety_notes = await _fix_repetitions(items, recent=recent, slots=slots, profile=profile, business=business, top=top,
+                                                  trends=trends, seasonal=seasonal, month=month, signals=signals,
+                                                  guard_context=guard_context, leak_terms=await _leak_terms(client_id))
+    warnings = list(warnings) + variety_notes
 
     # Só agora troca os rascunhos antigos da IA: se a IA falhar, nada se perde.
     await sb_delete(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}",
@@ -589,8 +618,16 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
         "hook": it["hook"], "caption_draft": it["caption_draft"], "rationale": it["rationale"],
         "signals": it["signals"], "status": "rascunho", "origin": "ia", "batch_id": batch_id,
         "created_by": user_id,
+        # Briefing de produção (roteiro e direção da arte), nas colunas da migração 000090.
+        **({"script": it["script"]} if it.get("script") else {}),
+        **({"visual_idea": it["visual_idea"]} if it.get("visual_idea") else {}),
     } for it in items]
-    await sb_insert_many(ITEMS_TABLE, rows)
+    try:
+        await sb_insert_many(ITEMS_TABLE, rows)
+    except Exception as error:  # banco sem a migração 000090: salva sem roteiro/arte (o briefing curto fica em signals)
+        if not re.search(r"script|visual_idea", str(error)):
+            raise
+        await sb_insert_many(ITEMS_TABLE, [{k: v for k, v in row.items() if k not in ("script", "visual_idea")} for row in rows])
 
     notes = list(warnings)
     if not best.get("posts_analyzed"):
@@ -601,6 +638,33 @@ async def generate_month(client_id: str, month_value: str, *, user_id: str, toda
         notes.append("Assuntos em alta indisponíveis agora; calendário gerado sem tendências.")
     return {"month": month.isoformat(), "batch_id": batch_id, "created": len(rows),
             "kept": len(kept), "items": await list_items(client_id, month), "observacoes": notes}
+
+
+async def _fix_repetitions(items: List[Dict[str, Any]], *, recent: List[Dict[str, Any]], slots: List[Dict[str, Any]],
+                           profile: Dict[str, Any], business: Dict[str, Any], top: List[Dict[str, Any]],
+                           trends: List[Dict[str, Any]], seasonal: List[Dict[str, Any]], month: date,
+                           signals: Dict[str, Any], guard_context: str, leak_terms: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Confere repetição no código; refaz uma vez só as pautas repetidas. O que continuar repetido sai marcado para revisão."""
+    plain = lambda it: {"title": it["title"], "hook": it.get("hook"), "caption_draft": it.get("caption_draft")}  # noqa: E731
+    reps = find_repetitions([plain(it) for it in items], recent)
+    notes: List[str] = []
+    if reps:
+        redo_slots = [items[i]["slot"] for i in reps]
+        keep = [{"title": it["title"], "hook": it.get("hook")} for i, it in enumerate(items) if i not in reps]
+        try:
+            raw = await call_llm(build_prompt(slots=redo_slots, profile=profile, business=business, top=top, trends=trends,
+                                              seasonal=seasonal, month=month, signals=signals, recent=recent, avoid=keep))
+            fixed, _ = validate_items(raw, slots=redo_slots, profile=profile, trends=trends, guard_context=guard_context, leak_terms=leak_terms)
+            by_slot = {f["slot"]["slot_id"]: f for f in fixed}
+            items = [by_slot.get(it["slot"]["slot_id"], it) if i in reps else it for i, it in enumerate(items)]
+            notes.append(f"{len(by_slot)} pauta(s) repetida(s) foram refeitas pela IA.")
+        except StudioError:
+            notes.append("Não foi possível refazer as pautas repetidas agora; elas ficaram marcadas para revisão.")
+        reps = find_repetitions([plain(it) for it in items], recent)
+    for i, reasons in reps.items():
+        items[i]["signals"] = {**items[i]["signals"], "repetido": reasons[:3]}
+        notes.append(f"{items[i]['slot']['date']}: {reasons[0]}; revisar.")
+    return items, notes
 
 
 EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags")

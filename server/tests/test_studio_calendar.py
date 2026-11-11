@@ -128,7 +128,7 @@ class ValidateItemsTests(unittest.TestCase):
 
 
 class GenerateMonthTests(unittest.IsolatedAsyncioTestCase):
-    def patches(self, *, llm, existing=None, recent=False):
+    def patches(self, *, llm, existing=None, recent=False):  # noqa: C901
         return [
             patch.object(sc, "_recent_generation", AsyncMock(return_value=recent)),
             patch.object(sc, "load_profile", AsyncMock(return_value={"profile": PROFILE})),
@@ -141,7 +141,10 @@ class GenerateMonthTests(unittest.IsolatedAsyncioTestCase):
             patch.object(sc, "sb_delete", AsyncMock()),
             patch.object(sc, "sb_insert_many", AsyncMock()),
             patch.object(sc, "content_signals", AsyncMock(return_value={"aprendizados": {"aprovados": [{"pauta": "Pauta aprovada X"}]}})),
+            patch.object(sc, "recent_content", AsyncMock(return_value=self.recent_rows)),
         ]
+
+    recent_rows: list = []
 
     async def run_with(self, patches, month="2026-11"):
         started = [p.start() for p in patches]
@@ -209,3 +212,61 @@ class UpdateItemTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WORDS = ["alfa", "bravo", "cedro", "delta", "eco", "faro", "gelo", "horta", "ilha", "jade", "kiwi", "lima", "mango", "neve", "ostra",
+         "praia", "quartzo", "rosa", "sol", "trigo", "uva", "vela", "xale", "zinco", "ambar", "brisa", "canela", "duna", "erva", "figo",
+         "grao", "hortela", "iris", "jasmim", "lavanda", "mirra", "nozes", "oliva", "pimenta", "quina"]
+
+
+class VarietyAndBriefingTests(GenerateMonthTests):
+    """Pautas repetidas são refeitas uma vez; o briefing vai para roteiro, arte e signals."""
+
+    def full(self, i, **kw):
+        word = WORDS[i % len(WORDS)]
+        base = {"slot_id": f"s{i}", "pillar": "Ciência", "title": f"Pauta {word} especial", "hook": f"{word.capitalize()} abre esta peça",
+                "caption_draft": f"Legenda {i}. Fala com a gente {i}!", "rationale": "r", "trend_id": None, "angle": "educativo",
+                "objective": f"Objetivo {i}", "key_message": f"Mensagem {i}", "script": f"Cena 1 da pauta {i}", "visual_idea": f"Arte {i}"}
+        return {**base, **kw}
+
+    async def test_repeated_items_are_redone_and_briefing_is_saved(self):
+        calls = []
+
+        def llm(prompt):
+            calls.append(prompt)
+            if len(calls) == 1:
+                items = [self.full(i) for i in range(1, 40)]
+                # s2 e s3 repetem a pauta e a abertura do s1
+                items[1] = self.full(2, title="Pauta bravo especial", hook="Bravo abre esta peça")
+                items[2] = self.full(3, title="Pauta bravo especial", hook="Bravo abre esta peça")
+                return {"items": items}
+            return {"items": [self.full(2, title="Bastidor do laboratório", hook="Você já viu como nasce"),
+                              self.full(3, title="Pergunta sobre rotina de cuidados", hook="Qual é o seu passo")]}
+
+        result, mocks = await self.run_with(self.patches(llm=AsyncMock(side_effect=llm)))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("outras_pautas_do_mes", calls[1])
+        self.assertIn("ja_planejado_recente", calls[0]) if self.recent_rows else None
+        rows = mocks[9].await_args.args[1]
+        titles = [r["title"] for r in rows]
+        self.assertIn("Bastidor do laboratório", titles)
+        self.assertEqual(titles.count("Pauta bravo especial"), 1)
+        first = next(r for r in rows if r["title"] == "Pauta bravo especial")
+        self.assertTrue(first["script"].startswith("Cena 1 da pauta"))
+        self.assertTrue(first["visual_idea"].startswith("Arte"))
+        self.assertEqual(set(first["signals"]["briefing"]), {"objective", "key_message", "angle"})
+        self.assertTrue(any("refeitas" in n for n in result["observacoes"]))
+
+    async def test_still_repeated_after_redo_is_flagged(self):
+        def llm(prompt):
+            items = [self.full(i) for i in range(1, 40)]
+            items[2] = self.full(3, title="Pauta bravo especial")
+            if "outras_pautas_do_mes" in prompt:
+                return {"items": [self.full(3, title="Pauta bravo especial")]}
+            return {"items": items}
+
+        result, mocks = await self.run_with(self.patches(llm=AsyncMock(side_effect=llm)))
+        rows = mocks[9].await_args.args[1]
+        flagged = [r for r in rows if r["signals"].get("repetido")]
+        self.assertEqual(len(flagged), 1)
+        self.assertTrue(any("revisar" in n for n in result["observacoes"]))

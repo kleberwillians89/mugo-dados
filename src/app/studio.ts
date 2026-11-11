@@ -32,7 +32,33 @@ export type CalendarSignals = {
   palavras_evitar_encontradas?: string[];
   /** Trava de fidelidade: oferta, número ou urgência que não está no perfil nem nas campanhas. */
   fora_da_marca?: GuardIssue[];
+  /** Briefing curto para quem produz a peça (gerado com o calendário). */
+  briefing?: { objective?: string; key_message?: string; angle?: string };
+  /** Conferência de variedade: motivo de a pauta parecer repetida. */
+  repetido?: string[];
 };
+
+/** Ângulo da pauta (rodízio para o calendário não ficar repetitivo). */
+export const CONTENT_ANGLES: Record<string, string> = {
+  bastidor: "Bastidor", educativo: "Educativo", produto_em_detalhe: "Produto em detalhe", uso_no_dia_a_dia: "Uso no dia a dia",
+  comparacao: "Comparação", curiosidade: "Curiosidade", pergunta_ao_publico: "Pergunta ao público", prova_social: "Prova social",
+  oferta: "Oferta", tendencia: "Tendência", data_comemorativa: "Data comemorativa", lifestyle: "Lifestyle",
+};
+
+/** Briefing em texto corrido para copiar e mandar para quem vai produzir. */
+export function briefingText(item: Pick<CalendarItem, "title" | "format" | "hook" | "script" | "visual_idea" | "signals">): string {
+  const b = item.signals?.briefing || {};
+  return [
+    `PAUTA: ${item.title}`,
+    `FORMATO: ${item.format}`,
+    b.angle ? `ÂNGULO: ${CONTENT_ANGLES[b.angle] || b.angle}` : "",
+    b.objective ? `OBJETIVO: ${b.objective}` : "",
+    b.key_message ? `MENSAGEM CENTRAL: ${b.key_message}` : "",
+    item.hook ? `GANCHO: ${item.hook}` : "",
+    item.script ? `ROTEIRO:\n${item.script}` : "",
+    item.visual_idea ? `DIREÇÃO DA ARTE:\n${item.visual_idea}` : "",
+  ].filter(Boolean).join("\n\n");
+}
 
 export type CalendarItem = {
   id: string; client_id: string; month: string; scheduled_at: string; format: StudioFormat;

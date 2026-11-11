@@ -181,7 +181,7 @@ def cap_to_plan(items: List[Dict[str, Any]], request: Dict[str, Any]) -> List[Di
     return out[:MAX_OPPORTUNITIES]
 
 
-def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, Any]) -> str:
+def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, Any], recent: Optional[List[Dict[str, Any]]] = None) -> str:
     start: date = req["week_start"]
     weeks = "\n".join(f"- Semana {w}: {week_dates(start, w)[0].strftime('%d/%m')} a {week_dates(start, w)[1].strftime('%d/%m')}"
                       for w in range(1, WEEKS + 1))
@@ -199,6 +199,10 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
           "(0 = segunda ... 6 = domingo), formato (um dos da plataforma), título da pauta, gancho (primeira frase ou cena), "
           "ângulo (o que torna esta pauta diferente), rascunho de legenda e por que (cite o dado da marca que sustenta). "
           "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS."
+        + "\n\nVARIEDADE: cada gancho começa de um jeito diferente (as 3 primeiras palavras não se repetem), nunca duas pautas "
+          "seguidas com o mesmo ângulo, a mesma CTA no máximo 2 vezes, e nada parecido com outra oportunidade nem com o que já foi planejado "
+          "recentemente (abaixo). Legenda enxuta, até 600 caracteres."
+        + (f"\nJÁ PLANEJADO RECENTEMENTE (não repetir tema nem abertura):\n{json.dumps(recent, ensure_ascii=False)}" if recent else "")
         + "\nAlém das oportunidades: um resumo da estratégia do mês em 2 frases."
         + f"\n\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
     )
@@ -240,7 +244,8 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     req = normalize_request(data, profile, today=today)
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
-    prompt = build_prompt(req, profile, intel)
+    from .content_variety import recent_content
+    prompt = build_prompt(req, profile, intel, recent=await recent_content(client_id))
     expected = req["posts_per_week"] * WEEKS
 
     async def attempt() -> tuple:

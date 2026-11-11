@@ -1333,3 +1333,5 @@
 .productTagDot{position:absolute;transform:translate(-50%,-50%);background:rgba(0,0,0,.75);color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .productTagDot.is-active{background:#fff;color:#111;box-shadow:0 0 0 2px #004f6e}
 .igShopBadge{position:absolute;left:10px;bottom:10px;z-index:1;font-size:12px;font-weight:600;background:rgba(255,255,255,.92);color:#111;padding:3px 8px;border-radius:999px}
+.postBriefing>button{margin-top:10px}
+.postBriefing p{white-space:pre-wrap}
