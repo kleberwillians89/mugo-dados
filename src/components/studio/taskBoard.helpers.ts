@@ -14,3 +14,13 @@ export function sortTasks(list: CrmTask[], today = new Date()): CrmTask[] {
     return (PRIORITY_RANK[a.priority || ""] ?? 9) - (PRIORITY_RANK[b.priority || ""] ?? 9);
   });
 }
+
+/** Mês "YYYY-MM" no fuso de São Paulo (0 = este mês, 1 = o próximo). */
+export const monthKey = (offset: number) => {
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+/** Handle do Instagram a partir do nome da empresa (prévia do post no celular). */
+export const handleFromName = (name: string) => "@" + name.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");

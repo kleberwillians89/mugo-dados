@@ -5,7 +5,7 @@ import Drawer from "../Drawer";
 import { getPathForRoute } from "../../app/routes";
 import { STUDIO_FORMATS, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
-import { OPEN, sortTasks } from "./taskBoard.helpers";
+import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 
@@ -20,16 +20,11 @@ const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.not
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "",
   visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
 
-type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
+export type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
 
 // Posts do Fluxo de aprovação do Calendário no mesmo quadro (etapa do post → coluna da tarefa).
 const STAGE_COLUMN: Record<Stage, TaskStatus> = { rascunho: "in_progress", revisao_interna: "internal_review", com_cliente: "client_review",
   ajuste: "changes", aprovado: "completed", publicado: "completed" };
-const monthKey = (offset: number) => {
-  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-};
 const ACTION_DONE: Partial<Record<TaskAction, string>> = {
   submit: "Enviada para a aprovação interna.", internal_approve: "Aprovada internamente.", internal_changes: "Ajuste pedido.",
   client_approve: "Aprovada.", client_changes: "Ajuste pedido.", comment: "Comentário salvo.",
@@ -263,7 +258,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         </section>;
       })}
     </div> : null}
-    {review ? <PostReview item={review} handle={"@" + clientName.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "")} busy={busy}
+    {review ? <PostReview item={review} handle={handleFromName(clientName)} busy={busy}
       error={reviewError} onClose={() => setReview(null)} onDecide={(status, note) => decidePost(review, status, note)} /> : null}
     <Drawer open={Boolean(draft)} title={draft?.id ? (canManage ? "Editar tarefa" : draft.title) : "Nova tarefa"} onClose={() => { if (!busy) setDraft(null); }}>
       {draft ? <form className="taskForm" onSubmit={save}>
@@ -353,7 +348,7 @@ function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => v
   </article>;
 }
 
-function PostCard({ post: p, onOpen, actions }: { post: PipelineItem; onOpen: () => void; actions: Quick[] }) {
+export function PostCard({ post: p, onOpen, actions }: { post: PipelineItem; onOpen: () => void; actions: Quick[] }) {
   const when = localParts(p.scheduled_at);
   const feedback = p.client_feedback?.action === "ajuste_solicitado" && p.client_feedback.comment ? p.client_feedback.comment : null;
   return <article className="kanbanCard taskCard taskPostCard">
