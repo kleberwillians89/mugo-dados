@@ -9,6 +9,9 @@ export type AppRoute =
   | "media"
   | "tasks"
   | "briefing"
+  | "library"
+  | "planning"
+  | "production"
   | "central"
   | "clipping"
   | "engagement"
@@ -51,6 +54,10 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
   if (normalized === "/briefing" || normalized.startsWith("/briefing/")) return "briefing";
+  if (normalized === "/biblioteca" || normalized.startsWith("/biblioteca/")) return "library";
+  if (normalized === "/planejamento" || normalized.startsWith("/planejamento/")) return "planning";
+  // Evento = Produção (RTV e eventos) da iAgência.
+  if (normalized === "/evento" || normalized.startsWith("/evento/") || normalized === "/producao" || normalized.startsWith("/producao/")) return "production";
   if (normalized === "/central" || normalized.startsWith("/central/")) return "central";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
@@ -104,6 +111,9 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
   if (route === "briefing") return "/briefing";
+  if (route === "library") return "/biblioteca";
+  if (route === "planning") return "/planejamento";
+  if (route === "production") return "/evento";
   if (route === "central") return "/central";
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";

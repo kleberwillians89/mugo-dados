@@ -25,6 +25,14 @@ describe("platform routes", () => {
     expect(canViewAppRoute("campaigns", socialOnly)).toBe(true);
     expect(canViewAppRoute("calendar", socialOnly)).toBe(false);
   });
+  it("Planejamento e Evento só para quem aprova internamente; Biblioteca com o Calendário", () => {
+    const client = (code: string) => code.endsWith(".view");
+    expect(canViewAppRoute("planning", client)).toBe(false);
+    expect(canViewAppRoute("production", client)).toBe(false);
+    expect(canViewAppRoute("library", client)).toBe(true);
+    const approver = (code: string) => code === "tasks.approve";
+    expect(canViewAppRoute("planning", approver)).toBe(true);
+  });
   it("maps the protected companies URL", () => {
     expect(getAppRouteFromPath("/empresas")).toBe("companies");
     expect(getPathForRoute("companies")).toBe("/empresas");
@@ -46,7 +54,12 @@ describe("platform routes", () => {
   });
 
   it("maps the Studio routes", () => {
-    expect(getAppRouteFromPath("/biblioteca")).toBe("not_found");
+    expect(getAppRouteFromPath("/biblioteca")).toBe("library");
+    expect(getPathForRoute("library")).toBe("/biblioteca");
+    expect(getAppRouteFromPath("/planejamento")).toBe("planning");
+    expect(getAppRouteFromPath("/evento")).toBe("production");
+    expect(getAppRouteFromPath("/producao")).toBe("production");
+    expect(getPathForRoute("production")).toBe("/evento");
     expect(getAppRouteFromPath("/calendario")).toBe("calendar");
     expect(getAppRouteFromPath("/aprovacao")).toBe("calendar"); // aprovação mora no Calendário (Fluxo)
     expect(getPathForRoute("approval")).toBe("/calendario");
