@@ -1,0 +1,102 @@
+/* Mugoverso IA: conversa em coluna de leitura, campo fixo embaixo, resposta formatada. */
+.appShell.miaShell .content.ds-content{max-width:none;padding:0}
+.mia{--mia-accent:var(--accent,#004f6e);--mia-ink:var(--text-primary,#15181b);--mia-muted:var(--text-secondary,#4d565d);
+  --mia-quiet:var(--text-muted,#687178);--mia-line:var(--border-subtle,rgba(21,24,27,.09));--mia-soft:var(--surface-subtle,#f6f5f2);
+  display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:520px;background:var(--surface,#fff);
+  font-family:var(--font-body,inherit);color:var(--mia-ink)}
+.miaColumn{width:100%;max-width:780px;margin:0 auto;padding:0 24px;box-sizing:border-box}
+
+.miaTop{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 28px;border-bottom:1px solid var(--mia-line)}
+.miaBrand{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.miaBrand>div{min-width:0}
+.miaBrand h1{margin:0;font-family:var(--font-display,inherit);font-size:18px;font-weight:600;letter-spacing:-.01em}
+.miaBrand small{display:block;font-size:13px;color:var(--mia-quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.miaMark{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;color:#fff;
+  background:linear-gradient(135deg,var(--mia-accent),#2b8aa8)}
+.miaMark.is-big{width:56px;height:56px;box-shadow:0 10px 30px rgba(0,79,110,.22)}
+.miaGhost{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:500;color:var(--mia-muted);
+  background:transparent;border:1px solid var(--mia-line);border-radius:999px;padding:7px 14px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap;flex:none}
+.miaGhost:hover{background:var(--mia-soft);color:var(--mia-ink)}
+.miaGhost.is-danger{color:#a3212f;border-color:#efc9cd}
+.miaConfirm{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mia-muted)}
+
+.miaScroll{flex:1;overflow-y:auto;padding:28px 0 12px;scroll-behavior:smooth}
+.miaLoading{display:grid;place-items:center;padding:60px 0}
+
+.miaHero{text-align:center;padding:48px 0 24px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.miaHero h2{margin:8px 0 0;font-family:var(--font-display,inherit);font-size:28px;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+.miaHero>p{margin:0;font-size:15px;color:var(--mia-muted)}
+.miaReads{list-style:none;margin:6px 0 10px;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.miaReads li{font-size:12px;color:var(--mia-muted);background:var(--mia-soft);border-radius:999px;padding:4px 10px}
+.miaStarters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;margin-top:8px}
+.miaStarters button{text-align:left;font:inherit;font-size:14px;line-height:1.4;color:var(--mia-ink);background:#fff;
+  border:1px solid var(--mia-line);border-radius:14px;padding:14px 16px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+.miaStarters button:hover{border-color:rgba(0,79,110,.35);box-shadow:0 6px 18px rgba(21,24,27,.06);transform:translateY(-1px)}
+
+.miaUser{display:flex;justify-content:flex-end;margin:0 0 22px}
+.miaUser p{margin:0;max-width:78%;background:var(--mia-accent);color:#fff;font-size:15px;line-height:1.5;
+  padding:10px 16px;border-radius:18px 18px 4px 18px;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.miaBot{display:grid;grid-template-columns:30px minmax(0,1fr);gap:14px;margin:0 0 30px}
+.miaBotBody{min-width:0;display:flex;flex-direction:column;gap:12px}
+.miaName{font-size:12px;font-weight:600;color:var(--mia-quiet);letter-spacing:.02em;line-height:30px;height:30px;margin-bottom:-12px}
+.miaAnswer{font-size:15px;line-height:1.65;color:var(--mia-ink)}
+.miaAnswer p{margin:0 0 10px}
+.miaAnswer p:last-child{margin-bottom:0}
+.miaAnswer ul{margin:0 0 12px;padding-left:20px;display:grid;gap:6px}
+.miaAnswer li::marker{color:var(--mia-accent)}
+.miaAction{margin-top:14px;background:linear-gradient(180deg,#eef6f9,#f6fafb);border:1px solid rgba(0,79,110,.16);border-radius:14px;padding:14px 16px}
+.miaAction b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mia-accent);margin-bottom:6px}
+.miaAction p{margin:0}
+.miaAction ul{margin:0;padding-left:20px;display:grid;gap:4px}
+.miaBot.is-offtopic .miaAnswer{color:var(--mia-muted)}
+
+.miaMeta{display:flex;flex-direction:column;gap:6px}
+.miaChips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.miaChipsLabel{font-size:12px;color:var(--mia-quiet);margin-right:2px}
+.miaChip{font-size:12px;color:var(--mia-muted);background:var(--mia-soft);border:1px solid var(--mia-line);border-radius:999px;padding:3px 10px}
+.miaChips.is-gap .miaChip{color:#8a5a12;background:#fdf6e7;border-color:#efdcb3}
+
+.miaFact{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1px dashed var(--mia-line);border-radius:12px;padding:12px 14px;font-size:14px}
+.miaFact b{font-size:13px}
+.miaFact ul{margin:4px 0 0;padding-left:18px}
+.miaSaved{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#1f6b3a}
+
+.miaFollow{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.miaFollow button{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:14px;color:var(--mia-accent);background:transparent;
+  border:0;border-radius:10px;padding:6px 10px 6px 4px;cursor:pointer;text-align:left}
+.miaFollow button:hover{background:#eef6f9}
+
+.miaThinking{display:flex;align-items:center;gap:10px;margin:0;font-size:14px;color:var(--mia-muted)}
+.miaDots{display:inline-flex;gap:4px}
+.miaDots i{width:6px;height:6px;border-radius:50%;background:var(--mia-accent);opacity:.35;animation:miaDot 1.2s infinite ease-in-out}
+.miaDots i:nth-child(2){animation-delay:.15s}
+.miaDots i:nth-child(3){animation-delay:.3s}
+@keyframes miaDot{40%{opacity:1;transform:translateY(-3px)}}
+
+.miaDock{padding:12px 0 18px;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 30%)}
+.miaComposer{display:flex;align-items:flex-end;gap:10px;background:#fff;border:1px solid rgba(21,24,27,.14);border-radius:20px;padding:10px 10px 10px 18px;
+  box-shadow:0 8px 28px rgba(21,24,27,.07);transition:border-color .15s,box-shadow .15s}
+.miaComposer:focus-within{border-color:rgba(0,79,110,.45);box-shadow:0 8px 28px rgba(0,79,110,.12)}
+.miaComposer textarea{flex:1;font:inherit;font-size:15px;line-height:1.5;color:var(--mia-ink);border:0;outline:none;resize:none;background:transparent;
+  padding:6px 0;max-height:200px;min-height:24px}
+.miaSend{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;border:0;color:#fff;background:var(--mia-accent);cursor:pointer;transition:opacity .15s,transform .15s}
+.miaSend:disabled{opacity:.3;cursor:default}
+.miaSend:not(:disabled):hover{transform:scale(1.05)}
+.miaHint{display:block;text-align:center;font-size:12px;color:var(--mia-quiet);margin-top:8px}
+.miaError{margin:0 0 8px;font-size:13px;color:#a3212f;background:#fbe9ea;border-radius:10px;padding:8px 12px}
+
+@media (prefers-reduced-motion:reduce){.miaDots i{animation:none;opacity:.7}.miaStarters button,.miaSend{transition:none}}
+@media (max-width:720px){
+  .mia{height:calc(100dvh - 56px)}
+  .miaTop{padding:12px 16px}
+  .miaColumn{padding:0 16px}
+  .miaHero{padding-top:24px}
+  .miaHero h2{font-size:22px}
+  .miaStarters{grid-template-columns:1fr}
+  .miaUser p{max-width:90%}
+  .miaBot{grid-template-columns:1fr}
+  .miaBot>.miaMark{display:none}
+  .miaName{height:auto;line-height:1.4;margin-bottom:-6px}
+  .miaHint{display:none}
+}
