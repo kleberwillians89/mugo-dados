@@ -29,6 +29,8 @@ EVENTS = "studio_task_events"
 PRIORITIES = ("low", "medium", "high", "urgent")
 COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,assignee_name,"
            "visible_to_client,completed_at,created_at,updated_at,deliverable_url,needs_client_approval,approval_round,approved_at")
+# Com a ligação ao Calendário (migração 000097); sem ela, cai para COLUMNS e depois LEGACY_COLUMNS.
+LINKED_COLUMNS = COLUMNS + ",calendar_item_id"
 LEGACY_COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,assignee_name,"
                   "visible_to_client,completed_at,created_at,updated_at")
 _COLORS = ("#2f6f8f", "#8a5a9e", "#b0693a", "#3f7f5a", "#a3485a", "#5b6bbf", "#7a7a2a", "#3a8a8a")
@@ -54,6 +56,7 @@ def task_view(row: Dict[str, Any], *, client_view: bool = False) -> Dict[str, An
         "notes": row.get("notes"), "updated_at": row.get("updated_at"),
         "assignee": {"name": who, "color": _color(who)} if who else None,
         "visible_to_client": bool(row.get("visible_to_client")),
+        "calendar_item_id": str(row["calendar_item_id"]) if row.get("calendar_item_id") else None,
     }
 
 
@@ -66,6 +69,10 @@ async def _rows(client_id: str, *, status: Optional[str], limit: int, client_vie
     if client_view:
         filters["visible_to_client"] = "is.true"
     kwargs = dict(filters=filters, order="due_date.asc.nullslast,created_at.asc", limit=max(1, min(int(limit), 500)))
+    try:
+        return await sb_select(TABLE, select=LINKED_COLUMNS, **kwargs)
+    except Exception:  # noqa: BLE001 — sem a migração 000097
+        pass
     try:
         return await sb_select(TABLE, select=COLUMNS, **kwargs)
     except Exception:  # noqa: BLE001 — sem a migração 000096: colunas e etapas antigas
@@ -151,9 +158,14 @@ def _clean(data: Dict[str, Any], *, partial: bool) -> Dict[str, Any]:
 async def _owned(client_id: str, task_id: str, *, client_view: bool) -> Dict[str, Any]:
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}
     try:
-        rows = await sb_select(TABLE, select=COLUMNS, filters=filters, limit=1)
-    except Exception:  # noqa: BLE001 — sem a migração 000096
-        rows = await sb_select(TABLE, select=LEGACY_COLUMNS, filters=filters, limit=1)
+        rows = await sb_select(TABLE, select=LINKED_COLUMNS, filters=filters, limit=1)
+    except Exception:  # noqa: BLE001 — sem a migração 000097
+        rows = None
+    if rows is None:
+        try:
+            rows = await sb_select(TABLE, select=COLUMNS, filters=filters, limit=1)
+        except Exception:  # noqa: BLE001 — sem a migração 000096
+            rows = await sb_select(TABLE, select=LEGACY_COLUMNS, filters=filters, limit=1)
     if not rows or (client_view and not rows[0].get("visible_to_client")):
         raise StudioError("TASK_NOT_FOUND")
     return rows[0]
@@ -260,3 +272,74 @@ async def list_events(client_id: str, task_id: str, *, client_view: bool) -> Lis
 async def task_history(client_id: str, task_id: str, *, client_view: bool) -> List[Dict[str, Any]]:
     await _owned(client_id, task_id, client_view=client_view)
     return await list_events(client_id, task_id, client_view=client_view)
+
+
+# ------------------------------------------------------------------ Calendário → Tarefas
+# Ajuste pedido num post (cliente ou revisão interna) vira tarefa em "Ajustes" ligada ao post; daí em diante a
+# tarefa acompanha o post. A aprovação continua sendo feita no Calendário (link do cliente, Fluxo de aprovação):
+# a tarefa é o "a fazer" da equipe e fecha sozinha quando o post é aprovado ou publicado.
+
+CALENDAR_STAGE_TO_TASK = {"rejeitado": "changes", "em_revisao": "internal_review", "aprovado": "completed",
+                          "publicado": "completed", "rascunho": "in_progress"}
+
+
+def _post_title(item: Dict[str, Any]) -> str:
+    when = str(item.get("scheduled_at") or "")[:10]
+    day = f"{when[8:10]}/{when[5:7]}" if len(when) == 10 else ""
+    title = str(item.get("title") or "post sem título").strip()[:150]
+    return f"Ajuste: {title}" + (f" ({day})" if day else "")
+
+
+async def sync_calendar_item(client_id: str, item: Dict[str, Any], *, comment: Optional[str] = None,
+                             actor_name: Optional[str] = None, by_client: bool = False, with_client: bool = False) -> Optional[str]:
+    """Leva a etapa do post para a tarefa ligada (cria a tarefa quando o post entra em ajuste). Nunca levanta."""
+    try:
+        status = str(item.get("status") or "")
+        target = CALENDAR_STAGE_TO_TASK.get(status)
+        if status == "em_revisao" and with_client:
+            target = "client_review"  # link de aprovação enviado ao cliente
+        if not target or not item.get("id"):
+            return None
+        item_id = str(item["id"])
+        found = await sb_select(TABLE, select="id,status,approval_round", limit=1,
+                                filters={"client_id": f"eq.{client_id}", "calendar_item_id": f"eq.{item_id}"})
+        now = datetime.now(timezone.utc).isoformat()
+        note = str(comment or "").strip()[:2000] or None
+        if not found:
+            if target != "changes":
+                return None  # só ajuste cria tarefa; post sem ajuste segue só no Calendário
+            created = await sb_insert(TABLE, {
+                "client_id": client_id, "title": _post_title(item), "status": "changes", "category": "Calendário",
+                "notes": note, "visible_to_client": False, "needs_client_approval": True, "calendar_item_id": item_id,
+                "due_date": str(item.get("scheduled_at") or "")[:10] or None, "approval_round": 1})
+            task_id = str((created or {}).get("id") or "")
+            if task_id:
+                await _event(client_id, task_id, "ajuste_cliente" if by_client else "ajuste_interno", note, actor_name, by_client, now)
+            return "created" if task_id else None
+        task = found[0]
+        if task["status"] == target or task["status"] == "cancelled":
+            return "unchanged"
+        patch: Dict[str, Any] = {"status": target, "updated_at": now}
+        if target == "completed":
+            patch.update({"completed_at": now, "approved_at": now})
+        if target == "changes":
+            patch["approval_round"] = int(task.get("approval_round") or 0) + 1
+        await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task['id']}"}, patch=patch, returning="minimal")
+        kind = {"changes": "ajuste_cliente" if by_client else "ajuste_interno", "internal_review": "enviado_interno",
+                "client_review": "enviado_cliente",
+                "completed": "aprovado_cliente" if by_client else "aprovado_interno"}.get(target)
+        if kind:
+            await _event(client_id, str(task["id"]), kind, note, actor_name, by_client, now)
+        return "updated"
+    except Exception as exc:  # noqa: BLE001 — sem a migração 000097 ou banco fora: o Calendário segue normal
+        print(f"[studio_tasks] calendar_sync_failed client_id={client_id} {type(exc).__name__}")
+        return None
+
+
+async def _event(client_id: str, task_id: str, kind: str, comment: Optional[str], actor_name: Optional[str], by_client: bool, at: str) -> None:
+    try:
+        await sb_insert(EVENTS, {"client_id": client_id, "task_id": task_id, "kind": kind, "internal": not by_client,
+                                 "comment": comment, "actor_id": None, "actor_name": (actor_name or ("Cliente" if by_client else "Equipe Mugô"))[:120],
+                                 "actor_side": "cliente" if by_client else "mugo", "created_at": at})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_tasks] calendar_event_failed {type(exc).__name__}")

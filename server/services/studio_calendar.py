@@ -671,6 +671,13 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if before:
         from .automation_triggers import on_item_status_change
         await on_item_status_change(client_id, before, rows[0])
+        if before.get("status") != rows[0].get("status"):
+            # Calendário e Tarefas no mesmo fluxo: ajuste vira tarefa, e a tarefa acompanha o post.
+            from .studio_tasks import sync_calendar_item
+            note = str(rows[0].get("review_note") or "")
+            by_client = note.startswith("Cliente (")
+            await sync_calendar_item(client_id, rows[0], comment=note.split("): ", 1)[-1] if by_client else (note or None),
+                                     actor_name=note[9:note.find(")")] if by_client and ")" in note else None, by_client=by_client)
     return rows[0]
 
 
