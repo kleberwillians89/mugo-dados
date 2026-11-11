@@ -319,7 +319,7 @@ async def decide_item(client_id: str, item_id: UUID, body: ItemDecisionInput, au
     patch = body.model_dump(mode="json", exclude_none=True)
     try:
         if not await is_agency_user(authorization):
-            item = await client_edit(cid, str(item_id), patch, user_id=uid, actor_name="O cliente pelo painel")
+            item = await client_edit(cid, str(item_id), patch, user_id=uid, actor_name=_chat_author(authorization, uid) or "O cliente pelo painel")
         else:
             item = await update_item(cid, str(item_id), patch, user_id=uid)
     except StudioError as exc:

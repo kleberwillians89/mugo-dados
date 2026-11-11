@@ -82,6 +82,27 @@ async def post_message(client_id: str, channel: str, body: str, *, agency: bool,
     return {**{k: v for k, v in out.items() if k != "author_id"}, "mine": True, "item_title": (item or {}).get("title")}
 
 
+DECISION_TEXT = {"aprovado": "✓ Aprovou: {title}", "ajuste_solicitado": "✎ Pediu ajuste em: {title}"}
+
+
+async def post_decision(client_id: str, action: str, *, title: str, actor_name: str, comment: Optional[str] = None,
+                        item_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+    """Aprovação ou pedido de ajuste do cliente vira mensagem na Conversa da marca (o time vê no painel, além do WhatsApp).
+    Nunca levanta: a decisão do cliente já está salva."""
+    template = DECISION_TEXT.get(action)
+    if not template:
+        return
+    try:
+        body = template.format(title=(title or "post").strip()[:200])
+        note = str(comment or "").strip()
+        if note:
+            body += f"\n“{note[:1500]}”"
+        await sb_insert(MESSAGES, {"client_id": client_id, "channel": "cliente", "author_id": user_id or None, "author_side": "cliente",
+                                   "author_name": (actor_name or "Cliente")[:80], "body": body, "item_id": item_id or None})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_chat] decision_message_failed client_id={client_id} {type(exc).__name__}")
+
+
 async def mark_read(client_id: str, channel: str, user_id: str) -> None:
     await _request("POST", f"/{READS}", params={"on_conflict": "user_id,client_id,channel"},
                    json={"user_id": user_id, "client_id": client_id, "channel": channel,
@@ -96,7 +117,8 @@ async def unread(client_id: str, *, agency: bool, user_id: str) -> Dict[str, int
     seen = {r["channel"]: r["last_read_at"] for r in reads}
     out: Dict[str, int] = {}
     for ch in channels:
-        filters = {"client_id": f"eq.{client_id}", "channel": f"eq.{ch}", "author_id": f"neq.{user_id}"}
+        # Mensagem sem autor (decisão pelo link de aprovação) também conta como nova.
+        filters = {"client_id": f"eq.{client_id}", "channel": f"eq.{ch}", "or": f"(author_id.is.null,author_id.neq.{user_id})"}
         if seen.get(ch):
             filters["created_at"] = f"gt.{seen[ch]}"
         rows = await sb_select(MESSAGES, select="id", limit=99, filters=filters)

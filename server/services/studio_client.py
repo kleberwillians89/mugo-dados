@@ -88,7 +88,7 @@ async def client_edit(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         await notify_team(client_id, item, "editado_pelo_cliente", actor_name=actor_name, comment=note or None, changes=changed,
                           edits=edits or None)
     if status == "aprovado":
-        await notify_team(client_id, item, "aprovado", actor_name=actor_name)
+        await notify_team(client_id, item, "aprovado", actor_name=actor_name, user_id=user_id)
     elif status == "rejeitado":
-        await notify_team(client_id, item, "ajuste_solicitado", actor_name=actor_name, comment=note)
+        await notify_team(client_id, item, "ajuste_solicitado", actor_name=actor_name, comment=note, user_id=user_id)
     return item

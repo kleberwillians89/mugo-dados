@@ -254,6 +254,11 @@ async def approval_action(client_id: str, task_id: str, action: str, *, comment:
         raise StudioError("STAGE_INVALID", "Alguém mexeu nesta tarefa agora (atualize a tela).")
     for event in events:
         await sb_insert(EVENTS, event)
+    if not is_agency and action in ("client_approve", "client_changes"):
+        from .studio_team import notify_team
+        await notify_team(client_id, {"id": None, "title": f"Tarefa: {task.get('title') or ''}".strip()},
+                          "aprovado" if action == "client_approve" else "ajuste_solicitado",
+                          actor_name=actor_name, comment=text or None, user_id=user_id or None)
     return {"task": task_view(rows[0], client_view=not is_agency), "events": await list_events(client_id, task_id, client_view=not is_agency)}
 
 

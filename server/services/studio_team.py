@@ -45,10 +45,15 @@ async def _send(row: Dict[str, Any]) -> bool:
 
 async def notify_team(client_id: str, item: Dict[str, Any], action: str, *, actor_name: Optional[str],
                       comment: Optional[str] = None, changes: Optional[List[str]] = None,
-                      edits: Optional[Dict[str, Dict[str, str]]] = None) -> Optional[str]:
+                      edits: Optional[Dict[str, Dict[str, str]]] = None, user_id: Optional[str] = None) -> Optional[str]:
     """Registra e tenta avisar já. Nunca levanta: a ação do cliente vale mesmo com o CRM fora do ar."""
     if action not in ACTIONS:
         return None
+    if action in ("aprovado", "ajuste_solicitado"):
+        # Também na Conversa da marca, para o time ver no painel (o WhatsApp segue abaixo).
+        from .studio_chat import post_decision
+        await post_decision(client_id, action, title=str(item.get("title") or ""), actor_name=actor_name or "O cliente",
+                            comment=comment, item_id=str(item["id"]) if item.get("id") else None, user_id=user_id)
     try:
         row = {"id": str(uuid.uuid4()), "client_id": client_id, "item_id": str(item["id"]) if item.get("id") else None, "action": action,
                "actor_name": (actor_name or "O cliente")[:120],
