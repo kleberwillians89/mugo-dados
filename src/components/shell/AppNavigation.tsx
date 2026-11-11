@@ -61,6 +61,7 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "customers", label: "Clientes" },
   { route: "engagement", label: "Comentários" },
   { route: "clipping", label: "Clipping" },
+  { route: "radar", label: "Radar Cultural" },
   { route: "social_report", label: "Relatório" },
 ];
 const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", "production"]);
