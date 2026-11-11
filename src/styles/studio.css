@@ -382,7 +382,12 @@
 .guardList{list-style:none;margin:0;padding:8px 10px;border-radius:8px;background:#fff6e0;color:#7a5600;font-size:13px;display:grid;gap:4px}
 
 /* Central da marca */
-.centralNumbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 24px;align-items:end;margin:8px 0 16px}
+.centralNumbers{display:grid;grid-template-columns:minmax(0,1.7fr) repeat(3,minmax(0,1fr));gap:12px 24px;align-items:end;margin:8px 0 16px}
+/* Número cabe no próprio card (container query): nunca quebra no meio do valor ("R$ 2." / "984,"). */
+.centralNumbers .ds-kpi{container-type:inline-size;min-width:0}
+.centralNumbers .ds-kpiValue{white-space:normal;overflow-wrap:normal;word-break:normal;font-size:clamp(20px,11cqi,40px);line-height:1.05}
+.centralNumbers .ds-kpi.is-hero .ds-kpiValue{white-space:nowrap;font-size:clamp(30px,14cqi,68px)}
+@media (max-width:900px){.centralNumbers{grid-template-columns:repeat(2,minmax(0,1fr))}.centralNumbers .ds-kpi.is-hero{grid-column:1/-1}.centralNumbers .ds-kpi.is-hero .ds-kpiValue{font-size:clamp(30px,11cqi,60px)}}
 .centralBest{grid-column:1/-1;margin:0;font-size:14px;opacity:.85}
 .centralAlerts{border:1px solid #f0d9a8;background:#fffaf0;border-radius:14px;padding:12px 16px;margin-bottom:16px}
 .centralAlerts h2{margin:0 0 6px;font-size:15px}

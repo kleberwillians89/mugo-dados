@@ -106,6 +106,44 @@ async def brand_messages(client_id: str, conversation_id: str, limit: int = 100)
     return await crm_bridge.list_messages(client_id, conversation_id, limit=limit)
 
 
+async def brand_reply(client_id: str, conversation_id: str, text: str, *, author: str) -> Dict[str, Any]:
+    """Equipe responde pelo MUGOVERSO: CRM da marca (ponte, POST reply) ou número ligado direto (Cloud API).
+    Número que vive no CRM Mugô continua respondendo pelo CRM Mugô."""
+    if not _UUID.match(str(conversation_id)):
+        raise StudioError("CONVERSATION_NOT_FOUND")
+    body = str(text or "").strip()[:4096]
+    if not body:
+        raise StudioError("EMPTY_MESSAGE", "Escreva a mensagem.")
+    cfg = bridge_for(client_id)
+    if cfg:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(cfg["url"], params={"endpoint": "reply"}, headers={"X-Mugoverso-Key": cfg["key"]},
+                                         json={"conversation_id": conversation_id, "text": body, "author": author[:80]})
+            data = resp.json() if resp.content else {}
+        except (httpx.HTTPError, ValueError):
+            raise StudioError("CRM_UNREACHABLE", "O CRM da marca não respondeu agora. Tente de novo em instantes.") from None
+        print(f"[whatsapp_sources] endpoint=reply client_id={client_id} status={resp.status_code}")
+        if resp.status_code == 200 and isinstance(data, dict) and data.get("ok"):
+            return data.get("data") or {"status": "sent"}
+        code = str((data or {}).get("code") or "") if isinstance(data, dict) else ""
+        message = str((data or {}).get("message") or "") if isinstance(data, dict) else ""
+        if code == "CONVERSATION_NOT_FOUND":
+            raise StudioError("CONVERSATION_NOT_FOUND")
+        if code == "OUTSIDE_REPLY_WINDOW":
+            raise StudioError("OUTSIDE_WINDOW", message or "Passaram 24 horas desde a última mensagem da cliente.")
+        if resp.status_code in (404, 405) or code in ("ENDPOINT_NOT_FOUND", "METHOD_NOT_ALLOWED"):
+            raise StudioError("REPLY_UNSUPPORTED", "O CRM da marca ainda não recebe respostas do MUGOVERSO: publique a função mugoverso-bridge atualizada.")
+        raise StudioError("SEND_FAILED", message or "O WhatsApp não aceitou a mensagem agora.")
+    if await whatsapp_native.active_number_ids(client_id):
+        try:
+            return await whatsapp_native.send_text(client_id, conversation_id, body)
+        except whatsapp_native.WhatsAppNativeError as exc:
+            mapped = {"NOT_FOUND": "CONVERSATION_NOT_FOUND", "OUTSIDE_WINDOW": "OUTSIDE_WINDOW", "EMPTY": "EMPTY_MESSAGE"}.get(exc.code, "SEND_FAILED")
+            raise StudioError(mapped, str(exc)) from None
+    raise StudioError("REPLY_UNSUPPORTED", "Este WhatsApp vive no CRM Mugô: responda por lá.")
+
+
 async def brand_sales(client_id: str, start: str, end: str) -> List[Dict[str, Any]]:
     """Vendas que o CRM da marca registra (só quem tem CRM próprio). Formato de pedido do Shopify.
 

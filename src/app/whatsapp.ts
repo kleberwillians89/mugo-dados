@@ -113,3 +113,8 @@ export const getInstagramInbox = () => http<IgInbox>(base("/instagram"));
 export const getInstagramThread = (senderId: string) => http<IgThread>(base(`/instagram/${encodeURIComponent(senderId)}`));
 export const replyInstagram = (senderId: string, text: string) =>
   http<{ status: string; at: string }>(base(`/instagram/${encodeURIComponent(senderId)}/reply`), { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
+
+/** Equipe responde a conversa pelo número da marca (CRM da marca ou número ligado no MUGOVERSO). */
+export const replyWhatsApp = (conversationId: string, text: string) =>
+  http<{ status: string; at?: string; ai_paused_minutes?: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/reply`),
+    { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const api = vi.hoisted(() => ({ getWhatsAppInsights: vi.fn(), getWhatsAppInbox: vi.fn(), getWhatsAppMessages: vi.fn() }));
+const api = vi.hoisted(() => ({ getWhatsAppInsights: vi.fn(), getWhatsAppInbox: vi.fn(), getWhatsAppMessages: vi.fn(), replyWhatsApp: vi.fn() }));
 vi.mock("../app/whatsapp", async (original) => ({ ...(await original<typeof import("../app/whatsapp")>()), ...api }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah Parfums" }));
 vi.mock("../app/PeriodContext", () => ({ usePeriod: () => ({ period: { start: "2026-11-01", end: "2026-11-09" } }) }));
@@ -129,5 +129,31 @@ describe("Página WhatsApp — troca rápida de conversa", () => {
     expect(text).toContain("Quer Oud em 10 ml.");
     expect(text).toContain("Próximo passo: mandar link do cartão em 3x");
     expect(text).toContain("Interesses: Oud, splits 10 ml");
+  });
+
+  it("equipe responde dentro da janela de 24 h e a conversa recarrega; fora da janela não tem caixa de resposta", async () => {
+    const open = new Date(Date.now() + 3 * 3600_000).toISOString();
+    api.getWhatsAppInsights.mockResolvedValue(INSIGHTS);
+    api.getWhatsAppInbox.mockResolvedValue({ ...INBOX, conversations: [{ ...INBOX.conversations[1], service_window_expires_at: open }, INBOX.conversations[0]] });
+    api.getWhatsAppMessages.mockResolvedValue({ available: true, messages: [] });
+    api.replyWhatsApp.mockResolvedValue({ status: "sent", ai_paused_minutes: 240 });
+    await act(async () => root.render(<WhatsApp />));
+    await flush();
+    const box = container.querySelector("#wa-reply") as HTMLTextAreaElement;
+    expect(box).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "Tem sim, 50 ml!");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => (container.querySelector(".waComposer button") as HTMLButtonElement).click());
+    await flush();
+    expect(api.replyWhatsApp).toHaveBeenCalledWith("c2", "Tem sim, 50 ml!");
+    expect(container.textContent).toContain("A IA fica quieta nesta conversa por 4 h");
+    expect(api.getWhatsAppMessages.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const other = [...container.querySelectorAll(".waConvList button")].find((b) => b.textContent?.includes("Mariana")) as HTMLButtonElement;
+    await act(async () => other.click());
+    await flush();
+    expect(container.querySelector("#wa-reply")).toBeNull();
+    expect(container.textContent).toContain("Passou de 24 h");
   });
 });
