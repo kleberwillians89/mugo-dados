@@ -44,12 +44,15 @@ VARIETY_RULES = (
 
 BRIEFING_RULES = (
     "- BRIEFING (para quem vai produzir a peça, curto e direto):\n"
+    "  * summary: o que é a peça, em até 2 frases.\n"
     "  * objective: o que esta peça precisa fazer, em 1 frase (ex.: gerar conversa, mostrar o produto em uso, levar ao link).\n"
     "  * key_message: a única ideia que o público deve guardar, em 1 frase.\n"
     "  * script: conforme o formato. Reels/vídeo: cenas numeradas (o que aparece e o que se fala), gancho nos 3 primeiros segundos, CTA no fim. "
     "Carrossel: texto de cada slide numerado (Slide 1 = capa com o gancho, último com CTA). Stories: telas numeradas com a interação. "
     "Imagem: o texto que vai na arte. No máximo 6 itens, frases curtas.\n"
-    "  * visual_idea: direção da arte em 2 a 4 linhas: cena ou composição, enquadramento, o que aparece, luz e cores da marca, texto na arte.\n"
+    "  * visual_idea: direção da arte em 2 a 4 linhas: cena ou composição, enquadramento, o que aparece, luz e cores da marca, texto na arte.\n"    "  * tone: o tom da peça, derivado do perfil, em poucas palavras. target_audience: para quem é, 1 frase.\n"
+    "  * deliverables: o que precisa ser entregue (ex.: 'Reels 9:16 de 20 a 30 s', 'capa'). tech_requirements: especificações "
+    "(proporção, duração, número de slides, legenda na tela, áudio). Até 4 itens cada.\n"
 )
 
 STOPWORDS = {"a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "no", "na", "nos", "nas", "um", "uma", "para", "pra",

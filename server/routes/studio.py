@@ -21,7 +21,7 @@ from services.studio_calendar import (
 from services.studio_approvals import (
     cancel_request, create_request, frontend_base_url, list_requests, pipeline, public_decide, public_view,
 )
-from services.studio_engines import ASSIST_ACTIONS, assist, generate_briefing, strategy_chat, suggest_profile
+from services.studio_engines import ASSIST_ACTIONS, assist, generate_briefing, save_briefing, strategy_chat, suggest_profile
 from services.studio_intelligence import build_content_intelligence, coverage
 from services.media_plan import get_strategy, list_strategies, plan_vs_actual, record_strategy, save_plan
 from services.media_strategy import build_strategy, narrative as media_narrative
@@ -689,6 +689,36 @@ async def make_briefing(client_id: str, item_id: UUID, body: BriefingInput, auth
     await _agency_only(authorization)
     try:
         return await generate_briefing(cid, str(item_id), body.model_dump(exclude_none=True))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class BriefingFields(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    summary: Optional[str] = Field(default=None, max_length=500)
+    objective: Optional[str] = Field(default=None, max_length=300)
+    key_message: Optional[str] = Field(default=None, max_length=300)
+    tone: Optional[str] = Field(default=None, max_length=200)
+    target_audience: Optional[str] = Field(default=None, max_length=300)
+    angle: Optional[str] = Field(default=None, max_length=40)
+    deliverables: Optional[List[str]] = Field(default=None, max_length=6)
+    tech_requirements: Optional[List[str]] = Field(default=None, max_length=6)
+
+
+class BriefingSaveInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    briefing: BriefingFields
+    script: Optional[str] = Field(default=None, max_length=4000)
+    visual_idea: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.put("/calendar/items/{item_id}/briefing")
+async def edit_briefing(client_id: str, item_id: UUID, body: BriefingSaveInput, authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return await save_briefing(cid, str(item_id), {"briefing": body.briefing.model_dump(exclude_none=True),
+                                                       "script": body.script or "", "visual_idea": body.visual_idea or ""})
     except StudioError as exc:
         raise _http(exc) from None
 

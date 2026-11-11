@@ -461,7 +461,10 @@ SCRIPT_GUIDE = {
     "stories": "Sequência de telas numeradas (Tela 1, Tela 2…), com o texto de cada uma e a interação sugerida (enquete, caixa, link).",
     "imagem": "Texto curto que vai na arte (título e, se fizer sentido, uma linha de apoio).",
 }
-CONTENT_SCHEMA = obj({"gancho": STR, "legenda": STR, "roteiro": STR, "ideia_imagem": STR})
+CONTENT_SCHEMA = obj({"gancho": STR, "legenda": STR, "roteiro": STR, "ideia_imagem": STR,
+                      # Briefing da peça (Atendimento do iAgência): nasce junto com o conteúdo.
+                      "resumo": STR, "objetivo": STR, "mensagem_central": STR, "tom": STR, "publico": STR,
+                      "entregaveis": arr(STR), "requisitos_tecnicos": arr(STR)})
 
 
 async def create_content(client_id: str, opportunity_id: str, *, instruction: Optional[str] = None) -> Dict[str, Any]:
@@ -479,7 +482,9 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
               f"ROTEIRO: {SCRIPT_GUIDE.get(fmt, SCRIPT_GUIDE['imagem'])}\n"
               "IDEIA DE IMAGEM: direção da arte para o designer ou a IA de imagem: cena ou composição, enquadramento, pessoas ou objetos, "
               "cores e estilo da marca, texto na arte. 3 a 6 linhas, concreto.\n"
-              "LEGENDA: no tom da marca, com CTA e hashtags do perfil se houver.\n"
+              "LEGENDA: no tom da marca, com CTA e hashtags do perfil se houver.\n"              "BRIEFING (para quem produz, curto e concreto): resumo (até 2 frases), objetivo (1 frase), mensagem_central (1 frase), "
+              "tom (poucas palavras, do perfil), publico (1 frase), entregaveis (ex.: 'Reels 9:16 de 20 a 30 s', 'capa') e "
+              "requisitos_tecnicos (proporção, duração, slides, legenda na tela, áudio), até 4 itens cada.\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
               + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
@@ -489,12 +494,22 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
              "caption_draft": _clip(data.get("legenda"), LIMITS["caption_draft"]) or None,
              "script": _clip(data.get("roteiro"), LIMITS["script"]) or None,
              "visual_idea": _clip(data.get("ideia_imagem"), LIMITS["visual_idea"]) or None}
+    from .studio_engines import clean_briefing
+    briefing = clean_briefing({"summary": data.get("resumo"), "objective": data.get("objetivo"), "key_message": data.get("mensagem_central"),
+                               "tone": data.get("tom"), "target_audience": data.get("publico"),
+                               "deliverables": data.get("entregaveis"), "tech_requirements": data.get("requisitos_tecnicos")})
     if not (patch["caption_draft"] or patch["script"] or patch["visual_idea"]):
         raise StudioError("AI_INVALID_OUTPUT")
     merged = {**current, **patch}
     guard = _guard(merged, list(profile.get("keywords_avoid") or []), _guard_context(profile, intel))
-    rows = await sb_update(OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{opportunity_id}", "status": "neq.exportada"},
-                           patch={**patch, "guard": guard, "edited": True, "updated_at": _now().isoformat()})
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{opportunity_id}", "status": "neq.exportada"}
+    full = {**patch, "guard": guard, "edited": True, "updated_at": _now().isoformat()}
+    try:
+        rows = await sb_update(OPPORTUNITIES, filters=filters, patch={**full, "briefing": briefing} if briefing else full)
+    except Exception as error:  # banco sem a migração 000099: salva o conteúdo sem o briefing
+        if "briefing" not in str(error):
+            raise
+        rows = await sb_update(OPPORTUNITIES, filters=filters, patch=full)
     if not rows:
         raise StudioError("OPPORTUNITY_EXPORTED")
     return rows[0]
@@ -530,6 +545,8 @@ def _calendar_row(op: Dict[str, Any], when: datetime, summary: Optional[str]) ->
     return {"scheduled_at": when.isoformat(), "channel": op["platform"], "format": op["format"], "title": op["title"],
             "pillar": op.get("pillar"), "hook": op.get("hook"), "caption_draft": op.get("caption_draft"),
             "script": op.get("script"), "visual_idea": op.get("visual_idea"),
+            # Briefing nascido na Matriz segue para a pauta (signals.briefing).
+            **({"briefing": op["briefing"]} if isinstance(op.get("briefing"), dict) and op.get("briefing") else {}),
             "rationale": (f"Matriz de conteúdo: {why}" if why else (f"Matriz de conteúdo. {summary or ''}".strip()))[:1200]}
 
 

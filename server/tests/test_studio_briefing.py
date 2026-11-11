@@ -79,3 +79,27 @@ class AssistUsesBriefingTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SaveBriefingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_team_edits_briefing_and_empty_field_clears(self):
+        upd = AsyncMock(return_value=[ITEM])
+        with patch.object(se, "_load_item", AsyncMock(return_value={**ITEM, "script": "velho"})), patch("services.ig_supabase.sb_update", upd):
+            await se.save_briefing("ruah", "i1", {"briefing": {"objective": "  Novo objetivo ", "angle": "inventado",
+                                                               "deliverables": ["Reels", ""]}, "script": "", "visual_idea": "Luz dura"})
+        sent = upd.await_args.kwargs["patch"]
+        self.assertEqual(sent["signals"]["briefing"], {"objective": "Novo objetivo", "deliverables": ["Reels"]})
+        self.assertEqual(sent["signals"]["basis"], {"hours": "18h-21h"})
+        self.assertIsNone(sent["script"])
+        self.assertEqual(sent["visual_idea"], "Luz dura")
+
+
+class CalendarCreateKeepsBriefingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_item_from_matrix_puts_briefing_in_signals(self):
+        from services import studio_calendar as sc
+        insert = AsyncMock(return_value=[{"id": "new"}])
+        with patch.object(sc, "sb_insert_many", insert):
+            await sc.create_item("ruah", {"scheduled_at": "2026-12-03T21:00:00+00:00", "format": "reels", "title": "T",
+                                          "briefing": {"objective": "Ensinar", "angle": "x"}}, user_id="u1", origin="matriz")
+        row = insert.await_args.args[1][0]
+        self.assertEqual(row["signals"], {"briefing": {"objective": "Ensinar"}})

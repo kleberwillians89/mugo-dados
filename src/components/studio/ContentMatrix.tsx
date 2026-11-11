@@ -386,6 +386,14 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart,
       <label>Legenda<textarea rows={6} maxLength={4000} value={draft.caption_draft || ""} disabled={locked} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
       <label>Roteiro<textarea rows={7} maxLength={4000} value={draft.script || ""} disabled={locked} placeholder="Cenas do vídeo, slides do carrossel, telas do Stories ou texto da arte" onChange={(e) => set({ script: e.target.value })} /></label>
       <label>Ideia de imagem<textarea rows={4} maxLength={2000} value={draft.visual_idea || ""} disabled={locked} placeholder="Direção da arte: cena, enquadramento, cores, texto na arte" onChange={(e) => set({ visual_idea: e.target.value })} /></label>
+      {op.briefing && Object.keys(op.briefing).length ? <div className="postFromMatrix postBriefing">
+        <b>Briefing da peça</b>
+        {([["summary", "Resumo"], ["objective", "Objetivo"], ["key_message", "Mensagem central"], ["tone", "Tom"], ["target_audience", "Público"]] as const)
+          .map(([k, label]) => op.briefing?.[k] ? <p key={k}><b>{label}:</b> {op.briefing[k]}</p> : null)}
+        {op.briefing.deliverables?.length ? <p><b>Entregáveis:</b> {op.briefing.deliverables.join("; ")}</p> : null}
+        {op.briefing.tech_requirements?.length ? <p><b>Requisitos técnicos:</b> {op.briefing.tech_requirements.join("; ")}</p> : null}
+        <small>Vai junto para a pauta do Calendário (lá dá para editar ou refazer).</small>
+      </div> : null}
       <label>Por que esta pauta<textarea rows={2} maxLength={1200} value={draft.rationale || ""} disabled={locked} onChange={(e) => set({ rationale: e.target.value })} /></label>
       {(op.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn">⚠ {g.fix}</p>)}
       {!locked ? <>

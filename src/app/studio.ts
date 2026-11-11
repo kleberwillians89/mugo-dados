@@ -48,6 +48,11 @@ export function generateBriefing(itemId: string, direction: BriefingDirection = 
   return http<{ item: CalendarItem; based_on: BasedOn }>(base(`/calendar/items/${itemId}/briefing`), { method: "POST", body: JSON.stringify(direction), timeoutMs: 100_000 });
 }
 
+/** A equipe edita o briefing à mão (campo vazio apaga). */
+export function saveBriefing(itemId: string, data: { briefing: StudioBriefing; script: string; visual_idea: string }) {
+  return http<{ item: CalendarItem }>(base(`/calendar/items/${itemId}/briefing`), { method: "PUT", body: JSON.stringify(data) });
+}
+
 /** Ângulo da pauta (rodízio para o calendário não ficar repetitivo). */
 export const CONTENT_ANGLES: Record<string, string> = {
   bastidor: "Bastidor", educativo: "Educativo", produto_em_detalhe: "Produto em detalhe", uso_no_dia_a_dia: "Uso no dia a dia",

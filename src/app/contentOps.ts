@@ -1,3 +1,4 @@
+import type { StudioBriefing } from "./studio";
 import { http, clientClientPath } from "./api";
 import type { GuardIssue, StudioFormat } from "./studio";
 
@@ -132,6 +133,8 @@ export type Opportunity = {
   title: string; hook: string | null; angle: string | null; caption_draft: string | null; rationale: string | null;
   /** Conteúdo criado na Matriz: roteiro (cenas, slides ou telas) e direção da arte. */
   script?: string | null; visual_idea?: string | null;
+  /** Briefing da peça (Atendimento do iAgência), criado junto com o conteúdo; vai para a pauta na exportação. */
+  briefing?: StudioBriefing | null;
   guard?: { type: string; text: string; fix: string }[]; status: OpportunityStatus; edited: boolean; position: number; calendar_item_id: string | null; updated_at?: string;
 };
 export type MatrixSummary = { id: string; week_start: string; platforms: Platform[]; pillars: { name: string; weight?: number }[];

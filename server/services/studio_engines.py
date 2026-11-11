@@ -324,3 +324,23 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
             raise
         rows = await sb_update("studio_calendar_items", filters=filters, patch={"signals": signals})
     return {"item": rows[0] if rows else {**item, **patch}, "based_on": coverage(intel)}
+
+
+async def save_briefing(client_id: str, item_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """A equipe edita o briefing à mão (mesmos limites do gerado pela IA). Campo vazio apaga."""
+    from .ig_supabase import sb_update
+    item = await _load_item(client_id, item_id)
+    briefing = clean_briefing(data.get("briefing") or {})
+    signals = {**(item.get("signals") or {}), "briefing": briefing}
+    patch: Dict[str, Any] = {"signals": signals}
+    for key, limit in (("script", 4000), ("visual_idea", 2000)):
+        if key in data:
+            patch[key] = str(data.get(key) or "").strip()[:limit] or None
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
+    try:
+        rows = await sb_update("studio_calendar_items", filters=filters, patch=patch)
+    except Exception as error:  # banco sem a migração 000090
+        if not re.search(r"script|visual_idea", str(error)):
+            raise
+        rows = await sb_update("studio_calendar_items", filters=filters, patch={"signals": signals})
+    return {"item": rows[0] if rows else {**item, **patch}}

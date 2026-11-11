@@ -404,3 +404,28 @@ class OptInModuleTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MatrixBriefingTests(ExportTests):
+    """Briefing nasce com o conteúdo na Matriz e vai para a pauta na exportação."""
+
+    async def test_content_creation_saves_briefing(self):
+        current = CreateContentTests.CURRENT
+        llm = AsyncMock(return_value={"gancho": "g", "legenda": "l", "roteiro": "Slide 1", "ideia_imagem": "Arte",
+                                      "resumo": "Carrossel educativo.", "objetivo": "Ensinar a escolher.", "mensagem_central": "Fixação depende da pele.",
+                                      "tom": "Didático", "publico": "Quem compra o primeiro nicho", "entregaveis": ["Carrossel 4:5, 6 slides"],
+                                      "requisitos_tecnicos": ["Fonte da marca"]})
+        update = AsyncMock(return_value=[current])
+        with patch.object(mx, "_opportunity", AsyncMock(return_value=current)), patch.object(mx, "throttle"), \
+             patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
+             patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "llm_json", llm), \
+             patch.object(mx, "sb_update", update):
+            await mx.create_content("ruah", "o1")
+        briefing = update.await_args.kwargs["patch"]["briefing"]
+        self.assertEqual(briefing["key_message"], "Fixação depende da pele.")
+        self.assertEqual(briefing["deliverables"], ["Carrossel 4:5, 6 slides"])
+        self.assertIn("BRIEFING", llm.await_args.kwargs["prompt"])
+
+    async def test_export_carries_briefing_to_calendar(self):
+        _, create, _ = await self.run_export(self.matrix(self.opp("a", briefing={"objective": "Ensinar"})))
+        self.assertEqual(create.await_args.args[1]["briefing"], {"objective": "Ensinar"})

@@ -340,9 +340,15 @@ LLM_SCHEMA = {
                         "key_message": {"type": "string"},
                         "script": {"type": "string"},
                         "visual_idea": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "tone": {"type": "string"},
+                        "target_audience": {"type": "string"},
+                        "deliverables": {"type": "array", "items": {"type": "string"}},
+                        "tech_requirements": {"type": "array", "items": {"type": "string"}},
                     },
                     "required": ["slot_id", "pillar", "title", "hook", "caption_draft", "rationale", "trend_id",
-                                 "angle", "objective", "key_message", "script", "visual_idea"],
+                                 "angle", "objective", "key_message", "script", "visual_idea",
+                                 "summary", "tone", "target_audience", "deliverables", "tech_requirements"],
                 },
             }
         },
@@ -523,9 +529,9 @@ def validate_items(
         if flagged:
             signals["palavras_evitar_encontradas"] = flagged
             warnings.append(f"{slot['date']}: contém palavra a evitar ({', '.join(flagged)}); revisar.")
-        angle = str(item.get("angle") or "")
-        briefing = {k: v for k, v in (("objective", _text(item.get("objective"), 300)), ("key_message", _text(item.get("key_message"), 300)),
-                                      ("angle", angle if angle in ANGLES else "")) if v}
+        from .studio_engines import clean_briefing  # mesmo formato e limites do briefing gerado/editado na pauta
+        briefing = clean_briefing({k: item.get(k) for k in ("summary", "objective", "key_message", "tone", "target_audience",
+                                                             "angle", "deliverables", "tech_requirements")})
         if briefing:
             signals["briefing"] = briefing
         out.append({
@@ -809,6 +815,11 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
     }
     if matrix_opportunity_id:
         row["matrix_opportunity_id"] = matrix_opportunity_id
+    if isinstance(data.get("briefing"), dict) and data["briefing"]:
+        from .studio_engines import clean_briefing
+        briefing = clean_briefing(data["briefing"])
+        if briefing:
+            row["signals"] = {"briefing": briefing}
     # Conteúdo criado na Matriz (migração 000090): só manda quando existe, para não exigir a coluna sem uso.
     for key, limit in (("script", 4000), ("visual_idea", 2000)):
         if data.get(key):
