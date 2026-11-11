@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(),
-  listItemReferences: vi.fn(async () => ({ references: [] })), listItemComments: vi.fn(async () => ({ comments: [] })) }));
+  listItemReferences: vi.fn(async () => ({ references: [] })), listContacts: vi.fn(), sendForApproval: vi.fn(), listItemComments: vi.fn(async () => ({ comments: [] })) }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
 vi.mock("../Drawer", () => ({ default: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div data-drawer>{children}</div> : null) }));
@@ -46,16 +46,38 @@ describe("Tarefas com aprovação", () => {
     expect(crm.taskApproval).toHaveBeenLastCalledWith(expect.stringMatching(/^t-/), "internal_approve", undefined, false);
   });
 
-  it("ajuste do Calendário: tarefa acompanha o post e a aprovação fica no Calendário", async () => {
+  it("ajuste do Calendário: a equipe manda o ajuste feito ao cliente pela própria tarefa", async () => {
+    const itemId = "11111111-1111-1111-1111-111111111111";
     crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true,
-      tasks: status === "completed" ? [] : [task("changes", { id: "t-cal", title: "Ajuste: Black Friday (27/11)", calendar_item_id: "11111111-1111-1111-1111-111111111111" })] }));
+      tasks: status === "completed" ? [] : [task("changes", { id: "t-cal", title: "Ajuste: Black Friday (27/11)", calendar_item_id: itemId, due_date: "2026-11-27" })] }));
+    studio.getPipeline.mockResolvedValue({ items: [{ id: itemId, title: "Black Friday", status: "rejeitado", stage: "ajuste", scheduled_at: "2026-11-27T22:00:00Z", format: "reels" }] });
+    studio.updateCalendarItem.mockResolvedValue({ item: {} });
+    studio.listContacts.mockResolvedValue({ whatsapp_channel: "mugozap", contacts: [{ id: "c1", name: "Gabi", phone: "1", role: null, receives: ["conteudo"], is_primary: true }] });
+    studio.sendForApproval.mockResolvedValue({ request_id: "r1", link: "https://x/aprovar/t", whatsapp_url: "https://wa.me/x", whatsapp_text: "oi", whatsapp: { status: "enviado", channel: "mugozap", text: "oi" } });
     await show(<TaskBoard canManage isAgency />);
     expect(host.textContent).toContain("Ajuste: Black Friday (27/11)");
     expect(host.querySelector(".taskFromCalendar")?.textContent).toBe("Calendário");
-    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toEqual(["Abrir no Calendário →"]);
+    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toEqual(["Enviar ao cliente →", "Calendário →"]);
     await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
-    expect(host.querySelector("[data-drawer]")?.textContent).toContain("nasceu de um ajuste no Calendário");
+    expect(host.querySelector("[data-drawer]")?.textContent).toContain("Ligada a um post do Calendário");
     expect([...host.querySelectorAll("[data-drawer] button")].map((b) => b.textContent)).not.toContain("Enviar para aprovação interna");
+    await click("Ajuste feito: enviar ao cliente");
+    expect(studio.updateCalendarItem).toHaveBeenCalledWith(itemId, { status: "em_revisao" });
+    expect(studio.sendForApproval).toHaveBeenCalledWith({ month: "2026-11", item_ids: [itemId], contact_id: "c1", send_whatsapp: true, notify_team: true });
+    expect(host.textContent).toContain("Gabi recebeu o link no WhatsApp");
+  });
+
+  it("tarefa do Calendário com o cliente: equipe marca aprovado ou pede novo ajuste", async () => {
+    const itemId = "22222222-2222-2222-2222-222222222222";
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true,
+      tasks: status === "completed" ? [] : [task("client_review", { id: "t-cli", title: "Ajuste: Reels", calendar_item_id: itemId })] }));
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    studio.updateCalendarItem.mockResolvedValue({ item: {} });
+    await show(<TaskBoard canManage isAgency />);
+    await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
+    await click("Cliente aprovou ✓");
+    expect(studio.updateCalendarItem).toHaveBeenCalledWith(itemId, { status: "aprovado" });
+    expect(host.textContent).toContain("Post aprovado.");
   });
 
   it("posts do Fluxo de aprovação entram no quadro; cliente aprova ou pede ajuste pela tela do celular", async () => {

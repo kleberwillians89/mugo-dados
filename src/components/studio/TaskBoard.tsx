@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import { getPathForRoute } from "../../app/routes";
-import { STUDIO_FORMATS, getPipeline, localParts, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
+import { STUDIO_FORMATS, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
 import { OPEN, sortTasks } from "./taskBoard.helpers";
 
@@ -58,6 +58,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [posts, setPosts] = useState<PipelineItem[]>([]);
   const [review, setReview] = useState<PipelineItem | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [sentLink, setSentLink] = useState<{ href: string; label: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -114,7 +115,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   }
 
   async function openTask(task: CrmTask) {
-    setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null);
+    setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null); setSentLink(null);
     try { const out = await taskHistory(task.id); setHistory({ id: task.id, events: out.events }); } catch { setHistory({ id: task.id, events: [] }); }
   }
 
@@ -131,9 +132,56 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     finally { setBusy(false); }
   }
 
+  /**
+   * Tarefa ligada a um post do Calendário: a equipe move o POST (mesmo fluxo de aprovação) e a tarefa acompanha.
+   * send = ajuste feito, manda ao cliente (WhatsApp do contato principal ou link); internal = volta à revisão interna;
+   * approve = marca o post aprovado; changes = pede novo ajuste com o comentário.
+   */
+  async function calendarStep(task: CrmTask, step: "send" | "internal" | "approve" | "changes", note?: string) {
+    const itemId = task.calendar_item_id;
+    if (!itemId) return;
+    if (step === "changes" && !(note || "").trim()) { await openTask(task); setError("Escreva o que precisa mudar e clique de novo."); return; }
+    const post = posts.find((p) => p.id === itemId);
+    setBusy(true); setError(null); setNotice(null); setSentLink(null);
+    try {
+      if (step === "send") {
+        if (!post || post.status === "rejeitado" || post.status === "rascunho") await updateCalendarItem(itemId, { status: "em_revisao" });
+        const month = (post?.scheduled_at || task.due_date || "").slice(0, 7) || monthKey(0);
+        const { contacts, whatsapp_channel } = await listContacts().catch(() => ({ contacts: [], whatsapp_channel: "nao_configurado" as const }));
+        const contact = contacts.find((c) => c.is_primary && c.receives.includes("conteudo")) || contacts.find((c) => c.receives.includes("conteudo")) || contacts.find((c) => c.is_primary);
+        const viaWhatsapp = Boolean(contact) && whatsapp_channel === "mugozap";
+        const out = await sendForApproval({ month, item_ids: [itemId],
+          ...(contact ? { contact_id: contact.id, send_whatsapp: viaWhatsapp, notify_team: viaWhatsapp } : {}) });
+        const delivered = viaWhatsapp && out.whatsapp?.status === "enviado";
+        setNotice(delivered ? `Enviado ao cliente: ${contact!.name} recebeu o link no WhatsApp.` : "Link de aprovação criado. Envie ao cliente:");
+        if (!delivered) setSentLink({ href: out.whatsapp_url || out.link, label: out.whatsapp_url ? "Abrir no WhatsApp ↗" : "Abrir o link ↗" });
+      } else if (step === "internal") {
+        await updateCalendarItem(itemId, { status: "em_revisao" });
+        setNotice("Enviado para a aprovação interna.");
+      } else if (step === "approve") {
+        await updateCalendarItem(itemId, { status: "aprovado" });
+        setNotice("Post aprovado.");
+      } else {
+        await updateCalendarItem(itemId, { status: "rejeitado", review_note: note!.trim() });
+        setNotice("Ajuste pedido."); setComment("");
+      }
+      await load();
+      if (draft?.id === task.id) {
+        try { const h = await taskHistory(task.id); setHistory({ id: task.id, events: h.events }); } catch { /* histórico é opcional */ }
+      }
+    } catch (cause) { setError(message(cause, "Não foi possível concluir a ação no Calendário.")); await load(); }
+    finally { setBusy(false); }
+  }
+
   /** Ações rápidas do card conforme a etapa e quem está vendo. */
   function quick(t: CrmTask): Quick[] {
-    if (t.calendar_item_id) return [{ label: "Abrir no Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) }];
+    if (t.calendar_item_id) {
+      const calendar: Quick = { label: "Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) };
+      if (!isAgency) return [{ ...calendar, label: "Abrir no Calendário →" }];
+      if (t.status === "changes" || t.status === "in_progress") return [{ label: "Enviar ao cliente →", run: () => void calendarStep(t, "send"), tone: "primary" }, calendar];
+      if (t.status === "internal_review") return [{ label: "Aprovar e enviar ao cliente", run: () => void calendarStep(t, "send"), tone: "primary" }, calendar];
+      return [calendar];
+    }
     if (t.status === "pending" && canManage) return [{ label: "Iniciar →", run: () => void move(t, "in_progress") }];
     if ((t.status === "in_progress" || t.status === "changes") && isAgency) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
     if (t.status === "in_progress" && canManage) return [{ label: "Concluir ✓", run: () => void move(t, "completed") }];
@@ -199,7 +247,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     </div>
     <p className="libHint">{isAgency ? "Tarefas da empresa no Mugoverso. Marque \"Visível ao cliente\" para o cliente acompanhar." : "O que está em andamento com a Mugô para a sua empresa."}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {notice && !draft ? <p role="status" className="studioOk">{notice}</p> : null}
+    {notice && !draft ? <p role="status" className="studioOk">{notice}{sentLink ? <> <a href={sentLink.href} target="_blank" rel="noreferrer noopener">{sentLink.label}</a></> : null}</p> : null}
     {unavailable ? <div className="studioEmpty"><p>{CRM_UNAVAILABLE_TEXT[unavailable]}</p></div> : null}
     {loading && !tasks.length ? <p>Carregando…</p> : null}
     {!loading && !unavailable && !error && !tasks.length && !postCards.length ? <div className="studioEmpty"><p>Nenhuma tarefa para {clientName} ainda.{canManage ? " Clique em + Nova tarefa." : ""}</p></div> : null}
@@ -243,7 +291,18 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         {current ? <section className="taskApproval" aria-label="Aprovação">
           <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
           {current.deliverable_url ? <a href={current.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir a entrega ↗</a> : null}
-          {current.calendar_item_id ? <p className="libHint">Esta tarefa nasceu de um ajuste no <b>Calendário</b> e acompanha o post: envie ao cliente, aprove ou peça ajuste por lá (Fluxo de aprovação) que ela anda sozinha. <a href={getPathForRoute("calendar")}>Abrir no Calendário →</a></p> : null}
+          {current.calendar_item_id ? <p className="libHint">Ligada a um post do <b>Calendário</b>: o que fizer aqui vale lá também (e vice-versa). <a href={getPathForRoute("calendar")}>Abrir no Calendário →</a></p> : null}
+          {current.calendar_item_id && isAgency ? <div className="taskApprovalActions">
+            {current.status === "changes" || current.status === "in_progress" ? <>
+              <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void calendarStep(current, "send")}>Ajuste feito: enviar ao cliente</button>
+              <button type="button" className="ds-button" disabled={busy} onClick={() => void calendarStep(current, "internal")}>Mandar para aprovação interna</button>
+            </> : null}
+            {current.status === "internal_review" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void calendarStep(current, "send")}>Aprovar e enviar ao cliente</button> : null}
+            {current.status === "client_review" ? <>
+              <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void calendarStep(current, "approve")}>Cliente aprovou ✓</button>
+              <button type="button" className="ds-button" disabled={busy} onClick={() => void calendarStep(current, "send")}>Reenviar ao cliente</button>
+            </> : null}
+          </div> : null}
           {!current.calendar_item_id ? <div className="taskApprovalActions">
             {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
             {current.status === "internal_review" && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "internal_approve")}>{current.visible_to_client && current.needs_client_approval !== false ? "Aprovar e enviar ao cliente" : "Aprovar"}</button> : null}
@@ -253,9 +312,10 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           {isAgency ? <label className="taskCheck"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> Comentário interno (o cliente não vê)</label> : null}
           <div className="taskApprovalActions">
             {changeAction && !current.calendar_item_id ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, changeAction, comment)}>Pedir ajuste</button> : null}
+            {current.calendar_item_id && isAgency && (current.status === "internal_review" || current.status === "client_review") ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void calendarStep(current, "changes", comment)}>Pedir ajuste</button> : null}
             <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, "comment", comment)}>Comentar</button>
           </div>
-          {notice ? <p role="status" className="studioOk">{notice}</p> : null}
+          {notice ? <p role="status" className="studioOk">{notice}{sentLink ? <> <a href={sentLink.href} target="_blank" rel="noreferrer noopener">{sentLink.label}</a></> : null}</p> : null}
           <ol className="taskHistory" aria-label="Histórico">
             {history?.id === current.id ? (history.events.length ? [...history.events].reverse().map((e) => <li key={e.id} className={e.internal ? "is-internal" : ""}>
               <b>{e.actor_name || (e.actor_side === "mugo" ? "Equipe Mugô" : "Cliente")}</b> {TASK_EVENT[e.kind].toLowerCase()}{e.internal ? " (interno)" : ""}
