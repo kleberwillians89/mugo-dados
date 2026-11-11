@@ -20,7 +20,7 @@ def content(op_id, guard=None):
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
-    async def run_pipeline(self, *, contents, update=None):
+    async def run_pipeline(self, *, contents, update=None, options=None, phase=1, run_extra=None, ops=None):
         saved = []
 
         async def save(table, filters, patch, **kwargs):
@@ -29,15 +29,18 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         exported = {"created": 2, "calendar_item_ids": ["i1", "i2"],
                     "matrix": {"opportunities": [{"id": "o1", "calendar_item_id": "i1"}, {"id": "o2", "calendar_item_id": "i2"}]}}
         update = update or AsyncMock(return_value={})
-        with patch.object(ag, "sb_update", AsyncMock(side_effect=save)), \
+        ops = ops if ops is not None else OPS
+        run = {"id": "r1", "steps": ag._fresh_steps(), "options": {"auto": True} if options is None else options, **(run_extra or {})}
+        with patch.object(ag, "sb_update", AsyncMock(side_effect=save)), patch.object(ag, "sb_select", AsyncMock(return_value=[])), \
              patch("services.studio_intelligence.build_content_intelligence", AsyncMock(return_value={})), \
              patch("services.studio_intelligence.coverage", return_value=COVERAGE), \
-             patch.object(mx, "generate", AsyncMock(return_value={"id": "m1", "opportunities": OPS, "notes": []})) as gen, \
+             patch.object(mx, "generate", AsyncMock(return_value={"id": "m1", "opportunities": ops, "notes": []})) as gen, \
+             patch.object(mx, "get_matrix", AsyncMock(return_value={"id": "m1", "opportunities": ops})), \
              patch.object(mx, "create_content", AsyncMock(side_effect=contents)) as write, \
              patch.object(mx, "export_to_calendar", AsyncMock(return_value=exported)) as export, \
              patch("services.studio_calendar.update_item", update), \
              patch("services.studio_engines.generate_briefing", AsyncMock(return_value={})) as brief:
-            out = await ag.execute("roove", {"id": "r1", "steps": ag._fresh_steps()}, user_id="u1")
+            out = await ag.execute("roove", run, user_id="u1", phase=phase)
         self.brief = brief
         return out, saved, gen, write, export, update
 
@@ -72,13 +75,109 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("rode", saved[-1]["error"].lower())
 
 
+class TwoPhaseTests(PipelineTests):
+    async def test_phase_one_stops_at_the_matrix(self):
+        out, saved, gen, write, *_ = await self.run_pipeline(contents=lambda *a, **k: content("o1"),
+                                                             options={"focus": "Black Friday", "weeks": 2})
+        self.assertEqual(saved[-1]["status"], "aguardando")
+        self.assertIn("Gerar conteúdo", saved[-1]["summary"])
+        self.assertEqual(gen.await_args.args[1], {"focus": "Black Friday", "weeks": 2})
+        write.assert_not_awaited()
+        steps = {s["key"]: s["status"] for s in out["steps"]}
+        self.assertEqual((steps["pesquisa"], steps["estrategia"], steps["redacao"]), ("feito", "feito", "pendente"))
+        self.assertIn("2 semanas", next(s for s in out["steps"] if s["key"] == "estrategia")["detail"])
+
+    async def test_phase_two_writes_only_what_the_team_kept(self):
+        ops = [{"id": "o1", "status": "selecionada"}, {"id": "o2", "status": "sugerida"}, {"id": "o3", "status": "descartada"}]
+        out, saved, gen, write, export, _ = await self.run_pipeline(contents=lambda cid, oid, throttle_calls: content(oid),
+                                                                    options={}, phase=2, run_extra={"matrix_id": "m1"}, ops=ops)
+        gen.assert_not_awaited()
+        self.assertEqual([c.args[1] for c in write.await_args_list], ["o1"])
+        self.assertEqual(saved[-1]["status"], "concluida")
+
+    async def test_phase_two_without_matrix_fails_clearly(self):
+        out, saved, *_ = await self.run_pipeline(contents=lambda *a, **k: content("o1"), options={}, phase=2)
+        self.assertEqual(saved[-1]["status"], "falhou")
+        self.assertIn("Matriz", saved[-1]["error"])
+
+    def test_targets_skip_discarded_and_exported(self):
+        ops = [{"id": "a", "status": "sugerida"}, {"id": "b", "status": "exportada"}, {"id": "c", "status": "descartada"},
+               {"id": "d", "status": "sugerida", "calendar_item_id": "x"}]
+        self.assertEqual([o["id"] for o in ag.matrix_targets(ops)], ["a"])
+
+    def test_research_summary_mentions_the_new_sources(self):
+        text = ag.research_summary(COVERAGE, {"voz_do_publico": "x", "produtos_mais_vendidos": [{}, {}],
+                                              "saude_da_marca": {"indice": 74}, "concorrentes": {"cadastrados": ["A"]},
+                                              "negocio": {"conhecimento_da_marca": "y"}})
+        for part in ("voz do público", "2 produtos", "74/100", "1 concorrentes", "material enviado"):
+            self.assertIn(part, text)
+
+
+PROFILE = {"profile": {"pillars": [{"name": "Produto"}], "editorial_platforms": ["instagram"]}}
+
+
 class RunControlTests(unittest.IsolatedAsyncioTestCase):
-    async def test_one_run_at_a_time(self):
-        running = {"id": "r1", "status": "rodando", "updated_at": datetime.now(timezone.utc).isoformat(), "steps": []}
-        with patch.object(ag, "sb_select", AsyncMock(return_value=[running])):
+    async def test_busy_pipeline_queues_the_request(self):
+        running = {"id": "r1", "status": "aguardando", "updated_at": datetime.now(timezone.utc).isoformat(), "steps": []}
+        with patch.object(ag, "sb_select", AsyncMock(return_value=[running])), \
+             patch.object(ag, "load_profile", AsyncMock(return_value=PROFILE)), \
+             patch.object(ag, "sb_insert", AsyncMock(side_effect=lambda t, row: {"id": "r2", **row})) as ins, \
+             patch.object(ag, "_background") as bg:
+            run = await ag.start_run("roove", user_id="u1", focus="Natal", weeks=3, brief_id="b1")
+        self.assertEqual(run["status"], "na_fila")
+        self.assertEqual(ins.await_args.args[1]["options"], {"focus": "Natal", "weeks": 3, "brief_id": "b1"})
+        bg.assert_not_called()
+
+    async def test_free_pipeline_starts_now(self):
+        with patch.object(ag, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(ag, "load_profile", AsyncMock(return_value=PROFILE)), \
+             patch.object(ag, "sb_insert", AsyncMock(side_effect=lambda t, row: {"id": "r2", **row})), \
+             patch.object(ag, "_background") as bg:
+            run = await ag.start_run("roove", user_id="u1")
+        self.assertEqual(run["status"], "rodando")
+        bg.assert_called_once()
+        bg.call_args.args[0].close()
+
+    async def test_invalid_period_fails_before_queueing(self):
+        with patch.object(ag, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(ag, "load_profile", AsyncMock(return_value=PROFILE)), patch.object(ag, "sb_insert", AsyncMock()) as ins:
             with self.assertRaises(StudioError) as raised:
-                await ag.start_run("roove", user_id="u1")
-        self.assertEqual(raised.exception.code, "AGENTS_RUNNING")
+                await ag.start_run("roove", user_id="u1", weeks=12)
+        self.assertEqual(raised.exception.code, "MATRIX_PERIOD_INVALID")
+        ins.assert_not_awaited()
+
+    async def test_continue_only_from_waiting(self):
+        with patch.object(ag, "sb_update", AsyncMock(return_value=[])):
+            with self.assertRaises(StudioError) as raised:
+                await ag.continue_run("roove", "r1", user_id="u1")
+        self.assertEqual(raised.exception.code, "AGENTS_NOT_WAITING")
+        with patch.object(ag, "sb_update", AsyncMock(return_value=[{"id": "r1", "status": "rodando"}])) as upd, \
+             patch.object(ag, "_background") as bg:
+            await ag.continue_run("roove", "r1", user_id="u1")
+        self.assertEqual(upd.await_args.kwargs["filters"]["status"], "eq.aguardando")
+        bg.call_args.args[0].close()
+
+    async def test_next_in_queue_starts_when_free(self):
+        queued = [{"id": "r2", "status": "na_fila", "created_by": "u1"}, {"id": "r3", "status": "na_fila"}]
+        with patch.object(ag, "sb_select", AsyncMock(return_value=queued)), \
+             patch.object(ag, "sb_update", AsyncMock(return_value=[{"id": "r2", "status": "rodando"}])) as upd, \
+             patch.object(ag, "_background") as bg:
+            nxt = await ag.start_next("roove")
+        self.assertEqual(nxt["id"], "r2")
+        self.assertEqual(upd.await_args.kwargs["filters"]["id"], "eq.r2")
+        bg.call_args.args[0].close()
+        with patch.object(ag, "sb_select", AsyncMock(return_value=[{"id": "r1", "status": "aguardando"}, *queued])), \
+             patch.object(ag, "sb_update", AsyncMock()) as upd:
+            self.assertIsNone(await ag.start_next("roove"))
+        upd.assert_not_awaited()
+
+    async def test_latest_prefers_active_and_counts_queue(self):
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [{"id": "r3", "status": "na_fila", "updated_at": now}, {"id": "r2", "status": "aguardando", "updated_at": now},
+                {"id": "r1", "status": "concluida", "updated_at": now}]
+        with patch.object(ag, "sb_select", AsyncMock(return_value=rows)):
+            run = await ag.latest_run("roove")
+        self.assertEqual((run["id"], run["queued"]), ("r2", 1))
 
     async def test_stale_run_shows_as_interrupted(self):
         old = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()

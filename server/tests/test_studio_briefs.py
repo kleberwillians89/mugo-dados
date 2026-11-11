@@ -61,6 +61,16 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Vender decants", run.await_args.kwargs["focus"])
         self.assertEqual(out["destinations"]["social_media"]["status"], "feito")
         self.assertEqual(upd.await_args.kwargs["patch"]["status"], "distribuido")
+        self.assertEqual(run.await_args.kwargs["brief_id"], "b1")
+        self.assertIn("weeks", run.await_args.kwargs)  # prazo do briefing vira o período da Matriz
+        self.assertIn("Gerar conteúdo", out["destinations"]["social_media"]["detail"])
+
+    async def test_social_media_with_busy_pipeline_says_it_is_queued(self):
+        with patch.object(sb, "get_brief", AsyncMock(return_value=ROW)), patch.object(sb, "sb_update", AsyncMock()), \
+             patch("services.studio_agents.start_run", AsyncMock(return_value={"id": "r2", "status": "na_fila"})):
+            out = await sb.send_to("ruah", "b1", "social_media", user_id="u")
+        self.assertEqual(out["destinations"]["social_media"]["status"], "feito")
+        self.assertIn("fila", out["destinations"]["social_media"]["detail"])
 
     async def test_a_failed_destination_is_written_on_it(self):
         with patch.object(sb, "get_brief", AsyncMock(return_value=ROW)), patch.object(sb, "sb_update", AsyncMock()), \

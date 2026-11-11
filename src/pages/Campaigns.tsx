@@ -76,7 +76,7 @@ export default function Campaigns({
     <PageHeader company={clientName} title="Social Media" />
     {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
-      <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial das próximas quatro semanas.</p></div></header>
+      <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
       {isAgency && canManage && canManageCalendar ? <AgentPipeline clientId={clientId} onDone={onAgentsDone} onOpenCalendar={() => openSection("calendario")} /> : null}
       <ContentMatrix key={`matrix:${clientId}:${agentsRound}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />

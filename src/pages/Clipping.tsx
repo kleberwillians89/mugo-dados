@@ -127,14 +127,13 @@ export default function Clipping({ canManage = false, initialTab = "saude" }: { 
     <nav className="clipTabs" aria-label="Clipping">
       {CLIP_TABS.filter(([key]) => canManage || key !== "alertas").map(([key, label]) => <button key={key} type="button" aria-pressed={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{label}</button>)}
     </nav>
+    {error && !editing ? <p role="alert" className="studioError">{error}</p> : null}
+    {notice && !editing ? <p className="studioOk" role="status">{notice}</p> : null}
     {tab === "saude" ? <BrandHealth canManage={canManage} onOpenAlerts={() => setTab("alertas")} /> : null}
     {tab === "alertas" && canManage ? <BrandHealthAlerts /> : null}
     {tab === "materias" ? <>
     {canManage ? <BrandContextPanel clientId={clientId} /> : null}
-    <p className="libHint">Notícias do Google Notícias sobre a marca e os concorrentes, buscadas todo dia às 7h40. A IA lê só a manchete e a fonte.{canManage ? " O cliente vê só as notícias relevantes, sem os termos nem as ações." : ""}{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
-    {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {notice ? <p className="studioOk">{notice}</p> : null}
-
+    <p className="libHint">Notícias do Google Notícias e das fontes próprias do radar sobre a marca, os concorrentes, pessoas e temas, buscadas todo dia às 7h40. A IA lê a matéria (ou o trecho disponível) e diz relevância, sentimento, riscos e oportunidades.{canManage ? " O cliente vê só as notícias relevantes, sem os termos nem as ações." : ""}{settings?.last_run_at ? ` Última busca: ${new Date(settings.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
     {view && !settings?.saved ? <div className="studioEmpty">
       {canManage ? <><p>Configure os termos para começar: o nome da marca, produtos e os concorrentes.</p>
         <button type="button" className="ds-button is-primary" onClick={openSettings}>Configurar termos</button></>

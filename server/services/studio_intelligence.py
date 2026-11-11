@@ -13,6 +13,8 @@ IA escreva a partir de fatos da conta e não de clichês:
 * CÉREBRO DA MARCA (ligação entre módulos): vendas por origem, plano do Mídia On do mês,
   campanhas ativas da Redação, notícias relevantes do Clipping e o andamento do Calendário.
   Assim a pauta, a copy, o anúncio e a mensagem de sexta seguem a mesma linha.
+* MUNDO DO CLIENTE: saúde da marca (índice, sentimento, assuntos e alertas), voz do público
+  (comentários, Direct e notícias agregados), concorrentes do Clipping e produtos que mais vendem.
 
 Cada fonte é lida com limite de tempo; fonte que falha vira "lacuna" e o
 pacote segue. Nada aqui chama a IA nem expõe dado de comprador.
@@ -32,7 +34,7 @@ from .ig_supabase import sb_select
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 SOURCE_TIMEOUT = 12.0
 CACHE_SECONDS = 600
-MAX_PROMPT_CHARS = 14000
+MAX_PROMPT_CHARS = 18000
 _CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
 # Mesmo filtro do MCP: texto com cara de e-mail, CPF/CNPJ ou telefone sai inteiro.
@@ -194,7 +196,8 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     gaps: List[str] = []
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
-     origin, media, campaigns, clipping, calendar_month, references) = await asyncio.gather(
+     origin, media, campaigns, clipping, calendar_month, references,
+     health, voice, competitors, products) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -209,6 +212,10 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("clipping", gaps, lambda: _clipping(client_id), {}),
         _safe("calendario_do_mes", gaps, lambda: _calendar_month(client_id, month), {}),
         _safe("referencias_do_cliente", gaps, lambda: _references(client_id), []),
+        _safe("saude_da_marca", gaps, lambda: _health(client_id), {}),
+        _safe("voz_do_publico", gaps, lambda: _audience_voice(client_id), ""),
+        _safe("concorrentes", gaps, lambda: _competitors(client_id), {}),
+        _safe("produtos_mais_vendidos", gaps, lambda: _top_products(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -230,7 +237,11 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "clipping": clipping,
         "calendario_do_mes": calendar_month,
         "referencias_do_cliente": references,
-        "lacunas": sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
+        "saude_da_marca": health,
+        "voz_do_publico": voice,
+        "concorrentes": competitors,
+        "produtos_mais_vendidos": products,
+        "lacunas":sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
     }
     _CACHE[key] = (time.monotonic(), package)
     return package
@@ -331,6 +342,74 @@ async def _calendar_month(client_id: str, month: date) -> Dict[str, Any]:
     return {"posts": len(rows), "por_status": counts, "por_pilar": dict(sorted(pillars.items(), key=lambda kv: -kv[1])[:6])}
 
 
+async def _health(client_id: str) -> Dict[str, Any]:
+    """Saúde da marca (Clipping → Saúde): índice, sentimento e assuntos dos últimos 30 dias, mais alertas abertos."""
+    from .brand_health import summary
+    end = datetime.now(SAO_PAULO).date()
+    data = await summary(client_id, start=end - timedelta(days=29), end=end, grain="month", sources=[])
+    kpis = data.get("kpis") or {}
+    if not kpis.get("mentions"):
+        return {}
+    return {"periodo": "30 dias", "indice": kpis.get("index"), "indice_anterior": kpis.get("index_previous"),
+            "situacao": kpis.get("index_label"), "mencoes": kpis.get("mentions"), "variacao_mencoes_pct": kpis.get("mentions_change"),
+            "sentimento_liquido": kpis.get("net"), "negativas_pct": kpis.get("negative_share"),
+            "assuntos": [{"assunto": clean_text(t.get("theme"), 80), "tom": t.get("tone"), "mencoes": t.get("mentions")}
+                         for t in (data.get("themes") or [])[:6] if clean_text(t.get("theme"), 80)],
+            "alertas_abertos": [{"tipo": a.get("kind"), "termo": clean_text(a.get("term"), 60) or None, "gravidade": a.get("severity")}
+                                for a in (data.get("alerts") or [])[:5]]}
+
+
+async def _audience_voice(client_id: str) -> str:
+    """Como o público fala da marca (comentários, Direct e notícias), já agregado e sem dado de pessoa."""
+    from .brand_health import audience_voice
+    return clean_text(await audience_voice(client_id), 700)
+
+
+async def _competitors(client_id: str) -> Dict[str, Any]:
+    """Concorrentes cadastrados no Clipping e o que saiu sobre eles nos últimos 30 dias."""
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    settings = await sb_select("studio_clipping_settings", select="competitor_terms", limit=1, filters={"client_id": f"eq.{client_id}"})
+    names = [clean_text(t, 60) for t in ((settings[0].get("competitor_terms") if settings else None) or []) if clean_text(t, 60)][:10]
+    rows = await sb_select("studio_clippings", select="title,source,term,sentiment,summary,relevant,published_at", limit=30,
+                           order="published_at.desc.nullslast",
+                           filters={"client_id": f"eq.{client_id}", "kind": "eq.concorrente", "created_at": f"gte.{since}",
+                                    "status": "neq.arquivado"})
+    rows = [r for r in rows if r.get("relevant") is not False]
+    if not names and not rows:
+        return {}
+    return {"cadastrados": names, "noticias_30_dias": len(rows),
+            "noticias": [{"concorrente": clean_text(r.get("term"), 60), "manchete": clean_text(r.get("title"), 160),
+                          "resumo": clean_text(r.get("summary"), 240) or None, "fonte": clean_text(r.get("source"), 60),
+                          "sentimento": r.get("sentiment")} for r in rows[:6]]}
+
+
+async def _top_products(client_id: str, days: int = 90) -> List[Dict[str, Any]]:
+    """Produtos que mais venderam (Shopify e FBits), pelos itens dos pedidos: o que de fato sai da loja."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    shop, fbits = await asyncio.gather(
+        sb_select("shopify_order_items", select="title,quantity,price,total_discount", limit=2000,
+                  filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}"}),
+        sb_select("fbits_order_items", select="product_name,quantity,total_value", limit=2000,
+                  filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since}"}),
+        return_exceptions=True,
+    )
+    totals: Dict[str, Dict[str, Any]] = {}
+
+    def add(name: Any, qty: Any, revenue: Optional[float]) -> None:
+        label = clean_text(name, 120)
+        if not label:
+            return
+        entry = totals.setdefault(label.lower(), {"produto": label, "unidades": 0, "vendas": 0.0})
+        entry["unidades"] += int(_num(qty) or 0)
+        entry["vendas"] += max(0.0, revenue or 0.0)
+    for r in shop if isinstance(shop, list) else []:
+        add(r.get("title"), r.get("quantity"), (_num(r.get("price")) or 0) * (_num(r.get("quantity")) or 0) - (_num(r.get("total_discount")) or 0))
+    for r in fbits if isinstance(fbits, list) else []:
+        add(r.get("product_name"), r.get("quantity"), _num(r.get("total_value")))
+    ranked = sorted(totals.values(), key=lambda p: (p["vendas"], p["unidades"]), reverse=True)[:10]
+    return [{**p, "vendas": round(p["vendas"], 2), "periodo": f"{days} dias"} for p in ranked]
+
+
 def invalidate(client_id: str) -> None:
     for key in [k for k in _CACHE if k.startswith(f"{client_id}:")]:
         _CACHE.pop(key, None)
@@ -351,7 +430,8 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, limit: int = MAX_PROMPT_CHARS) -> str:
     """JSON compacto para o prompt; corta as seções menos importantes se passar do limite."""
-    order = sections or ["marca", "negocio", "referencias_do_cliente", "aprendizados", "campanhas_ativas", "plano_de_midia", "posts", "kpis",
+    order = sections or ["marca", "negocio", "referencias_do_cliente", "aprendizados", "voz_do_publico", "campanhas_ativas",
+                         "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis", "saude_da_marca", "concorrentes",
                          "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping", "calendario_do_mes",
                          "ultima_analise", "funil_do_site", "horarios", "lacunas"]
     data = {k: package.get(k) for k in order if package.get(k)}

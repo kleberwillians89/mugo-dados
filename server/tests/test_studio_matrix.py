@@ -66,6 +66,44 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(req["platform_quotas"], {"instagram": 1})
 
 
+class PeriodTests(unittest.TestCase):
+    TODAY = date(2026, 11, 11)  # quarta
+
+    def test_default_is_four_weeks_from_next_monday(self):
+        req = mx.normalize_request({}, PROFILE, today=self.TODAY)
+        self.assertEqual((req["weeks"], req["week_start"]), (4, date(2026, 11, 16)))
+
+    def test_weeks_and_start_snap_to_monday(self):
+        req = mx.normalize_request({"weeks": 2, "start": "2026-11-26"}, PROFILE, today=self.TODAY)
+        self.assertEqual((req["weeks"], req["week_start"]), (2, date(2026, 11, 23)))
+
+    def test_invalid_period(self):
+        for data in ({"weeks": 9}, {"weeks": 0}, {"weeks": "x"}, {"start": "2026-01-01"}, {"start": "ontem"}):
+            with self.assertRaises(StudioError) as ctx:
+                mx.normalize_request(data, PROFILE, today=self.TODAY)
+            self.assertEqual(ctx.exception.code, "MATRIX_PERIOD_INVALID", data)
+
+    def test_briefing_alias_for_focus(self):
+        self.assertEqual(mx.normalize_request({"briefing": "Natal"}, PROFILE, today=self.TODAY)["focus"], "Natal")
+
+    def test_deadline_to_weeks(self):
+        self.assertEqual(mx.weeks_for_deadline("2026-11-27", self.TODAY), 2)
+        self.assertEqual(mx.weeks_for_deadline("2026-11-12", self.TODAY), 1)
+        self.assertEqual(mx.weeks_for_deadline("2027-06-01", self.TODAY), 8)
+        self.assertIsNone(mx.weeks_for_deadline(None, self.TODAY))
+
+    def test_clean_respects_period(self):
+        self.assertIsNotNone(mx.clean_opportunity(op(semana=6), platforms=["instagram"], pillars=["Produto"], weeks=6))
+        self.assertIsNone(mx.clean_opportunity(op(semana=3), platforms=["instagram"], pillars=["Produto"], weeks=2))
+
+    def test_prompt_lists_every_week(self):
+        req = mx.normalize_request({"weeks": 6}, PROFILE, today=self.TODAY)
+        prompt = mx.build_prompt(req, PROFILE, {})
+        self.assertIn("6 semanas", prompt)
+        self.assertIn("Semana 6", prompt)
+        self.assertIn("semana (1 a 6)", prompt)
+
+
 class CleanTests(unittest.TestCase):
     P = ["instagram", "tiktok"]
     PL = ["Produto", "Bastidores"]

@@ -41,6 +41,7 @@ const Clipping = lazy(() => import("./pages/Clipping"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
 const BrandAI = lazy(() => import("./pages/BrandAI"));
+const MugoIA = lazy(() => import("./pages/MugoIA"));
 const ChatWidget = lazy(() => import("./components/studio/ChatWidget"));
 const Creators = lazy(() => import("./pages/Creators"));
 const Users = lazy(() => import("./pages/Users"));
@@ -803,7 +804,7 @@ function PrivateApp() {
     return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
-  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
+  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "mugo_ia", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
   if (view === "loading") {
@@ -933,6 +934,8 @@ function PrivateApp() {
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (
         <BrandAI key={`brand_ai:${activeClientId}`} canManage={canEdit("brand_ai")} />
+      ) : route === "mugo_ia" ? (
+        <MugoIA key={`mugo_ia:${activeClientId}`} canManage={canEdit("brand_ai")} isAgency={teamHere} />
       ) : route === "social_report" ? (
         <SocialReport key={`social_report:${activeClientId}`} isAgency={teamHere} />
       ) : route === "engagement" ? (

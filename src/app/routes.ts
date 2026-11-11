@@ -14,6 +14,7 @@ export type AppRoute =
   | "engagement"
   | "social_report"
   | "brand_ai"
+  | "mugo_ia"
   | "campaigns"
   | "redacao"
   | "creators"
@@ -54,6 +55,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
+  if (normalized === "/mugo-ia" || normalized.startsWith("/mugo-ia/")) return "mugo_ia";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
   // Social Media (antes Redação): o endereço antigo continua abrindo a mesma tela.
   if (normalized === "/social-media" || normalized.startsWith("/social-media/")) return "campaigns";
@@ -107,6 +109,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";
   if (route === "brand_ai") return "/ia-da-marca";
+  if (route === "mugo_ia") return "/mugo-ia";
   if (route === "campaigns") return "/social-media";
   if (route === "redacao") return "/redacao";
   if (route === "creators") return "/criadores";

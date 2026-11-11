@@ -166,7 +166,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.createMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
     await show(<Campaigns />);
     await act(async () => { byText("Gerar matriz").click(); }); await act(async () => {});
-    expect(api.createMatrix).toHaveBeenCalledWith();
+    expect(api.createMatrix).toHaveBeenCalledWith({});  // sem período escolhido: 4 semanas, premissas do Perfil
     expect(host.textContent).not.toContain("Semana inicial (segunda)");
     expect(host.querySelector(".matrixStats")?.textContent).toContain("2 pilares");
     expect(host.querySelector(".matrixStats")?.textContent).toContain("1 oportunidades");

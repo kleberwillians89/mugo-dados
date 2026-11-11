@@ -330,6 +330,18 @@ class MatrixInput(BaseModel):
     pillars: List[str] = Field(default_factory=list, max_length=8)
     per_week: int = Field(default=3, ge=1, le=5)
     focus: str = Field(default="", max_length=1000)
+    # Período variável: de 1 a 8 semanas a partir da segunda da data de início. Vazio = 4 semanas, próxima segunda.
+    weeks: Optional[int] = Field(default=None, ge=1, le=8)
+    start: str = Field(default="", max_length=10)
+
+
+class AgentRunInput(BaseModel):
+    """Período e foco da esteira. ``auto`` roda tudo direto, sem parar na Matriz."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    focus: str = Field(default="", max_length=1000)
+    weeks: Optional[int] = Field(default=None, ge=1, le=8)
+    start: str = Field(default="", max_length=10)
+    auto: bool = False
 
 
 class OpportunityPatch(BaseModel):
@@ -385,18 +397,53 @@ async def read_agent_run(client_id: str, authorization: Optional[str] = Header(d
 
 
 @router.post("/agents/run", status_code=202)
-async def start_agent_run(client_id: str, authorization: Optional[str] = Header(default=None)):
-    """Roda a esteira de ponta a ponta em segundo plano: pesquisa → estratégia → redação → briefing visual →
-    revisão de marca → Calendário → revisão interna. Só a equipe Mugô."""
+async def start_agent_run(client_id: str, body: Optional[AgentRunInput] = None, authorization: Optional[str] = Header(default=None)):
+    """Fase 1 em segundo plano: pesquisa → Matriz do período, e PARA na Matriz para a equipe conferir.
+    Com a esteira ocupada, o pedido entra na fila. Só a equipe Mugô."""
+    from services import studio_agents as agents
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    uid = await require_user_id(authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô roda a esteira de agentes.")
+    data = body or AgentRunInput()
+    try:
+        run = await agents.start_run(cid, user_id=uid, focus=data.focus or None, weeks=data.weeks,
+                                     start=data.start or None, auto=data.auto)
+        return {"run": run, "steps": agents.STEPS}
+    except StudioError as exc:
+        if exc.code == "AGENTS_RUNNING":
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise _http(exc) from None
+
+
+@router.post("/agents/run/{run_id}/continue", status_code=202)
+async def continue_agent_run(client_id: str, run_id: UUID, authorization: Optional[str] = Header(default=None)):
+    """'Gerar conteúdo': a equipe conferiu a Matriz e a esteira segue (redação → revisão → Calendário →
+    briefing de arte → revisão interna) só com as pautas que ficaram. Só a equipe Mugô."""
     from services import studio_agents as agents
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
     uid = await require_user_id(authorization)
     if not await is_agency_user(authorization):
         raise HTTPException(status_code=403, detail="Só a equipe Mugô roda a esteira de agentes.")
     try:
-        return {"run": await agents.start_run(cid, user_id=uid), "steps": agents.STEPS}
+        return {"run": await agents.continue_run(cid, str(run_id), user_id=uid), "steps": agents.STEPS}
     except StudioError as exc:
-        if exc.code == "AGENTS_RUNNING":
+        if exc.code == "AGENTS_NOT_WAITING":
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise _http(exc) from None
+
+
+@router.post("/agents/run/{run_id}/cancel")
+async def cancel_agent_run(client_id: str, run_id: UUID, authorization: Optional[str] = Header(default=None)):
+    """Descarta a esteira parada na Matriz (a Matriz fica salva) ou um pedido na fila. Só a equipe Mugô."""
+    from services import studio_agents as agents
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô mexe na esteira de agentes.")
+    try:
+        return {"run": await agents.cancel_run(cid, str(run_id)), "steps": agents.STEPS}
+    except StudioError as exc:
+        if exc.code == "AGENTS_NOT_WAITING":
             raise HTTPException(status_code=409, detail=str(exc)) from None
         raise _http(exc) from None
 

@@ -295,9 +295,13 @@ async def send_to(client_id: str, brief_id: str, destination: str, *, user_id: s
     try:
         if destination == "social_media":
             from .studio_agents import start_run
-            run = await start_run(client_id, user_id=user_id, focus=text)
-            result = {"status": "feito", "detail": "Esteira de agentes rodando com este foco: os posts chegam em Revisão interna.",
-                      "ref": {"agent_run_id": run.get("id")}}
+            from .studio_matrix import weeks_for_deadline
+            weeks = weeks_for_deadline(b.get("deadline"))
+            run = await start_run(client_id, user_id=user_id, focus=text, weeks=weeks, brief_id=brief_id)
+            period = f" para {weeks} semana{'s' if weeks > 1 else ''} (até o prazo)" if weeks else ""
+            detail = ("Na fila da esteira: começa quando a anterior terminar." if run.get("status") == "na_fila"
+                      else f"Esteira montando a Matriz{period}. Confira na Social Media e clique em Gerar conteúdo.")
+            result = {"status": "feito", "detail": detail, "ref": {"agent_run_id": run.get("id")}}
         elif destination == "midia_on":
             from .media_plan import record_strategy
             from .media_strategy import build_strategy
