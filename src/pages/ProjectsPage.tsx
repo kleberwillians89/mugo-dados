@@ -4,6 +4,8 @@ import { getPathForRoute } from "../app/routes";
 import { BUDGET_LABELS, PROJECT_COLUMNS, brl, chatProject, createProject, deleteProject, generateProject, listProjects, projectToBrief,
   updateProject, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
 import Shell from "../components/Shell";
+import EventRadar from "../components/projects/EventRadar";
+import { EventSuppliers, SupplierBook } from "../components/projects/Suppliers";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
 
@@ -13,7 +15,7 @@ const COPY: Record<ProjectKind, { title: string; lead: string; newLabel: string;
     newLabel: "Novo planejamento", copilot: "Copiloto de estratégia", generate: "Gerar planejamento", empty: "Nenhum planejamento ainda.",
   },
   evento: {
-    title: "Evento", lead: "Vídeo, fotos, evento ou podcast: a ideia e a data entram; a IA monta cronograma, equipe, orçamento e riscos.",
+    title: "Evento", lead: "Vídeo, fotos, evento ou podcast: a ideia, a data e o local entram; a IA lê o clima e as notícias da região e os fornecedores da marca e monta cronograma, equipe, orçamento, riscos e plano B.",
     newLabel: "Nova produção", copilot: "Assistente de produção", generate: "Gerar plano de produção", empty: "Nenhuma produção ainda.",
   },
 };
@@ -32,6 +34,7 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pageTab, setPageTab] = useState<"producoes" | "fornecedores">("producoes");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,10 +47,11 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
   }, [clientId, kind]);
   useEffect(() => { void load(); }, [load]);
 
-  const run: Run = async (key, fn, fallback) => {
+  // Estável entre renders: os painéis de fornecedores carregam em useEffect com ela.
+  const run: Run = useCallback(async (key, fn, fallback) => {
     setBusy(key); setError(null);
     try { return await fn(); } catch (cause) { setError(message(cause, fallback)); return null; } finally { setBusy(null); }
-  };
+  }, []) as Run;
   const replace = (p: Project) => setProjects((list) => [p, ...list.filter((x) => x.id !== p.id)]);
   const current = useMemo(() => projects.find((p) => p.id === openId) || null, [projects, openId]);
 
@@ -61,7 +65,12 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
     <PageHeader company={getActiveClientName() || "empresa"} title={copy.title}
       controls={<button type="button" className="ds-button is-primary" onClick={() => { setCreating(true); setOpenId(null); }}>{copy.newLabel}</button>} />
     <p className="libIntro">{copy.lead}</p>
+    {kind === "evento" ? <div className="studioTabs projPageTabs" role="tablist" aria-label="Evento">
+      {([["producoes", "Produções"], ["fornecedores", "Fornecedores"]] as const).map(([key, label]) => <button key={key} type="button" role="tab"
+        aria-selected={pageTab === key} className={pageTab === key ? "is-active" : ""} onClick={() => setPageTab(key)}>{label}</button>)}
+    </div> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
+    {kind === "evento" && pageTab === "fornecedores" ? <SupplierBook busy={busy} run={run} /> : <>
     {creating ? <NewProject kind={kind} formats={formats} busy={busy} run={run} onCancel={() => setCreating(false)}
       onCreated={(p) => { replace(p); setCreating(false); setOpenId(p.id); }} /> : null}
 
@@ -85,6 +94,7 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
 
     {current ? <ProjectDetail key={current.id} kind={kind} project={current} formats={formats} busy={busy} run={run} onChange={replace}
       onDeleted={() => { setProjects((l) => l.filter((x) => x.id !== current.id)); setOpenId(null); }} onClose={() => setOpenId(null)} /> : null}
+    </>}
   </div></Shell>;
 }
 
@@ -158,6 +168,10 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
     {kind === "evento" && !project.format ? <label className="projInline">Formato<select value="" onChange={async (e) => { const r = await run("fmt", () => updateProject(kind, project.id, { format: e.target.value }), "Não foi possível salvar."); if (r) onChange(r.project); }}>
       <option value="">Escolha…</option>{formats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label> : null}
 
+    {kind === "evento" ? <label className="projInline">Local<input defaultValue={i.location || ""} maxLength={600} placeholder="Cidade ou endereço (ex.: Rua X, São Paulo)"
+      onBlur={async (e) => { const location = e.target.value.trim(); if (location === (i.location || "")) return;
+        const r = await run("loc", () => updateProject(kind, project.id, { inputs: { ...i, location } }), "Não foi possível salvar o local."); if (r) onChange(r.project); }} /></label> : null}
+    {kind === "evento" ? <EventRadar project={project} busy={busy} run={run} onChange={onChange} /> : null}
     <div className="projDetailGrid">
       <div className="projPlan">
         {!hasPlan ? <div className="libEmpty"><p>Ainda sem plano.</p>
@@ -201,10 +215,10 @@ function StrategyView({ project }: { project: Project }) {
   </div>;
 }
 
-type Tab = "cronograma" | "equipe" | "orcamento" | "riscos" | "checklist";
+type Tab = "cronograma" | "equipe" | "fornecedores" | "orcamento" | "riscos" | "checklist";
 const TABS: { key: Tab; label: string }[] = [
-  { key: "cronograma", label: "Cronograma" }, { key: "equipe", label: "Equipe" }, { key: "orcamento", label: "Orçamento" },
-  { key: "riscos", label: "Riscos" }, { key: "checklist", label: "Checklist" },
+  { key: "cronograma", label: "Cronograma" }, { key: "equipe", label: "Equipe" }, { key: "fornecedores", label: "Fornecedores" },
+  { key: "orcamento", label: "Orçamento" }, { key: "riscos", label: "Riscos" }, { key: "checklist", label: "Checklist" },
 ];
 const IMPACT: Record<string, string> = { baixo: "Baixo", medio: "Médio", alto: "Alto" };
 
@@ -222,6 +236,7 @@ function ProductionView({ project, busy, run, onChange }: { project: Project; bu
     {tab === "cronograma" ? <ol className="projTimeline">{(p.timeline || []).map((t, n) => <li key={n}><span className="projDate">{t.date}</span><b>{t.phase}</b><span>{t.task}</span></li>)}</ol> : null}
     {tab === "equipe" ? <table className="projTable"><thead><tr><th>Função</th><th>Qtd.</th><th>Observação</th></tr></thead>
       <tbody>{(p.staff || []).map((s, n) => <tr key={n}><td>{s.role}</td><td>{s.qty}</td><td>{s.note}</td></tr>)}</tbody></table> : null}
+    {tab === "fornecedores" ? <EventSuppliers project={project} busy={busy} run={run} onProjectChange={(next) => { onChange(next); setBudget(next.plan?.budget || []); }} /> : null}
     {tab === "orcamento" ? <div className="projBudget">
       <div className="projBudgetTotal"><small>Total estimado</small><b>{brl(total)}</b>
         {byCat.length ? <span className="projBudgetBar" aria-label="Divisão por categoria">{byCat.map((x) => <i key={x.c} title={`${BUDGET_LABELS[x.c]}: ${brl(x.v)}`} style={{ flexGrow: x.v }} />)}</span> : null}

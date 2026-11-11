@@ -4,7 +4,8 @@
   estratégia, grande ideia, mensagens, canais, fases, KPIs e riscos. O copiloto conversa sobre o plano; "aplicar a
   conversa" refaz o plano levando o que foi combinado.
 - Evento (Produção RTV e Eventos): vídeo, sessão de fotos, evento/ativação, podcast. A ideia e a data → a IA
-  (diretor de produção) monta cronograma, equipe, orçamento por categoria, riscos e checklist.
+  (diretor de produção) monta cronograma, equipe, orçamento por categoria, riscos e checklist. Lê também o radar do
+  evento (clima e notícias da região, ``event_radar``) e os fornecedores da marca (``studio_suppliers``).
 
 Os dois têm o mesmo quadro (Fila → Em andamento → Aprovação interna → Finalizado) e viram Briefing com um clique
 para distribuir às telas e às pessoas. Tudo curto, para ler em um minuto.
@@ -123,6 +124,9 @@ def plan_text(project: Dict[str, Any]) -> str:
             lines.append("Cronograma: " + "; ".join(f"{t['date']} {t['phase']}: {t['task']}" for t in p["timeline"]))
         if p.get("staff"):
             lines.append("Equipe: " + "; ".join(f"{s['qty']}x {s['role']}" for s in p["staff"]))
+        radar = project.get("radar") or {}
+        for alert in (radar.get("alertas") or [])[:3]:
+            lines.append(f"Clima ({alert.get('tipo')}): {alert.get('texto')}")
         if p.get("budget_total"):
             lines.append(f"Orçamento total: R$ {p['budget_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     return "\n".join(lines)[:3800]
@@ -178,7 +182,9 @@ def _reclean(kind: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(plan)
     if kind == "evento":
         budget = [{"category": b.get("category") if b.get("category") in BUDGET_CATEGORIES else "outros", "item": _t(b.get("item"), 120),
-                   "value": round(_money(b.get("value")), 2)} for b in plan.get("budget") or [] if isinstance(b, dict) and _t(b.get("item"), 120)][:30]
+                   "value": round(_money(b.get("value")), 2),
+                   **({"supplier_link_id": _t(b.get("supplier_link_id"), 40)} if b.get("supplier_link_id") else {})}
+                  for b in plan.get("budget") or [] if isinstance(b, dict) and _t(b.get("item"), 120)][:30]
         out["budget"], out["budget_total"] = budget, round(sum(b["value"] for b in budget), 2)
     if len(json.dumps(out, ensure_ascii=False, default=str)) > 60000:
         raise StudioError("PROJECT_TOO_LARGE", "O plano ficou grande demais.")
@@ -244,6 +250,20 @@ async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = Fal
                 "estratégia (como vamos ganhar), grande ideia (uma frase), até 5 mensagens, canais com o papel de cada um, até 6 fases com "
                 "quando e o que, até 5 KPIs com meta numérica, até 4 riscos.\n")
     else:
+        from .event_radar import radar_text, refresh as refresh_radar
+        from .studio_suppliers import suppliers_text
+        if not project.get("radar") and i.get("location"):
+            try:  # primeira vez com local: puxa clima e notícias antes de planejar
+                project = await refresh_radar(client_id, project_id)
+            except Exception as exc:  # noqa: BLE001 — sem radar, o plano sai sem clima
+                print(f"[studio][projects] radar_failed error_type={type(exc).__name__}")
+        radar = radar_text(project.get("radar") or {})
+        suppliers = await suppliers_text(client_id, project_id)
+        if radar:
+            ask += (f"\nCLIMA E NOTÍCIAS DA REGIÃO (use nos riscos, no checklist e no plano B; clima típico é tendência, não previsão):\n{radar}\n")
+        if suppliers:
+            ask += ("\nFORNECEDORES DA MARCA (prefira estes antes de sugerir contratar outro; quem já está no evento entra com o valor "
+                    f"fechado no orçamento e o nome no item):\n{suppliers}\n")
         ask += ("\nMonte o PLANO DE PRODUÇÃO: resumo (2 frases); cronograma de pré-produção, produção e pós com datas (AAAA-MM-DD, "
                 "contando para trás da data alvo; sem data alvo, use D-30, D-7…); equipe com função, quantidade e observação; orçamento "
                 "por item com categoria e valor em reais (estimativa de mercado em São Paulo, número); riscos com impacto e mitigação; "
@@ -253,6 +273,12 @@ async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = Fal
     data = await llm_json(client_id=client_id, instructions=ROLE[kind], prompt=ask, schema_name=f"studio_{kind}",
                           schema=_schema(kind), temperature=0.5)
     plan = clean_plan(kind, data)
+    if kind == "evento":
+        # Linhas lançadas a partir dos fornecedores do evento continuam no orçamento quando o plano é refeito.
+        kept = [b for b in (project.get("plan") or {}).get("budget") or [] if isinstance(b, dict) and b.get("supplier_link_id")]
+        if kept:
+            plan["budget"] = [*kept, *plan["budget"]][:30]
+            plan["budget_total"] = round(sum(float(b.get("value") or 0) for b in plan["budget"]), 2)
     if kind == "planejamento" and not plan["strategy"]:
         raise StudioError("AI_INVALID_OUTPUT")
     if kind == "evento" and not plan["timeline"]:
@@ -276,7 +302,9 @@ async def chat(client_id: str, project_id: str, message: str, *, author: str) ->
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
     history = [m for m in project.get("chat") or [] if isinstance(m, dict)][-8:]
-    prompt = (f"PLANO:\n{plan_text(project)}\n\nCONVERSA:\n" + "\n".join(f"{m.get('role')}: {str(m.get('content'))[:600]}" for m in history)
+    from .event_radar import radar_text
+    radar = radar_text(project.get("radar") or {}) if project["kind"] == "evento" else ""
+    prompt = (f"PLANO:\n{plan_text(project)}\n" + (f"\nCLIMA E NOTÍCIAS DA REGIÃO:\n{radar}\n" if radar else "") + "\nCONVERSA:\n" + "\n".join(f"{m.get('role')}: {str(m.get('content'))[:600]}" for m in history)
               + f"\nequipe: {text}\n\nResponda em até 6 linhas, direto, com sugestão prática. Sem travessão.\n"
               f"\nDADOS DA MARCA:\n{to_prompt(intel, limit=6000)}")
     data = await llm_json(client_id=client_id, instructions=ROLE[project["kind"]], prompt=prompt, schema_name="studio_project_chat",
