@@ -38,6 +38,7 @@ const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
+const Radar = lazy(() => import("./pages/Radar"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
 const BrandAI = lazy(() => import("./pages/BrandAI"));
@@ -938,6 +939,8 @@ function PrivateApp() {
         teamHere || canEdit("tasks")
           ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere} />
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
+      ) : route === "radar" ? (
+        <Radar key={`radar:${activeClientId}`} />
       ) : route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (
