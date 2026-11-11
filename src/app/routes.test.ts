@@ -38,6 +38,17 @@ describe("platform routes", () => {
     expect(getPathForRoute("companies")).toBe("/empresas");
   });
 
+  it("adds tenant-gated Benchmarking while retaining Meta, Google, Ecommerce and Radar", () => {
+    expect(getAppRouteFromPath("/benchmark")).toBe("benchmark");
+    expect(getPathForRoute("benchmark")).toBe("/benchmark");
+    expect(canViewAppRoute("benchmark", code => code === "clipping.view")).toBe(true);
+    expect(canViewAppRoute("benchmark", () => false)).toBe(false);
+    expect(getAppRouteFromPath("/meta")).toBe("meta");
+    expect(getAppRouteFromPath("/google")).toBe("google");
+    expect(getAppRouteFromPath("/ecommerce")).toBe("ecommerce");
+    expect(getAppRouteFromPath("/radar")).toBe("radar");
+  });
+
   it("adds Radar without replacing any existing readings or granting extra permissions", () => {
     expect(getAppRouteFromPath("/radar")).toBe("radar");
     expect(getPathForRoute("radar")).toBe("/radar");
