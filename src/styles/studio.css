@@ -1547,3 +1547,30 @@
 .projCopilot form button{align-self:flex-end}
 @media (max-width:1000px){.projDetailGrid{grid-template-columns:1fr}.projCopilot{position:static}.projBoard{grid-template-columns:repeat(4,240px)}.projTimeline li{grid-template-columns:90px 1fr}.projTimeline li span:last-child{grid-column:1/-1}}
 @media print{.appSidebar,.projBoard,.projCopilot,.projNew,.ds-pageHeader,.libIntro,.projHeadActions,.postBriefingActions,.projToBrief,.briefArchive,.studioTabs{display:none!important}.projDetail{border:0}.projDetailGrid{grid-template-columns:1fr}}
+/* Evento: radar (clima e notícias da região) e fornecedores */
+.projPageTabs{margin-bottom:14px}
+.projInline input{font:inherit;font-size:14px;font-weight:400;border:1px solid var(--border,#dedbd4);border-radius:10px;padding:7px 10px;background:#fff;max-width:520px}
+.evRadar{border:1px solid var(--border,#e3dfd7);border-radius:14px;padding:14px 16px;background:linear-gradient(180deg,#f6f9fc,#fff);display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.evRadar header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.evRadar h3{margin:0 0 2px;font-size:15px}
+.evWeather{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;align-items:center}
+.evWeather b{grid-row:span 2;font-size:28px;line-height:1}
+.evWeather b small{font-size:16px;color:var(--text-secondary,#5f5b53);font-weight:500}
+.evWeather span{font-size:13px}
+.evWeather.is-typical b{color:#5f5b53}
+.evAlerts{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.evAlerts li{display:flex;gap:8px;align-items:flex-start;font-size:13px;border-radius:10px;padding:8px 10px;background:#fdf6e7;border:1px solid #ecd9ad}
+.evAlerts li.is-alta{background:#fbe9ea;border-color:#e8b9bd}
+.evNews summary{cursor:pointer;font-size:13px;font-weight:600}
+.evNews ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px;font-size:13px}
+.evNews small{display:block;color:var(--text-secondary,#5f5b53)}
+.evSuppliers{display:flex;flex-direction:column;gap:10px}
+.evSuppliers tr.is-cancelado td{opacity:.55}
+.evSupAdd{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.evSupAdd select,.evSupAdd input{font:inherit;font-size:14px;border:1px solid var(--border,#dedbd4);border-radius:10px;padding:7px 10px;background:#fff}
+.evSupAdd input[type=number]{width:120px}
+.supBook{display:flex;flex-direction:column;gap:10px}
+.supTable td{vertical-align:top}
+.supStars{color:#b98a2c}
+.supActions{white-space:nowrap;display:flex;gap:10px}
+@media (max-width:720px){.supTable thead{display:none}.supTable tr{display:grid;gap:2px;padding:8px 0;border-bottom:1px solid var(--border,#e3dfd7)}.supTable td{border:0;padding:2px 0}}

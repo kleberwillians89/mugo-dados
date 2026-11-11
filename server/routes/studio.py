@@ -2031,3 +2031,151 @@ async def project_to_brief(client_id: str, kind: ProjectKind, project_id: UUID, 
         return {"brief": await to_brief(cid, str(project_id), user_id=uid, author=_chat_author(authorization, uid) or "Equipe Mugô")}
     except StudioError as exc:
         raise _known(exc) from None
+
+
+# ------------------------------------------------------------------ Evento: radar (clima e notícias) e fornecedores
+
+ERRORS.update({
+    "EVENT_LOCATION_REQUIRED": (422, "Coloque o local do evento para puxar clima e notícias."),
+    "SUPPLIER_NAME_REQUIRED": (422, "Dê o nome do fornecedor."),
+    "SUPPLIER_CATEGORY_INVALID": (422, "Categoria inválida."),
+    "SUPPLIER_EMAIL_INVALID": (422, "E-mail inválido."),
+    "SUPPLIER_RATING_INVALID": (422, "Nota de 1 a 5."),
+    "SUPPLIER_VALUE_INVALID": (422, "Valor inválido."),
+    "SUPPLIER_STATUS_INVALID": (422, "Status inválido."),
+    "SUPPLIER_NOT_FOUND": (404, "Fornecedor não encontrado."),
+    "SUPPLIER_LINK_NOT_FOUND": (404, "Fornecedor não está neste evento."),
+    "SUPPLIER_ALREADY_LINKED": (409, "Esse fornecedor já está no evento."),
+    "SUPPLIER_NOTHING_TO_BUDGET": (409, "Nenhum fornecedor contratado com valor para lançar."),
+    "SUPPLIER_SAVE_FAILED": (503, "Não foi possível salvar o fornecedor agora."),
+})
+
+
+class SupplierInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: Optional[str] = Field(default=None, max_length=120)
+    category: Optional[str] = Field(default=None, max_length=30)
+    contact_name: Optional[str] = Field(default=None, max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    email: Optional[str] = Field(default=None, max_length=200)
+    website: Optional[str] = Field(default=None, max_length=300)
+    city: Optional[str] = Field(default=None, max_length=120)
+    price_note: Optional[str] = Field(default=None, max_length=200)
+    rating: Optional[int] = Field(default=None, ge=0, le=5)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    active: Optional[bool] = None
+
+
+class SupplierLinkInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    supplier_id: Optional[UUID] = None
+    item: Optional[str] = Field(default=None, max_length=160)
+    status: Optional[Literal["cotando", "contratado", "confirmado", "cancelado"]] = None
+    value: Optional[float] = Field(default=None, ge=0, le=100_000_000)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/projects/evento/{project_id}/radar")
+async def refresh_event_radar(client_id: str, project_id: UUID, authorization: str | None = Header(default=None)):
+    """Puxa de novo o clima (previsão ou clima típico) e as notícias da região do evento."""
+    from services.event_radar import refresh
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"project": await refresh(cid, str(project_id))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.get("/suppliers")
+async def read_suppliers(client_id: str, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import CATEGORIES, LINK_STATUSES, list_suppliers
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    return {"suppliers": await list_suppliers(cid), "categories": CATEGORIES, "statuses": list(LINK_STATUSES)}
+
+
+@router.post("/suppliers", status_code=201)
+async def create_supplier_route(client_id: str, body: SupplierInput, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import create_supplier
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"supplier": await create_supplier(cid, body.model_dump(exclude_unset=True), user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.patch("/suppliers/{supplier_id}")
+async def edit_supplier(client_id: str, supplier_id: UUID, body: SupplierInput, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import update_supplier
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"supplier": await update_supplier(cid, str(supplier_id), body.model_dump(exclude_unset=True))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.delete("/suppliers/{supplier_id}")
+async def remove_supplier(client_id: str, supplier_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import delete_supplier
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        await delete_supplier(cid, str(supplier_id))
+    except StudioError as exc:
+        raise _known(exc) from None
+    return {"ok": True}
+
+
+@router.get("/projects/evento/{project_id}/suppliers")
+async def read_event_suppliers(client_id: str, project_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import event_suppliers
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    return {"links": await event_suppliers(cid, str(project_id))}
+
+
+@router.post("/projects/evento/{project_id}/suppliers", status_code=201)
+async def link_event_supplier(client_id: str, project_id: UUID, body: SupplierLinkInput, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import link_supplier
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"link": await link_supplier(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.patch("/projects/evento/{project_id}/suppliers/{link_id}")
+async def edit_event_supplier(client_id: str, project_id: UUID, link_id: UUID, body: SupplierLinkInput,
+                              authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import update_link
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"link": await update_link(cid, str(project_id), str(link_id), body.model_dump(mode="json", exclude_unset=True, exclude={"supplier_id"}))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.delete("/projects/evento/{project_id}/suppliers/{link_id}")
+async def unlink_event_supplier(client_id: str, project_id: UUID, link_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_suppliers import unlink_supplier
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    await unlink_supplier(cid, str(project_id), str(link_id))
+    return {"ok": True}
+
+
+@router.post("/projects/evento/{project_id}/suppliers/budget")
+async def event_suppliers_to_budget(client_id: str, project_id: UUID, authorization: str | None = Header(default=None)):
+    """Lança no orçamento do plano os fornecedores contratados/confirmados com valor (sem duplicar)."""
+    from services.studio_suppliers import push_to_budget
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"project": await push_to_budget(cid, str(project_id))}
+    except StudioError as exc:
+        raise _known(exc) from None
