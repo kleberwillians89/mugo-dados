@@ -38,6 +38,14 @@ describe("platform routes", () => {
     expect(getPathForRoute("companies")).toBe("/empresas");
   });
 
+  it("adds Radar without replacing any existing readings or granting extra permissions", () => {
+    expect(getAppRouteFromPath("/radar")).toBe("radar");
+    expect(getPathForRoute("radar")).toBe("/radar");
+    expect(getAppRouteFromPath("/clipping")).toBe("clipping");
+    expect(canViewAppRoute("radar", code => code === "clipping.view")).toBe(true);
+    expect(canViewAppRoute("radar", () => false)).toBe(false);
+  });
+
   it("keeps tenant reports on their existing routes", () => {
     expect(getAppRouteFromPath("/")).toBe("meta");
     expect(getAppRouteFromPath("/dashboard")).toBe("meta");
