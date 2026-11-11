@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
-import { CRM_UNAVAILABLE_TEXT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, updateTask, type CrmTask, type CrmUnavailable, type TaskInput, type TaskStatus } from "../../app/crm";
+import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import { OPEN, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 
 
-const NEXT: Partial<Record<TaskStatus, TaskStatus>> = { pending: "in_progress", in_progress: "completed" };
+// Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
+const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
-  category: string; assignee_name: string; visible_to_client: boolean };
+  category: string; assignee_name: string; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", visible_to_client: !isAgency });
+  category: "", assignee_name: "", visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "",
-  visible_to_client: Boolean(t.visible_to_client) });
+  visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
+
+type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
+const ACTION_DONE: Partial<Record<TaskAction, string>> = {
+  submit: "Enviada para a aprovação interna.", internal_approve: "Aprovada internamente.", internal_changes: "Ajuste pedido.",
+  client_approve: "Aprovada.", client_changes: "Ajuste pedido.", comment: "Comentário salvo.",
+};
 
 /**
  * Tarefas da empresa em quadro (mesmo modelo do Fluxo de aprovação do Calendário), guardadas no Mugoverso.
@@ -32,6 +39,10 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [unavailable, setUnavailable] = useState<CrmUnavailable["reason"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ id: string; events: TaskEvent[] } | null>(null);
+  const [comment, setComment] = useState("");
+  const [internalNote, setInternalNote] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -68,7 +79,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     if (!draft || busy) return;
     const input: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, status: draft.status, priority: draft.priority || null,
       due_date: draft.due_date || null, due_time: draft.due_time || null, category: draft.category.trim() || null,
-      assignee_name: draft.assignee_name.trim() || null, ...(isAgency ? { visible_to_client: draft.visible_to_client } : {}) };
+      assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null,
+      ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval } : {}) };
     setBusy(true); setError(null);
     try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
     catch (cause) { setError(message(cause, "Não foi possível salvar a tarefa.")); }
@@ -81,6 +93,34 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     try { await updateTask(task.id, { status }); } catch (cause) { setError(message(cause, "Não foi possível mudar a etapa.")); await load(); }
   }
 
+  async function openTask(task: CrmTask) {
+    setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null);
+    try { const out = await taskHistory(task.id); setHistory({ id: task.id, events: out.events }); } catch { setHistory({ id: task.id, events: [] }); }
+  }
+
+  async function act(task: CrmTask, action: TaskAction, text?: string) {
+    const needsText = action === "internal_changes" || action === "client_changes" || action === "comment";
+    if (needsText && !(text || "").trim()) { await openTask(task); setError("Escreva o que precisa mudar e clique de novo."); return; }
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const out = await taskApproval(task.id, action, text, internalNote && isAgency);
+      setTasks((current) => current.map((t) => (t.id === task.id ? out.task : t)));
+      if (draft?.id === task.id) { setDraft(toDraft(out.task)); setHistory({ id: task.id, events: out.events }); setComment(""); }
+      setNotice(ACTION_DONE[action] || null);
+    } catch (cause) { setError(message(cause, "Não foi possível concluir a ação.")); await load(); }
+    finally { setBusy(false); }
+  }
+
+  /** Ações rápidas do card conforme a etapa e quem está vendo. */
+  function quick(t: CrmTask): Quick[] {
+    if (t.status === "pending" && canManage) return [{ label: "Iniciar →", run: () => void move(t, "in_progress") }];
+    if ((t.status === "in_progress" || t.status === "changes") && isAgency) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
+    if (t.status === "in_progress" && canManage) return [{ label: "Concluir ✓", run: () => void move(t, "completed") }];
+    if (t.status === "internal_review" && isAgency) return [{ label: "Aprovar ✓", run: () => void act(t, "internal_approve"), tone: "primary" }, { label: "Ajuste", run: () => void openTask(t) }];
+    if (t.status === "client_review") return [{ label: "Aprovar ✓", run: () => void act(t, "client_approve"), tone: "primary" }, { label: "Pedir ajuste", run: () => void openTask(t) }];
+    return [];
+  }
+
   async function remove() {
     if (!draft?.id || busy || !window.confirm(`Excluir a tarefa "${draft.title}"?`)) return;
     setBusy(true); setError(null);
@@ -89,7 +129,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     finally { setBusy(false); }
   }
 
-  const columns = (showCancelled ? ["pending", "in_progress", "completed", "cancelled"] : ["pending", "in_progress", "completed"]) as TaskStatus[];
+  const flow: TaskStatus[] = isAgency ? ["pending", "in_progress", "changes", "internal_review", "client_review", "completed"]
+    : ["pending", "in_progress", "changes", "client_review", "completed"];
+  const columns = (showCancelled ? [...flow, "cancelled"] : flow) as TaskStatus[];
+  const current = draft?.id ? tasks.find((t) => t.id === draft.id) : undefined;
+  const changeAction: TaskAction | null = current?.status === "internal_review" && isAgency ? "internal_changes" : current?.status === "client_review" ? "client_changes" : null;
   const late = visible.filter((t) => OPEN.includes(t.status) && dueInfo(t.due_date).late).length;
 
   return <div className="taskBoardWrap">
@@ -106,6 +150,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     </div>
     <p className="libHint">{isAgency ? "Tarefas da empresa no Mugoverso. Marque \"Visível ao cliente\" para o cliente acompanhar." : "O que está em andamento com a Mugô para a sua empresa."}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
+    {notice && !draft ? <p role="status" className="studioOk">{notice}</p> : null}
     {unavailable ? <div className="studioEmpty"><p>{CRM_UNAVAILABLE_TEXT[unavailable]}</p></div> : null}
     {loading && !tasks.length ? <p>Carregando…</p> : null}
     {!loading && !unavailable && !error && !tasks.length ? <div className="studioEmpty"><p>Nenhuma tarefa para {clientName} ainda.{canManage ? " Clique em + Nova tarefa." : ""}</p></div> : null}
@@ -114,8 +159,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         const list = sortTasks(visible.filter((t) => t.status === status));
         return <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>
           <header><b>{TASK_STATUS[status]}</b><span>{list.length}</span></header>
-          {list.map((t) => <TaskCard key={t.id} task={t} onOpen={() => setDraft(toDraft(t))}
-            onAdvance={canManage && NEXT[t.status] ? () => void move(t, NEXT[t.status]!) : undefined} />)}
+          {list.map((t) => <TaskCard key={t.id} task={t} onOpen={() => void openTask(t)} actions={busy ? [] : quick(t)} />)}
           {!list.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
         </section>;
       })}
@@ -125,8 +169,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         <fieldset disabled={!canManage || busy}>
           <label className="ds-field">Título<input required maxLength={200} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Ex.: Aprovar fotos do lançamento" /></label>
           <div className="taskFormRow">
-            <label className="ds-field">Etapa<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
-              {(Object.keys(TASK_STATUS) as TaskStatus[]).map((k) => <option key={k} value={k}>{TASK_STATUS[k]}</option>)}</select></label>
+            <label className="ds-field">Etapa<select value={draft.status} disabled={!MANUAL.includes(draft.status)} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
+              {(MANUAL.includes(draft.status) ? MANUAL : [draft.status]).map((k) => <option key={k} value={k}>{TASK_STATUS[k]}</option>)}</select></label>
             <label className="ds-field">Prioridade<select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
               <option value="">Sem prioridade</option>{Object.entries(TASK_PRIORITY).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
           </div>
@@ -139,8 +183,32 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
             <label className="ds-field">Categoria<input maxLength={60} value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="Ex.: Conteúdo" /></label>
           </div>
           <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
+          <label className="ds-field">Link da entrega (Drive, Canva, Figma…)<input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
           {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.visible_to_client} onChange={(e) => setDraft({ ...draft, visible_to_client: e.target.checked })} /> Visível ao cliente</label> : null}
+          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.needs_client_approval} disabled={!draft.visible_to_client} onChange={(e) => setDraft({ ...draft, needs_client_approval: e.target.checked })} /> Precisa da aprovação do cliente (depois da aprovação interna)</label> : null}
         </fieldset>
+        {current ? <section className="taskApproval" aria-label="Aprovação">
+          <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
+          {current.deliverable_url ? <a href={current.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir a entrega ↗</a> : null}
+          <div className="taskApprovalActions">
+            {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
+            {current.status === "internal_review" && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "internal_approve")}>{current.visible_to_client && current.needs_client_approval !== false ? "Aprovar e enviar ao cliente" : "Aprovar"}</button> : null}
+            {current.status === "client_review" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "client_approve")}>Aprovar</button> : null}
+          </div>
+          <label className="ds-field">{changeAction ? "O que precisa mudar (ou um comentário)" : "Comentário"}<textarea rows={3} maxLength={2000} value={comment} onChange={(e) => setComment(e.target.value)} /></label>
+          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> Comentário interno (o cliente não vê)</label> : null}
+          <div className="taskApprovalActions">
+            {changeAction ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, changeAction, comment)}>Pedir ajuste</button> : null}
+            <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, "comment", comment)}>Comentar</button>
+          </div>
+          {notice ? <p role="status" className="studioOk">{notice}</p> : null}
+          <ol className="taskHistory" aria-label="Histórico">
+            {history?.id === current.id ? (history.events.length ? [...history.events].reverse().map((e) => <li key={e.id} className={e.internal ? "is-internal" : ""}>
+              <b>{e.actor_name || (e.actor_side === "mugo" ? "Equipe Mugô" : "Cliente")}</b> {TASK_EVENT[e.kind].toLowerCase()}{e.internal ? " (interno)" : ""}
+              <small>{new Date(e.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</small>
+              {e.comment ? <p>{e.comment}</p> : null}</li>) : <li className="taskHistoryEmpty">Sem histórico ainda.</li>) : <li className="taskHistoryEmpty">Carregando…</li>}
+          </ol>
+        </section> : null}
         {canManage ? <div className="taskFormActions">
           {draft.id ? <button type="button" className="ds-link is-quiet taskDanger" disabled={busy} onClick={() => void remove()}>Excluir</button> : <span />}
           <span className="taskFormButtons"><button type="button" className="ds-button" onClick={() => setDraft(null)}>Cancelar</button>
@@ -151,7 +219,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   </div>;
 }
 
-function TaskCard({ task: t, onOpen, onAdvance }: { task: CrmTask; onOpen: () => void; onAdvance?: () => void }) {
+function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => void; actions: Quick[] }) {
   const due = dueInfo(t.due_date);
   const late = due.late && OPEN.includes(t.status);
   const urgent = t.priority === "urgent" || t.priority === "high";
@@ -160,8 +228,9 @@ function TaskCard({ task: t, onOpen, onAdvance }: { task: CrmTask; onOpen: () =>
     <div className="taskMeta">
       <span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}{t.due_time ? ` ${t.due_time.slice(0, 5)}` : ""}</span>
       {urgent ? <span className={`taskPrio is-${t.priority}`}>{TASK_PRIORITY[t.priority || ""]}</span> : null}
-      {onAdvance ? <button type="button" className="ds-link is-quiet taskAdvance" onClick={onAdvance}>{t.status === "pending" ? "Iniciar →" : "Concluir ✓"}</button> : null}
     </div>
+    {t.deliverable_url ? <a className="taskLink" href={t.deliverable_url} target="_blank" rel="noreferrer noopener">Entrega ↗</a> : null}
+    {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
     {t.assignee || t.category ? <small className="taskWho">
       {t.assignee ? <><i style={{ background: t.assignee.color || "#9aa3ad" }} aria-hidden="true" />{t.assignee.name}</> : null}
       {t.assignee && t.category ? " · " : ""}{t.category}

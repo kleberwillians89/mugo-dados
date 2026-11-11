@@ -27,7 +27,8 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
   if (!isAgency && !tasks.length) return standalone ? <p className="studioEmpty">Nenhuma tarefa em andamento com a Mugô no momento.</p> : null;
 
   if (standalone && tasks.length) {
-    const cols = [["pending", open.filter((t) => t.status === "pending")], ["in_progress", open.filter((t) => t.status === "in_progress")],
+    const cols = [["pending", open.filter((t) => t.status === "pending")], ["in_progress", open.filter((t) => t.status === "in_progress" || t.status === "changes")],
+      ["client_review", open.filter((t) => t.status === "client_review")],
       ["completed", tasks.filter((t) => t.status === "completed").slice(0, 12)]] as const;
     return <div className="kanban is-compact taskBoard" aria-label="Quadro de tarefas">{cols.map(([status, list]) =>
       <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>

@@ -11,7 +11,10 @@ export const CRM_UNAVAILABLE_TEXT: Record<CrmUnavailable["reason"], string> = {
   migration_pending: "As tarefas ainda não foram ativadas no banco (falta a migração 000089).",
 };
 
-export const TASK_STATUS = { pending: "Pendente", in_progress: "Em andamento", completed: "Concluída", cancelled: "Cancelada" } as const;
+export const TASK_STATUS = {
+  pending: "Pendente", in_progress: "Em produção", internal_review: "Aprovação interna", client_review: "Aprovação do cliente",
+  changes: "Ajustes", completed: "Aprovada / concluída", cancelled: "Cancelada",
+} as const;
 export type TaskStatus = keyof typeof TASK_STATUS;
 export const TASK_PRIORITY: Record<string, string> = { low: "Baixa", medium: "Média", high: "Alta", urgent: "Urgente" };
 
@@ -21,6 +24,11 @@ export type CrmTask = {
   updated_at: string | null; assignee: { name: string; color: string | null } | null;
   /** Tarefas do Mugoverso: aparece também para o cliente. */
   visible_to_client?: boolean;
+  /** Link da entrega (Drive, Canva, Figma…) que vai para aprovação. */
+  deliverable_url?: string | null;
+  needs_client_approval?: boolean;
+  approval_round?: number;
+  approved_at?: string | null;
 };
 export type CrmConversation = {
   id: string; status: string | null; attendance_mode: string | null; unread_count: number | null; last_message_at: string | null;
@@ -40,7 +48,7 @@ export function listCrmTasks(status?: TaskStatus) {
 }
 /** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
 export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;
-  due_time: string | null; category: string | null; assignee_name: string | null; visible_to_client: boolean }>;
+  due_time: string | null; category: string | null; assignee_name: string | null; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
 export function createTask(input: TaskInput) {
   return http<{ task: CrmTask }>(base("/tasks"), { method: "POST", body: JSON.stringify(input) });
 }
@@ -51,7 +59,7 @@ export function deleteTask(id: string) {
   return http<{ ok: true }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 /** Tarefas que a Mugô marcou com a etiqueta "cliente" no CRM — visíveis a qualquer membro da empresa. */
-export type ClientTask = { id: string; title: string; status: "pending" | "in_progress" | "completed"; due_date: string | null; updated_at: string | null };
+export type ClientTask = { id: string; title: string; status: TaskStatus; due_date: string | null; updated_at: string | null };
 export function listClientTasks() {
   return http<Result<{ tasks: ClientTask[] }>>(base("/client-tasks"));
 }
@@ -85,4 +93,20 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
 
 export function windowOpen(expiresAt: string | null, now = new Date()) {
   return !!expiresAt && new Date(expiresAt).getTime() > now.getTime();
+}
+
+
+/** Aprovação de tarefa (fluxo do iAgência): interna (equipe Mugô) e do cliente. */
+export type TaskAction = "submit" | "internal_approve" | "internal_changes" | "client_approve" | "client_changes" | "comment";
+export type TaskEvent = { id: string; kind: "enviado_interno" | "aprovado_interno" | "ajuste_interno" | "enviado_cliente" | "aprovado_cliente" | "ajuste_cliente" | "comentario";
+  internal: boolean; comment: string | null; actor_name: string | null; actor_side: "mugo" | "cliente"; created_at: string };
+export const TASK_EVENT: Record<TaskEvent["kind"], string> = {
+  enviado_interno: "Enviou para aprovação interna", aprovado_interno: "Aprovou internamente", ajuste_interno: "Pediu ajuste (interno)",
+  enviado_cliente: "Enviada para o cliente aprovar", aprovado_cliente: "Cliente aprovou", ajuste_cliente: "Cliente pediu ajuste", comentario: "Comentou",
+};
+export function taskApproval(id: string, action: TaskAction, comment?: string, internal = false) {
+  return http<{ task: CrmTask; events: TaskEvent[] }>(base(`/tasks/${encodeURIComponent(id)}/approval`), { method: "POST", body: JSON.stringify({ action, comment: comment || null, internal }) });
+}
+export function taskHistory(id: string) {
+  return http<{ events: TaskEvent[] }>(base(`/tasks/${encodeURIComponent(id)}/history`));
 }

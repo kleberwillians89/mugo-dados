@@ -1,6 +1,6 @@
 import { dueInfo, type CrmTask, type TaskStatus } from "../../app/crm";
 
-export const OPEN: TaskStatus[] = ["pending", "in_progress"];
+export const OPEN: TaskStatus[] = ["pending", "in_progress", "internal_review", "client_review", "changes"];
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 /** Ordem do card dentro da coluna: atrasadas primeiro, depois prazo mais próximo, depois prioridade. */

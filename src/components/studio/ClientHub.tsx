@@ -33,7 +33,7 @@ async function fetchSummary(clientId: string, team: boolean): Promise<Summary | 
   const events = (timeline?.events || []).filter((e) => CLIENT_KINDS.includes(e.kind));
   const messages = chat?.messages || [];
   const list = tasks && tasks.available ? tasks.tasks || [] : null;
-  const open = list?.filter((t) => t.status === "pending" || t.status === "in_progress") || null;
+  const open = list?.filter((t) => !["completed", "cancelled"].includes(t.status)) || null;
   return { events, lastAdjust: events.find((e) => e.kind === "ajuste_solicitado") || null, unread: unread?.unread || {},
     lastMessage: [...messages].reverse().find((m) => !m.mine) || null,
     lateTasks: open ? open.filter((t) => dueInfo(t.due_date).late).length : null, openTasks: open ? open.length : null,
