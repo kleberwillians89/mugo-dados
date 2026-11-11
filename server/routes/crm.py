@@ -7,7 +7,7 @@ As rotas mantêm o endereço /crm/... e o formato de resposta de antes, então a
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
@@ -23,6 +23,8 @@ router = APIRouter(prefix="/api/clients/{client_id}/crm", tags=["crm"])
 
 AGENCY_ONLY = ("agency_admin",)
 TASK_MANAGERS = ("agency_admin", "client_admin")
+# Aprovar ou pedir ajuste: qualquer pessoa da empresa (o cliente que só visualiza também aprova a peça).
+TASK_APPROVERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
 
 ERRORS = {
     "STATUS_INVALID": (400, "Status de tarefa inválido."),
@@ -34,6 +36,11 @@ ERRORS = {
     "CONVERSATION_NOT_FOUND": (404, "Conversa não encontrada para este cliente."),
     "CRM_UNREACHABLE": (502, "O CRM não respondeu agora. Tente de novo em instantes."),
     "CRM_FAILED": (502, "Não foi possível ler o CRM agora."),
+    "ACTION_INVALID": (400, "Ação inválida."),
+    "FORBIDDEN": (403, "Só a equipe Mugô faz a aprovação interna."),
+    "STAGE_INVALID": (409, "A tarefa mudou de etapa. Atualize a tela."),
+    "COMMENT_REQUIRED": (422, "Escreva o que precisa mudar."),
+    "DELIVERABLE_URL_INVALID": (422, "O link da entrega precisa começar com https://"),
 }
 
 
@@ -53,6 +60,14 @@ class TaskInput(BaseModel):
     category: Optional[str] = Field(default=None, max_length=60)
     assignee_name: Optional[str] = Field(default=None, max_length=80)
     visible_to_client: Optional[bool] = None
+    needs_client_approval: Optional[bool] = None
+    deliverable_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+class TaskApproval(BaseModel):
+    action: Literal["submit", "internal_approve", "internal_changes", "client_approve", "client_changes", "comment"]
+    comment: Optional[str] = Field(default=None, max_length=2000)
+    internal: bool = False
 
 
 @router.get("/tasks")
@@ -103,6 +118,30 @@ async def crm_task_delete(client_id: str, task_id: UUID, authorization: Optional
     try:
         await studio_tasks.delete_task(cid, str(task_id), client_view=not await is_agency_user(authorization, cid))
         return {"ok": True}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/tasks/{task_id}/history")
+async def crm_task_history(client_id: str, task_id: UUID, authorization: Optional[str] = Header(None)):
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return {"events": await studio_tasks.task_history(cid, str(task_id), client_view=not await is_agency_user(authorization, cid))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/tasks/{task_id}/approval")
+async def crm_task_approval(client_id: str, task_id: UUID, body: TaskApproval, authorization: Optional[str] = Header(None)):
+    """Aprovação interna (equipe Mugô) e do cliente (qualquer pessoa da empresa, só tarefa visível a ela)."""
+    from services.auth import get_user_from_bearer
+    cid = await require_client_role(client_id, authorization, allowed_roles=TASK_APPROVERS)
+    user = await get_user_from_bearer(authorization) or {}
+    agency = await is_agency_user(authorization, cid)
+    name = str(user.get("email") or "").split("@")[0] or ("Equipe Mugô" if agency else "Cliente")
+    try:
+        return await studio_tasks.approval_action(cid, str(task_id), body.action, comment=body.comment, user_id=str(user.get("id") or ""),
+                                                  actor_name=name, is_agency=agency, internal_comment=body.internal)
     except StudioError as exc:
         raise _http(exc) from None
 
