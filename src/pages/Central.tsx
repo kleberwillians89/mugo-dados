@@ -62,7 +62,7 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
       <KpiFigure hero label="Faturamento da loja" value={formatCurrency(n.faturamento)} rawValue={n.faturamento ?? undefined}
         delta={n.end ? `até ${n.end.slice(8, 10)}/${n.end.slice(5, 7)}` : "mês ainda não começou"} />
       <KpiFigure label="Investimento em mídia" value={formatCurrency(n.investimento)} rawValue={n.investimento ?? undefined} />
-      <KpiFigure label="Retorno" value={n.retorno != null ? `${formatCurrency(n.retorno)} por R$ 1` : "—"} />
+      <KpiFigure label="Retorno por R$ 1 investido" value={n.retorno != null ? formatCurrency(n.retorno) : "—"} />
       <KpiFigure label="Pedidos" value={formatInteger(n.pedidos)} />
       {n.melhor_campanha ? <p className="centralBest">Campanha que mais vendeu: <b>{n.melhor_campanha.campanha}</b> · {n.melhor_campanha.pedidos} pedido(s) · {formatCurrency(n.melhor_campanha.vendas)}</p> : null}
     </section> : null}
