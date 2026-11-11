@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
-import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
+import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import { getPathForRoute } from "../../app/routes";
 import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
@@ -13,11 +13,11 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 // Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
 const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
-  category: string; assignee_name: string; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
+  category: string; assignee_name: string; assignee_user_id: string; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
+  category: "", assignee_name: "", assignee_user_id: "", visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
-  due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "",
+  due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "", assignee_user_id: t.assignee?.user_id || "",
   visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
 
 export type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
@@ -54,6 +54,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [review, setReview] = useState<PipelineItem | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [sentLink, setSentLink] = useState<{ href: string; label: string } | null>(null);
+  const [scope, setScope] = useState<TaskScope>({ mine_only: false, can_approve: false });
+  const [team, setTeam] = useState<Person[] | null>(null);
+  // Aprovação interna: equipe Mugô ou quem recebeu "Aprovar internamente". Enviar p/ aprovação: também o responsável.
+  const approver = isAgency || scope.can_approve;
+  const submitter = approver || scope.mine_only;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -67,6 +72,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       const byId = new Map<string, CrmTask>();
       for (const r of results) if (r.available) for (const t of r.tasks || []) byId.set(t.id, t);
       setUnavailable(null); setTasks([...byId.values()]);
+      const first = results.find((r) => r.available && "scope" in r) as { scope?: TaskScope } | undefined;
+      if (first?.scope) setScope(first.scope);
       // Posts do Calendário (este mês e o próximo): sem eles o quadro de tarefas continua funcionando.
       try {
         const months = await Promise.all([getPipeline(monthKey(0)), getPipeline(monthKey(1))]);
@@ -77,6 +84,12 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   }, [clientId, showCancelled]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { onRefreshRef?.(() => void load()); }, [load, onRefreshRef]);
+  // Integrantes da empresa para escolher o responsável (sem a lista, volta ao nome digitado).
+  useEffect(() => {
+    let alive = true;
+    listAssignees().then((r) => { if (alive) setTeam(r.available ? r.people : []); }).catch(() => { if (alive) setTeam([]); });
+    return () => { alive = false; };
+  }, [clientId]);
 
   const people = useMemo(() => {
     const map = new Map<string, string>();
@@ -96,6 +109,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     const input: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, status: draft.status, priority: draft.priority || null,
       due_date: draft.due_date || null, due_time: draft.due_time || null, category: draft.category.trim() || null,
       assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null,
+      ...(team?.length ? { assignee_user_id: draft.assignee_user_id || null } : {}),
       ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval } : {}) };
     setBusy(true); setError(null);
     try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
@@ -119,7 +133,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     if (needsText && !(text || "").trim()) { await openTask(task); setError("Escreva o que precisa mudar e clique de novo."); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
-      const out = await taskApproval(task.id, action, text, internalNote && isAgency);
+      const out = await taskApproval(task.id, action, text, internalNote && approver);
       setTasks((current) => current.map((t) => (t.id === task.id ? out.task : t)));
       if (draft?.id === task.id) { setDraft(toDraft(out.task)); setHistory({ id: task.id, events: out.events }); setComment(""); }
       setNotice(ACTION_DONE[action] || null);
@@ -178,9 +192,9 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       return [calendar];
     }
     if (t.status === "pending" && canManage) return [{ label: "Iniciar →", run: () => void move(t, "in_progress") }];
-    if ((t.status === "in_progress" || t.status === "changes") && isAgency) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
+    if ((t.status === "in_progress" || t.status === "changes") && submitter) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
     if (t.status === "in_progress" && canManage) return [{ label: "Concluir ✓", run: () => void move(t, "completed") }];
-    if (t.status === "internal_review" && isAgency) return [{ label: "Aprovar ✓", run: () => void act(t, "internal_approve"), tone: "primary" }, { label: "Ajuste", run: () => void openTask(t) }];
+    if (t.status === "internal_review" && approver) return [{ label: "Aprovar ✓", run: () => void act(t, "internal_approve"), tone: "primary" }, { label: "Ajuste", run: () => void openTask(t) }];
     if (t.status === "client_review") return [{ label: "Aprovar ✓", run: () => void act(t, "client_approve"), tone: "primary" }, { label: "Pedir ajuste", run: () => void openTask(t) }];
     return [];
   }
@@ -213,7 +227,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     finally { setBusy(false); }
   }
 
-  const flow: TaskStatus[] = isAgency ? ["pending", "in_progress", "changes", "internal_review", "client_review", "completed"]
+  const flow: TaskStatus[] = submitter ? ["pending", "in_progress", "changes", "internal_review", "client_review", "completed"]
     : ["pending", "in_progress", "changes", "client_review", "completed"];
   const columns = (showCancelled ? [...flow, "cancelled"] : flow) as TaskStatus[];
   const current = draft?.id ? tasks.find((t) => t.id === draft.id) : undefined;
@@ -223,9 +237,9 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const postCards = posts.filter((p) => !linked.has(p.id) && (!q || `${p.title} ${p.caption_draft || ""}`.toLowerCase().includes(q)));
   const postsIn = (status: TaskStatus) => postCards.filter((p) => {
     const column = STAGE_COLUMN[p.stage];
-    return (column === "internal_review" && !isAgency ? "in_progress" : column) === status;
+    return (column === "internal_review" && !submitter ? "in_progress" : column) === status;
   }).slice(0, status === "completed" ? 8 : 40);
-  const changeAction: TaskAction | null = current?.status === "internal_review" && isAgency ? "internal_changes" : current?.status === "client_review" ? "client_changes" : null;
+  const changeAction: TaskAction | null = current?.status === "internal_review" && approver ? "internal_changes" : current?.status === "client_review" ? "client_changes" : null;
   const late = visible.filter((t) => OPEN.includes(t.status) && dueInfo(t.due_date).late).length;
 
   return <div className="taskBoardWrap">
@@ -240,6 +254,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       {late ? <span className="taskLateBadge">{late} atrasada{late > 1 ? "s" : ""}</span> : null}
       {canManage ? <button type="button" className="ds-button is-primary taskNew" onClick={() => setDraft(emptyDraft(isAgency))}>+ Nova tarefa</button> : null}
     </div>
+    {scope.mine_only ? <p className="libHint taskMineOnly">Você vê as tarefas em que é responsável (ou que criou). Ao terminar, envie para a aprovação interna.</p> : null}
     <p className="libHint">{isAgency ? "Tarefas da empresa no Mugoverso. Marque \"Visível ao cliente\" para o cliente acompanhar." : "O que está em andamento com a Mugô para a sua empresa."}</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice && !draft ? <p role="status" className="studioOk">{notice}{sentLink ? <> <a href={sentLink.href} target="_blank" rel="noreferrer noopener">{sentLink.label}</a></> : null}</p> : null}
@@ -275,7 +290,13 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
             <label className="ds-field">Hora<input type="time" value={draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.value })} /></label>
           </div>
           <div className="taskFormRow">
-            <label className="ds-field">Responsável<input maxLength={80} value={draft.assignee_name} onChange={(e) => setDraft({ ...draft, assignee_name: e.target.value })} placeholder="Nome" /></label>
+            {team?.length ? <label className="ds-field">Responsável<select value={draft.assignee_user_id} disabled={scope.mine_only && !approver}
+              onChange={(e) => { const p = team.find((x) => x.user_id === e.target.value); setDraft({ ...draft, assignee_user_id: e.target.value, assignee_name: p?.name || "" }); }}>
+              <option value="">Sem responsável</option>
+              {draft.assignee_user_id && !team.some((p) => p.user_id === draft.assignee_user_id) ? <option value={draft.assignee_user_id}>{draft.assignee_name || "Pessoa"}</option> : null}
+              {team.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+            </select></label>
+            : <label className="ds-field">Responsável<input maxLength={80} value={draft.assignee_name} onChange={(e) => setDraft({ ...draft, assignee_name: e.target.value })} placeholder="Nome" /></label>}
             <label className="ds-field">Categoria<input maxLength={60} value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="Ex.: Conteúdo" /></label>
           </div>
           <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
@@ -299,12 +320,12 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
             </> : null}
           </div> : null}
           {!current.calendar_item_id ? <div className="taskApprovalActions">
-            {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
-            {current.status === "internal_review" && isAgency ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "internal_approve")}>{current.visible_to_client && current.needs_client_approval !== false ? "Aprovar e enviar ao cliente" : "Aprovar"}</button> : null}
+            {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && submitter ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
+            {current.status === "internal_review" && approver ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "internal_approve")}>{current.visible_to_client && current.needs_client_approval !== false ? "Aprovar e enviar ao cliente" : "Aprovar"}</button> : null}
             {current.status === "client_review" ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "client_approve")}>Aprovar</button> : null}
           </div> : null}
           <label className="ds-field">{changeAction ? "O que precisa mudar (ou um comentário)" : "Comentário"}<textarea rows={3} maxLength={2000} value={comment} onChange={(e) => setComment(e.target.value)} /></label>
-          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> Comentário interno (o cliente não vê)</label> : null}
+          {approver ? <label className="taskCheck"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> Comentário interno (o cliente não vê)</label> : null}
           <div className="taskApprovalActions">
             {changeAction && !current.calendar_item_id ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void act(current, changeAction, comment)}>Pedir ajuste</button> : null}
             {current.calendar_item_id && isAgency && (current.status === "internal_review" || current.status === "client_review") ? <button type="button" className="ds-button" disabled={busy || !comment.trim()} onClick={() => void calendarStep(current, "changes", comment)}>Pedir ajuste</button> : null}

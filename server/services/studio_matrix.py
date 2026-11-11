@@ -116,7 +116,9 @@ def normalize_request(data: Dict[str, Any], profile: Dict[str, Any], *, today: O
     if total * WEEKS > MAX_OPPORTUNITIES:
         raise StudioError("MATRIX_FREQUENCY_TOO_HIGH")
     return {"week_start": next_monday(today), "platforms": platforms, "pillars": pillars_all,
-            "posts_per_week": total, "platform_quotas": quotas, "focus": ""}
+            "posts_per_week": total, "platform_quotas": quotas,
+            # Foco vem do Briefing (não é premissa do perfil): direciona o mês sem mudar plataformas nem ritmo.
+            "focus": _clip(data.get("focus"), 1200) if isinstance(data.get("focus"), str) else ""}
 
 
 def week_dates(start: date, week: int) -> tuple[date, date]:
@@ -204,6 +206,7 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
           "recentemente (abaixo). Legenda enxuta, até 600 caracteres."
         + (f"\nJÁ PLANEJADO RECENTEMENTE (não repetir tema nem abertura):\n{json.dumps(recent, ensure_ascii=False)}" if recent else "")
         + "\nAlém das oportunidades: um resumo da estratégia do mês em 2 frases."
+        + (f"\n\nFOCO DO MÊS (briefing aprovado pela equipe; PRIORIDADE MÁXIMA, sem fugir dos pilares):\n{req['focus']}" if req.get("focus") else "")
         + f"\n\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
     )
 

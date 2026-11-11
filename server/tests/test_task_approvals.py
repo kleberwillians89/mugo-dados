@@ -77,3 +77,39 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
     def test_client_never_sees_internal_stage(self):
         self.assertEqual(st.task_view(task("internal_review"), client_view=True)["status"], "in_progress")
         self.assertEqual(st.task_view(task("internal_review"))["status"], "internal_review")
+
+
+class PerPersonTests(unittest.IsolatedAsyncioTestCase):
+    async def test_list_filters_by_assignee_or_creator(self):
+        from services import studio_tasks as stk
+        select = AsyncMock(return_value=[])
+        with patch.object(stk, "sb_select", select):
+            await stk.list_tasks("roove", only_user="u1")
+        self.assertEqual(select.await_args.kwargs["filters"]["or"], "(assignee_user_id.eq.u1,created_by.eq.u1)")
+
+    async def test_someone_elses_task_is_not_found(self):
+        from services import studio_tasks as stk
+        other = {"id": "t1", "status": "pending", "assignee_user_id": "u2", "created_by": "u3", "visible_to_client": False}
+        with patch.object(stk, "sb_select", AsyncMock(return_value=[other])):
+            with self.assertRaises(stk.StudioError):
+                await stk.update_task("roove", "t1", {"title": "x"}, client_view=False, only_user="u1")
+
+    async def test_assignee_submits_but_does_not_approve_without_permission(self):
+        from services import studio_tasks as stk
+        mine = {"id": "t1", "title": "Arte BF", "status": "in_progress", "assignee_user_id": "u1", "created_by": "u9", "visible_to_client": False}
+        with patch.object(stk, "sb_select", AsyncMock(return_value=[mine])), \
+             patch.object(stk, "sb_update", AsyncMock(return_value=[{**mine, "status": "internal_review"}])), \
+             patch.object(stk, "sb_insert", AsyncMock()), patch.object(stk, "list_events", AsyncMock(return_value=[])):
+            out = await stk.approval_action("roove", "t1", "submit", comment=None, user_id="u1", actor_name="liliu",
+                                            is_agency=False, only_user="u1")
+        self.assertEqual(out["task"]["status"], "internal_review")
+        with self.assertRaises(stk.StudioError):
+            await stk.approval_action("roove", "t1", "internal_approve", comment=None, user_id="u1", actor_name="liliu",
+                                      is_agency=False, only_user="u1")
+
+    async def test_new_task_from_restricted_member_is_assigned_to_them(self):
+        from services import studio_tasks as stk
+        insert = AsyncMock(return_value={"id": "t1", "title": "Minha", "status": "pending"})
+        with patch.object(stk, "sb_insert", insert):
+            await stk.create_task("roove", {"title": "Minha"}, user_id="u1", client_view=False, only_user="u1")
+        self.assertEqual(insert.await_args.args[1]["assignee_user_id"], "u1")

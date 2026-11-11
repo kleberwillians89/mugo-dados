@@ -39,6 +39,7 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
   { route: "central", label: "Central da Marca" },
+  { route: "briefing", label: "Briefing" },
   { route: "tasks", label: "Tarefas" },
   { route: "campaigns", label: "Social Media" },
   { route: "redacao", label: "Redação" },

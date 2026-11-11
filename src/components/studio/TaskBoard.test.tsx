@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn(),
+  listAssignees: vi.fn(async () => ({ available: true, people: [{ user_id: "u-liliu", name: "Liliu" }, { user_id: "u-maria", name: "Maria Eduarda" }] })) }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(), decideCalendarItem: vi.fn(async () => ({ item: {} })),
   listItemReferences: vi.fn(async () => ({ references: [] })), listContacts: vi.fn(), sendForApproval: vi.fn(), listItemComments: vi.fn(async () => ({ comments: [] })) }));
@@ -114,5 +115,33 @@ describe("Tarefas com aprovação", () => {
     await act(async () => { ajuste.click(); });
     expect(crm.taskApproval).toHaveBeenCalledWith("t-client_review", "client_changes", "Trocar a foto da capa", false);
     expect(host.textContent).toContain("Ajuste pedido.");
+  });
+
+  it("designer vê só as tarefas dela, envia para aprovação mas não aprova", async () => {
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true, scope: { mine_only: true, can_approve: false },
+      tasks: status === "completed" ? [] : [task("in_progress", { visible_to_client: false, assignee: { name: "Liliu", color: null, user_id: "u-liliu" } }),
+        task("internal_review", { visible_to_client: false })] }));
+    await show(<TaskBoard canManage />);
+    expect(host.textContent).toContain("Você vê as tarefas em que é responsável");
+    const labels = [...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent);
+    expect(labels).toContain("Enviar p/ aprovação →");
+    expect(labels).not.toContain("Aprovar ✓");
+    await click("Enviar p/ aprovação →");
+    expect(crm.taskApproval).toHaveBeenCalledWith("t-in_progress", "submit", undefined, false);
+  });
+
+  it("quem tem aprovação interna (ex.: Maria Eduarda) aprova; responsável é escolhido entre os integrantes", async () => {
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true, scope: { mine_only: false, can_approve: true },
+      tasks: status === "completed" ? [] : [task("internal_review", { visible_to_client: false })] }));
+    crm.updateTask.mockImplementation(async (id: string, input: object) => ({ task: task("internal_review", { id, ...input }) }));
+    await show(<TaskBoard canManage />);
+    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toContain("Aprovar ✓");
+    await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
+    const select = [...host.querySelectorAll("[data-drawer] select")].find((s) => s.querySelector('option[value="u-liliu"]')) as HTMLSelectElement;
+    await act(async () => { select.value = "u-liliu"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    const form = host.querySelector("[data-drawer] form") as HTMLFormElement;
+    await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_id: string; assignee_name: string };
+    expect([sent.assignee_user_id, sent.assignee_name]).toEqual(["u-liliu", "Liliu"]);
   });
 });

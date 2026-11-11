@@ -88,7 +88,7 @@ async def latest_run(client_id: str) -> Optional[Dict[str, Any]]:
     return expired
 
 
-async def start_run(client_id: str, *, user_id: str) -> Dict[str, Any]:
+async def start_run(client_id: str, *, user_id: str, focus: Optional[str] = None) -> Dict[str, Any]:
     """Abre a execução e roda a esteira em segundo plano. Uma por marca de cada vez."""
     current = await latest_run(client_id)
     if current and current.get("status") == "rodando":
@@ -101,7 +101,7 @@ async def start_run(client_id: str, *, user_id: str) -> Dict[str, Any]:
     run = await sb_insert(RUNS, {"client_id": client_id, "status": "rodando", "steps": _fresh_steps(), "created_by": user_id})
     if not run or not run.get("id"):
         raise StudioError("AGENTS_SAVE_FAILED", "Não foi possível iniciar a esteira.")
-    _background(execute(client_id, run, user_id=user_id))
+    _background(execute(client_id, run, user_id=user_id, focus=focus))
     return run
 
 
@@ -128,7 +128,7 @@ class _Run:
         await self.save()
 
 
-async def execute(client_id: str, run: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
+async def execute(client_id: str, run: Dict[str, Any], *, user_id: str, focus: Optional[str] = None) -> Dict[str, Any]:
     """Os sete agentes em sequência. Qualquer falha encerra a execução com o motivo (o que já foi feito fica)."""
     from . import studio_matrix as matrix
     from .studio_calendar import update_item
@@ -154,7 +154,7 @@ async def execute(client_id: str, run: Dict[str, Any], *, user_id: str) -> Dict[
         # 2. Estrategista
         current = "estrategia"
         await state.step("estrategia", "rodando")
-        built = await matrix.generate(client_id, {}, user_id=user_id)
+        built = await matrix.generate(client_id, {"focus": focus} if focus else {}, user_id=user_id)
         ops = [o for o in built.get("opportunities") or [] if o.get("status") != "descartada"]
         await state.save(matrix_id=built["id"])
         await state.step("estrategia", "feito", f"{len(ops)} pautas em 4 semanas" + (f". {built['notes'][0]}" if built.get("notes") else ""))

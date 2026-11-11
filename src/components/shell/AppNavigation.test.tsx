@@ -70,7 +70,7 @@ describe("AppNavigation — sidebar global", () => {
   it("organiza os itens na nova ordem visual sem alterar suas rotas", async () => {
     await render({ agencyAdmin: true });
     expect(groupLinks("Operação")).toEqual([
-      "Central da Marca", "Tarefas", "Social Media", "Redação", "Criadores",
+      "Central da Marca", "Briefing", "Tarefas", "Social Media", "Redação", "Criadores",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
       "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",

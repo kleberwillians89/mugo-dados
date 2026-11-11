@@ -15,6 +15,8 @@ nem os comentários internos. Histórico em ``studio_task_events``.
 """
 from __future__ import annotations
 
+import re
+
 import hashlib
 from datetime import date, datetime, time, timezone
 from typing import Any, Dict, List, Optional
@@ -31,6 +33,8 @@ COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,
            "visible_to_client,completed_at,created_at,updated_at,deliverable_url,needs_client_approval,approval_round,approved_at")
 # Com a ligação ao Calendário (migração 000097); sem ela, cai para COLUMNS e depois LEGACY_COLUMNS.
 LINKED_COLUMNS = COLUMNS + ",calendar_item_id"
+# Com o responsável como usuário (migração 000100): quem não é admin vê só as tarefas dele.
+SCOPED_COLUMNS = LINKED_COLUMNS + ",assignee_user_id,created_by"
 LEGACY_COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,assignee_name,"
                   "visible_to_client,completed_at,created_at,updated_at")
 _COLORS = ("#2f6f8f", "#8a5a9e", "#b0693a", "#3f7f5a", "#a3485a", "#5b6bbf", "#7a7a2a", "#3a8a8a")
@@ -54,13 +58,18 @@ def task_view(row: Dict[str, Any], *, client_view: bool = False) -> Dict[str, An
         "due_time": str(row["due_time"])[:5] if row.get("due_time") else None,
         "starts_at": None, "category": row.get("category"), "task_type": None, "tags": [],
         "notes": row.get("notes"), "updated_at": row.get("updated_at"),
-        "assignee": {"name": who, "color": _color(who)} if who else None,
+        "assignee": {"name": who, "color": _color(who), "user_id": str(row["assignee_user_id"]) if row.get("assignee_user_id") else None} if who else None,
         "visible_to_client": bool(row.get("visible_to_client")),
         "calendar_item_id": str(row["calendar_item_id"]) if row.get("calendar_item_id") else None,
     }
 
 
-async def _rows(client_id: str, *, status: Optional[str], limit: int, client_view: bool) -> List[Dict[str, Any]]:
+def _mine(row: Dict[str, Any], user_id: str) -> bool:
+    return user_id in (str(row.get("assignee_user_id") or ""), str(row.get("created_by") or ""))
+
+
+async def _rows(client_id: str, *, status: Optional[str], limit: int, client_view: bool,
+                only_user: Optional[str] = None) -> List[Dict[str, Any]]:
     filters = {"client_id": f"eq.{client_id}"}
     if status:
         filters["status"] = f"eq.{status}"
@@ -69,6 +78,17 @@ async def _rows(client_id: str, *, status: Optional[str], limit: int, client_vie
     if client_view:
         filters["visible_to_client"] = "is.true"
     kwargs = dict(filters=filters, order="due_date.asc.nullslast,created_at.asc", limit=max(1, min(int(limit), 500)))
+    if only_user:
+        # Membro sem "ver tarefas de todos": só as dele (responsável ou quem criou).
+        try:
+            return await sb_select(TABLE, select=SCOPED_COLUMNS, **{**kwargs, "filters": {
+                **filters, "or": f"(assignee_user_id.eq.{only_user},created_by.eq.{only_user})"}})
+        except Exception:  # noqa: BLE001 — sem a migração 000100: só as que ele criou (nunca as dos outros)
+            kwargs["filters"] = {**filters, "created_by": f"eq.{only_user}"}
+    try:
+        return await sb_select(TABLE, select=SCOPED_COLUMNS if not only_user else LINKED_COLUMNS, **kwargs)
+    except Exception:  # noqa: BLE001 — sem a migração 000100
+        pass
     try:
         return await sb_select(TABLE, select=LINKED_COLUMNS, **kwargs)
     except Exception:  # noqa: BLE001 — sem a migração 000097
@@ -84,11 +104,11 @@ async def _rows(client_id: str, *, status: Optional[str], limit: int, client_vie
 
 
 async def list_tasks(client_id: str, *, status: Optional[str] = None, limit: int = 200,
-                     client_view: bool = False) -> Dict[str, Any]:
+                     client_view: bool = False, only_user: Optional[str] = None) -> Dict[str, Any]:
     if status and status not in STATUSES:
         raise StudioError("STATUS_INVALID")
     try:
-        rows = await _rows(client_id, status=status, limit=limit, client_view=client_view)
+        rows = await _rows(client_id, status=status, limit=limit, client_view=client_view, only_user=only_user)
     except Exception as exc:  # noqa: BLE001 — tabela ainda não criada (migração 000089)
         print(f"[studio_tasks] list client_id={client_id} unavailable error_type={type(exc).__name__}")
         return {"available": False, "reason": "migration_pending"}
@@ -143,6 +163,11 @@ def _clean(data: Dict[str, Any], *, partial: bool) -> Dict[str, Any]:
     for key, size in (("category", 60), ("assignee_name", 80)):
         if key in data:
             row[key] = (str(data.get(key) or "").strip()[:size]) or None
+    if "assignee_user_id" in data:
+        value = str(data.get("assignee_user_id") or "").strip()
+        if value and not re.fullmatch(r"[0-9a-fA-F-]{36}", value):
+            raise StudioError("ASSIGNEE_INVALID", "Responsável inválido.")
+        row["assignee_user_id"] = value or None
     if "visible_to_client" in data:
         row["visible_to_client"] = bool(data["visible_to_client"])
     if "needs_client_approval" in data:
@@ -155,24 +180,34 @@ def _clean(data: Dict[str, Any], *, partial: bool) -> Dict[str, Any]:
     return row
 
 
-async def _owned(client_id: str, task_id: str, *, client_view: bool) -> Dict[str, Any]:
+async def _owned(client_id: str, task_id: str, *, client_view: bool, only_user: Optional[str] = None) -> Dict[str, Any]:
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}
+    rows = None
     try:
-        rows = await sb_select(TABLE, select=LINKED_COLUMNS, filters=filters, limit=1)
-    except Exception:  # noqa: BLE001 — sem a migração 000097
-        rows = None
+        rows = await sb_select(TABLE, select=SCOPED_COLUMNS, filters=filters, limit=1)
+    except Exception:  # noqa: BLE001 — sem a migração 000100
+        if only_user:
+            rows = await sb_select(TABLE, select=LINKED_COLUMNS + ",created_by", filters=filters, limit=1)
+    if rows is None:
+        try:
+            rows = await sb_select(TABLE, select=LINKED_COLUMNS, filters=filters, limit=1)
+        except Exception:  # noqa: BLE001 — sem a migração 000097
+            rows = None
     if rows is None:
         try:
             rows = await sb_select(TABLE, select=COLUMNS, filters=filters, limit=1)
         except Exception:  # noqa: BLE001 — sem a migração 000096
             rows = await sb_select(TABLE, select=LEGACY_COLUMNS, filters=filters, limit=1)
-    if not rows or (client_view and not rows[0].get("visible_to_client")):
+    if not rows or (client_view and not rows[0].get("visible_to_client")) or (only_user and not _mine(rows[0], only_user)):
         raise StudioError("TASK_NOT_FOUND")
     return rows[0]
 
 
-async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool) -> Dict[str, Any]:
+async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool,
+                      only_user: Optional[str] = None) -> Dict[str, Any]:
     row = _clean(data, partial=False)
+    if only_user and not row.get("assignee_user_id"):
+        row["assignee_user_id"] = only_user  # quem só vê as próprias tarefas cria para si
     row.setdefault("status", "pending")
     if client_view:
         row["visible_to_client"] = True  # o que o cliente cria é dele também
@@ -182,8 +217,9 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
     return task_view(created)
 
 
-async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, client_view: bool) -> Dict[str, Any]:
-    await _owned(client_id, task_id, client_view=client_view)
+async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, client_view: bool,
+                      only_user: Optional[str] = None) -> Dict[str, Any]:
+    await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
     patch = _clean(data, partial=True)
     if client_view:
         patch.pop("visible_to_client", None)  # cliente não esconde tarefa da própria visão
@@ -194,8 +230,8 @@ async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, cli
     return task_view(rows[0], client_view=client_view)
 
 
-async def delete_task(client_id: str, task_id: str, *, client_view: bool) -> None:
-    await _owned(client_id, task_id, client_view=client_view)
+async def delete_task(client_id: str, task_id: str, *, client_view: bool, only_user: Optional[str] = None) -> None:
+    await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
     await sb_delete(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}, returning="minimal")
 
 
@@ -221,13 +257,15 @@ def next_status(action: str, task: Dict[str, Any]) -> Optional[str]:
 
 
 async def approval_action(client_id: str, task_id: str, action: str, *, comment: Optional[str], user_id: str,
-                          actor_name: str, is_agency: bool, internal_comment: bool = False) -> Dict[str, Any]:
+                          actor_name: str, is_agency: bool, internal_comment: bool = False,
+                          only_user: Optional[str] = None) -> Dict[str, Any]:
     if action not in ACTIONS:
         raise StudioError("ACTION_INVALID", "Ação inválida.")
     who, sources, _, kind, internal, needs_comment = ACTIONS[action]
-    if who == "mugo" and not is_agency:
-        raise StudioError("FORBIDDEN", "Só a equipe Mugô faz a aprovação interna.")
-    task = await _owned(client_id, task_id, client_view=not is_agency)
+    # Quem é responsável pela tarefa (only_user) também manda para a aprovação interna; aprovar é da equipe.
+    if who == "mugo" and not is_agency and not (action == "submit" and only_user):
+        raise StudioError("FORBIDDEN", "Só quem tem a aprovação interna liberada aprova ou pede ajuste aqui.")
+    task = await _owned(client_id, task_id, client_view=not (is_agency or only_user), only_user=only_user)
     if task.get("status") not in sources:
         raise StudioError("STAGE_INVALID", "A tarefa não está nesta etapa (atualize a tela).")
     text = str(comment or "").strip()[:2000]
@@ -259,7 +297,8 @@ async def approval_action(client_id: str, task_id: str, action: str, *, comment:
         await notify_team(client_id, {"id": None, "title": f"Tarefa: {task.get('title') or ''}".strip()},
                           "aprovado" if action == "client_approve" else "ajuste_solicitado",
                           actor_name=actor_name, comment=text or None, user_id=user_id or None)
-    return {"task": task_view(rows[0], client_view=not is_agency), "events": await list_events(client_id, task_id, client_view=not is_agency)}
+    team = is_agency or bool(only_user)
+    return {"task": task_view(rows[0], client_view=not team), "events": await list_events(client_id, task_id, client_view=not team)}
 
 
 async def list_events(client_id: str, task_id: str, *, client_view: bool) -> List[Dict[str, Any]]:
@@ -274,8 +313,8 @@ async def list_events(client_id: str, task_id: str, *, client_view: bool) -> Lis
     return rows
 
 
-async def task_history(client_id: str, task_id: str, *, client_view: bool) -> List[Dict[str, Any]]:
-    await _owned(client_id, task_id, client_view=client_view)
+async def task_history(client_id: str, task_id: str, *, client_view: bool, only_user: Optional[str] = None) -> List[Dict[str, Any]]:
+    await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
     return await list_events(client_id, task_id, client_view=client_view)
 
 

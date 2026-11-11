@@ -6,7 +6,7 @@ membership resolvida no backend; o client_id da URL é só um pedido.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional
 from uuid import UUID
 
@@ -347,6 +347,185 @@ async def edit_item(client_id: str, item_id: UUID, body: ItemPatch, authorizatio
     from services.studio_history import describe_patch, record_many
     await record_many(cid, str(item_id), describe_patch(changed_fields(before, patch)), actor_name=_chat_author(authorization, uid), actor_id=uid)
     return {"ok": True, "item": item}
+
+
+# ---------------------------------------------------------------- Briefing (porta de entrada dos pedidos)
+
+async def _brief_team(authorization: str | None, cid: str) -> bool:
+    """Equipe que aprova e distribui briefing: Mugô (admin/gestora da conta) ou quem tem "Aprovar internamente"."""
+    if await is_agency_user(authorization, cid):
+        return True
+    from services.team_access import member_access
+    access = await member_access(cid, await require_user_id(authorization))
+    return "tasks.approve" in set((access or {}).get("codes") or [])
+
+
+async def _brief_team_only(authorization: str | None, cid: str) -> None:
+    if not await _brief_team(authorization, cid):
+        raise HTTPException(status_code=403, detail="Só a equipe aprova e distribui o briefing.")
+
+
+def _brief_http(exc: StudioError) -> HTTPException:
+    known = {"BRIEF_NOT_FOUND": 404, "BRIEF_NOT_APPROVED": 409, "DESTINATION_INVALID": 422, "ROLE_INVALID": 422, "BRIEF_SAVE_FAILED": 503}
+    if exc.code in known:
+        return HTTPException(status_code=known[exc.code], detail=str(exc))
+    return _http(exc)
+
+
+class BriefInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    request: str = Field(min_length=3, max_length=4000)
+    links: List[str] = Field(default_factory=list, max_length=10)
+
+
+class BriefPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: Optional[str] = Field(default=None, max_length=120)
+    summary: Optional[str] = Field(default=None, max_length=400)
+    objective: Optional[str] = Field(default=None, max_length=300)
+    key_message: Optional[str] = Field(default=None, max_length=300)
+    audience: Optional[str] = Field(default=None, max_length=300)
+    deadline: Optional[date] = None
+    goal: Optional[str] = Field(default=None, max_length=240)
+    client_summary: Optional[str] = Field(default=None, max_length=400)
+    deliverables: Optional[List[str]] = Field(default=None, max_length=6)
+    avoid: Optional[List[str]] = Field(default=None, max_length=4)
+    status: Optional[Literal["arquivado", "pronto"]] = None
+
+
+class BriefRegenerate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+class BriefTaskInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    role: Literal["designer", "trafego", "estrategista", "desenvolvedor", "social_media", "redator", "produtor", "cliente", "dono"]
+    assignee_user_id: Optional[UUID] = None
+    assignee_name: Optional[str] = Field(default=None, max_length=80)
+    due_date: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.get("/briefs")
+async def read_briefs(client_id: str, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import DESTINATIONS, list_briefs
+    from services.studio_briefing_send import ROLES
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    team = await _brief_team(authorization, cid)
+    return {"briefs": await list_briefs(cid, team=team), "team": team, "destinations": DESTINATIONS, "roles": ROLES}
+
+
+@router.post("/briefs", status_code=201)
+async def create_brief_route(client_id: str, body: BriefInput, authorization: str | None = Header(default=None)):
+    """Qualquer pessoa da empresa abre o pedido; do cliente, fica aguardando a equipe aprovar."""
+    from services.studio_briefs import create_brief
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    team = await _brief_team(authorization, cid)
+    try:
+        brief = await create_brief(cid, request=body.request, links=body.links, user_id=uid,
+                                   author=_chat_author(authorization, uid) or ("Equipe Mugô" if team else "Cliente"), team=team)
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+    return {"brief": brief}
+
+
+@router.get("/briefs/{brief_id}")
+async def read_brief(client_id: str, brief_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import get_brief
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    try:
+        return {"brief": await get_brief(cid, str(brief_id), team=await _brief_team(authorization, cid))}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+@router.patch("/briefs/{brief_id}")
+async def edit_brief(client_id: str, brief_id: UUID, body: BriefPatch, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import update_brief
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"brief": await update_brief(cid, str(brief_id), body.model_dump(mode="json", exclude_unset=True))}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+@router.post("/briefs/{brief_id}/regenerate")
+async def regenerate_brief(client_id: str, brief_id: UUID, body: Optional[BriefRegenerate] = None, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import regenerate
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"brief": await regenerate(cid, str(brief_id), body.instruction if body else None)}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+@router.post("/briefs/{brief_id}/approve")
+async def approve_brief(client_id: str, brief_id: UUID, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import approve
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"brief": await approve(cid, str(brief_id), user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+@router.post("/briefs/{brief_id}/send/{destination}")
+async def send_brief(client_id: str, brief_id: UUID, destination: Literal["social_media", "midia_on", "clipping", "redacao", "criadores"],
+                     authorization: str | None = Header(default=None)):
+    """Leva o briefing para a tela escolhida (a falha de um destino volta escrita no próprio destino)."""
+    from services.studio_briefs import send_to
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"brief": await send_to(cid, str(brief_id), destination, user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+@router.post("/briefs/{brief_id}/tasks", status_code=201)
+async def brief_task(client_id: str, brief_id: UUID, body: BriefTaskInput, authorization: str | None = Header(default=None)):
+    from services.studio_briefs import create_person_task
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        return {"brief": await create_person_task(cid, str(brief_id), role=body.role, user_id=await require_user_id(authorization),
+                                                  assignee_user_id=str(body.assignee_user_id) if body.assignee_user_id else None,
+                                                  assignee_name=body.assignee_name, due_date=body.due_date.isoformat() if body.due_date else None,
+                                                  note=body.note)}
+    except StudioError as exc:
+        raise _brief_http(exc) from None
+
+
+class BriefingSendInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    role: Literal["designer", "trafego", "estrategista", "desenvolvedor", "social_media", "redator", "produtor", "cliente", "dono"]
+    assignee_user_id: Optional[UUID] = None
+    assignee_name: Optional[str] = Field(default=None, max_length=80)
+    due_date: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/calendar/items/{item_id}/briefing/send", status_code=201)
+async def send_item_briefing(client_id: str, item_id: UUID, body: BriefingSendInput, authorization: str | None = Header(default=None)):
+    """Manda o briefing da peça para alguém (designer, tráfego, redator…): vira tarefa dela, só com o que a função precisa."""
+    from services.studio_briefing_send import send_briefing
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        task = await send_briefing(cid, str(item_id), role=body.role, user_id=uid,
+                                   assignee_user_id=str(body.assignee_user_id) if body.assignee_user_id else None,
+                                   assignee_name=body.assignee_name, due_date=body.due_date.isoformat() if body.due_date else None,
+                                   note=body.note, actor_name=_chat_author(authorization, uid) or "Equipe Mugô")
+    except StudioError as exc:
+        if exc.code == "ROLE_INVALID":
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise _http(exc) from None
+    return {"task": task}
 
 
 class SuggestionInput(BaseModel):

@@ -7,7 +7,7 @@ As rotas mantêm o endereço /crm/... e o formato de resposta de antes, então a
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
@@ -59,6 +59,7 @@ class TaskInput(BaseModel):
     due_time: Optional[str] = Field(default=None, max_length=5)
     category: Optional[str] = Field(default=None, max_length=60)
     assignee_name: Optional[str] = Field(default=None, max_length=80)
+    assignee_user_id: Optional[UUID] = None
     visible_to_client: Optional[bool] = None
     needs_client_approval: Optional[bool] = None
     deliverable_url: Optional[str] = Field(default=None, max_length=1000)
@@ -70,13 +71,35 @@ class TaskApproval(BaseModel):
     internal: bool = False
 
 
+async def _task_scope(authorization: Optional[str], cid: str) -> Dict[str, Any]:
+    """Quem vê o quê nas Tarefas.
+
+    - Equipe Mugô (admin da agência / gestora da conta): tudo, com aprovação interna.
+    - Membro com "Ver e gerenciar as tarefas de todos" (acesso total da empresa tem): todas; aprovação interna só
+      com "Aprovar internamente" (liberado pela Mugô), senão vê como cliente.
+    - Os demais (ex.: designer, redatora): só as tarefas DELES (responsável ou quem criou), por completo; mandam para
+      a aprovação interna, e aprovam só com "Aprovar internamente".
+    """
+    if await is_agency_user(authorization, cid):
+        return {"client_view": False, "team": True, "only_user": None}
+    from services.team_access import member_access
+    uid = await require_user_id(authorization)
+    access = await member_access(cid, uid)
+    codes = set((access or {}).get("codes") or [])
+    approve = "tasks.approve" in codes
+    if "tasks.all" in codes:
+        return {"client_view": not approve, "team": approve, "only_user": None}
+    return {"client_view": False, "team": approve, "only_user": uid}
+
+
 @router.get("/tasks")
 async def crm_tasks(client_id: str, status: Optional[str] = None, limit: int = 200,
                     authorization: Optional[str] = Header(None)):
     cid = await require_client_read(client_id, authorization)
-    client_view = not await is_agency_user(authorization, cid)
+    scope = await _task_scope(authorization, cid)
     try:
-        return await studio_tasks.list_tasks(cid, status=status, limit=limit, client_view=client_view)
+        out = await studio_tasks.list_tasks(cid, status=status, limit=limit, client_view=scope["client_view"], only_user=scope["only_user"])
+        return {**out, "scope": {"mine_only": bool(scope["only_user"]), "can_approve": scope["team"]}}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -95,9 +118,10 @@ async def crm_client_tasks(client_id: str, authorization: Optional[str] = Header
 async def crm_task_create(client_id: str, body: TaskInput, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TASK_MANAGERS)
     uid = await require_user_id(authorization)
+    scope = await _task_scope(authorization, cid)
     try:
         return {"task": await studio_tasks.create_task(cid, body.model_dump(exclude_unset=True), user_id=uid,
-                                                       client_view=not await is_agency_user(authorization, cid))}
+                                                       client_view=scope["client_view"], only_user=scope["only_user"])}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -106,8 +130,9 @@ async def crm_task_create(client_id: str, body: TaskInput, authorization: Option
 async def crm_task_update(client_id: str, task_id: UUID, body: TaskInput, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TASK_MANAGERS)
     try:
+        scope = await _task_scope(authorization, cid)
         return {"task": await studio_tasks.update_task(cid, str(task_id), body.model_dump(exclude_unset=True),
-                                                       client_view=not await is_agency_user(authorization, cid))}
+                                                       client_view=scope["client_view"], only_user=scope["only_user"])}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -116,17 +141,35 @@ async def crm_task_update(client_id: str, task_id: UUID, body: TaskInput, author
 async def crm_task_delete(client_id: str, task_id: UUID, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TASK_MANAGERS)
     try:
-        await studio_tasks.delete_task(cid, str(task_id), client_view=not await is_agency_user(authorization, cid))
+        scope = await _task_scope(authorization, cid)
+        await studio_tasks.delete_task(cid, str(task_id), client_view=scope["client_view"], only_user=scope["only_user"])
         return {"ok": True}
     except StudioError as exc:
         raise _http(exc) from None
+
+
+@router.get("/assignees")
+async def crm_assignees(client_id: str, authorization: Optional[str] = Header(None)):
+    """Integrantes ativos da empresa para escolher o responsável (e para quem mandar o briefing)."""
+    from services.team_admin import list_members
+    cid = await require_client_read(client_id, authorization)
+    try:
+        members = (await list_members(cid)).get("items") or []
+    except Exception as exc:  # noqa: BLE001 — sem a lista, a tela volta ao nome digitado
+        print(f"[crm][assignees] client_id={cid} unavailable error_type={type(exc).__name__}")
+        return {"available": False, "people": []}
+    people = [{"user_id": m["user_id"], "name": m.get("name") or m.get("login") or "Sem nome"}
+              for m in members if m.get("user_id") and m.get("status") == "active"]
+    people.sort(key=lambda p: str(p["name"]).lower())
+    return {"available": True, "people": people}
 
 
 @router.get("/tasks/{task_id}/history")
 async def crm_task_history(client_id: str, task_id: UUID, authorization: Optional[str] = Header(None)):
     cid = await require_client_read(client_id, authorization)
     try:
-        return {"events": await studio_tasks.task_history(cid, str(task_id), client_view=not await is_agency_user(authorization, cid))}
+        scope = await _task_scope(authorization, cid)
+        return {"events": await studio_tasks.task_history(cid, str(task_id), client_view=scope["client_view"], only_user=scope["only_user"])}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -137,11 +180,12 @@ async def crm_task_approval(client_id: str, task_id: UUID, body: TaskApproval, a
     from services.auth import get_user_from_bearer
     cid = await require_client_role(client_id, authorization, allowed_roles=TASK_APPROVERS)
     user = await get_user_from_bearer(authorization) or {}
-    agency = await is_agency_user(authorization, cid)
-    name = str(user.get("email") or "").split("@")[0] or ("Equipe Mugô" if agency else "Cliente")
+    scope = await _task_scope(authorization, cid)
+    name = str(user.get("email") or "").split("@")[0] or ("Equipe Mugô" if scope["team"] else "Cliente")
     try:
         return await studio_tasks.approval_action(cid, str(task_id), body.action, comment=body.comment, user_id=str(user.get("id") or ""),
-                                                  actor_name=name, is_agency=agency, internal_comment=body.internal)
+                                                  actor_name=name, is_agency=scope["team"], internal_comment=body.internal,
+                                                  only_user=scope["only_user"])
     except StudioError as exc:
         raise _http(exc) from None
 

@@ -140,6 +140,15 @@ export function decideCalendarItem(id: string, status: "aprovado" | "rejeitado",
   return http<{ item: CalendarItem }>(base(`/calendar/items/${encodeURIComponent(id)}/decision`), { method: "POST",
     body: JSON.stringify({ status, ...(reviewNote ? { review_note: reviewNote } : {}) }) });
 }
+// ---------------------------------------------------------------- enviar o briefing para alguém
+/** Funções que recebem o briefing (cada uma recebe só o que precisa). */
+export const BRIEFING_ROLES = { designer: "Designer", trafego: "Gestor de tráfego", estrategista: "Estrategista", desenvolvedor: "Desenvolvedor",
+  social_media: "Social media", redator: "Redator", produtor: "Produtor (foto/vídeo)", cliente: "Cliente", dono: "Dono" } as const;
+export type BriefingRole = keyof typeof BRIEFING_ROLES;
+export function sendBriefing(itemId: string, input: { role: BriefingRole; assignee_user_id?: string | null; assignee_name?: string | null; due_date?: string | null; note?: string | null }) {
+  return http<{ task: { id: string; title: string } }>(base(`/calendar/items/${encodeURIComponent(itemId)}/briefing/send`), { method: "POST", body: JSON.stringify(input) });
+}
+
 // ---------------------------------------------------------------- sugestão da IA para o ajuste pedido
 export type AiSuggestion = { hook: string | null; caption_draft: string | null; script: string | null; visual_idea: string | null;
   summary: string | null; note: string | null; created_at: string };

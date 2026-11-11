@@ -14,12 +14,12 @@ export function normalizeLoginIdentifier(raw: string): string {
 export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
   google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai",
-  media: "media", social_report: "social_report", tasks: "tasks", clipping: "clipping", creators: "creators",
+  media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", clipping: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
 };
 
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
-export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit"]);
+export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit", "tasks.approve"]);
 
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
 export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {

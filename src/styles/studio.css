@@ -1373,3 +1373,53 @@
 .aiSuggestion details summary{cursor:pointer;font-size:12px;font-weight:600;color:#5b4a86}
 .aiSuggestionActions{display:flex;gap:8px;flex-wrap:wrap}
 .aiSuggestion .libHint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--text-secondary,#5f5b53)}
+.taskMineOnly{background:#eef5f8;border:1px solid #d5e7ee;border-radius:10px;padding:8px 12px;color:#004f6e}
+.briefingSend select,.briefingSend input,.briefingSend textarea{font:inherit;font-size:13px;border:1px solid var(--border,#dedbd4);border-radius:8px;padding:6px 8px;background:#fff}
+/* Briefing (porta de entrada dos pedidos) */
+.briefComposer{border:1px solid var(--border,#e3dfd7);border-radius:14px;padding:16px;background:#fff;display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.briefComposer label{display:flex;flex-direction:column;gap:2px}
+.briefComposer label span{font-size:13px;color:var(--text-secondary,#5f5b53)}
+.briefComposer textarea,.briefComposer input,.briefEdit input,.briefEdit textarea,.briefPerson select,.briefPerson input,.briefRedo,.briefAddRole select{font:inherit;font-size:14px;border:1px solid var(--border,#dedbd4);border-radius:10px;padding:8px 10px;background:#fff}
+.briefComposerRow{display:flex;gap:8px;flex-wrap:wrap}
+.briefComposerRow input{flex:1 1 280px}
+.briefLayout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.briefList{display:flex;flex-direction:column;gap:6px;position:sticky;top:12px}
+.briefListItem{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:4px;border:1px solid var(--border,#e3dfd7);border-radius:10px;padding:10px 12px;background:#fff}
+.briefListItem:hover{border-color:#b9b3a7}
+.briefListItem.is-open{border-color:#1a1a1a;box-shadow:0 0 0 1px #1a1a1a}
+.briefListItem b{font-size:14px}
+.briefListItem small{font-size:12px;color:var(--text-secondary,#5f5b53)}
+.briefStatus{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:#efede8;color:#5f5b53}
+.briefStatus.is-aguardando_equipe{background:#fdf3e4;color:#8a5a12}
+.briefStatus.is-pronto{background:#eef5f8;color:#004f6e}
+.briefStatus.is-distribuido{background:#dcefe2;color:#1f6b3a}
+.briefBar{display:block;height:4px;border-radius:2px;background:#efede8;overflow:hidden}
+.briefBar i{display:block;height:100%;background:#1f6b3a}
+.briefDetail{border:1px solid var(--border,#e3dfd7);border-radius:14px;padding:18px 20px;background:#fff;display:flex;flex-direction:column;gap:14px}
+.briefDetail header{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.briefDetail h2{margin:0;font-size:20px}
+.briefLead{margin:0;font-size:15px;line-height:1.45}
+.briefFacts{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;margin:0;font-size:14px}
+.briefFacts dt{color:var(--text-secondary,#5f5b53);font-weight:600}
+.briefFacts dd{margin:0}
+.briefClientLine{margin:0;font-size:13px;background:#f6f5f1;border-radius:10px;padding:8px 12px}
+.briefRedo{flex:1 1 200px}
+.briefEdit{display:grid;gap:8px}
+.briefEdit label{display:grid;gap:4px;font-size:12px;font-weight:600}
+.briefSection{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border,#eeebe5);padding-top:12px}
+.briefSection h3{margin:0;font-size:14px}
+.briefSection summary{cursor:pointer;font-size:13px;font-weight:600}
+.briefDestinations{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.briefDestinations li{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border:1px solid var(--border,#e3dfd7);border-radius:10px;padding:10px 12px}
+.briefDestinations li div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.briefDestinations li small{font-size:12px;color:var(--text-secondary,#5f5b53)}
+.briefDestinations li a{font-size:12px}
+.briefDestinations li.is-suggested{border-color:#b98a2c;background:#fffaf0}
+.briefDestinations li.is-done{border-color:#9fd0b0;background:#f3faf5}
+.briefPerson{display:grid;grid-template-columns:minmax(160px,1.3fr) 1fr 140px 1fr auto;gap:8px;align-items:center}
+.briefPersonRole{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.briefPersonRole small{font-size:12px;color:var(--text-secondary,#5f5b53)}
+.briefAddRole{display:flex;gap:8px;align-items:center;font-size:13px}
+.briefRequest{white-space:pre-wrap;font-size:13px;margin:6px 0 0}
+.briefArchive{align-self:flex-start;font-size:12px}
+@media (max-width:900px){.briefLayout{grid-template-columns:1fr}.briefList{position:static}.briefPerson{grid-template-columns:1fr 1fr}.briefFacts{grid-template-columns:1fr}}

@@ -76,9 +76,13 @@ for _module, _label in MODULES:
     CATALOG.append({"code": f"{_module}.view", "module": _module, "label": f"Ver {_label}"})
     if _module in _EDIT_LABEL:
         CATALOG.append({"code": f"{_module}.edit", "module": _module, "label": _EDIT_LABEL[_module]})
+# Tarefas por pessoa: sem "tasks.all" o membro vê só as tarefas dele (responsável ou quem criou);
+# "tasks.approve" faz a aprovação interna (equipe), liberado só pela Mugô.
+CATALOG.append({"code": "tasks.all", "module": "tasks", "label": "Ver e gerenciar as tarefas de todos"})
+CATALOG.append({"code": "tasks.approve", "module": "tasks", "label": "Aprovar internamente (equipe)"})
 ALL_CODES: Set[str] = {entry["code"] for entry in CATALOG}
 # Liberados só pela equipe Mugô, código a código (custo de IA e trabalho da agência).
-OPT_IN_CODES: Set[str] = {"social_media.view", "social_media.edit"}
+OPT_IN_CODES: Set[str] = {"social_media.view", "social_media.edit", "tasks.approve"}
 for _entry in CATALOG:
     _entry["opt_in"] = _entry["code"] in OPT_IN_CODES  # type: ignore[assignment]
 # O que "acesso total" concede sozinho.
@@ -256,6 +260,7 @@ _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "campaigns": ("social_media", True),
     "matrix": ("social_media", True),
     "agents": ("social_media", True),
+    "briefs": ("tasks", True),
     "documents": ("social_media", True),
     "approvals": ("calendar", True),
     "assist": ("calendar", False),

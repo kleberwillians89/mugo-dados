@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { BOLDNESS_LABELS, CONTENT_ANGLES, briefingText, generateBriefing, type BriefingDirection, type CalendarItem } from "../../app/studio";
+import { useEffect, useState } from "react";
+import { listAssignees, type Person } from "../../app/crm";
+import { BOLDNESS_LABELS, BRIEFING_ROLES, CONTENT_ANGLES, briefingText, generateBriefing, sendBriefing, type BriefingDirection, type BriefingRole, type CalendarItem } from "../../app/studio";
 
 /** Briefing da peça (fluxo do Atendimento do iAgência): ler, copiar e gerar/refazer com a IA, com direcionamento opcional. */
 export default function BriefingPanel({ item, hook, disabled }: { item: CalendarItem; hook?: string; disabled?: boolean }) {
@@ -9,6 +10,27 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  // Enviar para alguém: vira tarefa da pessoa, só com o que a função dela precisa.
+  const [sending, setSending] = useState(false);
+  const [people, setPeople] = useState<Person[] | null>(null);
+  const [to, setTo] = useState<{ role: BriefingRole; user: string; due: string; note: string }>({ role: "designer", user: "", due: "", note: "" });
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sent, setSent] = useState<string[]>([]);
+  useEffect(() => {
+    if (!sending || people) return;
+    listAssignees().then((r) => setPeople(r.available ? r.people : [])).catch(() => setPeople([]));
+  }, [sending, people]);
+  const send = async () => {
+    const person = (people || []).find((p) => p.user_id === to.user);
+    setSendBusy(true); setError("");
+    try {
+      await sendBriefing(current.id, { role: to.role, assignee_user_id: person?.user_id || null, assignee_name: person?.name || null,
+        due_date: to.due || null, note: to.note.trim() || null });
+      setSent((list) => [...list, `${person?.name || BRIEFING_ROLES[to.role]} (${BRIEFING_ROLES[to.role]})`]);
+      setTo({ ...to, user: "", note: "" });
+    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível enviar o briefing."); }
+    finally { setSendBusy(false); }
+  };
   const b = current.signals?.briefing || {};
   const has = Boolean(current.script || current.visual_idea || Object.keys(b).length);
   const set = (patch: BriefingDirection) => setDirection((d) => ({ ...d, ...patch }));
@@ -44,7 +66,23 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
       <button type="button" className="ds-button is-primary" disabled={busy || disabled} onClick={() => (open ? void run() : setOpen(true))}>
         {busy ? "Gerando briefing…" : open ? "Gerar agora" : has ? "Refazer com IA" : "Gerar briefing com IA"}</button>
       {open && !busy ? <button type="button" className="ds-button" onClick={() => setOpen(false)}>Cancelar</button> : null}
+      {has && !sending ? <button type="button" className="ds-button" onClick={() => setSending(true)}>Enviar para…</button> : null}
     </div>
+    {sending ? <div className="postBriefingForm briefingSend">
+      <small>Enviar o briefing: vira tarefa da pessoa, só com o que a função dela precisa.</small>
+      <label>Função<select value={to.role} onChange={(e) => setTo({ ...to, role: e.target.value as BriefingRole })}>
+        {(Object.keys(BRIEFING_ROLES) as BriefingRole[]).map((r) => <option key={r} value={r}>{BRIEFING_ROLES[r]}</option>)}</select></label>
+      <label>Pessoa<select value={to.user} onChange={(e) => setTo({ ...to, user: e.target.value })} disabled={people === null}>
+        <option value="">{people === null ? "Carregando…" : people.length ? "Escolha quem vai fazer" : "Sem integrantes: fica sem responsável"}</option>
+        {(people || []).map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}</select></label>
+      <label>Prazo<input type="date" value={to.due} onChange={(e) => setTo({ ...to, due: e.target.value })} /><small>Vazio: 2 dias antes da publicação.</small></label>
+      <label>Recado<textarea rows={2} maxLength={600} value={to.note} placeholder="Algo a mais para esta pessoa" onChange={(e) => setTo({ ...to, note: e.target.value })} /></label>
+      <div className="postBriefingActions">
+        <button type="button" className="ds-button is-primary" disabled={sendBusy || (people !== null && people.length > 0 && !to.user)} onClick={() => void send()}>{sendBusy ? "Enviando…" : "Enviar briefing"}</button>
+        <button type="button" className="ds-button" onClick={() => setSending(false)}>Fechar</button>
+      </div>
+      {sent.length ? <p className="studioOk">✓ Enviado para {sent.join(", ")}. Já está nas Tarefas de cada um.</p> : null}
+    </div> : null}
     {open ? <div className="postBriefingForm">
       <small>Direcionamento (opcional, como no Atendimento do iAgência):</small>
       <label>Objetivo<input maxLength={600} value={direction.objective || ""} placeholder="Ex.: gerar comentários, levar ao link" onChange={(e) => set({ objective: e.target.value })} /></label>

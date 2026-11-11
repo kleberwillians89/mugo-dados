@@ -122,9 +122,27 @@ class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
         listing = AsyncMock(return_value={"available": True, "tasks": []})
         with patch.object(crm_routes, "require_client_read", AsyncMock(return_value="roove-test")), \
              patch.object(crm_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(crm_routes, "require_user_id", AsyncMock(return_value="u-cliente")), \
+             patch("services.team_access.member_access", AsyncMock(return_value={"codes": {"tasks.view", "tasks.edit", "tasks.all"}})), \
              patch.object(crm_routes.studio_tasks, "list_tasks", listing):
             await crm_routes.crm_tasks("roove-test", authorization="Bearer x")
-        self.assertTrue(listing.await_args.kwargs["client_view"])
+        self.assertTrue(listing.await_args.kwargs["client_view"])  # admin do cliente: todas as visíveis
+        self.assertIsNone(listing.await_args.kwargs["only_user"])
+
+    async def scope_for(self, *, agency=False, codes=()):
+        with patch.object(crm_routes, "is_agency_user", AsyncMock(return_value=agency)), \
+             patch.object(crm_routes, "require_user_id", AsyncMock(return_value="u-liliu")), \
+             patch("services.team_access.member_access", AsyncMock(return_value={"codes": set(codes)})):
+            return await crm_routes._task_scope("Bearer x", "roove-test")
+
+    async def test_each_person_sees_only_their_tasks_unless_allowed(self):
+        self.assertEqual(await self.scope_for(agency=True), {"client_view": False, "team": True, "only_user": None})
+        self.assertEqual(await self.scope_for(codes={"tasks.view", "tasks.edit"}),
+                         {"client_view": False, "team": False, "only_user": "u-liliu"})  # designer: só as dela
+        self.assertEqual(await self.scope_for(codes={"tasks.view", "tasks.edit", "tasks.approve"}),
+                         {"client_view": False, "team": True, "only_user": "u-liliu"})  # aprova internamente as dela
+        self.assertEqual(await self.scope_for(codes={"tasks.view", "tasks.all", "tasks.approve"}),
+                         {"client_view": False, "team": True, "only_user": None})  # vê e aprova tudo
 
     async def test_conversation_phones_come_from_the_server_side_contacts(self):
         convs = AsyncMock(return_value={"available": True, "conversations": []})

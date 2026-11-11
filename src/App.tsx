@@ -48,6 +48,7 @@ const Automations = lazy(() => import("./pages/Automations"));
 const ClientTasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.ClientTasksPage })));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const RedacaoPage = lazy(() => import("./pages/RedacaoPage"));
+const BriefingPage = lazy(() => import("./pages/BriefingPage"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
@@ -802,7 +803,7 @@ function PrivateApp() {
     return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
-  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
+  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "engagement", "clipping", "social_report", "brand_ai", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
   if (view === "loading") {
@@ -922,6 +923,8 @@ function PrivateApp() {
         <RedacaoPage key={`redacao:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "media" ? (
         <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
+      ) : route === "briefing" ? (
+        <BriefingPage key={`briefing:${activeClientId}`} />
       ) : route === "tasks" ? (
         teamHere || canEdit("tasks")
           ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere} />

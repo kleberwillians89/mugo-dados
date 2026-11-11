@@ -21,7 +21,7 @@ export const TASK_PRIORITY: Record<string, string> = { low: "Baixa", medium: "M�
 export type CrmTask = {
   id: string; title: string; status: TaskStatus; priority: string | null; due_date: string | null; due_time: string | null;
   starts_at: string | null; category: string | null; task_type: string | null; tags: string[]; notes: string | null;
-  updated_at: string | null; assignee: { name: string; color: string | null } | null;
+  updated_at: string | null; assignee: { name: string; color: string | null; user_id?: string | null } | null;
   /** Tarefas do Mugoverso: aparece também para o cliente. */
   visible_to_client?: boolean;
   /** Link da entrega (Drive, Canva, Figma…) que vai para aprovação. */
@@ -45,12 +45,17 @@ export type CrmMessage = {
 type Result<T> = ({ available: true } & T) | CrmUnavailable;
 const base = (path: string) => clientClientPath(`/crm${path}`);
 
+/** mine_only: a pessoa vê só as tarefas dela; can_approve: faz a aprovação interna. */
+export type TaskScope = { mine_only: boolean; can_approve: boolean };
 export function listCrmTasks(status?: TaskStatus) {
-  return http<Result<{ tasks: CrmTask[] }>>(base(`/tasks${status ? `?status=${status}` : ""}`));
+  return http<Result<{ tasks: CrmTask[]; scope?: TaskScope }>>(base(`/tasks${status ? `?status=${status}` : ""}`));
 }
+/** Integrantes ativos da empresa (responsável da tarefa e para quem mandar o briefing). */
+export type Person = { user_id: string; name: string };
+export function listAssignees() { return http<{ available: boolean; people: Person[] }>(base("/assignees")); }
 /** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
 export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;
-  due_time: string | null; category: string | null; assignee_name: string | null; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
+  due_time: string | null; category: string | null; assignee_name: string | null; assignee_user_id: string | null; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
 export function createTask(input: TaskInput) {
   return http<{ task: CrmTask }>(base("/tasks"), { method: "POST", body: JSON.stringify(input) });
 }
