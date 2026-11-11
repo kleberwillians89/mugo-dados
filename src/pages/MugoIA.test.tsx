@@ -7,7 +7,6 @@ const studio = vi.hoisted(() => ({ getMugoIA: vi.fn(), askMugoIA: vi.fn(), clear
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studio }));
 vi.mock("../app/activeClient", async (original) => ({ ...(await original<typeof import("../app/activeClient")>()), getActiveClientName: () => "Ruah" }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: unknown }) => <div>{children as never}</div> }));
-vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
 import MugoIA from "./MugoIA";
 
@@ -30,8 +29,8 @@ describe("Mugoverso IA", () => {
     await act(async () => { btn("Como está a saúde da marca e o que o público anda falando?").click(); });
     expect(studio.askMugoIA).toHaveBeenCalledWith("Como está a saúde da marca e o que o público anda falando?");
     expect(host.textContent).toContain("Índice 71: saudável.");
-    expect(host.textContent).toContain("Com base em: Saúde da marca, Concorrentes");
-    expect(host.textContent).toContain("Sem dado agora: metas do mês");
+    expect(host.querySelector(".miaChips")?.textContent).toBe("Com base emSaúde da marcaConcorrentes");
+    expect(host.querySelector(".miaChips.is-gap")?.textContent).toBe("Sem dado agorametas do mês");
     await act(async () => { btn("Guardar na memória da marca").click(); });
     expect(studio.addKnowledgeFacts).toHaveBeenCalledWith(["Não fazemos desconto em dezembro"]);
     studio.askMugoIA.mockResolvedValue({ ok: true, id: "m2", answer: "A Marca X lançou um perfume.", on_topic: true, sources: [], new_facts: [], follow_ups: [], coverage: { read: [], gaps: [] } });
@@ -44,11 +43,20 @@ describe("Mugoverso IA", () => {
     studio.getMugoIA.mockResolvedValue({ messages: [{ id: "a", role: "assistant", content: "Oi", meta: { new_facts: ["x"] } }] });
     await act(async () => { root.render(<MugoIA canManage={false} isAgency={false} />); });
     expect(host.textContent).not.toContain("Guardar na memória da marca");
-    await act(async () => { btn("Limpar conversa").click(); });
+    await act(async () => { btn("Nova conversa").click(); });
     studio.clearMugoIA.mockResolvedValue({ ok: true });
     await act(async () => { btn("Apagar").click(); });
     expect(studio.clearMugoIA).toHaveBeenCalled();
     expect(host.textContent).toContain("Como está a saúde da minha marca?");
+  });
+
+  it("formata a resposta: parágrafos, lista e o bloco do que fazer agora", async () => {
+    studio.getMugoIA.mockResolvedValue({ messages: [{ id: "a", role: "assistant", content:
+      "Kleber, a marca está muito bem vista.\n\n- 36 menções, 97% positivas\n- elogios ao conteúdo\n\nO que eu faria agora: aproveitar a Black November." }] });
+    await act(async () => { root.render(<MugoIA canManage isAgency />); });
+    expect(host.querySelector(".miaAnswer p")?.textContent).toBe("Kleber, a marca está muito bem vista.");
+    expect(host.querySelectorAll(".miaAnswer > ul li")).toHaveLength(2);
+    expect(host.querySelector(".miaAction")?.textContent).toBe("O que eu faria agoraaproveitar a Black November.");
   });
 
   it("erro devolve a pergunta para a caixa", async () => {
