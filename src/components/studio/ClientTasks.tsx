@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getActiveClientName } from "../../app/activeClient";
-import { CRM_UNAVAILABLE_TEXT, TASK_STATUS, dueInfo, listClientTasks, type ClientTask, type CrmUnavailable, type TaskStatus } from "../../app/crm";
+import { CRM_UNAVAILABLE_TEXT, TASK_STATUS, dueInfo, listClientTasks, taskApproval, type ClientTask, type CrmUnavailable, type TaskStatus } from "../../app/crm";
 import { decideCalendarItem, getPipeline, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
 import { PostCard } from "./TaskBoard";
@@ -22,16 +22,35 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [asking, setAsking] = useState<string | null>(null);
+  const [askNote, setAskNote] = useState("");
+  const [taskError, setTaskError] = useState<string | null>(null);
+
+  const loadTasks = useCallback(async (alive: () => boolean = () => true) => {
+    try {
+      const res = await listClientTasks();
+      if (!alive()) return;
+      if (res.available) { setTasks(res.tasks || []); setUnavailable(null); } else { setTasks([]); setUnavailable(res.reason); }
+    } catch { if (alive()) setTasks([]); }
+  }, []);
   useEffect(() => {
     let alive = true;
-    listClientTasks()
-      .then((res) => {
-        if (!alive) return;
-        if (res.available) { setTasks(res.tasks || []); setUnavailable(null); } else { setTasks([]); setUnavailable(res.reason); }
-      })
-      .catch(() => { if (alive) setTasks([]); });
+    void loadTasks(() => alive);
     return () => { alive = false; };
-  }, [clientId]);
+  }, [clientId, loadTasks]);
+
+  /** Tarefa na "Aprovação do cliente": o cliente aprova ou pede ajuste (a equipe Mugô é avisada). */
+  async function decideTask(task: ClientTask, action: "client_approve" | "client_changes") {
+    if (action === "client_changes" && !askNote.trim()) { setTaskError("Escreva o que precisa mudar."); return; }
+    setBusy(true); setTaskError(null); setNotice(null);
+    try {
+      await taskApproval(task.id, action, action === "client_changes" ? askNote.trim() : undefined);
+      setAsking(null); setAskNote("");
+      setNotice(action === "client_approve" ? "Tarefa aprovada. Obrigado!" : "Ajuste pedido: a equipe Mugô foi avisada.");
+      await loadTasks();
+    } catch (cause) { setTaskError(cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar a decisão."); }
+    finally { setBusy(false); }
+  }
 
   // Quadro próprio (página Tarefas): entra junto o que está no Fluxo de aprovação do Calendário.
   const loadPosts = useCallback(async () => {
@@ -85,6 +104,18 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
           return <article key={t.id} className={`kanbanCard taskCard${late ? " is-late" : ""}`}>
             <b>{t.title}</b>
             <div className="taskMeta"><span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}</span></div>
+            {t.status === "client_review" && !isAgency ? (asking === t.id ? <div className="taskAsk">
+              <textarea rows={3} maxLength={2000} value={askNote} autoFocus placeholder="O que precisa mudar?" aria-label="O que precisa mudar"
+                onChange={(e) => { setAskNote(e.target.value); setTaskError(null); }} />
+              {taskError ? <p className="studioError" role="alert">{taskError}</p> : null}
+              <div className="taskQuick">
+                <button type="button" className="ds-link taskAdvance is-primary" disabled={busy} onClick={() => void decideTask(t, "client_changes")}>Enviar ajuste</button>
+                <button type="button" className="ds-link taskAdvance is-quiet" disabled={busy} onClick={() => { setAsking(null); setTaskError(null); }}>Cancelar</button>
+              </div>
+            </div> : <div className="taskQuick">
+              <button type="button" className="ds-link taskAdvance is-primary" disabled={busy} onClick={() => void decideTask(t, "client_approve")}>Aprovar ✓</button>
+              <button type="button" className="ds-link taskAdvance is-quiet" disabled={busy} onClick={() => { setAsking(t.id); setAskNote(""); setTaskError(null); }}>Pedir ajuste</button>
+            </div>) : null}
           </article>;
         })}
         {!list.length && !cards.length ? <p className="taskColEmpty">Nada aqui.</p> : null}

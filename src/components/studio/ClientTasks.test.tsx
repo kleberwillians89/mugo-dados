@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const crm = vi.hoisted(() => ({ listClientTasks: vi.fn() }));
+const crm = vi.hoisted(() => ({ listClientTasks: vi.fn(), taskApproval: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(), decideCalendarItem: vi.fn(async () => ({ item: {} })),
   listItemReferences: vi.fn(async () => ({ references: [] })), listItemComments: vi.fn(async () => ({ comments: [] })) }));
@@ -40,5 +40,24 @@ describe("Tarefas do cliente ligadas ao Calendário", () => {
     await act(async () => { approve.click(); });
     expect(studio.decideCalendarItem).toHaveBeenCalledWith("a", "aprovado", undefined);
     expect(host.textContent).toContain("Post aprovado. Obrigado!");
+  });
+
+  it("tarefa na aprovação do cliente: aprova ou pede ajuste com comentário", async () => {
+    crm.listClientTasks.mockResolvedValue({ available: true, tasks: [{ id: "t1", title: "Landing de Black Friday", status: "client_review", due_date: null, updated_at: null }] });
+    crm.taskApproval.mockResolvedValue({ task: {}, events: [] });
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    await act(async () => { root.render(<ClientTasks isAgency={false} clientId="ruah" standalone />); });
+    const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent === label) as HTMLButtonElement;
+    await act(async () => { btn("Pedir ajuste").click(); });
+    await act(async () => { btn("Enviar ajuste").click(); });
+    expect(host.textContent).toContain("Escreva o que precisa mudar.");
+    const area = host.querySelector(".taskAsk textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(area, "Trocar o banner");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { btn("Enviar ajuste").click(); });
+    expect(crm.taskApproval).toHaveBeenCalledWith("t1", "client_changes", "Trocar o banner");
+    expect(host.textContent).toContain("Ajuste pedido: a equipe Mugô foi avisada.");
   });
 });
