@@ -57,6 +57,7 @@ from routes.team import router as team_router
 from routes.meta_ads_publish import router as meta_ads_publish_router
 from routes.goals import router as goals_router
 from routes.creators import router as creators_router
+from routes.radar import router as radar_router
 from routes.automations import client_router as automations_client_router, router as automations_router
 from routes.studio import public_router as studio_public_router, router as studio_router
 from routes.sales_origin import router as sales_origin_router
@@ -361,6 +362,7 @@ app.include_router(meta_ads_publish_router)
 app.include_router(customers_router)
 app.include_router(goals_router)
 app.include_router(creators_router)
+app.include_router(radar_router)
 app.include_router(automations_router)
 app.include_router(automations_client_router)
 app.include_router(studio_router)
