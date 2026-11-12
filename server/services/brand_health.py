@@ -546,3 +546,133 @@ async def run_all() -> Dict[str, Any]:
             total["errors"] += 1
             print(f"[brand_health] client_failed client_id={cid} {type(exc).__name__}")
     return total
+
+
+# ------------------------------------------------------------------ revisão humana de comentário/Direct
+# O "!" de cada comentário mostra de onde veio e deixa a equipe corrigir a IA (duplo sentido, ironia,
+# piada com o post) ou tirar a menção da avaliação. ``sentiment_ai`` guarda o que a IA disse;
+# ``health_excluded`` tira da view ``brand_mentions`` (índice, gráficos, nuvem e alertas).
+REVIEW_SOURCES = {
+    "comments": ("ig_comments", "id,media_id,username,text,timestamp,created_at,sentiment,theme", "timestamp"),
+    "direct": ("ig_dm_messages", "id,username,text,created_at,sentiment,theme", "created_at"),
+}
+REVIEW_FIELDS = "sentiment_ai,health_excluded,reviewed_at"
+MENTION_FILTERS = ("todos", "sem_analise", "fora", "revisados") + SENTIMENTS
+MAX_MENTION_PAGE = 50
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _valid_id(source: str, mention_id: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,19}", mention_id)) if source == "comments" else bool(_UUID.match(mention_id))
+
+
+def _short(text: Any, size: int) -> Optional[str]:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    return None if not value else value if len(value) <= size else value[: size - 1].rstrip() + "…"
+
+
+async def _own_username(client_id: str) -> Optional[str]:
+    try:
+        rows = await sb_select("meta_connections", select="username", limit=1,
+                               filters={"client_id": f"eq.{client_id}", "platform": "eq.instagram", "username": "not.is.null"})
+    except Exception:  # noqa: BLE001 — sem a conta, só não filtra as respostas da marca
+        return None
+    return str(rows[0]["username"]).lower() if rows and rows[0].get("username") else None
+
+
+async def _posts(client_id: str, media_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not media_ids:
+        return {}
+    try:
+        rows = await sb_select("ig_media", select="media_id,caption,permalink,timestamp,thumb_url", limit=len(media_ids),
+                               filters={"client_id": f"eq.{client_id}", "media_id": f"in.({','.join(media_ids)})"})
+    except Exception as exc:  # noqa: BLE001 — sem o post, o comentário aparece sem o link
+        print(f"[brand_health] posts_lookup_failed client_id={client_id} {type(exc).__name__}")
+        return {}
+    return {str(r["media_id"]): r for r in rows if r.get("media_id")}
+
+
+async def list_mentions(client_id: str, *, start: date, end: date, source: str, show: str = "todos",
+                        limit: int = 30, offset: int = 0) -> Dict[str, Any]:
+    """Comentários ou Direct do período, um a um, com a origem e a revisão da equipe."""
+    if source not in REVIEW_SOURCES:
+        raise StudioError("PERIOD_INVALID", "Escolha comentários ou Direct.")
+    if show not in MENTION_FILTERS:
+        raise StudioError("PERIOD_INVALID", "Filtro inválido.")
+    validate_period(start, end, "month")
+    table, fields, at_col = REVIEW_SOURCES[source]
+    lo, hi = _bounds(start, end)
+    filters = {"client_id": f"eq.{client_id}", "and": f"({at_col}.gte.{lo},{at_col}.lt.{hi})"}
+    if source == "direct":
+        filters["direction"] = "eq.in"
+    if show in SENTIMENTS:
+        filters["sentiment"] = f"eq.{show}"
+    elif show == "sem_analise":
+        filters["sentiment"] = "is.null"
+    elif show == "fora":
+        filters["health_excluded"] = "is.true"
+    elif show == "revisados":
+        filters["reviewed_at"] = "not.is.null"
+    page = max(1, min(int(limit), MAX_MENTION_PAGE))
+    query = {"order": f"{at_col}.desc.nullslast", "limit": page, "offset": max(0, int(offset))}
+    review = True
+    try:
+        rows = await sb_select(table, select=f"{fields},{REVIEW_FIELDS}", filters=filters, **query)
+    except Exception:  # noqa: BLE001 — migration 000115 ainda não aplicada: lista sem revisão
+        if show in ("fora", "revisados"):
+            return {"items": [], "has_more": False, "review_enabled": False}
+        rows, review = await sb_select(table, select=fields, filters=filters, **query), False
+    own = await _own_username(client_id) if source == "comments" else None
+    posts = await _posts(client_id, sorted({str(r["media_id"]) for r in rows if r.get("media_id")})) if source == "comments" else {}
+    items = []
+    for r in rows:
+        if own and str(r.get("username") or "").lower() == own:
+            continue  # resposta da própria marca no post: não é menção
+        post = posts.get(str(r.get("media_id") or ""))
+        items.append({
+            "id": str(r["id"]), "source": source, "network": "instagram",
+            "at": r.get(at_col) or r.get("created_at"),
+            "author": f"@{r['username']}" if r.get("username") else None,
+            "text": r.get("text") or "", "sentiment": r.get("sentiment"), "theme": r.get("theme"),
+            "sentiment_ai": r.get("sentiment_ai") if r.get("reviewed_at") else r.get("sentiment"),
+            "excluded": bool(r.get("health_excluded")), "reviewed_at": r.get("reviewed_at"),
+            "post": {"permalink": post.get("permalink"), "caption": _short(post.get("caption"), 160),
+                     "at": post.get("timestamp"), "thumb": post.get("thumb_url")} if post else None,
+        })
+    return {"items": items, "has_more": len(rows) == page, "review_enabled": review}
+
+
+async def review_mention(client_id: str, *, source: str, mention_id: str, user_id: str,
+                         sentiment: Optional[str] = None, excluded: Optional[bool] = None, reset: bool = False) -> Dict[str, Any]:
+    """Equipe corrige o sentimento e/ou tira da avaliação. ``reset`` volta ao que a IA disse."""
+    if source not in REVIEW_SOURCES or not _valid_id(source, mention_id):
+        raise StudioError("MENTION_NOT_FOUND", "Comentário não encontrado.")
+    if sentiment is not None and sentiment not in SENTIMENTS:
+        raise StudioError("PERIOD_INVALID", "Sentimento inválido.")
+    table = REVIEW_SOURCES[source][0]
+    key = {"id": f"eq.{mention_id}", "client_id": f"eq.{client_id}"}
+    try:
+        rows = await sb_select(table, select="id,sentiment,analyzed_at,sentiment_ai,health_excluded,reviewed_at", filters=key, limit=1)
+    except Exception as exc:  # noqa: BLE001
+        raise StudioError("REVIEW_UNAVAILABLE", "A revisão de comentários ainda não foi ativada no banco (migration 000115).") from exc
+    if not rows:
+        raise StudioError("MENTION_NOT_FOUND", "Comentário não encontrado.")
+    row = rows[0]
+    reviewed = bool(row.get("reviewed_at"))
+    ai = row.get("sentiment_ai") if reviewed else row.get("sentiment")
+    now = _now().isoformat()
+    if reset:
+        patch: Dict[str, Any] = {"sentiment": ai, "sentiment_ai": None, "health_excluded": False,
+                                 "reviewed_by": None, "reviewed_at": None}
+    else:
+        patch = {"sentiment_ai": ai, "reviewed_by": user_id, "reviewed_at": now}
+        if sentiment is not None:
+            patch["sentiment"] = sentiment
+        if excluded is not None:
+            patch["health_excluded"] = bool(excluded)
+        if not row.get("analyzed_at"):
+            patch["analyzed_at"] = now  # a IA não sobrescreve o que a equipe revisou
+    await sb_update(table, filters=key, patch=patch, returning="minimal")
+    final = {**row, **patch}
+    return {"id": mention_id, "source": source, "sentiment": final.get("sentiment"),
+            "sentiment_ai": ai, "excluded": bool(final.get("health_excluded")), "reviewed_at": final.get("reviewed_at")}

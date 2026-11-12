@@ -674,7 +674,7 @@ class BrandHealthSettings(BaseModel):
 
 
 def _health_error(exc: StudioError) -> HTTPException:
-    status = {"PERIOD_INVALID": 422, "ALERT_NOT_FOUND": 404}.get(exc.code, 502)
+    status = {"PERIOD_INVALID": 422, "ALERT_NOT_FOUND": 404, "MENTION_NOT_FOUND": 404, "REVIEW_UNAVAILABLE": 409}.get(exc.code, 502)
     return HTTPException(status, str(exc) or "Não foi possível carregar a saúde da marca agora.")
 
 
@@ -725,6 +725,40 @@ async def brand_health_settings(client_id: str, body: BrandHealthSettings, autho
     from services import brand_health
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
     return await brand_health.save_settings(cid, user_id=await require_user_id(authorization), **body.model_dump(exclude_unset=True))
+
+
+class MentionReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sentiment: Optional[Literal["positivo", "neutro", "misto", "negativo"]] = None
+    excluded: Optional[bool] = None
+    reset: bool = False
+
+
+@router.get("/clipping/health/mentions")
+async def brand_health_mentions(client_id: str, start: date, end: date, source: Literal["comments", "direct"] = "comments",
+                                show: str = Query(default="todos", max_length=20), offset: int = Query(default=0, ge=0, le=5000),
+                                limit: int = Query(default=30, ge=1, le=50), authorization: Optional[str] = Header(default=None)):
+    """Comentários/Direct um a um, com a origem (o "!"). Quem lê o painel vê; quem pode editar os pesos revisa."""
+    from services import brand_health
+    cid = await require_client_read(client_id, authorization)
+    try:
+        result = await brand_health.list_mentions(cid, start=start, end=end, source=source, show=show, limit=limit, offset=offset)
+    except StudioError as exc:
+        raise _health_error(exc) from None
+    return {**result, "can_review": result.get("review_enabled", False) and await _can_edit_weights(cid, authorization)}
+
+
+@router.patch("/clipping/health/mentions/{source}/{mention_id}")
+async def brand_health_review(client_id: str, source: Literal["comments", "direct"], mention_id: str, body: MentionReview,
+                              authorization: Optional[str] = Header(default=None)):
+    """Equipe corrige o sentimento da IA ou tira o comentário da avaliação da marca."""
+    from services import brand_health
+    cid = await require_client_role(client_id, authorization, allowed_roles=WEIGHT_EDITORS)
+    try:
+        return await brand_health.review_mention(cid, source=source, mention_id=mention_id[:64], user_id=await require_user_id(authorization),
+                                                 sentiment=body.sentiment, excluded=body.excluded, reset=body.reset)
+    except StudioError as exc:
+        raise _health_error(exc) from None
 
 
 # Índice de saúde MUGOVERSO: quem lê o painel vê a nota; pesos editáveis pela equipe Mugô e pelo admin do cliente.

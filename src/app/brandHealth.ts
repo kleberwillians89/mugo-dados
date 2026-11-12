@@ -100,3 +100,19 @@ export function weightShares(weights: Record<PillarKey, number>): Record<PillarK
   return Object.fromEntries(PILLAR_ORDER.map((k) => [k, total ? Math.round((Math.max(0, weights[k] || 0) / total) * 100) : 0])) as Record<PillarKey, number>;
 }
 export const healthTone = (score: number | null) => (score == null ? "sem_analise" : score >= 70 ? "positivo" : score >= 50 ? "misto" : "negativo");
+
+/** Comentário/Direct um a um, com a origem (o "!") e a revisão da equipe. */
+export type MentionSource = "comments" | "direct";
+export type MentionShow = "todos" | "sem_analise" | "fora" | "revisados" | HealthSentiment;
+export type Mention = {
+  id: string; source: MentionSource; network: "instagram"; at: string | null; author: string | null; text: string;
+  sentiment: HealthSentiment | null; sentiment_ai: HealthSentiment | null; theme: string | null; excluded: boolean; reviewed_at: string | null;
+  post: { permalink: string | null; caption: string | null; at: string | null; thumb: string | null } | null;
+};
+export type MentionPage = { items: Mention[]; has_more: boolean; review_enabled: boolean; can_review: boolean };
+export const getMentions = (q: { start: string; end: string; source: MentionSource; show: MentionShow; offset?: number }) =>
+  http<MentionPage>(base(`/mentions?start=${q.start}&end=${q.end}&source=${q.source}&show=${q.show}&offset=${q.offset ?? 0}&limit=30`));
+export type MentionReview = { sentiment?: HealthSentiment; excluded?: boolean; reset?: boolean };
+export const reviewMention = (source: MentionSource, id: string, body: MentionReview) =>
+  http<Pick<Mention, "id" | "source" | "sentiment" | "sentiment_ai" | "excluded" | "reviewed_at">>(
+    base(`/mentions/${source}/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(body) });

@@ -156,7 +156,12 @@ class AgencyOnlyTests(unittest.TestCase):
                 self.assertIn("require_client_read", route)
                 self.assertIn("is_agency_user", route)
                 continue
-            if route.startswith('put("/clipping/health/weights")'):
+            if route.startswith('get("/clipping/health/mentions")'):
+                # Lista de comentários/Direct com a origem: quem lê o painel vê; a revisão é de quem edita os pesos.
+                self.assertIn("require_client_read", route)
+                self.assertIn("_can_edit_weights", route)
+                continue
+            if route.startswith(('put("/clipping/health/weights")', 'patch("/clipping/health/mentions/')):
                 # Pesos do índice: a equipe Mugô e o admin do cliente ajustam (decisão do Kleber, nov/2026).
                 self.assertIn("allowed_roles=WEIGHT_EDITORS", route)
                 continue

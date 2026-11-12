@@ -953,8 +953,8 @@ function PrivateApp() {
         <Benchmark key={`benchmark:${activeClientId}`} />
       ) : route === "radar" || route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} initialTab={route === "radar" ? "radar" : undefined} />
-      ) : route === "channels" ? (
-        <ChannelsPage key={`channels:${activeClientId}`} />
+      ) : route === "channels" || route === "tiktok" || route === "pinterest" || route === "linkedin" ? (
+        <ChannelsPage key={`${route}:${activeClientId}`} network={route === "channels" ? undefined : route} />
       ) : route === "brand_health" ? (
         <BrandHealthPage key={`brand_health:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (

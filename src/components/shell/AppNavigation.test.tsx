@@ -83,7 +83,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(groupLinks("inicio")).toEqual(["Central da Marca", "Saúde da Marca", "O que a IA fez"]);
     expect(groupLinks("ia")).toEqual(["Mugoverso IA"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);
-    expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok, Pinterest e LinkedIn", "Mídia On", "Benchmarking"]);
+    expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
     expect(groupLinks("conteudo")).toEqual(["Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca"]);
     expect(groupLinks("relacionamento")).toEqual(["WhatsApp", "E-mail marketing", "Comentários"]);
     expect(groupLinks("marca")).toEqual(["Clipping e Radar", "IA da marca"]);

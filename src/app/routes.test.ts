@@ -8,6 +8,13 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/meta")).toBe("meta");
     expect(getPathForRoute("goals")).toBe("/metas");
   });
+  it("TikTok, Pinterest e LinkedIn têm aba própria e /canais continua abrindo", () => {
+    for (const r of ["tiktok", "pinterest", "linkedin"] as const) {
+      expect(getAppRouteFromPath(getPathForRoute(r))).toBe(r);
+    }
+    expect(getPathForRoute("tiktok")).toBe("/tiktok");
+    expect(getAppRouteFromPath("/canais")).toBe("channels");
+  });
   it("Social Media mora em /social-media e o endereço antigo da Redação continua abrindo", () => {
     expect(getPathForRoute("campaigns")).toBe("/social-media");
     expect(getAppRouteFromPath("/social-media")).toBe("campaigns");
