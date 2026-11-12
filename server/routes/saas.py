@@ -38,7 +38,9 @@ async def my_plan(client_id: str | None = Query(default=None), x_client_id: str 
 
 @router.get("/api/admin/plans/overview")
 async def plans_admin(authorization: str | None = Header(default=None)):
-    await require_agency_admin(authorization)
+    # O painel é visível a platform_admin e agency_admin; manter o GET alinhado.
+    # Não ampliar autorização das rotas de escrita de planos/assinaturas.
+    await _commercial_admin(authorization)
     try:
         return {"ok": True, **(await saas.admin_overview())}
     except Exception as exc:  # noqa: BLE001
