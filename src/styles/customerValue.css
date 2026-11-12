@@ -1,7 +1,7 @@
 .cvPage{display:grid;gap:16px}
 .cvMuted{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary,#4d565d)}
 .cvEmpty{margin:16px 0;padding:18px;border:1px dashed var(--stroke,#e3e0d9);border-radius:14px;color:var(--text-secondary,#4d565d)}
-.cvError{color:var(--negative,#b22234)}
+.cvError{color:var(--negative,#a33038)}
 .cvControls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px}
 .cvControls label{display:inline-flex;align-items:center;gap:8px;font-weight:600}
 .cvControls input{width:72px;min-height:36px;padding:6px 10px;border:1px solid var(--id-line,rgba(21,24,27,.13));border-radius:12px;font:inherit}
@@ -11,7 +11,7 @@
 .cvKpis dt{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary,#4d565d)}
 .cvKpis dd{margin:4px 0 0;font-size:24px}
 .cvKpis small{display:block;margin-top:2px;font-size:12px;color:var(--text-secondary,#4d565d)}
-.cvKpis div.is-accent{background:var(--id-accent,#004f6e);border-color:var(--id-accent,#004f6e)}
+.cvKpis div.is-accent{background:var(--id-accent,#1e3f5a);border-color:var(--id-accent,#1e3f5a)}
 .cvKpis div.is-accent dt,.cvKpis div.is-accent small{color:rgba(255,255,255,.8)}
 .cvKpis div.is-accent dd{color:#fff}
 .cvKpis.is-small dd{font-size:18px}

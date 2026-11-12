@@ -7,7 +7,7 @@ const FIELDS: { key: keyof EmailSettings; label: string; placeholder: string; hi
   { key: "reply_to", label: "Responder para", placeholder: "atendimento@roove.com.br" },
   { key: "store_url", label: "Link da loja", placeholder: "https://roove.com.br", hint: "Usado no {{link_loja}}." },
   { key: "logo_url", label: "Logo (link da imagem)", placeholder: "https://…/logo.png" },
-  { key: "brand_color", label: "Cor dos botões", placeholder: "#004f6e" },
+  { key: "brand_color", label: "Cor dos botões", placeholder: "#1e3f5a" },
 ];
 
 export default function SenderPanel({ canEdit, onStatus }: { canEdit: boolean; onStatus?: (status: SenderStatus) => void }) {

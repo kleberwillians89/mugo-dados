@@ -10,13 +10,13 @@
 .bhSeg button.is-on{background:#fff;color:var(--text-primary,#15181b);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .bhChips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .bhChips button{font:inherit;font-size:13px;border:1px solid var(--bh-line);background:#fff;color:var(--text-secondary,#4d565d);border-radius:999px;padding:6px 12px;cursor:pointer;min-height:34px}
-.bhChips button.is-on{border-color:var(--accent,#004f6e);color:var(--accent,#004f6e);font-weight:600}
+.bhChips button.is-on{border-color:var(--accent,#1e3f5a);color:var(--accent,#1e3f5a);font-weight:600}
 .bhDate{position:relative}
-.bhDateBtn{font:inherit;font-weight:600;border:1px solid var(--accent,#004f6e);background:#fff;color:var(--text-primary,#15181b);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:38px}
+.bhDateBtn{font:inherit;font-weight:600;border:1px solid var(--accent,#1e3f5a);background:#fff;color:var(--text-primary,#15181b);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:38px}
 .bhCal{position:absolute;top:calc(100% + 8px);left:0;z-index:30;display:flex;gap:16px;background:#fff;border:1px solid var(--bh-line);border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.14);padding:14px;width:min(560px,92vw)}
 .bhPresets{display:flex;flex-direction:column;gap:2px;min-width:150px;border-right:1px solid var(--bh-line);padding-right:12px}
 .bhPresets button{font:inherit;text-align:left;border:0;background:transparent;color:var(--text-secondary,#4d565d);padding:7px 10px;border-radius:8px;cursor:pointer}
-.bhPresets button.is-on{background:#e3edf3;color:var(--accent,#004f6e);font-weight:600}
+.bhPresets button.is-on{background:#e3edf3;color:var(--accent,#1e3f5a);font-weight:600}
 .bhMonth{flex:1;min-width:0}
 .bhMonthHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;text-transform:capitalize}
 .bhMonthHead button{font:inherit;font-size:18px;border:0;background:transparent;cursor:pointer;width:32px;height:32px;border-radius:8px}
@@ -25,7 +25,7 @@
 .bhGrid button{font:inherit;font-size:13px;border:0;background:transparent;border-radius:6px;padding:7px 0;cursor:pointer}
 .bhGrid button:disabled{color:#c9cdd0;cursor:default}
 .bhGrid button.is-in{background:#e3edf3}
-.bhGrid button.is-edge{background:var(--accent,#004f6e);color:#fff;font-weight:700}
+.bhGrid button.is-edge{background:var(--accent,#1e3f5a);color:#fff;font-weight:700}
 .bhCalHint{font-size:12.5px;color:var(--text-muted,#687178);margin:8px 0 0}
 .bhCalFoot{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 @media (max-width:640px){.bhCal{flex-direction:column}.bhPresets{border-right:0;border-bottom:1px solid var(--bh-line);padding:0 0 8px;flex-direction:row;flex-wrap:wrap}}
@@ -42,7 +42,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhKv small{font-size:16px;color:var(--text-muted,#687178);font-weight:600}
 .bhKv.is-alert{color:#9c2b29}
 .bhKs{font-size:13px;color:var(--text-secondary,#4d565d)}
-.bhUp{color:#1d7a4b;font-weight:700}.bhDown{color:#b22234;font-weight:700}.bhFlat{color:var(--text-muted,#687178)}
+.bhUp{color:#1d7a4b;font-weight:700}.bhDown{color:#a33038;font-weight:700}.bhFlat{color:var(--text-muted,#687178)}
 .bhGauge{display:flex;align-items:center;gap:14px}
 .bhGaugeBg{fill:none;stroke:#ece9e3;stroke-width:10;stroke-linecap:round}
 .bhGaugeFg{fill:none;stroke-width:10;stroke-linecap:round}
@@ -63,8 +63,8 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhAxis{font-size:11px;fill:var(--text-muted,#687178)}
 .bhHoverBox{fill:none;stroke:#15181b;stroke-dasharray:3 3}
 .bhCross{stroke:#15181b;stroke-dasharray:3 3}
-.bhLine{fill:none;stroke:var(--accent,#004f6e);stroke-width:2}
-.bhPoint{fill:var(--accent,#004f6e);stroke:#fff;stroke-width:2}.bhPoint.is-neg{fill:var(--bh-neg)}
+.bhLine{fill:none;stroke:var(--accent,#1e3f5a);stroke-width:2}
+.bhPoint{fill:var(--accent,#1e3f5a);stroke:#fff;stroke-width:2}.bhPoint.is-neg{fill:var(--bh-neg)}
 .bhTip{position:absolute;top:8px;transform:translateX(-50%);background:#15181b;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;line-height:1.5;display:flex;flex-direction:column;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.2);white-space:nowrap;z-index:5}
 .bhTip .bhDot{width:8px;height:8px}
 .bhDonut{width:100%;max-width:260px;display:block;margin:0 auto}
@@ -75,7 +75,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhTable th{color:var(--text-muted,#687178);font-weight:600;font-size:12px}
 .bhStack{display:inline-flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;vertical-align:middle}
 .bhStack i{display:block;height:100%}
-.bhTone{font-weight:600}.bhTone.is-positivo{color:#1d7a4b}.bhTone.is-negativo{color:#b22234}.bhTone.is-misto{color:#9a5b07}.bhTone.is-neutro{color:var(--text-secondary,#4d565d)}
+.bhTone{font-weight:600}.bhTone.is-positivo{color:#1d7a4b}.bhTone.is-negativo{color:#a33038}.bhTone.is-misto{color:#9a5b07}.bhTone.is-neutro{color:var(--text-secondary,#4d565d)}
 .bhAlert{border:1px solid var(--bh-line);border-left:4px solid var(--bh-neg);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;flex-direction:column;gap:4px}
 .bhAlert.is-medio{border-left-color:var(--bh-mix)}
 .bhAlert small{color:var(--text-muted,#687178)}
@@ -96,7 +96,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhFoot{margin:0}
 .clipTabs{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 14px}
 .clipTabs button{font:inherit;font-weight:600;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.09));background:#fff;color:var(--text-secondary,#4d565d);cursor:pointer;min-height:38px}
-.clipTabs button.is-on{background:var(--accent,#004f6e);color:#fff;border-color:var(--accent,#004f6e)}
+.clipTabs button.is-on{background:var(--accent,#1e3f5a);color:#fff;border-color:var(--accent,#1e3f5a)}
 .bhPending{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fff8e6;border:1px solid #f0d9a3;color:#6b4705;border-radius:10px;padding:10px 14px;font-size:13.5px}
 
 /* Índice de saúde MUGOVERSO */
@@ -106,7 +106,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .hiBody{display:grid;grid-template-columns:minmax(170px,220px) 1fr;gap:20px;align-items:center}
 .hiScore{display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center}
 .hiValue{font-size:40px;font-weight:700;line-height:1}.hiValue small{font-size:14px;font-weight:500;color:var(--text-secondary,#4d565d)}
-.hiLabel{font-weight:700}.hiLabel.is-positivo{color:#1d7a4b}.hiLabel.is-misto{color:#9a5b07}.hiLabel.is-negativo{color:#b22234}.hiLabel.is-sem_analise{color:var(--text-secondary,#4d565d)}
+.hiLabel{font-weight:700}.hiLabel.is-positivo{color:#1d7a4b}.hiLabel.is-misto{color:#9a5b07}.hiLabel.is-negativo{color:#a33038}.hiLabel.is-sem_analise{color:var(--text-secondary,#4d565d)}
 .hiPillars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
 .hiPillars li{display:flex;flex-direction:column;gap:4px}.hiPillars li.is-off{opacity:.5}
 .hiPillarTop{display:flex;align-items:baseline;gap:8px}
@@ -117,7 +117,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .hiEditor{margin-top:16px;border-top:1px solid var(--bh-line);padding-top:14px;display:flex;flex-direction:column;gap:10px}
 .hiWeightRow{display:grid;grid-template-columns:minmax(180px,1.2fr) 2fr 52px;gap:12px;align-items:center}
 .hiWeightName{display:flex;flex-direction:column}.hiWeightName small{color:var(--text-secondary,#4d565d);font-size:12px}
-.hiWeightRow input[type=range]{width:100%;accent-color:var(--accent,#004f6e)}
+.hiWeightRow input[type=range]{width:100%;accent-color:var(--accent,#1e3f5a)}
 .hiWeightPct{font-weight:700;text-align:right}
 .hiEditorActions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hiSpacer{flex:1}
 @media (max-width:760px){.hiBody{grid-template-columns:1fr}.hiWeightRow{grid-template-columns:1fr 52px}.hiWeightRow input{grid-column:1 / -1;grid-row:2}}

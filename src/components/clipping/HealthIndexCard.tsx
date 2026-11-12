@@ -114,9 +114,14 @@ export default function HealthIndexCard({ start, end }: { start: string; end: st
 
     {editing ? <WeightsEditor data={d} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); setNonce((n) => n + 1); }} /> : null}
     <p className="bhMuted bhFoot">
-      Conversa = sentimento das menções · Conversão = pedidos e receita vs período anterior · Atenção = alcance e interações vs período anterior ·
-      Presença = fatia da atenção contra os concorrentes (notícias e Instagram) · Reputação = alertas abertos. Crescimento estável vale 60; cada 1% de alta soma 0,8 ponto.
-      {off.length ? ` Sem dado agora: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}
+      <b>Como ler a nota:</b> ela vai de 0 a 100 e junta cinco sinais da marca.{" "}
+      <b>Conversa</b>: o que as pessoas estão falando (elogios contra reclamações).{" "}
+      <b>Conversão</b>: pedidos e faturamento comparados ao período anterior.{" "}
+      <b>Atenção</b>: quantas pessoas viram e interagiram no Instagram.{" "}
+      <b>Presença</b>: quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram.{" "}
+      <b>Reputação</b>: se há algum alerta aberto.{" "}
+      Manter os números iguais ao período anterior vale 60 pontos; cada 1% de crescimento soma quase 1 ponto.
+      {off.length ? ` Ainda sem dado para calcular: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}
     </p>
   </section>;
 }

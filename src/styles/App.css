@@ -46,9 +46,9 @@
   --bg: #f7f8fa;
   --ink: #15181b;
   --muted: rgba(21,24,27,.62);
-  --blue: #004f6e;
+  --blue: #1e3f5a;
   --blue2: #003a52;
-  --gold: #004f6e;
+  --gold: #1e3f5a;
   --gold2:#003a52;
   --card: #ffffff;
   --stroke: rgba(21,24,27,.10);
@@ -114,8 +114,8 @@
 .appShell.theme-mugo-dados .btnPrimary,
 .appShell.theme-client .ds-button.is-primary,
 .appShell.theme-mugo-dados .ds-button.is-primary{
-  background: var(--accent, #004f6e);
-  border-color: var(--accent, #004f6e);
+  background: var(--accent, #1e3f5a);
+  border-color: var(--accent, #1e3f5a);
   color: #fff;
   box-shadow: 0 1px 2px rgba(0, 79, 110, .16);
 }
@@ -134,13 +134,13 @@
 .appShell.theme-client .btnGold,
 .appShell.theme-mugo-dados .btnGold{
   color: #fff;
-  background: var(--accent, #004f6e);
-  border-color: var(--accent, #004f6e);
+  background: var(--accent, #1e3f5a);
+  border-color: var(--accent, #1e3f5a);
 }
 
 .appShell.theme-client .pill,
 .appShell.theme-mugo-dados .pill{
-  color: var(--accent, #004f6e);
+  color: var(--accent, #1e3f5a);
   background: #eef4f7;
   border-color: rgba(0, 79, 110, .16);
 }
@@ -162,9 +162,9 @@
 
 .appShell.theme-client .tab.active,
 .appShell.theme-mugo-dados .tab.active{
-  background: var(--accent, #004f6e);
+  background: var(--accent, #1e3f5a);
   color: #fff;
-  border-color: var(--accent, #004f6e);
+  border-color: var(--accent, #1e3f5a);
 }
 
 .appShell.theme-client .brandLogoText,
@@ -183,7 +183,7 @@
 .appShell.theme-mugo-dados .btnGhost:hover{
   background: #eef4f7;
   border-color: rgba(0, 79, 110, .3);
-  color: var(--accent, #004f6e);
+  color: var(--accent, #1e3f5a);
   box-shadow: none;
 }
 
@@ -206,7 +206,7 @@ button, input, select { font: inherit; }
 
 /* Navegação global: ver src/styles/shell.css (sidebar + gaveta móvel). */
 .brandLogo{display:block;flex:0 0 auto;object-fit:contain;border-radius:8px}
-.brandLogoFallback{display:grid;place-items:center;background:#004f6e;color:#fff;font-size:11px;font-weight:850;letter-spacing:0}
+.brandLogoFallback{display:grid;place-items:center;background:#1e3f5a;color:#fff;font-size:11px;font-weight:850;letter-spacing:0}
 
 /* ====== LAYOUT ====== */
 .appShell{
@@ -1762,7 +1762,7 @@ button, input, select { font: inherit; }
 .wordTag.is-positivo, .ds-page .wordTag.is-positivo{ color:#1d7a4b; opacity:1; }
 .wordTag.is-neutro, .ds-page .wordTag.is-neutro{ color:#6b747a; opacity:1; }
 .wordTag.is-misto, .ds-page .wordTag.is-misto{ color:#9a5b07; opacity:1; }
-.wordTag.is-negativo, .ds-page .wordTag.is-negativo{ color:#b22234; opacity:1; }
+.wordTag.is-negativo, .ds-page .wordTag.is-negativo{ color:#a33038; opacity:1; }
 .wordTag.is-sem_analise, .ds-page .wordTag.is-sem_analise{ color:#a7afb5; }
 .wordTag[title]{ cursor:help; }
 .wordCloudLegend{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:12px; color:var(--text-secondary,#4d565d); }

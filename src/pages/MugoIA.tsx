@@ -104,7 +104,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
-      setError(cause instanceof Error && cause.message ? cause.message : "A Mugoverso IA não respondeu agora. Tente de novo.");
+      setError(cause instanceof Error && cause.message ? cause.message : "O Tira-dúvidas não respondeu agora. Tente de novo.");
     } finally { setBusy(false); input.current?.focus(); }
   }
 
@@ -123,11 +123,11 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
   const lastAnswer = [...(messages || [])].reverse().find((m) => m.role === "assistant");
   const empty = messages !== null && !messages.length;
 
-  return <Shell title="Mugoverso IA" variant="editorial" themeClass="miaShell"><div className="mia">
+  return <Shell title="Tira-dúvidas" variant="editorial" themeClass="miaShell"><div className="mia">
     <header className="miaTop">
       <div className="miaBrand">
         <span className="miaMark" aria-hidden="true"><Sparkles size={16} /></span>
-        <div><h1>Mugoverso IA</h1><small>{company} · lê tudo da marca antes de responder</small></div>
+        <div><h1>Tira-dúvidas</h1><small>{company} · lê tudo da marca antes de responder</small></div>
       </div>
       {messages?.length ? (confirmClear
         ? <div className="miaConfirm"><span>Apagar esta conversa?</span>
@@ -144,7 +144,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
           <span className="miaMark is-big" aria-hidden="true"><Sparkles size={26} /></span>
           <h2>O que você quer saber sobre a {company}?</h2>
           <p>Antes de cada resposta eu leio tudo o que a Mugô tem da marca.</p>
-          <ul className="miaReads" aria-label="O que a Mugoverso IA lê">{READS.map((r) => <li key={r}>{r}</li>)}</ul>
+          <ul className="miaReads" aria-label="O que o Tira-dúvidas lê">{READS.map((r) => <li key={r}>{r}</li>)}</ul>
           <div className="miaStarters">
             {suggestions.map((s) => <button key={s} type="button" disabled={busy} onClick={() => void send(s)}>{s}</button>)}
           </div>
@@ -158,7 +158,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
           return <article key={key} className={`miaBot${m.meta?.on_topic === false ? " is-offtopic" : ""}`}>
             <span className="miaMark" aria-hidden="true"><Sparkles size={14} /></span>
             <div className="miaBotBody">
-              <small className="miaName">Mugoverso IA</small>
+              <small className="miaName">Tira-dúvidas</small>
               <AnswerBody text={m.content} />
               {m.meta?.sources?.length || (isLast && m.meta?.coverage?.gaps?.length) ? <div className="miaMeta">
                 {m.meta?.sources?.length ? <div className="miaChips"><span className="miaChipsLabel">Com base em</span>
@@ -181,7 +181,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
 
         {busy ? <article className="miaBot is-thinking" role="status">
           <span className="miaMark" aria-hidden="true"><Sparkles size={14} /></span>
-          <div className="miaBotBody"><small className="miaName">Mugoverso IA</small>
+          <div className="miaBotBody"><small className="miaName">Tira-dúvidas</small>
             <p className="miaThinking"><span className="miaDots"><i /><i /><i /></span> Lendo tudo da {company} e pensando…</p></div>
         </article> : null}
         <div ref={end} />
@@ -193,7 +193,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
         {error ? <p role="alert" className="miaError">{error}</p> : null}
         <form className="miaComposer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <textarea ref={input} rows={1} value={text} maxLength={1500} placeholder={`Pergunte qualquer coisa sobre a ${company}…`}
-            aria-label="Pergunta para a Mugoverso IA" onChange={(e) => setText(e.target.value)}
+            aria-label="Pergunta para o Tira-dúvidas" onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
           <button type="submit" className="miaSend" aria-label="Perguntar" disabled={busy || !text.trim()}><ArrowUp size={18} aria-hidden="true" /></button>
         </form>

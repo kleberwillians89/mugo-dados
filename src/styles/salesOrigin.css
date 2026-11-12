@@ -12,7 +12,7 @@
 .salesOriginBarLabel{font-weight:500;min-width:0;overflow-wrap:anywhere}
 .salesOriginBarHead strong{font-variant-numeric:tabular-nums;white-space:nowrap}
 .salesOriginBarTrack{height:8px;border-radius:99px;background:var(--surface-muted,#eef1f2);overflow:hidden;margin-top:8px}
-.salesOriginBarTrack span{display:block;height:100%;border-radius:inherit;background:var(--accent,#004f6e);transition:width .4s ease}
+.salesOriginBarTrack span{display:block;height:100%;border-radius:inherit;background:var(--accent,#1e3f5a);transition:width .4s ease}
 .salesOriginBars li.is-unknown .salesOriginBarTrack span{background:var(--text-tertiary,#a3a6a0)}
 .salesOriginBars li.is-unknown .salesOriginBarLabel{color:var(--text-secondary,#666)}
 .salesOriginBarMeta{margin:6px 0 0;font-size:13px;color:var(--text-secondary,#666);font-variant-numeric:tabular-nums}

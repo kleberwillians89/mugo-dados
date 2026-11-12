@@ -1,6 +1,6 @@
 export const CHART_COLORS = {
   // Cores da Mugô (src/app/mugoPalette.ts): petróleo para orgânico, mostarda para anúncios.
-  organic: "#004f6e",
+  organic: "#1e3f5a",
   organicSoft: "rgba(0,79,110,0.16)",
   organicMuted: "rgba(0,79,110,0.64)",
   ads: "#c98a00",

@@ -1,17 +1,17 @@
 .aiPage{display:grid;gap:14px}
 .aiMuted{margin:0;font-size:13px;color:var(--text-secondary,#4d565d)}
-.aiError{margin:0;color:var(--negative,#b22234);font-size:14px}
+.aiError{margin:0;color:var(--negative,#a33038);font-size:14px}
 .aiOk{margin:0;color:#1f7a45;font-size:14px}
 .aiEmpty{margin:0;padding:18px;border:1px dashed var(--stroke,#e3e0d9);border-radius:14px;color:var(--text-secondary,#4d565d);font-size:14px}
 .aiSection{display:flex;align-items:center;gap:8px;margin:8px 0 0;font-size:16px}
-.aiCount{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 8px;border-radius:999px;background:var(--id-accent,#004f6e);color:#fff;font-size:12px}
+.aiCount{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 8px;border-radius:999px;background:var(--id-accent,#1e3f5a);color:#fff;font-size:12px}
 .aiList{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
 .aiCard{display:grid;gap:10px;align-content:start;padding:18px 20px;background:#fff;border:1px solid var(--stroke,#e3e0d9);border-radius:16px}
-.aiCard.is-open{box-shadow:inset 3px 0 0 var(--id-accent,#004f6e)}
+.aiCard.is-open{box-shadow:inset 3px 0 0 var(--id-accent,#1e3f5a)}
 .aiCard h3{margin:0;font-size:17px;line-height:1.3}
 .aiCardHead{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary,#4d565d)}
 .aiCardHead time{margin-left:auto}
-.aiTag{padding:3px 10px;border-radius:999px;font-weight:700;background:var(--id-accent-soft,#eef6f9);color:var(--id-accent,#004f6e)}
+.aiTag{padding:3px 10px;border-radius:999px;font-weight:700;background:var(--id-accent-soft,#eef6f9);color:var(--id-accent,#1e3f5a)}
 .aiTag.is-alerta_cac{background:rgba(224,138,0,.14);color:#8a5a00}
 .aiStatus{padding:3px 10px;border-radius:999px;background:#f2f0ec;font-weight:600}
 .aiStatus.is-executada,.aiStatus.is-ciente{background:rgba(31,122,69,.12);color:#1f6b3f}
@@ -21,7 +21,7 @@
 .aiEvidence div{padding:8px 10px;border-radius:12px;background:#f4f6f8}
 .aiEvidence dt{font-size:11px;color:var(--text-secondary,#4d565d)}
 .aiEvidence dd{margin:2px 0 0;font-size:16px;font-weight:600}
-.aiPreview{margin:0;padding:10px 14px;border-left:3px solid var(--id-accent,#004f6e);background:#f6f9fa;border-radius:0 12px 12px 0;font-size:14px;line-height:1.5}
+.aiPreview{margin:0;padding:10px 14px;border-left:3px solid var(--id-accent,#1e3f5a);background:#f6f9fa;border-radius:0 12px 12px 0;font-size:14px;line-height:1.5}
 .aiPreview span{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary,#4d565d);margin-top:4px}
 .aiDoes{margin:0;font-size:13px;color:var(--text-secondary,#4d565d)}
 .aiActionsRow{display:flex;justify-content:flex-end;gap:8px}

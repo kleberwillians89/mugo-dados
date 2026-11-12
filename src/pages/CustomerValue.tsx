@@ -80,7 +80,7 @@ export default function CustomerValue({ canView }: { canView?: (route: AppRoute)
             <header className="cvHead">
               <h2>Clientes novos, recorrentes e CAC por mês</h2>
               <ul className="cvLegend" aria-label="Legenda">
-                <li><span style={{ background: "#004f6e" }} />Novos</li>
+                <li><span style={{ background: "#1e3f5a" }} />Novos</li>
                 <li><span style={{ background: "#8fb8c8" }} />Recorrentes</li>
                 <li><span className="is-line" style={{ background: "#c76b1e" }} />CAC</li>
               </ul>
@@ -93,7 +93,7 @@ export default function CustomerValue({ canView }: { canView?: (route: AppRoute)
                   <YAxis yAxisId="n" tickLine={false} axisLine={false} fontSize={12} width={40} />
                   <YAxis yAxisId="cac" orientation="right" tickLine={false} axisLine={false} fontSize={12} width={56} tickFormatter={(v) => `R$${v}`} />
                   <Tooltip formatter={(value, name) => (name === "CAC" ? money(Number(value)) : Number(value).toLocaleString("pt-BR"))} />
-                  <Bar yAxisId="n" dataKey="new" name="Novos" stackId="c" fill="#004f6e" isAnimationActive={false} />
+                  <Bar yAxisId="n" dataKey="new" name="Novos" stackId="c" fill="#1e3f5a" isAnimationActive={false} />
                   <Bar yAxisId="n" dataKey="returning" name="Recorrentes" stackId="c" fill="#c98a00" radius={[6, 6, 0, 0]} isAnimationActive={false} />
                   <Line yAxisId="cac" dataKey="cac" name="CAC" stroke="#c76b1e" strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
                 </ComposedChart>
