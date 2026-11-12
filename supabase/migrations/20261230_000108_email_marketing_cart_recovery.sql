@@ -55,7 +55,7 @@ create index if not exists email_campaigns_due_idx on public.email_campaigns (st
 create table if not exists public.email_sends (
   id uuid primary key default gen_random_uuid(),
   client_id text not null references public.clients(id) on delete cascade,
-  kind text not null check (kind in ('campanha', 'carrinho', 'teste')),
+  kind text not null check (kind in ('campanha', 'carrinho', 'teste', 'fluxo')),
   campaign_id uuid references public.email_campaigns(id) on delete cascade,
   checkout_id text,
   email_hash text not null check (length(email_hash) = 32),

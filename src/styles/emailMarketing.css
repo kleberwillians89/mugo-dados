@@ -113,3 +113,17 @@
 .emHtmlReport li::before{content:"· ";color:var(--text-secondary,#4d565d)}
 .emHtmlReport li.is-warn{color:#8a5a00}
 .emHtml textarea{width:100%;padding:12px 14px;border:1px solid var(--id-line,rgba(21,24,27,.13));border-radius:var(--id-field-radius,12px);background:#fbfaf8;line-height:1.5;resize:vertical;color:var(--text-primary,#15181b)}
+.emFlows{display:grid;gap:12px}
+.emFlow{display:grid;gap:12px;padding:16px;border:1px solid var(--stroke,#e3e0d9);border-radius:16px;background:#fff}
+.emFlow.is-on{border-color:rgba(31,122,69,.35);box-shadow:inset 3px 0 0 #2a8a55}
+.emFlowHead{display:flex;align-items:center;gap:12px}
+.emFlowTitle{display:grid;gap:2px;flex:1;min-width:0}
+.emFlowTitle small{color:var(--text-secondary,#4d565d);font-size:13px}
+.emFlowStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.emFlowStats div{padding:8px 10px;border-radius:12px;background:#f6f5f2}
+.emFlowStats dt{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary,#4d565d)}
+.emFlowStats dd{margin:2px 0 0;font-size:17px}
+.emFlow>.emLink{justify-self:start}
+.emFlowEditor{padding-top:12px;border-top:1px solid var(--border-subtle,#ece9e3)}
+.emFlowRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media(max-width:760px){.emFlowStats,.emFlowRow{grid-template-columns:repeat(2,minmax(0,1fr))}}

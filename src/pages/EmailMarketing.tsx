@@ -5,13 +5,15 @@ import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
 import CampaignsPanel from "../components/email/CampaignsPanel";
 import CartRecoveryPanel from "../components/email/CartRecoveryPanel";
+import FlowsPanel from "../components/email/FlowsPanel";
 import SenderPanel from "../components/email/SenderPanel";
 import Shell from "../components/Shell";
 import "../styles/emailMarketing.css";
 
-type Tab = "campanhas" | "carrinho" | "remetente";
+type Tab = "campanhas" | "fluxos" | "carrinho" | "remetente";
 const TABS = [
   { id: "campanhas", label: "Campanhas" },
+  { id: "fluxos", label: "Fluxos automáticos" },
   { id: "carrinho", label: "Carrinho abandonado" },
   { id: "remetente", label: "Remetente" },
 ];
@@ -30,12 +32,13 @@ export default function EmailMarketing({ initialTab = "campanhas" }: { initialTa
     <Shell title="E-mail marketing" variant="editorial">
       <div className="ds-page emPage">
         <PageHeader company={getActiveClientName()} title="E-mail marketing"
-          dateline={<span>Campanhas por e-mail e recuperação de carrinho por e-mail e WhatsApp. Envio pelo Resend.</span>}
+          dateline={<span>Campanhas, fluxos automáticos e recuperação de carrinho por e-mail e WhatsApp. E-mail pelo Resend.</span>}
           controls={<SegmentedControl ariaLabel="Seções" value={tab} onSelect={(id) => setTab(id as Tab)} options={TABS} />} />
         {/* O status do remetente é lido uma vez e vale para as três abas. */}
         <div hidden={tab !== "remetente"}><SenderPanel canEdit={canEdit} onStatus={onStatus} /></div>
         {notice ? <p className="emNotice">{notice}</p> : null}
         {tab === "campanhas" ? <CampaignsPanel canEdit={canEdit} /> : null}
+        {tab === "fluxos" ? <FlowsPanel canEdit={canEdit} /> : null}
         {tab === "carrinho" ? <CartRecoveryPanel canEdit={canEdit} /> : null}
       </div>
     </Shell>

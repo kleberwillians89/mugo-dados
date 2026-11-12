@@ -131,3 +131,27 @@ export function senderNotice(status: SenderStatus | null): string | null {
   if (!status.send_enabled) return "Modo simulado: tudo roda e fica registrado, mas nenhum e-mail sai até EMAIL_SEND_ENABLED=true.";
   return null;
 }
+
+// ---------------------------------------------------------------- fluxos comerciais
+
+export type FlowKind = "boas_vindas" | "pos_venda" | "segunda_compra" | "reativacao";
+export type CommercialFlow = {
+  kind: FlowKind; label: string; enabled: boolean; channel: "email" | "whatsapp"; delay_days: number; consent: "consentimento" | "todos";
+  subject: string; preheader: string; design: EmailDesign; custom_html: string | null; whatsapp_template: string | null;
+  whatsapp_language: string; whatsapp_variables: ("nome" | "marca" | "link")[]; updated_at?: string | null;
+  result: { sent: number; skipped: number; failed: number; buyers: number; revenue: number; conversion: number | null };
+};
+export type FlowsOverview = { days: number; flows: CommercialFlow[]; journey_built_at: string | null; simulated: { email: boolean; whatsapp: boolean } };
+
+export const getFlows = (days = 30) => http<FlowsOverview>(`/api/flows?days=${days}`, { timeoutMs: 60_000 });
+export const saveFlow = (kind: FlowKind, patch: Partial<CommercialFlow>) =>
+  http<{ flow: CommercialFlow }>(`/api/flows/${kind}`, { method: "PUT", ...json(patch) });
+export const previewFlow = (kind: FlowKind, flow: Partial<CommercialFlow>) =>
+  http<EmailPreviewResult>(`/api/flows/${kind}/preview`, { method: "POST", ...json(flow) });
+
+export const FLOW_HELP: Record<FlowKind, { when: string; delay: string }> = {
+  boas_vindas: { when: "Primeira compra", delay: "dias depois da primeira compra" },
+  pos_venda: { when: "Depois de cada compra", delay: "dias depois da compra" },
+  segunda_compra: { when: "Quem comprou 1 vez e não voltou", delay: "dias depois da primeira compra" },
+  reativacao: { when: "Quem parou de comprar", delay: "dias sem comprar" },
+};

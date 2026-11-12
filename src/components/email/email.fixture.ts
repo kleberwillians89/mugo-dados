@@ -54,3 +54,20 @@ export const CAMPAIGN_FIXTURE: Campaign = {
     { type: "botao", label: "Ver novidades", href: "{{link_loja}}", align: "center" },
   ] },
 };
+
+import type { FlowsOverview } from "../../app/emailMarketing";
+const flowBase = { preheader: "", custom_html: null, whatsapp_template: null, whatsapp_language: "pt_BR", whatsapp_variables: ["nome" as const],
+  design: { blocks: [{ type: "logo" as const, align: "center" as const }, { type: "titulo" as const, text: "Sentimos sua falta, {{primeiro_nome}}", align: "center" as const }] } };
+export const FLOWS_FIXTURE: FlowsOverview = {
+  days: 30, journey_built_at: "2026-11-12T06:55:00Z", simulated: { email: false, whatsapp: true },
+  flows: [
+    { ...flowBase, kind: "boas_vindas", label: "Boas-vindas", enabled: true, channel: "email", delay_days: 0, consent: "todos", subject: "Bem-vinda à {{marca}}",
+      result: { sent: 412, skipped: 3, failed: 0, buyers: 38, revenue: 7412.6, conversion: 9.2 } },
+    { ...flowBase, kind: "pos_venda", label: "Pós-venda", enabled: true, channel: "whatsapp", delay_days: 7, consent: "consentimento", subject: "",
+      whatsapp_template: "pos_venda_avaliacao", result: { sent: 290, skipped: 122, failed: 1, buyers: 21, revenue: 4380, conversion: 7.2 } },
+    { ...flowBase, kind: "segunda_compra", label: "Segunda compra", enabled: true, channel: "email", delay_days: 30, consent: "consentimento",
+      subject: "{{primeiro_nome}}, separamos algo para você", result: { sent: 188, skipped: 40, failed: 0, buyers: 17, revenue: 3920.4, conversion: 9 } },
+    { ...flowBase, kind: "reativacao", label: "Reativação", enabled: false, channel: "email", delay_days: 90, consent: "consentimento",
+      subject: "Sentimos sua falta, {{primeiro_nome}}", result: { sent: 0, skipped: 0, failed: 0, buyers: 0, revenue: 0, conversion: null } },
+  ],
+};

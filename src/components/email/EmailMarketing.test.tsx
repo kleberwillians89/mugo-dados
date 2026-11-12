@@ -2,12 +2,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CAMPAIGN_FIXTURE, CAMPAIGNS_FIXTURE, CART_FIXTURE, WA_FIXTURE } from "./email.fixture";
+import { CAMPAIGN_FIXTURE, CAMPAIGNS_FIXTURE, CART_FIXTURE, FLOWS_FIXTURE, WA_FIXTURE } from "./email.fixture";
 
 const api = vi.hoisted(() => ({
   getCartRecovery: vi.fn(), saveCartSettings: vi.fn(), registerCartWebhooks: vi.fn(), getWaTemplates: vi.fn(), previewCartEmail: vi.fn(),
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), updateCampaign: vi.fn(), deleteCampaign: vi.fn(),
   previewAudience: vi.fn(), previewEmail: vi.fn(), sendTestEmail: vi.fn(), scheduleCampaign: vi.fn(), cancelCampaign: vi.fn(),
+  getFlows: vi.fn(), saveFlow: vi.fn(), previewFlow: vi.fn(),
 }));
 vi.mock("../../app/emailMarketing", async (orig) => ({ ...(await orig<object>()), ...api }));
 
@@ -15,6 +16,7 @@ const CartRecoveryPanel = (await import("./CartRecoveryPanel")).default;
 const CampaignsPanel = (await import("./CampaignsPanel")).default;
 const BlockEditor = (await import("./BlockEditor")).default;
 const HtmlInput = (await import("./HtmlInput")).default;
+const FlowsPanel = (await import("./FlowsPanel")).default;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root;
@@ -130,5 +132,21 @@ describe("E-mail marketing", () => {
     await act(async () => { button("HTML próprio").click(); });
     expect(host.querySelector('[aria-label="HTML do e-mail"]')).not.toBeNull();
     expect(host.textContent).toContain("{{produtos}} insere os itens do carrinho");
+  });
+
+  it("fluxos: mostra resultado por fluxo e liga um fluxo", async () => {
+    api.getFlows.mockResolvedValue(FLOWS_FIXTURE);
+    api.previewFlow.mockResolvedValue({ subject: "x", html: "<p>x</p>" });
+    api.saveFlow.mockImplementation(async (_kind, patch) => ({ flow: { ...FLOWS_FIXTURE.flows[3], ...patch } }));
+    await act(async () => { root.render(<FlowsPanel canEdit />); });
+    await flush();
+    expect(host.textContent).toContain("7.412,60");
+    expect(host.textContent).toContain("9,2%");
+    const links = [...host.querySelectorAll<HTMLButtonElement>(".emFlow > .emLink")];
+    await act(async () => { links[3].click(); });
+    await act(async () => { button("Salvar e ligar").click(); });
+    expect(api.saveFlow.mock.calls[0][0]).toBe("reativacao");
+    expect(api.saveFlow.mock.calls[0][1].enabled).toBe(true);
+    expect(host.textContent).toContain("Fluxo ligado e salvo.");
   });
 });

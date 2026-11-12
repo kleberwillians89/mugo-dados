@@ -179,7 +179,7 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
     since = (_now() - timedelta(days=730)).isoformat()
     contacts: Dict[str, Dict[str, Any]] = {}
     if provider == SHOPIFY:
-        people, _ = await _paged("shopify_customers", select=("shopify_customer_id,email,first_name,last_name,orders_count,"
+        people, _ = await _paged("shopify_customers", select=("shopify_customer_id,email,phone,first_name,last_name,orders_count,"
                                                               "consent:raw_payload->email_marketing_consent->>state,"
                                                               "accepts:raw_payload->>accepts_marketing"),
                                  filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="shopify_customer_id.asc")
@@ -196,9 +196,10 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
             dates = by_customer.get(_text(p.get("shopify_customer_id")), [])
             consent = _text(p.get("consent"), 30).lower() == "subscribed" or _text(p.get("accepts"), 10).lower() == "true"
             _merge(contacts, email, first=_text(p.get("first_name"), 80), name=f"{_text(p.get('first_name'), 80)} {_text(p.get('last_name'), 80)}".strip(),
-                   consent=consent, orders=max(int(p.get("orders_count") or 0), len(dates)), last=max(dates) if dates else None)
+                   consent=consent, orders=max(int(p.get("orders_count") or 0), len(dates)), last=max(dates) if dates else None,
+                   first_order=min(dates) if dates else None, phone=_text(p.get("phone"), 40) or None)
     elif provider == FBITS:
-        people, _ = await _paged("fbits_customers", select="fbits_customer_id,name,email",
+        people, _ = await _paged("fbits_customers", select="fbits_customer_id,name,email,phone",
                                  filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="fbits_customer_id.asc")
         orders, _ = await _paged("fbits_orders", select="customer_id,order_date,is_valid",
                                  filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since}"}, order="order_date.asc")
@@ -213,20 +214,25 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
             dates = by_customer.get(_text(p.get("fbits_customer_id")), [])
             name = _text(p.get("name"), 160)
             _merge(contacts, email, first=name.split(" ")[0] if name else "", name=name, consent=None,
-                   orders=len(dates), last=max(dates) if dates else None)
+                   orders=len(dates), last=max(dates) if dates else None, first_order=min(dates) if dates else None,
+                   phone=_text(p.get("phone"), 40) or None)
     return provider, list(contacts.values())
 
 
 def _merge(contacts: Dict[str, Dict[str, Any]], email: str, *, first: str, name: str, consent: Optional[bool],
-           orders: int, last: Optional[str]) -> None:
+           orders: int, last: Optional[str], first_order: Optional[str] = None, phone: Optional[str] = None) -> None:
+    """Contato em memória (o telefone só existe aqui, na hora do envio; nunca é gravado)."""
     ehash = email_hash(email)
     if not ehash:
         return
     current = contacts.get(ehash)
     if current is None:
         contacts[ehash] = {"email": email, "hash": ehash, "first_name": first, "name": name, "consent": consent,
-                           "orders": orders, "last_order_at": last}
+                           "orders": orders, "last_order_at": last, "first_order_at": first_order, "phone": phone}
         return
+    if first_order and (not current.get("first_order_at") or first_order < current["first_order_at"]):
+        current["first_order_at"] = first_order
+    current["phone"] = current.get("phone") or phone
     current["consent"] = bool(current["consent"]) or bool(consent) if consent is not None else current["consent"]
     current["orders"] += orders
     if last and (not current["last_order_at"] or last > current["last_order_at"]):

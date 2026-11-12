@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
-from services import cart_recovery, email_marketing, email_resend
+from services import cart_recovery, commercial_flows, email_marketing, email_resend
 from services.tenant import require_client_read, require_client_role, require_user_id
 
 router = APIRouter(tags=["email"])
@@ -16,7 +16,7 @@ WRITERS = ("agency_admin", "client_admin")
 
 
 def _fail(exc: Exception) -> HTTPException:
-    if isinstance(exc, (email_marketing.EmailError, cart_recovery.CartError)):
+    if isinstance(exc, (email_marketing.EmailError, cart_recovery.CartError, commercial_flows.FlowError)):
         return HTTPException(status_code=exc.status, detail=exc.message)
     if isinstance(exc, email_resend.ResendError):
         return HTTPException(status_code=502 if exc.retryable else 400, detail=exc.message)
@@ -277,5 +277,48 @@ async def cart_preview(payload: Dict[str, Any] = Body(default={}), client_id: st
         html, _ = email_builder.render(design, sender, variables, items=items, custom_html=custom)
         subject = email_builder.fill(str(payload.get("email_subject") or "Você esqueceu alguns itens no carrinho"), variables)
         return {"ok": True, "subject": subject, "html": html, "report": email_builder.html_report(custom) if custom else None}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+# ---------------------------------------------------------------- fluxos comerciais
+
+@router.get("/api/flows")
+async def flows_overview(days: int = Query(default=30, ge=1, le=180), client_id: str | None = Query(default=None),
+                         x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                         authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    try:
+        return {"ok": True, **(await commercial_flows.overview(cid, days))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.put("/api/flows/{kind}")
+async def flows_save(kind: str, payload: Dict[str, Any] = Body(...), client_id: str | None = Query(default=None),
+                     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                     authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"ok": True, "flow": await commercial_flows.save_flow(cid, kind, payload, user_id=user_id)}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/flows/{kind}/preview")
+async def flows_preview(kind: str, payload: Dict[str, Any] = Body(default={}), client_id: str | None = Query(default=None),
+                        x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                        authorization: str | None = Header(default=None)):
+    from services import email_builder
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        sender = await email_marketing.get_settings(cid)
+        variables = {"nome": "Ana Ribeiro", "primeiro_nome": "Ana", "marca": sender.get("from_name") or "", "link_loja": sender.get("store_url") or "",
+                     "descadastro": "https://exemplo.com/descadastro"}
+        custom = str(payload.get("custom_html") or "") or None
+        html, _ = email_builder.render(payload.get("design"), sender, variables, preheader=str(payload.get("preheader") or ""), custom_html=custom)
+        return {"ok": True, "subject": email_builder.fill(str(payload.get("subject") or ""), variables), "html": html,
+                "report": email_builder.html_report(custom) if custom else None}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
