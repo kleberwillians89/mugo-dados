@@ -122,11 +122,20 @@ def resolve_from_subscription(client_id: str, subscription: Optional[Dict[str, A
 
 
 async def resolve_tenant_modules(client_id: str) -> Dict[str, Any]:
-    """Lê a assinatura do tenant; falha de resolução nunca concede opcionais."""
+    """Configuração explícita tem prioridade; ausência conserva comportamento legado.
+
+    Esta função é somente declarativa: nenhuma guarda de rota ou menu a consome.
+    Uma falha de leitura jamais equivale a uma configuração ausente ou irrestrita.
+    """
+    from .tenant_commercial_config import get_configuration
     from .saas import get_subscription
     try:
+        config = await get_configuration(client_id)
+        if config["configured"]:
+            modules = frozenset(config["module_keys"])
+            return _result(client_id, modules, source="tenant_configuration", configured=True)
         subscription = await get_subscription(client_id)
-    except Exception as exc:  # noqa: BLE001 — resultado declarativo e fail-closed, ainda sem enforcement
+    except Exception as exc:  # noqa: BLE001 — sem enforcement, falha declarativa
         print(f"[commercial_modules] client_id={client_id} status=unavailable error_type={type(exc).__name__}")
         return _result(client_id, frozenset(), source="unavailable", configured=False,
                        resolution_error="commercial_modules_unavailable")
