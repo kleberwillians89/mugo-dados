@@ -1,6 +1,7 @@
 import MetricHelp from "../components/data/MetricHelp";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { getActiveClient, getActiveClientId, getActiveClientName } from "../app/activeClient";
+import CustomerJourney from "../components/customers/CustomerJourney";
 import { getCustomerDetail, getCustomers } from "../app/api";
 import { formatDateTimeSaoPaulo } from "../app/dataFormat";
 import type {
@@ -101,6 +102,8 @@ export default function Customers({ canView }: { canView?: (route: AppRoute) => 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const company = getActiveClientName();
+  // Montar a jornada grava na base: equipe Mugô ou admin do cliente (o backend confere de novo).
+  const canRebuildJourney = ["agency_admin", "platform_admin", "client_admin"].includes(String(getActiveClient()?.role || "").toLowerCase());
 
   // A busca espera o usuário parar de digitar: uma requisição por termo, não
   // uma por tecla.
@@ -431,6 +434,8 @@ export default function Customers({ canView }: { canView?: (route: AppRoute) => 
                 </tbody>
               </table>
             )}
+
+            <CustomerJourney key={selected.customer.id} customerId={selected.customer.id} canRebuild={canRebuildJourney} />
           </>
         ) : null}
       </Drawer>

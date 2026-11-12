@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowUpRight, RefreshCw, X } from "lucide-react";
-import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { getActiveClient, getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   addBenchmarkCompetitor, addBenchmarkEvidence, getBenchmarkOverview, refreshBenchmarkInstagram, removeBenchmarkCompetitor,
   type BenchmarkCategory, type BenchmarkInstagramRow, type BenchmarkOverview,
 } from "../app/benchmark";
 import PageHeader from "../components/data/PageHeader";
+import PricesSection from "../components/benchmark/PricesSection";
 import Shell from "../components/Shell";
 import "../styles/benchmark.css";
 
@@ -62,6 +63,8 @@ export default function Benchmark() {
   const [website, setWebsite] = useState("");
   const [instagram, setInstagram] = useState("");
   const [youtube, setYoutube] = useState("");
+  const [facebook, setFacebook] = useState("");
+  const canEdit = ["agency_admin", "platform_admin", "client_admin", "owner", "admin", "account_manager"].includes(String(getActiveClient()?.role || "").toLowerCase());
   const [competitor, setCompetitor] = useState("");
   const [category, setCategory] = useState<BenchmarkCategory>("ads");
   const [title, setTitle] = useState("");
@@ -92,8 +95,9 @@ export default function Benchmark() {
     event.preventDefault();
     void act("competitor", async () => {
       await addBenchmarkCompetitor({ name: name.trim(), website: website.trim() || null,
-        instagram_handle: instagram.trim().replace(/^@/, "") || null, youtube_handle: youtube.trim().replace(/^@/, "") || null });
-      setName(""); setWebsite(""); setInstagram(""); setYoutube("");
+        instagram_handle: instagram.trim().replace(/^@/, "") || null, youtube_handle: youtube.trim().replace(/^@/, "") || null,
+        facebook_page: facebook.trim() || null });
+      setName(""); setWebsite(""); setInstagram(""); setYoutube(""); setFacebook("");
       return "Concorrente cadastrado. Clique em Atualizar Instagram para trazer os números públicos dele.";
     }, "Não foi possível salvar o concorrente.");
   };
@@ -172,6 +176,8 @@ export default function Benchmark() {
         </>}
     </section>
 
+    {data ? <PricesSection competitors={data.competitors} canEdit={canEdit} /> : null}
+
     <section className="bmCard" aria-labelledby="bm-watch">
       <h2 id="bm-watch">Concorrentes monitorados <span className="bmCount">{data?.competitors.length ?? "—"}</span></h2>
       {data?.competitors.length ? <ul className="bmCompetitors">
@@ -191,6 +197,7 @@ export default function Benchmark() {
           <input aria-label="Instagram do concorrente" placeholder="@instagram" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
           <input aria-label="Site do concorrente" placeholder="https://site (opcional)" value={website} onChange={(e) => setWebsite(e.target.value)} />
           <input aria-label="YouTube do concorrente" placeholder="@youtube (opcional)" value={youtube} onChange={(e) => setYoutube(e.target.value)} />
+          <input aria-label="Página do Facebook do concorrente" placeholder="Página do Facebook ou ID (opcional, para anúncios)" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
         </div>
         <button className="ds-button is-primary" type="submit" disabled={Boolean(busy)}>{busy === "competitor" ? "Salvando…" : "Salvar concorrente"}</button>
       </form>

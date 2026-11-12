@@ -51,10 +51,11 @@ def _num(value: Any) -> float:
         return 0.0
 
 
-async def _paged(table: str, *, select: str, filters: Dict[str, str], order: str) -> tuple[List[Dict[str, Any]], bool]:
+async def _paged(table: str, *, select: str, filters: Dict[str, str], order: str,
+                 max_rows: int = MAX_ROWS) -> tuple[List[Dict[str, Any]], bool]:
     rows: List[Dict[str, Any]] = []
     offset = 0
-    while offset < MAX_ROWS:
+    while offset < max_rows:
         page = await sb_select(table, select=select, filters=filters, order=order, limit=PAGE_SIZE, offset=offset)
         rows.extend(page)
         if len(page) < PAGE_SIZE:

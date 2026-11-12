@@ -10,6 +10,23 @@ from services.integration_errors import IntegrationError
 router = APIRouter(prefix="/api/admin", tags=["admin-health"])
 
 
+@router.get("/health/overview")
+async def health_overview(client_id: str | None = Query(default=None, max_length=120), authorization: str | None = Header(default=None)):
+    """Central de saúde das integrações: todas as empresas e fontes, com o que fazer em cada problema."""
+    await require_agency_admin(authorization)
+    from services.integration_center import overview
+    return {"ok": True, **(await overview(client_id=client_id))}
+
+
+@router.get("/health/audit")
+async def health_audit(client_id: str = Query(..., max_length=120), start: str | None = Query(default=None, max_length=10),
+                       end: str | None = Query(default=None, max_length=10), authorization: str | None = Header(default=None)):
+    """Auditoria cruzada loja × GA4 × Meta × Google de uma empresa no período (padrão: últimos 30 dias)."""
+    await require_agency_admin(authorization)
+    from services.data_reconciliation import reconcile
+    return {"ok": True, **(await reconcile(client_id, start=start, end=end))}
+
+
 @router.get("/health/clients/{client_id}")
 async def health_client(client_id: str, authorization: str | None = Header(default=None)):
     await require_agency_admin(authorization)

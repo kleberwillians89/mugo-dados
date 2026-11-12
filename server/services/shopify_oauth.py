@@ -46,6 +46,8 @@ SHOPIFY_WEBHOOK_TOPICS = [
     "customers/data_request",
     "customers/redact",
     "shop/redact",
+    "checkouts/create",
+    "checkouts/update",
 ]
 
 

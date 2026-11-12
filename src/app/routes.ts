@@ -30,6 +30,12 @@ export type AppRoute =
   | "intelligence"
   | "companies"
   | "ai_usage"
+  | "integration_health"
+  | "email_marketing"
+  | "customer_value"
+  | "ai_actions"
+  | "plan"
+  | "plans_admin"
   | "users"
   | "not_found";
 
@@ -48,6 +54,11 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
+  if (normalized === "/saude-integracoes" || normalized.startsWith("/saude-integracoes/")) return "integration_health";
+  if (normalized === "/email-marketing" || normalized.startsWith("/email-marketing/")) return "email_marketing";
+  if (normalized === "/acoes-ia" || normalized.startsWith("/acoes-ia/")) return "ai_actions";
+  if (normalized === "/plano" || normalized.startsWith("/plano/")) return "plan";
+  if (normalized === "/admin/planos" || normalized.startsWith("/admin/planos/")) return "plans_admin";
   if (normalized === "/usuarios" || normalized.startsWith("/usuarios/")) return "users";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
@@ -88,6 +99,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized.startsWith("/origem-das-vendas")) return "origins";
   if (normalized === "/crm" || normalized.startsWith("/crm/origem")) return "origins";
   if (normalized.startsWith("/crm/clientes")) return "customers";
+  if (normalized.startsWith("/crm/ltv")) return "customer_value";
   if (normalized === "/whatsapp" || normalized.startsWith("/whatsapp/")) return "whatsapp";
   if (normalized.startsWith("/inteligencia")) return "intelligence";
   if (normalized.startsWith("/ecommerce")) return "ecommerce";
@@ -103,6 +115,11 @@ export function getCurrentAppRoute(): AppRoute {
 export function getPathForRoute(route: AppRoute): string {
   if (route === "companies") return "/empresas";
   if (route === "ai_usage") return "/consumo-ia";
+  if (route === "integration_health") return "/saude-integracoes";
+  if (route === "email_marketing") return "/email-marketing";
+  if (route === "ai_actions") return "/acoes-ia";
+  if (route === "plan") return "/plano";
+  if (route === "plans_admin") return "/admin/planos";
   if (route === "users") return "/usuarios";
   if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";
@@ -133,6 +150,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
   if (route === "customers") return "/crm/clientes";
+  if (route === "customer_value") return "/crm/ltv";
   if (route === "not_found") return "/404";
   return "/meta";
 }

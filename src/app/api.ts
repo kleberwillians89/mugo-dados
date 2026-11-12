@@ -2510,3 +2510,69 @@ export function downloadIntelligenceReport(id: string, kind: "weekly" | "monthly
     responseType: "blob", signal: options?.signal,
   });
 }
+
+// ---------------------------------------------------------------- jornada do cliente
+
+export type JourneyEventKind =
+  | "conversa_whatsapp" | "pedido" | "recompra" | "pedido_cancelado"
+  | "carrinho_abandonado" | "mensagem_enviada" | "carrinho_recuperado";
+
+export type JourneyEvent = {
+  event_key: string;
+  kind: JourneyEventKind;
+  at: string;
+  source: string | null;
+  channel: string | null;
+  campaign: string | null;
+  ad_id: string | null;
+  value: number | null;
+  evidence: "observado" | "regra";
+  detail: Record<string, unknown> | null;
+};
+
+export type JourneySummary = {
+  purchases: number;
+  revenue: number;
+  days_to_first_purchase: number | null;
+  channels: string[];
+  last_event_at: string | null;
+};
+
+export type CustomerJourneyResponse = {
+  ok: boolean;
+  status: "ok" | "not_built" | "not_found";
+  events: JourneyEvent[];
+  summary: JourneySummary | null;
+  identities?: string[];
+  built_at: string | null;
+  migration_pending?: boolean;
+};
+
+export type JourneyRebuildResponse = { ok: boolean; built_at: string; stats: Record<string, unknown> };
+
+/** Linha do tempo de um cliente (conversas e pedidos), lida do que a jornada já montou. */
+export async function getCustomerJourney(customerId: string, options?: RequestSignalOptions): Promise<CustomerJourneyResponse> {
+  return http<CustomerJourneyResponse>(`/api/customers/${encodeURIComponent(customerId)}/journey`, { signal: options?.signal });
+}
+
+/** Monta a jornada da empresa agora. Só equipe Mugô ou admin do cliente (o backend confere). */
+export async function rebuildCustomerJourney(): Promise<JourneyRebuildResponse> {
+  return http<JourneyRebuildResponse>("/api/customers/journey/rebuild", { method: "POST", timeoutMs: 120_000 });
+}
+
+// ---------------------------------------------------------------- CAC, LTV e coortes
+
+export type ValueMonth = { month: string; new: number; returning: number; revenue_new: number; revenue_returning: number; spend: number; cac: number | null };
+export type ValueCohort = { month: string; size: number; retention: number[]; ltv: number[]; cac: number | null };
+export type CustomerValueResponse = {
+  ok: boolean; status: "ok" | "not_built"; migration_pending?: boolean; built_at?: string; data_since?: string; truncated?: boolean; has_spend?: boolean;
+  months?: ValueMonth[]; cohorts?: ValueCohort[]; ltv?: Record<"30" | "90" | "180" | "365", number | null>; ltv_basis?: "receita" | "margem";
+  margin?: number | null;
+  summary?: { customers: number; repeat_rate: number | null; median_days_to_second: number | null; cac_6m: number | null; ltv_cac: number | null;
+    payback_months: number | null; months_with_cac: number };
+};
+
+export async function getCustomerValue(margin?: number | null, options?: RequestSignalOptions): Promise<CustomerValueResponse> {
+  const query = margin ? `?margin=${encodeURIComponent(String(margin))}` : "";
+  return http<CustomerValueResponse>(`/api/customers/value/overview${query}`, { signal: options?.signal, timeoutMs: 90_000 });
+}

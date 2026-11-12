@@ -55,6 +55,12 @@ const BriefingPage = lazy(() => import("./pages/BriefingPage"));
 const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
+const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
+const EmailMarketing = lazy(() => import("./pages/EmailMarketing"));
+const CustomerValue = lazy(() => import("./pages/CustomerValue"));
+const AiActions = lazy(() => import("./pages/AiActions"));
+const Plan = lazy(() => import("./pages/Plan"));
+const PlansAdmin = lazy(() => import("./pages/PlansAdmin"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -905,6 +911,8 @@ function PrivateApp() {
           myCodes={accessForClient?.codes} />
       ) : route === "ai_usage" && (platformAdmin || agencyAdmin) ? (
         <AiUsage />
+      ) : route === "integration_health" && (platformAdmin || agencyAdmin) ? (
+        <IntegrationHealth onOpen={(clientId, target) => { handleClientChange(clientId); openRoute(target); }} />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}
@@ -964,6 +972,14 @@ function PrivateApp() {
         <SalesOrigin key={`origins:${activeClientId}`} canView={canView} />
       ) : route === "whatsapp" ? (
         <WhatsApp key={`whatsapp:${activeClientId}`} />
+      ) : route === "email_marketing" ? (
+        <EmailMarketing key={`email:${activeClientId}`} />
+      ) : route === "ai_actions" ? (
+        <AiActions key={`ai-actions:${activeClientId}`} />
+      ) : route === "plan" ? (
+        <Plan key={`plan:${activeClientId}`} />
+      ) : route === "plans_admin" && (platformAdmin || agencyAdmin) ? (
+        <PlansAdmin />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${resolvedUserId}:${activeClientId}`}
@@ -981,6 +997,8 @@ function PrivateApp() {
         />
       ) : route === "customers" ? (
         <Customers key={`customers:${activeClientId}`} canView={canView} />
+      ) : route === "customer_value" ? (
+        <CustomerValue key={`value:${activeClientId}`} canView={canView} />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}

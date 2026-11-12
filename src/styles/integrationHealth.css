@@ -1,0 +1,37 @@
+/* Central de saúde das integrações: mesma linguagem dos cartões do Clipping e do Benchmarking. */
+.ihPage{ display: flex; flex-direction: column; gap: 16px; padding-bottom: 48px; }
+.ihControls{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ihKpis{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.ihKpis > div{ background: #fff; border: 1px solid var(--border-subtle, rgba(21,24,27,.09)); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.ihKpis b{ font: 600 26px/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.ihKpis b small{ font-size: 13px; font-weight: 500; color: var(--text-muted, #687178); }
+.ihKpis span{ font-size: 12px; color: var(--text-secondary, #4d565d); }
+.ihKpis .is-bad b{ color: var(--negative, #b22234); } .ihKpis .is-warn b{ color: var(--warning, #9a5b07); } .ihKpis .is-ok b{ color: var(--positive, #1d7a4b); }
+.ihAllGood{ margin: 0; padding: 18px; border-radius: 14px; background: #eef7f1; color: #1d5b3a; font-size: 14px; }
+.ihList{ display: flex; flex-direction: column; gap: 12px; }
+.ihCard{ background: #fff; border: 1px solid var(--border-subtle, rgba(21,24,27,.09)); border-radius: 16px; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
+.ihCard header{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ihCard h2{ margin: 0; margin-right: auto; font: 600 16px/1.3 var(--font-display); }
+.ihTable td{ vertical-align: top; }
+.ihHint{ font-size: 13px; color: var(--text-secondary, #4d565d); max-width: 380px; }
+.ihHint code{ display: block; margin-top: 3px; font-size: 11px; color: var(--text-muted, #687178); }
+.ihPill{ display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font: 600 12px/1.4 var(--font-body); white-space: nowrap; }
+.ihPill::before{ content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ihPill.is-ok{ background: #eaf5ee; color: #1d7a4b; } .ihPill.is-bad{ background: #fcecee; color: #b22234; }
+.ihPill.is-warn{ background: #fbf1e3; color: #9a5b07; } .ihPill.is-info{ background: #eaf3f7; color: #004f6e; }
+.ihPill.is-off{ background: #f1f0ed; color: #687178; }
+.ihMuted{ margin: 0; font-size: 13px; color: var(--text-muted, #687178); }
+.ihFoot{ margin: 0; font-size: 12px; color: var(--text-muted, #687178); }
+.ihTable td.ihHint{ white-space: normal; min-width: 240px; } .ihCard{ overflow-x: auto; }
+.ihAudit{ border: 1px solid rgba(0,79,110,.16); background: #f8fbfc; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ihAuditHead{ margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--text-secondary, #4d565d); }
+.ihAuditHead b{ color: var(--text-primary, #15181b); }
+.ihAudit ul{ list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.ihAudit li{ background: #fff; border: 1px solid var(--border-subtle, rgba(21,24,27,.09)); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.ihAudit li.is-bad{ border-color: rgba(178,34,52,.3); } .ihAudit li.is-warn{ border-color: rgba(154,91,7,.28); }
+.ihAuditTop{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ihAuditTop b{ font-size: 14px; }
+.ihAuditValue{ margin-left: auto; font: 600 16px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.ihAudit li p{ margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-secondary, #4d565d); }
+.ihAuditCause b, .ihAuditTodo b{ color: var(--text-primary, #15181b); font-weight: 600; }
+.ihAudit ul{ align-items: start; }
