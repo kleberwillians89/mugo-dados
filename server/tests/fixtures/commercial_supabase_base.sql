@@ -13,6 +13,23 @@ create table public.client_memberships (
   created_at timestamptz not null default now(),
   unique (user_id,client_id)
 );
+
+-- Minimal prerequisites for migration 000113 channel provider checks.
+create table public.integration_connections (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  constraint integration_connections_provider_check check(provider in ('meta', 'google_ads'))
+);
+create table public.oauth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  constraint oauth_sessions_provider_check check(provider in ('meta', 'google'))
+);
+alter table public.integration_connections enable row level security;
+alter table public.oauth_sessions enable row level security;
+revoke all on public.integration_connections, public.oauth_sessions from anon, authenticated;
+grant all on public.integration_connections, public.oauth_sessions to service_role;
+
 create table public.platform_admins (
   user_id uuid primary key references auth.users(id),
   role text not null check (role='platform_admin'),
