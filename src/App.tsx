@@ -55,6 +55,7 @@ const BriefingPage = lazy(() => import("./pages/BriefingPage"));
 const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
+const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -905,6 +906,8 @@ function PrivateApp() {
           myCodes={accessForClient?.codes} />
       ) : route === "ai_usage" && (platformAdmin || agencyAdmin) ? (
         <AiUsage />
+      ) : route === "integration_health" && (platformAdmin || agencyAdmin) ? (
+        <IntegrationHealth onOpen={(clientId, target) => { handleClientChange(clientId); openRoute(target); }} />
       ) : route === "companies" && (platformAdmin || agencyAdmin) ? (
         <Companies
           onLogout={handleLogout}

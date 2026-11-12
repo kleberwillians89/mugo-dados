@@ -108,6 +108,7 @@ export default function AppNavigation({
   if (showIntegrations) adminItems.push({ route: "integrations", label: "Integrações" });
   if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
+  if (platformAdmin || agencyAdmin) adminItems.push({ route: "integration_health", label: "Saúde das integrações" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
