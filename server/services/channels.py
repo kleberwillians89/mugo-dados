@@ -214,7 +214,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Totais por provider de métrica no período. Orgânico do TikTok usa o retrato mais recente."""
     out: Dict[str, Dict[str, Any]] = {}
     for r in rows:
-        p = out.setdefault(r["provider"], {"spend": 0.0, "impressions": 0, "clicks": 0, "conversions": 0.0, "days": set(), "latest": None, "top": {}})
+        p = out.setdefault(r["provider"], {"spend": 0.0, "impressions": 0, "clicks": 0, "conversions": 0.0, "days": set(), "latest": None, "top": {}, "sums": {}})
         p["days"].add(r["metric_date"])
         if r["provider"] in ("tiktok", "clarity") and r["level"] == "account":
             if not p["latest"] or r["metric_date"] > p["latest"]["metric_date"]:
@@ -233,6 +233,10 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             cur = p["top"].setdefault(r["entity_id"], {"name": r.get("entity_name"), "value": 0, "metric_date": r["metric_date"]})
             cur["value"] += (r.get("metrics") or {}).get("totalSessionCount") or 0
             continue
+        if r["level"] == "account":  # orgânico diário (Pinterest, LinkedIn): soma salvamentos, curtidas etc. no período
+            for k, v in (r.get("metrics") or {}).items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    p["sums"][k] = round(p["sums"].get(k, 0) + v, 2)
         for k in ("spend", "conversions"):
             p[k] += float(r.get(k) or 0)
         for k in ("impressions", "clicks"):

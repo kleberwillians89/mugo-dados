@@ -5,6 +5,7 @@ export type ChannelProvider = "tiktok_ads" | "tiktok" | "pinterest" | "linkedin"
 export type ChannelTotals = {
   spend: number; impressions: number; clicks: number; conversions: number; days: number;
   latest: Record<string, number | string | null> | null; top: { name: string | null; value: number }[];
+  sums?: Record<string, number>;
 };
 export type Channel = {
   provider: ChannelProvider; label: string; auth: "oauth" | "token"; app_configured: boolean;
@@ -13,7 +14,8 @@ export type Channel = {
 };
 
 const q = () => `client_id=${encodeURIComponent(getActiveClientId())}`;
-export const getChannels = () => http<{ start: string; end: string; channels: Channel[] }>(`/api/channels?${q()}`);
+export const getChannels = (period?: { start: string; end: string }) =>
+  http<{ start: string; end: string; channels: Channel[] }>(`/api/channels?${q()}${period ? `&start=${period.start}&end=${period.end}` : ""}`);
 export const startChannel = (p: ChannelProvider) => http<{ authorization_url: string }>(`/api/channels/${p}/start?${q()}`);
 export const connectClarity = (token: string, project_name?: string) =>
   http<{ rows: number }>(`/api/channels/clarity/connect?${q()}`, { method: "POST", body: JSON.stringify({ token, project_name: project_name || null }) });

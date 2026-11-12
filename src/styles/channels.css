@@ -21,3 +21,12 @@
 .chForm small{grid-column:1/-1;font-size:12px;color:var(--text-secondary,#5f5b53)}
 .chForm button{grid-column:1/-1;justify-self:start}
 @media (max-width:640px){.chForm{grid-template-columns:1fr}}
+.chPage{display:flex;flex-direction:column;gap:16px}
+.chSection{margin:8px 0 0;font-size:18px}
+.chGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.chCard{background:var(--surface,#fff);border:1px solid var(--border-subtle,rgba(21,24,27,.09));border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.chCard h3{margin:0;font-size:16px}
+.chCard .ds-kpis{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.chTop{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.chTop li{display:flex;justify-content:space-between;gap:12px;font-size:13px;border-top:1px solid var(--border-subtle,rgba(21,24,27,.09));padding-top:6px}
+.chTop span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
