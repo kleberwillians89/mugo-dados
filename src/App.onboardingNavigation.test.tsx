@@ -439,13 +439,13 @@ describe("App — shell global: empresa, administração e conta", () => {
     expect(findNavItem("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
   });
 
-  it("administração da plataforma vê Integrações e Empresas no grupo Administração", async () => {
+  it("administração da plataforma vê Integrações e Empresas em Configurações", async () => {
     backend.platformAdmin = true;
     backend.memberships = [];
     backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
     await renderApp();
 
-    expect(container.textContent).toContain("Administração");
+    expect(container.textContent).toContain("Configurações");
     expect(findNavItem("Integrações")).toBeTruthy();
     expect(findNavItem("Empresas")?.getAttribute("href")).toBe("/empresas");
   });

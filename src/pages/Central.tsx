@@ -7,6 +7,10 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import AiUsageButton from "../components/studio/AiUsageButton";
 import KpiFigure from "../components/data/KpiFigure";
+import HealthIndexCard from "../components/clipping/HealthIndexCard";
+import HomeChannels from "../components/home/HomeChannels";
+import PageSkeleton from "../components/data/PageSkeleton";
+import { getPathForRoute } from "../app/routes";
 import "../styles/studio.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -48,15 +52,23 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const clip = view?.clipping;
   const tasks = view?.tasks;
 
-  return <Shell title="Central" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Central da marca" controls={<div className="calNav">
+  const healthEnd = new Date().toISOString().slice(0, 10);
+  const healthStart = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+  return <Shell title="Início" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={clientName} title="Início" controls={<div className="calNav">
       <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
       <h2 className="calRange">{MONTH_NAMES[Number(month.slice(5)) - 1]} {month.slice(0, 4)}</h2>
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
       <AiUsageButton clientName={clientName} isAgency={isAgency} />
     </div>} />
+    {/* Layout novo: Saúde da Marca é o primeiro bloco do Início, e logo abaixo os canais da marca. */}
+    <section className="homeHealth" aria-label="Saúde da Marca">
+      <div className="homeHealthHead"><h2>Saúde da Marca</h2><a href={getPathForRoute("brand_health")}>Ver a marca</a></div>
+      <HealthIndexCard start={healthStart} end={healthEnd} />
+    </section>
+    <HomeChannels />
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {loading && !view ? <p>Montando a Central com os dados de todos os módulos…</p> : null}
+    {loading && !view ? <PageSkeleton label="Montando o Início com os dados de todos os módulos…" /> : null}
 
     {n ? <section className="centralNumbers" aria-label="Números do mês">
       <KpiFigure hero label="Faturamento da loja" value={formatCurrency(n.faturamento)} rawValue={n.faturamento ?? undefined}

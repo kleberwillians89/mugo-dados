@@ -1,0 +1,11 @@
+.homeChannels{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface,#fff);border:1px solid var(--border-subtle,rgba(21,24,27,.09));border-radius:12px;padding:14px 18px}
+.homeChannels h2{margin:0 6px 0 0;font-size:15px}
+.homeChannels ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px;flex:1 1 auto}
+.homeChannels li{display:inline-flex;align-items:center;gap:6px;font-size:13px;border:1px solid var(--border-subtle,rgba(21,24,27,.09));border-radius:999px;padding:5px 11px}
+.homeChannels li>span[aria-hidden]{width:8px;height:8px;border-radius:50%;background:#9aa3ad}
+.homeChannels li.is-ok>span[aria-hidden]{background:#26734d}.homeChannels li.is-bad>span[aria-hidden]{background:#b22234}.homeChannels li.is-wait>span[aria-hidden]{background:#c98a00}
+.homeChannels a{font-size:13px;font-weight:600}
+.homeSr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.homeHealth{display:flex;flex-direction:column;gap:8px}
+.homeHealthHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.homeHealthHead h2{margin:0;font-size:17px}
