@@ -154,7 +154,7 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
     ROLE_GUARDS = (
         "require_client_role", "require_client_manage",
         "require_platform_admin", "require_agency_admin",
-        "_manage_context", "_mutation_context", "_require_cron_secret",
+        "_manage_context", "_mutation_context", "_require_cron_secret", "_commercial_admin",
     )
     # Rotas de mutação sem guarda de papel, com motivo auditado.
     EXEMPT = {
