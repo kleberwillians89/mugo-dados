@@ -74,13 +74,13 @@ describe("AppNavigation — sidebar global", () => {
     ]);
     expect(groupLinks("Inteligência")).toEqual([
       "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "O que a IA fez", "Mídia On",
-      "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
+      "Comentários", "Clipping e Radar", "Saúde da Marca", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
       "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações", "IA da marca",
     ]);
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(1);
-    expect(link("Radar Cultural")?.getAttribute("href")).toBe("/radar");
+    expect(link("Saúde da Marca")?.getAttribute("href")).toBe("/saude-da-marca");
     expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
@@ -110,7 +110,7 @@ describe("AppNavigation — sidebar global", () => {
   it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {
     await render();
     expect(link("Tarefas")?.getAttribute("href")).toBe("/tarefas");
-    expect(link("Clipping")?.getAttribute("href")).toBe("/clipping");
+    expect(link("Clipping e Radar")?.getAttribute("href")).toBe("/clipping");
     expect(link("Criadores")?.getAttribute("href")).toBe("/criadores");
     expect(link("Social Media")).toBeUndefined();
     expect(link("Redação")).toBeUndefined();

@@ -22,7 +22,7 @@ const dateLabel = (value: string | null) => value
  * Não infere crescimento real de tendências nem inventa métricas externas.
  * A API existente resolve o tenant autenticado e aplica suas permissões.
  */
-export default function Radar() {
+export default function Radar({ embedded = false }: { embedded?: boolean } = {}) {
   const clientId = getActiveClientId();
   const company = getActiveClientName() || "Empresa";
   const [view, setView] = useState<ClippingView | null>(null);
@@ -80,17 +80,12 @@ export default function Radar() {
   const topics = (insights?.themes || []).filter((topic) => topic.key && topic.count > 0).slice(0, 8);
   const opportunities = signals.filter(item => (item.opportunities || []).length > 0).slice(0, 6);
 
-  return (
-    <Shell title="" variant="editorial">
-      <PageHeader
-        company={company}
-        title="Radar Cultural"
-        dateline={<span>Sinais com fonte identificada · Clipping existente · Recorte analítico de 30 dias</span>}
-        controls={<button type="button" className="btn btnPrimary" disabled={busy} onClick={() => { void load(); void loadOverview(); }}>
-          <RefreshCw size={16} aria-hidden="true" /> {busy ? "Carregando..." : "Atualizar leitura"}
-        </button>}
-      />
+  const refresh = <button type="button" className="btn btnPrimary" disabled={busy} onClick={() => { void load(); void loadOverview(); }}>
+    <RefreshCw size={16} aria-hidden="true" /> {busy ? "Carregando..." : "Atualizar leitura"}
+  </button>;
+  const body = (
       <div style={{ display: "grid", gap: 18, paddingBottom: 40 }}>
+        {embedded ? <div style={{ display: "flex", justifyContent: "flex-end" }}>{refresh}</div> : null}
         <section className="ds-section" aria-label="Visão do radar">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <RadarIcon size={21} aria-hidden="true" />
@@ -116,8 +111,8 @@ export default function Radar() {
           </div>
         </section>
         <section className="ds-section" aria-labelledby="radar-demand">
-          <h2 id="radar-demand" className="ds-sectionTitle">Demand Intelligence · Sinais públicos</h2>
-          <p style={{ opacity: .75 }}>Assuntos em alta no Brasil coletados do feed público do Google Trends. Este ranking é nacional, não significa relevância específica para {company} nem crescimento contínuo.</p>
+          <h2 id="radar-demand" className="ds-sectionTitle">Em alta no Brasil e ligado a {company}</h2>
+          <p style={{ opacity: .75 }}>Dos {overview?.trends.public_count ?? "—"} assuntos em alta no Google Trends hoje, só entram os que conversam com o segmento, o público e os termos de {company}{overview?.trends.method === "termos" ? " (escolhidos pelos termos da marca; a IA não respondeu agora)" : ""}. Cada marca tem a sua seleção.</p>
           {overviewError ? <p role="status">Fonte externa indisponível: {overviewError}. As leituras de Clipping permanecem independentes.</p> : null}
           {overview?.trends.status === "unavailable" ? <p>Google Trends indisponível nesta consulta.</p> : null}
           {overview?.trends.items.length ? (
@@ -125,12 +120,14 @@ export default function Radar() {
               {overview.trends.items.slice(0, 9).map(item => (
                 <article key={item.id} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 12, padding: 14 }}>
                   <strong>{item.topic}</strong>
+                  {item.why ? <p style={{ fontSize: 13, margin: "6px 0" }}>{item.why}</p> : null}
+                  {item.idea ? <p style={{ fontSize: 13, margin: "6px 0" }}><b>Ideia:</b> {item.idea}</p> : null}
                   {item.approx_traffic ? <p style={{ fontSize: 12, opacity: .75 }}>Volume aproximado indicado pelo Google: {item.approx_traffic}</p> : null}
                   {safeLink(item.source_url) ? <a href={safeLink(item.source_url)!} target="_blank" rel="noopener noreferrer">Consultar fonte <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
                 </article>
               ))}
             </div>
-          ) : <p>{overview ? "Nenhum sinal público disponível agora." : "Consultando tendências públicas..."}</p>}
+          ) : <p>{overview ? `Nenhum assunto em alta hoje tem ligação com ${company}.` : "Lendo os assuntos em alta para esta marca..."}</p>}
         </section>
         <section className="ds-section" aria-labelledby="radar-creator">
           <h2 id="radar-creator" className="ds-sectionTitle">Territory Intelligence · Criadores vinculados</h2>
@@ -189,8 +186,15 @@ export default function Radar() {
             </article>)}
           </div> : <p>{busy ? "Carregando evidências..." : "Sem registros para o filtro selecionado."}</p>}
         </section>
-        <p style={{ fontSize: 12, opacity: .7 }}>Radar v1 usa exclusivamente as leituras de Clipping já autorizadas para esta empresa. Cobertura social ampla, previsão de tendências e share of attention não estão disponíveis nesta versão.</p>
+        <p style={{ fontSize: 12, opacity: .7 }}>O Radar de {company} usa só as leituras de Clipping desta empresa e os assuntos em alta que têm ligação com ela. Nada de outra marca aparece aqui.</p>
       </div>
+  );
+  if (embedded) return body;
+  return (
+    <Shell title="" variant="editorial">
+      <PageHeader company={company} title="Radar Cultural"
+        dateline={<span>Sinais com fonte identificada · Clipping da marca · Recorte de 30 dias</span>} controls={refresh} />
+      {body}
     </Shell>
   );
 }
