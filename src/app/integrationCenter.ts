@@ -21,3 +21,14 @@ export const STATE_LABEL: Record<SourceState, string> = {
   reauth_required: "Reconectar", attention: "Com erro", stale: "Atrasada", updating: "Sincronizando",
   no_data: "Sem dado", synced: "Em dia", not_connected: "Não conectada",
 };
+
+/** Auditoria cruzada loja × GA4 × Meta × Google de uma empresa (últimos 30 dias por padrão). */
+export type AuditStatus = "ok" | "warn" | "bad" | "na";
+export type AuditCheck = { key: string; title: string; status: AuditStatus; value: number | null; unit: string; detail: string; cause: string; todo: string };
+export type DataAudit = {
+  client_id: string; period: { start: string; end: string };
+  store: { provider: string | null; status: string | null; orders: number | null; revenue: number | null; origin_coverage_percent: number | null };
+  checks: AuditCheck[]; summary: Record<AuditStatus, number>;
+};
+export const getDataAudit = (clientId: string) =>
+  http<DataAudit & { ok: boolean }>(`/api/admin/health/audit?client_id=${encodeURIComponent(clientId)}`, { timeoutMs: 90_000 });

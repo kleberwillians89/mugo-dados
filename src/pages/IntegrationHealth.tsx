@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import type { AppRoute } from "../app/routes";
-import { getIntegrationCenter, STATE_LABEL, type CenterCompany, type IntegrationCenter, type SourceState } from "../app/integrationCenter";
+import { getDataAudit, getIntegrationCenter, STATE_LABEL, type AuditStatus, type CenterCompany, type DataAudit, type IntegrationCenter, type SourceState } from "../app/integrationCenter";
 import PageHeader from "../components/data/PageHeader";
 import Shell from "../components/Shell";
 import "../styles/integrationHealth.css";
@@ -76,7 +76,45 @@ export default function IntegrationHealth({ onOpen }: { onOpen?: (clientId: stri
   </div></Shell>;
 }
 
+const AUDIT_LABEL: Record<AuditStatus, string> = { ok: "Confere", warn: "Vale olhar", bad: "Problema", na: "Sem dado" };
+const AUDIT_TONE: Record<AuditStatus, string> = { ok: "ok", warn: "warn", bad: "bad", na: "off" };
+const nf1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+
+/** Auditoria cruzada da empresa: cada conferência com o número, a causa provável e o que fazer. */
+function AuditPanel({ clientId }: { clientId: string }) {
+  const [audit, setAudit] = useState<DataAudit | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getDataAudit(clientId).then((a) => { if (alive) setAudit(a); })
+      .catch((cause) => { if (alive) setError(cause instanceof Error && cause.message ? cause.message : "Não foi possível auditar agora."); });
+    return () => { alive = false; };
+  }, [clientId]);
+  if (error) return <p className="studioError" role="alert">{error}</p>;
+  if (!audit) return <p className="ihMuted" role="status">Conferindo loja, GA4, Meta e Google…</p>;
+  const order: AuditStatus[] = ["bad", "warn", "ok", "na"];
+  const checks = [...audit.checks].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+  return <div className="ihAudit" aria-label="Auditoria cruzada">
+    <p className="ihAuditHead">
+      <b>Auditoria de {audit.period.start.split("-").reverse().join("/")} a {audit.period.end.split("-").reverse().join("/")}</b>
+      <span>Loja ({audit.store.provider || "não conectada"}) como fonte da verdade.</span>
+      {(["bad", "warn", "ok"] as AuditStatus[]).map((st) => audit.summary[st] ? <span key={st} className={`ihPill is-${AUDIT_TONE[st]}`}>{audit.summary[st]} {AUDIT_LABEL[st].toLowerCase()}</span> : null)}
+    </p>
+    <ul>{checks.map((c) => <li key={c.key} className={`is-${c.status}`}>
+      <div className="ihAuditTop">
+        <span className={`ihPill is-${AUDIT_TONE[c.status]}`}>{AUDIT_LABEL[c.status]}</span>
+        <b>{c.title}</b>
+        {c.value != null ? <span className="ihAuditValue">{nf1.format(c.value)}{c.unit === "%" ? "%" : ` ${c.unit}`}</span> : null}
+      </div>
+      <p>{c.detail}</p>
+      {c.cause ? <p className="ihAuditCause"><b>Causa provável:</b> {c.cause}</p> : null}
+      {c.todo ? <p className="ihAuditTodo"><b>O que fazer:</b> {c.todo}</p> : null}
+    </li>)}</ul>
+  </div>;
+}
+
 function CompanyCard({ company, onOpen }: { company: CenterCompany; onOpen?: (clientId: string, route: AppRoute) => void }) {
+  const [auditing, setAuditing] = useState(false);
   const connected = company.sources.filter((s) => s.state !== "not_connected");
   const off = company.sources.filter((s) => s.state === "not_connected");
   return <section className="ihCard" aria-labelledby={`ih-${company.id}`}>
@@ -84,8 +122,10 @@ function CompanyCard({ company, onOpen }: { company: CenterCompany; onOpen?: (cl
       <h2 id={`ih-${company.id}`}>{company.name}</h2>
       {company.queue.waiting || company.queue.failed ? <span className={`ihPill is-${company.queue.failed ? "bad" : "info"}`}>
         WhatsApp: {company.queue.waiting} na fila{company.queue.failed ? ` · ${company.queue.failed} falhou` : ""}</span> : null}
+      <button type="button" className="ds-button" aria-expanded={auditing} onClick={() => setAuditing((v) => !v)}>{auditing ? "Fechar auditoria" : "Auditar dados"}</button>
       {onOpen ? <button type="button" className="ds-button" onClick={() => onOpen(company.id, "integrations")}>Abrir integrações</button> : null}
     </header>
+    {auditing ? <AuditPanel clientId={company.id} /> : null}
     {company.error ? <p className="studioError" role="alert">{company.error}</p> : null}
     {connected.length ? <table className="ds-table ihTable">
       <thead><tr><th>Fonte</th><th>Estado</th><th>Último sucesso</th><th>Último dado</th><th className="is-number">Falhas 7d</th><th>O que fazer</th></tr></thead>

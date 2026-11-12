@@ -23,3 +23,15 @@
 .ihMuted{ margin: 0; font-size: 13px; color: var(--text-muted, #687178); }
 .ihFoot{ margin: 0; font-size: 12px; color: var(--text-muted, #687178); }
 .ihTable td.ihHint{ white-space: normal; min-width: 240px; } .ihCard{ overflow-x: auto; }
+.ihAudit{ border: 1px solid rgba(0,79,110,.16); background: #f8fbfc; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ihAuditHead{ margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--text-secondary, #4d565d); }
+.ihAuditHead b{ color: var(--text-primary, #15181b); }
+.ihAudit ul{ list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.ihAudit li{ background: #fff; border: 1px solid var(--border-subtle, rgba(21,24,27,.09)); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.ihAudit li.is-bad{ border-color: rgba(178,34,52,.3); } .ihAudit li.is-warn{ border-color: rgba(154,91,7,.28); }
+.ihAuditTop{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ihAuditTop b{ font-size: 14px; }
+.ihAuditValue{ margin-left: auto; font: 600 16px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.ihAudit li p{ margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-secondary, #4d565d); }
+.ihAuditCause b, .ihAuditTodo b{ color: var(--text-primary, #15181b); font-weight: 600; }
+.ihAudit ul{ align-items: start; }
