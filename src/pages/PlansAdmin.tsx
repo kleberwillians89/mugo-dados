@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { brl, getAdminPlans, removeSubscription, savePlan, saveSubscription, STATUS_LABEL, type AdminPlans, type LimitKey, type SaasPlan, type SubStatus } from "../app/saas";
+import { getCommercialCatalog, getCommercialConfig, saveCommercialConfig, type CommercialConfig, type CommercialModuleOption, brl, getAdminPlans, removeSubscription, savePlan, saveSubscription, STATUS_LABEL, type AdminPlans, type LimitKey, type SaasPlan, type SubStatus } from "../app/saas";
 import PageHeader from "../components/data/PageHeader";
 import Shell from "../components/Shell";
 import "../styles/saas.css";
@@ -34,11 +34,70 @@ function PlanEditor({ plan, onSaved }: { plan: SaasPlan; onSaved: () => void }) 
   );
 }
 
+
+function CommercialModuleEditor({ clientId }: { clientId: string }) {
+  const [catalog, setCatalog] = useState<CommercialModuleOption[]>([]);
+  const [saved, setSaved] = useState<CommercialConfig | null>(null);
+  const [draft, setDraft] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [options, current] = await Promise.all([getCommercialCatalog(), getCommercialConfig(clientId)]);
+      setCatalog(options.modules);
+      setSaved(current.configuration);
+      setDraft(current.configuration.module_keys ?? []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Configuração indisponível.");
+    } finally { setLoading(false); }
+  }, [clientId]);
+  useEffect(() => { void reload(); }, [reload]);
+
+  if (loading) return <p className="saMuted">Carregando módulos…</p>;
+  if (error && !saved) return <div role="alert" className="saError">Configuração indisponível: {error} <button type="button" onClick={() => void reload()}>Tentar novamente</button></div>;
+  if (!saved) return null;
+  const dirty = JSON.stringify([...draft].sort()) !== JSON.stringify([...(saved.module_keys ?? [])].sort()) || !saved.configured;
+  const stateLabel = saved.state === "not_configured" ? "Ainda não configurado (comportamento legado)" :
+    saved.state === "explicitly_empty" ? "Nenhum módulo opcional contratado" : "Módulos explicitamente selecionados";
+
+  return <div className="saCommercialEditor">
+    <p className="saMuted"><strong>{stateLabel}</strong> · Briefing e Tarefas estão sempre incluídos. Social Media inclui Redação.</p>
+    <div className="saModuleGrid">
+      {catalog.map((item) => <label key={item.key} className="saModuleChoice">
+        <input type="checkbox" checked={draft.includes(item.key)} disabled={saving}
+          onChange={(event) => setDraft((current) => event.target.checked
+            ? [...current, item.key] : current.filter((key) => key !== item.key))} />
+        <span>{item.label}</span>
+      </label>)}
+    </div>
+    <div className="saPlanActions">
+      {error ? <small role="alert" className="saError">{error}</small> : null}
+      <button type="button" className="ds-button" disabled={!dirty || saving}
+        onClick={async () => {
+          setSaving(true); setError("");
+          try {
+            const result = await saveCommercialConfig(clientId, [...draft].sort(), saved.version);
+            setSaved(result.configuration);
+            setDraft(result.configuration.module_keys ?? []);
+          } catch (cause) {
+            setError("Não foi possível salvar. A configuração pode ter sido alterada por outro administrador. Recarregue antes de tentar novamente. " +
+              (cause instanceof Error ? cause.message : ""));
+          } finally { setSaving(false); }
+        }}>{saving ? "Salvando…" : "Salvar módulos"}</button>
+      <button type="button" disabled={saving} onClick={() => void reload()}>Recarregar</button>
+    </div>
+  </div>;
+}
+
 /** Painel da equipe Mugô: plano de cada empresa, receita recorrente, faturas em aberto e os planos em si. */
 export default function PlansAdmin() {
   const [data, setData] = useState<AdminPlans | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [modulesClient, setModulesClient] = useState<string | null>(null);
   const load = useCallback(() => getAdminPlans().then(setData).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler os planos.")), []);
   useEffect(() => { void load(); }, [load]);
 
@@ -67,7 +126,7 @@ export default function PlansAdmin() {
             <section className="saCard">
               <h2>Empresas</h2>
               <table className="saTable">
-                <thead><tr><th>Empresa</th><th>Plano</th><th>Situação</th><th>MRR</th><th>Em aberto</th></tr></thead>
+                <thead><tr><th>Empresa</th><th>Plano</th><th>Situação</th><th>MRR</th><th>Em aberto</th><th>Módulos</th></tr></thead>
                 <tbody>{data.companies.map((c) => (
                   <tr key={c.client_id}>
                     <td><b>{c.name}</b></td>
@@ -82,9 +141,11 @@ export default function PlansAdmin() {
                     </select> : <span className="saMuted">—</span>}</td>
                     <td>{c.mrr_cents ? brl(c.mrr_cents) : "—"}</td>
                     <td>{c.open_cents ? <span className={c.overdue ? "saOverdue" : ""}>{brl(c.open_cents)}{c.overdue ? " · vencida" : ""}</span> : "—"}</td>
+                    <td><button type="button" className="ds-button" onClick={() => setModulesClient(modulesClient === c.client_id ? null : c.client_id)} aria-expanded={modulesClient === c.client_id}>Módulos</button></td>
                   </tr>
                 ))}</tbody>
               </table>
+              {modulesClient ? <div className="saCommercialPanel" key={modulesClient}><h3>Módulos comerciais — {data.companies.find(c => c.client_id === modulesClient)?.name}</h3><CommercialModuleEditor clientId={modulesClient} /></div> : null}
             </section>
             <section className="saCard">
               <h2>Planos</h2>
