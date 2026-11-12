@@ -97,6 +97,26 @@ async def integration():
                   (select count(*) from public.tenant_commercial_module_audit) = 0
             """)
             assert cur.fetchone() == (True, True, True), "Migration ordering / empty initial state"
+            # 000113 candidate must preserve text IDs and the FK to clients.
+            cur.execute("""
+                select c.data_type from information_schema.columns c
+                where c.table_schema='public' and c.table_name='channel_daily_metrics'
+                  and c.column_name='client_id'
+            """)
+            assert cur.fetchone() == ("text",), "Channel client IDs must remain TEXT"
+            cur.execute("""
+                select count(*) from pg_constraint c
+                where c.contype='f'
+                  and c.conrelid='public.channel_daily_metrics'::regclass
+                  and c.confrelid='public.clients'::regclass
+            """)
+            assert cur.fetchone() == (1,), "Channel client FK must reference clients"
+            cur.execute("""
+                select count(*) from pg_constraint c
+                where c.contype='c' and c.conrelid='public.oauth_sessions'::regclass
+                  and c.conname='oauth_sessions_provider_check'
+            """)
+            assert cur.fetchone() == (1,), "Channel provider constraint missing"
             cur.execute("""
                 select c.relrowsecurity from pg_class c where c.oid in
                 ('public.tenant_commercial_modules'::regclass,
