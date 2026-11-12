@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .ig_supabase import _assert_env, _base_url, _headers, _request, sb_select, sb_update, sb_upsert
+from .commercial_modules import MAX_PLAN_FEATURES
 
 PLANS = "saas_plans"
 SUBS = "client_subscriptions"
@@ -86,7 +87,7 @@ def clean_plan(body: Dict[str, Any]) -> Dict[str, Any]:
                 raise QuotaError("INVALID_PLAN", f"Limite inválido em {LIMIT_LABEL[key]}.", 400) from None
         out["limits"] = limits
     if "features" in body:
-        out["features"] = [str(f).strip()[:120] for f in (body.get("features") or []) if str(f).strip()][:12]
+        out["features"] = [str(f).strip()[:120] for f in (body.get("features") or []) if str(f).strip()][:MAX_PLAN_FEATURES]
     if "active" in body:
         out["active"] = bool(body["active"])
     return out
