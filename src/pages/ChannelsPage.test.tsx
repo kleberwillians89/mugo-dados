@@ -32,6 +32,10 @@ describe("TikTok, Pinterest e LinkedIn", () => {
     expect(host.textContent).toContain("950");
     expect(host.textContent).toContain("Aguardando o app da plataforma");
     expect(host.textContent).toContain("Ainda não conectado");
+    // um bloco por canal, cada um com anúncios e orgânico
+    expect([...host.querySelectorAll(".chChannel h2")].map((h) => h.textContent)).toEqual(["TikTok", "Pinterest", "LinkedIn"]);
+    expect(host.querySelector('[aria-label="TikTok"]')?.textContent).toContain("Anúncios");
+    expect(host.querySelector('[aria-label="TikTok"]')?.textContent).toContain("Orgânico");
     act(() => root.unmount()); host.remove();
   });
 });
