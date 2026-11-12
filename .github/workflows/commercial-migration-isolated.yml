@@ -1,9 +1,9 @@
 # Isolated SQL smoke test: uses disposable PostgreSQL, never Supabase project.
-name: Commercial migration 000113 (isolated PostgreSQL)
+name: Commercial migration 000114 (isolated PostgreSQL)
 on:
   pull_request:
     paths:
-      - 'supabase/migrations/20270104_000113_tenant_commercial_modules.sql'
+      - 'supabase/migrations/20270105_000114_tenant_commercial_modules.sql'
       - 'server/tests/check_tenant_commercial_sql.py'
       - '.github/workflows/commercial-migration-isolated.yml'
   workflow_dispatch:

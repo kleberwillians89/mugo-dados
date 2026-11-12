@@ -1,0 +1,23 @@
+.chPanel{background:var(--surface,#fff);border:1px solid var(--border,#e3dfd7);border-radius:14px;padding:20px 22px;margin:0 0 20px;display:flex;flex-direction:column;gap:12px}
+.chPanel header h2{margin:0;font-size:17px}
+.chPanel header p{margin:4px 0 0;font-size:13px;color:var(--text-secondary,#5f5b53)}
+.chPanel ul{list-style:none;margin:0;padding:0}
+.chRow{padding:14px 0;border-top:1px solid var(--border,#e3dfd7);display:flex;flex-direction:column;gap:6px}
+.chHead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.chName{flex:1 1 220px;display:flex;flex-direction:column;min-width:0}
+.chName small{font-size:13px;color:var(--text-secondary,#5f5b53)}
+.chDot{width:10px;height:10px;border-radius:50%;background:#9aa3ad;flex:none}
+.chDot.is-ok{background:#26734d}.chDot.is-bad{background:#b22234}
+.chStatus{font-size:12px;font-weight:600;border-radius:6px;padding:3px 8px;background:#f1efea;color:#5f5b53}
+.chStatus.is-ok{background:#e7f2ec;color:#26734d}.chStatus.is-bad{background:#fbeeee;color:#b22234}
+.chActions{display:flex;gap:8px;flex-wrap:wrap}
+.chNums{margin:0;font-size:14px}
+.chMuted{margin:0;font-size:13px;color:var(--text-secondary,#5f5b53)}
+.chNotice{margin:0;font-size:14px;color:#26734d}
+.chError{margin:0;font-size:13px;color:#b22234}
+.chForm{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;background:#f6f5f2;border-radius:10px;padding:12px}
+.chForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600}
+.chForm input{font:inherit;font-weight:400;border:1px solid var(--border,#e3dfd7);border-radius:8px;padding:0 10px;min-height:40px}
+.chForm small{grid-column:1/-1;font-size:12px;color:var(--text-secondary,#5f5b53)}
+.chForm button{grid-column:1/-1;justify-self:start}
+@media (max-width:640px){.chForm{grid-template-columns:1fr}}

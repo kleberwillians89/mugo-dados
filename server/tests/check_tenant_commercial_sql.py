@@ -1,4 +1,4 @@
-"""Integration contract for migration 000113 against disposable PostgreSQL only.
+"""Integration contract for migration 000114 against disposable PostgreSQL only.
 
 Run through GitHub Actions with an ephemeral PostgreSQL container.
 No Supabase credentials or production client data are used.
@@ -15,7 +15,7 @@ from uuid import UUID
 import psycopg
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION = ROOT / "supabase/migrations/20270104_000113_tenant_commercial_modules.sql"
+MIGRATION = ROOT / "supabase/migrations/20270105_000114_tenant_commercial_modules.sql"
 PG = os.environ["COMMERCIAL_TEST_DATABASE_URL"]
 ADMIN = "11111111-1111-4111-8111-111111111111"
 AGENCY = "22222222-2222-4222-8222-222222222222"

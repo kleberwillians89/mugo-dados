@@ -44,5 +44,7 @@ class ConnectionAuthorizationTests(unittest.IsolatedAsyncioTestCase):
                 authorization="Bearer valid",
             )
         providers = {provider["id"]: provider for provider in result["providers"]}
-        self.assertEqual(providers["tiktok"]["availability"], "platform_update_pending")
-        self.assertEqual(providers["pinterest"]["availability"], "platform_update_pending")
+        # Sem o app da plataforma configurado no servidor, TikTok e Pinterest não se dizem disponíveis.
+        self.assertEqual(providers["tiktok"]["availability"], "configuration_unavailable")
+        self.assertEqual(providers["pinterest"]["availability"], "configuration_unavailable")
+        self.assertEqual(providers["clarity"]["availability"], "available")

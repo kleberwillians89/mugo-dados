@@ -36,18 +36,44 @@ INTEGRATION_PROVIDERS: tuple[Dict[str, Any], ...] = (
         "id": "tiktok",
         "name": "TikTok",
         "category": "marketing",
-        "availability": "platform_update_pending",
-        "resources": ["Conteúdo e mídia"],
+        "availability": "available",
+        "resources": ["Anúncios", "Vídeos e seguidores"],
     },
     {
         "id": "pinterest",
         "name": "Pinterest",
         "category": "marketing",
-        "availability": "platform_update_pending",
-        "resources": ["Conteúdo e mídia"],
+        "availability": "available",
+        "resources": ["Anúncios", "Pins e audiência"],
+    },
+    {
+        "id": "linkedin",
+        "name": "LinkedIn",
+        "category": "marketing",
+        "availability": "available",
+        "resources": ["Anúncios", "Página da empresa"],
+    },
+    {
+        "id": "clarity",
+        "name": "Microsoft Clarity",
+        "category": "analytics",
+        "availability": "available",
+        "resources": ["Comportamento no site", "Cliques de raiva", "Rolagem"],
     },
 )
 
 
 def public_integration_catalog() -> List[Dict[str, Any]]:
-    return [dict(provider) for provider in INTEGRATION_PROVIDERS]
+    # TikTok e Pinterest só aparecem como disponíveis quando o app da plataforma está configurado no servidor.
+    from .channel_providers import configured
+    out = []
+    for provider in INTEGRATION_PROVIDERS:
+        item = dict(provider)
+        if item["id"] == "tiktok" and not (configured("tiktok_ads") or configured("tiktok")):
+            item["availability"] = "configuration_unavailable"
+        if item["id"] == "linkedin" and not configured("linkedin"):
+            item["availability"] = "configuration_unavailable"
+        if item["id"] == "pinterest" and not configured("pinterest"):
+            item["availability"] = "configuration_unavailable"
+        out.append(item)
+    return out
