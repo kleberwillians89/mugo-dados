@@ -63,7 +63,7 @@ def main():
           create table public.client_memberships(user_id uuid not null references auth.users(id),
                                                 client_id text not null references public.clients(id),
                                                 role text not null);
-          create role service_role;
+          create role service_role bypassrls;
           create role anon;
           create role authenticated;
           grant select on public.clients, public.platform_admins, public.client_memberships to service_role;
