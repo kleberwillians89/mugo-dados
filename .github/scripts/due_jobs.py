@@ -43,7 +43,8 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("1-59/5 * * * *", "cart-recovery"),
     ("17 * * * *", "commercial-flows"),
     ("41 11 * * 1", "ai-actions"),
-    ("23 9 * * *", "benchmark-collect"),  # 06:23 em SP: preços dos concorrentes e Instagram público  # segunda 08:41 em SP: propostas da semana  # fluxos comerciais: quem cruzou o marco na última hora  # carrinho abandonado: próximo passo da sequência
+    ("23 9 * * *", "benchmark-collect"),
+    ("37 10 * * *", "billing-cycle"),  # 07:37 em SP: faturas e status das assinaturas  # 06:23 em SP: preços dos concorrentes e Instagram público  # segunda 08:41 em SP: propostas da semana  # fluxos comerciais: quem cruzou o marco na última hora  # carrinho abandonado: próximo passo da sequência
     ("3-59/5 * * * *", "email-campaigns"),  # campanhas de e-mail agendadas
     ("27 * * * *", "brand-health"),  # sentimento de comentários/Direct + alertas de termos sensíveis
     ("25 11 * * *", "brand-knowledge-retry"),  # 08:25 em São Paulo: material que a IA não leu volta a ser lido

@@ -60,6 +60,7 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "whatsapp", label: "WhatsApp" },
   { route: "email_marketing", label: "E-mail marketing" },
   { route: "ai_actions", label: "Ações da IA" },
+  { route: "plan", label: "Plano e implantação" },
   { route: "media", label: "Mídia On" },
   { route: "engagement", label: "Comentários" },
   { route: "clipping", label: "Clipping" },
@@ -111,6 +112,7 @@ export default function AppNavigation({
   if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "integration_health", label: "Saúde das integrações" });
+  if (platformAdmin || agencyAdmin) adminItems.push({ route: "plans_admin", label: "Planos e cobrança" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });

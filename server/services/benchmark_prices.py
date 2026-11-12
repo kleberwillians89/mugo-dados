@@ -249,6 +249,11 @@ async def add_product(client_id: str, url: str, competitor_id: Optional[str]) ->
         count = await sb_select(PRODUCTS, select="id", filters={"client_id": f"eq.{client_id}", "active": "is.true"}, limit=201)
         if len(count) >= 200:
             raise PriceError("LIMIT", "Limite de 200 produtos monitorados por empresa.")
+        from . import saas
+        try:
+            await saas.require(client_id, "monitored_products")
+        except saas.QuotaError as exc:
+            raise PriceError(exc.code, exc.message, 402) from None
         product_id = (await sb_insert(PRODUCTS, {"client_id": client_id, "competitor_id": competitor_id, "url": url}))["id"]
     return await check_product(client_id, product_id)
 

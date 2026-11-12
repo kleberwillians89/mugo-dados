@@ -73,11 +73,11 @@ describe("AppNavigation — sidebar global", () => {
       "Mugoverso IA", "Central da Marca", "Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
-      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "Ações da IA", "Mídia On",
+      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "Ações da IA", "Plano e implantação", "Mídia On",
       "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
-      "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
+      "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Planos e cobrança", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
     ]);
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
     expect(link("Radar Cultural")?.getAttribute("href")).toBe("/radar");

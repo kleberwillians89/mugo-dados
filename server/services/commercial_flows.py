@@ -219,6 +219,8 @@ async def run_client(client_id: str, flows: List[Dict[str, Any]], *, now: Option
     talked = await _talked_keys(client_id) if needs_talk else set()
     sender = await email_marketing.get_settings(client_id)
     wa_live = (os.getenv("WHATSAPP_MARKETING_SEND_ENABLED") or "").strip().lower() == "true"
+    from . import saas
+    quota = {"email": await saas.remaining(client_id, "email_sends_month"), "whatsapp": await saas.remaining(client_id, "whatsapp_month")}
     totals: Dict[str, Dict[str, int]] = {}
     for flow in flows:
         kind = flow["kind"]
@@ -236,6 +238,11 @@ async def run_client(client_id: str, flows: List[Dict[str, Any]], *, now: Option
         for contact, ref in batch:
             ok, reason = allowed(flow, contact, blocked=blocked, talked=phone_key(contact.get("phone")) in talked if contact.get("phone") else False)
             base = {"client_id": client_id, "kind": kind, "email_hash": contact["hash"], "ref": ref, "channel": flow["channel"], "at": now.isoformat()}
+            if ok and quota[flow["channel"]] is not None:
+                if quota[flow["channel"]] <= 0:
+                    ok, reason = False, "limite do plano"
+                else:
+                    quota[flow["channel"]] -= 1
             if not ok:
                 rows.append({**base, "status": "pulado", "reason": reason, "provider_id": None})
                 continue

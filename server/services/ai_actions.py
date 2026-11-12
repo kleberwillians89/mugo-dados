@@ -162,10 +162,14 @@ async def generate(client_id: str) -> Dict[str, Any]:
     proposals = detect(snap, month=month)
     existing = {r["dedupe_key"] for r in await sb_select(TABLE, select="dedupe_key", filters={"client_id": f"eq.{client_id}"}, limit=1000)}
     brand = (await get_settings(client_id)).get("from_name") or client_id
+    from . import saas
+    left = await saas.remaining(client_id, "ai_actions_month")
     created = 0
     for p in proposals:
         if p["dedupe_key"] in existing:
             continue
+        if left is not None and created >= left:
+            break  # limite de ações da IA do plano no mês
         copy = await _write_copy(client_id, p, brand)
         payload = {**p["payload"], **({"subject": copy.get("subject"), "text": copy.get("text")} if p["kind"] == "campanha_reativacao" else {})}
         await sb_insert(TABLE, {"client_id": client_id, "kind": p["kind"], "dedupe_key": p["dedupe_key"], "title": copy["title"][:200],

@@ -402,6 +402,13 @@ async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dic
     if not _text(campaign.get("subject")):
         raise EmailError("NO_SUBJECT", "Escreva o assunto antes de enviar.")
     sender(await get_settings(client_id))
+    from . import saas
+    if await saas.remaining(client_id, "email_sends_month") is not None:
+        size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
+        try:
+            await saas.require(client_id, "email_sends_month", size)
+        except saas.QuotaError as exc:
+            raise EmailError(exc.code, exc.message, 402) from None
     at = _dt(when) if when else _now()
     if not at:
         raise EmailError("INVALID_DATE", "Data de envio inválida.")
@@ -464,6 +471,10 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
     pending = await sb_select(SENDS, select="id,client_id,kind,campaign_id,email_hash,idem_key",
                               filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, order="id.asc", limit=SEND_PER_RUN)
     blocked = await suppressed(cid)
+    from . import saas
+    left = await saas.remaining(cid, "email_sends_month")
+    if left is not None:
+        pending = pending[:left]  # o resto fica na fila até o plano permitir (mês novo ou plano maior)
     sent = 0
     for offset in range(0, len(pending), email_resend.BATCH_MAX):
         chunk = pending[offset:offset + email_resend.BATCH_MAX]
@@ -494,8 +505,8 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
         if done or skipped:
             await sb_upsert(SENDS, done + skipped, on_conflict="id")
         sent += len(done)
-    remaining = await sb_select(SENDS, select="id", filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, limit=1)
-    if not remaining:
+    still_queued = await sb_select(SENDS, select="id", filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, limit=1)
+    if not still_queued:
         stats = await campaign_stats(cid, campaign_id)
         await sb_update(CAMPAIGNS, filters={"id": f"eq.{campaign_id}"}, returning="minimal",
                         patch={"status": "enviada", "finished_at": _now().isoformat(), "stats": stats})

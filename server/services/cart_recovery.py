@@ -306,6 +306,9 @@ async def _send_email(client_id: str, cart: Dict[str, Any], contact: Dict[str, s
     ehash = email_marketing.email_hash(email)
     if ehash in await email_marketing.suppressed(client_id):
         return "pulado", "descadastrado", None
+    from . import saas
+    if (await saas.remaining(client_id, "email_sends_month")) == 0:
+        return "pulado", "limite do plano", None
     sender_settings = await email_marketing.get_settings(client_id)
     first = contact.get("first_name") or ""
     variables = {"nome": first or "Olá", "primeiro_nome": first or "Olá", "marca": _text(sender_settings.get("from_name"), 80),
@@ -336,6 +339,9 @@ async def _send_whatsapp(client_id: str, cart: Dict[str, Any], contact: Dict[str
         return "pulado", "sem consentimento de marketing", None
     if not settings.get("whatsapp_template"):
         return "pulado", "template não escolhido", None
+    from . import saas
+    if (await saas.remaining(client_id, "whatsapp_month")) == 0:
+        return "pulado", "limite do plano", None
     params = wa_params(list(settings.get("whatsapp_variables") or []), first_name=contact.get("first_name") or "", cart=cart)
     if (os.getenv("WHATSAPP_MARKETING_SEND_ENABLED") or "").strip().lower() != "true":
         return "simulado", "", None

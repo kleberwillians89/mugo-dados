@@ -166,6 +166,11 @@ async def add_competitor(
         rows = await sb_update("benchmark_competitors", filters={"client_id": f"eq.{cid}", "id": f"eq.{existing[0]['id']}"},
                                patch={**_competitor_fields(body), "active": True, "updated_at": datetime.now(timezone.utc).isoformat()})
         return rows[0] if rows else existing[0]
+    from services import saas
+    try:
+        await saas.require(cid, "competitors")
+    except saas.QuotaError as exc:
+        raise HTTPException(status_code=402, detail=exc.message) from None
     saved = await sb_insert("benchmark_competitors", {"client_id": cid, **_competitor_fields(body)})
     if not saved:
         raise HTTPException(status_code=502, detail="Não foi possível salvar o concorrente.")

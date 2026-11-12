@@ -59,6 +59,8 @@ const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
 const EmailMarketing = lazy(() => import("./pages/EmailMarketing"));
 const CustomerValue = lazy(() => import("./pages/CustomerValue"));
 const AiActions = lazy(() => import("./pages/AiActions"));
+const Plan = lazy(() => import("./pages/Plan"));
+const PlansAdmin = lazy(() => import("./pages/PlansAdmin"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -974,6 +976,10 @@ function PrivateApp() {
         <EmailMarketing key={`email:${activeClientId}`} />
       ) : route === "ai_actions" ? (
         <AiActions key={`ai-actions:${activeClientId}`} />
+      ) : route === "plan" ? (
+        <Plan key={`plan:${activeClientId}`} />
+      ) : route === "plans_admin" && (platformAdmin || agencyAdmin) ? (
+        <PlansAdmin />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${resolvedUserId}:${activeClientId}`}

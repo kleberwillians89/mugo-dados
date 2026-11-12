@@ -74,6 +74,8 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/email-marketing")).toBe("email_marketing");
     expect(getAppRouteFromPath("/crm/ltv")).toBe("customer_value");
     expect(getAppRouteFromPath("/acoes-ia")).toBe("ai_actions");
+    expect(getAppRouteFromPath("/plano")).toBe("plan");
+    expect(getAppRouteFromPath("/admin/planos")).toBe("plans_admin");
     expect(getPathForRoute("ai_actions")).toBe("/acoes-ia");
     expect(getPathForRoute("customer_value")).toBe("/crm/ltv");
     expect(getPathForRoute("email_marketing")).toBe("/email-marketing");
