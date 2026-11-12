@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-from server.services import tenant
+from server.services import team_access, tenant
 
 
 class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
@@ -187,9 +187,25 @@ class TenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 400)
 
     async def test_read_permission_does_not_require_mutation_role(self):
-        with patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")):
-            resolved = await tenant.require_client_read("amalie", "Bearer valid")
+        member_access = AsyncMock(return_value={
+            "role": "viewer", "status": "active", "preset": "personalizado",
+            "view_all": False, "access_total": False, "overrides": [], "codes": {"tasks.view"},
+        })
+        route = team_access.REQUEST_ROUTE.set(("GET", "/api/clients/amalie/studio/briefs"))
+        try:
+            with (
+                patch.object(tenant, "resolve_client_id", AsyncMock(return_value="amalie")),
+                patch.object(tenant, "require_user_id", AsyncMock(return_value="user-amalie")),
+                patch("server.services.platform_admin.is_platform_admin", AsyncMock(return_value=False)),
+                patch.object(tenant, "_has_agency_admin_membership", AsyncMock(return_value=False)),
+                patch.object(tenant, "_client_role", AsyncMock(return_value="viewer")),
+                patch.object(team_access, "member_access", member_access),
+            ):
+                resolved = await tenant.require_client_read("amalie", "Bearer valid")
+        finally:
+            team_access.REQUEST_ROUTE.reset(route)
         self.assertEqual(resolved, "amalie")
+        member_access.assert_awaited_once_with("amalie", "user-amalie", role="viewer")
 
     async def test_agency_admin_can_resolve_explicit_company_without_per_client_membership(self):
         # Papel agency_admin em QUALQUER empresa (não necessariamente a

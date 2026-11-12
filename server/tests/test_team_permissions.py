@@ -120,6 +120,14 @@ class TenantGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Criadores", raised.exception.detail)
         self.assertEqual(await self.call(tenant.require_client_read, access({"creators.view"}), ("GET", "/api/clients/roove/creators")), "roove")
 
+    async def test_read_fails_closed_when_module_authorization_cannot_be_verified(self):
+        with patch.object(tenant, "_module_check", AsyncMock(side_effect=RuntimeError("permissions unavailable"))):
+            with self.assertRaises(HTTPException) as raised:
+                await self.call(tenant.require_client_read, access({"creators.view"}),
+                                ("GET", "/api/clients/roove/creators"))
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIn("verificar sua permissão", raised.exception.detail)
+
     async def test_inactive_is_blocked_everywhere(self):
         with self.assertRaises(HTTPException) as raised:
             await self.call(tenant.require_client_read, access(ta.ALL_CODES, status="inactive"), ("GET", "/api/dashboard/summary"))
