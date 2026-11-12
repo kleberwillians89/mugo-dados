@@ -39,6 +39,7 @@ const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const BrandHealthPage = lazy(() => import("./pages/BrandHealthPage"));
+const ChannelsPage = lazy(() => import("./pages/ChannelsPage"));
 const Benchmark = lazy(() => import("./pages/Benchmark"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
@@ -952,6 +953,8 @@ function PrivateApp() {
         <Benchmark key={`benchmark:${activeClientId}`} />
       ) : route === "radar" || route === "clipping" ? (
         <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} initialTab={route === "radar" ? "radar" : undefined} />
+      ) : route === "channels" ? (
+        <ChannelsPage key={`channels:${activeClientId}`} />
       ) : route === "brand_health" ? (
         <BrandHealthPage key={`brand_health:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (

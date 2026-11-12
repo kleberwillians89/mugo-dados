@@ -3,7 +3,7 @@ import {
   Activity, Bot, BrainCircuit, Building2, CalendarRange, ChartColumn, Circle, ClipboardList, Contact, Cpu, CreditCard,
   FileBarChart, FileText, HeartPulse, LayoutDashboard, Library, ListChecks, Mail, Megaphone, Menu, MessageCircle,
   MessagesSquare, Newspaper, PanelLeftClose, PanelLeftOpen, PartyPopper, PenLine, Plug, Search, ShoppingCart, Sparkles,
-  ChevronDown, Home, Settings, Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
+  ChevronDown, Home, Settings, Share2, Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
@@ -44,7 +44,7 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
   mugo_ia: Sparkles, central: LayoutDashboard, briefing: FileText, planning: CalendarRange, production: PartyPopper,
   tasks: ListChecks, campaigns: Megaphone, redacao: PenLine, creators: Users, library: Library,
-  meta: ChartColumn, google: Search, ecommerce: ShoppingCart, origins: Contact, whatsapp: MessageCircle,
+  meta: ChartColumn, google: Search, channels: Share2, ecommerce: ShoppingCart, origins: Contact, whatsapp: MessageCircle,
   email_marketing: Mail, ai_actions: Bot, media: Target, engagement: MessagesSquare, clipping: Newspaper,
   brand_health: HeartPulse, benchmark: Swords, social_report: FileBarChart,
   integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
@@ -70,6 +70,8 @@ const OPERATION_ITEMS: NavItem[] = [
 const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
+  // TikTok, Pinterest e LinkedIn: anúncios e orgânico, no mesmo calendário das outras telas.
+  { route: "channels", label: "TikTok, Pinterest e LinkedIn" },
   { route: "ecommerce", label: "Ecommerce" },
   // CRM: Origem das vendas e Clientes moram aqui, como abas (ClientsSalesTabs).
   { route: "origins", label: "CRM", also: ["customers", "customer_value"] },
@@ -92,13 +94,13 @@ const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", 
  */
 type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
 const NAV_GROUPS: NavGroup[] = [
-  { id: "inicio", label: "Início", icon: Home, routes: ["central", "ai_actions"] },
+  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health", "ai_actions"] },
   { id: "ia", label: "Mugoverso IA", icon: Sparkles, routes: ["mugo_ia"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
-  { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "media", "benchmark"] },
+  { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "channels", "media", "benchmark"] },
   { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["briefing", "planning", "production", "tasks", "campaigns", "redacao", "creators", "library"] },
   { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
-  { id: "marca", label: "Marca", icon: HeartPulse, routes: ["brand_health", "clipping", "brand_ai"] },
+  { id: "marca", label: "Marca", icon: HeartPulse, routes: ["clipping", "brand_ai"] },
   { id: "relatorio", label: "Relatório", icon: FileBarChart, routes: ["social_report"] },
 ];
 

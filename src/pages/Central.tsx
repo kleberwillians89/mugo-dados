@@ -52,8 +52,11 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const clip = view?.clipping;
   const tasks = view?.tasks;
 
-  const healthEnd = new Date().toISOString().slice(0, 10);
-  const healthStart = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+  // A Saúde da Marca segue o mesmo mês do calendário da Central (um filtro só para a tela toda).
+  const today = new Date().toISOString().slice(0, 10);
+  const healthStart = `${month}-01`;
+  const monthEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).toISOString().slice(0, 10);
+  const healthEnd = monthEnd < today ? monthEnd : today;
   return <Shell title="Início" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Início" controls={<div className="calNav">
       <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
@@ -64,7 +67,7 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
     {/* Layout novo: Saúde da Marca é o primeiro bloco do Início, e logo abaixo os canais da marca. */}
     <section className="homeHealth" aria-label="Saúde da Marca">
       <div className="homeHealthHead"><h2>Saúde da Marca</h2><a href={getPathForRoute("brand_health")}>Ver a marca</a></div>
-      <HealthIndexCard start={healthStart} end={healthEnd} />
+      {healthStart <= today ? <HealthIndexCard start={healthStart} end={healthEnd} /> : <p className="studioOk">Este mês ainda não começou.</p>}
     </section>
     <HomeChannels />
     {error ? <p role="alert" className="studioError">{error}</p> : null}

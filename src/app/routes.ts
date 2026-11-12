@@ -15,6 +15,7 @@ export type AppRoute =
   | "central"
   | "radar"
   | "brand_health"
+  | "channels"
   | "benchmark"
   | "clipping"
   | "engagement"
@@ -76,6 +77,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/benchmark" || normalized.startsWith("/benchmark/")) return "benchmark";
   if (normalized === "/radar" || normalized.startsWith("/radar/")) return "radar";
   if (normalized === "/saude-da-marca" || normalized.startsWith("/saude-da-marca/")) return "brand_health";
+  if (normalized === "/canais" || normalized.startsWith("/canais/")) return "channels";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
@@ -143,6 +145,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "benchmark") return "/benchmark";
   if (route === "radar") return "/radar";
   if (route === "brand_health") return "/saude-da-marca";
+  if (route === "channels") return "/canais";
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";

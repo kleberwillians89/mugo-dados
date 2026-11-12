@@ -37,6 +37,9 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(out["tiktok_ads"]["top"][0]["value"], 80.5)
         self.assertEqual(out["tiktok"]["latest"]["followers"], 950)
         self.assertEqual(out["tiktok"]["top"][0]["name"], "Rótulo")
+        pin = channels.summarize([{"provider": "pinterest", "level": "account", "entity_id": "", "metric_date": d, "impressions": 10, "clicks": 1,
+                                   "metrics": {"saves": 2, "engagement": 3}} for d in ("2026-11-10", "2026-11-11")])
+        self.assertEqual(pin["pinterest"]["sums"], {"saves": 4, "engagement": 6})
 
 
 class CollectTests(unittest.IsolatedAsyncioTestCase):
