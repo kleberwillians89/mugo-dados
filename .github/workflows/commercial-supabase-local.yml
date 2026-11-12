@@ -35,6 +35,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mugo-local-homolog"
           cd "$RUNNER_TEMP/mugo-local-homolog"
           supabase init --yes >/dev/null
+          mkdir -p supabase/migrations
           cp "$GITHUB_WORKSPACE/server/tests/fixtures/commercial_supabase_base.sql" \
             supabase/migrations/20260301_000000_commercial_fixture.sql
           cp "$GITHUB_WORKSPACE/supabase/migrations/20270103_000112_saas_plans.sql" \
