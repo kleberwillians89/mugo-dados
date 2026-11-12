@@ -5,6 +5,8 @@ import {
   type BrandHealth as Health, type Grain, type HealthSentiment, type Preset, type Source, type Split,
 } from "../../app/brandHealth";
 import DateRangePicker from "./DateRangePicker";
+import HealthIndexCard from "./HealthIndexCard";
+import WordCloud from "../WordCloud";
 import "../../styles/brandHealth.css";
 
 const GRAINS: Grain[] = ["day", "week", "month", "quarter", "year"];
@@ -181,10 +183,17 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
     {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
     {state.loading && !d ? <p className="bhMuted" role="status">Carregando…</p> : null}
 
+    {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} /> : null}
+    {d?.words?.length ? <section className={state.loading ? "bhCard bhWords is-loading" : "bhCard bhWords"} aria-labelledby="bh-words">
+      <h2 id="bh-words">Palavras mais citadas</h2>
+      <p className="bhSub">Notícias, comentários e Direct do período. Tamanho = quantas vezes aparece; cor = sentimento que predomina. Passe o mouse para ver a divisão.</p>
+      <WordCloud words={d.words} />
+    </section> : null}
+
     {d && k ? <div className={state.loading ? "bhBody is-loading" : "bhBody"} aria-busy={state.loading}>
       <div className="bhKpis">
         <div className="bhCard bhIndex">
-          <div className="bhKl">Índice de saúde da marca</div>
+          <div className="bhKl">Saúde da conversa</div>
           <div className="bhGauge">
             <svg width="96" height="56" viewBox="0 0 96 56" aria-hidden="true"><path d="M8 50 A40 40 0 0 1 88 50" className="bhGaugeBg" />
               {k.index != null ? <path d="M8 50 A40 40 0 0 1 88 50" className={`bhGaugeFg ${k.index >= 70 ? "is-positivo" : k.index >= 50 ? "is-misto" : "is-negativo"}`}
@@ -255,7 +264,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
                 <td>{t.tone ? <span className={`bhTone is-${t.tone}`}>{SENTIMENT_NAME[t.tone].toLowerCase()}</span> : "—"}</td></tr>)}</tbody></table>}
         </section>
       </div>
-      <p className="bhMuted bhFoot">Índice = 80% sentimento líquido + 20% alertas abertos. Comentários e Direct são analisados pela IA a cada hora; notícias, na busca diária do clipping.
+      <p className="bhMuted bhFoot">Saúde da conversa = 80% sentimento líquido + 20% alertas abertos (é o pilar "Conversa" do índice MUGOVERSO). Comentários e Direct são analisados pela IA a cada hora; notícias, na busca diária do clipping.
         {k.unanalyzed ? ` ${nf.format(k.unanalyzed)} menções ainda sem análise contam só no volume.` : ""}</p>
     </div> : null}
   </div>;

@@ -98,3 +98,32 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .clipTabs button{font:inherit;font-weight:600;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.09));background:#fff;color:var(--text-secondary,#4d565d);cursor:pointer;min-height:38px}
 .clipTabs button.is-on{background:var(--accent,#004f6e);color:#fff;border-color:var(--accent,#004f6e)}
 .bhPending{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fff8e6;border:1px solid #f0d9a3;color:#6b4705;border-radius:10px;padding:10px 14px;font-size:13.5px}
+
+/* Índice de saúde MUGOVERSO */
+.hiCard h2{margin:0;font-size:16px}
+.hiCard.is-loading{opacity:.6}
+.hiHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.hiBody{display:grid;grid-template-columns:minmax(170px,220px) 1fr;gap:20px;align-items:center}
+.hiScore{display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center}
+.hiValue{font-size:40px;font-weight:700;line-height:1}.hiValue small{font-size:14px;font-weight:500;color:var(--text-secondary,#4d565d)}
+.hiLabel{font-weight:700}.hiLabel.is-positivo{color:#1d7a4b}.hiLabel.is-misto{color:#9a5b07}.hiLabel.is-negativo{color:#b22234}.hiLabel.is-sem_analise{color:var(--text-secondary,#4d565d)}
+.hiPillars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.hiPillars li{display:flex;flex-direction:column;gap:4px}.hiPillars li.is-off{opacity:.5}
+.hiPillarTop{display:flex;align-items:baseline;gap:8px}
+.hiPillarName{font-weight:600;cursor:help}.hiPillarWeight{font-size:12px;color:var(--text-secondary,#4d565d)}.hiPillarScore{margin-left:auto;font-size:16px}
+.hiBar{display:block;height:8px;border-radius:999px;background:var(--bh-none);overflow:hidden}
+.hiBar i{display:block;height:100%;border-radius:999px}
+.hiBar i.is-positivo{background:var(--bh-pos)}.hiBar i.is-misto{background:var(--bh-mix)}.hiBar i.is-negativo{background:var(--bh-neg)}.hiBar i.is-sem_analise{background:transparent}
+.hiEditor{margin-top:16px;border-top:1px solid var(--bh-line);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.hiWeightRow{display:grid;grid-template-columns:minmax(180px,1.2fr) 2fr 52px;gap:12px;align-items:center}
+.hiWeightName{display:flex;flex-direction:column}.hiWeightName small{color:var(--text-secondary,#4d565d);font-size:12px}
+.hiWeightRow input[type=range]{width:100%;accent-color:var(--accent,#004f6e)}
+.hiWeightPct{font-weight:700;text-align:right}
+.hiEditorActions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hiSpacer{flex:1}
+@media (max-width:760px){.hiBody{grid-template-columns:1fr}.hiWeightRow{grid-template-columns:1fr 52px}.hiWeightRow input{grid-column:1 / -1;grid-row:2}}
+
+/* Nuvem de palavras da Saúde da marca (mesma peça da tela de Comentários) */
+.bhWords h2{margin:0;font-size:16px}
+.bhWords .wordCloud{margin-top:12px}
+.bhWords.is-loading{opacity:.6}
+.hiEditor + .bhFoot{margin-top:14px}

@@ -14,7 +14,7 @@ export function normalizeLoginIdentifier(raw: string): string {
 export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
   google: "google", origins: "origins", whatsapp: "origins", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai", mugo_ia: "brand_ai",
-  media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", library: "calendar", planning: "tasks", production: "tasks", clipping: "clipping", radar: "clipping", creators: "creators",
+  media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", library: "calendar", planning: "tasks", production: "tasks", clipping: "clipping", radar: "clipping", benchmark: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
 };
 

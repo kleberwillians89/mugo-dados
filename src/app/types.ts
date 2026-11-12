@@ -962,11 +962,19 @@ export type CommentItem = {
   text?: string;
   username?: string;
   timestamp?: string;
+  /** Sentimento classificado pela IA (Saúde da marca); ausente enquanto não analisado. */
+  sentiment?: CommentSentiment;
 };
+
+export type CommentSentiment = "positivo" | "neutro" | "misto" | "negativo";
 
 export type TopWord = {
   word: string;
   count: number;
+  /** Tom dominante da palavra (cor na nuvem); null quando nenhum comentário dela foi analisado. */
+  tone?: CommentSentiment | null;
+  /** Comentários com a palavra, por sentimento. */
+  sentiment?: Partial<Record<CommentSentiment | "sem_analise", number>>;
 };
 
 export type CommentsResponse = {

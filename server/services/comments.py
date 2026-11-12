@@ -75,15 +75,44 @@ def _tokenize(text: str) -> List[str]:
     return out
 
 
+_SENTIMENTS = ("positivo", "neutro", "misto", "negativo")
+# Empate entre tons: mostra o mais sensível primeiro (reclamação não pode sumir atrás de elogio).
+_TONE_PRIORITY = ("negativo", "misto", "positivo", "neutro")
+
+
+def word_tone(split: Dict[str, int]) -> str | None:
+    """Tom dominante da palavra entre os comentários analisados pela IA; None se nenhum foi analisado."""
+    analyzed = {s: int(split.get(s) or 0) for s in _SENTIMENTS}
+    if not any(analyzed.values()):
+        return None
+    top = max(analyzed.values())
+    return next(s for s in _TONE_PRIORITY if analyzed[s] == top)
+
+
 def top_words(comments: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+    """Palavras mais citadas, cada uma com o sentimento dos comentários em que aparece.
+
+    ``count`` conta cada ocorrência (como antes). ``sentiment`` conta comentários (uma vez por comentário),
+    usando o sentimento que a IA da Saúde da marca gravou em ``ig_comments.sentiment``; comentário
+    ainda não analisado entra em ``sem_analise``. ``tone`` é o tom dominante (cor da palavra na nuvem)."""
     freq: Dict[str, int] = {}
+    splits: Dict[str, Dict[str, int]] = {}
     for c in comments:
         text = str(c.get("text") or "")
-        for tok in _tokenize(text):
+        sentiment = c.get("sentiment") if c.get("sentiment") in _SENTIMENTS else "sem_analise"
+        tokens = _tokenize(text)
+        for tok in tokens:
             freq[tok] = int(freq.get(tok) or 0) + 1
+        for tok in set(tokens):
+            split = splits.setdefault(tok, {})
+            split[sentiment] = int(split.get(sentiment) or 0) + 1
 
     items = sorted(freq.items(), key=lambda x: (-x[1], x[0]))[: max(1, limit)]
-    return [{"word": w, "count": n} for w, n in items]
+    out: List[Dict[str, Any]] = []
+    for w, n in items:
+        split = {s: int(splits.get(w, {}).get(s) or 0) for s in (*_SENTIMENTS, "sem_analise")}
+        out.append({"word": w, "count": n, "tone": word_tone(split), "sentiment": split})
+    return out
 
 
 def _chunk(values: List[str], size: int = 140) -> List[List[str]]:

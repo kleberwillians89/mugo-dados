@@ -152,9 +152,13 @@ class AgencyOnlyTests(unittest.TestCase):
         self.assertGreaterEqual(len(routes), 12)
         social = 0
         for route in routes:
-            if route.startswith(('get("/clipping")', 'get("/clipping/insights")', 'get("/clipping/health")')):
+            if route.startswith(('get("/clipping")', 'get("/clipping/insights")', 'get("/clipping/health")', 'get("/clipping/health/index")')):
                 self.assertIn("require_client_read", route)
                 self.assertIn("is_agency_user", route)
+                continue
+            if route.startswith('put("/clipping/health/weights")'):
+                # Pesos do índice: a equipe Mugô e o admin do cliente ajustam (decisão do Kleber, nov/2026).
+                self.assertIn("allowed_roles=WEIGHT_EDITORS", route)
                 continue
             first = route.splitlines()[0]
             if '"/campaigns' in first or '"/matrix' in first or '"/documents' in first:
@@ -165,6 +169,7 @@ class AgencyOnlyTests(unittest.TestCase):
         self.assertGreaterEqual(social, 20)
         self.assertEqual(content_ops.AGENCY_ONLY, ("agency_admin",))
         self.assertEqual(content_ops.SOCIAL_MEDIA, ("agency_admin", "client_admin"))
+        self.assertEqual(content_ops.WEIGHT_EDITORS, ("agency_admin", "client_admin"))
 
     def test_social_media_routes_belong_to_the_opt_in_module(self):
         from services import team_access as ta

@@ -71,11 +71,11 @@ export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) =
   const maxCampaignOrders = Math.max(1, ...campaignBars.map((row) => row.orders));
 
   return (
-    <Shell title="Origem das vendas" variant="editorial">
+    <Shell title="CRM" variant="editorial">
       <div className="ds-page salesOriginPage" data-testid="sales-origin-page">
         <PageHeader
           company={getActiveClientName()}
-          title="Origem das vendas"
+          title="CRM"
           dateline={
             <span>
               {data?.provider ? `Pedidos da loja (${PROVIDER_LABELS[data.provider] || data.provider}) · ` : ""}

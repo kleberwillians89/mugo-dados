@@ -206,12 +206,12 @@ export default function Customers({ canView }: { canView?: (route: AppRoute) => 
 
   return (
     <Shell
-      title="Clientes"
+      title="CRM"
       variant="editorial"
     >
       <PageHeader
         company={company}
-        title="Clientes"
+        title="CRM"
         dateline={
           <>
             {connected && data?.provider_label ? (

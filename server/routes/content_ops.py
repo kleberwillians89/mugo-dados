@@ -725,3 +725,42 @@ async def brand_health_settings(client_id: str, body: BrandHealthSettings, autho
     from services import brand_health
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY_ONLY)
     return await brand_health.save_settings(cid, user_id=await require_user_id(authorization), **body.model_dump(exclude_unset=True))
+
+
+# Índice de saúde MUGOVERSO: quem lê o painel vê a nota; pesos editáveis pela equipe Mugô e pelo admin do cliente.
+WEIGHT_EDITORS = ("agency_admin", "client_admin")
+
+
+class BrandHealthWeights(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weights: Dict[str, int] = Field(max_length=10)
+
+
+async def _can_edit_weights(client_id: str, authorization: Optional[str]) -> bool:
+    try:
+        await require_client_role(client_id, authorization, allowed_roles=WEIGHT_EDITORS)
+        return True
+    except HTTPException:
+        return False
+
+
+@router.get("/clipping/health/index")
+async def brand_health_index(client_id: str, start: date, end: date, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health_index
+    cid = await require_client_read(client_id, authorization)
+    agency = await is_agency_user(authorization)
+    try:
+        result = await brand_health_index.compute(cid, start=start, end=end, with_alert_detail=agency)
+    except StudioError as exc:
+        raise _health_error(exc) from None
+    return {**result, "can_edit_weights": await _can_edit_weights(cid, authorization)}
+
+
+@router.put("/clipping/health/weights")
+async def brand_health_weights(client_id: str, body: BrandHealthWeights, authorization: Optional[str] = Header(default=None)):
+    from services import brand_health_index
+    cid = await require_client_role(client_id, authorization, allowed_roles=WEIGHT_EDITORS)
+    try:
+        return await brand_health_index.save_weights(cid, body.weights, user_id=await require_user_id(authorization))
+    except StudioError as exc:
+        raise HTTPException(422 if exc.code == "WEIGHTS_INVALID" else 502, str(exc)) from None
