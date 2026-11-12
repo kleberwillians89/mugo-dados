@@ -45,11 +45,11 @@ describe("Evento", () => {
     expect(api.createProject).toHaveBeenCalledWith("evento", { title: "Lançamento na loja", format: undefined, target_date: undefined, inputs: {} });
     expect(api.generateProject).toHaveBeenCalledWith("evento", "p1");
     expect(host.querySelector('.projCol[aria-label="Em andamento"]')?.textContent).toContain("Lançamento na loja");
-    expect(host.textContent).toContain("Fechar buffet");
+    expect((host.querySelector('input[aria-label="Tarefa"]') as HTMLInputElement).value).toBe("Fechar buffet");
     await act(async () => { btn("Orçamento").click(); });
     expect(host.querySelector(".projBudgetTotal b")?.textContent).toContain("2.300");
-    await act(async () => { btn("Tirar").click(); });
-    await act(async () => { btn("Salvar orçamento").click(); });
+    await act(async () => { (host.querySelector('button[aria-label^="Tirar"]') as HTMLButtonElement).click(); });
+    await act(async () => { btn("Salvar plano").click(); });
     expect(api.updateProject.mock.calls[0][2].plan.budget).toEqual([{ category: "locacao", item: "Tenda", value: 800 }]);
     await act(async () => { btn("Mandar para o Briefing").click(); });
     expect(api.projectToBrief).toHaveBeenCalledWith("evento", "p1");
