@@ -24,3 +24,24 @@ export const markInvoicePaid = (clientId: string, invoiceId: string) =>
 
 export const STATUS_LABEL: Record<SubStatus, string> = { teste: "Em teste", ativa: "Ativa", atrasada: "Pagamento atrasado", cancelada: "Cancelada", cortesia: "Cortesia" };
 export const brl = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+export type CommercialModuleOption = { key: string; label: string };
+export type CommercialConfig = {
+  client_id: string;
+  state: "not_configured" | "selected" | "explicitly_empty";
+  configured: boolean;
+  module_keys: string[] | null;
+  version: number | null;
+  updated_at: string | null;
+  basic_capabilities: string[];
+};
+export const getCommercialCatalog = () =>
+  http<{ modules: CommercialModuleOption[]; basic_capabilities: string[]; enforcement_enabled: boolean }>(
+    "/api/admin/commercial-modules/catalog");
+export const getCommercialConfig = (clientId: string) =>
+  http<{ configuration: CommercialConfig }>(
+    `/api/admin/commercial-modules/${encodeURIComponent(clientId)}`);
+export const saveCommercialConfig = (clientId: string, moduleKeys: string[], expectedVersion: number | null) =>
+  http<{ configuration: CommercialConfig }>(
+    `/api/admin/commercial-modules/${encodeURIComponent(clientId)}`,
+    { method: "PUT", ...json({ module_keys: moduleKeys, expected_version: expectedVersion }) });
