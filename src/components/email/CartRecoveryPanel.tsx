@@ -59,7 +59,7 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
         <div className="is-accent"><dt>Receita recuperada</dt><dd>{money(s.recovered_value)}</dd><small>{s.recovered} pedidos</small></div>
         <div><dt>Taxa de recuperação</dt><dd>{s.recovery_rate == null ? "—" : `${s.recovery_rate.toLocaleString("pt-BR")}%`}</dd><small>dos contatados, últimos 30 dias</small></div>
       </dl>
-      <p className="emHint">Recuperado = comprou pelo mesmo checkout até {settings.attribution_days} dias depois de uma mensagem. Quem comprou sem receber nada aparece como “comprou sozinho” ({s.bought_without_contact}) e não entra na receita recuperada.</p>
+      <p className="emHint">“Recuperado” é quem recebeu a mensagem e fechou a compra pelo mesmo carrinho em até {settings.attribution_days} dias. Quem comprou sem receber nada aparece como “comprou sozinho” ({s.bought_without_contact}) e não entra na receita recuperada.</p>
 
       {(data.simulated.email && hasEmail) || (data.simulated.whatsapp && hasWa) ? (
         <p className="emNotice">Modo simulado{data.simulated.email && hasEmail ? " no e-mail" : ""}{data.simulated.email && hasEmail && data.simulated.whatsapp && hasWa ? " e" : ""}{data.simulated.whatsapp && hasWa ? " no WhatsApp" : ""}: a sequência roda e registra cada passo, mas nada é enviado até liberar no servidor.</p>

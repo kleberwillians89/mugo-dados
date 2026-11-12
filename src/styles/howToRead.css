@@ -1,0 +1,9 @@
+.howToRead{margin-top:16px;padding:16px 18px;border-radius:12px;background:color-mix(in srgb,var(--accent,#1e3f5a) 5%,var(--surface,#fff));border:1px solid color-mix(in srgb,var(--accent,#1e3f5a) 14%,transparent);display:grid;gap:12px}
+.howToReadHead{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--text-secondary,#4d565d)}
+.howToReadHead svg{color:var(--accent,#1e3f5a)}
+.howToReadHead b{color:var(--text-primary,#15181b);font-family:var(--font-display)}
+.howToReadGrid{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.howToReadGrid > div{padding:10px 12px;border-radius:10px;background:var(--surface,#fff);border:1px solid var(--border-subtle,rgba(21,24,27,.09))}
+.howToReadGrid dt{font-weight:600;color:var(--text-primary,#15181b);margin-bottom:2px}
+.howToReadGrid dd{margin:0;color:var(--text-secondary,#4d565d);font-size:.92em;line-height:1.45}
+.howToReadNote{margin:0;font-size:.92em;color:var(--text-secondary,#4d565d)}
