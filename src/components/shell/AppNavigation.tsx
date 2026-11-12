@@ -3,7 +3,7 @@ import {
   Activity, Bot, BrainCircuit, Building2, CalendarRange, ChartColumn, Circle, ClipboardList, Contact, Cpu, CreditCard,
   FileBarChart, FileText, HeartPulse, LayoutDashboard, Library, ListChecks, Mail, Megaphone, Menu, MessageCircle,
   MessagesSquare, Newspaper, PanelLeftClose, PanelLeftOpen, PartyPopper, PenLine, Plug, Search, ShoppingCart, Sparkles,
-  Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
+  ChevronDown, Home, Settings, Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
@@ -87,6 +87,22 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
 const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", "production"]);
 
 /**
+ * Menu enxuto (layout novo): 8 grupos pelo que a pessoa quer fazer. Nenhuma tela sai: cada item antigo vira
+ * subitem do seu grupo, com a mesma rota e a mesma regra de quem vê. Grupo sem item visível não aparece.
+ */
+type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
+const NAV_GROUPS: NavGroup[] = [
+  { id: "inicio", label: "Início", icon: Home, routes: ["central", "ai_actions"] },
+  { id: "ia", label: "Mugoverso IA", icon: Sparkles, routes: ["mugo_ia"] },
+  { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
+  { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "media", "benchmark"] },
+  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["briefing", "planning", "production", "tasks", "campaigns", "redacao", "creators", "library"] },
+  { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
+  { id: "marca", label: "Marca", icon: HeartPulse, routes: ["brand_health", "clipping", "brand_ai"] },
+  { id: "relatorio", label: "Relatório", icon: FileBarChart, routes: ["social_report"] },
+];
+
+/**
  * Estrutura global: a sidebar diz "onde posso ir" (produto, empresa, conta);
  * cada página diz "onde estou". No mobile a mesma sidebar vira gaveta.
  * Regras de visibilidade idênticas às anteriores — nenhuma permissão nova.
@@ -135,7 +151,8 @@ export default function AppNavigation({
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
   // A posição é administrativa, mas a visibilidade continua obedecendo apenas
   // à permissão preexistente do módulo, sem exigir um papel administrativo.
-  if (!canView || canView("brand_ai")) adminItems.push({ route: "brand_ai", label: "IA da marca" });
+  const brandAiItems: NavItem[] = !canView || canView("brand_ai") ? [{ route: "brand_ai", label: "IA da marca" }] : [];
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
   const roleLabel = activeClient?.role ? ACCOUNT_ROLE_LABELS[activeClient.role] || null : null;
@@ -183,6 +200,11 @@ export default function AppNavigation({
   }
 
   const routesOf = (item: NavItem): AppRoute[] => [item.route, ...(item.also || [])];
+  const leafItems: NavItem[] = [
+    ...OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))),
+    ...INTELLIGENCE_ITEMS,
+    ...brandAiItems,
+  ];
   const visible = (item: NavItem) => !canView || routesOf(item).some((target) => canView(target));
   const renderItem = (item: NavItem) => {
     const Icon = ROUTE_ICONS[item.route] || Circle;
@@ -201,6 +223,44 @@ export default function AppNavigation({
         </a>
       </li>
     );
+  };
+
+  const groups = NAV_GROUPS.map((group) => ({
+    id: group.id, label: group.label, icon: group.icon,
+    items: group.routes.map((r) => leafItems.find((item) => item.route === r)).filter((item): item is NavItem => Boolean(item)).filter(visible),
+  })).filter((group) => group.items.length);
+
+  const renderGroup = (group: { id: string; label: string; icon: LucideIcon; items: NavItem[] }) => {
+    const Icon = group.icon;
+    const active = group.items.some((item) => routesOf(item).includes(route));
+    // Grupo de um item só (Mugoverso IA, Relatório): link direto, sem subitens.
+    if (group.items.length === 1 && group.items[0].label === group.label) {
+      const item = group.items[0];
+      const target = routesOf(item).find((candidate) => !canView || canView(candidate)) || item.route;
+      return <div className="appNavGroup" key={group.id} data-group={group.id}>
+        <a className="appNavGroupLink" href={getPathForRoute(target)} title={collapsed ? group.label : undefined}
+          aria-current={active ? "page" : undefined} onClick={(event) => go(event, target)}>
+          <Icon size={18} aria-hidden="true" className="appNavIcon" /><span className="appNavLabel">{group.label}</span>
+        </a>
+      </div>;
+    }
+    const open = active || openGroups.has(group.id);
+    const first = group.items[0];
+    const firstTarget = routesOf(first).find((candidate) => !canView || canView(candidate)) || first.route;
+    const toggle = () => setOpenGroups((prev) => { const next = new Set(prev); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; });
+    return <div className={`appNavGroup${active ? " is-active" : ""}`} key={group.id} data-group={group.id}>
+      <div className="appNavGroupHead">
+        <a className="appNavGroupLink" href={getPathForRoute(firstTarget)} title={collapsed ? group.label : undefined}
+          data-active={active ? "true" : undefined} onClick={(event) => go(event, firstTarget)}>
+          <Icon size={18} aria-hidden="true" className="appNavIcon" /><span className="appNavLabel">{group.label}</span>
+        </a>
+        <button type="button" className="appNavToggle" aria-expanded={open} aria-controls={`app-nav-${group.id}`}
+          aria-label={`${open ? "Fechar" : "Abrir"} ${group.label}`} onClick={toggle}>
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
+      </div>
+      <ul className="appNavList appNavSubList" id={`app-nav-${group.id}`} hidden={!open}>{group.items.map(renderItem)}</ul>
+    </div>;
   };
 
   return (
@@ -256,24 +316,8 @@ export default function AppNavigation({
         ) : null}
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
-          <div className="appNavGroup">
-            <p className="appNavGroupLabel" id="app-nav-agency">Operação</p>
-            <ul className="appNavList" aria-labelledby="app-nav-agency">
-              {OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))).filter(visible).map(renderItem)}
-            </ul>
-          </div>
-          <div className="appNavGroup">
-            <p className="appNavGroupLabel" id="app-nav-intelligence">Inteligência</p>
-            <ul className="appNavList" aria-labelledby="app-nav-intelligence">
-              {INTELLIGENCE_ITEMS.filter(visible).map(renderItem)}
-            </ul>
-          </div>
-          {adminItems.length ? (
-            <div className="appNavGroup">
-              <p className="appNavGroupLabel" id="app-nav-admin">Administração</p>
-              <ul className="appNavList" aria-labelledby="app-nav-admin">{adminItems.map(renderItem)}</ul>
-            </div>
-          ) : null}
+          {groups.map(renderGroup)}
+          {adminItems.length ? renderGroup({ id: "config", label: "Configurações", icon: Settings, items: adminItems }) : null}
         </nav>
 
         <div className="appSidebarFooter">
