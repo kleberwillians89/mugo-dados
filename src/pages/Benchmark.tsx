@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowUpRight, RefreshCw, X } from "lucide-react";
 import { getActiveClient, getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  addBenchmarkCompetitor, addBenchmarkEvidence, getBenchmarkOverview, refreshBenchmarkInstagram, removeBenchmarkCompetitor,
+  addBenchmarkCompetitor, addBenchmarkEvidence, autoBenchmarkCompetitors, getBenchmarkOverview, refreshBenchmarkInstagram, removeBenchmarkCompetitor,
   type BenchmarkCategory, type BenchmarkInstagramRow, type BenchmarkOverview,
 } from "../app/benchmark";
 import PageHeader from "../components/data/PageHeader";
@@ -83,6 +83,33 @@ export default function Benchmark() {
     }
   }, [clientId, days]);
   useEffect(() => { void load(); }, [load]);
+
+  // Benchmarking já abre com concorrentes: lista vazia → a IA cadastra (uma tentativa por marca nesta tela).
+  const autoTried = useRef<string | null>(null);
+  const autoFill = useCallback(async (force: boolean) => {
+    setBusy("auto"); setError(null);
+    setNotice(force ? "A IA está procurando mais concorrentes…" : "A IA está montando a lista de concorrentes pelo Clipping e pelo contexto do negócio…");
+    try {
+      const out = await autoBenchmarkCompetitors(force);
+      if (clientId !== getActiveClientId()) return;
+      if (out.added.length) {
+        setNotice(`A IA cadastrou ${out.added.length} concorrente${out.added.length > 1 ? "s" : ""}: ${out.added.map((c) => c.name).join(", ")}. Confira e tire quem não faz sentido.`);
+        try { await refreshBenchmarkInstagram(); } catch { /* números públicos chegam na próxima coleta */ }
+        await load();
+      } else {
+        setNotice(out.status === "limite_do_plano" ? "O plano não comporta mais concorrentes."
+          : out.status === "sem_ia" || out.status === "aguardando" ? "A IA não conseguiu sugerir agora. Cadastre manualmente ou tente mais tarde."
+          : out.status === "ja_tem" ? null : "A IA não encontrou concorrentes novos.");
+      }
+    } catch (cause) {
+      if (clientId === getActiveClientId()) { setNotice(null); setError(message(cause, "A IA não conseguiu sugerir concorrentes agora.")); }
+    } finally { setBusy(null); }
+  }, [clientId, load]);
+  useEffect(() => {
+    if (!canEdit || !data || data.competitors.length || autoTried.current === clientId) return;
+    autoTried.current = clientId;
+    void autoFill(false);
+  }, [autoFill, canEdit, clientId, data]);
 
   async function act(key: string, run: () => Promise<string | void>, fallback: string) {
     setBusy(key); setNotice(null); setError(null);
@@ -189,7 +216,9 @@ export default function Benchmark() {
           <button type="button" className="bmRemove" aria-label={`Remover ${c.name}`} title="Tirar do monitoramento"
             disabled={Boolean(busy)} onClick={() => remove(c.id, c.name)}><X size={15} aria-hidden="true" /></button>
         </li>)}
-      </ul> : <p className="bmMuted">Nenhum concorrente nesta empresa ainda.</p>}
+      </ul> : <p className="bmMuted">{busy === "auto" ? "A IA está buscando os concorrentes da marca…" : "Nenhum concorrente nesta empresa ainda."}</p>}
+      {canEdit ? <button type="button" className="ds-button bmAuto" disabled={Boolean(busy)} onClick={() => void autoFill(true)}>
+        {busy === "auto" ? "Buscando…" : data?.competitors.length ? "Sugerir mais com IA" : "Buscar concorrentes com IA"}</button> : null}
       <form className="bmForm" onSubmit={addCompetitor}>
         <h3>Adicionar concorrente</h3>
         <div className="bmGrid">

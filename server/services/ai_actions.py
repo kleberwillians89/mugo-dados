@@ -1,10 +1,14 @@
-"""Ações da IA: proposta com evidência → aprovação humana → execução com as ferramentas do MUGOVERSO → resultado medido.
+"""Ações da IA: o número pede ação → a IA executa sozinha com as ferramentas do MUGOVERSO → resultado medido.
 
-Nada é executado sem aprovação. Cada tipo de ação usa uma ferramenta que já existe:
-- campanha_reativacao: cria a campanha de e-mail para quem está sem comprar e a coloca na fila;
+Com tudo conectado, não há fila de aprovação: cada ação detectada roda na hora (``AUTO_KINDS``) e fica no
+histórico com o que foi feito. O que sai para o cliente final tem janela para a equipe desistir:
+- campanha_reativacao: cria a campanha de e-mail para quem está sem comprar (só quem aceitou) e agenda para daqui a
+  ``REACTIVATION_DELAY_HOURS`` h; cancelar a campanha no E-mail marketing desiste do envio;
 - ligar_fluxo: liga o fluxo de segunda compra (e-mail);
-- ligar_carrinho: liga o aviso de checkout na Shopify e a sequência de e-mail do carrinho;
-- alerta_cac: só informa (CAC do mês muito acima da média); aprovar = "ciente".
+- ligar_carrinho: liga a sequência de e-mail do carrinho (Shopify: também o aviso de checkout; outras lojas: quando os
+  carrinhos já chegam pelo webhook genérico);
+- alerta_cac: só informa (CAC do mês muito acima da média), fica como "ciente".
+Tipo fora de ``AUTO_KINDS`` continua como proposta para aprovar.
 
 Os detectores são funções puras sobre um retrato dos números (``detect``). A IA (OpenAI, mesma chave do resto)
 só escreve título, explicação e o texto da campanha; sem chave, entra um texto padrão — a ação continua valendo.
@@ -23,6 +27,8 @@ MIN_REACTIVATION = 50
 MIN_CUSTOMERS_FLOW = 100
 MIN_CARTS_SIGNAL = 50
 CAC_ALERT_RATIO = 1.3
+AUTO_KINDS = {"campanha_reativacao", "ligar_fluxo", "ligar_carrinho", "alerta_cac"}
+REACTIVATION_DELAY_HOURS = 24
 
 
 class ActionError(Exception):
@@ -60,8 +66,9 @@ def detect(snapshot: Dict[str, Any], *, month: str) -> List[Dict[str, Any]]:
                     "evidence": {"repeat_rate": repeat, "customers": snapshot.get("customers"),
                                  "median_days_to_second": snapshot.get("median_days_to_second")},
                     "payload": {"flow": "segunda_compra", "delay_days": int(snapshot.get("median_days_to_second") or 30)}})
-    if snapshot.get("provider") == "shopify" and not snapshot.get("cart_enabled") and snapshot.get("sender_ready") \
-            and int(snapshot.get("orders_30d") or 0) >= MIN_CARTS_SIGNAL:
+    shopify_signal = snapshot.get("provider") == "shopify" and int(snapshot.get("orders_30d") or 0) >= MIN_CARTS_SIGNAL
+    other_store_signal = snapshot.get("provider") not in (None, "shopify") and int(snapshot.get("carts_30d") or 0) > 0  # webhook genérico ligado
+    if (shopify_signal or other_store_signal) and not snapshot.get("cart_enabled") and snapshot.get("sender_ready"):
         out.append({"kind": "ligar_carrinho", "dedupe_key": f"ligar_carrinho:{month}",
                     "evidence": {"orders_30d": snapshot.get("orders_30d"), "carts_30d": snapshot.get("carts_30d")},
                     "payload": {"steps": [{"channel": "email", "delay_minutes": 60}, {"channel": "email", "delay_minutes": 1440}]}})
@@ -140,6 +147,9 @@ async def snapshot(client_id: str) -> Dict[str, Any]:
         snap["orders_30d"] = len(orders)
         carts = await sb_select("abandoned_carts", select="checkout_id", filters={"client_id": f"eq.{client_id}", "created_at_shop": f"gte.{since30}"}, limit=1000)
         snap["carts_30d"] = len(carts)
+    elif provider:
+        carts = await sb_select("abandoned_carts", select="checkout_id", filters={"client_id": f"eq.{client_id}", "created_at_shop": f"gte.{since30}"}, limit=1000)
+        snap["carts_30d"] = len(carts)
     try:
         value = await value_overview(client_id)
     except Exception:  # noqa: BLE001 — sem jornada: as ações que dependem dela não aparecem
@@ -164,7 +174,7 @@ async def generate(client_id: str) -> Dict[str, Any]:
     brand = (await get_settings(client_id)).get("from_name") or client_id
     from . import saas
     left = await saas.remaining(client_id, "ai_actions_month")
-    created = 0
+    created = executed = 0
     for p in proposals:
         if p["dedupe_key"] in existing:
             continue
@@ -172,10 +182,16 @@ async def generate(client_id: str) -> Dict[str, Any]:
             break  # limite de ações da IA do plano no mês
         copy = await _write_copy(client_id, p, brand)
         payload = {**p["payload"], **({"subject": copy.get("subject"), "text": copy.get("text")} if p["kind"] == "campanha_reativacao" else {})}
-        await sb_insert(TABLE, {"client_id": client_id, "kind": p["kind"], "dedupe_key": p["dedupe_key"], "title": copy["title"][:200],
-                                "rationale": copy["rationale"][:2000], "evidence": p["evidence"], "payload": payload})
+        row = await sb_insert(TABLE, {"client_id": client_id, "kind": p["kind"], "dedupe_key": p["dedupe_key"], "title": copy["title"][:200],
+                                      "rationale": copy["rationale"][:2000], "evidence": p["evidence"], "payload": payload})
         created += 1
-    return {"created": created, "checked": len(proposals)}
+        if p["kind"] in AUTO_KINDS and row and row.get("id"):
+            try:
+                await _apply(client_id, {**row, "status": "proposta"}, user_id=None, auto=True)
+                executed += 1
+            except Exception as exc:  # noqa: BLE001 — a falha fica gravada na própria ação
+                print(f"[ai_actions] auto_failed client_id={client_id} kind={p['kind']} {type(exc).__name__}")
+    return {"created": created, "executed": executed, "checked": len(proposals)}
 
 
 async def list_actions(client_id: str) -> List[Dict[str, Any]]:
@@ -198,7 +214,7 @@ async def _get(client_id: str, action_id: str) -> Dict[str, Any]:
     return rows[0]
 
 
-async def execute(client_id: str, action: Dict[str, Any], *, user_id: Optional[str]) -> Dict[str, Any]:
+async def execute(client_id: str, action: Dict[str, Any], *, user_id: Optional[str], auto: bool = False) -> Dict[str, Any]:
     from . import cart_recovery, commercial_flows, email_marketing
     kind, payload = action["kind"], action.get("payload") or {}
     if kind == "campanha_reativacao":
@@ -208,14 +224,17 @@ async def execute(client_id: str, action: Dict[str, Any], *, user_id: Optional[s
         campaign = await email_marketing.save_campaign(client_id, {"name": f"Reativação (IA) {_now().strftime('%d/%m')}",
                                                                    "subject": payload.get("subject") or "Sentimos sua falta, {{primeiro_nome}}",
                                                                    "design": design, "audience": payload.get("audience")}, user_id=user_id)
-        await email_marketing.schedule(client_id, campaign["id"], None)
-        return {"campaign_id": campaign["id"]}
+        when = (_now() + timedelta(hours=REACTIVATION_DELAY_HOURS)).isoformat() if auto else None
+        await email_marketing.schedule(client_id, campaign["id"], when)
+        return {"campaign_id": campaign["id"], **({"scheduled_at": when} if when else {})}
     if kind == "ligar_fluxo":
         flow = await commercial_flows.save_flow(client_id, payload.get("flow") or "segunda_compra",
                                                 {"enabled": True, "channel": "email", "delay_days": payload.get("delay_days") or 30}, user_id=user_id)
         return {"flow": flow["kind"], "delay_days": flow["delay_days"]}
     if kind == "ligar_carrinho":
-        hooks = await cart_recovery.register_webhooks(client_id)
+        from .commerce_context import resolve_commerce_provider
+        provider = str((await resolve_commerce_provider(client_id)).get("provider") or "").lower()
+        hooks = await cart_recovery.register_webhooks(client_id) if provider == "shopify" else {"inbound": True}
         await cart_recovery.save_settings(client_id, {"enabled": True, "steps": payload.get("steps")}, user_id=user_id)
         return {"webhooks": hooks}
     return {}
@@ -225,18 +244,26 @@ async def decide(client_id: str, action_id: str, decision: str, *, user_id: Opti
     action = await _get(client_id, action_id)
     if action["status"] != "proposta":
         raise ActionError("ALREADY_DECIDED", "Esta ação já foi decidida.", 409)
-    stamp = _now().isoformat()
-    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{action_id}"}
     if decision == "rejeitar":
-        await sb_update(TABLE, filters=filters, patch={"status": "rejeitada", "decided_by": user_id, "decided_at": stamp}, returning="minimal")
+        await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{action_id}"},
+                        patch={"status": "rejeitada", "decided_by": user_id, "decided_at": _now().isoformat()}, returning="minimal")
         return await _get(client_id, action_id)
     if decision != "aprovar":
         raise ActionError("INVALID_DECISION", "Decisão inválida.")
+    return await _apply(client_id, action, user_id=user_id)
+
+
+async def _apply(client_id: str, action: Dict[str, Any], *, user_id: Optional[str], auto: bool = False) -> Dict[str, Any]:
+    action_id = action["id"]
+    stamp = _now().isoformat()
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{action_id}", "status": "eq.proposta"}
     if action["kind"] == "alerta_cac":
         await sb_update(TABLE, filters=filters, patch={"status": "ciente", "decided_by": user_id, "decided_at": stamp}, returning="minimal")
         return await _get(client_id, action_id)
     try:
-        result = await execute(client_id, action, user_id=user_id)
+        result = await execute(client_id, action, user_id=user_id, auto=auto)
+        if auto:
+            result = {**result, "auto": True}
     except Exception as exc:  # noqa: BLE001
         message = getattr(exc, "message", None) or "A execução falhou. Nada foi enviado."
         await sb_update(TABLE, filters=filters, patch={"status": "falhou", "decided_by": user_id, "decided_at": stamp, "error": str(message)[:500]},

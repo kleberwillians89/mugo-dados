@@ -113,9 +113,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   function remove(ids: string[]) {
     if (!ids.length) return;
     const who = ids.length === 1 ? `@${creators.find((c) => c.id === ids[0])?.handle || "criador"}` : `${ids.length} criadores`;
-    const ok = window.confirm(isAgency
-      ? `Excluir ${who} do banco de criadores? Sai para todas as empresas, junto com as métricas e as shortlists.`
-      : `Excluir ${who} da lista de criadores da ${clientName || "empresa"}?`);
+    const ok = window.confirm(`Excluir ${who} da lista de criadores da ${clientName || "empresa"}? As outras marcas não são afetadas.`);
     if (!ok) return;
     run("other", async () => {
       for (const id of ids) await deleteCreator(id);
@@ -264,8 +262,8 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </section> : null}
 
       <section className="creatorCard" aria-labelledby="creator-bank">
-        <header><h2 id="creator-bank">Banco de criadores · {creators.length}</h2></header>
-        {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador no banco ainda. Analise um @, descubra por hashtag ou peça sugestões à IA."
+        <header><h2 id="creator-bank">Criadores da {clientName || "marca"} · {creators.length}</h2></header>
+        {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador pesquisado para esta marca ainda. Analise um @, descubra por hashtag ou peça sugestões à IA. O que cada marca pesquisa fica só nela."
           : canAct ? "Nenhum criador da sua empresa ainda. Analise um @ ou peça sugestões à IA." : "A Mugô ainda não selecionou criadores para a sua empresa."}</p> :
           <div className="creatorScroll"><table className="ds-table creatorTable">
             <thead><tr><th><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : creators.map((c) => c.id))} aria-label="Selecionar todos" /></th><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>

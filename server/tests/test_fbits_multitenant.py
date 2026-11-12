@@ -510,20 +510,44 @@ class SyncTests(SyncHarness):
         self.assertEqual(daily["2026-07-10"]["pedidos"], 1)
         self.assertEqual(daily["2026-09-20"]["pedidos"], 0)  # cancelado não entra na receita
 
-    async def test_incremental_uses_marker_minus_two_hours_and_data_alteracao(self):
+    async def test_incremental_reads_changed_and_created_with_wide_margin(self):
+        """Pedido novo que nunca mudou de status entra pela passada por DataPedido; folga de 6 h para trás e
+        4 h para frente cobre a loja em horário de Brasília (a FBITS lê a data sem fuso)."""
         marker = NOW - timedelta(hours=6)
         db = FakeDb([connection_row(metadata={
             **connection_row()["metadata"],
             "history_completed_at": (NOW - timedelta(days=1)).isoformat(),
             "incremental_marker": marker.isoformat(),
+            "recheck_at": (NOW - timedelta(hours=1)).isoformat(), "recheck_v2": True,
         })])
         api = FakeFbitsApi([order(7, data=(NOW - timedelta(hours=3)).isoformat())])
         result, error, _logs = await self.run_sync(db, api)
         self.assertIsNone(error)
         self.assertEqual(result["mode"], "incremental")
-        params = dict(next(r for r in api.requests if r.url.path == "/pedidos").url.params)
-        self.assertEqual(params["enumTipoFiltroData"], "DataAlteracao")
-        self.assertEqual(params["dataInicial"], (marker - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"))
+        pedidos = [dict(r.url.params) for r in api.requests if r.url.path == "/pedidos"]
+        self.assertEqual({p["enumTipoFiltroData"] for p in pedidos}, {"DataAlteracao", "DataPedido"})
+        self.assertEqual(pedidos[0]["dataInicial"], (marker - timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(pedidos[0]["dataFinal"], (NOW + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(result["orders_upserted"], 2)  # o mesmo pedido lido nas duas passadas: upsert idempotente
+        self.assertEqual(len(await db.select("fbits_orders", filters={"client_id": "eq.curavino"})), 1)
+
+    async def test_daily_recheck_rereads_last_days_by_order_date(self):
+        db = FakeDb([connection_row(metadata={
+            **connection_row()["metadata"],
+            "history_completed_at": (NOW - timedelta(days=30)).isoformat(),
+            "incremental_marker": (NOW - timedelta(minutes=30)).isoformat(),
+        })])
+        api = FakeFbitsApi([])
+        await self.run_sync(db, api)
+        starts = [dict(r.url.params)["dataInicial"] for r in api.requests if r.url.path == "/pedidos"]
+        self.assertIn((NOW - timedelta(days=45)).strftime("%Y-%m-%d %H:%M:%S"), starts)  # primeira vez: 45 dias
+        meta = db.connections[0]["metadata"]
+        self.assertTrue(meta["recheck_v2"])
+        self.assertEqual(meta["recheck_at"], NOW.isoformat())
+        api2 = FakeFbitsApi([])
+        await self.run_sync(db, api2)
+        self.assertNotIn((NOW - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S"),
+                         [dict(r.url.params)["dataInicial"] for r in api2.requests if r.url.path == "/pedidos"])  # já releu hoje
 
     async def test_resync_is_idempotent(self):
         api = FakeFbitsApi([order(1, data="2026-09-20T10:00:00Z")])

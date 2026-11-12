@@ -73,13 +73,13 @@ describe("AppNavigation — sidebar global", () => {
       "Mugoverso IA", "Central da Marca", "Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
-      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "Ações da IA", "Plano e implantação", "Mídia On",
+      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "O que a IA fez", "Mídia On",
       "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
-      "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Planos e cobrança", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
+      "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações", "IA da marca",
     ]);
-    expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
+    expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(1);
     expect(link("Radar Cultural")?.getAttribute("href")).toBe("/radar");
     expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
@@ -186,7 +186,7 @@ describe("AppNavigation — sidebar global", () => {
   it("administração exibe somente os itens permitidos pelas regras existentes", async () => {
     await render({ canManageIntegrations: false });
     expect(link("Integrações")).toBeUndefined();
-    expect(groupLinks("Administração")).toEqual(["IA da marca", "Central da Marca"]);
+    expect(groupLinks("Administração")).toEqual(["IA da marca"]);
     expect(link("Empresas")).toBeUndefined();
     expect(link("Automações")).toBeUndefined();
 

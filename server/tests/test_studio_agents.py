@@ -4,7 +4,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services import studio_agents as ag
@@ -203,12 +203,30 @@ class RunControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("interrompida", run["error"])
         self.assertEqual(upd.await_args.kwargs["patch"]["status"], "falhou")
 
-    async def test_needs_pillars_and_platforms(self):
+    async def test_needs_pillars_when_the_ai_cannot_fill_them(self):
         with patch.object(ag, "sb_select", AsyncMock(return_value=[])), \
+             patch("services.studio_brand_brain.suggest", AsyncMock(side_effect=RuntimeError("sem IA"))), \
              patch.object(ag, "load_profile", AsyncMock(return_value={"profile": {"pillars": [], "editorial_platforms": ["instagram"]}})):
             with self.assertRaises(StudioError) as raised:
                 await ag.start_run("roove", user_id="u1")
         self.assertEqual(raised.exception.code, "MATRIX_PILLARS_REQUIRED")
+
+    async def test_empty_profile_is_filled_by_the_brand_ai_and_saved(self):
+        suggested = {"profile": {"pillars": [{"name": "Rótulos", "weight": 40}], "tone_of_voice": "próximo", "editorial_platforms": []}}
+        saved_profile = {"pillars": [{"name": "Rótulos", "weight": 40}], "tone_of_voice": "manual", "editorial_platforms": ["instagram"]}
+        with patch.object(ag, "load_profile", AsyncMock(return_value={"profile": {"pillars": [], "tone_of_voice": "manual", "editorial_platforms": []}})), \
+             patch("services.studio_brand_brain.suggest", AsyncMock(return_value=suggested)), \
+             patch("services.studio_calendar.save_profile", AsyncMock(return_value={"profile": saved_profile})) as save, \
+             patch.object(ag, "latest_run", AsyncMock(return_value=None)), \
+             patch.object(ag, "sb_insert", AsyncMock(return_value={"id": "r9", "status": "rodando"})), \
+             patch.object(ag, "_background", MagicMock(side_effect=lambda coro: coro.close())), \
+             patch.object(ag, "execute", MagicMock(return_value=MagicMock(close=lambda: None))):
+            run = await ag.start_run("roove", user_id="u1")
+        self.assertEqual(run["id"], "r9")
+        stored = save.await_args.args[1]
+        self.assertEqual(stored["pillars"][0]["name"], "Rótulos")
+        self.assertEqual(stored["tone_of_voice"], "manual")  # o que a equipe escreveu fica
+        self.assertEqual(stored["editorial_platforms"], ["instagram"])
 
 
 class SuggestionTests(unittest.IsolatedAsyncioTestCase):

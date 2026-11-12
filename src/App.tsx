@@ -976,7 +976,7 @@ function PrivateApp() {
         <EmailMarketing key={`email:${activeClientId}`} />
       ) : route === "ai_actions" ? (
         <AiActions key={`ai-actions:${activeClientId}`} />
-      ) : route === "plan" ? (
+      ) : route === "plan" && (platformAdmin || agencyAdmin) ? (
         <Plan key={`plan:${activeClientId}`} />
       ) : route === "plans_admin" && (platformAdmin || agencyAdmin) ? (
         <PlansAdmin />

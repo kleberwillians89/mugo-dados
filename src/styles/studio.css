@@ -1421,20 +1421,27 @@
 .briefSection{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border,#eeebe5);padding-top:12px}
 .briefSection h3{margin:0;font-size:14px}
 .briefSection summary{cursor:pointer;font-size:13px;font-weight:600}
-.briefDestinations{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
-.briefDestinations li{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border:1px solid var(--border,#e3dfd7);border-radius:10px;padding:10px 12px}
-.briefDestinations li div{display:flex;flex-direction:column;gap:2px;min-width:0}
-.briefDestinations li small{font-size:12px;color:var(--text-secondary,#5f5b53)}
-.briefDestinations li a{font-size:12px}
+.briefDestinations{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.briefDestinations li{display:flex;flex-direction:column;justify-content:space-between;gap:10px;border:1px solid var(--border,#e3dfd7);border-radius:12px;padding:12px 14px;background:#fff;min-height:118px}
+.briefDestinations li div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.briefDestinations li b{font-size:14px}
+.briefDestinations li small{font-size:12px;line-height:1.45;color:var(--text-secondary,#5f5b53);overflow-wrap:anywhere}
+.briefDestinations li a{font-size:12px;font-weight:600}
+.briefDestinations li .ds-button{align-self:flex-start}
 .briefDestinations li.is-suggested{border-color:#b98a2c;background:#fffaf0}
 .briefDestinations li.is-done{border-color:#9fd0b0;background:#f3faf5}
-.briefPerson{display:grid;grid-template-columns:minmax(160px,1.3fr) 1fr 140px 1fr auto;gap:8px;align-items:center}
-.briefPersonRole{display:flex;flex-direction:column;gap:2px;font-size:13px}
-.briefPersonRole small{font-size:12px;color:var(--text-secondary,#5f5b53)}
-.briefAddRole{display:flex;gap:8px;align-items:center;font-size:13px}
+.briefPeople{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.briefPerson{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border,#e3dfd7);border-radius:12px;padding:12px 14px;background:#fff}
+.briefPersonRole{display:flex;flex-direction:column;gap:4px;font-size:14px}
+.briefPersonRole small{font-size:12px;line-height:1.45;color:var(--text-secondary,#5f5b53)}
+.briefPersonForm{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.briefPersonForm input:not([type=date]){grid-column:1 / -1}
+.briefPersonForm .ds-button{grid-column:1 / -1;justify-self:end}
+.briefPerson select,.briefPerson input{min-width:0;width:100%;box-sizing:border-box}
+.briefAddRole{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text-secondary,#5f5b53)}
 .briefRequest{white-space:pre-wrap;font-size:13px;margin:6px 0 0}
 .briefArchive{align-self:flex-start;font-size:12px}
-@media (max-width:900px){.briefLayout{grid-template-columns:1fr}.briefList{position:static}.briefPerson{grid-template-columns:1fr 1fr}.briefFacts{grid-template-columns:1fr}}
+@media (max-width:900px){.briefLayout{grid-template-columns:1fr}.briefList{position:static}.briefPeople{grid-template-columns:1fr}.briefFacts{grid-template-columns:1fr}}
 
 /* ---------------------------------------------------------------- Biblioteca */
 .libHint{color:var(--text-secondary,#5f5b53);font-size:13px}

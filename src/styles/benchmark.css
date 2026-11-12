@@ -84,3 +84,4 @@
 .bmAdLinks{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
 .bmGrid input,.bmGrid select{width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--id-line,rgba(21,24,27,.13));border-radius:var(--id-field-radius,12px);background:#fff;font:inherit;font-size:14px;color:var(--text-primary,#15181b)}
 .bmGrid input:focus,.bmGrid select:focus{outline:none;border-color:var(--id-accent,#004f6e);box-shadow:0 0 0 3px var(--id-accent-soft,#eef6f9)}
+.bmAuto{align-self:flex-start;margin:4px 0 8px}

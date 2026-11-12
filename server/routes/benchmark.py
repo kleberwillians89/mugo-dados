@@ -193,6 +193,18 @@ async def add_evidence(
     return saved
 
 
+@router.post("/competitors/auto")
+async def auto_competitors(
+    client_id: str, force: bool = Query(default=False),
+    authorization: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    """A IA já deixa a lista de concorrentes pronta (Clipping + contexto do negócio). Só age sem concorrente ativo,
+    salvo force=true (botão "Sugerir mais")."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    from services import benchmark_auto
+    return await benchmark_auto.ensure_competitors(cid, force=force)
+
+
 @router.delete("/competitors/{competitor_id}")
 async def remove_competitor(
     client_id: str, competitor_id: UUID,

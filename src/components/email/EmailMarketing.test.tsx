@@ -61,12 +61,14 @@ describe("E-mail marketing", () => {
     expect(host.textContent).toContain("Recuperação de carrinho salva.");
   });
 
-  it("carrinho: loja que não é Shopify recebe explicação, sem formulário", async () => {
-    api.getCartRecovery.mockResolvedValue({ ...CART_FIXTURE, provider: "fbits" });
+  it("carrinho: loja Wake/FBITS recebe o endereço do webhook e a mesma sequência", async () => {
+    api.getCartRecovery.mockResolvedValue({ ...CART_FIXTURE, provider: "fbits", inbound_url: "https://api.x/api/cart-recovery/inbound/c/abc" });
     await act(async () => { root.render(<CartRecoveryPanel canEdit />); });
     await flush();
-    expect(host.textContent).toContain("funciona com lojas Shopify");
-    expect(host.querySelector(".emSteps")).toBeNull();
+    expect(host.textContent).toContain("Wake/FBITS");
+    expect(host.querySelector(".emInboundUrl code")?.textContent).toBe("https://api.x/api/cart-recovery/inbound/c/abc");
+    expect(host.querySelector(".emSteps")).not.toBeNull();
+    expect(host.textContent).not.toContain("Ligar aviso de checkout na Shopify");
   });
 
   it("campanhas: lista com taxas e abre o editor com o público", async () => {

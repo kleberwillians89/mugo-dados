@@ -35,6 +35,10 @@ export const addBenchmarkCompetitor = (body: { name: string; website?: string | 
   http<BenchmarkCompetitor>(path("/competitors"), { method: "POST", body: JSON.stringify(body) });
 export const addBenchmarkEvidence = (body: { competitor_id: string; category: BenchmarkCategory; title: string; source_url: string; observation?: string | null }) =>
   http<BenchmarkEvidence>(path("/evidence"), { method: "POST", body: JSON.stringify(body) });
+export type BenchmarkAutoResult = { status: "feito" | "nada_novo" | "ja_tem" | "aguardando" | "limite_do_plano" | "sem_ia"; added: (BenchmarkCompetitor & { why?: string | null })[] };
+// A IA monta a lista (Clipping + contexto do negócio). Sem force, só age quando não há concorrente ativo.
+export const autoBenchmarkCompetitors = (force = false) =>
+  http<BenchmarkAutoResult>(path(`/competitors/auto${force ? "?force=true" : ""}`), { method: "POST", timeoutMs: 90_000 });
 export const removeBenchmarkCompetitor = (id: string) =>
   http<{ removed: string }>(path(`/competitors/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const refreshBenchmarkInstagram = () =>
