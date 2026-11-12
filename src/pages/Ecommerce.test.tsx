@@ -204,7 +204,7 @@ describe("Ecommerce — resolução do provider pela conexão do tenant ativo", 
     // A fonte dos números aparece uma vez, no cabeçalho da empresa.
     expect(container.querySelector('[data-testid="ecommerce-source"]')?.textContent).toContain("FBITS");
     // Onde estou: empresa › página (a marca da empresa vive na sidebar global).
-    expect(container.querySelector(".ds-pageEyebrow")?.textContent).toBe("Curavino");
+    expect(container.querySelector(".ds-pageEyebrow")).toBeNull();
     expect(container.querySelector("h1.ds-pageTitle")?.textContent).toBe("Ecommerce");
     expect(container.textContent).toContain("FBITS conectado");
     // Estado vazio simples: sem linguagem de pipeline/importação.

@@ -1444,7 +1444,6 @@ export default function Onboarding({
         {/* Onde estou: empresa › Integrações. Marca do produto e conta vivem na sidebar. */}
         <header className="ds-pageHeader integrationsHeader">
           <div className="ds-pageHeaderIdentity">
-            <p className="ds-pageEyebrow">{getActiveClientName()}</p>
             <h1 className="ds-pageTitle">Integrações</h1>
             <p className="ds-dateline">
               <span>{connectionSummary.connected} {connectionSummary.connected === 1 ? "conectada" : "conectadas"}</span>

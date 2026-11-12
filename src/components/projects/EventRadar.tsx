@@ -1,7 +1,8 @@
+import { CloudRain, Snowflake, Sun, TriangleAlert, Wind, type LucideIcon } from "lucide-react";
 import { refreshEventRadar, type EventRadar as Radar, type Project } from "../../app/projects";
 
 type Run = <T>(key: string, fn: () => Promise<T>, fallback: string) => Promise<T | null>;
-const ALERT_ICON: Record<string, string> = { chuva: "☔", calor: "☀", frio: "❄", vento: "💨" };
+const ALERT_ICON: Record<string, LucideIcon> = { chuva: CloudRain, calor: Sun, frio: Snowflake, vento: Wind };
 const fmt = (n?: number | null, unit = "") => (n == null ? "—" : `${Math.round(n)}${unit}`);
 const day = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "");
 
@@ -41,7 +42,7 @@ export default function EventRadar({ project, busy, run, onChange }: { project: 
       </div> : null}
       {w.tipo === "passou" ? <p className="libHint">A data do evento já passou.</p> : null}
       {radar.alertas?.length ? <ul className="evAlerts">{radar.alertas.map((a) => <li key={a.tipo} className={`is-${a.gravidade}`}>
-        <span aria-hidden="true">{ALERT_ICON[a.tipo] || "!"}</span>{a.texto}</li>)}</ul> : null}
+        {(() => { const Icon = ALERT_ICON[a.tipo] || TriangleAlert; return <Icon className="uiGlyph" size={14} aria-hidden="true" />; })()}{a.texto}</li>)}</ul> : null}
       {radar.noticias?.length ? <details className="evNews" open={Boolean(radar.alertas?.length)}><summary>Notícias da região ({radar.noticias.length}, últimos 7 dias)</summary>
         <ul>{radar.noticias.map((n) => <li key={n.link}><a href={n.link} target="_blank" rel="noreferrer noopener">{n.manchete} ↗</a>
           <small>{[n.fonte, day(n.data), n.tema === "clima" ? "clima" : "cidade"].filter(Boolean).join(" · ")}</small></li>)}</ul></details>

@@ -1,3 +1,4 @@
+import { ShoppingBag } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   STUDIO_FORMATS, STUDIO_STATUS, addItemComment, addItemReference, deleteReference, listItemComments, listItemReferences, localParts, uploadReference,
@@ -135,7 +136,7 @@ export default function PostReview({ item, handle, busy, error, onClose, onDecid
   </div>;
   const media = <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${item.format}${art ? " has-art" : ""}`}>
     {!vertical ? <span className="igFormat">{STUDIO_FORMATS[item.format]}</span> : null}
-    {item.product_tags?.length && item.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados">🛍 {item.product_tags.length}</span> : null}
+    {item.product_tags?.length && item.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {item.product_tags.length}</span> : null}
     {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} />
       : <p className="igCover">{folder ? "A arte está numa pasta do Drive: a equipe vai trocar pelo arquivo." : item.hook || item.title}</p>}
   </div>;

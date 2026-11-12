@@ -1,3 +1,4 @@
+import { Star } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   LINK_STATUS_LABELS, brl, createSupplier, deleteSupplier, eventSuppliersToBudget, linkEventSupplier, listEventSuppliers, listSuppliers,
@@ -64,7 +65,7 @@ export function SupplierBook({ busy, run }: { busy: string | null; run: Run }) {
       <label>E-mail<input type="email" maxLength={200} value={editing.email || ""} onChange={set("email")} /></label>
       <label>Site ou Instagram<input maxLength={300} value={editing.website || ""} onChange={set("website")} /></label>
       <label>Nota<select value={editing.rating || ""} onChange={(e) => setEditing({ ...editing, rating: e.target.value ? Number(e.target.value) : null })}>
-        <option value="">Sem nota</option>{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{"★".repeat(n)}</option>)}</select></label>
+        <option value="">Sem nota</option>{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} de 5</option>)}</select></label>
       <label className="projWide">Observações<textarea rows={2} maxLength={1000} value={editing.notes || ""} onChange={set("notes")} /></label>
       <div className="postBriefingActions projWide">
         <button className="ds-button is-primary" disabled={busy !== null}>{busy === "sup:save" ? "Salvando…" : "Salvar"}</button>
@@ -75,7 +76,7 @@ export function SupplierBook({ busy, run }: { busy: string | null; run: Run }) {
     {!loading && !suppliers.length && !editing ? <div className="libEmpty"><p>Nenhum fornecedor ainda. Cadastre buffet, foto, vídeo, som e luz, estrutura…</p></div> : null}
     {visible.length ? <table className="projTable supTable"><thead><tr><th>Fornecedor</th><th>Categoria</th><th>Cidade</th><th>Preço</th><th>Contato</th><th /></tr></thead>
       <tbody>{visible.map((s) => <tr key={s.id}>
-        <td><b>{s.name}</b>{s.rating ? <small className="supStars"> {"★".repeat(s.rating)}</small> : null}{s.notes ? <small className="libHint"><br />{s.notes}</small> : null}</td>
+        <td><b>{s.name}</b>{s.rating ? <small className="supStars" aria-label={`Nota ${s.rating} de 5`}> {Array.from({ length: s.rating }, (_, i) => <Star key={i} className="uiGlyph" size={12} aria-hidden="true" />)}</small> : null}{s.notes ? <small className="libHint"><br />{s.notes}</small> : null}</td>
         <td>{categories[s.category] || s.category}</td><td>{s.city || "—"}</td><td>{s.price_note || "—"}</td>
         <td>{[s.contact_name, s.phone, s.email].filter(Boolean).join(" · ") || "—"}{s.website ? <> · <a href={s.website} target="_blank" rel="noreferrer noopener">site ↗</a></> : null}</td>
         <td className="supActions"><button type="button" className="ds-link" onClick={() => setEditing({ ...s })}>Editar</button>

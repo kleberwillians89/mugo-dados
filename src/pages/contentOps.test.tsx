@@ -233,7 +233,7 @@ describe("Social Media: Matriz de conteúdo", () => {
     api.getMatrix.mockResolvedValue({ matrix: matrix([opp("a", { format: "carrossel" })]) });
     api.createOpportunityContent.mockResolvedValue({ opportunity: opp("a", { format: "carrossel", script: "Slide 1: capa", visual_idea: "Frasco em fundo neutro" }) });
     await show(<Campaigns />);
-    await act(async () => { byText("✦ Criar conteúdo").click(); }); await act(async () => {});
+    await act(async () => { byText("Criar conteúdo").click(); }); await act(async () => {});
     expect(api.createOpportunityContent).toHaveBeenCalledWith("m1", "a", undefined);
     expect(host.textContent).toContain("✓ Legenda, roteiro e ideia de imagem");
   });

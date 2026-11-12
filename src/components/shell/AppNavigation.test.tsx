@@ -79,7 +79,7 @@ describe("AppNavigation — sidebar global", () => {
 
   it("menu enxuto: 8 grupos + Configurações, com todas as telas de antes como subitens e as mesmas rotas", async () => {
     await render({ agencyAdmin: true });
-    expect(groupNames()).toEqual(["Início", "Mugoverso IA", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
+    expect(groupNames()).toEqual(["Mugoverso IA", "Início", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
     expect(groupLinks("inicio")).toEqual(["Central da Marca", "Saúde da Marca", "O que a IA fez"]);
     expect(groupLinks("ia")).toEqual(["Mugoverso IA"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);

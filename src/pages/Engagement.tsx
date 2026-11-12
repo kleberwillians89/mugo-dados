@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import RepliedPosts from "../components/studio/RepliedPosts";
 import DirectPanel from "../components/studio/DirectPanel";
@@ -196,7 +197,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
               <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !draft.text.trim()} onClick={() => void send(c)}>{busy === `r:${c.comment_id}` ? "Enviando…" : "Enviar"}</button>
             </div>
           </div> : <div className="studioActions">
-            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggest(c)}>{busy === `s:${c.comment_id}` ? "Pensando…" : "✦ Sugerir resposta"}</button>
+            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void suggest(c)}>{busy === `s:${c.comment_id}` ? "Pensando…" : <><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Sugerir resposta</>}</button>
             <button type="button" className="studioLink" onClick={() => setDrafts((d) => ({ ...d, [c.comment_id]: { text: "", direct: false } }))}>Responder</button>
           </div>}
         </li>;
@@ -230,7 +231,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         {broadKeywords(r.keywords).length ? <p className="clipWarn">“{broadKeywords(r.keywords).join("”, “")}” é comum demais: o gatilho dispara em quase todo comentário (ex.: “eu amei”). Edite e deixe só a palavra da legenda.</p> : null}
         {hasWrappedLink(r.dm_message) || hasWrappedLink(r.public_reply) ? <p className="clipWarn">O link está entre chaves {"{ }"} e vai assim no Direct. Clique em Editar e salve de novo: o MUGOVERSO tira as chaves.</p> : null}
         {r.public_reply ? <p><small>Resposta no post:</small> {r.public_reply}</p> : null}
-        {r.ai_greeting ? <p><small>Direct:</small> ✦ oi feito pela IA no tom do perfil{r.dm_message ? <> + {r.dm_message}</> : null}</p>
+        {r.ai_greeting ? <p><small>Direct:</small> <Sparkles className="uiGlyph" size={13} aria-hidden="true" /> oi feito pela IA no tom do perfil{r.dm_message ? <> + {r.dm_message}</> : null}</p>
           : r.dm_message ? <p><small>Direct:</small> {r.dm_message}</p> : null}
         <div className="studioActions">
           <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void toggle(r)}>{r.active ? "Desligar" : "Ligar"}</button>
@@ -246,7 +247,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
         <label>Palavras-chave (separadas por vírgula; maiúscula e acento não importam)<input required value={editing.keywordsText} onChange={(e) => setEditing({ ...editing, keywordsText: e.target.value })} placeholder="quero, link, preço" /></label>
         <label>Só neste post (ID do post; vazio = todos)<input value={editing.media_id || ""} pattern="[0-9]{5,40}" onChange={(e) => setEditing({ ...editing, media_id: e.target.value })} /></label>
         <label>Resposta no comentário (pública, curta)<textarea rows={2} maxLength={300} value={editing.public_reply || ""} onChange={(e) => setEditing({ ...editing, public_reply: e.target.value })} /></label>
-        <label className="studioCheck"><input type="checkbox" checked={Boolean(editing.ai_greeting)} onChange={(e) => setEditing({ ...editing, ai_greeting: e.target.checked })} /> ✦ Oi feito pela IA no Direct (a IA escreve o oi no tom do perfil da marca, ligado ao comentário e ao post)</label>
+        <label className="studioCheck"><input type="checkbox" checked={Boolean(editing.ai_greeting)} onChange={(e) => setEditing({ ...editing, ai_greeting: e.target.checked })} /> <Sparkles className="uiGlyph" size={13} aria-hidden="true" /> Oi feito pela IA no Direct (a IA escreve o oi no tom do perfil da marca, ligado ao comentário e ao post)</label>
         <label>{editing.ai_greeting ? "O que o Direct precisa levar (opcional: link, cupom; a IA escreve o oi em volta)" : "Mensagem no Direct"}<textarea rows={4} maxLength={1000} value={editing.dm_message || ""} onChange={(e) => setEditing({ ...editing, dm_message: e.target.value })} placeholder={editing.ai_greeting ? "https://…" : "Oi {nome}! Aqui está o link: https://…"} /></label>
         {broadKeywords(editing.keywordsText.split(/[,\n]/)).length ? <p className="clipWarn" role="status">“{broadKeywords(editing.keywordsText.split(/[,\n]/)).join("”, “")}” é comum demais e dispara em quase todo comentário. Use só a palavra que a legenda pede.</p> : null}
         {hasLinkPlaceholder(editing) ? <p className="clipWarn" role="status">Troque <code>{"{LINK}"}</code> pelo link de verdade antes de salvar.</p> : null}

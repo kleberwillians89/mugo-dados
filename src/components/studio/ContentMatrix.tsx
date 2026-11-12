@@ -1,3 +1,4 @@
+import { Send, Sparkles, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Drawer from "../Drawer";
 import { BRAND_PROFILE_SAVED, getBrandProfile, STUDIO_FORMATS, type BrandProfile, type StudioFormat } from "../../app/studio";
@@ -305,15 +306,15 @@ function OpportunityCard({ op, weekStart, busy, canManage, onEdit, onStatus, onT
         <button type="button" title="Copiar" aria-label={`Copiar ${op.title}`} onClick={onCopy}>⧉</button>
         <button type="button" title="Legenda, roteiro e detalhes" aria-label={`Detalhes de ${op.title}`} onClick={onEdit}>✎</button>
         {canManage && !locked && op.status !== "descartada" ? <button type="button" title="Enviar ao Calendário" aria-label={`Enviar ${op.title} ao Calendário`}
-          disabled={Boolean(busy)} onClick={onExport}>➤</button> : null}
+          disabled={Boolean(busy)} onClick={onExport}><Send className="uiGlyph" size={14} aria-hidden="true" /></button> : null}
       </span>
     </header>
     {canManage ? <InlineTitle key={op.title} op={op} disabled={Boolean(busy)} onSave={onTitle} />
       : <p className="matrixCardText">{op.title}</p>}
-    {op.guard?.length ? <p className="clipWarn">⚠ {op.guard[0].fix}</p> : null}
+    {op.guard?.length ? <p className="clipWarn"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> {op.guard[0].fix}</p> : null}
     {hasContent(op) ? <button type="button" className="matrixContentReady" onClick={onEdit}>✓ Legenda, roteiro e ideia de imagem</button>
       : canManage && op.status !== "exportada" && op.status !== "descartada"
-        ? <button type="button" className="matrixCreate" disabled={Boolean(busy)} onClick={onCreate}>{busy === `c:${op.id}` ? "Criando…" : "✦ Criar conteúdo"}</button> : null}
+        ? <button type="button" className="matrixCreate" disabled={Boolean(busy)} onClick={onCreate}>{busy === `c:${op.id}` ? "Criando…" : <><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Criar conteúdo</>}</button> : null}
     <footer>
       {locked ? <span className="studioChip is-on">✓ No Calendário</span> : canManage ? <>
         <label className="studioCheck"><input type="checkbox" checked={op.status === "selecionada"} disabled={Boolean(busy)}
@@ -384,13 +385,13 @@ function OpportunityDrawer({ op, busy, canManage, pillars, platforms, weekStart,
       {!locked && !isNew ? <div className="matrixCreatePanel">
         <div><b>Criar o conteúdo com a IA</b><small>Legenda, roteiro ({draft.format === "carrossel" ? "texto de cada slide" : draft.format === "stories" ? "telas" : draft.format === "imagem" ? "texto da arte" : "cenas"}) e ideia de imagem, no tom da marca. Use o campo abaixo para pedir algo específico.</small></div>
         <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || dirty} title={dirty ? "Salve ou descarte as edições antes" : undefined}
-          onClick={() => void onCreate(ask)}>{busy === `c:${op.id}` ? "Criando…" : hasContent(op) ? "✦ Criar de novo" : "✦ Criar conteúdo"}</button>
+          onClick={() => void onCreate(ask)}>{busy === `c:${op.id}` ? "Criando…" : hasContent(op) ? <><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Criar de novo</> : <><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Criar conteúdo</>}</button>
       </div> : null}
       <label>Legenda<textarea rows={6} maxLength={4000} value={draft.caption_draft || ""} disabled={locked} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
       <label>Roteiro<textarea rows={7} maxLength={4000} value={draft.script || ""} disabled={locked} placeholder="Cenas do vídeo, slides do carrossel, telas do Stories ou texto da arte" onChange={(e) => set({ script: e.target.value })} /></label>
       <label>Ideia de imagem<textarea rows={4} maxLength={2000} value={draft.visual_idea || ""} disabled={locked} placeholder="Direção da arte: cena, enquadramento, cores, texto na arte" onChange={(e) => set({ visual_idea: e.target.value })} /></label>
       <label>Por que esta pauta<textarea rows={2} maxLength={1200} value={draft.rationale || ""} disabled={locked} onChange={(e) => set({ rationale: e.target.value })} /></label>
-      {(op.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn">⚠ {g.fix}</p>)}
+      {(op.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> {g.fix}</p>)}
       {!locked ? <>
         {!isNew ?
         <div className="pieceAsk">

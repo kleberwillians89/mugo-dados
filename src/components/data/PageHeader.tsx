@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 type Props = {
-  /** Empresa analisada — a marca já está na sidebar; aqui, só o nome. */
+  /** Empresa analisada. Não aparece mais acima do título (a marca já está no seletor da sidebar);
+   *  o prop fica para não mexer nas páginas. */
   company?: string | null;
   /** Nome da página (único h1). */
   title: string;
@@ -21,11 +22,10 @@ type Props = {
  * Cabeçalho comum das páginas: onde estou (empresa › página) à esquerda,
  * período à direita. Nada de marca do produto nem navegação aqui.
  */
-export default function PageHeader({ company, title, subnav, dateline, controls, panel, controlsNote }: Props) {
+export default function PageHeader({ title, subnav, dateline, controls, panel, controlsNote }: Props) {
   return (
     <header className="ds-pageHeader">
       <div className="ds-pageHeaderIdentity">
-        {company ? <p className="ds-pageEyebrow">{company}</p> : null}
         <h1 className="ds-pageTitle">{title}</h1>
         {subnav ? <div className="ds-pageSubnav">{subnav}</div> : null}
         {dateline ? <div className="ds-dateline">{dateline}</div> : null}

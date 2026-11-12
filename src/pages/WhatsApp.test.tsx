@@ -61,7 +61,7 @@ describe("Página WhatsApp", () => {
     await flush();
     expect(api.getWhatsAppInsights).toHaveBeenCalledWith("2026-11-01", "2026-11-09");
     const text = container.textContent || "";
-    expect(text).toContain("Ruah Parfums");
+    expect(document.querySelector(".ds-pageEyebrow")).toBeNull();
     expect(text).toContain("Conversas novas");
     expect(text).toContain("Anúncio no Meta");
     expect(text).toContain("Muita conversa, pouca venda");
