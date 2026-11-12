@@ -1,6 +1,8 @@
 # Ephemeral local Supabase CLI environment. No hosted project, token or organization linkage.
 name: Commercial Supabase CLI integration (local)
 on:
+  push:
+    branches: [feat/commercial-tenant-config-2b1]
   pull_request:
     paths:
       - "supabase/migrations/20270103_000112_saas_plans.sql"
