@@ -269,13 +269,28 @@ async def _close(client_id: str, cart: Dict[str, Any], *, order_id: str, value: 
 # ---------------------------------------------------------------- envio
 
 async def _bought_since(client_id: str, email: Optional[str], since: str) -> Optional[Dict[str, Any]]:
-    """Confere na loja se a pessoa comprou depois do abandono (mesmo sem o checkout ligado ao pedido)."""
+    """Confere na loja se a pessoa comprou depois do abandono (mesmo sem o checkout ligado ao pedido).
+    Shopify e Wake/FBITS (pedidos sincronizados); as duas leituras são independentes."""
     if not email:
         return None
-    rows = await sb_select("shopify_orders", select="shopify_order_id,total_price,created_at_shopify",
-                           filters={"client_id": f"eq.{client_id}", "email": f"ilike.{email}", "created_at_shopify": f"gte.{since}",
-                                    "cancelled_at": "is.null"}, order="created_at_shopify.asc", limit=1)
-    return rows[0] if rows else None
+    try:
+        rows = await sb_select("shopify_orders", select="shopify_order_id,total_price,created_at_shopify",
+                               filters={"client_id": f"eq.{client_id}", "email": f"ilike.{email}", "created_at_shopify": f"gte.{since}",
+                                        "cancelled_at": "is.null"}, order="created_at_shopify.asc", limit=1)
+    except Exception:  # noqa: BLE001
+        rows = []
+    if rows:
+        return rows[0]
+    try:
+        rows = await sb_select("fbits_orders", select="order_id,total_value,order_date",
+                               filters={"client_id": f"eq.{client_id}", "customer_email": f"ilike.{email}", "order_date": f"gte.{since}",
+                                        "is_valid": "is.true"}, order="order_date.asc", limit=1)
+    except Exception:  # noqa: BLE001
+        rows = []
+    if rows:
+        r = rows[0]
+        return {"shopify_order_id": r.get("order_id"), "total_price": r.get("total_value"), "created_at_shopify": r.get("order_date")}
+    return None
 
 
 async def _talked_on_whatsapp(client_id: str, pkey: Optional[str]) -> bool:
@@ -457,8 +472,99 @@ async def overview(client_id: str, days: int = 30) -> Dict[str, Any]:
     from .commerce_context import resolve_commerce_provider
     provider = _text((await resolve_commerce_provider(client_id)).get("provider"), 20).lower() or None
     return {"days": days, "provider": provider, "summary": summarize(carts, touches), "recent": recent, "settings": settings,
+            "inbound_url": inbound_url(client_id) if provider != "shopify" else None,
             "simulated": {"email": not email_resend.send_enabled(),
                           "whatsapp": (os.getenv("WHATSAPP_MARKETING_SEND_ENABLED") or "").strip().lower() != "true"}}
+
+
+# ---------------------------------------------------------------- qualquer plataforma (webhook genérico)
+# Wake/FBITS, Nuvemshop, VTEX, Tray, WooCommerce, Loja Integrada ou um Zapier/Make: a loja (ou a automação) manda
+# o carrinho para o endereço da empresa. O endereço leva um código assinado (HMAC) da empresa: sem login, sem
+# tabela nova, e um código não abre outra empresa.
+
+def inbound_token(client_id: str) -> str:
+    import hashlib
+    import hmac
+    from .crypto import _resolve_secret_material
+    secret = (os.getenv("CART_INBOUND_SECRET") or "").strip() or _resolve_secret_material()
+    return hmac.new(secret.encode(), f"cart-inbound:{client_id}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def inbound_valid(client_id: str, token: str) -> bool:
+    import hmac
+    try:
+        return hmac.compare_digest(inbound_token(client_id), str(token or ""))
+    except RuntimeError:
+        return False
+
+
+def inbound_url(client_id: str) -> Optional[str]:
+    base = email_resend.public_api_url() or _text(os.getenv("RENDER_EXTERNAL_URL"), 300).rstrip("/")
+    try:
+        token = inbound_token(client_id)
+    except RuntimeError:
+        return None
+    path = f"/api/cart-recovery/inbound/{client_id}/{token}"
+    return f"{base}{path}" if base.startswith("https://") else path
+
+
+def _first(payload: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        node: Any = payload
+        for part in key.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        if node not in (None, "", []):
+            return node
+    return None
+
+
+def from_generic(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Formato livre → checkout no formato que minimize entende. Aceita os nomes mais comuns em português e inglês."""
+    name = _text(_first(payload, "first_name", "nome", "customer.first_name", "customer.name", "cliente.nome", "name"), 120)
+    items = []
+    for line in (_first(payload, "items", "itens", "line_items", "produtos", "products") or [])[:20]:
+        if isinstance(line, dict):
+            items.append({"title": _first(line, "title", "name", "nome", "produto", "product_name"),
+                          "variant_title": _first(line, "variant", "variant_title", "variacao", "sku"),
+                          "quantity": _first(line, "quantity", "quantidade", "qty") or 1,
+                          "price": _first(line, "price", "preco", "valor", "unit_price") or 0,
+                          "product_id": _first(line, "product_id", "produto_id", "id")})
+    completed = _first(payload, "completed_at", "order_id", "pedido_id", "converted_at", "comprado_em")
+    return {
+        "id": _first(payload, "id", "cart_id", "checkout_id", "carrinho_id", "token"),
+        "token": _first(payload, "token", "cart_token", "checkout_token"),
+        "email": _first(payload, "email", "customer.email", "cliente.email"),
+        "phone": _first(payload, "phone", "telefone", "celular", "customer.phone", "cliente.telefone"),
+        "customer": {"first_name": name.split(" ")[0] if name else ""},
+        "line_items": items,
+        "total_price": _first(payload, "total", "total_price", "valor_total", "value", "valor", "subtotal") or 0,
+        "currency": _first(payload, "currency", "moeda") or "BRL",
+        "abandoned_checkout_url": _first(payload, "recovery_url", "checkout_url", "cart_url", "url", "link", "link_recuperacao"),
+        "created_at": _first(payload, "created_at", "criado_em", "abandoned_at", "data") or _now().isoformat(),
+        "updated_at": _first(payload, "updated_at", "atualizado_em"),
+        "completed_at": (_first(payload, "completed_at", "converted_at", "comprado_em") or (_now().isoformat() if completed else None)),
+        "buyer_accepts_marketing": bool(_first(payload, "accepts_marketing", "aceita_marketing", "optin", "newsletter")),
+        "_order_id": _first(payload, "order_id", "pedido_id"),
+    }
+
+
+async def ingest_generic(client_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Carrinho de qualquer plataforma. Com pedido (order_id/completed_at) fecha o carrinho; sem, abre/atualiza."""
+    data = from_generic(payload if isinstance(payload, dict) else {})
+    if not _text(data.get("id"), 80):
+        raise CartError("CART_ID_REQUIRED", "Envie o id do carrinho (id, cart_id ou checkout_id).")
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", _text(data["id"], 120))[:74]
+    if not safe:
+        raise CartError("CART_ID_REQUIRED", "Envie o id do carrinho (id, cart_id ou checkout_id).")
+    data["id"] = f"ext-{safe}"  # não colide com o id de checkout da Shopify
+    order_id = _text(data.pop("_order_id", None), 40)
+    if data.get("completed_at"):
+        closed = await on_order(client_id, {"checkout_id": data["id"], "id": order_id or data["id"], "total_price": data.get("total_price"),
+                                            "created_at": data.get("completed_at")})
+        if not closed.get("ignored"):
+            return {"ok": True, "closed": closed.get("status")}
+    result = await upsert_checkout(client_id, data)
+    return {"ok": True, **result}
 
 
 async def register_webhooks(client_id: str) -> Dict[str, Any]:

@@ -189,9 +189,11 @@ function TeamBrief({ brief, people, busy, run, onChange }: { brief: Brief; peopl
 
     <section className="briefSection" aria-label="Pessoas">
       <h3>Quem faz o quê</h3>
+      <div className="briefPeople">
       {rows.map((role) => <PersonRow key={role} role={role} what={b.roles?.find((r) => r.role === role)?.what} people={people}
         disabled={busy !== null || waiting} done={(brief.tasks || []).filter((t) => t.role === role)}
         onCreate={async (input) => { const r = await run(`t:${role}`, () => briefTask(brief.id, { role, ...input }), "Não foi possível criar a tarefa."); if (r) onChange(r.brief); return Boolean(r); }} />)}
+      </div>
       <label className="briefAddRole">Outra função<select value="" onChange={(e) => { if (e.target.value) setExtra([...extra, e.target.value as BriefingRole]); }}>
         <option value="">Adicionar…</option>
         {(Object.keys(BRIEFING_ROLES) as BriefingRole[]).filter((r) => !rows.includes(r)).map((r) => <option key={r} value={r}>{BRIEFING_ROLES[r]}</option>)}
@@ -213,6 +215,7 @@ function PersonRow({ role, what, people, disabled, done, onCreate }: { role: Bri
   return <div className="briefPerson">
     <div className="briefPersonRole"><b>{BRIEFING_ROLES[role]}</b>{what ? <small>{what}</small> : null}
       {done.length ? <small className="studioOk">✓ Tarefa de {done.map((d) => d.name).join(", ")}</small> : null}</div>
+    <div className="briefPersonForm">
     <select value={user} onChange={(e) => setUser(e.target.value)} aria-label={`Pessoa para ${BRIEFING_ROLES[role]}`} disabled={disabled}>
       <option value="">{people === null ? "Carregando…" : people.length ? "Quem?" : "Sem integrantes"}</option>
       {(people || []).map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
@@ -221,5 +224,6 @@ function PersonRow({ role, what, people, disabled, done, onCreate }: { role: Bri
     <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Recado (opcional)" aria-label="Recado" disabled={disabled} />
     <button type="button" className="ds-button" disabled={disabled || (Boolean(people?.length) && !user)}
       onClick={async () => { if (await onCreate({ assignee_user_id: person?.user_id || null, assignee_name: person?.name || null, due_date: due || null, note: note.trim() || null })) { setUser(""); setNote(""); } }}>Criar tarefa</button>
+    </div>
   </div>;
 }

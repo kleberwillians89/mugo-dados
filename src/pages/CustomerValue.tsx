@@ -56,9 +56,9 @@ export default function CustomerValue({ canView }: { canView?: (route: AppRoute)
       <ClientsSalesTabs current="customer_value" canView={canView} />
 
       {error ? <p className="cvError" role="alert">{error}</p> : null}
-      {!data && !error ? <p className="cvMuted" role="status">Calculando…</p> : null}
+      {!data && !error ? <p className="cvMuted" role="status">Calculando… na primeira vez o MUGOVERSO junta os pedidos e as conversas de cada cliente (pode levar até 1 minuto).</p> : null}
       {data?.status === "not_built" ? (
-        <p className="cvEmpty">{data.migration_pending ? "A jornada do cliente ainda não foi ativada nesta empresa." : "Monte a jornada do cliente (CRM → Clientes) para ver LTV, CAC e coortes. Ela também roda sozinha toda madrugada."}</p>
+        <p className="cvEmpty">{data.migration_pending ? "A jornada do cliente ainda não foi ativada nesta empresa." : "Ainda não há pedidos suficientes desta loja para calcular LTV e CAC. Assim que os pedidos entrarem, a conta aparece aqui sozinha."}</p>
       ) : null}
 
       {data?.status === "ok" && s ? (

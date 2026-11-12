@@ -63,16 +63,32 @@ class DecideTests(unittest.IsolatedAsyncioTestCase):
                 await aa.decide("roove", "a1", "aprovar", user_id="u1")
 
     async def test_generate_skips_existing_and_falls_back_without_ai(self):
-        insert = AsyncMock()
+        insert = AsyncMock(side_effect=lambda table, row: {"id": row["kind"], **row})
+        applied = AsyncMock()
         with patch.object(aa, "snapshot", AsyncMock(return_value=BASE)), \
              patch.object(aa, "sb_select", AsyncMock(return_value=[{"dedupe_key": f"alerta_cac:{aa._now().strftime('%Y-%m')}"}])), \
              patch("services.email_marketing.get_settings", AsyncMock(return_value={"from_name": "Roove"})), \
-             patch("services.studio_llm.llm_json", AsyncMock(side_effect=RuntimeError("sem chave"))), patch.object(aa, "sb_insert", insert):
+             patch("services.studio_llm.llm_json", AsyncMock(side_effect=RuntimeError("sem chave"))), patch.object(aa, "sb_insert", insert), \
+             patch.object(aa, "_apply", applied):
             out = await aa.generate("roove")
         self.assertEqual(out["created"], 3)
+        self.assertEqual(out["executed"], 3)  # tudo conectado: a IA executa sozinha, sem fila de aprovação
+        self.assertTrue(all(c.kwargs["auto"] for c in applied.await_args_list))
         first = insert.await_args_list[0].args[1]
         self.assertEqual(first["title"], "Reativar 340 clientes que pararam de comprar")
         self.assertIn("{{primeiro_nome}}", first["payload"]["subject"])
+
+
+    async def test_auto_reactivation_is_scheduled_with_a_window_to_cancel(self):
+        schedule = AsyncMock()
+        with patch("services.email_marketing.save_campaign", AsyncMock(return_value={"id": "c9"})), \
+             patch("services.email_marketing.schedule", schedule):
+            out = await aa.execute("roove", {"kind": "campanha_reativacao", "payload": {"subject": "Oi", "text": "Volte"}}, user_id=None, auto=True)
+        when = schedule.await_args.args[2]
+        self.assertIsNotNone(when)
+        self.assertEqual(out["scheduled_at"], when)
+        from datetime import datetime
+        self.assertGreater((datetime.fromisoformat(when) - aa._now()).total_seconds() / 3600, 23)
 
 
 if __name__ == "__main__":

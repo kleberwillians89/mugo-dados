@@ -43,7 +43,14 @@ from .sync_locks import guarded_sync
 PROVIDER = "fbits"
 HISTORY_DAYS = 90
 WINDOW_DAYS = 7
-INCREMENTAL_OVERLAP = timedelta(hours=2)
+# Folga larga dos dois lados: a FBITS lê dataInicial/dataFinal sem fuso, e a conta pode estar em Brasília
+# (UTC-3). Com 6 h para trás e 4 h para frente, nenhuma rodada deixa buraco, seja qual for o fuso da loja.
+INCREMENTAL_OVERLAP = timedelta(hours=6)
+INCREMENTAL_END_PAD = timedelta(hours=4)
+# Uma vez por dia relê os últimos dias pela data do pedido (pega o que a janela incremental não trouxe).
+RECHECK_EVERY = timedelta(hours=20)
+RECHECK_DAYS = 10
+FIRST_RECHECK_DAYS = 45
 HISTORICAL_DATE_FILTER = "DataPedido"
 INCREMENTAL_DATE_FILTER = "DataAlteracao"
 
@@ -330,6 +337,26 @@ def daily_stats_rows(
     return list(buckets.values())
 
 
+RECHECK_FILTER_TAG = "recheck"
+
+
+def incremental_passes(metadata: Dict[str, Any], windows: List[tuple], run_started: datetime) -> List[tuple]:
+    """Passadas do ciclo incremental: alterados + criados na janela; 1x/dia relê os últimos dias pela data do pedido.
+
+    Idempotente (upsert por pedido): ler o mesmo pedido duas vezes não duplica nada.
+    """
+    passes: List[tuple] = [(INCREMENTAL_DATE_FILTER, windows), (HISTORICAL_DATE_FILTER, windows)]
+    last = _parse_dt(metadata.get("recheck_at"))
+    if not last or run_started - last >= RECHECK_EVERY:
+        days = RECHECK_DAYS if metadata.get("recheck_v2") else FIRST_RECHECK_DAYS
+        passes.append((HISTORICAL_DATE_FILTER, plan_windows(run_started - timedelta(days=days), run_started + INCREMENTAL_END_PAD), RECHECK_FILTER_TAG))
+    return passes
+
+
+def passes_tags(passes: List[tuple]) -> List[tuple]:
+    return [(p[2] if len(p) > 2 else p[0], p[1]) for p in passes]
+
+
 def plan_windows(start: datetime, end: datetime, *, window_days: int = WINDOW_DAYS) -> List[tuple[datetime, datetime]]:
     windows = []
     cursor = start
@@ -580,8 +607,9 @@ async def sync_fbits_connection(
         date_filter = HISTORICAL_DATE_FILTER
     else:
         marker = _parse_dt(metadata.get("incremental_marker")) or run_started - timedelta(days=1)
-        windows = plan_windows(marker - INCREMENTAL_OVERLAP, run_started)
+        windows = plan_windows(marker - INCREMENTAL_OVERLAP, run_started + INCREMENTAL_END_PAD)
         date_filter = INCREMENTAL_DATE_FILTER
+    passes = incremental_passes(metadata, windows, run_started) if not historical else [(date_filter, windows)]
 
     client = client_factory(token)
     orders_upserted = 0
@@ -601,17 +629,18 @@ async def sync_fbits_connection(
             )
         job_run_id = _safe_str((job_run or {}).get("id"))
         try:
-            for window_start, window_end in windows:
-                counts = await ingest_fbits_window(
-                    client, client_id=client_id, start=window_start, end=window_end,
-                    date_filter=date_filter, status_names=status_names, affected_days=affected_days,
-                )
-                orders_upserted += counts["orders"]
-                items_upserted += counts["items"]
-                customers_upserted += counts["customers"]
-                if historical:
-                    metadata["history_cursor"] = _iso(window_end)
-                    await _persist_state(client_id, connection_id, {"metadata": metadata})
+            for pass_filter, pass_windows, *_tag in passes:
+                for window_start, window_end in pass_windows:
+                    counts = await ingest_fbits_window(
+                        client, client_id=client_id, start=window_start, end=window_end,
+                        date_filter=pass_filter, status_names=status_names, affected_days=affected_days,
+                    )
+                    orders_upserted += counts["orders"]
+                    items_upserted += counts["items"]
+                    customers_upserted += counts["customers"]
+                    if historical:
+                        metadata["history_cursor"] = _iso(window_end)
+                        await _persist_state(client_id, connection_id, {"metadata": metadata})
         except FbitsApiError as exc:
             if exc.code == "FBITS_RATE_LIMITED":
                 metadata["rate_limit_until"] = _iso((now or _now()) + timedelta(seconds=max(60, exc.retry_after or 3600)))
@@ -646,6 +675,9 @@ async def sync_fbits_connection(
             metadata["history_completed_at"] = _iso(finished)
             metadata.pop("history_cursor", None)
         metadata["incremental_marker"] = _iso(run_started)
+        if any(f == RECHECK_FILTER_TAG for f, _ in passes_tags(passes)):
+            metadata["recheck_at"] = _iso(run_started)
+            metadata["recheck_v2"] = True
         metadata["last_sync_mode"] = mode
         metadata["last_sync_requests"] = client.requests_made
         metadata["last_success_at"] = _iso(finished)

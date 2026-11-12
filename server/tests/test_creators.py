@@ -196,6 +196,18 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             mocks = [stack.enter_context(p) for p in patches]
             return await self.client.request(method, f"/api/clients/{CID}/creators{url}", **kwargs), mocks
 
+    async def test_agency_list_is_the_open_company_only(self):
+        listed = AsyncMock(return_value=[])
+        patches = [*self.as_agency(), patch.object(creators, "linked_ids", AsyncMock(return_value={"c1"})),
+                   patch.object(creators, "list_creators", listed)]
+        response, _ = await self.request(patches, "GET", "")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scope"], "company")
+        self.assertEqual(listed.await_args.kwargs["only_ids"], {"c1"})
+        response, _ = await self.request([*self.as_agency(), patch.object(creators, "list_creators", listed)], "GET", "?scope=bank")
+        self.assertEqual(response.json()["scope"], "bank")
+        self.assertIsNone(listed.await_args.kwargs["only_ids"])
+
     async def test_search_stays_agency_only(self):
         role = AsyncMock(return_value=CID)
         with patch.object(routes, "require_client_role", role), patch.object(creators, "search", AsyncMock(return_value={})):
@@ -222,7 +234,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_without_creators_gets_empty_list_without_query(self):
         select = AsyncMock(return_value=[{"id": "outro"}])
         response, _ = await self.request(self.as_client(linked=()) + [patch.object(creators, "sb_select", select)], "GET", "")
-        self.assertEqual(response.json(), {"creators": []})
+        self.assertEqual(response.json(), {"scope": "company", "creators": []})
         select.assert_not_awaited()
 
     async def test_agency_lists_whole_bank(self):
@@ -249,10 +261,17 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 404)
         delete.assert_not_awaited()
 
-    async def test_agency_delete_removes_from_bank(self):
+    async def test_agency_delete_removes_from_the_open_company_by_default(self):
         delete = AsyncMock(return_value=[{"id": "x"}])
         uid = "00000000-0000-0000-0000-000000000002"
         response, _ = await self.request(self.as_agency() + [patch.object(creators, "sb_delete", delete)], "DELETE", f"/{uid}")
+        self.assertEqual(response.json()["scope"], "company")
+        self.assertEqual(delete.await_args.args[0], "creator_client_links")
+
+    async def test_agency_delete_removes_from_bank_when_asked(self):
+        delete = AsyncMock(return_value=[{"id": "x"}])
+        uid = "00000000-0000-0000-0000-000000000002"
+        response, _ = await self.request(self.as_agency() + [patch.object(creators, "sb_delete", delete)], "DELETE", f"/{uid}?scope=bank")
         self.assertEqual(response.json()["scope"], "bank")
         self.assertEqual(delete.await_args.args[0], "creators")
 

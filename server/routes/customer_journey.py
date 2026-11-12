@@ -82,10 +82,16 @@ async def customer_value(
     authorization: str | None = Header(default=None),
 ):
     """CAC, LTV e coortes da empresa (lido da jornada + gasto Meta/Google por mês)."""
+    from services.customer_journey import rebuild
     from services.customer_value import overview
     cid = await require_client_read(client_id or x_client_id, authorization)
     try:
-        return {"ok": True, **(await overview(cid, margin=margin))}
+        result = await overview(cid, margin=margin)
+        if result.get("status") == "not_built":
+            # Sem nada a configurar: a primeira visita monta a jornada (pedidos + WhatsApp) e já calcula.
+            await rebuild(cid)
+            result = await overview(cid, margin=margin)
+        return {"ok": True, **result}
     except Exception as exc:  # noqa: BLE001
         if _journey_unavailable(exc):
             return {"ok": True, "status": "not_built", "migration_pending": True}

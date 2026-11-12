@@ -94,10 +94,15 @@ async def read_creators(
     min_followers: Optional[int] = Query(default=None, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    scope: Optional[str] = Query(default=None, pattern="^(company|bank)$"),
     authorization: Optional[str] = Header(default=None),
 ):
-    _, only = await reader(client_id, authorization)
-    return {"creators": await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset, only_ids=only)}
+    # A lista é sempre a da empresa aberta: o que uma marca pesquisou não aparece na outra, nem para a agência.
+    # O banco inteiro só abre quando a agência pede (scope=bank).
+    cid, only = await reader(client_id, authorization)
+    if only is None and scope != "bank":
+        only = await creators.linked_ids(cid)
+    return {"scope": "bank" if only is None else "company", "creators": await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset, only_ids=only)}
 
 
 @router.post("/lookup")
@@ -231,13 +236,15 @@ async def read_creator(client_id: str, creator_id: UUID, authorization: Optional
 
 
 @router.delete("/{creator_id}")
-async def delete_creator(client_id: str, creator_id: UUID, authorization: Optional[str] = Header(default=None)):
+async def delete_creator(client_id: str, creator_id: UUID, scope: Optional[str] = Query(default=None, pattern="^(company|bank)$"),
+                         authorization: Optional[str] = Header(default=None)):
     cid, only = await actor(client_id, authorization)
     if only is not None and str(creator_id) not in only:
         raise HTTPException(404, "Criador não encontrado.")
-    if not await creators.remove_creator(cid, str(creator_id), agency=only is None):
+    bank = only is None and scope == "bank"  # tirar do banco inteiro só quando a agência pede
+    if not await creators.remove_creator(cid, str(creator_id), agency=bank):
         raise HTTPException(404, "Criador não encontrado.")
-    return {"ok": True, "scope": "company" if only is not None else "bank"}
+    return {"ok": True, "scope": "bank" if bank else "company"}
 
 
 @router.post("/{creator_id}/refresh")

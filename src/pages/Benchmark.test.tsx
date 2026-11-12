@@ -7,7 +7,8 @@ import { BENCHMARK_FIXTURE as FIXTURE, PRICES_FIXTURE } from "./benchmark.fixtur
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "roove", getActiveClientName: () => "Roove", getActiveClient: () => ({ id: "roove", role: "agency_admin" }) }));
 const api = vi.hoisted(() => ({ getBenchmarkOverview: vi.fn(), refreshBenchmarkInstagram: vi.fn(), removeBenchmarkCompetitor: vi.fn(),
   addBenchmarkCompetitor: vi.fn(), addBenchmarkEvidence: vi.fn(), getBenchmarkPrices: vi.fn(async () => PRICES_FIXTURE), addBenchmarkProduct: vi.fn(),
-  checkBenchmarkProduct: vi.fn(), removeBenchmarkProduct: vi.fn(), getStoreCatalog: vi.fn() }));
+  checkBenchmarkProduct: vi.fn(), removeBenchmarkProduct: vi.fn(), getStoreCatalog: vi.fn(),
+  autoBenchmarkCompetitors: vi.fn(async () => ({ status: "sem_ia", added: [] })) }));
 vi.mock("../app/benchmark", () => api);
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: unknown }) => children }));
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title, controls }: { title: string; controls: unknown }) => <header><h1>{title}</h1>{controls as never}</header> }));
@@ -54,6 +55,20 @@ describe("Benchmarking", () => {
     api.getBenchmarkOverview.mockResolvedValue({ ...FIXTURE, competitors: [], instagram: { available: true, rows: [], collected_at: null } });
     const root = await mount();
     expect(host.querySelector(".bmEmpty")?.textContent).toContain("Cadastre o @");
+    act(() => root.unmount());
+  });
+
+  it("lista vazia: a IA cadastra os concorrentes sozinha e a tela recarrega", async () => {
+    api.getBenchmarkOverview.mockResolvedValueOnce({ ...FIXTURE, competitors: [], instagram: { available: true, rows: [], collected_at: null } })
+      .mockResolvedValue(FIXTURE);
+    api.autoBenchmarkCompetitors.mockResolvedValueOnce({ status: "feito", added: [{ ...FIXTURE.competitors[0], why: "mesma categoria" }] });
+    api.refreshBenchmarkInstagram.mockResolvedValue({ updated: 1, errors: [] });
+    const root = await mount();
+    await act(async () => {});
+    expect(api.autoBenchmarkCompetitors).toHaveBeenCalledWith(false);
+    expect(api.refreshBenchmarkInstagram).toHaveBeenCalled();
+    expect(host.textContent).toContain("A IA cadastrou 1 concorrente");
+    expect(api.getBenchmarkOverview).toHaveBeenCalledTimes(2);
     act(() => root.unmount());
   });
 

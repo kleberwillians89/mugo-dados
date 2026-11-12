@@ -125,6 +125,10 @@ def compose_source(provider, connection, jobs, locks, daily, start, end, *, now,
     age = (now - instant(success)).total_seconds() if success else None
     if reauth: state = "reauth_required"
     elif live_lock: state = "updating"
+    # Coleta parcial (ex.: comentários ou "seguidores online" do Instagram) com os dados do período completos e em dia
+    # não é erro: a fonte está sincronizada; o código fica só como observação.
+    elif status == "partial" and not read_error and coverage_end and coverage_end >= end and success \
+            and not (stale_after and age is not None and age > stale_after): state = "synced"
     elif read_error or status in {"error", "partial"}: state = "attention"
     elif success and stale_after and age is not None and age > stale_after: state = "stale"
     elif not success or (not data_at and not coverage_end): state = "no_data"

@@ -121,11 +121,44 @@ def run_options(*, focus: Optional[str] = None, weeks: Optional[int] = None, sta
     return out
 
 
+DEFAULT_EDITORIAL_PLATFORMS = ["instagram"]
+
+
+def _has_pillars(profile: Dict[str, Any]) -> bool:
+    return any((p or {}).get("name") for p in profile.get("pillars") or [])
+
+
+async def ensure_matrix_profile(client_id: str, profile: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
+    """A esteira não para por perfil incompleto: sem pilares, a IA da marca sugere (posts, vendas, Mídia On) e grava;
+    sem plataformas, entra o Instagram (o canal que a plataforma publica sozinha). O que a equipe já cadastrou fica."""
+    if _has_pillars(profile) and profile.get("editorial_platforms"):
+        return profile
+    filled = dict(profile)
+    if not _has_pillars(profile):
+        try:
+            from .studio_brand_brain import suggest
+            suggested = (await suggest(client_id)).get("profile") or {}
+        except Exception as exc:  # noqa: BLE001 — sem IA agora, segue o aviso de sempre
+            print(f"[studio][agents] client_id={client_id} autofill_pillars=failed error={getattr(exc, 'code', type(exc).__name__)}")
+            suggested = {}
+        if not _has_pillars(suggested):
+            return profile
+        for key, value in suggested.items():
+            if value and (key == "pillars" or not filled.get(key)):
+                filled[key] = value
+    if not filled.get("editorial_platforms"):
+        filled["editorial_platforms"] = list(DEFAULT_EDITORIAL_PLATFORMS)
+    from .studio_calendar import save_profile
+    saved = await save_profile(client_id, filled, user_id=user_id)
+    print(f"[studio][agents] client_id={client_id} autofill_profile=saved")
+    return saved["profile"]
+
+
 async def start_run(client_id: str, *, user_id: str, focus: Optional[str] = None, weeks: Optional[int] = None,
                     start: Optional[str] = None, brief_id: Optional[str] = None, auto: bool = False) -> Dict[str, Any]:
     """Abre a execução. Com a esteira livre, roda a fase 1 (pesquisa + Matriz) em segundo plano;
     ocupada (rodando ou parada na Matriz), o pedido entra na fila e roda quando a anterior terminar."""
-    profile = (await load_profile(client_id))["profile"]
+    profile = await ensure_matrix_profile(client_id, (await load_profile(client_id))["profile"], user_id=user_id)
     if not any((p or {}).get("name") for p in profile.get("pillars") or []):
         raise StudioError("MATRIX_PILLARS_REQUIRED")
     if not profile.get("editorial_platforms"):

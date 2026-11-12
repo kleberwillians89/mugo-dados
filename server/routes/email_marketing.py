@@ -236,6 +236,18 @@ async def cart_save_settings(payload: Dict[str, Any] = Body(...), client_id: str
         raise _fail(exc) from exc
 
 
+@router.post("/api/cart-recovery/inbound/{client_id}/{token}")
+async def cart_inbound(client_id: str, token: str, payload: Dict[str, Any] = Body(...)):
+    """Carrinho abandonado de qualquer plataforma (Wake/FBITS, Nuvemshop, VTEX, Tray, Woo, Zapier/Make).
+    Sem login: autenticado pelo código assinado da empresa no próprio endereço."""
+    if not cart_recovery.inbound_valid(client_id, token):
+        raise HTTPException(status_code=404, detail="Endereço inválido.")
+    try:
+        return await cart_recovery.ingest_generic(client_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.post("/api/cart-recovery/webhooks")
 async def cart_register_webhooks(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                                  authorization: str | None = Header(default=None)):

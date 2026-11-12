@@ -162,6 +162,8 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         ("meta_legacy", "api_connect_meta"),
         # Webhook da Shopify: autenticado por HMAC do provider, não por usuário.
         ("shopify", "shopify_webhook"),
+        # Carrinho de qualquer plataforma: autenticado pelo HMAC da empresa no endereço, não por usuário.
+        ("email_marketing", "cart_inbound"),
         # Retornos de OAuth: autenticados pelo state assinado.
         ("google_oauth", "google_oauth_callback"),
         ("shopify_oauth", "shopify_oauth_callback"),

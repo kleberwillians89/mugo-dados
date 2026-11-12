@@ -193,8 +193,10 @@ async def onboarding(client_id: str) -> List[Dict[str, Any]]:
     from .data_health import client_data_health
     steps: List[Dict[str, Any]] = []
     try:
-        sources = {s["provider"]: s for s in (await client_data_health(client_id))["sources"]}
-    except Exception:  # noqa: BLE001
+        today = date.today()
+        sources = {s["provider"]: s for s in (await client_data_health(client_id, (today - timedelta(days=7)).isoformat(), today.isoformat()))["sources"]}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[saas] onboarding_health_failed client_id={client_id} {type(exc).__name__}")
         sources = {}
     provider = (await resolve_commerce_provider(client_id)).get("provider")
     connected = lambda p: bool((sources.get(p) or {}).get("connected"))  # noqa: E731
@@ -206,6 +208,8 @@ async def onboarding(client_id: str) -> List[Dict[str, Any]]:
             return False
 
     sender = await exists("email_settings", {"from_email": "not.is.null"})
+    # Loja: conectada pelo provedor resolvido OU pela fonte de saúde (FBITS/Shopify).
+    provider = provider or ("fbits" if connected("fbits") else "shopify" if connected("shopify") else None)
     steps += [
         {"key": "loja", "label": "Conectar a loja (Shopify ou FBITS)", "done": bool(provider), "route": "integrations"},
         {"key": "meta", "label": "Conectar Meta (anúncios e Instagram)", "done": connected("meta_ads") or connected("instagram"), "route": "integrations"},

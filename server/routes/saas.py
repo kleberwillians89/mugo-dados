@@ -24,6 +24,8 @@ def _fail(exc: Exception) -> HTTPException:
 @router.get("/api/plan")
 async def my_plan(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                   authorization: str | None = Header(default=None)):
+    """Plano e implantação da empresa ativa: só equipe Mugô (admin)."""
+    await require_agency_admin(authorization)
     cid = await require_client_read(client_id or x_client_id, authorization)
     try:
         return {"ok": True, **(await saas.overview(cid))}
