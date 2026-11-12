@@ -16,6 +16,9 @@ export type AppRoute =
   | "radar"
   | "brand_health"
   | "channels"
+  | "tiktok"
+  | "pinterest"
+  | "linkedin"
   | "benchmark"
   | "clipping"
   | "engagement"
@@ -77,6 +80,9 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/benchmark" || normalized.startsWith("/benchmark/")) return "benchmark";
   if (normalized === "/radar" || normalized.startsWith("/radar/")) return "radar";
   if (normalized === "/saude-da-marca" || normalized.startsWith("/saude-da-marca/")) return "brand_health";
+  if (normalized === "/tiktok" || normalized.startsWith("/tiktok/")) return "tiktok";
+  if (normalized === "/pinterest" || normalized.startsWith("/pinterest/")) return "pinterest";
+  if (normalized === "/linkedin" || normalized.startsWith("/linkedin/")) return "linkedin";
   if (normalized === "/canais" || normalized.startsWith("/canais/")) return "channels";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
@@ -146,6 +152,9 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "radar") return "/radar";
   if (route === "brand_health") return "/saude-da-marca";
   if (route === "channels") return "/canais";
+  if (route === "tiktok") return "/tiktok";
+  if (route === "pinterest") return "/pinterest";
+  if (route === "linkedin") return "/linkedin";
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";

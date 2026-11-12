@@ -34,8 +34,12 @@ function Paid({ label, m, channel }: { label: string; m?: ChannelTotals; channel
   </section>;
 }
 
-/** TikTok, Pinterest e LinkedIn: anúncios e orgânico da marca, no período do calendário (o mesmo das outras telas). */
-export default function ChannelsPage() {
+export type Network = "tiktok" | "pinterest" | "linkedin";
+const NETWORK_NAME: Record<Network, string> = { tiktok: "TikTok", pinterest: "Pinterest", linkedin: "LinkedIn" };
+
+/** TikTok, Pinterest e LinkedIn: anúncios e orgânico da marca, no período do calendário (o mesmo das outras telas).
+ *  Com ``network`` vira a aba daquela rede (como a Meta); sem ele mostra as três (link antigo /canais). */
+export default function ChannelsPage({ network }: { network?: Network } = {}) {
   const { period } = usePeriod();
   const clientId = getActiveClientId();
   const [state, setState] = useState<{ key: string; rows: Channel[] | null; error: string | null }>({ key: "", rows: null, error: null });
@@ -53,14 +57,16 @@ export default function ChannelsPage() {
   const tiktok = by("tiktok")?.metrics.tiktok;
   const pin = by("pinterest")?.metrics.pinterest;
   const li = by("linkedin")?.metrics.linkedin;
+  const show = (n: Network) => !network || network === n;
+  const title = network ? NETWORK_NAME[network] : "TikTok, Pinterest e LinkedIn";
 
-  return <Shell title="TikTok, Pinterest e LinkedIn" variant="editorial"><div className="ds-page chPage">
-    <PageHeader company={getActiveClientName() || "Empresa"} title="TikTok, Pinterest e LinkedIn" controls={<PeriodSelector />} />
+  return <Shell title={title} variant="editorial"><div className="ds-page chPage">
+    <PageHeader company={getActiveClientName() || "Empresa"} title={title} controls={<PeriodSelector />} />
     {state.error ? <p role="alert" className="chError">{state.error}</p> : null}
-    {loading ? <PageSkeleton label="Carregando os canais…" /> : state.rows ? <>
+    {loading ? <PageSkeleton label={`Carregando ${network ? NETWORK_NAME[network] : "os canais"}…`} /> : state.rows ? <>
       {/* Um bloco por canal, com anúncios e orgânico lado a lado. */}
-      <section className="chChannel" aria-label="TikTok">
-        <h2 className="chSection">TikTok</h2>
+      {show("tiktok") ? <section className="chChannel" aria-label="TikTok">
+        {!network ? <h2 className="chSection">TikTok</h2> : null}
         <div className="chGrid">
           <Paid label="Anúncios" m={by("tiktok_ads")?.metrics.tiktok_ads} channel={by("tiktok_ads")} />
           <section className="chCard" aria-label="TikTok orgânico"><h3>Orgânico</h3>
@@ -74,9 +80,9 @@ export default function ChannelsPage() {
             </>}
           </section>
         </div>
-      </section>
-      <section className="chChannel" aria-label="Pinterest">
-        <h2 className="chSection">Pinterest</h2>
+      </section> : null}
+      {show("pinterest") ? <section className="chChannel" aria-label="Pinterest">
+        {!network ? <h2 className="chSection">Pinterest</h2> : null}
         <div className="chGrid">
           <Paid label="Anúncios" m={by("pinterest")?.metrics.pinterest_ads} channel={by("pinterest")} />
           <section className="chCard" aria-label="Pinterest orgânico"><h3>Orgânico</h3>
@@ -87,9 +93,9 @@ export default function ChannelsPage() {
             </div>}
           </section>
         </div>
-      </section>
-      <section className="chChannel" aria-label="LinkedIn">
-        <h2 className="chSection">LinkedIn</h2>
+      </section> : null}
+      {show("linkedin") ? <section className="chChannel" aria-label="LinkedIn">
+        {!network ? <h2 className="chSection">LinkedIn</h2> : null}
         <div className="chGrid">
           <Paid label="Anúncios" m={by("linkedin")?.metrics.linkedin_ads} channel={by("linkedin")} />
           <section className="chCard" aria-label="LinkedIn página"><h3>Página (orgânico)</h3>
@@ -101,7 +107,7 @@ export default function ChannelsPage() {
             </div>}
           </section>
         </div>
-      </section>
+      </section> : null}
       <p className="chMuted">Instagram e Facebook continuam em Mídia → Meta. Os números seguem o período escolhido no calendário acima.</p>
     </> : null}
   </div></Shell>;

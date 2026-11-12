@@ -38,4 +38,21 @@ describe("TikTok, Pinterest e LinkedIn", () => {
     expect(host.querySelector('[aria-label="TikTok"]')?.textContent).toContain("Orgânico");
     act(() => root.unmount()); host.remove();
   });
+
+  it("cada rede tem a sua aba, com anúncios e orgânico juntos (como a Meta)", async () => {
+    api.getChannels.mockResolvedValue({ start: "2026-11-01", end: "2026-11-12", channels: [
+      { provider: "tiktok_ads", label: "TikTok Ads", auth: "oauth", app_configured: true, status: "connected", metrics: { tiktok_ads: totals } },
+      { provider: "linkedin", label: "LinkedIn", auth: "oauth", app_configured: true, status: "connected",
+        metrics: { linkedin_ads: totals, linkedin: { ...totals, latest: { followers: 321 }, sums: { likes: 9 } } } },
+    ] });
+    const host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<ChannelsPage network="linkedin" />); }); await act(async () => {});
+    expect([...host.querySelectorAll(".chChannel")].map((s) => s.getAttribute("aria-label"))).toEqual(["LinkedIn"]);
+    expect(host.textContent).toContain("Anúncios");
+    expect(host.textContent).toContain("Página (orgânico)");
+    expect(host.textContent).toContain("321");
+    expect(host.textContent).not.toContain("Natal visualizações");
+    act(() => root.unmount()); host.remove();
+  });
 });
