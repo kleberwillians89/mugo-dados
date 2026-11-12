@@ -41,6 +41,18 @@ jobs:
             supabase/migrations/20260301_000000_commercial_fixture.sql
           cp "$GITHUB_WORKSPACE/supabase/migrations/20270104_000113_channels_tiktok_pinterest_clarity.sql" \
             supabase/migrations/20270104_000113_channels_tiktok_pinterest_clarity.sql
+          # Candidate correction ONLY in runner scratch copy. The merged 000113 remains unchanged
+          # until all potentially affected remote migration histories can be checked.
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("supabase/migrations/20270104_000113_channels_tiktok_pinterest_clarity.sql")
+          source = path.read_text()
+          old = "client_id uuid not null references public.clients(id) on delete cascade"
+          new = "client_id text not null references public.clients(id) on delete cascade"
+          assert source.count(old) == 1, "Unexpected channel migration contents"
+          path.write_text(source.replace(old, new))
+          print("Local-only candidate channels 000113 TEXT FK prepared")
+          PY
           cp "$GITHUB_WORKSPACE/supabase/migrations/20270103_000112_saas_plans.sql" \
             supabase/migrations/20270103_000112_saas_plans.sql
           cp "$GITHUB_WORKSPACE/supabase/migrations/20270105_000114_tenant_commercial_modules.sql" \
