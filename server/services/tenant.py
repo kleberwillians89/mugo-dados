@@ -240,8 +240,12 @@ async def require_client_read(
                 await _module_check(resolved, user_id, role=role, member_route=True)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 — sem conseguir ler permissões, a leitura segue como antes
-        print(f"[tenant][module_check] client_id={resolved} status=skipped error_type={type(exc).__name__}")
+    except Exception as exc:  # noqa: BLE001 — autorização indisponível nunca concede acesso
+        print(f"[tenant][module_check] client_id={resolved} status=failed error_type={type(exc).__name__}")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível verificar sua permissão agora. Tente novamente.",
+        ) from exc
     return resolved
 
 
