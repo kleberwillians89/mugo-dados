@@ -73,39 +73,38 @@ describe("AppNavigation — sidebar global", () => {
       "Mugoverso IA", "Central da Marca", "Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
-      "Meta", "Google", "Ecommerce", "Origem das vendas", "WhatsApp", "Mídia On",
-      "Clientes", "Comentários", "Clipping", "Radar Cultural", "Relatório",
+      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "Mídia On",
+      "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([
       "Integrações", "Usuários", "Empresas", "Consumo de IA", "Automações", "IA da marca", "Central da Marca",
     ]);
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(2);
     expect(link("Radar Cultural")?.getAttribute("href")).toBe("/radar");
+    expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
   });
 
-  it("mantém Clientes e Origem das vendas separados e marca a rota ativa", async () => {
+  it("CRM reúne Origem das vendas e Clientes num item só e fica ativo nas duas telas", async () => {
     await render({ route: "origins" });
-    expect(link("Clientes")?.getAttribute("href")).toBe("/clientes");
-    expect(link("Origem das vendas")?.getAttribute("href")).toBe("/origem-das-vendas");
-    expect(link("Origem das vendas")?.getAttribute("aria-current")).toBe("page");
-    expect(link("Clientes")?.getAttribute("aria-current")).toBeNull();
-    expect(link("Clientes e vendas")).toBeUndefined();
-  });
-
-  it("preserva acesso independente para quem pode ver somente Clientes", async () => {
-    await render({ route: "customers", canView: (route) => route === "customers" });
-    expect(link("Clientes")?.getAttribute("href")).toBe("/clientes");
-    expect(link("Clientes")?.getAttribute("aria-current")).toBe("page");
-    expect(link("Origem das vendas")).toBeUndefined();
-  });
-
-  it("preserva acesso independente para quem pode ver somente Origem das vendas", async () => {
-    await render({ route: "origins", canView: (route) => route === "origins" });
+    expect(link("CRM")?.getAttribute("href")).toBe("/crm");
+    expect(link("CRM")?.getAttribute("aria-current")).toBe("page");
     expect(link("Clientes")).toBeUndefined();
-    expect(link("Origem das vendas")?.getAttribute("href")).toBe("/origem-das-vendas");
-    expect(link("Origem das vendas")?.getAttribute("aria-current")).toBe("page");
+    expect(link("Origem das vendas")).toBeUndefined();
+    await render({ route: "customers" });
+    expect(link("CRM")?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("quem só pode ver Clientes abre o CRM direto em Clientes", async () => {
+    await render({ route: "customers", canView: (route) => route === "customers" });
+    expect(link("CRM")?.getAttribute("href")).toBe("/crm/clientes");
+    expect(link("CRM")?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("quem só pode ver Origem das vendas abre o CRM na origem", async () => {
+    await render({ route: "origins", canView: (route) => route === "origins" });
+    expect(link("CRM")?.getAttribute("href")).toBe("/crm");
   });
 
   it("cliente vê Tarefas, Clipping e Criadores; Social Media e Redação ficam com a agência", async () => {

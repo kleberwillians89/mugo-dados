@@ -1,0 +1,194 @@
+/* src/styles/identity.css
+   ============================================================
+   IDENTIDADE MUGOVERSO — camada única para botões e campos.
+   Mesma linguagem do layout da Mugô IA: azul Mugô para ação, botões em
+   pílula, borda fina, superfície branca, anel de foco azul.
+
+   Carregada por ÚLTIMO (main.tsx). Botões: sobrescreve as primitivas
+   (.ds-button e as legadas .btn*). Campos: seletores dentro de :where()
+   têm especificidade mínima, então qualquer tela com estilo próprio
+   continua mandando; só o que hoje cai no visual nativo do navegador
+   (textarea, mês, select sem classe) ganha a identidade.
+   ============================================================ */
+
+:root{
+  --id-accent: var(--accent, #004f6e);
+  --id-accent-hover: #003f58;
+  --id-accent-soft: #eef6f9;
+  --id-accent-ring: rgba(0, 79, 110, .16);
+  --id-ink: var(--text-primary, #15181b);
+  --id-muted: var(--text-secondary, #4d565d);
+  --id-line: rgba(21, 24, 27, .13);
+  --id-line-hover: rgba(0, 79, 110, .38);
+  --id-danger: var(--negative, #b22234);
+  --id-field-radius: 12px;
+}
+
+/* ====== BOTÕES ====== */
+.ds-button,
+.btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: auto;
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--id-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--id-ink);
+  font: 600 13.5px/1.2 var(--font-body);
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.ds-button:hover:not(:disabled),
+.btn:hover:not(:disabled){
+  border-color: var(--id-line-hover);
+  background: var(--id-accent-soft);
+  color: var(--id-accent);
+  box-shadow: none;
+  transform: none;
+}
+.ds-button:active:not(:disabled),
+.btn:active:not(:disabled){ transform: translateY(1px); }
+
+/* Ação principal: azul Mugô (antes preto). */
+.ds-button.is-primary,
+.btn.btnPrimary,
+.btnPrimary{
+  border-color: var(--id-accent);
+  background: var(--id-accent);
+  color: #fff;
+}
+.ds-button.is-primary:hover:not(:disabled),
+.btn.btnPrimary:hover:not(:disabled),
+.btnPrimary:hover:not(:disabled){
+  border-color: var(--id-accent-hover);
+  background: var(--id-accent-hover);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(0, 79, 110, .18);
+}
+
+/* Fantasma: sem borda até passar o mouse. */
+.btn.btnGhost,
+.btnGhost{ background: transparent; color: var(--id-muted); }
+
+/* Destaque dourado (legado): mantém o ouro Mugô, no formato da plataforma. */
+.btn.btnGold,
+.btnGold{ border-color: transparent; background: var(--gold, #c79830); color: #fff; }
+.btn.btnGold:hover:not(:disabled),
+.btnGold:hover:not(:disabled){ background: #b0852a; border-color: transparent; color: #fff; }
+
+/* Destrutivo. */
+.ds-button.is-danger{ color: var(--id-danger); border-color: rgba(178, 34, 52, .28); }
+.ds-button.is-danger:hover:not(:disabled){ background: #fdf1f2; border-color: rgba(178, 34, 52, .5); color: var(--id-danger); }
+
+.ds-button:disabled,
+.btn:disabled{
+  opacity: 1;
+  cursor: not-allowed;
+  border-color: rgba(21, 24, 27, .08);
+  background: #f3f2ef;
+  color: rgba(21, 24, 27, .38);
+  box-shadow: none;
+  transform: none;
+}
+
+:is(.ds-button, .btn):focus-visible{
+  outline: 2px solid var(--id-accent);
+  outline-offset: 2px;
+}
+
+/* ====== CAMPOS ====== */
+:where(#root) :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"]),
+  textarea,
+  select
+){
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid var(--id-line);
+  border-radius: var(--id-field-radius);
+  background: #fff;
+  color: var(--id-ink);
+  font: 400 14px/1.45 var(--font-body);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+:where(#root) :where(textarea){ min-height: 72px; resize: vertical; }
+:where(#root) :where(input, textarea, select):where(:hover:not(:disabled):not(:focus)){ border-color: rgba(21, 24, 27, .24); }
+:where(#root) :where(input, textarea, select):where(:focus){
+  outline: none;
+  border-color: var(--id-accent);
+  box-shadow: 0 0 0 3px var(--id-accent-ring);
+}
+:where(#root) :where(input, textarea)::placeholder{ color: rgba(21, 24, 27, .42); }
+:where(#root) :where(input, textarea, select):where(:disabled){ background: #f6f5f2; color: rgba(21, 24, 27, .45); cursor: not-allowed; }
+
+/* Select com seta da plataforma. */
+:where(#root) :where(select:not([multiple])){
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d565d' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  cursor: pointer;
+}
+
+/* Data e mês: ícone do calendário discreto, no azul ao passar o mouse. */
+:where(#root) :where(input[type="date"], input[type="month"], input[type="week"], input[type="time"], input[type="datetime-local"]){
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+:where(#root) input::-webkit-calendar-picker-indicator{ opacity: .55; cursor: pointer; transition: opacity .15s ease; }
+:where(#root) input:hover::-webkit-calendar-picker-indicator{ opacity: .9; }
+
+/* Caixas, rádios e controles deslizantes no azul Mugô. */
+:where(#root) :where(input[type="checkbox"], input[type="radio"], input[type="range"], progress){ accent-color: var(--id-accent); }
+
+/* Blocos recolhíveis (ex.: "Insights do mês"): seta da plataforma no lugar do triângulo nativo. */
+:where(#root) :where(details) > :where(summary.ds-disclosure, .srPage summary, .studioPage details:not([class]) > summary){
+  list-style: none;
+  cursor: pointer;
+}
+:where(#root) :where(.srPage summary, summary.ds-disclosure)::-webkit-details-marker{ display: none; }
+:where(#root) :where(.srPage summary, summary.ds-disclosure)::before{
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 12px 2px 2px;
+  border-right: 2px solid var(--id-accent);
+  border-bottom: 2px solid var(--id-accent);
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+:where(#root) :where(details[open]) > :where(.srPage summary, summary.ds-disclosure)::before,
+:where(#root) .srPage details[open] > summary::before{ transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce){
+  .ds-button, .btn, :where(#root) :where(input, textarea, select){ transition: none; }
+}
+
+/* Telas com primário próprio em preto (ex.: Onboarding) carregam depois desta camada: o #root garante o azul Mugô
+   só no botão principal e no estado desabilitado, sem mexer nos ajustes locais de tamanho e espaçamento. */
+#root :is(.ds-button.is-primary, .btn.btnPrimary, .btnPrimary){
+  border-color: var(--id-accent);
+  background: var(--id-accent);
+  color: #fff;
+}
+#root :is(.ds-button.is-primary, .btn.btnPrimary, .btnPrimary):hover:not(:disabled){
+  border-color: var(--id-accent-hover);
+  background: var(--id-accent-hover);
+  color: #fff;
+}
+#root :is(.ds-button, .btn):disabled{
+  border-color: rgba(21, 24, 27, .08);
+  background: #f3f2ef;
+  color: rgba(21, 24, 27, .38);
+}

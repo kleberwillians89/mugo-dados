@@ -1745,3 +1745,16 @@ button, input, select { font: inherit; }
 
 .intelPoweredBy{display:block;margin-top:3px;color:#68757c;font-size:11px;font-weight:650}
 /* Seletor de empresa: ver src/styles/shell.css. */
+
+/* Nuvem de palavras: cor = sentimento dominante dos comentários com a palavra (mesma paleta da Saúde da marca). */
+.wordTag.is-positivo, .ds-page .wordTag.is-positivo{ color:#1d7a4b; opacity:1; }
+.wordTag.is-neutro, .ds-page .wordTag.is-neutro{ color:#6b747a; opacity:1; }
+.wordTag.is-misto, .ds-page .wordTag.is-misto{ color:#9a5b07; opacity:1; }
+.wordTag.is-negativo, .ds-page .wordTag.is-negativo{ color:#b22234; opacity:1; }
+.wordTag.is-sem_analise, .ds-page .wordTag.is-sem_analise{ color:#a7afb5; }
+.wordTag[title]{ cursor:help; }
+.wordCloudLegend{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:12px; color:var(--text-secondary,#4d565d); }
+.wordCloudLegend span{ display:inline-flex; align-items:center; gap:6px; }
+.wordDot{ display:inline-block; width:8px; height:8px; border-radius:999px; margin-right:6px; vertical-align:middle; background:#e4e1db; }
+.wordDot.is-positivo{ background:#2f8a5b; } .wordDot.is-neutro{ background:#a7afb5; }
+.wordDot.is-misto{ background:#d9962b; } .wordDot.is-negativo{ background:#c2413f; }

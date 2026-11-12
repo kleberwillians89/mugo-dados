@@ -130,11 +130,11 @@ def _meta_error(response: httpx.Response) -> IntegrationError:
     )
 
 
-async def meta_business_discovery(ig_user_id: str, access_token: str, username: str) -> Dict[str, Any]:
+async def meta_business_discovery(ig_user_id: str, access_token: str, username: str, *, posts: int = SAMPLE_POSTS) -> Dict[str, Any]:
     fields = (
         f"business_discovery.username({username})"
         "{id,username,name,biography,profile_picture_url,followers_count,media_count,"
-        f"media.limit({SAMPLE_POSTS}){{id,like_count,comments_count,media_type,media_product_type,permalink,timestamp}}}}"
+        f"media.limit({max(1, min(int(posts), 50))}){{id,like_count,comments_count,media_type,media_product_type,permalink,timestamp}}}}"
     )
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(

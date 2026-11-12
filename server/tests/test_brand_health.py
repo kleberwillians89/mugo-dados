@@ -78,6 +78,17 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["themes"][0], {"theme": "prazo de entrega", "mentions": 2, "previous": 0, "change": None, "tone": "negativo"})
         self.assertEqual(out["channels"][1]["mentions"], 10)
 
+    async def test_word_cloud_of_the_period_with_sentiment(self):
+        rows = [{"body": "Entrega atrasada de novo", "sentiment": "negativo"}, {"body": "Amei a entrega rápida", "sentiment": "positivo"},
+                {"body": "Amei o tecido", "sentiment": "positivo"}]
+        with patch.object(bh, "sb_rpc", AsyncMock(return_value=[])), patch.object(bh, "open_alerts", AsyncMock(return_value=[])), \
+             patch.object(bh, "sb_select", AsyncMock(return_value=rows)) as sel:
+            out = await bh.summary("ruah", start=date(2026, 11, 1), end=date(2026, 11, 10), grain="day", sources=["comments"])
+        words = {w["word"]: w for w in out["words"]}
+        self.assertEqual(words["amei"]["tone"], "positivo")
+        self.assertEqual(words["entrega"]["tone"], "negativo")  # empate: o tom sensível aparece
+        self.assertEqual(sel.await_args.kwargs["filters"]["source"], "in.(comments)")
+
     async def test_client_view_hides_alerts(self):
         with patch.object(bh, "sb_rpc", AsyncMock(return_value=[])), patch.object(bh, "open_alerts", AsyncMock(return_value=[{"severity": "alto"}])):
             out = await bh.summary("ruah", start=date(2026, 11, 1), end=date(2026, 11, 10), grain="day", sources=[], with_alerts=False)

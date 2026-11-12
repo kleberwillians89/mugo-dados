@@ -93,7 +93,10 @@ function CommentsPanel({
                   <div className="commentItem" key={c.comment_id || `${c.media_id || "media"}-${index}`}>
                     <div className="commentHead">
                       <b>@{c.username || "usuario"}</b>
-                      <span>{c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}</span>
+                      <span>
+                        {c.sentiment ? <i className={`wordDot is-${c.sentiment}`} title={`Sentimento: ${c.sentiment}`} aria-label={`Sentimento ${c.sentiment}`} /> : null}
+                        {c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}
+                      </span>
                     </div>
                     <div>{c.text || "(sem texto)"}</div>
                   </div>

@@ -25,7 +25,7 @@ const ROUTE_TITLE: Record<AppRoute, string> = {
   goals: "Metas",
   meta: "Meta",
   google: "Google",
-  origins: "Origem das vendas",
+  origins: "CRM",
   intelligence: "Inteligência",
   integrations: "Integrações",
   companies: "Empresas",

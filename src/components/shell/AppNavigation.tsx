@@ -55,13 +55,14 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "meta", label: "Meta" },
   { route: "google", label: "Google" },
   { route: "ecommerce", label: "Ecommerce" },
-  { route: "origins", label: "Origem das vendas" },
+  // CRM: Origem das vendas e Clientes moram aqui, como abas (ClientsSalesTabs).
+  { route: "origins", label: "CRM", also: ["customers"] },
   { route: "whatsapp", label: "WhatsApp" },
   { route: "media", label: "Mídia On" },
-  { route: "customers", label: "Clientes" },
   { route: "engagement", label: "Comentários" },
   { route: "clipping", label: "Clipping" },
   { route: "radar", label: "Radar Cultural" },
+  { route: "benchmark", label: "Benchmarking" },
   { route: "social_report", label: "Relatório" },
 ];
 const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", "production"]);

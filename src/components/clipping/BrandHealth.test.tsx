@@ -28,7 +28,7 @@ vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah" }));
 const getBrandHealth = vi.fn(async () => fixture);
 const analyzeBrandHealth = vi.fn(async () => ({ classified: 40, failed: 0, news_analyzed: 36, news_pending: 84, alerts_opened: 0 }));
 vi.mock("../../app/brandHealth", async (orig) => ({ ...(await orig<typeof import("../../app/brandHealth")>()), getBrandHealth: (q: unknown) => getBrandHealth(q),
-  analyzeBrandHealth: () => analyzeBrandHealth() }));
+  analyzeBrandHealth: () => analyzeBrandHealth(), getHealthIndex: () => new Promise(() => undefined) }));
 
 import BrandHealth from "./BrandHealth";
 import { presetRange, bucketLabel } from "../../app/brandHealth";

@@ -2,19 +2,20 @@ import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../../app/ro
 
 type Tab = "customers" | "origins";
 const TABS: { route: Tab; label: string }[] = [
-  { route: "customers", label: "Clientes" },
   { route: "origins", label: "Origem das vendas" },
+  { route: "customers", label: "Clientes" },
 ];
 
 /**
- * "Clientes e vendas": as duas telas moram num item só do menu e trocam por estas abas.
- * Cada aba continua com o próprio endereço (/clientes, /origem-das-vendas) e a própria permissão.
+ * CRM: as duas telas moram num item só do menu e trocam por estas abas.
+ * Cada aba tem o próprio endereço (/crm, /crm/clientes; os antigos /origem-das-vendas e /clientes seguem
+ * funcionando) e a própria permissão.
  */
 export default function ClientsSalesTabs({ current, canView }: { current: Tab; canView?: (route: AppRoute) => boolean }) {
   const tabs = TABS.filter((tab) => !canView || canView(tab.route));
   if (tabs.length < 2) return null;
   return (
-    <nav className="clientsSalesTabs" aria-label="Clientes e vendas">
+    <nav className="clientsSalesTabs" aria-label="CRM">
       {tabs.map((tab) => (
         <a key={tab.route} href={getPathForRoute(tab.route)} aria-current={tab.route === current ? "page" : undefined}
           className={tab.route === current ? "is-active" : ""}

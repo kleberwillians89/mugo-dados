@@ -12,6 +12,7 @@ import type {
   MetaDiscoverAssetsResponse,
   MetaOauthStartResponse,
   CommentsResponse,
+  CommentSentiment,
   NotesResponse,
   NoteItem,
   Ga4Acquisition,
@@ -1246,6 +1247,11 @@ function normalizeShopifyCustomers(raw: unknown): ShopifyCustomersResponse {
   };
 }
 
+const COMMENT_SENTIMENTS: readonly CommentSentiment[] = ["positivo", "neutro", "misto", "negativo"];
+function asCommentSentiment(value: unknown): CommentSentiment | null {
+  return COMMENT_SENTIMENTS.includes(value as CommentSentiment) ? (value as CommentSentiment) : null;
+}
+
 function normalizeComments(raw: unknown): CommentsResponse {
   const payload = asRecord(raw);
   const comments = Array.isArray(payload.comments) ? payload.comments : [];
@@ -1272,13 +1278,19 @@ function normalizeComments(raw: unknown): CommentsResponse {
         text: asString(item.text) || undefined,
         username: asString(item.username) || undefined,
         timestamp: asString(item.timestamp) || undefined,
+        sentiment: asCommentSentiment(item.sentiment) ?? undefined,
       };
     }),
     top_words: topWords.map((row) => {
       const item = asRecord(row);
+      const split = asRecord(item.sentiment);
       return {
         word: asString(item.word),
         count: asNumber(item.count),
+        tone: asCommentSentiment(item.tone),
+        sentiment: Object.fromEntries(
+          (["positivo", "neutro", "misto", "negativo", "sem_analise"] as const).map((key) => [key, asNumber(split[key], 0)]),
+        ),
       };
     }),
   };

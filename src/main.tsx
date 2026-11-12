@@ -10,6 +10,7 @@ import "./styles/mugo.tokens.css";
 import "./styles/design-system.css";
 import "./styles/App.css";
 import "./styles/shell.css";
+import "./styles/identity.css"; // identidade de botões e campos (por último)
 
 function renderBootstrapFallback(message: string) {
   const container = document.createElement("div");

@@ -1,3 +1,4 @@
+import type { TopWord } from "./types";
 import { http, clientClientPath } from "./api";
 
 /** Saúde da marca (Clipping): volume e sentimento das menções e alertas de termos sensíveis. */
@@ -23,6 +24,8 @@ export type BrandHealth = {
   series: (Split & { bucket: string; total: number; net: number | null })[];
   channels: { source: Source; mentions: number; previous: number; change: number | null; split: Split }[];
   themes: { theme: string; mentions: number; previous: number; change: number | null; tone: HealthSentiment | null }[];
+  /** Nuvem do período: palavras das menções, com o tom que predomina onde cada uma aparece. */
+  words?: TopWord[];
   alerts: HealthAlert[];
 };
 export type HealthSettings = { sensitive_terms: string[]; index_drop_points: number; negative_day_pct: number; saved: boolean };
@@ -71,3 +74,29 @@ export function bucketLabel(bucket: string, grain: Grain, long = false): string 
 }
 export type AnalyzeResult = { classified: number; failed: number; news_analyzed: number; news_pending: number; alerts_opened: number };
 export const analyzeBrandHealth = () => http<AnalyzeResult>(base("/analyze"), { method: "POST", timeoutMs: 180_000 });
+
+/** Índice de saúde MUGOVERSO: a nota que liga conversa, reputação, atenção, presença na mídia e vendas. */
+export type PillarKey = "conversa" | "conversao" | "atencao" | "presenca" | "reputacao";
+export const PILLAR_ORDER: PillarKey[] = ["conversa", "conversao", "atencao", "presenca", "reputacao"];
+export type HealthPillar = {
+  key: PillarKey; name: string; hint: string; score: number | null; detail: string;
+  change: number | null; reason: string | null; weight: number; effective_weight: number;
+};
+export type HealthIndex = {
+  period: { start: string; end: string; previous_start: string; previous_end: string };
+  index: number | null; label: string | null; coverage: number;
+  pillars: HealthPillar[];
+  weights: Record<PillarKey, number>; default_weights: Record<PillarKey, number>;
+  custom_weights: boolean; can_edit_weights: boolean;
+};
+export const getHealthIndex = (q: { start: string; end: string }) =>
+  http<HealthIndex>(base(`/index?start=${q.start}&end=${q.end}`), { timeoutMs: 60_000 });
+export const saveHealthWeights = (weights: Record<PillarKey, number>) =>
+  http<{ weights: Record<PillarKey, number>; custom: boolean }>(base("/weights"), { method: "PUT", body: JSON.stringify({ weights }) });
+
+/** Peso de cada pilar em % do total (o que a pessoa vê enquanto mexe nos controles). */
+export function weightShares(weights: Record<PillarKey, number>): Record<PillarKey, number> {
+  const total = PILLAR_ORDER.reduce((s, k) => s + Math.max(0, weights[k] || 0), 0);
+  return Object.fromEntries(PILLAR_ORDER.map((k) => [k, total ? Math.round((Math.max(0, weights[k] || 0) / total) * 100) : 0])) as Record<PillarKey, number>;
+}
+export const healthTone = (score: number | null) => (score == null ? "sem_analise" : score >= 70 ? "positivo" : score >= 50 ? "misto" : "negativo");

@@ -188,6 +188,7 @@ async def summary(client_id: str, *, start: date, end: date, grain: str, sources
     cur, prev = await _buckets(client_id, start, end, grain, sources), await _buckets(client_id, prev_start, prev_end, "year", sources)
     themes_cur, themes_prev = await _themes(client_id, start, end, sources), await _themes(client_id, prev_start, prev_end, sources)
     alerts = await open_alerts(client_id)
+    words = await _words(client_id, start, end, sources)
 
     split, prev_split = _split(cur), _split(prev)
     total, prev_total = sum(split.values()), sum(prev_split.values())
@@ -229,8 +230,27 @@ async def summary(client_id: str, *, start: date, end: date, grain: str, sources
         "series": series,
         "channels": channels,
         "themes": top_themes(themes_cur, themes_prev),
+        "words": words,
         "alerts": alerts[:5] if with_alerts else [],
     }
+
+
+WORD_ROWS = 1500
+
+
+async def _words(client_id: str, start: date, end: date, sources: List[str]) -> List[Dict[str, Any]]:
+    """Nuvem de palavras do período: o que aparece nas menções (manchetes, comentários, Direct), cada palavra
+    com a cor do sentimento que predomina onde ela aparece. Falha na leitura não derruba o painel."""
+    from .comments import top_words
+    lo, hi = _bounds(start, end)
+    try:
+        rows = await sb_select("brand_mentions", select="body,sentiment", order="at.desc", limit=WORD_ROWS,
+                               filters={"client_id": f"eq.{client_id}", "source": f"in.({','.join(sources)})",
+                                        "and": f"(at.gte.{lo},at.lt.{hi})"})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[brand_health] words_failed client_id={client_id} {type(exc).__name__}")
+        return []
+    return top_words([{"text": r.get("body"), "sentiment": r.get("sentiment")} for r in rows], limit=30)
 
 
 async def audience_voice(client_id: str, *, days: int = 30) -> Optional[str]:
