@@ -127,3 +127,24 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhWords .wordCloud{margin-top:12px}
 .bhWords.is-loading{opacity:.6}
 .hiEditor + .bhFoot{margin-top:14px}
+
+/* Comentários um a um + o "!" de origem/revisão */
+.bhMentions { margin-top: 16px; }
+.bhMentionsBar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; }
+.bhMentionsBar select, .bhMentionEdit select { border: 1px solid var(--bh-line); border-radius: 8px; padding: 6px 10px; background: var(--surface, #fff); font: inherit; }
+.bhMentionList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.bhMentionList > li { border: 1px solid var(--bh-line); border-radius: 10px; padding: 10px 12px; background: var(--surface, #fff); }
+.bhMentionList > li.is-excluded { opacity: .6; }
+.bhMentionRow { display: flex; gap: 10px; align-items: flex-start; }
+.bhMentionRow > .bhDot { margin-top: 6px; flex: none; }
+.bhMentionText { flex: 1; min-width: 0; }
+.bhMentionText p { margin: 0 0 2px; overflow-wrap: anywhere; }
+.bhMentionText small { color: var(--text-secondary, #4d565d); }
+.bhInfoBtn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--bh-line); background: transparent; color: var(--text-secondary, #4d565d); cursor: pointer; }
+.bhInfoBtn:hover, .bhInfoBtn[aria-expanded="true"] { color: var(--text-primary); border-color: currentColor; }
+.bhMentionInfo { margin: 10px 0 2px 20px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, var(--bh-line) 35%, transparent); display: grid; gap: 10px; }
+.bhMentionInfo dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.bhMentionInfo dt { color: var(--text-secondary, #4d565d); }
+.bhMentionInfo dd { margin: 0; overflow-wrap: anywhere; }
+.bhMentionEdit { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.bhMentionEdit label { display: inline-flex; gap: 8px; align-items: center; }

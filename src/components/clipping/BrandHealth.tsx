@@ -6,6 +6,7 @@ import {
 } from "../../app/brandHealth";
 import DateRangePicker from "./DateRangePicker";
 import HealthIndexCard from "./HealthIndexCard";
+import MentionReview from "./MentionReview";
 import WordCloud from "../WordCloud";
 import "../../styles/brandHealth.css";
 import PageSkeleton from "../data/PageSkeleton";
@@ -266,6 +267,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
                 <td>{t.tone ? <span className={`bhTone is-${t.tone}`}>{SENTIMENT_NAME[t.tone].toLowerCase()}</span> : "—"}</td></tr>)}</tbody></table>}
         </section>
       </div>
+      {sources.some((s) => s !== "news") ? <MentionReview start={range.start} end={range.end} onChanged={() => setNonce((n) => n + 1)} /> : null}
       <p className="bhMuted bhFoot">Saúde da conversa = 80% sentimento líquido + 20% alertas abertos (é o pilar "Conversa" do índice MUGOVERSO). Comentários e Direct são analisados pela IA a cada hora; notícias, na busca diária do clipping.
         {k.unanalyzed ? ` ${nf.format(k.unanalyzed)} menções ainda sem análise contam só no volume.` : ""}</p>
     </div> : null}

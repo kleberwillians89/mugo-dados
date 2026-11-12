@@ -157,3 +157,67 @@ class AudienceVoiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await bh.audience_voice("ruah"))
         with patch.object(bh, "sb_rpc", AsyncMock(side_effect=RuntimeError("db"))):
             self.assertIsNone(await bh.audience_voice("ruah"))
+
+
+class MentionReviewTests(unittest.IsolatedAsyncioTestCase):
+    def test_view_skips_excluded_mentions(self):
+        sql = (Path(__file__).resolve().parents[2] / "supabase/migrations/20270106_000115_brand_mentions_review.sql").read_text(encoding="utf-8")
+        self.assertIn("m.health_excluded is not true", sql)
+        self.assertIn("d.health_excluded is not true", sql)
+        self.assertIn("c.kind in ('marca', 'pessoa')", sql)  # mantém o escopo da 000095
+        self.assertIn("lower(mc.username) = lower(coalesce(m.username, ''))", sql)
+        self.assertNotIn("drop ", sql.lower())
+
+    async def test_lists_comments_with_post_origin_and_skips_brand_replies(self):
+        rows = [{"id": 7, "media_id": "m1", "username": "ana", "text": "Que bomba esse perfume", "timestamp": "2026-11-03T10:00:00+00:00",
+                 "sentiment": "negativo", "theme": "perfume", "sentiment_ai": None, "health_excluded": False, "reviewed_at": None},
+                {"id": 8, "media_id": "m1", "username": "Mugo", "text": "obrigado!", "timestamp": "2026-11-03T11:00:00+00:00",
+                 "sentiment": "positivo", "theme": None, "sentiment_ai": None, "health_excluded": False, "reviewed_at": None}]
+        posts = [{"media_id": "m1", "caption": "Lançamento", "permalink": "https://instagram.com/p/x", "timestamp": "2026-11-02T10:00:00+00:00"}]
+        own = [{"username": "mugo"}]
+        sel = AsyncMock(side_effect=[rows, own, posts])
+        with patch.object(bh, "sb_select", sel):
+            out = await bh.list_mentions("c1", start=date(2026, 11, 1), end=date(2026, 11, 30), source="comments", show="negativo")
+        self.assertEqual([i["id"] for i in out["items"]], ["7"])
+        item = out["items"][0]
+        self.assertEqual((item["author"], item["sentiment_ai"], item["post"]["permalink"]), ("@ana", "negativo", "https://instagram.com/p/x"))
+        first = sel.await_args_list[0].kwargs
+        self.assertEqual(first["filters"]["sentiment"], "eq.negativo")
+        self.assertEqual(first["filters"]["client_id"], "eq.c1")
+        self.assertTrue(out["review_enabled"])
+
+    async def test_list_without_migration_falls_back_read_only(self):
+        sel = AsyncMock(side_effect=[RuntimeError("column does not exist"), [], []])
+        with patch.object(bh, "sb_select", sel):
+            out = await bh.list_mentions("c1", start=date(2026, 11, 1), end=date(2026, 11, 30), source="direct")
+        self.assertEqual((out["items"], out["review_enabled"]), ([], False))
+        self.assertNotIn("sentiment_ai", sel.await_args_list[1].kwargs["select"])
+
+    async def test_review_keeps_ai_original_and_excludes(self):
+        row = {"id": 7, "sentiment": "negativo", "analyzed_at": "2026-11-03T12:00:00+00:00", "sentiment_ai": None,
+               "health_excluded": False, "reviewed_at": None}
+        upd = AsyncMock(return_value=[])
+        with patch.object(bh, "sb_select", AsyncMock(return_value=[row])), patch.object(bh, "sb_update", upd):
+            out = await bh.review_mention("c1", source="comments", mention_id="7", user_id="u1", sentiment="positivo", excluded=True)
+        patch_sent = upd.await_args.kwargs["patch"]
+        self.assertEqual((patch_sent["sentiment"], patch_sent["sentiment_ai"], patch_sent["health_excluded"], patch_sent["reviewed_by"]),
+                         ("positivo", "negativo", True, "u1"))
+        self.assertEqual(upd.await_args.kwargs["filters"], {"id": "eq.7", "client_id": "eq.c1"})
+        self.assertEqual((out["sentiment"], out["sentiment_ai"], out["excluded"]), ("positivo", "negativo", True))
+
+    async def test_review_reset_goes_back_to_ai(self):
+        row = {"id": 7, "sentiment": "positivo", "analyzed_at": "x", "sentiment_ai": "negativo", "health_excluded": True, "reviewed_at": "y"}
+        upd = AsyncMock(return_value=[])
+        with patch.object(bh, "sb_select", AsyncMock(return_value=[row])), patch.object(bh, "sb_update", upd):
+            out = await bh.review_mention("c1", source="comments", mention_id="7", user_id="u1", reset=True)
+        self.assertEqual(upd.await_args.kwargs["patch"]["sentiment"], "negativo")
+        self.assertFalse(out["excluded"])
+
+    async def test_review_rejects_bad_ids_and_other_brands(self):
+        with self.assertRaises(bh.StudioError):
+            await bh.review_mention("c1", source="comments", mention_id="7;drop", user_id="u1", sentiment="neutro")
+        with self.assertRaises(bh.StudioError):
+            await bh.review_mention("c1", source="direct", mention_id="7", user_id="u1", sentiment="neutro")
+        with patch.object(bh, "sb_select", AsyncMock(return_value=[])), self.assertRaises(bh.StudioError) as err:
+            await bh.review_mention("c1", source="comments", mention_id="9", user_id="u1", excluded=True)
+        self.assertEqual(err.exception.code, "MENTION_NOT_FOUND")
