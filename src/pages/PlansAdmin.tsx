@@ -75,7 +75,7 @@ function CommercialModuleEditor({ clientId }: { clientId: string }) {
     </div>
     <div className="saPlanActions">
       {error ? <small role="alert" className="saError">{error}</small> : null}
-      <button type="button" className="ds-button" disabled={!dirty || saving}
+      <button type="button" className="ds-button" disabled={!dirty || saving || Boolean(error)}
         onClick={async () => {
           setSaving(true); setError("");
           try {
