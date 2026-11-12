@@ -128,6 +128,7 @@ describe("Commercial admin UI — mocked HTTP boundary", () => {
     expect(button("Salvar módulos").disabled).toBe(true);
     await click(button("Recarregar"));
     expect(button("Salvar módulos").disabled).toBe(false);
+    await toggle("Meta");
     await click(button("Salvar módulos"));
     expect(api.saveCommercialConfig).toHaveBeenLastCalledWith("tenant-a", ["meta"], null);
   });
