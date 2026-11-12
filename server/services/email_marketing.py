@@ -308,7 +308,7 @@ def clean_campaign(body: Dict[str, Any]) -> Dict[str, Any]:
     if "design" in body:
         out["design"] = email_builder.normalize_design(body.get("design"))
     if "custom_html" in body:
-        out["custom_html"] = (str(body.get("custom_html") or "")[:300000]) or None
+        out["custom_html"] = email_builder.sanitize_html(str(body.get("custom_html") or "")) or None
     if "audience" in body:
         out["audience"] = clean_audience(body.get("audience"))
     return out
@@ -357,8 +357,10 @@ SAMPLE = {"email": "cliente@exemplo.com", "hash": "0" * 32, "first_name": "Ana",
 
 async def preview(client_id: str, campaign: Dict[str, Any]) -> Dict[str, Any]:
     settings = await get_settings(client_id)
-    subject, html, _ = render_campaign(clean_campaign(campaign) | {"preheader": campaign.get("preheader")}, settings, SAMPLE, client_id)
-    return {"subject": subject, "html": html}
+    clean = clean_campaign(campaign) | {"preheader": campaign.get("preheader")}
+    subject, html, _ = render_campaign(clean, settings, SAMPLE, client_id)
+    report = email_builder.html_report(campaign.get("custom_html") or "") if campaign.get("custom_html") else None
+    return {"subject": subject, "html": html, "report": report}
 
 
 def _message(settings: Dict[str, Any], to: str, subject: str, html: str, text: str, unsub: str, tags: List[Dict[str, str]]) -> Dict[str, Any]:

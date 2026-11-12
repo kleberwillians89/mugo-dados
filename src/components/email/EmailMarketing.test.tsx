@@ -14,6 +14,7 @@ vi.mock("../../app/emailMarketing", async (orig) => ({ ...(await orig<object>())
 const CartRecoveryPanel = (await import("./CartRecoveryPanel")).default;
 const CampaignsPanel = (await import("./CampaignsPanel")).default;
 const BlockEditor = (await import("./BlockEditor")).default;
+const HtmlInput = (await import("./HtmlInput")).default;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root;
@@ -97,5 +98,37 @@ describe("E-mail marketing", () => {
     await act(async () => { host.querySelectorAll<HTMLButtonElement>('[aria-label="Descer"]')[0].click(); });
     expect(onChange.mock.calls[1][0].blocks.map((b: { text?: string }) => b.text)).toEqual(["B", "A"]);
     expect(button("+ Produtos do carrinho")).toBeUndefined();
+  });
+
+  it("HTML: importa arquivo .html e mostra o relatório", async () => {
+    const onChange = vi.fn();
+    const report = { bytes: 110_000, too_big: false, gmail_clip: true, full_document: true, variables: ["primeiro_nome"], has_unsubscribe: false, removed_unsafe: true };
+    await act(async () => { root.render(<HtmlInput value="<html>x</html>" onChange={onChange} report={report} hint="Variáveis" />); });
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File(["<html><body>Oi</body></html>"], "black.html", { type: "text/html" });
+    Object.defineProperty(input, "files", { value: [file] });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
+    expect(onChange).toHaveBeenCalledWith("<html><body>Oi</body></html>");
+    expect(host.textContent).toContain("documento completo");
+    expect(host.textContent).toContain("o Gmail corta");
+    expect(host.textContent).toContain("adicionado automaticamente no rodapé");
+  });
+
+  it("HTML: recusa arquivo que não é .html", async () => {
+    const onChange = vi.fn();
+    await act(async () => { root.render(<HtmlInput value="" onChange={onChange} hint="x" />); });
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [new File(["x"], "foto.png", { type: "image/png" })] });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Escolha um arquivo .html");
+  });
+
+  it("carrinho: alterna para HTML próprio", async () => {
+    await act(async () => { root.render(<CartRecoveryPanel canEdit />); });
+    await flush();
+    await act(async () => { button("HTML próprio").click(); });
+    expect(host.querySelector('[aria-label="HTML do e-mail"]')).not.toBeNull();
+    expect(host.textContent).toContain("{{produtos}} insere os itens do carrinho");
   });
 });

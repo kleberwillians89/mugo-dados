@@ -3,10 +3,11 @@ import { Mail, MessageCircle, Plus, Trash2 } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
 import {
   CART_STATUS_LABEL, CART_VARIABLE_HINT, delayLabel, getCartRecovery, getWaTemplates, previewCartEmail, registerCartWebhooks, saveCartSettings,
-  type CartOverview, type CartSettings, type CartStep, type WaNumber, type WaTemplate,
+  type CartOverview, type CartSettings, type CartStep, type HtmlReport, type WaNumber, type WaTemplate,
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
+import HtmlInput from "./HtmlInput";
 
 const money = (value: number | null | undefined) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const DELAYS = [15, 30, 60, 120, 180, 360, 720, 1440, 2880, 4320, 10080];
@@ -20,6 +21,8 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
   const [settings, setSettings] = useState<CartSettings | null>(null);
   const [wa, setWa] = useState<{ numbers: WaNumber[]; templates: WaTemplate[] } | null>(null);
   const [busy, setBusy] = useState("");
+  const [htmlMode, setHtmlMode] = useState<boolean | null>(null);
+  const [report, setReport] = useState<HtmlReport | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -50,6 +53,7 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
   const hasEmail = settings.steps.some((st) => st.channel === "email");
   const approved = (wa?.templates || []).filter((t) => t.status === "APPROVED");
   const chosen = approved.find((t) => t.name === settings.whatsapp_template);
+  const usingHtml = htmlMode ?? !!settings.email_custom_html;
 
   return (
     <div className="emCart">
@@ -116,8 +120,23 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
                   <option value="todos">Todos que deixaram o e-mail no checkout (lembrete, com descadastro)</option>
                   <option value="consentimento">Só quem aceitou receber marketing</option>
                 </select></label>
-              <p className="emHint">Variáveis: {CART_VARIABLE_HINT}</p>
-              <BlockEditor design={settings.email_design} allowProducts disabled={!canEdit} onChange={(email_design) => change({ email_design })} />
+              <div className="emCardHead">
+                <span className="emMuted">Conteúdo</span>
+                <div className="ds-segmented" role="group" aria-label="Modo do e-mail do carrinho">
+                  <button type="button" aria-pressed={!usingHtml} disabled={!canEdit} onClick={() => { setHtmlMode(false); change({ email_custom_html: null }); }}>Blocos</button>
+                  <button type="button" aria-pressed={usingHtml} disabled={!canEdit} onClick={() => setHtmlMode(true)}>HTML próprio</button>
+                </div>
+              </div>
+              {usingHtml ? (
+                <HtmlInput value={settings.email_custom_html || ""} disabled={!canEdit} report={report}
+                  hint={`Variáveis: ${CART_VARIABLE_HINT} · {{produtos}} insere os itens do carrinho`}
+                  onChange={(email_custom_html) => change({ email_custom_html })} />
+              ) : (
+                <>
+                  <p className="emHint">Variáveis: {CART_VARIABLE_HINT}</p>
+                  <BlockEditor design={settings.email_design} allowProducts disabled={!canEdit} onChange={(email_design) => change({ email_design })} />
+                </>
+              )}
             </section>
           ) : null}
 
@@ -182,7 +201,8 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
         </div>
 
         {hasEmail ? (
-          <EmailPreview deps={[settings.email_design, settings.email_subject]} load={() => previewCartEmail(settings.email_design, settings.email_subject)} />
+          <EmailPreview deps={[settings.email_design, settings.email_subject, usingHtml ? settings.email_custom_html : null]} onReport={setReport}
+            load={() => previewCartEmail(settings.email_design, settings.email_subject, usingHtml ? settings.email_custom_html : null)} />
         ) : <div />}
       </div>
 

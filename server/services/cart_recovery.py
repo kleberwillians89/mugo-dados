@@ -34,11 +34,11 @@ EXPIRE_DAYS = 7
 MAX_STEPS = 5
 DUE_LIMIT = 200
 WA_VARIABLES = ("nome", "produto", "valor", "link")
-SETTING_FIELDS = ("enabled", "steps", "email_subject", "email_design", "email_consent", "whatsapp_number_id", "whatsapp_template",
+SETTING_FIELDS = ("enabled", "steps", "email_subject", "email_design", "email_custom_html", "email_consent", "whatsapp_number_id", "whatsapp_template",
                   "whatsapp_language", "whatsapp_variables", "whatsapp_consent", "attribution_days", "webhooks_registered_at")
 DEFAULTS: Dict[str, Any] = {
     "enabled": False, "steps": [{"channel": "email", "delay_minutes": 60}, {"channel": "whatsapp", "delay_minutes": 1440}],
-    "email_subject": "Você esqueceu alguns itens no carrinho", "email_design": None, "email_consent": "todos",
+    "email_subject": "Você esqueceu alguns itens no carrinho", "email_design": None, "email_custom_html": None, "email_consent": "todos",
     "whatsapp_number_id": None, "whatsapp_template": None, "whatsapp_language": "pt_BR", "whatsapp_variables": ["nome", "link"],
     "whatsapp_consent": "consentimento", "attribution_days": 7, "webhooks_registered_at": None,
 }
@@ -155,6 +155,8 @@ def clean_settings(patch: Dict[str, Any]) -> Dict[str, Any]:
         out["email_subject"] = _text(patch.get("email_subject"), 200) or DEFAULTS["email_subject"]
     if "email_design" in patch:
         out["email_design"] = email_builder.normalize_design(patch.get("email_design"))
+    if "email_custom_html" in patch:
+        out["email_custom_html"] = email_builder.sanitize_html(str(patch.get("email_custom_html") or "")) or None
     if "email_consent" in patch:
         out["email_consent"] = patch["email_consent"] if patch["email_consent"] in ("todos", "consentimento") else "todos"
     if "whatsapp_consent" in patch:
@@ -309,7 +311,8 @@ async def _send_email(client_id: str, cart: Dict[str, Any], contact: Dict[str, s
     variables = {"nome": first or "Olá", "primeiro_nome": first or "Olá", "marca": _text(sender_settings.get("from_name"), 80),
                  "link_carrinho": _text(cart.get("recovery_url"), 1000), "valor_carrinho": _money(cart.get("value")),
                  "link_loja": _text(sender_settings.get("store_url"), 300), "descadastro": email_marketing.unsubscribe_url(client_id, ehash)}
-    html, text = email_builder.render(settings["email_design"], sender_settings, variables, items=cart.get("items") or [])
+    html, text = email_builder.render(settings["email_design"], sender_settings, variables, items=cart.get("items") or [],
+                                      custom_html=settings.get("email_custom_html"))
     subject = email_builder.fill(_text(settings["email_subject"], 200), variables)
     msg = email_marketing._message(sender_settings, email, subject, html, text, variables["descadastro"],
                                    [{"name": "kind", "value": "carrinho"}])

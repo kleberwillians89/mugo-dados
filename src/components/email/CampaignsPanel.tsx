@@ -4,10 +4,11 @@ import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
 import {
   cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
-  type Audience, type AudiencePreview, type Campaign, type CampaignStats, type CampaignSummary, type Segment,
+  type Audience, type AudiencePreview, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
+import HtmlInput from "./HtmlInput";
 
 const pct = (value: number | null | undefined) => (value == null ? "—" : `${value.toLocaleString("pt-BR")}%`);
 const int = (value: number | null | undefined) => Number(value || 0).toLocaleString("pt-BR");
@@ -31,6 +32,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [mode, setMode] = useState<"blocos" | "html">("blocos");
   const [audience, setAudience] = useState<AudiencePreview | null>(null);
+  const [report, setReport] = useState<HtmlReport | null>(null);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
   const [busy, setBusy] = useState("");
@@ -93,10 +95,8 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             {mode === "blocos" ? (
               <BlockEditor design={campaign.design} disabled={!editable} onChange={(design) => change({ design })} />
             ) : (
-              <label className="emField"><span>HTML</span>
-                <textarea className="emCode" rows={14} value={campaign.custom_html || ""} disabled={!editable}
-                  placeholder="<table>…</table> — scripts são removidos; o descadastro entra no fim se faltar {{descadastro}}"
-                  onChange={(e) => change({ custom_html: e.target.value })} /></label>
+              <HtmlInput value={campaign.custom_html || ""} disabled={!editable} report={report} hint={`Variáveis: ${VARIABLE_HINT}`}
+                onChange={(custom_html) => change({ custom_html })} />
             )}
           </section>
 
@@ -167,7 +167,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
         </div>
 
         <EmailPreview deps={[campaign.subject, campaign.preheader, campaign.design, mode, campaign.custom_html]}
-          load={() => previewEmail({ ...payload()! })} />
+          load={() => previewEmail({ ...payload()! })} onReport={setReport} />
       </div>
     </div>
   );

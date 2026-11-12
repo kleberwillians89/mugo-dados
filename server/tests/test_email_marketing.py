@@ -51,6 +51,38 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("2 × R$ 1.189,90", html)
 
 
+class CustomHtmlTests(unittest.TestCase):
+    EXPORT = ('<!DOCTYPE html><html><head><style>.x{color:#111}</style></head><body><table><tr><td>'
+              'Oi *|FNAME|* <a href="javascript:steal()">x</a><img src="https://cdn/x.png" onerror="y()">'
+              '<form action="https://evil"><input></form>{{produtos}}</td></tr></table></body></html>')
+
+    def test_full_export_keeps_head_and_gets_preheader_and_footer(self):
+        html, text = eb.render(None, {"from_name": "Roove"}, {"primeiro_nome": "Ana", "descadastro": "https://u/1"},
+                               preheader="Só hoje", custom_html=self.EXPORT, items=[{"title": "Legging", "quantity": 1, "price": 10}])
+        self.assertIn("<style>.x{color:#111}</style>", html)
+        self.assertIn("Oi Ana", html)
+        self.assertRegex(html, r"<body><div style=\"display:none[^>]*>Só hoje</div>")
+        self.assertIn('href="#"', html)
+        for bad in ("javascript:", "onerror", "<form", "*|FNAME|*"):
+            self.assertNotIn(bad, html)
+        self.assertIn("Legging", html)
+        self.assertLess(html.index("Não quero mais receber"), html.index("</body>"))
+        self.assertNotIn(".x{color", text)
+
+    def test_own_unsubscribe_link_is_respected(self):
+        html, _ = eb.render(None, {}, {"descadastro": "https://u/1"}, custom_html='<p><a href="*|UNSUB|*">Sair</a></p>')
+        self.assertIn('href="https://u/1">Sair', html)
+        self.assertNotIn("Não quero mais receber", html)
+
+    def test_report(self):
+        report = eb.html_report(self.EXPORT)
+        self.assertTrue(report["full_document"])
+        self.assertTrue(report["removed_unsafe"])
+        self.assertEqual(report["variables"], ["primeiro_nome", "produtos"])
+        self.assertFalse(report["has_unsubscribe"])
+        self.assertTrue(eb.html_report("<p>" + "a" * 110_000 + "</p>")["gmail_clip"])
+
+
 def contact(h, consent=True, orders=1, last="2026-11-01T10:00:00Z"):
     return {"email": f"{h}@x.com", "hash": h * 32 if len(h) == 1 else h, "first_name": "A", "name": "A", "consent": consent,
             "orders": orders, "last_order_at": last}

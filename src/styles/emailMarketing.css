@@ -105,3 +105,11 @@
   .emBlockRow{grid-template-columns:1fr}
   .emField input,.emField select,.emField textarea{font-size:16px}
 }
+
+.emHtml{display:grid;gap:8px}
+.emHtmlTools{display:flex;align-items:center;gap:12px}
+.emCode.is-dragging{border-color:var(--id-accent,#004f6e)!important;background:var(--id-accent-soft,#eef6f9)!important}
+.emHtmlReport{list-style:none;margin:0;padding:10px 14px;border-radius:12px;background:#f6f5f2;display:grid;gap:4px;font-size:13px;color:var(--text-primary,#15181b)}
+.emHtmlReport li::before{content:"· ";color:var(--text-secondary,#4d565d)}
+.emHtmlReport li.is-warn{color:#8a5a00}
+.emHtml textarea{width:100%;padding:12px 14px;border:1px solid var(--id-line,rgba(21,24,27,.13));border-radius:var(--id-field-radius,12px);background:#fbfaf8;line-height:1.5;resize:vertical;color:var(--text-primary,#15181b)}

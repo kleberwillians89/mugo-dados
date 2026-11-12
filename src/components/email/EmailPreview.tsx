@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import type { EmailPreviewResult, HtmlReport } from "../../app/emailMarketing";
 
 /** Prévia do e-mail exatamente como o servidor monta. Relê com uma pausa curta depois de cada mudança. */
-export default function EmailPreview({ load, deps }: { load: () => Promise<{ subject: string; html: string }>; deps: unknown[] }) {
-  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
+export default function EmailPreview({ load, deps, onReport }: {
+  load: () => Promise<EmailPreviewResult>; deps: unknown[]; onReport?: (report: HtmlReport | null) => void;
+}) {
+  const [preview, setPreview] = useState<EmailPreviewResult | null>(null);
   const [error, setError] = useState("");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const generation = useRef(0);
   const loader = useRef(load);
-  useEffect(() => { loader.current = load; });
+  const reporter = useRef(onReport);
+  useEffect(() => { loader.current = load; reporter.current = onReport; });
   const key = JSON.stringify(deps);
 
   useEffect(() => {
@@ -15,7 +19,7 @@ export default function EmailPreview({ load, deps }: { load: () => Promise<{ sub
     const timer = setTimeout(async () => {
       try {
         const next = await loader.current();
-        if (request === generation.current) { setPreview(next); setError(""); }
+        if (request === generation.current) { setPreview(next); setError(""); reporter.current?.(next.report || null); }
       } catch (cause) {
         if (request === generation.current) setError(cause instanceof Error ? cause.message : "Prévia indisponível.");
       }

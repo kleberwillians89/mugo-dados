@@ -136,15 +136,10 @@ def render(design: Any, settings: Dict[str, Any], variables: Dict[str, str], *, 
     variables = {**variables, "marca": variables.get("marca") or brand}
     color = settings.get("brand_color") if _COLOR.match(str(settings.get("brand_color") or "")) else DEFAULT_COLOR
     if custom_html:
-        body = _ON_ATTR.sub("", _SCRIPT.sub("", custom_html))
-        body = fill(body, {k: html.escape(str(v), quote=True) for k, v in variables.items()})
-        if "descadastro" not in (custom_html or "") and variables.get("descadastro"):
-            body += _footer(settings, variables, brand)
-        inner = body
-    else:
-        parts = [_block_html(b, variables=variables, color=color, logo=settings.get("logo_url"), brand=brand, items=items or [])
-                 for b in normalize_design(design)["blocks"]]
-        inner = "".join(parts) + _footer(settings, variables, brand)
+        return custom_document(custom_html, settings, variables, brand=brand, items=items or [], preheader=preheader)
+    parts = [_block_html(b, variables=variables, color=color, logo=settings.get("logo_url"), brand=brand, items=items or [])
+             for b in normalize_design(design)["blocks"]]
+    inner = "".join(parts) + _footer(settings, variables, brand)
     pre = html.escape(fill(_text(preheader, 200), variables))
     doc = (
         '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
@@ -157,6 +152,87 @@ def render(design: Any, settings: Dict[str, Any], variables: Dict[str, str], *, 
         f'<tr><td style="padding:32px 36px">{inner}</td></tr></table></td></tr></table></body></html>'
     )
     return doc, to_text(inner)
+
+
+# ---------------------------------------------------------------- HTML próprio (colado ou importado de arquivo)
+
+MAX_HTML = 300_000
+GMAIL_CLIP = 102_000  # o Gmail corta a mensagem acima disso ("Mensagem cortada")
+# Atalhos de outras ferramentas viram as nossas variáveis, para importar modelos prontos sem retrabalho.
+ALIASES = {
+    "*|FNAME|*": "{{primeiro_nome}}", "*|UNSUB|*": "{{descadastro}}", "{{{RESEND_UNSUBSCRIBE_URL}}}": "{{descadastro}}",
+    "{{unsubscribe}}": "{{descadastro}}", "{{unsubscribe_url}}": "{{descadastro}}", "{{first_name}}": "{{primeiro_nome}}",
+    "{{name}}": "{{nome}}", "{{cart_url}}": "{{link_carrinho}}",
+}
+_JS_URL = re.compile(r"""(href|src|action)\s*=\s*(["'])\s*(javascript|vbscript):[^"']*\2""", re.I)
+_META_REFRESH = re.compile(r"<meta[^>]+http-equiv\s*=\s*[\"']?refresh[^>]*>", re.I)
+_FORM = re.compile(r"</?\s*form\b[^>]*>", re.I)
+_FULL_DOC = re.compile(r"<\s*(html|body)\b", re.I)
+_BODY_OPEN = re.compile(r"<\s*body\b[^>]*>", re.I)
+_BODY_CLOSE = re.compile(r"</\s*body\s*>", re.I)
+_HEAD = re.compile(r"<\s*head\b.*?</\s*head\s*>", re.I | re.S)
+_STYLE = re.compile(r"<\s*style\b.*?</\s*style\s*>", re.I | re.S)
+
+
+def sanitize_html(raw: str) -> str:
+    """Tira o que é perigoso ou que o e-mail não suporta: script, iframe, eventos on*, javascript:, formulário, refresh."""
+    out = _SCRIPT.sub("", str(raw or "")[:MAX_HTML])
+    out = _ON_ATTR.sub("", out)
+    out = _JS_URL.sub(lambda m: f'{m.group(1)}="#"', out)
+    out = _META_REFRESH.sub("", out)
+    return _FORM.sub("", out)
+
+
+def normalize_tags(raw: str) -> str:
+    out = raw
+    for alias, ours in ALIASES.items():
+        out = out.replace(alias, ours)
+    return out
+
+
+def html_report(raw: str) -> Dict[str, Any]:
+    """O que a tela mostra ao colar/importar: tamanho, corte do Gmail, variáveis usadas e o que foi removido."""
+    text = str(raw or "")
+    clean = sanitize_html(text)
+    used = sorted({m.group(1) for m in _VAR.finditer(normalize_tags(clean))})
+    return {"bytes": len(text.encode("utf-8")), "too_big": len(text) > MAX_HTML, "gmail_clip": len(clean.encode("utf-8")) > GMAIL_CLIP,
+            "full_document": bool(_FULL_DOC.search(text)), "variables": used, "has_unsubscribe": "descadastro" in used,
+            "removed_unsafe": clean != text[:MAX_HTML]}
+
+
+def custom_document(custom_html: str, settings: Dict[str, Any], variables: Dict[str, str], *, brand: str,
+                    items: List[Dict[str, Any]], preheader: str) -> Tuple[str, str]:
+    color = settings.get("brand_color") if _COLOR.match(str(settings.get("brand_color") or "")) else DEFAULT_COLOR
+    body = normalize_tags(sanitize_html(custom_html))
+    has_unsub = bool(re.search(r"\{\{\s*descadastro\s*\}\}", body))
+    # {{produtos}} vira a lista de itens do carrinho (HTML pronto, não escapado).
+    body = re.sub(r"\{\{\s*produtos\s*\}\}", lambda _m: _items_html(items, color), body)
+    body = fill(body, {k: html.escape(str(v), quote=True) for k, v in variables.items()})
+    footer = "" if has_unsub or not variables.get("descadastro") else _footer(settings, variables, brand)
+    pre = html.escape(fill(_text(preheader, 200), variables))
+    pre_div = f'<div style="display:none;max-height:0;overflow:hidden;opacity:0">{pre}</div>' if pre else ""
+    if _FULL_DOC.search(body):
+        # Documento completo (exportado de outra ferramenta): mantém <head>/<style>; entra pré-cabeçalho e rodapé.
+        if footer:
+            wrapped = f'<div style="max-width:600px;margin:0 auto;padding:0 16px 24px">{footer}</div>'
+            body = _BODY_CLOSE.sub(lambda _m: wrapped + "</body>", body, count=1) if _BODY_CLOSE.search(body) else body + wrapped
+        if pre_div:
+            body = _BODY_OPEN.sub(lambda m: m.group(0) + pre_div, body, count=1) if _BODY_OPEN.search(body) else pre_div + body
+        if not body.lstrip().lower().startswith("<!doctype"):
+            body = "<!doctype html>" + body
+        visible = _BODY_OPEN.split(_HEAD.sub("", body), maxsplit=1)[-1]
+        return body, to_text(_STYLE.sub("", visible))
+    # Trecho de HTML: entra na moldura padrão (600px, fundo neutro).
+    doc = (
+        '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><title></title></head>'
+        f'<body style="margin:0;padding:0;background:#f4f2ee">{pre_div}'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f2ee"><tr>'
+        '<td align="center" style="padding:24px 12px">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px">'
+        f'<tr><td style="padding:32px 36px">{body}{footer}</td></tr></table></td></tr></table></body></html>'
+    )
+    return doc, to_text(_STYLE.sub("", body + footer))
 
 
 def to_text(markup: str) -> str:

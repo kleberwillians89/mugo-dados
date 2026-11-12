@@ -79,6 +79,7 @@ create table if not exists public.cart_recovery_settings (
   steps jsonb not null default '[{"channel": "email", "delay_minutes": 60}, {"channel": "whatsapp", "delay_minutes": 1440}]'::jsonb,
   email_subject text not null default 'Você esqueceu alguns itens no carrinho' check (length(email_subject) <= 200),
   email_design jsonb not null default '{"blocks": []}'::jsonb,
+  email_custom_html text check (email_custom_html is null or length(email_custom_html) <= 300000),
   email_consent text not null default 'todos' check (email_consent in ('todos', 'consentimento')),
   whatsapp_number_id uuid,
   whatsapp_template text check (whatsapp_template is null or length(whatsapp_template) <= 512),

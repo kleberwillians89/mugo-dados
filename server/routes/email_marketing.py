@@ -273,8 +273,9 @@ async def cart_preview(payload: Dict[str, Any] = Body(default={}), client_id: st
         items = [{"title": "Legging Move Preta", "quantity": 1, "price": 189.9}, {"title": "Top Essencial", "quantity": 2, "price": 99.9}]
         variables = {"nome": "Ana", "primeiro_nome": "Ana", "marca": sender.get("from_name") or "", "link_carrinho": "https://loja.exemplo.com/carrinho",
                      "valor_carrinho": "R$ 389,70", "link_loja": sender.get("store_url") or "", "descadastro": "https://exemplo.com/descadastro"}
-        html, _ = email_builder.render(design, sender, variables, items=items)
+        custom = str(payload.get("email_custom_html") or "") or None
+        html, _ = email_builder.render(design, sender, variables, items=items, custom_html=custom)
         subject = email_builder.fill(str(payload.get("email_subject") or "Você esqueceu alguns itens no carrinho"), variables)
-        return {"ok": True, "subject": subject, "html": html}
+        return {"ok": True, "subject": subject, "html": html, "report": email_builder.html_report(custom) if custom else None}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc

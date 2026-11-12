@@ -12,7 +12,7 @@ export const CART_FIXTURE: CartOverview = {
       { type: "texto", text: "Separamos os itens que você escolheu. É só voltar e finalizar quando quiser." },
       { type: "produtos" }, { type: "botao", label: "Finalizar minha compra", href: "{{link_carrinho}}", align: "center" },
     ] },
-    whatsapp_number_id: null, whatsapp_template: "carrinho_abandonado", whatsapp_language: "pt_BR", whatsapp_variables: ["nome", "produto", "link"],
+    email_custom_html: null, whatsapp_number_id: null, whatsapp_template: "carrinho_abandonado", whatsapp_language: "pt_BR", whatsapp_variables: ["nome", "produto", "link"],
     whatsapp_consent: "consentimento", attribution_days: 7, webhooks_registered_at: "2026-11-11T20:00:00Z",
   },
   recent: [

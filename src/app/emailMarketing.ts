@@ -32,7 +32,7 @@ export type AudiencePreview = {
 
 export type CartStep = { channel: "email" | "whatsapp"; delay_minutes: number };
 export type CartSettings = {
-  enabled: boolean; steps: CartStep[]; email_subject: string; email_design: EmailDesign; email_consent: "todos" | "consentimento";
+  enabled: boolean; steps: CartStep[]; email_subject: string; email_design: EmailDesign; email_custom_html: string | null; email_consent: "todos" | "consentimento";
   whatsapp_number_id: string | null; whatsapp_template: string | null; whatsapp_language: string;
   whatsapp_variables: ("nome" | "produto" | "valor" | "link")[]; whatsapp_consent: "consentimento" | "consentimento_ou_conversa";
   attribution_days: number; webhooks_registered_at: string | null;
@@ -50,6 +50,10 @@ export type CartOverview = {
     bought_without_contact: number; open: number; by_channel: Record<string, Record<string, number>>;
   };
 };
+export type HtmlReport = {
+  bytes: number; too_big: boolean; gmail_clip: boolean; full_document: boolean; variables: string[]; has_unsubscribe: boolean; removed_unsafe: boolean;
+};
+export type EmailPreviewResult = { subject: string; html: string; report?: HtmlReport | null };
 export type WaTemplate = { name: string; language: string; status: string; category: string; body: string; variables: number };
 export type WaNumber = { id: string; display_phone_number: string | null; verified_name: string | null; status: string };
 
@@ -61,7 +65,7 @@ export const saveEmailSettings = (patch: Partial<EmailSettings>) =>
 export const previewAudience = (audience: Audience) =>
   http<AudiencePreview>("/api/email/audience", { method: "POST", ...json({ audience }), timeoutMs: 60_000 });
 export const previewEmail = (campaign: Partial<Campaign>) =>
-  http<{ subject: string; html: string }>("/api/email/preview", { method: "POST", ...json(campaign) });
+  http<EmailPreviewResult>("/api/email/preview", { method: "POST", ...json(campaign) });
 
 export const listCampaigns = () => http<{ campaigns: CampaignSummary[] }>("/api/email/campaigns");
 export const getCampaign = (id: string) =>
@@ -84,8 +88,8 @@ export const saveCartSettings = (patch: Partial<CartSettings>) =>
 export const registerCartWebhooks = () =>
   http<{ registered: string[]; existing: string[]; failed: { topic: string; status: number }[] }>("/api/cart-recovery/webhooks", { method: "POST" });
 export const getWaTemplates = () => http<{ numbers: WaNumber[]; templates: WaTemplate[] }>("/api/cart-recovery/whatsapp-templates");
-export const previewCartEmail = (email_design: EmailDesign, email_subject: string) =>
-  http<{ subject: string; html: string }>("/api/cart-recovery/preview", { method: "POST", ...json({ email_design, email_subject }) });
+export const previewCartEmail = (email_design: EmailDesign, email_subject: string, email_custom_html?: string | null) =>
+  http<EmailPreviewResult>("/api/cart-recovery/preview", { method: "POST", ...json({ email_design, email_subject, email_custom_html }) });
 
 export const SEGMENT_LABEL: Record<Segment, string> = {
   consentimento: "Quem aceitou receber e-mails",
