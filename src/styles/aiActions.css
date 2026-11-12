@@ -18,7 +18,7 @@
 .aiStatus.is-falhou{background:rgba(178,34,52,.1);color:#9b1c2c}
 .aiRationale{margin:0;font-size:14px;line-height:1.55}
 .aiEvidence{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin:0}
-.aiEvidence div{padding:8px 10px;border-radius:12px;background:#f6f5f2}
+.aiEvidence div{padding:8px 10px;border-radius:12px;background:#f4f6f8}
 .aiEvidence dt{font-size:11px;color:var(--text-secondary,#4d565d)}
 .aiEvidence dd{margin:2px 0 0;font-size:16px;font-weight:600}
 .aiPreview{margin:0;padding:10px 14px;border-left:3px solid var(--id-accent,#004f6e);background:#f6f9fa;border-radius:0 12px 12px 0;font-size:14px;line-height:1.5}

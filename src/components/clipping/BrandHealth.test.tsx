@@ -58,7 +58,7 @@ describe("Saúde da marca", () => {
     expect(text).toContain("“não chegou” — 9 menções");
     expect(container.querySelectorAll(".bhFill").length).toBeGreaterThan(40);
     if (process.env.BH_SNAPSHOT) writeFileSync(process.env.BH_SNAPSHOT, container.innerHTML);
-    const month = [...container.querySelectorAll(".bhSeg button")].find((b) => b.textContent === "Mês") as HTMLButtonElement;
+    const month = [...container.querySelectorAll(".ds-segmented button")].find((b) => b.textContent === "Mês") as HTMLButtonElement;
     await act(async () => month.click());
     expect(getBrandHealth).toHaveBeenLastCalledWith(expect.objectContaining({ grain: "month" }));
     root.unmount();

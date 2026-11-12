@@ -9,6 +9,7 @@ import PageHeader from "../components/data/PageHeader";
 import PricesSection from "../components/benchmark/PricesSection";
 import Shell from "../components/Shell";
 import "../styles/benchmark.css";
+import PageSkeleton from "../components/data/PageSkeleton";
 
 const CATEGORIES: { id: BenchmarkCategory; label: string; note: string }[] = [
   { id: "ads", label: "Anúncios", note: "Biblioteca de anúncios e criativos públicos. Sem gasto nem ROAS privado." },
@@ -176,7 +177,7 @@ export default function Benchmark() {
         </div>
         {brand?.share != null ? <div className="bmBig"><b>{nf1.format(brand.share)}%</b><span>da atenção é sua</span></div> : null}
       </div>
-      {loading && !data ? <p className="bmMuted" role="status">Carregando…</p>
+      {loading && !data ? <PageSkeleton label="Carregando o benchmarking…" />
         : ig && !ig.available ? <p className="bmMuted">Falta aplicar a migração 000106 no Supabase para guardar os números do Instagram.</p>
         : !withHandle ? <p className="bmEmpty">Cadastre o @ do Instagram de um concorrente (abaixo) e clique em Atualizar Instagram.</p>
         : !igRows.length ? <p className="bmEmpty">Ainda sem coleta. Clique em <b>Atualizar Instagram</b> para buscar o perfil público da marca e dos concorrentes.</p>

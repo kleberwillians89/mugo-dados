@@ -43,25 +43,24 @@
 /* Temo Mugoverso */
 .appShell.theme-client,
 .appShell.theme-mugo-dados{
-  --bg: #f5f1ec;
-  --ink: #1d1b1a;
-  --muted: rgba(29,27,26,.62);
-  --blue: #5b1f2a;
-  --blue2: #1d1b1a;
-  --gold: #7b2d3b;
-  --gold2:#8b3a4a;
-  --card: rgba(255,255,255,.94);
-  --stroke: rgba(91,31,42,.16);
-  --shadow: 0 22px 64px rgba(55,35,37,.12);
-  --shadow2: 0 14px 36px rgba(38,27,27,.12);
+  --bg: #f7f8fa;
+  --ink: #15181b;
+  --muted: rgba(21,24,27,.62);
+  --blue: #004f6e;
+  --blue2: #003a52;
+  --gold: #004f6e;
+  --gold2:#003a52;
+  --card: #ffffff;
+  --stroke: rgba(21,24,27,.10);
+  --shadow: 0 8px 24px rgba(21,24,27,.06);
+  --shadow2: 0 4px 14px rgba(21,24,27,.06);
 }
 
 .appShell.theme-client,
 .appShell.theme-mugo-dados{
   background:
-    radial-gradient(1050px 380px at 13% -10%, rgba(123,45,59,.16), transparent 64%),
-    radial-gradient(920px 340px at 92% -12%, rgba(199,178,153,.28), transparent 60%),
-    linear-gradient(180deg, #f5f1ec 0%, #f2eee8 100%),
+    /* Off-white frio (feedback do designer): sem o bege e sem o halo vinho. */
+    linear-gradient(180deg, #f8f9fb 0%, #f4f6f8 100%),
     var(--bg);
 }
 
@@ -110,35 +109,46 @@
   border-radius: 999px;
 }
 
+/* Padrão único de botões (feedback do designer): ação principal sempre no azul Mugô, em todas as telas. */
 .appShell.theme-client .btnPrimary,
-.appShell.theme-mugo-dados .btnPrimary{
-  background: linear-gradient(135deg, #1d1b1a, #2b2021);
-  border-color: rgba(91,31,42,.28);
+.appShell.theme-mugo-dados .btnPrimary,
+.appShell.theme-client .ds-button.is-primary,
+.appShell.theme-mugo-dados .ds-button.is-primary{
+  background: var(--accent, #004f6e);
+  border-color: var(--accent, #004f6e);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 79, 110, .16);
 }
 
-.appShell.theme-client .btnPrimary:hover,
-.appShell.theme-mugo-dados .btnPrimary:hover{
-  background: linear-gradient(135deg, #5b1f2a, #6e2230);
+.appShell.theme-client .btnPrimary:hover:not(:disabled),
+.appShell.theme-mugo-dados .btnPrimary:hover:not(:disabled),
+.appShell.theme-client .ds-button.is-primary:hover:not(:disabled),
+.appShell.theme-mugo-dados .ds-button.is-primary:hover:not(:disabled){
+  background: #003a52;
+  border-color: #003a52;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(0, 79, 110, .18);
 }
 
+/* "Gold" era um segundo primário (vinho): agora é o mesmo primário, para não haver dois botões principais diferentes. */
 .appShell.theme-client .btnGold,
 .appShell.theme-mugo-dados .btnGold{
   color: #fff;
-  background: linear-gradient(135deg, #6e2230, #8b3a4a);
-  border-color: rgba(91,31,42,.24);
+  background: var(--accent, #004f6e);
+  border-color: var(--accent, #004f6e);
 }
 
 .appShell.theme-client .pill,
 .appShell.theme-mugo-dados .pill{
-  color: #5b1f2a;
-  background: linear-gradient(180deg, rgba(123,45,59,.1), rgba(255,255,255,.9));
-  border-color: rgba(91,31,42,.18);
+  color: var(--accent, #004f6e);
+  background: #eef4f7;
+  border-color: rgba(0, 79, 110, .16);
 }
 
 .appShell.theme-client .card,
 .appShell.theme-mugo-dados .card{
-  border-color: rgba(91,31,42,.11);
-  box-shadow: 0 16px 42px rgba(48,31,33,.08);
+  border-color: rgba(21, 24, 27, .09);
+  box-shadow: 0 1px 2px rgba(21, 24, 27, .04);
 }
 
 .appShell.theme-client .panelTitle,
@@ -152,9 +162,9 @@
 
 .appShell.theme-client .tab.active,
 .appShell.theme-mugo-dados .tab.active{
-  background: #5b1f2a;
-  color: #fbf8f4;
-  border-color: #5b1f2a;
+  background: var(--accent, #004f6e);
+  color: #fff;
+  border-color: var(--accent, #004f6e);
 }
 
 .appShell.theme-client .brandLogoText,
@@ -164,15 +174,17 @@
 
 .appShell.theme-client .btnGhost,
 .appShell.theme-mugo-dados .btnGhost{
-  border-color: rgba(91,31,42,.2);
-  background: rgba(255,255,255,.42);
-  color: #5b1f2a;
+  border-color: rgba(21, 24, 27, .14);
+  background: #fff;
+  color: var(--text-primary, #15181b);
 }
 
 .appShell.theme-client .btnGhost:hover,
 .appShell.theme-mugo-dados .btnGhost:hover{
-  background: rgba(91,31,42,.08);
-  box-shadow: 0 12px 26px rgba(55,35,37,.1);
+  background: #eef4f7;
+  border-color: rgba(0, 79, 110, .3);
+  color: var(--accent, #004f6e);
+  box-shadow: none;
 }
 
 .appShell.theme-client .pillSoft,

@@ -25,7 +25,7 @@
 
   /* Superfícies */
   --surface: #ffffff;
-  --surface-subtle: #f6f5f2;
+  --surface-subtle: #f4f6f8;
   --border-subtle: rgba(21, 24, 27, .09);
 
   /* Significado */
@@ -282,7 +282,7 @@
    comparação por extenso); depois o que a explica, menor; por último o
    operacional. Variação só ganha cor quando é relevante. */
 .ds-summary{ display: flex; flex-direction: column; gap: 44px; min-width: 0; }
-.ds-hero{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ds-hero{ display: flex; flex-direction: column; gap: 10px; min-width: 0; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: var(--space-5) var(--space-6); box-shadow: 0 1px 2px rgba(21, 24, 27, .04); }
 .ds-heroValue{
   font-family: var(--font-display);
   font-size: clamp(52px, 6vw, 84px);
@@ -298,18 +298,22 @@
 .ds-heroDelta .ds-delta{ gap: 6px; font-size: 15px; }
 .ds-deltaReference{ color: var(--text-secondary); font-weight: 400; }
 
+/* Números principais em cards (feedback do designer): o número fica junto do que ele representa e a linha usa a largura toda. */
 .ds-kpis{
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 220px));
-  justify-content: start;
-  align-items: end;
-  gap: var(--space-5) var(--space-7);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: stretch;
+  gap: var(--space-3);
   margin: 0;
 }
-.ds-kpi{ display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ds-kpi{
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+  background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 12px;
+  padding: var(--space-4) var(--space-5); box-shadow: 0 1px 2px rgba(21, 24, 27, .04);
+}
 .ds-kpiValue{
   font-family: var(--font-display);
-  font-size: clamp(28px, 2.4vw, 34px);
+  font-size: clamp(24px, 2.2vw, 32px);
   font-weight: 600;
   line-height: 1;
   letter-spacing: -.025em;
@@ -515,7 +519,7 @@
   .ds-pageHeader{ grid-template-columns: minmax(0, 1fr); align-items: start; }
   .ds-pageHeaderAside{ align-items: flex-start; }
   .ds-customPeriod{ justify-content: flex-start; }
-  .ds-kpis{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ds-kpis{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .ds-kpi.is-hero{ grid-column: 1 / -1; }
   .ds-split{ grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .ds-chart, .ds-chartSection .ds-chart{ height: 320px; }
@@ -524,7 +528,7 @@
   .ds-utilityBar{ display: none; }
   .ds-page, .ds-stack{ gap: var(--space-7); }
   .ds-pageHeaderAside{ width: 100%; }
-  .ds-kpis{ grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: var(--space-5) var(--space-4); }
+  .ds-kpis{ grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
   .ds-summary{ gap: var(--space-6); }
   .ds-heroLabel{ font-size: 17px; }
   .ds-chart, .ds-chartSection .ds-chart{ height: 260px; }
@@ -704,3 +708,11 @@
 .clientsSalesTabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 12px;position:relative;clear:both}
 .clientsSalesTabs a{display:inline-flex;align-items:center;min-height:40px;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.12));background:var(--surface,#fff);color:var(--text-primary,#15181b);font-size:14px;font-weight:600;text-decoration:none}
 .clientsSalesTabs a.is-active{background:var(--accent,#004f6e);border-color:var(--accent,#004f6e);color:#fff}
+
+/* Barra de rolagem discreta (feedback do designer): escondida por padrão, aparece só enquanto rola, sem trilha branca. */
+*{ scrollbar-width: thin; scrollbar-color: transparent transparent; }
+html.is-scrolling *{ scrollbar-color: rgba(21, 24, 27, .28) transparent; }
+::-webkit-scrollbar{ width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner{ background: transparent; }
+::-webkit-scrollbar-thumb{ background: transparent; border-radius: 8px; }
+html.is-scrolling ::-webkit-scrollbar-thumb{ background: rgba(21, 24, 27, .28); }

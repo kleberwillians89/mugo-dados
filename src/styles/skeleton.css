@@ -1,0 +1,13 @@
+.skPage{ display: flex; flex-direction: column; gap: 16px; padding: 4px 0; }
+.skSr{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skCards{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.skCard{ background: var(--surface, #fff); border: 1px solid var(--border-subtle, rgba(21,24,27,.09)); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.sk{ display: block; border-radius: 6px; background: linear-gradient(90deg, #eef1f4 0%, #f6f8fa 40%, #eef1f4 80%); background-size: 200% 100%; animation: skShine 1.2s ease-in-out infinite; }
+.skLine{ height: 10px; }
+.skLine.is-s{ width: 40%; } .skLine.is-m{ width: 60%; } .skLine.is-l{ width: 75%; height: 24px; }
+.skChart{ height: 220px; border-radius: 12px; }
+.skRows{ display: flex; flex-direction: column; gap: 10px; }
+.skRow{ height: 14px; border-radius: 6px; background: linear-gradient(90deg, #eef1f4 0%, #f6f8fa 40%, #eef1f4 80%); background-size: 200% 100%; animation: skShine 1.2s ease-in-out infinite; }
+.skRow:nth-child(2n){ width: 86%; } .skRow:nth-child(3n){ width: 70%; }
+@keyframes skShine{ from{ background-position: 100% 0; } to{ background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce){ .sk, .skRow{ animation: none; } }

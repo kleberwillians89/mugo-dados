@@ -3,6 +3,8 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import { errorLabel, featureLabel, getAiUsage, type AiUsageReport } from "../app/aiUsage";
 import "../styles/studio.css";
+import PageSkeleton from "../components/data/PageSkeleton";
+import SegmentedControl from "../components/data/SegmentedControl";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -40,12 +42,11 @@ export default function AiUsage() {
   const total = data?.totals.total_tokens || 0;
 
   return <Shell title="Consumo de IA" variant="editorial"><div className="ds-page studioPage aiUsage">
-    <PageHeader company="Mugô" title="Consumo de IA" controls={<div className="studioTabs" role="tablist" aria-label="Período">
-      {(Object.keys(PERIOD_LABEL) as Period[]).map((p) => <button key={p} type="button" role="tab" aria-selected={period === p} className={period === p ? "is-active" : ""} onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
-    </div>} />
+    <PageHeader company="Mugô" title="Consumo de IA" controls={<SegmentedControl ariaLabel="Período" value={period} onSelect={(id) => setPeriod(id as Period)}
+      options={(Object.keys(PERIOD_LABEL) as Period[]).map((p) => ({ id: p, label: PERIOD_LABEL[p] }))} />} />
     <p className="libHint">Tokens que cada cliente gastou com a IA (OpenAI) no Mugoverso: Matriz, Redação, Calendário, Campanhas, Inteligência e demais. O custo é <b>estimado</b> pela tabela de preços da OpenAI; a fatura oficial fica em platform.openai.com → Usage.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {loading && !data ? <p>Carregando…</p> : null}
+    {loading && !data ? <PageSkeleton label="Carregando o consumo de IA…" /> : null}
     {data?.quota_exhausted ? <div className="aiUsageAlert" role="alert"><b>A OpenAI está sem crédito.</b> A última chamada ({when(data.last_error?.at)}, {data.last_error?.client}) voltou "{errorLabel(data.last_error?.code)}". Recarregue em platform.openai.com → Billing; a IA volta a funcionar na hora.</div>
       : data?.last_error ? <p className="clipWarn">Último erro da IA: {errorLabel(data.last_error.code)} · {data.last_error.client} · {featureLabel(data.last_error.feature || "")} · {when(data.last_error.at)}</p> : null}
 

@@ -13,6 +13,7 @@ import Radar from "./Radar";
 import BrandHealthAlerts from "../components/clipping/BrandHealthAlerts";
 import { SENTIMENT_COLOR, mugoColor } from "../app/mugoPalette";
 import "../styles/studio.css";
+import PageSkeleton from "../components/data/PageSkeleton";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
 type RadarDraft = Record<string, string>;
@@ -198,7 +199,7 @@ export default function Clipping({ canManage = false, initialTab }: { canManage?
         <option value="">Qualquer relevância</option><option value="40">Relevância 40+</option><option value="60">60+</option><option value="80">80+</option></select>
     </div> : null}
 
-    {loading && !view ? <p>Carregando…</p> : null}
+    {loading && !view ? <PageSkeleton label="Carregando o clipping…" /> : null}
     {view && settings?.saved && !view.items.length ? <div className="studioEmpty"><p>Nenhuma notícia com esse filtro ainda.{canManage ? <> Clique em <b>Atualizar agora</b> para buscar.</> : null}</p></div> : null}
 
     <ul className="clipList">{(view?.items || []).map((item) => <li key={item.id} className={`clipItem is-${item.sentiment || "sem"}${item.relevant === false ? " is-irrelevant" : ""}${item.status === "lido" ? " is-read" : ""}`}>

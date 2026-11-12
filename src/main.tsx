@@ -9,6 +9,7 @@ import "./styles/fonts.css";
 import "./styles/mugo.tokens.css";
 import "./styles/design-system.css";
 import "./styles/App.css";
+import { installScrollIndicator } from "./app/scrollIndicator";
 import "./styles/shell.css";
 import "./styles/identity.css"; // identidade de botões e campos (por último)
 
@@ -59,3 +60,5 @@ if (!rootElement) {
     </React.StrictMode>
   );
 }
+
+installScrollIndicator();

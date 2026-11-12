@@ -18,6 +18,7 @@ import Shell from "../components/Shell";
 import { buildDashboardCacheKey, readDashboardCache, writeDashboardCache } from "../hooks/dashboard/cache";
 import { formatFreshness } from "../app/dataRefresh";
 import "../styles/customers.css";
+import PageSkeleton from "../components/data/PageSkeleton";
 
 const PAGE_SIZE = 25;
 
@@ -229,7 +230,7 @@ export default function Customers({ canView }: { canView?: (route: AppRoute) => 
 
       {error ? <DataNotice tone="negative" role="alert" title="Não foi possível carregar os clientes.">{error}</DataNotice> : null}
 
-      {loading && !data ? <p className="customerEmpty" role="status">Carregando clientes...</p> : null}
+      {loading && !data ? <PageSkeleton label="Carregando clientes…" chart={false} /> : null}
 
       {!error && !loading && !connected ? (
         <DataNotice tone="neutral" title="Nenhum cliente encontrado para esta empresa.">
