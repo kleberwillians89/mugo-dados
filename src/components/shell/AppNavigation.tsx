@@ -56,7 +56,7 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "google", label: "Google" },
   { route: "ecommerce", label: "Ecommerce" },
   // CRM: Origem das vendas e Clientes moram aqui, como abas (ClientsSalesTabs).
-  { route: "origins", label: "CRM", also: ["customers"] },
+  { route: "origins", label: "CRM", also: ["customers", "customer_value"] },
   { route: "whatsapp", label: "WhatsApp" },
   { route: "email_marketing", label: "E-mail marketing" },
   { route: "media", label: "Mídia On" },

@@ -32,6 +32,7 @@ export type AppRoute =
   | "ai_usage"
   | "integration_health"
   | "email_marketing"
+  | "customer_value"
   | "users"
   | "not_found";
 
@@ -92,6 +93,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized.startsWith("/origem-das-vendas")) return "origins";
   if (normalized === "/crm" || normalized.startsWith("/crm/origem")) return "origins";
   if (normalized.startsWith("/crm/clientes")) return "customers";
+  if (normalized.startsWith("/crm/ltv")) return "customer_value";
   if (normalized === "/whatsapp" || normalized.startsWith("/whatsapp/")) return "whatsapp";
   if (normalized.startsWith("/inteligencia")) return "intelligence";
   if (normalized.startsWith("/ecommerce")) return "ecommerce";
@@ -139,6 +141,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "creators") return "/criadores";
   if (route === "automations") return "/automacoes";
   if (route === "customers") return "/crm/clientes";
+  if (route === "customer_value") return "/crm/ltv";
   if (route === "not_found") return "/404";
   return "/meta";
 }

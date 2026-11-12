@@ -2559,3 +2559,20 @@ export async function getCustomerJourney(customerId: string, options?: RequestSi
 export async function rebuildCustomerJourney(): Promise<JourneyRebuildResponse> {
   return http<JourneyRebuildResponse>("/api/customers/journey/rebuild", { method: "POST", timeoutMs: 120_000 });
 }
+
+// ---------------------------------------------------------------- CAC, LTV e coortes
+
+export type ValueMonth = { month: string; new: number; returning: number; revenue_new: number; revenue_returning: number; spend: number; cac: number | null };
+export type ValueCohort = { month: string; size: number; retention: number[]; ltv: number[]; cac: number | null };
+export type CustomerValueResponse = {
+  ok: boolean; status: "ok" | "not_built"; migration_pending?: boolean; built_at?: string; data_since?: string; truncated?: boolean; has_spend?: boolean;
+  months?: ValueMonth[]; cohorts?: ValueCohort[]; ltv?: Record<"30" | "90" | "180" | "365", number | null>; ltv_basis?: "receita" | "margem";
+  margin?: number | null;
+  summary?: { customers: number; repeat_rate: number | null; median_days_to_second: number | null; cac_6m: number | null; ltv_cac: number | null;
+    payback_months: number | null; months_with_cac: number };
+};
+
+export async function getCustomerValue(margin?: number | null, options?: RequestSignalOptions): Promise<CustomerValueResponse> {
+  const query = margin ? `?margin=${encodeURIComponent(String(margin))}` : "";
+  return http<CustomerValueResponse>(`/api/customers/value/overview${query}`, { signal: options?.signal, timeoutMs: 90_000 });
+}

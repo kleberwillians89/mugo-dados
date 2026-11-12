@@ -1,9 +1,10 @@
 import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../../app/routes";
 
-type Tab = "customers" | "origins";
+type Tab = "customers" | "origins" | "customer_value";
 const TABS: { route: Tab; label: string }[] = [
   { route: "origins", label: "Origem das vendas" },
   { route: "customers", label: "Clientes" },
+  { route: "customer_value", label: "LTV e CAC" },
 ];
 
 /**

@@ -72,3 +72,21 @@ async def customer_journey(
         if _journey_unavailable(exc):
             return {"ok": True, "status": "not_built", "events": [], "summary": None, "built_at": None, "migration_pending": True}
         raise HTTPException(status_code=502, detail="A jornada não pôde ser lida agora.") from exc
+
+
+@router.get("/value/overview")
+async def customer_value(
+    margin: float | None = Query(default=None, ge=1, le=100),
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    """CAC, LTV e coortes da empresa (lido da jornada + gasto Meta/Google por mês)."""
+    from services.customer_value import overview
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    try:
+        return {"ok": True, **(await overview(cid, margin=margin))}
+    except Exception as exc:  # noqa: BLE001
+        if _journey_unavailable(exc):
+            return {"ok": True, "status": "not_built", "migration_pending": True}
+        raise HTTPException(status_code=502, detail="Os indicadores de valor do cliente não puderam ser lidos agora.") from exc

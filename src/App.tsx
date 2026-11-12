@@ -57,6 +57,7 @@ const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
 const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
 const EmailMarketing = lazy(() => import("./pages/EmailMarketing"));
+const CustomerValue = lazy(() => import("./pages/CustomerValue"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -987,6 +988,8 @@ function PrivateApp() {
         />
       ) : route === "customers" ? (
         <Customers key={`customers:${activeClientId}`} canView={canView} />
+      ) : route === "customer_value" ? (
+        <CustomerValue key={`value:${activeClientId}`} canView={canView} />
       ) : route === "ecommerce" ? (
         <Ecommerce
           key={`ecommerce:${activeClientId}`}

@@ -1,0 +1,31 @@
+.cvPage{display:grid;gap:16px}
+.cvMuted{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary,#4d565d)}
+.cvEmpty{margin:16px 0;padding:18px;border:1px dashed var(--stroke,#e3e0d9);border-radius:14px;color:var(--text-secondary,#4d565d)}
+.cvError{color:var(--negative,#b22234)}
+.cvControls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px}
+.cvControls label{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.cvControls input{width:72px;min-height:36px;padding:6px 10px;border:1px solid var(--id-line,rgba(21,24,27,.13));border-radius:12px;font:inherit}
+.cvControls small{color:var(--text-secondary,#4d565d)}
+.cvKpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0}
+.cvKpis div{padding:14px 16px;border:1px solid var(--stroke,#e3e0d9);border-radius:16px;background:#fff}
+.cvKpis dt{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary,#4d565d)}
+.cvKpis dd{margin:4px 0 0;font-size:24px}
+.cvKpis small{display:block;margin-top:2px;font-size:12px;color:var(--text-secondary,#4d565d)}
+.cvKpis div.is-accent{background:var(--id-accent,#004f6e);border-color:var(--id-accent,#004f6e)}
+.cvKpis div.is-accent dt,.cvKpis div.is-accent small{color:rgba(255,255,255,.8)}
+.cvKpis div.is-accent dd{color:#fff}
+.cvKpis.is-small dd{font-size:18px}
+.cvCard{display:grid;gap:12px;padding:20px 22px;background:#fff;border:1px solid var(--stroke,#e3e0d9);border-radius:16px;min-width:0}
+.cvCard h2{margin:0;font-size:17px}
+.cvHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.cvHead p{margin:4px 0 0}
+.cvTableWrap{overflow-x:auto}
+.cvCohorts{border-collapse:separate;border-spacing:3px;font-size:13px;min-width:100%}
+.cvCohorts th,.cvCohorts td{padding:7px 9px;text-align:right;white-space:nowrap;border-radius:6px}
+.cvCohorts thead th{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-secondary,#4d565d)}
+.cvCohorts tbody th{text-align:left;font-weight:600}
+.cvCohorts td.is-dark{color:#fff}
+.cvLegend{display:flex;gap:14px;margin:0;padding:0;list-style:none;font-size:13px;color:var(--text-secondary,#4d565d)}
+.cvLegend li{display:inline-flex;align-items:center;gap:6px}
+.cvLegend span{width:10px;height:10px;border-radius:3px}
+.cvLegend span.is-line{height:3px;width:16px;border-radius:2px}

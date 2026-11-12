@@ -28,6 +28,7 @@ IDENTITIES = "customer_identities"
 EVENTS = "customer_events"
 RUNS = "customer_journey_runs"
 LOOKBACK_DAYS = 400
+BIG = 120_000  # teto de linhas por leitura (pedidos de 13 meses de uma loja grande)
 LINK_WINDOW = timedelta(days=7)
 PRIORITY = {"external_id": 0, "email_hash": 1, "phone_key": 2}
 CHUNK = 500
@@ -206,9 +207,9 @@ async def _load_orders(client_id: str, since: datetime) -> Tuple[str, List[Dict[
         rows, _ = await _paged("shopify_orders", select=("shopify_order_id,name,email,customer_id,financial_status,total_price,cancelled_at,"
                                                          f"cancel_reason,created_at_shopify,{ORIGIN_SELECT}," + ",".join(_PHONE_FIELDS)),
                                filters={"client_id": f"eq.{client_id}", "created_at_shopify": f"gte.{since.isoformat()}"},
-                               order="created_at_shopify.asc,shopify_order_id.asc")
+                               order="created_at_shopify.asc,shopify_order_id.asc", max_rows=BIG)
         profile_rows, _ = await _paged("shopify_customers", select="shopify_customer_id,email,phone",
-                                       filters={"client_id": f"eq.{client_id}"}, order="shopify_customer_id.asc")
+                                       filters={"client_id": f"eq.{client_id}"}, order="shopify_customer_id.asc", max_rows=BIG)
         profiles = {_text(p.get("shopify_customer_id")): p for p in profile_rows}
         for r in rows:
             profile = profiles.get(_text(r.get("customer_id"))) or {}
@@ -226,9 +227,9 @@ async def _load_orders(client_id: str, since: datetime) -> Tuple[str, List[Dict[
         from .fbits_reporting import _counts_as_revenue, _tenant_revenue_context
         _, revenue_ids, _ = await _tenant_revenue_context(client_id)
         rows, _ = await _paged("fbits_orders", select=f"order_id,order_code,customer_id,customer_email,status_id,total_value,is_valid,order_date,{ORIGIN_SELECT}",
-                               filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since.isoformat()}"}, order="order_date.asc,order_id.asc")
+                               filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since.isoformat()}"}, order="order_date.asc,order_id.asc", max_rows=BIG)
         people_rows, _ = await _paged("fbits_customers", select="fbits_customer_id,email,phone",
-                                      filters={"client_id": f"eq.{client_id}"}, order="fbits_customer_id.asc")
+                                      filters={"client_id": f"eq.{client_id}"}, order="fbits_customer_id.asc", max_rows=BIG)
         people = {_text(p.get("fbits_customer_id")): p for p in people_rows}
         for r in rows:
             person = people.get(_text(r.get("customer_id"))) or {}

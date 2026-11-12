@@ -182,9 +182,10 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
         people, _ = await _paged("shopify_customers", select=("shopify_customer_id,email,phone,first_name,last_name,orders_count,"
                                                               "consent:raw_payload->email_marketing_consent->>state,"
                                                               "accepts:raw_payload->>accepts_marketing"),
-                                 filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="shopify_customer_id.asc")
+                                 filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="shopify_customer_id.asc", max_rows=120_000)
         orders, _ = await _paged("shopify_orders", select="customer_id,created_at_shopify,cancelled_at",
-                                 filters={"client_id": f"eq.{client_id}", "created_at_shopify": f"gte.{since}"}, order="created_at_shopify.asc")
+                                 filters={"client_id": f"eq.{client_id}", "created_at_shopify": f"gte.{since}"}, order="created_at_shopify.asc",
+                                 max_rows=200_000)
         by_customer: Dict[str, List[str]] = {}
         for o in orders:
             if _text(o.get("customer_id")) and not o.get("cancelled_at"):
@@ -200,9 +201,9 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
                    first_order=min(dates) if dates else None, phone=_text(p.get("phone"), 40) or None)
     elif provider == FBITS:
         people, _ = await _paged("fbits_customers", select="fbits_customer_id,name,email,phone",
-                                 filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="fbits_customer_id.asc")
+                                 filters={"client_id": f"eq.{client_id}", "email": "not.is.null"}, order="fbits_customer_id.asc", max_rows=120_000)
         orders, _ = await _paged("fbits_orders", select="customer_id,order_date,is_valid",
-                                 filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since}"}, order="order_date.asc")
+                                 filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since}"}, order="order_date.asc", max_rows=200_000)
         by_customer = {}
         for o in orders:
             if _text(o.get("customer_id")) and o.get("is_valid") is not False:
