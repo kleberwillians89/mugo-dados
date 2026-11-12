@@ -46,7 +46,7 @@ declare
   v_saved public.tenant_commercial_modules%rowtype;
 begin
   if not (
-    exists (select 1 from public.platform_admins where user_id = p_actor_user_id and role = 'platform_admin')
+    public.is_platform_admin(p_actor_user_id)
     or exists (select 1 from public.client_memberships where user_id = p_actor_user_id and role = 'agency_admin')
   ) then
     raise exception 'commercial_admin_required' using errcode = '42501';
