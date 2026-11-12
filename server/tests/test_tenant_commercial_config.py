@@ -132,6 +132,37 @@ class AuthorizationTests(unittest.IsolatedAsyncioTestCase):
              patch.object(routes, "sb_get_client_membership_roles", AsyncMock(return_value=[{"role": "agency_admin"}])):
             self.assertEqual(await routes._commercial_admin("token"), "agency")
 
+    async def test_plans_overview_accepts_platform_admin_without_agency_membership(self):
+        # A navegação permite o papel da plataforma; o primeiro GET deve aceitar também.
+        overview = {"companies": [], "plans": [], "mrr_cents": 0}
+        with patch.object(routes, "require_user_id", AsyncMock(return_value="platform")), \
+             patch.object(routes, "is_platform_admin", AsyncMock(return_value=True)), \
+             patch.object(routes, "sb_get_client_membership_roles", AsyncMock()) as roles, \
+             patch.object(routes.saas, "admin_overview", AsyncMock(return_value=overview)) as load:
+            result = await routes.plans_admin(authorization="token")
+        self.assertEqual(result, {"ok": True, **overview})
+        roles.assert_not_awaited()
+        load.assert_awaited_once()
+
+    async def test_plans_overview_accepts_agency_admin(self):
+        overview = {"companies": [], "plans": [], "mrr_cents": 0}
+        with patch.object(routes, "require_user_id", AsyncMock(return_value="agency")), \
+             patch.object(routes, "is_platform_admin", AsyncMock(return_value=False)), \
+             patch.object(routes, "sb_get_client_membership_roles", AsyncMock(return_value=[{"role": "agency_admin"}])), \
+             patch.object(routes.saas, "admin_overview", AsyncMock(return_value=overview)):
+            result = await routes.plans_admin(authorization="token")
+        self.assertTrue(result["ok"])
+
+    async def test_plans_overview_rejects_client_admin_before_database_read(self):
+        with patch.object(routes, "require_user_id", AsyncMock(return_value="client")), \
+             patch.object(routes, "is_platform_admin", AsyncMock(return_value=False)), \
+             patch.object(routes, "sb_get_client_membership_roles", AsyncMock(return_value=[{"role": "client_admin"}])), \
+             patch.object(routes.saas, "admin_overview", AsyncMock()) as load:
+            with self.assertRaises(HTTPException) as error:
+                await routes.plans_admin(authorization="token")
+        self.assertEqual(error.exception.status_code, 403)
+        load.assert_not_awaited()
+
     async def test_client_admin_cannot_modify(self):
         with patch.object(routes, "require_user_id", AsyncMock(return_value="client")), \
              patch.object(routes, "is_platform_admin", AsyncMock(return_value=False)), \
