@@ -173,7 +173,7 @@ export default function Benchmark() {
       <div className="bmCardHead">
         <div>
           <h2 id="bm-ig">Instagram: sua marca x concorrentes</h2>
-          <p className="bmSub">Share de atenção = fatia das curtidas e comentários do período que ficou com cada perfil.</p>
+          <p className="bmSub">Share de atenção: de todas as curtidas e comentários do período, quanto ficou com cada perfil.</p>
         </div>
         {brand?.share != null ? <div className="bmBig"><b>{nf1.format(brand.share)}%</b><span>da atenção é sua</span></div> : null}
       </div>

@@ -168,7 +168,7 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
             );
           })}
         </div>
-        <p className="emHint">Compraram = mesma pessoa comprou até 7 dias depois da mensagem (últimos 30 dias). Cada pedido conta uma vez por fluxo.
+        <p className="emHint">“Compraram” conta quem recebeu a mensagem e comprou em até 7 dias (olhando os últimos 30 dias). Cada pedido conta uma vez por fluxo.
           {data.simulated.email || data.simulated.whatsapp ? " Em modo simulado os envios são registrados, mas não saem." : ""}</p>
       </section>
     </div>

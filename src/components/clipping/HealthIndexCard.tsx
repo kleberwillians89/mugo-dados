@@ -4,6 +4,8 @@ import {
   PILLAR_ORDER, getHealthIndex, healthTone, saveHealthWeights, weightShares,
   type HealthIndex, type PillarKey,
 } from "../../app/brandHealth";
+import "../../styles/brandHealth.css";
+import HowToRead from "../data/HowToRead";
 
 const nf = new Intl.NumberFormat("pt-BR");
 
@@ -113,15 +115,15 @@ export default function HealthIndexCard({ start, end }: { start: string; end: st
     </div>
 
     {editing ? <WeightsEditor data={d} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); setNonce((n) => n + 1); }} /> : null}
-    <p className="bhMuted bhFoot">
-      <b>Como ler a nota:</b> ela vai de 0 a 100 e junta cinco sinais da marca.{" "}
-      <b>Conversa</b>: o que as pessoas estão falando (elogios contra reclamações).{" "}
-      <b>Conversão</b>: pedidos e faturamento comparados ao período anterior.{" "}
-      <b>Atenção</b>: quantas pessoas viram e interagiram no Instagram.{" "}
-      <b>Presença</b>: quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram.{" "}
-      <b>Reputação</b>: se há algum alerta aberto.{" "}
-      Manter os números iguais ao período anterior vale 60 pontos; cada 1% de crescimento soma quase 1 ponto.
-      {off.length ? ` Ainda sem dado para calcular: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}
-    </p>
+    <HowToRead title="Como ler a nota" intro="Vai de 0 a 100 e junta cinco sinais da marca."
+      items={[
+        { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações." },
+        { term: "Conversão", text: "Pedidos e faturamento comparados ao período anterior." },
+        { term: "Atenção", text: "Quantas pessoas viram e interagiram no Instagram." },
+        { term: "Presença", text: "Quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram." },
+        { term: "Reputação", text: "Se existe algum alerta aberto." },
+      ]}
+      note={<>Repetir os números do período anterior vale 60 pontos; cada 1% de crescimento soma quase 1 ponto.
+        {off.length ? ` Ainda sem dado para calcular: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}</>} />
   </section>;
 }
