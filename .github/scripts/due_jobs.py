@@ -40,6 +40,8 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("2 19 * * *", "ig-ai-replies"),
     ("40 10 * * *", "studio-clipping"),
     ("55 6 * * *", "customer-journey"),  # 03:55 em São Paulo: jornada do cliente remontada com o dia anterior
+    ("1-59/5 * * * *", "cart-recovery"),  # carrinho abandonado: próximo passo da sequência
+    ("3-59/5 * * * *", "email-campaigns"),  # campanhas de e-mail agendadas
     ("27 * * * *", "brand-health"),  # sentimento de comentários/Direct + alertas de termos sensíveis
     ("25 11 * * *", "brand-knowledge-retry"),  # 08:25 em São Paulo: material que a IA não leu volta a ser lido
     ("20 12 1 * *", "brand-profile-monthly"),

@@ -71,6 +71,8 @@ describe("platform routes", () => {
     expect(getPathForRoute("origins")).toBe("/crm");
     expect(getAppRouteFromPath("/saude-integracoes")).toBe("integration_health");
     expect(getPathForRoute("integration_health")).toBe("/saude-integracoes");
+    expect(getAppRouteFromPath("/email-marketing")).toBe("email_marketing");
+    expect(getPathForRoute("email_marketing")).toBe("/email-marketing");
     expect(getAppRouteFromPath("/crm")).toBe("origins");
     expect(getAppRouteFromPath("/crm/clientes")).toBe("customers");
     expect(getPathForRoute("customers")).toBe("/crm/clientes");

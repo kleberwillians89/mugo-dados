@@ -121,6 +121,11 @@ async def shopify_webhook(
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if topic.startswith("checkouts/"):
+        # Checkout carrega e-mail/telefone/nome: grava só a versão minimizada (contato criptografado).
+        from services.cart_recovery import minimize
+        payload = minimize(payload)
+
     order_id = extract_shopify_order_id(topic, payload)
 
     event, duplicated = await register_shopify_webhook_event(

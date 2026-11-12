@@ -29,6 +29,8 @@ SUPPORTED_SHOPIFY_TOPICS = {
     "customers/data_request",
     "customers/redact",
     "shop/redact",
+    "checkouts/create",
+    "checkouts/update",
 }
 
 
@@ -987,6 +989,9 @@ async def process_shopify_webhook_event(
                 shop_domain=shop_domain,
                 payload=payload_json,
             )
+        elif topic.startswith("checkouts/"):
+            from .cart_recovery import upsert_checkout
+            result = await upsert_checkout(client_id, payload_json)
         elif topic == "refunds/create":
             result = await _handle_refund_topic(
                 client_id=client_id,
@@ -995,6 +1000,13 @@ async def process_shopify_webhook_event(
             )
         else:
             result = {"ignored": True}
+
+        if topic == "orders/create":
+            try:
+                from .cart_recovery import on_order
+                await on_order(client_id, payload_json)
+            except Exception as cart_exc:  # noqa: BLE001 — carrinho nunca derruba o pedido
+                print(f"[cart_recovery] on_order_failed client_id={client_id} {type(cart_exc).__name__}")
 
         if topic.startswith("orders/") or topic == "refunds/create":
             order_payload = payload_json if topic.startswith("orders/") else _safe_json(payload_json.get("order"))

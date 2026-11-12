@@ -258,3 +258,46 @@ async def send_text(client_id: str, thread_id: str, text: str) -> Dict[str, Any]
                     patch={"last_message_at": stamp, "last_preview": body[:160], "last_direction": "out", "unread_count": 0},
                     returning="minimal")
     return {"status": "sent", "at": stamp}
+
+
+# ---------------------------------------------------------------- templates (mensagem iniciada pela marca)
+
+async def _active_number(client_id: str, number_id: Optional[str]) -> Dict[str, Any]:
+    filters = {"client_id": f"eq.{client_id}", "status": "eq.active"}
+    if number_id:
+        if not _UUID.match(str(number_id)):
+            raise WhatsAppNativeError("NOT_FOUND", "Número não encontrado.")
+        filters["id"] = f"eq.{number_id}"
+    rows = await sb_select("whatsapp_numbers", select="id,waba_id,phone_number_id,access_token,display_phone_number",
+                           filters=filters, order="created_at.asc", limit=1)
+    if not rows:
+        raise WhatsAppNativeError("NOT_FOUND", "Esta empresa não tem número de WhatsApp ativo no MUGOVERSO.")
+    return rows[0]
+
+
+async def list_templates(client_id: str, number_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Templates da WABA da marca (só leitura). A aprovação é sempre da Meta."""
+    number = await _active_number(client_id, number_id)
+    body = await _graph("GET", f"{number['waba_id']}/message_templates", number["access_token"],
+                        params={"fields": "name,language,status,category,components", "limit": 200})
+    out = []
+    for t in body.get("data") or []:
+        text = next((str(c.get("text") or "") for c in t.get("components") or [] if str(c.get("type") or "").upper() == "BODY"), "")
+        out.append({"name": t.get("name"), "language": t.get("language"), "status": t.get("status"),
+                    "category": t.get("category"), "body": text[:1024],
+                    "variables": len(set(re.findall(r"\{\{\s*([^}\s]+)\s*\}\}", text)))})
+    return out
+
+
+async def send_template(client_id: str, *, number_id: Optional[str], to: str, template: str, language: str,
+                        params: List[str]) -> str:
+    """Envia um template aprovado para um número (fora da janela de 24 h). Devolve o id da mensagem na Meta."""
+    digits = re.sub(r"\D", "", str(to or ""))
+    if len(digits) < 10:
+        raise WhatsAppNativeError("INVALID_PHONE", "Telefone inválido.")
+    number = await _active_number(client_id, number_id)
+    components = [{"type": "body", "parameters": [{"type": "text", "text": str(p)[:1000] or "-"} for p in params]}] if params else []
+    out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
+                       json_body={"messaging_product": "whatsapp", "to": digits, "type": "template",
+                                  "template": {"name": template, "language": {"code": language or "pt_BR"}, "components": components}})
+    return str(((out.get("messages") or [{}])[0] or {}).get("id") or "")

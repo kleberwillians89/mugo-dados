@@ -73,7 +73,7 @@ describe("AppNavigation — sidebar global", () => {
       "Mugoverso IA", "Central da Marca", "Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca",
     ]);
     expect(groupLinks("Inteligência")).toEqual([
-      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "Mídia On",
+      "Meta", "Google", "Ecommerce", "CRM", "WhatsApp", "E-mail marketing", "Mídia On",
       "Comentários", "Clipping", "Radar Cultural", "Benchmarking", "Relatório",
     ]);
     expect(groupLinks("Administração")).toEqual([

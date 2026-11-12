@@ -207,8 +207,9 @@ async def _load_orders(client_id: str, since: datetime) -> Tuple[str, List[Dict[
                                                          f"cancel_reason,created_at_shopify,{ORIGIN_SELECT}," + ",".join(_PHONE_FIELDS)),
                                filters={"client_id": f"eq.{client_id}", "created_at_shopify": f"gte.{since.isoformat()}"},
                                order="created_at_shopify.asc,shopify_order_id.asc")
-        profiles = {_text(p.get("shopify_customer_id")): p for p in await sb_select(
-            "shopify_customers", select="shopify_customer_id,email,phone", filters={"client_id": f"eq.{client_id}"}, limit=20000)}
+        profile_rows, _ = await _paged("shopify_customers", select="shopify_customer_id,email,phone",
+                                       filters={"client_id": f"eq.{client_id}"}, order="shopify_customer_id.asc")
+        profiles = {_text(p.get("shopify_customer_id")): p for p in profile_rows}
         for r in rows:
             profile = profiles.get(_text(r.get("customer_id"))) or {}
             keys = order_phone_keys(r)
@@ -226,8 +227,9 @@ async def _load_orders(client_id: str, since: datetime) -> Tuple[str, List[Dict[
         _, revenue_ids, _ = await _tenant_revenue_context(client_id)
         rows, _ = await _paged("fbits_orders", select=f"order_id,order_code,customer_id,customer_email,status_id,total_value,is_valid,order_date,{ORIGIN_SELECT}",
                                filters={"client_id": f"eq.{client_id}", "order_date": f"gte.{since.isoformat()}"}, order="order_date.asc,order_id.asc")
-        people = {_text(p.get("fbits_customer_id")): p for p in await sb_select(
-            "fbits_customers", select="fbits_customer_id,email,phone", filters={"client_id": f"eq.{client_id}"}, limit=20000)}
+        people_rows, _ = await _paged("fbits_customers", select="fbits_customer_id,email,phone",
+                                      filters={"client_id": f"eq.{client_id}"}, order="fbits_customer_id.asc")
+        people = {_text(p.get("fbits_customer_id")): p for p in people_rows}
         for r in rows:
             person = people.get(_text(r.get("customer_id"))) or {}
             key = phone_key(person.get("phone"))

@@ -119,6 +119,12 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-weekly-digest":
         from services.weekly_digest import run_weekly_digest
         return await run_weekly_digest(args.client_id)
+    if args.command == "cart-recovery":
+        from services.cart_recovery import process_due as cart_due
+        return await cart_due()
+    if args.command == "email-campaigns":
+        from services.email_marketing import process_due as email_due
+        return await email_due()
     if args.command == "customer-journey":
         from services.customer_journey import run_all as journey_run
         return await journey_run()
@@ -305,6 +311,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sexta: grava o aprendizado semanal de cada campanha e envia o resumo no WhatsApp (MugôZap) de cada cliente.",
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    sub.add_parser("cart-recovery", help="Recuperação de carrinho: envia o próximo passo (e-mail/WhatsApp) dos carrinhos que venceram.")
+    sub.add_parser("email-campaigns", help="E-mail marketing: envia campanhas agendadas pelo Resend (lotes de 100).")
     sub.add_parser("customer-journey", help="Jornada do cliente: une pedidos e conversas por pessoa (cadastro, e-mail, telefone).")
     sub.add_parser("brand-health", help="Saúde da marca: sentimento de comentários/Direct pela IA e alertas de termos sensíveis.")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")

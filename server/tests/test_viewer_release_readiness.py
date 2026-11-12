@@ -197,18 +197,22 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         # Delega para api_refresh_all, que chama require_client_role: o guarda
         # existe, só não no corpo deste handler.
         ("meta_legacy", "api_instagram_sync"),
+        # Descadastro: autenticado pelo token assinado do próprio link (RFC 8058, 1 clique).
+        ("email_marketing", "email_unsubscribe_one_click"),
+        # Webhook do Resend: autenticado pela assinatura Svix.
+        ("email_marketing", "resend_webhook"),
     }
 
     def modules(self) -> Dict[str, Any]:
         from routes import (
-            admin_health, client_access, connections, content_ops, crm, customers as customers_mod,
-            fbits, google, google_oauth, integrations, intelligence, invitations,
+            admin_health, client_access, connections, content_ops, crm, customer_journey, customers as customers_mod,
+            email_marketing, fbits, google, google_oauth, integrations, intelligence, invitations,
             meta_legacy, platform_admin, shopify, shopify_oauth, studio,
         )
         return {
             module.__name__.rsplit(".", 1)[-1]: module
             for module in (
-                admin_health, client_access, connections, content_ops, crm, customers_mod, fbits,
+                admin_health, client_access, connections, content_ops, crm, customer_journey, customers_mod, email_marketing, fbits,
                 google, google_oauth, integrations, intelligence, invitations,
                 meta_legacy, platform_admin, shopify, shopify_oauth, studio,
             )
