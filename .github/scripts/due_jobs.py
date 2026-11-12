@@ -22,6 +22,7 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("20 */3 * * *", "ga4-sync-all --days 3"),
     ("35 */3 * * *", "google-ads-sync --days 7"),
     ("0,30 * * * *", "fbits-sync-all"),
+    ("25 */3 * * *", "channels-sync"),  # TikTok, Pinterest e Clarity (cada canal respeita o próprio intervalo)
     ("15,45 * * * *", "shopify-reconcile --fallback-days 30"),
     ("25 7 * * *", "shopify-historical-reconcile --days 14"),
     ("40 8 * * 0", "shopify-historical-reconcile --days 90"),

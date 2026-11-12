@@ -75,6 +75,7 @@ from routes.platform_admin import router as platform_admin_router
 from routes.admin_health import router as admin_health_router
 from routes.shopify import router as shopify_router
 from routes.shopify_oauth import router as shopify_oauth_router
+from routes.channels import router as channels_router
 from routes.crm import router as crm_router
 from routes.hooks import router as hooks_router
 from routes.content_ops import router as content_ops_router
@@ -355,6 +356,7 @@ def health():
 
 app.include_router(shopify_router)
 app.include_router(shopify_oauth_router)
+app.include_router(channels_router)
 app.include_router(google_router)
 app.include_router(google_oauth_router)
 app.include_router(fbits_router)
