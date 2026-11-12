@@ -55,6 +55,13 @@ class FreshnessEvidenceTests(unittest.TestCase):
         self.assertIsNone(result['last_successful_sync_at'])
         self.assertIsNone(result['coverage_end'])
 
+    def test_partial_run_after_complete_fresh_coverage_is_synced_with_a_note(self):
+        partial = {**job('partial', stamp='2026-10-19T17:55:00+00:00'), 'payload_json': {'property_id': '123', 'period': {'start': START, 'end': END}}}
+        result = self.source(jobs=[partial, job()], daily=[{'metric_date': END, 'ga4_sessions': 2}])
+        self.assertEqual(result['coverage_end'], END)
+        self.assertEqual(result['state'], 'synced')
+        self.assertEqual(result['error_code'], 'INCOMPLETE_COLLECTION')
+
     def test_fact_dates_and_updated_at_never_invent_coverage_or_success(self):
         row = connection(); row['updated_at'] = STAMP
         result = self.source(row=row, daily=[{'metric_date': END, 'ga4_sessions': 0}])

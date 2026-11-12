@@ -45,6 +45,8 @@ export type CartRow = {
 };
 export type CartOverview = {
   days: number; provider: string | null; settings: CartSettings; recent: CartRow[]; simulated: { email: boolean; whatsapp: boolean };
+  /** Endereço do webhook genérico (qualquer plataforma que não seja Shopify). */
+  inbound_url?: string | null;
   summary: {
     carts: number; abandoned_value: number; contacted: number; recovered: number; recovered_value: number; recovery_rate: number | null;
     bought_without_contact: number; open: number; by_channel: Record<string, Record<string, number>>;

@@ -9,7 +9,7 @@ export type AiAction = {
 };
 
 export const listAiActions = () => http<{ actions: AiAction[] }>("/api/ai-actions", { timeoutMs: 60_000 });
-export const generateAiActions = () => http<{ created: number; actions: AiAction[] }>("/api/ai-actions/generate", { method: "POST", timeoutMs: 120_000 });
+export const generateAiActions = () => http<{ created: number; executed?: number; actions: AiAction[] }>("/api/ai-actions/generate", { method: "POST", timeoutMs: 120_000 });
 export const decideAiAction = (id: string, decision: "aprovar" | "rejeitar") =>
   http<{ action: AiAction }>(`/api/ai-actions/${encodeURIComponent(id)}/decide`, {
     method: "POST", body: JSON.stringify({ decision }), headers: { "Content-Type": "application/json" }, timeoutMs: 60_000,
@@ -18,7 +18,7 @@ export const decideAiAction = (id: string, decision: "aprovar" | "rejeitar") =>
 export const ACTION_LABEL: Record<AiActionKind, { tag: string; does: string }> = {
   campanha_reativacao: { tag: "Campanha", does: "Aprovar cria a campanha de e-mail e coloca na fila de envio." },
   ligar_fluxo: { tag: "Fluxo", does: "Aprovar liga o fluxo automático de segunda compra por e-mail." },
-  ligar_carrinho: { tag: "Carrinho", does: "Aprovar liga o aviso de checkout na Shopify e a sequência de e-mails do carrinho." },
+  ligar_carrinho: { tag: "Carrinho", does: "Aprovar liga a sequência de e-mails do carrinho abandonado (na Shopify, também o aviso de checkout)." },
   alerta_cac: { tag: "Alerta", does: "Só informa. Aprovar marca como ciente." },
 };
 export const ACTION_STATUS: Record<AiActionStatus, string> = {

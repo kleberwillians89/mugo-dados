@@ -127,3 +127,6 @@
 .emFlowEditor{padding-top:12px;border-top:1px solid var(--border-subtle,#ece9e3)}
 .emFlowRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 @media(max-width:760px){.emFlowStats,.emFlowRow{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.emInboundUrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.emInboundUrl code{flex:1;min-width:0;overflow-wrap:anywhere;background:#f6f4ef;border:1px solid #e3dfd7;border-radius:8px;padding:8px 10px;font-size:12px}
+.emInbound pre{white-space:pre-wrap;font-size:12px;background:#f6f4ef;border-radius:8px;padding:10px}

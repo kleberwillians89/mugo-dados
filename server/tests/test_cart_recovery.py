@@ -194,3 +194,46 @@ class SummaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GenericInboundTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.env = patch.dict(os.environ, {"CART_INBOUND_SECRET": "s3cr3t"})
+        self.env.start()
+
+    async def asyncTearDown(self):
+        self.env.stop()
+
+    def test_token_is_per_company(self):
+        from services import cart_recovery as cr
+        self.assertTrue(cr.inbound_valid("a", cr.inbound_token("a")))
+        self.assertFalse(cr.inbound_valid("b", cr.inbound_token("a")))
+
+    def test_generic_payload_in_portuguese_maps_to_checkout(self):
+        from services import cart_recovery as cr
+        data = cr.from_generic({"carrinho_id": "991", "cliente": {"nome": "Ana Souza", "email": "ana@x.com"}, "telefone": "11999990000",
+                                "itens": [{"nome": "Malbec", "quantidade": 2, "preco": 89.9}], "valor_total": 179.8, "link": "https://loja/c/991"})
+        self.assertEqual(data["id"], "991")
+        self.assertEqual(data["customer"]["first_name"], "Ana")
+        self.assertEqual(data["line_items"][0]["title"], "Malbec")
+        self.assertEqual(data["abandoned_checkout_url"], "https://loja/c/991")
+        self.assertIsNone(data["completed_at"])
+
+    async def test_ingest_opens_cart_and_order_closes_it(self):
+        from services import cart_recovery as cr
+        with patch.object(cr, "upsert_checkout", AsyncMock(return_value={"created": True, "status": "aberto"})) as up:
+            out = await cr.ingest_generic("c1", {"cart_id": "a/b,1", "email": "ana@x.com"})
+        self.assertEqual(up.await_args.args[1]["id"], "ext-ab1")
+        self.assertEqual(out["status"], "aberto")
+        with patch.object(cr, "on_order", AsyncMock(return_value={"status": "recuperado"})) as order:
+            out = await cr.ingest_generic("c1", {"cart_id": "ab1", "order_id": "P77", "total": 150})
+        self.assertEqual(out["closed"], "recuperado")
+        self.assertEqual(order.await_args.args[1]["checkout_id"], "ext-ab1")
+
+    async def test_bought_check_also_reads_wake_orders(self):
+        from services import cart_recovery as cr
+        select = AsyncMock(side_effect=[[], [{"order_id": "9", "total_value": 120, "order_date": "2026-11-10T10:00:00Z"}]])
+        with patch.object(cr, "sb_select", select):
+            bought = await cr._bought_since("c1", "ana@x.com", "2026-11-09T00:00:00Z")
+        self.assertEqual(bought["shopify_order_id"], "9")
+        self.assertEqual(select.await_args_list[1].args[0], "fbits_orders")

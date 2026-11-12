@@ -59,12 +59,12 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "origins", label: "CRM", also: ["customers", "customer_value"] },
   { route: "whatsapp", label: "WhatsApp" },
   { route: "email_marketing", label: "E-mail marketing" },
-  { route: "ai_actions", label: "Ações da IA" },
-  { route: "plan", label: "Plano e implantação" },
+  { route: "ai_actions", label: "O que a IA fez" },
   { route: "media", label: "Mídia On" },
   { route: "engagement", label: "Comentários" },
-  { route: "clipping", label: "Clipping" },
-  { route: "radar", label: "Radar Cultural" },
+  // Radar cultural, Matérias e Alertas moram juntos (abas do Clipping); Saúde da Marca é uma aba só.
+  { route: "clipping", label: "Clipping e Radar", also: ["radar"] },
+  { route: "brand_health", label: "Saúde da Marca" },
   { route: "benchmark", label: "Benchmarking" },
   { route: "social_report", label: "Relatório" },
 ];
@@ -112,6 +112,7 @@ export default function AppNavigation({
   if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "integration_health", label: "Saúde das integrações" });
+  if (platformAdmin || agencyAdmin) adminItems.push({ route: "plan", label: "Plano e implantação" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "plans_admin", label: "Planos e cobrança" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
@@ -119,7 +120,6 @@ export default function AppNavigation({
   // A posição é administrativa, mas a visibilidade continua obedecendo apenas
   // à permissão preexistente do módulo, sem exigir um papel administrativo.
   if (!canView || canView("brand_ai")) adminItems.push({ route: "brand_ai", label: "IA da marca" });
-  if (adminItems.length && (!canView || canView("central"))) adminItems.push({ route: "central", label: "Central da Marca" });
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
   const roleLabel = activeClient?.role ? ACCOUNT_ROLE_LABELS[activeClient.role] || null : null;

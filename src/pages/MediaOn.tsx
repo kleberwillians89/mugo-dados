@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
@@ -103,6 +103,19 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     finally { setBusy(null); }
   }
   useEffect(() => { void loadPlan(); }, [loadPlan]);
+
+  // Mês sem estratégia nem plano: a IA já deixa uma pronta (objetivo vendas) para a equipe só ajustar.
+  // Uma tentativa por marca e mês nesta tela; quem quiser outro caminho recalcula com outro objetivo/briefing.
+  const [autoMade, setAutoMade] = useState(false);
+  const autoKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${clientId}:${month}`;
+    if (!canManage || busy || view || error || !tracking || tracking.plan || history.length || autoKey.current === key) return;
+    autoKey.current = key;
+    setAutoMade(true);
+    void generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, busy, view, error, tracking, history.length, clientId, month]);
 
   async function generate() {
     const m = margin ? Number(margin) / 100 : undefined;
@@ -215,7 +228,10 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         {history.map((h) => <option key={h.id} value={h.id}>{stamp(h.created_at)} · {OBJECTIVES[h.objective]} · {money(h.budget)}{h.headline ? ` · ${h.headline.slice(0, 60)}` : ""}</option>)}
       </select></label> : null}
     </div> : null}
+    {autoMade && view?.source === "new" ? <p className="ds-footnote mediaAutoNote">A IA já montou esta estratégia com os dados dos últimos 90 dias. Ajuste a verba, os canais e as campanhas e salve o plano, ou mude o objetivo e o briefing e clique em Recalcular para fazer do seu jeito.</p> : null}
     {view && "history_warning" in view.strategy && view.strategy.history_warning ? <p role="alert" className="studioError">{view.strategy.history_warning} A estratégia está na tela, mas só fica gravada se você salvar o plano.</p> : null}
+    {!strategy && busy === "generate" && autoMade ? <div className="ds-notice"><p className="ds-noticeTitle">A IA está montando a estratégia de {monthLabel}…</p>
+      <p className="ds-noticeText">Usa Meta Ads, Google Ads, a meta do mês e o calendário editorial. Leva até 1 minuto.</p></div> : null}
     {!strategy && !busy ? <div className="ds-notice"><p className="ds-noticeTitle">{plan ? "Plano salvo sem estratégia detalhada." : `Nenhuma estratégia para ${monthLabel} ainda.`}</p>
       <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
 

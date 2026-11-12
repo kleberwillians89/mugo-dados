@@ -50,16 +50,16 @@ export default function AiActions() {
   const done = (actions || []).filter((a) => a.status !== "proposta");
 
   return (
-    <Shell title="Ações da IA" variant="editorial">
+    <Shell title="O que a IA fez" variant="editorial">
       <div className="ds-page aiPage">
-        <PageHeader company={getActiveClientName()} title="Ações da IA"
-          dateline={<span>A IA lê os números da marca e propõe ações. Você aprova; o MUGOVERSO executa e mostra o resultado.</span>}
+        <PageHeader company={getActiveClientName()} title="O que a IA fez"
+          dateline={<span>Com tudo conectado, a IA lê os números da marca e já executa: liga fluxos e o carrinho abandonado e agenda a reativação. Aqui fica o que ela fez e o resultado.</span>}
           controls={canDecide ? (
             <button type="button" className="ds-button is-primary" disabled={!!busy}
               onClick={() => void run("gen", async () => {
                 const out = await generateAiActions();
                 setActions(out.actions);
-                setMessage(out.created ? `${out.created} ${out.created === 1 ? "nova proposta" : "novas propostas"}.` : "Nenhuma proposta nova: os números não pedem ação agora.");
+                setMessage(out.created ? `${out.created} ${out.created === 1 ? "ação nova" : "ações novas"}${out.executed ? `, ${out.executed} já ${out.executed === 1 ? "executada" : "executadas"}` : ""}.` : "Nada novo: os números não pedem ação agora.");
               })}><Sparkles size={15} aria-hidden="true" /> {busy === "gen" ? "Analisando…" : "Analisar agora"}</button>
           ) : null} />
         {error ? <p className="aiError" role="alert">{error}</p> : null}
@@ -68,8 +68,8 @@ export default function AiActions() {
 
         {actions ? (
           <>
-            <h2 className="aiSection">Para aprovar {open.length ? <span className="aiCount">{open.length}</span> : null}</h2>
-            {open.length === 0 ? <p className="aiEmpty">Nenhuma ação esperando aprovação. A IA analisa toda segunda-feira, ou clique em “Analisar agora”.</p> : null}
+            {open.length ? <h2 className="aiSection">Para aprovar <span className="aiCount">{open.length}</span></h2> : null}
+            {open.length === 0 && done.length === 0 ? <p className="aiEmpty">A IA ainda não precisou agir. Ela analisa toda segunda-feira e executa sozinha quando os números pedem; ou clique em “Analisar agora”.</p> : null}
             <div className="aiList">
               {open.map((a) => (
                 <article key={a.id} className="aiCard is-open">
@@ -106,7 +106,7 @@ export default function AiActions() {
 
             {done.length ? (
               <>
-                <h2 className="aiSection">Histórico</h2>
+                <h2 className="aiSection">O que a IA fez</h2>
                 <div className="aiList">
                   {done.map((a) => (
                     <article key={a.id} className={`aiCard is-${a.status}`}>
@@ -117,6 +117,7 @@ export default function AiActions() {
                       </header>
                       <h3>{a.title}</h3>
                       {a.error ? <p className="aiError">{a.error}</p> : null}
+                      {a.result?.scheduled_at ? <p className="aiMuted">Envio agendado para {formatDateTimeSaoPaulo(String(a.result.scheduled_at))}. Para desistir, cancele a campanha em E-mail marketing antes desse horário.</p> : null}
                       <Measurement action={a} />
                     </article>
                   ))}

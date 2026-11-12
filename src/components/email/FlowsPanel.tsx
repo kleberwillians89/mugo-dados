@@ -139,7 +139,7 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
             <p className="emMuted">Mensagens que saem sozinhas quando o cliente cruza um marco. Só quem está cruzando agora recebe: ligar não dispara para a base inteira.</p>
           </div>
         </header>
-        {!data.journey_built_at ? <p className="emNotice">Para medir quem comprou depois da mensagem, monte a jornada em CRM → Clientes (ela também roda sozinha toda madrugada).</p> : null}
+        {!data.journey_built_at ? <p className="emNotice">A medição de quem comprou depois da mensagem começa assim que a jornada do cliente for montada (automático, toda madrugada).</p> : null}
         <div className="emFlows">
           {data.flows.map((flow) => {
             const Icon = ICON[flow.kind];

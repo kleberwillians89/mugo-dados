@@ -28,10 +28,10 @@ describe("CRM → LTV e CAC", () => {
     expect(host.querySelector(".cvCohorts tbody th")?.textContent).toBe("nov/26");
   });
 
-  it("sem jornada explica o que fazer", async () => {
+  it("sem pedidos explica que aparece sozinho", async () => {
     api.getCustomerValue.mockResolvedValue({ ok: true, status: "not_built" });
     await act(async () => { root.render(<CustomerValue />); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    expect(host.textContent).toContain("Monte a jornada do cliente");
+    expect(host.textContent).toContain("Ainda não há pedidos suficientes");
   });
 });

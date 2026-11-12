@@ -7,6 +7,9 @@ export type RadarTrend = {
   news_title: string | null;
   source_url: string;
   researched_at: string;
+  /** Por que importa para ESTA marca e uma ideia de pauta (seleção por marca). */
+  why?: string | null;
+  idea?: string | null;
 };
 
 export type RadarCreator = {
@@ -27,7 +30,7 @@ export type RadarOverview = {
   client_id: string;
   collected_at: string;
   sources: Record<string, string>;
-  trends: { status: string; items: RadarTrend[] };
+  trends: { status: string; items: RadarTrend[]; method?: "ia" | "termos" | null; public_count?: number };
   creators: RadarCreator[];
   methodology: Record<string, string>;
 };

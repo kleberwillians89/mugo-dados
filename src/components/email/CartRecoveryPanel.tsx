@@ -41,11 +41,7 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
   }
 
   if (!data || !settings) return error ? <p className="emError" role="alert">{error}</p> : <p className="emMuted">Carregando carrinhos…</p>;
-  if (data.provider !== "shopify") {
-    return <section className="emCard"><h2>Carrinho abandonado</h2>
-      <p className="emEmpty">A recuperação de carrinho funciona com lojas Shopify{data.provider ? ". Esta empresa usa outra plataforma de loja" : " e esta empresa ainda não tem loja conectada"}.</p></section>;
-  }
-
+  const shopify = data.provider === "shopify";
   const s = data.summary;
   const change = (patch: Partial<CartSettings>) => setSettings({ ...settings, ...patch });
   const setStep = (index: number, patch: Partial<CartStep>) => change({ steps: settings.steps.map((st, i) => (i === index ? { ...st, ...patch } : st)) });
@@ -68,6 +64,22 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
       {(data.simulated.email && hasEmail) || (data.simulated.whatsapp && hasWa) ? (
         <p className="emNotice">Modo simulado{data.simulated.email && hasEmail ? " no e-mail" : ""}{data.simulated.email && hasEmail && data.simulated.whatsapp && hasWa ? " e" : ""}{data.simulated.whatsapp && hasWa ? " no WhatsApp" : ""}: a sequência roda e registra cada passo, mas nada é enviado até liberar no servidor.</p>
       ) : null}
+
+      {!shopify ? <section className="emCard emInbound" aria-label="Ligar a loja">
+        <h2>Ligar a loja{data.provider ? ` (${data.provider === "fbits" ? "Wake/FBITS" : data.provider})` : ""}</h2>
+        <p className="emMuted">Funciona com qualquer plataforma: Wake/FBITS, Nuvemshop, VTEX, Tray, WooCommerce, Loja Integrada ou uma automação (Zapier, Make, n8n).
+          Cadastre este endereço no webhook de carrinho abandonado da loja. Quando a pessoa compra, mande o mesmo carrinho com <code>order_id</code> para fechar.</p>
+        {data.inbound_url ? <div className="emInboundUrl"><code>{data.inbound_url}</code>
+          <button type="button" className="ds-button" onClick={() => { void navigator.clipboard?.writeText(data.inbound_url || ""); setMessage("Endereço copiado."); }}>Copiar</button></div>
+          : <p className="emError">O servidor ainda não tem a chave para gerar o endereço (TOKEN_ENCRYPTION_KEY).</p>}
+        <details><summary>Formato aceito (JSON)</summary>
+          <pre>{`{ "cart_id": "991", "email": "ana@exemplo.com", "telefone": "11999990000", "nome": "Ana",
+  "itens": [{ "nome": "Malbec", "quantidade": 2, "preco": 89.9 }],
+  "valor_total": 179.8, "link": "https://sualoja.com.br/carrinho/991",
+  "aceita_marketing": true, "criado_em": "2026-11-12T10:00:00-03:00" }`}</pre>
+          <p className="emMuted">Nomes em inglês também valem (id, email, phone, items, total, checkout_url, created_at). Quem já comprou na loja (pedido sincronizado) não recebe nada.</p>
+        </details>
+      </section> : null}
 
       <div className="emEditorGrid">
         <div className="emEditorForm">
@@ -187,12 +199,12 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
           {message ? <p className="emOk">{message}</p> : null}
           {canEdit ? (
             <div className="emActions">
-              <button type="button" className="ds-button" disabled={!!busy}
+              {shopify ? <button type="button" className="ds-button" disabled={!!busy}
                 onClick={() => void run("hooks", async () => {
                   const out = await registerCartWebhooks();
                   setMessage(out.failed.length ? `A Shopify recusou: ${out.failed.map((f) => f.topic).join(", ")}.` : "Aviso de checkout ligado na Shopify.");
                   await load();
-                })}>{busy === "hooks" ? "Ligando…" : settings.webhooks_registered_at ? "Religar aviso de checkout" : "Ligar aviso de checkout na Shopify"}</button>
+                })}>{busy === "hooks" ? "Ligando…" : settings.webhooks_registered_at ? "Religar aviso de checkout" : "Ligar aviso de checkout na Shopify"}</button> : null}
               <button type="button" className="ds-button is-primary" disabled={!!busy}
                 onClick={() => void run("save", async () => { setSettings((await saveCartSettings(settings)).settings); setMessage("Recuperação de carrinho salva."); })}>
                 {busy === "save" ? "Salvando…" : "Salvar"}</button>
