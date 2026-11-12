@@ -3,9 +3,9 @@ import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  ACTIONS, CHANNELS, CONFIDENCE, DISTRIBUTIONS, MIN_DAILY, OBJECTIVES, belowMinimum, campaignTotals, campaignsBelowMinimum, curvePoints, rescaleCampaigns, generateStrategy, getPlan, getStrategy, latestSource, listStrategies, metricValue, money, num, outcomeFor,
+  ACTIONS, CHANNELS, CONFIDENCE, DISTRIBUTIONS, MIN_DAILY, OBJECTIVES, OBJECTIVE_PARAMETER_FIELDS, belowMinimum, campaignTotals, campaignsBelowMinimum, curvePoints, rescaleCampaigns, generateStrategy, getPlan, getStrategy, latestSource, listStrategies, metricValue, money, num, outcomeFor,
   percent, ratio, savePlan, shortDate,
-  type Action, type CampaignAction, type Channel, type Distribution, type Objective, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
+  type Action, type CampaignAction, type Channel, type Distribution, type Objective, type ObjectiveParameters, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
 import { navigateToAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -24,6 +24,7 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const nextMonth = () => { const d = new Date(); const n = new Date(d.getFullYear(), d.getMonth() + 1, 1); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const changePct = (now: number | null | undefined, before: number | null | undefined) => (now == null || !before ? null : ((now - before) / Math.abs(before)) * 100);
+const emptyObjectiveParameters = (): Record<Objective, ObjectiveParameters> => ({ vendas: {}, leads: {}, trafego: {}, alcance: {}, retencao: {}, remarketing: {} });
 
 type View = { strategy: Strategy | SavedStrategy; scenarios: Scenario[]; saved: boolean; source: "plan" | "history" | "new"; generatedAt?: string | null };
 const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -49,6 +50,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const [distribution, setDistribution] = useState<Distribution>("equilibrado");
   const [briefing, setBriefing] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignAction[]>([]);
+  const [objectiveParameters, setObjectiveParameters] = useState<Record<Objective, ObjectiveParameters>>(emptyObjectiveParameters);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
@@ -59,10 +61,11 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     setSelected(chosen.key); setAllocation(chosen.allocation); setCampaigns(s.campaigns || []);
     if (s.distribution) setDistribution(s.distribution);
     setBriefing(s.briefing?.text || "");
+    setObjectiveParameters((all) => ({ ...all, [s.objective]: s.objective_parameters || {} }));
   }
 
   const loadPlan = useCallback(async () => {
-    setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]); setBriefing("");
+    setError(null); setSaved(null); setView(null); setTracking(null); setHistory([]); setBriefing(""); setObjectiveParameters(emptyObjectiveParameters());
     try {
       // Cliente vê só o plano salvo pela Mugô; rascunhos (histórico de estratégias) ficam com a equipe.
       const [data, list] = await Promise.all([getPlan(month), canManage ? listStrategies(month).catch(() => ({ strategies: [] as StrategySummary[] })) : Promise.resolve({ strategies: [] as StrategySummary[] })]);
@@ -122,7 +125,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     const b = customBudget ? Number(customBudget) : undefined;
     setBusy("generate"); setError(null); setSaved(null);
     try {
-      const s = await generateStrategy({ month, objective, margin: m, budget: b, distribution, briefing: briefing.trim() || undefined });
+      const s = await generateStrategy({ month, objective, margin: m, budget: b, distribution, briefing: briefing.trim() || undefined,
+        objective_parameters: objectiveParameters[objective] });
       showGenerated(s, "new");
       if (s.strategy_id) setHistory((h) => [{ id: s.strategy_id!, month: s.month, objective: s.objective, margin: s.margin, custom_budget: b ?? null, selected: s.selected,
         budget: s.scenarios.find((x) => x.key === s.selected)?.budget ?? null, headline: s.narrative?.headline ?? null, created_at: s.generated_at || new Date().toISOString() }, ...h]);
@@ -178,7 +182,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       scenario: { ...scenario, allocation, budget, result, why: edited ? `${scenario.why} Divisão ajustada pela equipe.` : scenario.why } };
     try {
       await savePlan({ month, objective: strategy.objective, scenario: scenario.key, budget: Math.round(budget * 100) / 100, allocation,
-        margin: strategy.margin || undefined, strategy: frozen, notes: notes || undefined, status });
+        margin: strategy.margin || undefined, strategy: frozen, notes: notes || undefined, status,
+        objective_parameters: strategy.objective_parameters || {} });
       setSaved(status === "aprovado" ? "Plano aprovado. O calendário passa a mostrar os impulsionamentos." : "Rascunho salvo.");
       setTracking(await getPlan(month));
       setView((v) => v && { ...v, saved: true, source: "plan" });
@@ -212,6 +217,15 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         <SegmentedControl ariaLabel="Distribuição" value={distribution} onSelect={(id) => setDistribution(id as Distribution)} options={(Object.keys(DISTRIBUTIONS) as Distribution[]).map((d) => ({ id: d, label: DISTRIBUTIONS[d] }))} /></div>
       <label>Margem de contribuição <small>(opcional, %)</small><input type="number" min={2} max={95} step={1} value={margin} placeholder="ex.: 40" onChange={(e) => setMargin(e.target.value)} /></label>
       <label>Verba definida <small>(opcional, R$)</small><input type="number" min={0} step={100} value={customBudget} placeholder="deixe vazio para recomendar" onChange={(e) => setCustomBudget(e.target.value)} /></label>
+      <div className="mediaObjectiveParameters" aria-label={`Metas de ${OBJECTIVES[objective]}`}>
+        <span className="mediaControlLabel">Meta e indicadores de {OBJECTIVES[objective]}</span>
+        <div>{OBJECTIVE_PARAMETER_FIELDS[objective].map((field) => <label key={field.key}>{field.label} <small>({field.hint})</small>
+          <input data-objective-parameter={field.key} type="number" min={field.min} max={field.max} step={field.step || 1}
+            value={objectiveParameters[objective][field.key] ?? ""} placeholder="opcional"
+            onChange={(e) => setObjectiveParameters((all) => ({ ...all, [objective]: { ...all[objective],
+              [field.key]: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
+        </label>)}</div>
+      </div>
       <label className="mediaBriefing">O que precisamos neste mês <small>(briefing da conta: lançamentos, promoções, foco, campanhas, teto de verba)</small>
         <textarea rows={3} maxLength={2000} value={briefing} onChange={(e) => setBriefing(e.target.value)}
           placeholder="Ex.: lançamento da linha Âmbar dia 10; foco em Google para captar demanda; pausar a Prospecção até trocar o criativo; no máximo R$ 8 mil no mês." />
@@ -236,6 +250,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
 
     {strategy && scenario && result ? <>
+      {strategy.objective_projection?.message ? <p className={`mediaEstimate ${strategy.objective_projection.status === "declared_only" ? "is-limited" : ""}`}>
+        {strategy.objective_projection.message}</p> : null}
       {strategy.briefing?.text ? <section className="ds-section mediaBriefingApplied" aria-labelledby="media-briefing">
         <h2 id="media-briefing" className="ds-sectionTitle">Briefing do mês</h2>
         <blockquote>{strategy.briefing.text}</blockquote>

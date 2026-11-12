@@ -220,6 +220,7 @@
 .mediaControls label,.mediaControls>div{display:grid;gap:6px;font-size:13px;font-weight:500;color:var(--text-secondary,#5f5b53)}
 .mediaControls small{font-weight:400}
 .mediaControls input{padding:8px 10px;border:1px solid var(--border,#d5d2cb);border-radius:8px;font:inherit;font-size:14px;width:190px;color:var(--text-primary,#15181b)}
+.mediaObjectiveParameters{flex:1 1 100%;display:grid;gap:8px}.mediaObjectiveParameters>div{display:flex;flex-wrap:wrap;gap:12px 20px}.mediaObjectiveParameters label{flex:1 1 210px}.mediaEstimate.is-limited{background:#fdf7ef;border-left-color:#b45309}
 .mediaControlLabel{font-size:13px}
 .mediaThesis p{margin:0;max-width:72ch;line-height:1.55;color:var(--text-secondary,#3d4247)}
 .mediaThesis .ds-headline{color:var(--text-primary,#15181b)}

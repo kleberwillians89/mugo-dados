@@ -41,4 +41,32 @@ describe("Mídia On", () => {
     expect(media.generateStrategy).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
+
+  it("mantém parâmetros separados ao trocar entre os seis objetivos", async () => {
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<MediaOn canManage />); });
+    await act(async () => {});
+    vi.mocked(media.generateStrategy).mockClear();
+
+    const button = (label: string) => Array.from(host.querySelectorAll("button")).find((el) => el.textContent?.startsWith(label)) as HTMLButtonElement;
+    const type = async (input: HTMLInputElement, value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { button("Leads").click(); });
+    const leads = host.querySelector('[data-objective-parameter="target_leads"]') as HTMLInputElement;
+    await type(leads, "250");
+    await act(async () => { button("Tráfego").click(); });
+    const clicks = host.querySelector('[data-objective-parameter="target_clicks"]') as HTMLInputElement;
+    expect(clicks.value).toBe("");
+    await type(clicks, "900");
+    await act(async () => { button("Gerar estratégia").click(); });
+    expect(media.generateStrategy).toHaveBeenLastCalledWith(expect.objectContaining({
+      objective: "trafego", objective_parameters: { target_clicks: 900 },
+    }));
+    await act(async () => { button("Leads").click(); });
+    expect((host.querySelector('[data-objective-parameter="target_leads"]') as HTMLInputElement).value).toBe("250");
+    act(() => root.unmount());
+  });
 });

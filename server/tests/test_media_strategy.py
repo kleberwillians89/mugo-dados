@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services import media_plan as mp
+from services import media_objectives as mo
 from services import media_strategy as ms
 from services.studio_calendar import StudioError
 
@@ -204,6 +205,49 @@ class BuildStrategyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(StudioError):
             await ms.build_strategy("ruah", month="2026-11", objective="vendas", margin=0.99)
 
+    async def test_objective_parameters_are_used_without_equating_distinct_metrics(self):
+        meta = {"daily": daily([1500, 1800, 2100, 2500, 2900, 3300, 2700, 2300, 1950, 2550, 3100, 2750, 2350], b=0.65),
+                "campaigns": []}
+        empty = {"daily": [], "campaigns": []}
+        with patch.object(ms, "read_window", AsyncMock(return_value={"meta": meta, "google_ads": empty})), \
+             patch.object(ms, "_store_and_goal", AsyncMock(return_value=({"revenue": 90000, "investment": 9000}, None, []))), \
+             patch.object(ms, "_calendar_context", AsyncMock(return_value=([], {}))), \
+             patch.object(ms, "campaign_memory", AsyncMock(return_value={})):
+            result = await ms.build_strategy("ruah", month="2026-11", objective="leads", custom_budget=5000,
+                                             objective_parameters={"target_leads": 80, "max_cpl": 45},
+                                             today=date(2026, 10, 29), distribution="hiperfoco")
+        self.assertEqual(result["objective_parameters"], {"target_leads": 80.0, "max_cpl": 45.0})
+        self.assertEqual(result["objective_projection"]["status"], "declared_only")
+        self.assertIn("não comprovam leads", result["objective_projection"]["message"])
+        self.assertNotIn("meta", [scenario["key"] for scenario in result["scenarios"]])
+
+
+class ObjectiveParameterTests(unittest.IsolatedAsyncioTestCase):
+    def test_all_six_objectives_accept_only_their_own_parameters(self):
+        fixtures = {
+            "vendas": {"target_revenue": 100000, "target_roas": 4},
+            "leads": {"target_leads": 300, "max_cpl": 40},
+            "trafego": {"target_clicks": 5000, "max_cpc": 2.5},
+            "alcance": {"target_unique_reach": 100000, "planned_frequency": 3},
+            "retencao": {"target_retention_rate": 70, "customer_base": 800},
+            "remarketing": {"target_conversions": 120, "max_cpa": 35},
+        }
+        for objective, values in fixtures.items():
+            with self.subTest(objective=objective):
+                self.assertEqual(mo.clean_parameters(objective, values), {k: float(v) for k, v in values.items()})
+        with self.assertRaises(StudioError):
+            mo.clean_parameters("vendas", {"target_leads": 10})
+        with self.assertRaises(StudioError):
+            mo.clean_parameters("retencao", {"target_retention_rate": 101})
+
+    def test_target_metric_keeps_metric_meanings_distinct(self):
+        self.assertEqual(mo.target_metric("vendas", {"target_revenue": 1000}), ("revenue", 1000))
+        self.assertEqual(mo.target_metric("trafego", {"target_clicks": 500}), ("clicks", 500))
+        self.assertEqual(mo.target_metric("alcance", {"target_unique_reach": 1000, "planned_frequency": 2.5}), ("impressions", 2500))
+        self.assertIsNone(mo.target_metric("leads", {"target_leads": 50}))
+        self.assertIsNone(mo.target_metric("retencao", {"target_retention_rate": 80}))
+        self.assertIsNone(mo.target_metric("remarketing", {"target_conversions": 30}))
+
     async def test_narrative_only_cites_listed_campaigns(self):
         strategy = {"objective": "vendas", "metric_label": "receita", "selected": "ritmo_atual", "findings": [], "weeks": [],
                     "diagnosis": [], "goal_revenue": None, "store": {}, "boosts": {"posts": []},
@@ -240,6 +284,16 @@ class PlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((out["elapsed_days"], row["expected_to_date"], row["projected_spend"]), (10, 1000.0, 3000.0))
         self.assertEqual((row["pace"], row["target_cpa"]), (1.0, 40.0))
         self.assertEqual(len(out["channels"]), 1)  # canal sem plano e sem gasto fica de fora
+
+    async def test_plan_persists_objective_parameters_in_existing_json(self):
+        data = {"objective": "trafego", "scenario": "personalizado", "budget": 1000,
+                "allocation": {"meta": 1000}, "strategy": {"objective_parameters": {"target_clicks": 500}},
+                "objective_parameters": {"target_clicks": 500, "max_cpc": 2}}
+        with patch.object(mp, "get_plan", AsyncMock(side_effect=[None, {"id": "p1"}])), \
+             patch.object(mp, "sb_upsert", AsyncMock()) as upsert:
+            await mp.save_plan("ruah", "2026-11", data, user_id="u1")
+        row = upsert.await_args.args[1][0]
+        self.assertEqual(row["assumptions"], {"objective_parameters": {"target_clicks": 500.0, "max_cpc": 2.0}})
 
 
 if __name__ == "__main__":
