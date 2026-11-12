@@ -11,6 +11,7 @@ import PeriodSelector from "../components/data/PeriodSelector";
 import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
 import "../styles/salesOrigin.css";
+import { mugoColor } from "../app/mugoPalette";
 
 const PROVIDER_LABELS: Record<string, string> = { shopify: "Shopify", fbits: "FBITS/Wake" };
 
@@ -121,14 +122,14 @@ export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) =
               <h2 id="sales-origin-channels">Por canal</h2>
               {data!.channels.length ? (
                 <ol className="salesOriginBars">
-                  {data!.channels.map((row) => (
+                  {data!.channels.map((row, i) => (
                     <li key={row.channel} className={row.channel === "unknown" ? "is-unknown" : undefined}>
                       <div className="salesOriginBarHead">
                         <span className="salesOriginBarLabel">{row.label}</span>
                         <strong>{formatCurrency(row.revenue)}</strong>
                       </div>
                       <div className="salesOriginBarTrack" aria-hidden="true">
-                        <span style={{ width: `${Math.max(2, ((row.share_of_revenue || 0) / maxShare) * 100)}%` }} />
+                        <span style={{ width: `${Math.max(2, ((row.share_of_revenue || 0) / maxShare) * 100)}%`, background: row.channel === "unknown" ? "#9aa3ad" : mugoColor(i) }} />
                       </div>
                       <p className="salesOriginBarMeta">
                         {percent(row.share_of_revenue)} da receita · {formatInteger(row.orders)} pedidos · ticket{" "}
@@ -144,14 +145,14 @@ export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) =
               <h2 id="sales-origin-campaigns">Por campanha</h2>
               {data!.campaigns.length ? (
                 <ol className="salesOriginBars salesOriginCampaignBars" aria-label="Vendas por campanha" data-testid="sales-origin-campaign-chart">
-                  {campaignBars.map((row) => (
+                  {campaignBars.map((row, i) => (
                     <li key={row.key} className={row.unknown ? "is-unknown" : undefined}>
                       <div className="salesOriginBarHead">
                         <span className="salesOriginBarLabel">{row.label}</span>
                         <strong>{formatInteger(row.orders)} {row.orders === 1 ? "venda" : "vendas"}</strong>
                       </div>
                       <div className="salesOriginBarTrack" aria-hidden="true">
-                        <span style={{ width: `${Math.max(2, (row.orders / maxCampaignOrders) * 100)}%` }} />
+                        <span style={{ width: `${Math.max(2, (row.orders / maxCampaignOrders) * 100)}%`, background: row.unknown ? "#9aa3ad" : mugoColor(i + 2) }} />
                       </div>
                       <p className="salesOriginBarMeta">
                         {formatCurrency(row.revenue)}{row.meta ? ` · ${row.meta}` : ""}

@@ -1,9 +1,10 @@
 export const CHART_COLORS = {
-  organic: "#2D6CDF",
-  organicSoft: "rgba(45,108,223,0.16)",
-  organicMuted: "rgba(45,108,223,0.64)",
-  ads: "#7C3AED",
-  adsSoft: "rgba(124,58,237,0.14)",
+  // Cores da Mugô (src/app/mugoPalette.ts): petróleo para orgânico, mostarda para anúncios.
+  organic: "#004f6e",
+  organicSoft: "rgba(0,79,110,0.16)",
+  organicMuted: "rgba(0,79,110,0.64)",
+  ads: "#c98a00",
+  adsSoft: "rgba(201,138,0,0.14)",
   grid: "rgba(12,65,96,0.10)",
   axis: "rgba(31,41,55,0.70)",
   tooltipBg: "rgba(12,18,30,0.94)",
