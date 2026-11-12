@@ -289,7 +289,7 @@ async def ask(client_id: str, user_id: str, question: str, *, team: bool, person
     names = await _doc_names(client_id, sorted({str(chunks[i - 1].get("document_id")) for i in used}))
     documents = [n for n in dict.fromkeys(names.get(str(chunks[i - 1].get("document_id")), "") for i in used) if n]
     sources = [SOURCES[s] for s in dict.fromkeys(data.get("sources") or []) if s in SOURCES and s != "pesquisa_web" and (s != "documentos" or used)]
-    web_sources = (web.get("sources") or []) if on_topic and "pesquisa_web" in (data.get("sources") or []) else []
+    web_sources = (web.get("sources") or []) if on_topic else []
     if web_sources:
         sources.append(SOURCES["pesquisa_web"])
     sources += [f"Documento: {d}" for d in documents]
