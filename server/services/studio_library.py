@@ -30,6 +30,12 @@ TYPES = {
 }
 
 
+def _forget(client_id: str) -> None:
+    from .studio_intelligence import invalidate
+    invalidate(client_id)
+
+
+
 def _bucket() -> str:
     return (os.getenv("IG_MEDIA_BUCKET") or "ig-media").strip()
 
@@ -69,6 +75,7 @@ def _own_file(url: str, client_id: str) -> bool:
 
 
 async def add_item(client_id: str, data: Dict[str, Any], *, user_id: str, author: str, side: str) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     url = str(data.get("url") or "").strip()
     if not url.startswith("https://") or len(url) > 1000:
         raise StudioError("LIBRARY_URL_INVALID", "Use um link completo, começando com https://")
@@ -109,6 +116,7 @@ async def list_items(client_id: str, *, user_id: str, team: bool) -> List[Dict[s
 
 
 async def delete_item(client_id: str, item_id: str, *, user_id: str, team: bool) -> None:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     rows = await sb_select(TABLE, select="id,created_by", filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, limit=1)
     if not rows:
         raise StudioError("LIBRARY_NOT_FOUND", "Item não encontrado.")

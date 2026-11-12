@@ -15,6 +15,11 @@ IA escreva a partir de fatos da conta e não de clichês:
   Assim a pauta, a copy, o anúncio e a mensagem de sexta seguem a mesma linha.
 * MUNDO DO CLIENTE: saúde da marca (índice, sentimento, assuntos e alertas), voz do público
   (comentários, Direct e notícias agregados), concorrentes do Clipping e produtos que mais vendem.
+* O QUE A EQUIPE JÁ DECIDIU: briefings aprovados, planejamentos (grande ideia, estratégia, fases, KPIs) e
+  eventos que vêm por aí, e o acervo da Biblioteca (produto, logo, fotos, vídeos e referências por nome).
+
+Nada é cortado em silêncio: quando o pacote passa do limite do prompt, as seções menos importantes são
+RESUMIDAS primeiro (listas e textos encurtados) e só depois omitidas, e o prompt diz à IA o que foi resumido.
 
 Cada fonte é lida com limite de tempo; fonte que falha vira "lacuna" e o
 pacote segue. Nada aqui chama a IA nem expõe dado de comprador.
@@ -33,8 +38,8 @@ from .ig_supabase import sb_select
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 SOURCE_TIMEOUT = 12.0
-CACHE_SECONDS = 600
-MAX_PROMPT_CHARS = 18000
+CACHE_SECONDS = 180          # curto: o que a equipe acabou de mudar entra na próxima geração
+MAX_PROMPT_CHARS = 24000
 _CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
 # Mesmo filtro do MCP: texto com cara de e-mail, CPF/CNPJ ou telefone sai inteiro.
@@ -197,7 +202,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -216,6 +221,9 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("voz_do_publico", gaps, lambda: _audience_voice(client_id), ""),
         _safe("concorrentes", gaps, lambda: _competitors(client_id), {}),
         _safe("produtos_mais_vendidos", gaps, lambda: _top_products(client_id), []),
+        _safe("briefings_aprovados", gaps, lambda: _approved_briefs(client_id, today), []),
+        _safe("planos_aprovados", gaps, lambda: _plans(client_id, today), {}),
+        _safe("biblioteca", gaps, lambda: _library(client_id), {}),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -241,6 +249,9 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "voz_do_publico": voice,
         "concorrentes": competitors,
         "produtos_mais_vendidos": products,
+        "briefings_aprovados": briefs,
+        "planos_aprovados": plans,
+        "biblioteca": library,
         "lacunas":sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
     }
     _CACHE[key] = (time.monotonic(), package)
@@ -410,6 +421,100 @@ async def _top_products(client_id: str, days: int = 90) -> List[Dict[str, Any]]:
     return [{**p, "vendas": round(p["vendas"], 2), "periodo": f"{days} dias"} for p in ranked]
 
 
+# --------------------------------------------------------------------------
+# O que a equipe já decidiu: briefings, planejamentos, eventos e Biblioteca
+# --------------------------------------------------------------------------
+
+def _texts(values: Any, n: int, limit: int = 200) -> List[str]:
+    return [t for t in (clean_text(v, limit) for v in (values or []) if isinstance(v, str)) if t][:n]
+
+
+async def _approved_briefs(client_id: str, today: date) -> List[Dict[str, Any]]:
+    """Briefings prontos ou distribuídos dos últimos 60 dias: o que a equipe já combinou com o cliente."""
+    since = (today - timedelta(days=60)).isoformat()
+    rows = await sb_select("studio_briefs", select="brief,status,created_at", order="created_at.desc", limit=6,
+                           filters={"client_id": f"eq.{client_id}", "status": "in.(pronto,distribuido)", "created_at": f"gte.{since}"})
+    out = []
+    for r in rows:
+        b = r.get("brief") or {}
+        item = {"titulo": clean_text(b.get("title"), 160), "objetivo": clean_text(b.get("objective"), 300),
+                "mensagem": clean_text(b.get("key_message"), 300), "publico": clean_text(b.get("audience"), 200),
+                "prazo": clean_text(b.get("deadline"), 40), "meta": clean_text(b.get("goal"), 160),
+                "entregaveis": _texts(b.get("deliverables"), 6, 120), "nao_fazer": _texts(b.get("avoid"), 6, 160)}
+        item = {k: v for k, v in item.items() if v}
+        if item.get("titulo"):
+            out.append(item)
+    return out
+
+
+async def _plans(client_id: str, today: date) -> Dict[str, Any]:
+    """Planejamentos com plano gerado (o mais recente manda) e eventos/produções dos próximos 90 dias."""
+    rows = await sb_select("studio_projects", select="kind,title,status,format,target_date,inputs,plan,updated_at",
+                           order="updated_at.desc", limit=20, filters={"client_id": f"eq.{client_id}"})
+    planning, events = [], []
+    for r in rows:
+        p, i = r.get("plan") or {}, r.get("inputs") or {}
+        if r.get("kind") == "planejamento" and p and len(planning) < 3:
+            planning.append({k: v for k, v in {
+                "titulo": clean_text(r.get("title"), 160), "etapa": r.get("status"), "prazo": r.get("target_date"),
+                "objetivo": clean_text(i.get("objective"), 300), "grande_ideia": clean_text(p.get("big_idea"), 200),
+                "insight": clean_text(p.get("insight"), 300), "estrategia": clean_text(p.get("strategy"), 600),
+                "mensagens": _texts(p.get("messages"), 5),
+                "canais": [f"{clean_text(c.get('channel'), 40)}: {clean_text(c.get('role'), 120)}" for c in p.get("channels") or [] if isinstance(c, dict)][:6],
+                "fases": [f"{clean_text(f.get('phase'), 60)} ({clean_text(f.get('when'), 40)}): {clean_text(f.get('what'), 200)}" for f in p.get("phases") or [] if isinstance(f, dict)][:6],
+                "kpis": [f"{clean_text(k.get('kpi'), 60)} = {clean_text(k.get('target'), 60)}" for k in p.get("kpis") or [] if isinstance(k, dict)][:5],
+            }.items() if v})
+        elif r.get("kind") == "evento" and r.get("status") != "finalizado":
+            when = str(r.get("target_date") or "")[:10]
+            try:
+                soon = not when or today <= date.fromisoformat(when) <= today + timedelta(days=90)
+            except ValueError:
+                soon = False
+            if soon and len(events) < 4:
+                events.append({k: v for k, v in {"titulo": clean_text(r.get("title"), 160), "formato": r.get("format"), "data": when or None,
+                                                  "local": clean_text(i.get("location"), 120), "ideia": clean_text(i.get("idea"), 300),
+                                                  "resumo": clean_text(p.get("summary"), 300)}.items() if v})
+    return {k: v for k, v in {"planejamentos": planning, "eventos": events}.items() if v}
+
+
+async def _library(client_id: str) -> Dict[str, Any]:
+    """Acervo da Biblioteca por nome e categoria: o designer acha pelo nome; a IA cita o arquivo certo."""
+    rows = await sb_select("studio_library", select="kind,category,title,note,side,mime_type", order="created_at.desc",
+                           limit=80, filters={"client_id": f"eq.{client_id}"})
+    groups: Dict[str, List[str]] = {}
+    for r in rows:
+        name = clean_text(r.get("title"), 100)
+        if not name:
+            continue
+        kind = "link" if r.get("kind") == "link" else str(r.get("mime_type") or "arquivo").split("/")[0]
+        note = clean_text(r.get("note"), 120)
+        who = " (do cliente)" if r.get("side") == "cliente" else ""
+        groups.setdefault(str(r.get("category") or "outro"), []).append(f"{name} [{kind}]{who}" + (f": {note}" if note else ""))
+    return {k: v[:15] for k, v in groups.items()}
+
+
+async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
+    """Trechos dos DOCUMENTOS da marca (manual, apresentação, tabela de preços) mais ligados a esta peça.
+    O pacote traz o conhecimento consolidado; aqui vai o texto original do que importa para a pauta. Nunca levanta."""
+    try:
+        from .brand_knowledge import search_chunks
+        rows = await search_chunks(client_id, *[t for t in texts if t], limit=limit)
+    except Exception:  # noqa: BLE001
+        return ""
+    out = []
+    for r in rows:
+        text = _PERSONAL.sub("[…]", re.sub(r"\s+", " ", str(r.get("content") or ""))).strip()[:700]
+        if text:
+            out.append(f"- {text}")
+    return "\n".join(out)
+
+
+LIBRARY_RULE = ("Se a BIBLIOTECA dos DADOS tiver o arquivo certo (foto do produto, logo, vídeo bruto, referência), cite-o pelo "
+                "nome exato na ideia de imagem para a equipe achar; não invente arquivo que não está lá.")
+PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
+              "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois.")
+
+
 def invalidate(client_id: str) -> None:
     for key in [k for k in _CACHE if k.startswith(f"{client_id}:")]:
         _CACHE.pop(key, None)
@@ -424,19 +529,68 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
         "metas": len(package.get("metas_do_mes") or []),
         "aprovados": len((package.get("aprendizados") or {}).get("aprovados") or []),
         "ajustes": len((package.get("aprendizados") or {}).get("ajustes_pedidos") or []),
+        "biblioteca": sum(len(v) for v in (package.get("biblioteca") or {}).values()),
+        "briefings": len(package.get("briefings_aprovados") or []),
+        "planejamentos": len((package.get("planos_aprovados") or {}).get("planejamentos") or []),
+        "eventos": len((package.get("planos_aprovados") or {}).get("eventos") or []),
         "lacunas": package.get("lacunas") or [],
     }
 
 
+PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
+                "biblioteca", "voz_do_publico", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis",
+                "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
+                "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+
+
+def _shrink(value: Any) -> Any:
+    """Metade de cada lista e textos longos encurtados: a seção continua lá, menor."""
+    if isinstance(value, list):
+        return [_shrink(v) for v in value[:max(1, len(value) // 2)]]
+    if isinstance(value, dict):
+        return {k: _shrink(v) for k, v in value.items()}
+    if isinstance(value, str) and len(value) > 300:
+        return value[:300].rsplit(" ", 1)[0] + "…"
+    return value
+
+
+def _dump(data: Dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
 def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, limit: int = MAX_PROMPT_CHARS) -> str:
-    """JSON compacto para o prompt; corta as seções menos importantes se passar do limite."""
-    order = sections or ["marca", "negocio", "referencias_do_cliente", "aprendizados", "voz_do_publico", "campanhas_ativas",
-                         "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis", "saude_da_marca", "concorrentes",
-                         "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping", "calendario_do_mes",
-                         "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+    """JSON compacto para o prompt. Se passar do limite, RESUME primeiro as seções menos importantes (até 3 vezes
+    cada, de trás para frente) e só então omite; o prompt avisa a IA do que foi resumido ou omitido."""
+    order = sections or PROMPT_ORDER
     data = {k: package.get(k) for k in order if package.get(k)}
-    text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    while len(text) > limit and len(data) > 1:
-        data.pop(list(data)[-1])
-        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    budget = max(200, limit - 220)  # espaço para o aviso
+    resumed: List[str] = []
+    dropped: List[str] = []
+    text = _dump(data)
+    rounds = 0
+    while len(text) > budget and rounds < 3:
+        for key in reversed(list(data)):
+            if len(text) <= budget or (key == list(data)[0] and len(data) > 1):
+                continue
+            data[key] = _shrink(data[key])
+            if key not in resumed:
+                resumed.append(key)
+            text = _dump(data)
+        rounds += 1
+    while len(text) > budget and len(data) > 1:
+        key = list(data)[-1]
+        data.pop(key)
+        dropped.append(key)
+        text = _dump(data)
+    for _ in range(3):  # sobrou só a seção principal e ainda não cabe: ela também é resumida
+        if len(text) <= budget or not data:
+            break
+        key = list(data)[0]
+        data[key] = _shrink(data[key])
+        if key not in resumed:
+            resumed.append(key)
+        text = _dump(data)
+    if resumed or dropped:
+        data["_aviso"] = {"resumidas": [k for k in resumed if k not in dropped], "omitidas_por_tamanho": dropped}
+        text = _dump(data)
     return text[:limit]

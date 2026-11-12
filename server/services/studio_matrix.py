@@ -31,7 +31,7 @@ from .studio_calendar import (
     create_item, language_rule, load_profile,
 )
 from .studio_engines import throttle
-from .studio_intelligence import build_content_intelligence, to_prompt
+from .studio_intelligence import LIBRARY_RULE, PLANS_RULE, build_content_intelligence, passages_for, to_prompt
 from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
 
 MATRICES = "studio_content_matrices"
@@ -244,6 +244,7 @@ def build_prompt(req: Dict[str, Any], profile: Dict[str, Any], intel: Dict[str, 
           "seguidas com o mesmo ângulo, a mesma CTA no máximo 2 vezes, e nada parecido com outra oportunidade nem com o que já foi planejado "
           "recentemente (abaixo). Legenda enxuta, até 600 caracteres."
         + (f"\nJÁ PLANEJADO RECENTEMENTE (não repetir tema nem abertura):\n{json.dumps(recent, ensure_ascii=False)}" if recent else "")
+        + f"\n{PLANS_RULE}"
         + "\nAlém das oportunidades: um resumo da estratégia do período em 2 frases."
         + (f"\n\nFOCO DO PERÍODO (briefing aprovado pela equipe; PRIORIDADE MÁXIMA, sem fugir dos pilares):\n{req['focus']}" if req.get("focus") else "")
         + f"\n\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
@@ -520,13 +521,16 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
     intel = await build_content_intelligence(client_id)
     fmt = current.get("format") or "imagem"
     base = {k: current.get(k) for k in ("platform", "pillar", "format", "title", "hook", "angle", "rationale")}
+    passages = await passages_for(client_id, str(current.get("title") or ""), str(current.get("angle") or ""), str(current.get("pillar") or ""))
     prompt = (f"PAUTA (crie o conteúdo completo dela, sem mudar o tema):\n{json.dumps(base, ensure_ascii=False)}\n"
               f"PLATAFORMA: {PLATFORM_TASKS[current['platform']]}\n"
               f"ROTEIRO: {SCRIPT_GUIDE.get(fmt, SCRIPT_GUIDE['imagem'])}\n"
               "IDEIA DE IMAGEM: direção da arte para o designer ou a IA de imagem: cena ou composição, enquadramento, pessoas ou objetos, "
               "cores e estilo da marca, texto na arte. 3 a 6 linhas, concreto.\n"
               "LEGENDA: no tom da marca, com CTA e hashtags do perfil se houver.\n"
+              f"{LIBRARY_RULE}\n{PLANS_RULE}\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
+              + (f"TRECHOS DOS DOCUMENTOS DA MARCA SOBRE ESTE TEMA (fatos a usar, nunca contrariar):\n{passages}\n" if passages else "")
               + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
     data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_matrix_content",

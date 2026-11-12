@@ -26,6 +26,12 @@ STATUSES = ("aguardando_equipe", "pronto", "distribuido", "arquivado")
 CLIENT_FIELDS = ("id", "status", "request", "created_at", "created_side", "created_by_name")
 
 
+def _forget(client_id: str) -> None:
+    from .studio_intelligence import invalidate
+    invalidate(client_id)
+
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -189,6 +195,7 @@ async def get_brief(client_id: str, brief_id: str, *, team: bool) -> Dict[str, A
 
 
 async def create_brief(client_id: str, *, request: str, links: List[str], user_id: str, author: str, team: bool) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     clean_links = [u.strip()[:500] for u in links if isinstance(u, str) and u.strip().startswith("https://")][:10]
     brief = await generate_brief(client_id, request, clean_links)
     row = await sb_insert(TABLE, {"client_id": client_id, "request": request.strip()[:4000], "links": clean_links, "brief": brief,
@@ -212,6 +219,7 @@ EDITABLE = ("title", "summary", "objective", "key_message", "audience", "deadlin
 
 
 async def update_brief(client_id: str, brief_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     current = await get_brief(client_id, brief_id, team=True)
     brief = dict(current.get("brief") or {})
     for key in EDITABLE:
@@ -235,6 +243,7 @@ async def regenerate(client_id: str, brief_id: str, instruction: Optional[str]) 
 
 
 async def approve(client_id: str, brief_id: str, *, user_id: str) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     current = await get_brief(client_id, brief_id, team=True)
     rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{brief_id}"},
                            patch={"status": "pronto", "approved_by": user_id, "approved_at": _now(), "updated_at": _now()})
