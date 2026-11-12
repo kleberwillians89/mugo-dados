@@ -11,6 +11,7 @@ import WordCloud from "../WordCloud";
 import "../../styles/brandHealth.css";
 import PageSkeleton from "../data/PageSkeleton";
 import SegmentedControl from "../data/SegmentedControl";
+import HowToRead from "../data/HowToRead";
 
 const GRAINS: Grain[] = ["day", "week", "month", "quarter", "year"];
 const SOURCES: Source[] = ["news", "comments", "direct"];
@@ -189,7 +190,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
     {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} /> : null}
     {d?.words?.length ? <section className={state.loading ? "bhCard bhWords is-loading" : "bhCard bhWords"} aria-labelledby="bh-words">
       <h2 id="bh-words">Palavras mais citadas</h2>
-      <p className="bhSub">Notícias, comentários e Direct do período. Tamanho = quantas vezes aparece; cor = sentimento que predomina. Passe o mouse para ver a divisão.</p>
+      <p className="bhSub">Notícias, comentários e Direct do período. Quanto maior a palavra, mais ela aparece; a cor mostra o tom que predomina. Passe o mouse para ver a divisão.</p>
       <WordCloud words={d.words} />
     </section> : null}
 
@@ -268,8 +269,13 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
         </section>
       </div>
       {sources.some((s) => s !== "news") ? <MentionReview start={range.start} end={range.end} onChanged={() => setNonce((n) => n + 1)} /> : null}
-      <p className="bhMuted bhFoot">Saúde da conversa = 80% sentimento líquido + 20% alertas abertos (é o pilar "Conversa" do índice MUGOVERSO). Comentários e Direct são analisados pela IA a cada hora; notícias, na busca diária do clipping.
-        {k.unanalyzed ? ` ${nf.format(k.unanalyzed)} menções ainda sem análise contam só no volume.` : ""}</p>
+      <HowToRead title="Como ler a saúde da conversa"
+        items={[
+          { term: "Nota da conversa", text: "80% vem do sentimento (elogios menos reclamações) e 20% dos alertas abertos. É o pilar “Conversa” do índice." },
+          { term: "Comentários e Direct", text: "A IA lê de hora em hora. Se ela errar o tom, a equipe corrige no “!” do comentário." },
+          { term: "Notícias", text: "Entram uma vez por dia, na busca do clipping." },
+        ]}
+        note={k.unanalyzed ? `${nf.format(k.unanalyzed)} menções ainda sem análise contam só no volume.` : undefined} />
     </div> : null}
   </div>;
 }

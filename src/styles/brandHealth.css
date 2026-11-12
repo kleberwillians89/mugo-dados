@@ -1,6 +1,7 @@
 /* Saúde da marca (Clipping). Sentimento: verde positivo, cinza neutro, laranja misto, vermelho negativo;
    sempre com legenda/rótulo (identidade nunca só pela cor). */
-.bhPage{--bh-pos:#2f8a5b;--bh-neu:#a7afb5;--bh-mix:#d9962b;--bh-neg:#c2413f;--bh-none:#e4e1db;--bh-line:var(--border-subtle,rgba(21,24,27,.09));display:flex;flex-direction:column;gap:14px}
+:root{--bh-pos:#2f8a5b;--bh-neu:#a7afb5;--bh-mix:#c09a45;--bh-neg:#a33038;--bh-none:#e4e1db;--bh-line:var(--border-subtle,rgba(21,24,27,.09))}
+.bhPage{display:flex;flex-direction:column;gap:14px}
 .bhMuted{color:var(--text-muted,#687178);font-size:13px}
 .bhSrOnly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .bhFilters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface,#fff);border:1px solid var(--bh-line);border-radius:12px;padding:12px 14px}
