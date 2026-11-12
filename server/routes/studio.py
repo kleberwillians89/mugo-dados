@@ -1191,6 +1191,7 @@ ERRORS.update({
     "BUDGET_INVALID": (422, "Informe uma verba maior que zero."),
     "ALLOCATION_INVALID": (422, "A divisão por canal precisa somar a verba do mês."),
     "OBJECTIVE_INVALID": (422, "Objetivo inválido."),
+    "OBJECTIVE_PARAMETERS_INVALID": (422, "Os parâmetros informados não são válidos para este objetivo."),
     "SCENARIO_INVALID": (422, "Cenário inválido."),
     "MARGIN_INVALID": (422, "A margem precisa estar entre 2% e 95%."),
     "STRATEGY_TOO_LARGE": (413, "Estratégia grande demais para salvar."),
@@ -1217,6 +1218,7 @@ class StrategyInput(BaseModel):
     distribution: Literal["equilibrado", "hiperfoco"] = "equilibrado"
     briefing: Optional[str] = Field(default=None, max_length=2000)
     with_narrative: bool = True
+    objective_parameters: Dict[str, float] = Field(default_factory=dict)
 
 
 class PlanInput(BaseModel):
@@ -1230,6 +1232,7 @@ class PlanInput(BaseModel):
     strategy: Dict[str, Any] = Field(default_factory=dict)
     notes: Optional[str] = Field(default=None, max_length=2000)
     status: Literal["rascunho", "aprovado"] = "rascunho"
+    objective_parameters: Dict[str, float] = Field(default_factory=dict)
 
 
 @router.post("/media/strategy")
@@ -1239,7 +1242,8 @@ async def run_media_strategy(client_id: str, body: StrategyInput, authorization:
     uid = await require_user_id(authorization)
     try:
         strategy = await build_strategy(cid, month=body.month, objective=body.objective, margin=body.margin, custom_budget=body.budget,
-                                        distribution=body.distribution, briefing=body.briefing)
+                                        distribution=body.distribution, briefing=body.briefing,
+                                        objective_parameters=body.objective_parameters)
     except StudioError as exc:
         raise _http(exc) from None
     except Exception as exc:  # erro inesperado: registra no log do Render e devolve mensagem clara (nunca a genérica)

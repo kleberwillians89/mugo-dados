@@ -4,6 +4,37 @@ export const CHANNELS = { meta: "Meta Ads", google_ads: "Google Ads" } as const;
 export type Channel = keyof typeof CHANNELS;
 export const OBJECTIVES = { vendas: "Vendas", leads: "Leads", trafego: "Tráfego", alcance: "Alcance", retencao: "Retenção", remarketing: "Remarketing" } as const;
 export type Objective = keyof typeof OBJECTIVES;
+export type ObjectiveParameters = Partial<{
+  target_revenue: number; target_roas: number; target_leads: number; max_cpl: number;
+  target_clicks: number; max_cpc: number; target_unique_reach: number; planned_frequency: number;
+  target_retention_rate: number; customer_base: number; target_conversions: number; max_cpa: number;
+}>;
+export const OBJECTIVE_PARAMETER_FIELDS: Record<Objective, { key: keyof ObjectiveParameters; label: string; hint: string; min: number; max?: number; step?: number }[]> = {
+  vendas: [
+    { key: "target_revenue", label: "Meta de receita atribuída", hint: "R$", min: 0.01, step: 100 },
+    { key: "target_roas", label: "ROAS mínimo desejado", hint: "retorno por R$ 1", min: 0.01, step: 0.1 },
+  ],
+  leads: [
+    { key: "target_leads", label: "Meta de leads", hint: "leads qualificados", min: 1, step: 1 },
+    { key: "max_cpl", label: "CPL máximo", hint: "R$ por lead", min: 0.01, step: 1 },
+  ],
+  trafego: [
+    { key: "target_clicks", label: "Meta de cliques", hint: "cliques no anúncio, não visitas", min: 1, step: 1 },
+    { key: "max_cpc", label: "CPC máximo", hint: "R$ por clique", min: 0.01, step: 0.1 },
+  ],
+  alcance: [
+    { key: "target_unique_reach", label: "Meta de alcance único", hint: "pessoas", min: 1, step: 100 },
+    { key: "planned_frequency", label: "Frequência planejada", hint: "impressões por pessoa", min: 1, max: 100, step: 0.1 },
+  ],
+  retencao: [
+    { key: "target_retention_rate", label: "Meta de retenção", hint: "% da base", min: 0.01, max: 100, step: 0.1 },
+    { key: "customer_base", label: "Base elegível", hint: "clientes", min: 1, step: 1 },
+  ],
+  remarketing: [
+    { key: "target_conversions", label: "Meta de conversões de remarketing", hint: "conversões definidas na campanha", min: 1, step: 1 },
+    { key: "max_cpa", label: "CPA máximo", hint: "R$ por conversão", min: 0.01, step: 1 },
+  ],
+};
 export type Metric = "revenue" | "conversions" | "clicks" | "impressions";
 export const CONFIDENCE = { boa: "Dados consistentes", baixa: "Poucos dados", sem_dados: "Sem investimento", referencia: "Estimativa (sem histórico)" } as const;
 export const ACTIONS = { escalar: "Escalar", manter: "Manter", otimizar: "Otimizar", pausar: "Pausar", aprender: "Aprender", testar: "Testar", impulsionar: "Impulsionar posts" } as const;
@@ -43,10 +74,12 @@ export type Strategy = {
   narrative: Narrative | null; narrative_error?: string;
   /** Gravação no histórico: id e hora; aviso se não foi possível gravar. */
   strategy_id?: string | null; generated_at?: string | null; history_warning?: string; custom_budget?: number | null;
+  objective_parameters?: ObjectiveParameters;
+  objective_projection?: { status: "not_requested" | "declared_only" | "estimated"; message: string | null; metric: Metric | null; target: number | null; recommended_budget: number | null };
 };
 export type StrategySummary = { id: string; month: string; objective: Objective; margin: number | null; custom_budget: number | null; selected: ScenarioKey | null; budget: number | null; headline: string | null; created_at: string };
 export type SavedStrategy = Omit<Strategy, "scenarios"> & { scenario: Scenario; scenarios?: Scenario[] };
-export type MediaPlan = { id: string; month: string; objective: Objective; budget: number; allocation: Partial<Record<Channel, number>>; scenario: ScenarioKey | null; margin: number | null;
+export type MediaPlan = { id: string; month: string; objective: Objective; budget: number; allocation: Partial<Record<Channel, number>>; scenario: ScenarioKey | null; margin: number | null; assumptions?: { objective_parameters?: ObjectiveParameters };
   strategy: SavedStrategy | Record<string, never>; notes: string | null; status: "rascunho" | "aprovado"; updated_at?: string };
 export type PlanVsActual = { month: string; plan: MediaPlan | null; elapsed_days: number; days_in_month: number; through?: string;
   channels: { channel: Channel; label: string; planned_spend: number | null; spent: number; expected_to_date: number | null; projected_spend: number; pace: number | null;
@@ -54,7 +87,7 @@ export type PlanVsActual = { month: string; plan: MediaPlan | null; elapsed_days
 
 const base = (path: string) => clientClientPath(`/studio/media${path}`);
 
-export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; distribution?: Distribution; briefing?: string; with_narrative?: boolean }) {
+export function generateStrategy(input: { month: string; objective: Objective; margin?: number; budget?: number; distribution?: Distribution; briefing?: string; with_narrative?: boolean; objective_parameters?: ObjectiveParameters }) {
   return http<Strategy>(base("/strategy"), { method: "POST", body: JSON.stringify(input), timeoutMs: 150_000 });
 }
 /** Mínimo de verba diária por canal e por impulsionamento (a Meta aceita ~R$ 6; abaixo de R$ 10 a entrega não aprende). */
@@ -92,7 +125,7 @@ export function latestSource(planUpdatedAt: string | null | undefined, history: 
   return new Date(last).getTime() > new Date(planUpdatedAt).getTime() ? "history" : "plan";
 }
 export function getPlan(month: string) { return http<PlanVsActual>(base(`/plan?month=${encodeURIComponent(month)}`), { timeoutMs: 60_000 }); }
-export function savePlan(input: { month: string; objective: Objective; scenario: ScenarioKey; budget: number; allocation: Partial<Record<Channel, number>>; margin?: number; strategy: SavedStrategy; notes?: string; status: "rascunho" | "aprovado" }) {
+export function savePlan(input: { month: string; objective: Objective; scenario: ScenarioKey; budget: number; allocation: Partial<Record<Channel, number>>; margin?: number; strategy: SavedStrategy; notes?: string; status: "rascunho" | "aprovado"; objective_parameters?: ObjectiveParameters }) {
   return http<{ plan: MediaPlan }>(base("/plan"), { method: "PUT", body: JSON.stringify(input), timeoutMs: 60_000 });
 }
 

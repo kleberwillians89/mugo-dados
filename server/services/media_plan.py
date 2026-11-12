@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .ig_supabase import _is_column_compat_error, sb_insert, sb_select, sb_upsert
 from .studio_calendar import StudioError, parse_month
+from .media_objectives import clean_parameters
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 PLANS = "studio_media_plans"
@@ -64,11 +65,13 @@ async def save_plan(client_id: str, month: str, data: Dict[str, Any], *, user_id
     budget = round(_f(data.get("budget")), 2)
     allocation = clean_allocation(data.get("allocation") or {}, budget)
     strategy = data.get("strategy") or {}
+    parameters = clean_parameters(data["objective"], data.get("objective_parameters") or strategy.get("objective_parameters"))
+    strategy = {**strategy, "objective_parameters": parameters}
     if len(json.dumps(strategy, ensure_ascii=False, default=str)) > MAX_STRATEGY_BYTES:
         raise StudioError("STRATEGY_TOO_LARGE")
     margin = data.get("margin")
     row = {"client_id": client_id, "month": target.isoformat(), "objective": data["objective"], "budget": budget,
-           "allocation": allocation, "assumptions": {}, "scenario": data["scenario"], "strategy": strategy,
+           "allocation": allocation, "assumptions": {"objective_parameters": parameters}, "scenario": data["scenario"], "strategy": strategy,
            "margin": round(float(margin), 4) if margin else None,
            "notes": (str(data.get("notes") or "").strip()[:2000] or None),
            "status": "aprovado" if data.get("status") == "aprovado" else "rascunho", "updated_by": user_id}

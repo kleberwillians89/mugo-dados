@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .studio_calendar import StudioError, parse_month
+from .media_objectives import clean_parameters, projection_limitation, target_metric
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 CHANNELS = {"meta": "Meta Ads", "google_ads": "Google Ads"}
@@ -752,7 +753,8 @@ async def _calendar_context(client_id: str, month: date, today: date) -> Tuple[L
 
 async def build_strategy(client_id: str, *, month: str, objective: str, margin: Optional[float] = None,
                          custom_budget: Optional[float] = None, today: Optional[date] = None,
-                         distribution: str = "equilibrado", briefing: Optional[str] = None) -> Dict[str, Any]:
+                         distribution: str = "equilibrado", briefing: Optional[str] = None,
+                         objective_parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     target = parse_month(month)
     if objective not in OBJECTIVES:
         raise StudioError("OBJECTIVE_INVALID")
@@ -760,6 +762,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
         raise StudioError("MARGIN_INVALID")
     if distribution not in DISTRIBUTIONS:
         raise StudioError("DISTRIBUTION_INVALID")
+    parameters = clean_parameters(objective, objective_parameters)
     today = today or datetime.now(SAO_PAULO).date()
     end = today - timedelta(days=1)
     days = calendar.monthrange(target.year, target.month)[1]
@@ -811,6 +814,8 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
         metric = "conversions"  # receita atribuída irrisória: otimiza por conversões e avisa
     b_mix = sum(curves[c]["revenue"]["b"] * with_data[c]["recent"]["spend"] for c in with_data) / max(sum(d["recent"]["spend"] for d in with_data.values()), 1)
     floor = max(MIN_MARGINAL_ROAS, round(1 / margin, 2)) if margin else MIN_MARGINAL_ROAS
+    if parameters.get("target_roas"):
+        floor = max(floor, parameters["target_roas"])
     scenarios: List[Dict[str, Any]] = []
 
     def scenario(key: str, label: str, budget: Optional[float], why: str, extra: Optional[Dict[str, Any]] = None):
@@ -828,7 +833,43 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     scenario("ritmo_atual", "Ritmo atual", current, "Mesma verba dos últimos 30 dias, redistribuída pela curva de retorno de cada canal"
              + (f", com parte em teste no {', '.join(tested)}." if tested else "."))
     goal_info = goal_budget(goal, store, b_mix)
-    if goal_info:
+    projection = {"status": "not_requested", "message": None, "metric": None, "target": None, "recommended_budget": None}
+    parameter_target = target_metric(objective, parameters)
+    limitation = projection_limitation(objective, parameters)
+    if limitation:
+        projection.update(status="declared_only", message=limitation)
+    elif parameter_target:
+        target_name, target_value = parameter_target
+        projection.update(metric=target_name, target=round(target_value, 2))
+        measured = target_name == metric and bool(with_data) and not reference_inputs and any(
+            curves[c][target_name].get("fit") == "medida" for c in with_data if c in curves
+        )
+        if measured and current > 0:
+            upper = current * 3
+            upper_result = outcome(curves, optimize(curves, usable, upper, target_name, days, distribution, emphasis), days)["totals"][target_name]
+            if upper_result >= target_value:
+                low, high = min(max(MIN_DAILY * days, current * 0.1), upper), upper
+                for _ in range(32):
+                    candidate = (low + high) / 2
+                    allocation = optimize(curves, usable, candidate, target_name, days, distribution, emphasis)
+                    if outcome(curves, allocation, days)["totals"][target_name] >= target_value:
+                        high = candidate
+                    else:
+                        low = candidate
+                projection.update(status="estimated", recommended_budget=round(high, -1),
+                                  message="Estimativa baseada nas curvas medidas; não é garantia de resultado.")
+            else:
+                projection.update(status="declared_only", message="A meta supera o intervalo seguro de projeção (até 3x a verba atual).")
+        else:
+            reason = "a métrica atribuída não é confiável para esta meta" if target_name != metric else "faltam curvas medidas suficientes"
+            projection.update(status="declared_only", message=f"Meta registrada sem recomendação de verba: {reason}.")
+    elif parameters:
+        projection.update(status="declared_only", message="Indicadores registrados como parâmetros do planejamento; não há uma meta de volume calculável informada.")
+    if projection["status"] == "estimated":
+        scenario("meta", "Atingir a meta declarada", projection["recommended_budget"],
+                 f"Estimativa para alcançar {projection['target']:,.0f} {METRIC_LABEL[projection['metric']]}; não é garantia de resultado.".replace(",", "."),
+                 {"goal": {"goal": projection["target"], "capped": False}})
+    elif goal_info and not parameters:
         scenario("meta", "Bater a meta", goal_info["budget"],
                  (f"Meta de faturamento de R$ {goal_info['goal']:,.0f}. "
                   + ("A meta exige mais de 3x a verba atual; mostramos o teto de 3x." if goal_info["capped"] else
@@ -845,6 +886,15 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     recommended = next((s["key"] for s in scenarios if s["key"] == "meta" and not s.get("goal", {}).get("capped")), None) \
         or (None if reference_inputs else next((s["key"] for s in scenarios if s["key"] == "eficiencia"), None)) \
         or ("ritmo_atual" if any(s["key"] == "ritmo_atual" for s in scenarios) else "personalizado")
+    if parameters.get("target_roas"):
+        eligible = [s for s in scenarios if (s["result"]["totals"].get("roas") or 0) >= parameters["target_roas"]]
+        if eligible and not any(s["key"] == recommended for s in eligible):
+            recommended = min(eligible, key=lambda s: s["budget"])["key"]
+    if parameters.get("max_cpc") and objective == "trafego":
+        eligible = [s for s in scenarios if s["result"]["totals"].get("clicks") and
+                    s["budget"] / s["result"]["totals"]["clicks"] <= parameters["max_cpc"]]
+        if eligible and not any(s["key"] == recommended for s in eligible):
+            recommended = min(eligible, key=lambda s: s["budget"])["key"]
     chosen = next(s for s in scenarios if s["key"] == (("personalizado" if custom_budget else recommended)))
 
     campaigns = [row for c in with_data for row in classify_campaigns(c, data[c]["campaigns"], with_data[c]["recent"], metric)]
@@ -866,6 +916,8 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     campaign_changes = apply_to_campaigns(campaigns, directives)  # por último: o pedido da equipe tem a palavra final
     waste = round(sum(r["spend"] for r in campaigns if r["action"] == "pausar"), 2)
     findings = [f for d in with_data.values() for f in d["findings"]]
+    if projection.get("message"):
+        findings.insert(0, {"level": "info", "text": projection["message"]})
     if learned:
         findings.insert(0, {"level": "info", "text": f"Aprendizado: {learned} campanha(s) comparadas com as decisões dos planos anteriores; recomendações ajustadas."})
     if unreliable:
@@ -899,6 +951,7 @@ async def build_strategy(client_id: str, *, month: str, objective: str, margin: 
     campaigns = plan_campaign_budgets(campaigns, chosen["allocation"], days, objective, boost_pool=pool)
     return {
         "boosts": boosts,
+        "objective_parameters": parameters, "objective_projection": projection,
         "distribution": distribution, "reference_inputs": reference_inputs, "learned": learned,
         "briefing": {"text": briefing_text, "summary": directives.get("summary"), "directives": directives,
                      "applied": describe(directives, CHANNELS, campaign_changes, used_cap), "error": briefing_error} if briefing_text else None,
@@ -939,6 +992,8 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
         "diagnostico": [{"canal": d["label"], "ultimos_30": {k: d["recent"].get(k) for k in ("spend", "revenue", "roas", "cpa", "cpm", "ctr", "conversions")},
                          "variacao_pct": d["changes"], "confianca": d["confidence"]} for d in strategy["diagnosis"] if d["confidence"] != "sem_dados"],
         "achados": [f["text"] for f in strategy["findings"]],
+        "parametros_declarados_do_objetivo": strategy.get("objective_parameters") or {},
+        "projecao_da_meta": strategy.get("objective_projection") or {},
         "cenario_escolhido": {"nome": chosen["label"], "verba": chosen["budget"], "divisao": chosen["allocation"],
                               "resultado": chosen["result"]["totals"], "roas_marginal": chosen["marginal_roas"]},
         "outros_cenarios": [{"nome": s["label"], "verba": s["budget"], "resultado": s["result"]["totals"]} for s in strategy["scenarios"] if s is not chosen],
