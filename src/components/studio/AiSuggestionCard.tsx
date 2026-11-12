@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { applySuggestion, dismissSuggestion, requestSuggestion, type CalendarItem } from "../../app/studio";
 
@@ -24,13 +25,13 @@ export default function AiSuggestionCard({ item, onItemChange }: { item: Calenda
 
   if (!s) {
     return <div className="aiSuggestion is-empty">
-      <p><b>✨ Ajuste pedido.</b> A IA pode preparar a nova versão a partir do comentário e das referências do cliente.</p>
+      <p><b><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Ajuste pedido.</b> A IA pode preparar a nova versão a partir do comentário e das referências do cliente.</p>
       <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void act("pedir")}>{busy ? "Preparando…" : "Pedir sugestão à IA"}</button>
       {error ? <small className="studioError">{error}</small> : null}
     </div>;
   }
   return <div className="aiSuggestion" aria-label="Sugestão da IA para o ajuste">
-    <p className="aiSuggestionHead"><b>✨ Sugestão da IA para o ajuste</b>{s.summary ? <span>{s.summary}</span> : null}</p>
+    <p className="aiSuggestionHead"><b><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Sugestão da IA para o ajuste</b>{s.summary ? <span>{s.summary}</span> : null}</p>
     {s.note ? <p className="aiSuggestionNote">Pedido do cliente: “{s.note}”</p> : null}
     {s.hook ? <div><small>Gancho</small><p>{s.hook}</p></div> : null}
     {s.caption_draft ? <div><small>Legenda</small><p className="is-long">{s.caption_draft}</p></div> : null}

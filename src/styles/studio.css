@@ -393,7 +393,7 @@
 .centralAlerts h2{margin:0 0 6px;font-size:15px}
 .centralAlerts ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 .centralAlerts li{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:14px}
-.centralAlerts li.is-atencao span::before{content:"⚠ ";color:#b05d00}.centralAlerts li.is-info span::before{content:"• ";opacity:.6}
+.centralAlerts li.is-atencao span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#b05d00;margin-right:8px;vertical-align:.1em}.centralAlerts li.is-info span::before{content:"• ";opacity:.6}
 .centralGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
 .centralCard{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:14px 16px;background:var(--surface,#fff);display:flex;flex-direction:column;gap:10px;min-width:0}
 .centralCard>header{display:flex;justify-content:space-between;align-items:center}.centralCard h2{margin:0;font-size:17px}.centralCard h3{margin:4px 0 0;font-size:13px;opacity:.7}

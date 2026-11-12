@@ -48,7 +48,7 @@ describe("Página Origem das vendas", () => {
     await flush();
     expect(api.getSalesByOrigin).toHaveBeenCalledWith("2026-10-01", "2026-10-21");
     const text = container.textContent || "";
-    expect(text).toContain("Roove");
+    expect(container.querySelector(".ds-pageEyebrow")).toBeNull();
     expect(text).toContain("Origem das vendas");
     expect(text).toContain("Mídia paga · redes sociais");
     expect(text).toContain("Origem não identificada");

@@ -1,3 +1,7 @@
+/* Inter e Montserrat (fontes da Mugô) vêm do npm, sem depender do Google Fonts. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/montserrat";
+
 /* src/styles/fonts.css
    ============================================================
    SLOT DA TIPOGRAFIA OFICIAL MUGÔ

@@ -1,3 +1,4 @@
+import { Pin } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listChat, sendChat, type ChatChannel, type ChatMessage } from "../../app/studio";
 import Linkified from "./Linkified";
@@ -39,7 +40,7 @@ export default function BrandChat({ channel, posts = [], onOpenItem, onRead, ini
       {messages && !messages.length ? <p className="chatEmpty">{channel === "equipe" ? "Combinados internos da equipe sobre esta marca. O cliente não vê este canal." : "Comece a conversa. O cliente e a equipe Mugô veem tudo aqui; mensagem do cliente avisa o time no WhatsApp."}</p> : null}
       {(messages || []).map((m) => <div key={m.id} className={`chatMsg is-${m.author_side}${m.mine ? " is-mine" : ""}`}>
         <small>{m.mine ? "Você" : m.author_name || (m.author_side === "mugo" ? "Equipe Mugô" : "Cliente")}{m.author_side === "cliente" && !m.mine ? " · cliente" : ""} · {when(m.created_at)}</small>
-        {m.item_id ? <button type="button" className="chatPost" onClick={() => m.item_id && onOpenItem?.(m.item_id)}>📌 {m.item_title || "Post"}</button> : null}
+        {m.item_id ? <button type="button" className="chatPost" onClick={() => m.item_id && onOpenItem?.(m.item_id)}><Pin className="uiGlyph" size={13} aria-hidden="true" /> {m.item_title || "Post"}</button> : null}
         <p><Linkified text={m.body} /></p>
       </div>)}
       <div ref={end} />

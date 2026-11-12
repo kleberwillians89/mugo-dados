@@ -884,7 +884,7 @@ describe("Intelligence — analista executivo", () => {
     state.analysis = { ...analysis, client_id: "roove" };
     await renderIntelligence(false);
     expect(container.textContent).not.toContain("Resposta exclusiva da Amalie.");
-    expect(container.querySelector(".intelHeader")?.textContent).toContain("Roove");
+    expect(container.querySelector(".intelHeader .ds-pageEyebrow")).toBeNull();
     expect(container.querySelectorAll(".intelMessage")).toHaveLength(0);
   });
 });

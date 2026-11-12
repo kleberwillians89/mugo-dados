@@ -1,3 +1,5 @@
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, List, ListOrdered, Quote, Redo2, RemoveFormatting, TriangleAlert, Undo2 } from "lucide-react";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -222,13 +224,13 @@ function Toolbar({ editor }: { editor: Editor }) {
     undo: ed.can().undo(), redo: ed.can().redo(),
   }) });
   const block = s.h1 ? "h1" : s.h2 ? "h2" : s.h3 ? "h3" : "p";
-  const btn = (label: string, title: string, active: boolean, run: () => void, disabled = false) =>
+  const btn = (label: ReactNode, title: string, active: boolean, run: () => void, disabled = false) =>
     <button type="button" title={title} aria-label={title} aria-pressed={active} className={active ? "is-active" : ""} disabled={disabled}
       onMouseDown={(e) => e.preventDefault()} onClick={run}>{label}</button>;
   const c = () => editor.chain().focus();
   return <div className="redacaoToolbar" role="toolbar" aria-label="Formatação">
-    {btn("↶", "Desfazer", false, () => c().undo().run(), !s.undo)}
-    {btn("↷", "Refazer", false, () => c().redo().run(), !s.redo)}
+    {btn(<Undo2 className="uiGlyph" size={15} aria-hidden="true" />, "Desfazer", false, () => c().undo().run(), !s.undo)}
+    {btn(<Redo2 className="uiGlyph" size={15} aria-hidden="true" />, "Refazer", false, () => c().redo().run(), !s.redo)}
     <span className="sep" />
     <select aria-label="Estilo do parágrafo" value={block} onChange={(e) => {
       const v = e.target.value;
@@ -240,16 +242,16 @@ function Toolbar({ editor }: { editor: Editor }) {
     {btn("U", "Sublinhado (Ctrl+U)", s.underline, () => c().toggleUnderline().run())}
     {btn("S", "Tachado", s.strike, () => c().toggleStrike().run())}
     <span className="sep" />
-    {btn("•", "Lista", s.bullet, () => c().toggleBulletList().run())}
-    {btn("1.", "Lista numerada", s.ordered, () => c().toggleOrderedList().run())}
-    {btn("❝", "Citação", s.quote, () => c().toggleBlockquote().run())}
+    {btn(<List className="uiGlyph" size={15} aria-hidden="true" />, "Lista", s.bullet, () => c().toggleBulletList().run())}
+    {btn(<ListOrdered className="uiGlyph" size={15} aria-hidden="true" />, "Lista numerada", s.ordered, () => c().toggleOrderedList().run())}
+    {btn(<Quote className="uiGlyph" size={15} aria-hidden="true" />, "Citação", s.quote, () => c().toggleBlockquote().run())}
     <span className="sep" />
-    {btn("⯇", "Alinhar à esquerda", s.left, () => c().setTextAlign("left").run())}
-    {btn("≡", "Centralizar", s.center, () => c().setTextAlign("center").run())}
-    {btn("⯈", "Alinhar à direita", s.right, () => c().setTextAlign("right").run())}
-    {btn("☰", "Justificar", s.justify, () => c().setTextAlign("justify").run())}
+    {btn(<AlignLeft className="uiGlyph" size={15} aria-hidden="true" />, "Alinhar à esquerda", s.left, () => c().setTextAlign("left").run())}
+    {btn(<AlignCenter className="uiGlyph" size={15} aria-hidden="true" />, "Centralizar", s.center, () => c().setTextAlign("center").run())}
+    {btn(<AlignRight className="uiGlyph" size={15} aria-hidden="true" />, "Alinhar à direita", s.right, () => c().setTextAlign("right").run())}
+    {btn(<AlignJustify className="uiGlyph" size={15} aria-hidden="true" />, "Justificar", s.justify, () => c().setTextAlign("justify").run())}
     <span className="sep" />
-    {btn("Tx", "Limpar formatação", false, () => c().unsetAllMarks().clearNodes().run())}
+    {btn(<RemoveFormatting className="uiGlyph" size={15} aria-hidden="true" />, "Limpar formatação", false, () => c().unsetAllMarks().clearNodes().run())}
   </div>;
 }
 
@@ -313,7 +315,7 @@ function AIPanel({ editor, kind, title, onTitle }: { editor: Editor; kind: DocKi
       <b>Sugestão da IA</b>
       <div className="redacaoAIText">{result.text.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}</div>
       {result.flags.length ? <p className="clipWarn">Palavra a evitar: {result.flags.join(", ")}</p> : null}
-      {result.guard.map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn">⚠ {g.fix}</p>)}
+      {result.guard.map((g) => <p key={`${g.type}:${g.text}`} className="clipWarn"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> {g.fix}</p>)}
       <div className="redacaoAIActions">
         {canReplace ? <button type="button" className="ds-button is-primary" onClick={() => apply("substituir")}>Substituir o trecho</button> : null}
         <button type="button" className={`ds-button${canReplace ? "" : " is-primary"}`} onClick={() => apply("inserir")}>{result.action === "continuar" ? "Inserir no fim" : "Inserir no texto"}</button>

@@ -97,8 +97,9 @@ const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", 
  */
 type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
 const NAV_GROUPS: NavGroup[] = [
-  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health", "ai_actions"] },
+  // Mugoverso IA é a primeira aba (decisão do Kleber, nov/2026).
   { id: "ia", label: "Mugoverso IA", icon: Sparkles, routes: ["mugo_ia"] },
+  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health", "ai_actions"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
   { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "tiktok", "pinterest", "linkedin", "media", "benchmark"] },
   { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["briefing", "planning", "production", "tasks", "campaigns", "redacao", "creators", "library"] },

@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, useEffectEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
@@ -392,7 +393,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     <Drawer open={profileOpen} title="Perfil da marca" description="Base para a IA escrever no jeito da marca." width="lg" onClose={() => { if (!busy) setProfileOpen(false); }}>
       {profile ? <form className="studioForm" onSubmit={submitProfile}>
         <div className="aiBrand">
-          <strong>✦ Brand Manager (IA)</strong>
+          <strong><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> Brand Manager (IA)</strong>
           <p>Lê 12 meses da conta: posts mais curtidos e mais salvos (texto e imagem), o que o cliente aprovou, pediu para ajustar, comentou e reescreveu, a Mídia On e as vendas. Palavras proibidas e restrições cadastradas pela equipe nunca são apagadas. Nada é salvo antes de você revisar.</p>
           {pending ? <div className="aiPending" role="status">
             <span>Sugestão de {pending.month.split("-").reverse().join("/")} pronta para revisar.</span>

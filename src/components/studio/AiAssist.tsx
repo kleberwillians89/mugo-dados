@@ -1,3 +1,4 @@
+import { Sparkles, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { ASSIST_ACTIONS, basedOnText, runAssist, type AssistAction, type AssistResponse, type StudioFormat } from "../../app/studio";
 
@@ -37,7 +38,7 @@ export default function AiAssist({ draft, disabled, onApply, itemId }: Props) {
   }
 
   return <details className="aiAssist">
-    <summary>✦ IA de conteúdo <small>usa os dados da marca</small></summary>
+    <summary><Sparkles className="uiGlyph" size={14} aria-hidden="true" /> IA de conteúdo <small>usa os dados da marca</small></summary>
     <div className="aiAssistBody">
       <div className="aiAssistActions">
         {(Object.keys(ASSIST_ACTIONS) as AssistAction[]).filter((a) => a !== "roteiro_reels" || ["reels", "stories", "video"].includes(draft.format))
@@ -50,8 +51,8 @@ export default function AiAssist({ draft, disabled, onApply, itemId }: Props) {
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       {out ? <div className="aiResult">
         <p className="aiBasis">{basedOnText(out.based_on)}</p>
-        {out.flags.length ? <p className="studioError">⚠ Revise: {out.flags.join(", ")}</p> : null}
-        {(out.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="studioError">⚠ {g.fix}</p>)}
+        {out.flags.length ? <p className="studioError"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> Revise: {out.flags.join(", ")}</p> : null}
+        {(out.guard || []).map((g) => <p key={`${g.type}:${g.text}`} className="studioError"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> {g.fix}</p>)}
         {out.action === "legenda" ? <>
           <p className="aiText">{out.result.caption}</p>
           <p className="aiWhy">{out.result.why}</p>

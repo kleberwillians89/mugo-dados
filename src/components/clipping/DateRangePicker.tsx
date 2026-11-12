@@ -1,3 +1,4 @@
+import { CalendarDays } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PRESETS, PRESET_NAME, iso, parseIso, presetRange, type Preset } from "../../app/brandHealth";
 
@@ -45,7 +46,7 @@ export default function DateRangePicker({ value, onChange }: { value: Range; onC
 
   return <div className="bhDate" ref={box}>
     <button type="button" className="bhDateBtn" aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>
-      <span aria-hidden="true">📅</span> {fmt(value.start)} – {fmt(value.end)} <span aria-hidden="true">▾</span>
+      <CalendarDays className="uiGlyph" size={15} aria-hidden="true" /> {fmt(value.start)} – {fmt(value.end)} <span aria-hidden="true">▾</span>
     </button>
     {open ? <div className="bhCal" role="dialog" aria-label="Escolher período">
       <div className="bhPresets">

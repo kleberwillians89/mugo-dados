@@ -1,3 +1,4 @@
+import { CalendarDays, ShoppingBag, TrendingUp, TriangleAlert, Zap } from "lucide-react";
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
@@ -145,7 +146,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
-          {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados">🛍 {draft.product_tags.length}</span> : null}
+          {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
         </div>
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -228,16 +229,16 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <summary>Por que esta pauta, neste dia</summary>
           {item.rationale ? <p>{item.rationale}</p> : null}
           <ul className="studioSignals">
-            {signals?.seasonal ? <li>📅 {signals.seasonal}</li> : null}
+            {signals?.seasonal ? <li><CalendarDays className="uiGlyph" size={14} aria-hidden="true" /> {signals.seasonal}</li> : null}
             {signals?.basis?.hours ? <li>⏱ Melhor faixa: {signals.basis.hours}{signals.basis.slot_reach_index ? ` (alcance ${signals.basis.slot_reach_index.toLocaleString("pt-BR")}x a média)` : ""}{signals.basis.confidence ? ` · confiança ${signals.basis.confidence}` : ""}</li> : null}
-            {signals?.trend ? <li>🔥 Em alta: <a href={signals.trend.source_url} target="_blank" rel="noreferrer noopener">{signals.trend.topic}</a></li> : null}
+            {signals?.trend ? <li><TrendingUp className="uiGlyph" size={14} aria-hidden="true" /> Em alta: <a href={signals.trend.source_url} target="_blank" rel="noreferrer noopener">{signals.trend.topic}</a></li> : null}
             {(signals?.repetido || []).map((r) => <li key={r} className="is-warning">↻ Parece repetido: {r}</li>)}
-            {signals?.palavras_evitar_encontradas?.length ? <li className="is-warning">⚠ Palavra a evitar: {signals.palavras_evitar_encontradas.join(", ")}</li> : null}
-            {(signals?.fora_da_marca || []).map((g) => <li key={`${g.type}:${g.text}`} className="is-warning">⚠ {g.fix}</li>)}
+            {signals?.palavras_evitar_encontradas?.length ? <li className="is-warning"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> Palavra a evitar: {signals.palavras_evitar_encontradas.join(", ")}</li> : null}
+            {(signals?.fora_da_marca || []).map((g) => <li key={`${g.type}:${g.text}`} className="is-warning"><TriangleAlert className="uiGlyph" size={14} aria-hidden="true" /> {g.fix}</li>)}
           </ul>
         </details> : null}
         {item && canManage && !clientMode ? <ItemHistory itemId={item.id} refreshKey={`${item.updated_at || ""}:${item.status}`} /> : null}
-        {item?.boost ? <p className="postBoost">⚡ Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}
+        {item?.boost ? <p className="postBoost"><Zap className="uiGlyph" size={14} aria-hidden="true" /> Impulsionar de {item.boost.start.slice(8, 10)}/{item.boost.start.slice(5, 7)} a {item.boost.end.slice(8, 10)}/{item.boost.end.slice(5, 7)} com {item.boost.budget.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} (plano do Mídia On). {item.boost.why}.</p> : null}
         {item?.review_note ? <p className="studioReview">Nota da revisão: {item.review_note}</p> : null}
         {item && canManage && !clientMode && onItemChange ? <AiSuggestionCard item={item} onItemChange={onItemChange} /> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}
