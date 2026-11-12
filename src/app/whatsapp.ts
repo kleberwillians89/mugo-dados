@@ -83,7 +83,7 @@ export function getWhatsAppMessages(conversationId: string) {
 export const isOutbound = (direction: string | null | undefined) => direction === "out" || direction === "outbound";
 
 export const ORIGIN_COLORS: Record<WaOriginKey, string> = {
-  ad: "#004f6e", instagram: "#4f86a8", link: "#c79830", site: "#e2c887", google: "#7a8b99", direct: "#c9cfd4",
+  ad: "#1e3f5a", instagram: "#4f86a8", link: "#c79830", site: "#e2c887", google: "#7a8b99", direct: "#c9cfd4",
 };
 
 /** Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência vê e cadastra. */

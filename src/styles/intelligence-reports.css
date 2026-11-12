@@ -64,6 +64,6 @@
 .mugoReportHistory ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--border-subtle,rgba(21,24,27,.09))}
 .mugoReportHistory li{border-bottom:1px solid var(--border-subtle,rgba(21,24,27,.09))}
 .mugoReportHistory .btn{height:auto;min-height:40px;width:100%;padding:8px 0;border:0;border-radius:0;background:transparent;text-align:left;font-weight:500;box-shadow:none;transform:none}
-.mugoReportHistory .btn:hover{color:var(--accent,#004f6e)}
+.mugoReportHistory .btn:hover{color:var(--accent,#1e3f5a)}
 .mugoReportHistory h3{margin:0;font-size:14px}.mugoReportHistory p{margin:4px 0 8px;font-size:13px;color:var(--text-muted,#687178)}
 @media(max-width:700px){.mugoReportsWorkspace .mugoReportControls{grid-template-columns:1fr 1fr}.mugoReportsWorkspace .mugoReportPeriod{grid-column:1/-1}.mugoReportsWorkspace .mugoReportButtons .ds-button{flex:1 1 100%;min-height:44px}}

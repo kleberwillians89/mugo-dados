@@ -12,7 +12,7 @@
    ============================================================ */
 
 :root{
-  --id-accent: var(--accent, #004f6e);
+  --id-accent: var(--accent, #1e3f5a);
   --id-accent-hover: #003f58;
   --id-accent-soft: #eef6f9;
   --id-accent-ring: rgba(0, 79, 110, .16);
@@ -20,7 +20,7 @@
   --id-muted: var(--text-secondary, #4d565d);
   --id-line: rgba(21, 24, 27, .13);
   --id-line-hover: rgba(0, 79, 110, .38);
-  --id-danger: var(--negative, #b22234);
+  --id-danger: var(--negative, #a33038);
   --id-field-radius: 12px;
 }
 

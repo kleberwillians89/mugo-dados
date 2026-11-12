@@ -19,7 +19,7 @@ import "../styles/studio.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const PHASE = { base: "Base", aquecimento: "Aquecimento", pico: "Pico" } as const;
-const CHANNEL_COLOR: Record<Channel, string> = { meta: "#004f6e", google_ads: "#c98a00" };
+const CHANNEL_COLOR: Record<Channel, string> = { meta: "#1e3f5a", google_ads: "#c98a00" };
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const nextMonth = () => { const d = new Date(); const n = new Date(d.getFullYear(), d.getMonth() + 1, 1); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };

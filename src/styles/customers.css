@@ -25,7 +25,7 @@
 .customerContactLine.is-muted{color:var(--text-secondary)}
 
 .customerOrigin{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#f2f0ec;color:var(--text-primary);white-space:nowrap}
-.customerOrigin.is-fbits{background:rgba(0,79,110,.1);color:#004f6e}
+.customerOrigin.is-fbits{background:rgba(0,79,110,.1);color:#1e3f5a}
 .customerOrigin.is-shopify{background:rgba(22,163,74,.12);color:#286141}
 
 .customerEmpty{padding:28px 4px;color:var(--text-secondary)}

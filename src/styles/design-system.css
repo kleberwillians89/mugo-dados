@@ -30,9 +30,9 @@
   --border-subtle: rgba(21, 24, 27, .09);
 
   /* Significado */
-  --accent: #004f6e;   /* azul Mugô: série principal, estado ativo, foco */
+  --accent: #1e3f5a;   /* azul Mugô: série principal, estado ativo, foco */
   --positive: #1d7a4b;
-  --negative: #b22234; /* vermelho Mugô */
+  --negative: #a33038; /* vermelho Mugô */
   --warning: #9a5b07;
 
   /* Espaço (base 4) */
@@ -708,7 +708,7 @@
 /* Abas "Clientes e vendas" (Clientes · Origem das vendas) */
 .clientsSalesTabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 12px;position:relative;clear:both}
 .clientsSalesTabs a{display:inline-flex;align-items:center;min-height:40px;padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,rgba(21,24,27,.12));background:var(--surface,#fff);color:var(--text-primary,#15181b);font-size:14px;font-weight:600;text-decoration:none}
-.clientsSalesTabs a.is-active{background:var(--accent,#004f6e);border-color:var(--accent,#004f6e);color:#fff}
+.clientsSalesTabs a.is-active{background:var(--accent,#1e3f5a);border-color:var(--accent,#1e3f5a);color:#fff}
 
 /* Barra de rolagem discreta (feedback do designer): escondida por padrão, aparece só enquanto rola, sem trilha branca. */
 *{ scrollbar-width: thin; scrollbar-color: transparent transparent; }

@@ -55,7 +55,7 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
 const OPERATION_ITEMS: NavItem[] = [
   // Mugoverso IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
-  { route: "mugo_ia", label: "Mugoverso IA" },
+  { route: "mugo_ia", label: "Tira-dúvidas" },
   { route: "central", label: "Central da Marca" },
   { route: "briefing", label: "Briefing" },
   { route: "planning", label: "Planejamento" },
@@ -98,8 +98,8 @@ const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", 
 type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
 const NAV_GROUPS: NavGroup[] = [
   // Mugoverso IA é a primeira aba (decisão do Kleber, nov/2026).
-  { id: "ia", label: "Mugoverso IA", icon: Sparkles, routes: ["mugo_ia"] },
-  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health", "ai_actions"] },
+  { id: "ia", label: "Tira-dúvidas", icon: Sparkles, routes: ["mugo_ia"] },
+  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
   { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "tiktok", "pinterest", "linkedin", "media", "benchmark"] },
   { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["briefing", "planning", "production", "tasks", "campaigns", "redacao", "creators", "library"] },

@@ -12,8 +12,8 @@
   --intel-ink: var(--text-primary, #15181b);
   --intel-muted: var(--text-secondary, #4d565d);
   --intel-quiet: var(--text-muted, #687178);
-  --intel-accent: var(--accent, #004f6e);
-  --intel-risk: var(--negative, #b22234);
+  --intel-accent: var(--accent, #1e3f5a);
+  --intel-risk: var(--negative, #a33038);
   --intel-warn: var(--warning, #9a5b07);
   --intel-good: var(--positive, #1d7a4b);
   box-sizing: border-box;

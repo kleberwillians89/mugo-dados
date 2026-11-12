@@ -19,7 +19,7 @@
 .journeyEvent:last-child{padding-bottom:0}
 .journeyDot{position:relative;z-index:1;width:16px;height:16px;margin-top:2px;border-radius:50%;background:var(--white);border:3px solid #9aa0a6}
 .journeyEvent.is-conversa_whatsapp .journeyDot{border-color:#25a35a}
-.journeyEvent.is-pedido .journeyDot{border-color:var(--id-accent,#004f6e);background:var(--id-accent,#004f6e)}
+.journeyEvent.is-pedido .journeyDot{border-color:var(--id-accent,#1e3f5a);background:var(--id-accent,#1e3f5a)}
 .journeyEvent.is-recompra .journeyDot{border-color:#7a3cff;background:#7a3cff}
 .journeyEvent.is-pedido_cancelado .journeyDot{border-color:#c0392b}
 .journeyEvent.is-carrinho_abandonado .journeyDot{border-color:#e08a00}

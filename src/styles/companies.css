@@ -34,7 +34,7 @@
 /* Wizard de nova empresa */
 .wizardSteps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px}
 .wizardStep{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#9aa2a8;padding:5px 10px;border-radius:999px;background:#f2f0ec}
-.wizardStep.is-active{color:#fff;background:#004f6e}
+.wizardStep.is-active{color:#fff;background:#1e3f5a}
 .wizardStep.is-done{color:#286141;background:rgba(22,163,74,.12)}
 .wizardPane{display:grid;gap:14px}
 .wizardPane label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#17252b}
@@ -57,7 +57,7 @@
 .companiesTabs{display:flex;gap:4px;margin-top:22px;border-bottom:1px solid #dedbd3;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .companiesTab{background:none;border:none;padding:10px 14px;font-size:13px;font-weight:700;color:#74766f;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;flex:0 0 auto;white-space:nowrap;min-height:40px}
 .companiesTab:hover{color:#17252b}
-.companiesTab.is-active{color:#004f6e;border-bottom-color:#004f6e}
+.companiesTab.is-active{color:#1e3f5a;border-bottom-color:#1e3f5a}
 
 .companiesRowMenu{position:relative;display:inline-block}
 .companiesRowMenu summary{list-style:none;cursor:pointer;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;font-size:18px;color:#5f665f}
@@ -121,4 +121,4 @@
 .originProbeGrid li{display:flex;justify-content:space-between;gap:12px;font-size:14px}
 .originProbeLabel{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#74766f}
 .originProbeChips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.originProbeChips code{background:#edf2f4;color:#004f6e;border-radius:99px;padding:4px 10px;font-size:12px;overflow-wrap:anywhere}
+.originProbeChips code{background:#edf2f4;color:#1e3f5a;border-radius:99px;padding:4px 10px;font-size:12px;overflow-wrap:anywhere}

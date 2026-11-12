@@ -79,9 +79,9 @@ describe("AppNavigation — sidebar global", () => {
 
   it("menu enxuto: 8 grupos + Configurações, com todas as telas de antes como subitens e as mesmas rotas", async () => {
     await render({ agencyAdmin: true });
-    expect(groupNames()).toEqual(["Mugoverso IA", "Início", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
-    expect(groupLinks("inicio")).toEqual(["Central da Marca", "Saúde da Marca", "O que a IA fez"]);
-    expect(groupLinks("ia")).toEqual(["Mugoverso IA"]);
+    expect(groupNames()).toEqual(["Tira-dúvidas", "Início", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
+    expect(groupLinks("inicio")).toEqual(["Central da Marca", "Saúde da Marca"]);
+    expect(groupLinks("ia")).toEqual(["Tira-dúvidas"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);
     expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
     expect(groupLinks("conteudo")).toEqual(["Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca"]);
@@ -217,7 +217,7 @@ describe("AppNavigation — sidebar global", () => {
     await render({ agencyAdmin: true, canView: (route) => route !== "central" });
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
     expect(groupLinks("config")).not.toContain("Central da Marca");
-    expect(groupLinks("inicio")).toEqual(["Saúde da Marca", "O que a IA fez"]);
+    expect(groupLinks("inicio")).toEqual(["Saúde da Marca"]);
   });
 
   it("mantém IA da marca visível pela permissão do módulo, sem exigir papel administrativo", async () => {
