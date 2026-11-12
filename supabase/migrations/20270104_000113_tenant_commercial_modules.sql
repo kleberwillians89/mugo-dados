@@ -54,18 +54,20 @@ begin
   if not exists (select 1 from public.clients where id = p_client_id) then
     raise exception 'commercial_client_not_found' using errcode = 'P0002';
   end if;
-  if p_module_keys is null or jsonb_typeof(p_module_keys) <> 'array'
-    or exists (
-      select 1 from jsonb_array_elements(p_module_keys) as item
-      where jsonb_typeof(item) <> 'string'
-         or trim(both '"' from item::text) not in (
+  if p_module_keys is null or jsonb_typeof(p_module_keys) <> 'array' then
+    raise exception 'commercial_modules_invalid' using errcode = '22023';
+  end if;
+  if exists (
+      select 1 from jsonb_array_elements(p_module_keys) as item(value)
+      where jsonb_typeof(item.value) <> 'string'
+         or item.value #>> '{}' not in (
            'social_media','meta','google','ecommerce','crm','whatsapp',
            'email_marketing','media','engagement','clipping','benchmark',
            'reports','planning','creators'
          )
     )
     or (select count(*) from jsonb_array_elements_text(p_module_keys)) <>
-       (select count(distinct key) from jsonb_array_elements_text(p_module_keys) as key)
+       (select count(distinct module_key) from jsonb_array_elements_text(p_module_keys) as entries(module_key))
   then
     raise exception 'commercial_modules_invalid' using errcode = '22023';
   end if;
