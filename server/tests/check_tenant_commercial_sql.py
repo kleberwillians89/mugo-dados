@@ -28,7 +28,10 @@ def connect():
 
 def query(conn, sql, values=()):
     with conn.cursor() as cursor:
-        cursor.execute(sql, values)
+        if values:
+            cursor.execute(sql, values)
+        else:
+            cursor.execute(sql)
         if cursor.description:
             return cursor.fetchall()
 
