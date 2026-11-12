@@ -119,6 +119,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-weekly-digest":
         from services.weekly_digest import run_weekly_digest
         return await run_weekly_digest(args.client_id)
+    if args.command == "benchmark-collect":
+        from services.benchmark_prices import run_all as bench_run
+        return await bench_run()
     if args.command == "ai-actions":
         from services.ai_actions import run_all as actions_run
         return await actions_run()
@@ -317,6 +320,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sexta: grava o aprendizado semanal de cada campanha e envia o resumo no WhatsApp (MugôZap) de cada cliente.",
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    sub.add_parser("benchmark-collect", help="Benchmarking: preços públicos dos produtos monitorados e Instagram dos concorrentes.")
     sub.add_parser("ai-actions", help="Ações da IA: gera propostas (nada é executado sem aprovação).")
     sub.add_parser("commercial-flows", help="Fluxos comerciais: boas-vindas, pós-venda, segunda compra e reativação.")
     sub.add_parser("cart-recovery", help="Recuperação de carrinho: envia o próximo passo (e-mail/WhatsApp) dos carrinhos que venceram.")

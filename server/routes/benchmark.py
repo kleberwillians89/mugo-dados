@@ -38,6 +38,7 @@ class CompetitorCreate(Strict):
     website: Optional[str] = Field(default=None, max_length=500)
     instagram_handle: Optional[str] = Field(default=None, max_length=80)
     youtube_handle: Optional[str] = Field(default=None, max_length=100)
+    facebook_page: Optional[str] = Field(default=None, max_length=200)
     keywords: list[str] = Field(default_factory=list, max_length=12)
 
     @field_validator("website")
@@ -142,6 +143,14 @@ async def overview(
         ],
     }
 
+def _competitor_fields(body: "CompetitorCreate") -> Dict[str, Any]:
+    """facebook_page só vai quando preenchido (a coluna vem da 000111; sem ela o resto continua funcionando)."""
+    data = body.model_dump()
+    if not data.get("facebook_page"):
+        data.pop("facebook_page", None)
+    return data
+
+
 @router.post("/competitors", status_code=201)
 async def add_competitor(
     client_id: str, body: CompetitorCreate,
@@ -155,9 +164,9 @@ async def add_competitor(
     if existing:
         # Removido antes: volta com os dados novos (as evidências antigas continuam ligadas a ele).
         rows = await sb_update("benchmark_competitors", filters={"client_id": f"eq.{cid}", "id": f"eq.{existing[0]['id']}"},
-                               patch={**body.model_dump(), "active": True, "updated_at": datetime.now(timezone.utc).isoformat()})
+                               patch={**_competitor_fields(body), "active": True, "updated_at": datetime.now(timezone.utc).isoformat()})
         return rows[0] if rows else existing[0]
-    saved = await sb_insert("benchmark_competitors", {"client_id": cid, **body.model_dump()})
+    saved = await sb_insert("benchmark_competitors", {"client_id": cid, **_competitor_fields(body)})
     if not saved:
         raise HTTPException(status_code=502, detail="Não foi possível salvar o concorrente.")
     return saved
@@ -214,3 +223,81 @@ async def refresh_instagram(
         raise HTTPException(status_code=status, detail=detail) from None
     except IntegrationError as exc:
         raise HTTPException(status_code=getattr(exc, "status_code", 502) or 502, detail=str(exc)) from None
+
+
+
+# ---------------------------------------------------------------- preços públicos e Biblioteca de Anúncios
+
+class ProductAdd(Strict):
+    url: str = Field(min_length=12, max_length=1000)
+    competitor_id: Optional[UUID] = None
+
+
+class CatalogRequest(Strict):
+    website: str = Field(min_length=10, max_length=500)
+
+
+def _price_fail(exc: Exception) -> HTTPException:
+    from services.benchmark_prices import PriceError
+    if isinstance(exc, PriceError):
+        return HTTPException(status_code=exc.status, detail=exc.message)
+    import httpx
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code in (400, 404):
+        return HTTPException(status_code=409, detail="Falta aplicar a migração 000111 (preços do benchmarking) no Supabase.")
+    print(f"[benchmark_prices_routes] unexpected {type(exc).__name__}")
+    return HTTPException(status_code=502, detail="Não foi possível concluir agora.")
+
+
+@router.get("/prices")
+async def list_prices(client_id: str, days: int = Query(default=90, ge=7, le=365), authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    from services import benchmark_prices
+    cid = await require_client_read(client_id, authorization)
+    try:
+        competitors = await sb_select("benchmark_competitors", filters={"client_id": f"eq.{cid}", "active": "is.true"}, limit=100)
+        return {"products": await benchmark_prices.list_products(cid, days),
+                "ad_library": [{"competitor_id": c["id"], "name": c["name"], "url": benchmark_prices.ad_library_url(c)} for c in competitors]}
+    except Exception as exc:  # noqa: BLE001
+        raise _price_fail(exc) from exc
+
+
+@router.post("/prices", status_code=201)
+async def add_price(client_id: str, body: ProductAdd, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Começa a acompanhar o preço de uma página de produto (lê na hora e depois todo dia)."""
+    from services import benchmark_prices
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await benchmark_prices.add_product(cid, body.url, str(body.competitor_id) if body.competitor_id else None)
+    except Exception as exc:  # noqa: BLE001
+        raise _price_fail(exc) from exc
+
+
+@router.post("/prices/{product_id}/check")
+async def check_price(client_id: str, product_id: UUID, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    from services import benchmark_prices
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await benchmark_prices.check_product(cid, str(product_id))
+    except Exception as exc:  # noqa: BLE001
+        raise _price_fail(exc) from exc
+
+
+@router.delete("/prices/{product_id}")
+async def remove_price(client_id: str, product_id: UUID, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    from services import benchmark_prices
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await benchmark_prices.remove_product(cid, str(product_id))
+        return {"removed": str(product_id)}
+    except Exception as exc:  # noqa: BLE001
+        raise _price_fail(exc) from exc
+
+
+@router.post("/catalog")
+async def store_catalog(client_id: str, body: CatalogRequest, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Lista produtos de uma loja Shopify para escolher quais acompanhar."""
+    from services import benchmark_prices
+    await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"products": await benchmark_prices.catalog(body.website)}
+    except Exception as exc:  # noqa: BLE001
+        raise _price_fail(exc) from exc
