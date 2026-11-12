@@ -79,9 +79,12 @@ async def radar_overview(
         network=None, q=None, min_followers=None, limit=30, offset=0, only_ids=linked
     ) if linked else []
     try:
-        trends = await _trends()
+        public = await _trends()
     except Exception:
-        trends = {"status": "unavailable", "items": []}
+        public = {"status": "unavailable", "items": []}
+    # Cada marca vê só o que conversa com ela (o feed público é igual para todas).
+    from services.radar_brand import brand_trends
+    trends = await brand_trends(cid, public)
     return {
         "client_id": cid,
         "collected_at": datetime.now(timezone.utc).isoformat(),
@@ -89,7 +92,7 @@ async def radar_overview(
         "trends": trends,
         "creators": creator_digest(profiles),
         "methodology": {
-            "trends": "Assuntos do feed público Google Trends Brasil; não indica afinidade específica da marca nem crescimento sustentado.",
+            "trends": "Assuntos em alta no Brasil (Google Trends) filtrados para esta marca: só entra o que tem ligação com o segmento, o público e os termos dela.",
             "creators": "Perfis explicitamente vinculados à empresa; não representam concorrentes.",
             "brand_intelligence": "Leituras competitivas disponíveis no módulo Clipping; sem estimativa de alcance privado.",
             "share_of_attention": "Indisponível: faltam observações comparáveis de uma amostra de marcas.",

@@ -38,7 +38,7 @@ const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
-const Radar = lazy(() => import("./pages/Radar"));
+const BrandHealthPage = lazy(() => import("./pages/BrandHealthPage"));
 const Benchmark = lazy(() => import("./pages/Benchmark"));
 const Engagement = lazy(() => import("./pages/Engagement"));
 const SocialReport = lazy(() => import("./pages/SocialReport"));
@@ -950,10 +950,10 @@ function PrivateApp() {
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "benchmark" ? (
         <Benchmark key={`benchmark:${activeClientId}`} />
-      ) : route === "radar" ? (
-        <Radar key={`radar:${activeClientId}`} />
-      ) : route === "clipping" ? (
-        <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} />
+      ) : route === "radar" || route === "clipping" ? (
+        <Clipping key={`clipping:${activeClientId}`} canManage={teamHere} initialTab={route === "radar" ? "radar" : undefined} />
+      ) : route === "brand_health" ? (
+        <BrandHealthPage key={`brand_health:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (
         <BrandAI key={`brand_ai:${activeClientId}`} canManage={canEdit("brand_ai")} />
       ) : route === "mugo_ia" ? (

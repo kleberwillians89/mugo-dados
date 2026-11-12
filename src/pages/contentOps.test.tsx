@@ -14,6 +14,7 @@ const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn(), strategyChat: vi
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studioApi }));
 vi.mock("../components/clipping/BrandHealth", () => ({ default: () => <p>Painel saúde da marca</p> }));
+vi.mock("./Radar", () => ({ default: () => <p>Radar cultural do teste</p> }));
 vi.mock("../components/clipping/BrandHealthAlerts", () => ({ default: () => <p>Alertas da marca</p> }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("./Calendar", () => ({ default: () => <label>Calendário incorporado<input aria-label="Rascunho local do calendário" defaultValue="" /></label> }));
@@ -45,14 +46,21 @@ const show = async (node: React.ReactNode) => { await act(async () => { root.ren
 const week = { current: { total: 5, marca: 4, concorrente: 1, positivo: 2, neutro: 1, negativo: 1 }, previous: { total: 2, marca: 2, concorrente: 0, positivo: 1, neutro: 1, negativo: 0 }, marca_variacao: 2 };
 
 describe("Clipping", () => {
-  it("abre na Saúde da marca; Alertas só para a agência", async () => {
+  it("abre no Radar cultural; Matérias e Alertas na mesma aba (Alertas só para a agência)", async () => {
     api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: true, last_run_at: null } });
     await show(<Clipping canManage />);
-    expect(host.textContent).toContain("Painel saúde da marca");
-    expect(host.textContent).toContain("Alertas");
+    expect(host.textContent).toContain("Radar cultural do teste");
+    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Radar cultural", "Matérias", "Alertas"]);
+    expect(host.textContent).not.toContain("Painel saúde da marca");  // Saúde da Marca tem a aba própria
     await show(<Clipping />);
-    expect(host.textContent).toContain("Painel saúde da marca");
-    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Saúde da marca", "Matérias"]);
+    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Radar cultural", "Matérias"]);
+  });
+
+  it("?aba=alertas abre direto nos alertas", async () => {
+    api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: true, last_run_at: null } });
+    window.history.replaceState({}, "", "/clipping?aba=alertas");
+    await show(<Clipping canManage />);
+    expect(host.textContent).toContain("Alertas da marca");
   });
 
   it("sem termos, pede a configuração", async () => {

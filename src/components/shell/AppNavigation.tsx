@@ -62,8 +62,9 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "ai_actions", label: "O que a IA fez" },
   { route: "media", label: "Mídia On" },
   { route: "engagement", label: "Comentários" },
-  { route: "clipping", label: "Clipping" },
-  { route: "radar", label: "Radar Cultural" },
+  // Radar cultural, Matérias e Alertas moram juntos (abas do Clipping); Saúde da Marca é uma aba só.
+  { route: "clipping", label: "Clipping e Radar", also: ["radar"] },
+  { route: "brand_health", label: "Saúde da Marca" },
   { route: "benchmark", label: "Benchmarking" },
   { route: "social_report", label: "Relatório" },
 ];

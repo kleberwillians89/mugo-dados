@@ -9,14 +9,15 @@ import {
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
-import BrandHealth from "../components/clipping/BrandHealth";
+import Radar from "./Radar";
 import BrandHealthAlerts from "../components/clipping/BrandHealthAlerts";
 import "../styles/studio.css";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
 type RadarDraft = Record<string, string>;
-type ClipTab = "saude" | "alertas" | "materias";
-const CLIP_TABS: [ClipTab, string][] = [["saude", "Saúde da marca"], ["alertas", "Alertas"], ["materias", "Matérias"]];
+export type ClipTab = "radar" | "materias" | "alertas";
+// Radar cultural, Matérias e Alertas na mesma aba. A Saúde da Marca tem a sua própria (menu "Saúde da Marca").
+const CLIP_TABS: [ClipTab, string][] = [["radar", "Radar cultural"], ["materias", "Matérias"], ["alertas", "Alertas"]];
 
 function Bars({ title, rows, label }: { title: string; rows: Count[]; label?: (key: string) => string }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -29,10 +30,14 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt
 const toList = (text: string) => text.split(/[\n,]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
 
 /** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. O cliente só lê; a equipe Mugô configura e trata. */
-export default function Clipping({ canManage = false, initialTab = "saude" }: { canManage?: boolean; initialTab?: ClipTab }) {
+const tabFromUrl = (): ClipTab | null => {
+  try { const t = new URLSearchParams(window.location.search).get("aba"); return CLIP_TABS.some(([k]) => k === t) ? t as ClipTab : null; } catch { return null; }
+};
+
+export default function Clipping({ canManage = false, initialTab }: { canManage?: boolean; initialTab?: ClipTab }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [tab, setTab] = useState<ClipTab>(initialTab);
+  const [tab, setTab] = useState<ClipTab>(() => initialTab || tabFromUrl() || "radar");
   const [view, setView] = useState<ClippingView | null>(null);
   const [kind, setKind] = useState<Kind>("");
   const [sentiment, setSentiment] = useState<"" | Sentiment>("");
@@ -118,8 +123,8 @@ export default function Clipping({ canManage = false, initialTab = "saude" }: { 
     a.href = url; a.download = `clipping-${clientName}-30d.csv`; a.click(); URL.revokeObjectURL(url);
   }
 
-  return <Shell title="Clipping" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Clipping da marca" controls={canManage ? <div className="studioControls">
+  return <Shell title="Clipping e Radar" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={clientName} title="Clipping e Radar" controls={canManage && tab !== "radar" ? <div className="studioControls">
       <button type="button" className="ds-button" onClick={openSettings}>Radar</button>
       <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void download()}>Exportar CSV</button>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !settings?.saved} onClick={() => void refresh()}>{busy === "refresh" ? "Buscando…" : "Atualizar agora"}</button>
@@ -129,7 +134,7 @@ export default function Clipping({ canManage = false, initialTab = "saude" }: { 
     </nav>
     {error && !editing ? <p role="alert" className="studioError">{error}</p> : null}
     {notice && !editing ? <p className="studioOk" role="status">{notice}</p> : null}
-    {tab === "saude" ? <BrandHealth canManage={canManage} onOpenAlerts={() => setTab("alertas")} /> : null}
+    {tab === "radar" ? <Radar embedded /> : null}
     {tab === "alertas" && canManage ? <BrandHealthAlerts /> : null}
     {tab === "materias" ? <>
     {canManage ? <BrandContextPanel clientId={clientId} /> : null}
