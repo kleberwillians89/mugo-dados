@@ -451,7 +451,15 @@
 .ds-rankValue{ grid-column: 2; grid-row: 1; text-align: right; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .ds-rankShare{ grid-column: 2; grid-row: 2; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .ds-rankBar{ grid-column: 1 / -1; height: 3px; margin-top: 6px; overflow: hidden; border-radius: 2px; background: var(--border-subtle); }
-.ds-rankBar span{ display: block; height: 100%; background: var(--accent); opacity: .5; }
+.ds-rankBar span{ display: block; height: 100%; background: var(--accent); opacity: .85; }
+/* Cores da Mugô por linha (mesma ordem de src/app/mugoPalette.ts); quem passa background inline mantém o seu. */
+*:nth-child(8n+2) > .ds-rankBar > span{ background: #c98a00; }
+*:nth-child(8n+3) > .ds-rankBar > span{ background: #26734d; }
+*:nth-child(8n+4) > .ds-rankBar > span{ background: #5b1f2a; }
+*:nth-child(8n+5) > .ds-rankBar > span{ background: #4f8fa8; }
+*:nth-child(8n+6) > .ds-rankBar > span{ background: #c76b1e; }
+*:nth-child(8n+7) > .ds-rankBar > span{ background: #17313d; }
+*:nth-child(8n+8) > .ds-rankBar > span{ background: #8a5a00; }
 
 /* ====== TABELA ====== */
 .ds-tableWrap{ position: relative; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; } /* relative: textos só para leitor de tela (absolutos) ficam dentro da rolagem */

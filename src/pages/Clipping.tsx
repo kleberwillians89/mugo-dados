@@ -11,6 +11,7 @@ import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import Radar from "./Radar";
 import BrandHealthAlerts from "../components/clipping/BrandHealthAlerts";
+import { SENTIMENT_COLOR, mugoColor } from "../app/mugoPalette";
 import "../styles/studio.css";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
@@ -19,10 +20,10 @@ export type ClipTab = "radar" | "materias" | "alertas";
 // Radar cultural, Matérias e Alertas na mesma aba. A Saúde da Marca tem a sua própria (menu "Saúde da Marca").
 const CLIP_TABS: [ClipTab, string][] = [["radar", "Radar cultural"], ["materias", "Matérias"], ["alertas", "Alertas"]];
 
-function Bars({ title, rows, label }: { title: string; rows: Count[]; label?: (key: string) => string }) {
+function Bars({ title, rows, label, offset = 0, sentiment = false }: { title: string; rows: Count[]; label?: (key: string) => string; offset?: number; sentiment?: boolean }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
-  return <div className="clipBars"><h3>{title}</h3>{rows.length ? <ul>{rows.slice(0, 6).map((r) => <li key={r.key}>
-    <span>{label ? label(r.key) : r.key}</span><i style={{ width: `${(r.count / max) * 100}%` }} aria-hidden="true" /><b>{r.count}</b>
+  return <div className="clipBars"><h3>{title}</h3>{rows.length ? <ul>{rows.slice(0, 6).map((r, i) => <li key={r.key}>
+    <span>{label ? label(r.key) : r.key}</span><i style={{ width: `${(r.count / max) * 100}%`, background: (sentiment && SENTIMENT_COLOR[r.key]) || mugoColor(i + offset) }} aria-hidden="true" /><b>{r.count}</b>
   </li>)}</ul> : <p className="libHint">Sem dados no período.</p>}</div>;
 }
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -157,14 +158,14 @@ export default function Clipping({ canManage = false, initialTab }: { canManage?
       {insights.critical.length ? <div className="clipCritical" role="alert"><b>{insights.critical.length} matéria(s) crítica(s){canManage ? " aguardando revisão" : ""}</b>
         <ul>{insights.critical.map((c) => <li key={c.id}><a href={c.url} target="_blank" rel="noreferrer noopener">{c.title}</a> · {c.source || "fonte"}{c.criticality ? ` · ${CRITICALITY_LABEL[c.criticality]}` : ""}</li>)}</ul></div> : null}
       <div className="clipInsightsGrid">
-        <Bars title="Sentimento" rows={insights.sentiment} label={(k) => SENTIMENT_LABEL[k as Sentiment] || k} />
+        <Bars title="Sentimento" rows={insights.sentiment} sentiment label={(k) => SENTIMENT_LABEL[k as Sentiment] || k} />
         <Bars title="Marca x concorrentes" rows={insights.mentions} label={(k) => { const [kindKey, term] = k.split(":"); return `${term} (${KIND_LABEL[kindKey] || kindKey})`; }} />
-        <Bars title="Assuntos" rows={insights.themes} />
-        <Bars title="Veículos com mais matérias" rows={insights.sources} />
+        <Bars title="Assuntos" rows={insights.themes} offset={2} />
+        <Bars title="Veículos com mais matérias" rows={insights.sources} offset={4} />
       </div>
       <div className="clipTimeline" aria-label="Matérias por dia (30 dias)">{insights.timeline.map((d) => {
         const max = Math.max(1, ...insights.timeline.map((t) => t.count));
-        return <i key={d.day} title={`${d.day.split("-").reverse().join("/")}: ${d.count}`} style={{ height: `${Math.max(4, (d.count / max) * 48)}px` }} />;
+        return <i key={d.day} title={`${d.day.split("-").reverse().join("/")}: ${d.count}`} style={{ height: `${Math.max(4, (d.count / max) * 48)}px`, background: d.count ? mugoColor(1) : undefined }} />;
       })}</div>
       <p className="libHint">{insights.total} matéria(s) em 30 dias · {insights.analyzed} com análise da IA.</p>
     </section> : null}

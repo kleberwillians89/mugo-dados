@@ -94,7 +94,7 @@ export default function CustomerValue({ canView }: { canView?: (route: AppRoute)
                   <YAxis yAxisId="cac" orientation="right" tickLine={false} axisLine={false} fontSize={12} width={56} tickFormatter={(v) => `R$${v}`} />
                   <Tooltip formatter={(value, name) => (name === "CAC" ? money(Number(value)) : Number(value).toLocaleString("pt-BR"))} />
                   <Bar yAxisId="n" dataKey="new" name="Novos" stackId="c" fill="#004f6e" isAnimationActive={false} />
-                  <Bar yAxisId="n" dataKey="returning" name="Recorrentes" stackId="c" fill="#8fb8c8" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                  <Bar yAxisId="n" dataKey="returning" name="Recorrentes" stackId="c" fill="#c98a00" radius={[6, 6, 0, 0]} isAnimationActive={false} />
                   <Line yAxisId="cac" dataKey="cac" name="CAC" stroke="#c76b1e" strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>

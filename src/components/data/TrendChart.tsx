@@ -13,7 +13,7 @@ import {
 // Espelham os tokens de design-system.css (atributos SVG não resolvem var()).
 // Sem animação: o dado aparece pronto para leitura (e respeita movimento reduzido).
 const ACCENT = "#004f6e";
-const CONTEXT_FILL = "rgba(21, 24, 27, .08)";
+const CONTEXT_FILL = "rgba(201, 138, 0, .35)"; // mostarda da Mugô: a série de contexto não some no cinza
 const GRID = "rgba(21, 24, 27, .06)";
 const AXIS_TEXT = "#687178";
 
