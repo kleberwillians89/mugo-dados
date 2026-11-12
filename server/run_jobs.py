@@ -131,6 +131,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "commercial-flows":
         from services.commercial_flows import run_all as flows_run
         return await flows_run()
+    if args.command == "channels-sync":
+        from services.channels import run_all as channels_run
+        return await channels_run()
     if args.command == "cart-recovery":
         from services.cart_recovery import process_due as cart_due
         return await cart_due()
@@ -327,6 +330,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("benchmark-collect", help="Benchmarking: preços públicos dos produtos monitorados e Instagram dos concorrentes.")
     sub.add_parser("ai-actions", help="Ações da IA: gera propostas (nada é executado sem aprovação).")
     sub.add_parser("commercial-flows", help="Fluxos comerciais: boas-vindas, pós-venda, segunda compra e reativação.")
+    sub.add_parser("channels-sync", help="TikTok Ads, TikTok orgânico, Pinterest e Clarity de todas as empresas conectadas.")
     sub.add_parser("cart-recovery", help="Recuperação de carrinho: envia o próximo passo (e-mail/WhatsApp) dos carrinhos que venceram.")
     sub.add_parser("email-campaigns", help="E-mail marketing: envia campanhas agendadas pelo Resend (lotes de 100).")
     sub.add_parser("customer-journey", help="Jornada do cliente: une pedidos e conversas por pessoa (cadastro, e-mail, telefone).")

@@ -79,6 +79,7 @@ import {
 } from "../app/integrationRegistry";
 import { commitsMismatch, FRONTEND_COMMIT_SHA, INTEGRATION_BUILD_FEATURES, shortCommit } from "../buildVersion";
 import { groupMetaDiscoveredAssets, isRestrictedMetaAsset } from "../app/metaAssetGroups";
+import ChannelsPanel from "../components/integrations/ChannelsPanel";
 import "../styles/onboarding.css";
 
 type Props = {
@@ -1469,6 +1470,8 @@ export default function Onboarding({
             </button>
           </div>
         </header>
+
+        <ChannelsPanel canManage={canManageConnections} />
         <p className="integrationsLead">
           Cada conexão vale só para {getActiveClientName()}. Desconectar uma conta preserva o histórico já importado.
         </p>
