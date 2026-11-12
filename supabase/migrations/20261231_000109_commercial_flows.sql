@@ -3,6 +3,12 @@
 -- flow_sends garante 1 envio por pessoa, fluxo e pedido de referência (rodar de novo nunca duplica).
 -- Destinatário só como hash do e-mail; telefone nunca gravado. Só o service role lê e escreve.
 
+-- Ajustes da 000108 para quem já rodou a versão anterior dela (seguro rodar de novo):
+alter table public.cart_recovery_settings add column if not exists email_custom_html text
+  check (email_custom_html is null or length(email_custom_html) <= 300000);
+alter table public.email_sends drop constraint if exists email_sends_kind_check;
+alter table public.email_sends add constraint email_sends_kind_check check (kind in ('campanha', 'carrinho', 'teste', 'fluxo'));
+
 create table if not exists public.commercial_flows (
   client_id text not null references public.clients(id) on delete cascade,
   kind text not null check (kind in ('boas_vindas', 'pos_venda', 'segunda_compra', 'reativacao')),
