@@ -58,6 +58,7 @@ const AiUsage = lazy(() => import("./pages/AiUsage"));
 const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
 const EmailMarketing = lazy(() => import("./pages/EmailMarketing"));
 const CustomerValue = lazy(() => import("./pages/CustomerValue"));
+const AiActions = lazy(() => import("./pages/AiActions"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
@@ -971,6 +972,8 @@ function PrivateApp() {
         <WhatsApp key={`whatsapp:${activeClientId}`} />
       ) : route === "email_marketing" ? (
         <EmailMarketing key={`email:${activeClientId}`} />
+      ) : route === "ai_actions" ? (
+        <AiActions key={`ai-actions:${activeClientId}`} />
       ) : route === "intelligence" ? (
         <Intelligence
           key={`intelligence:${resolvedUserId}:${activeClientId}`}

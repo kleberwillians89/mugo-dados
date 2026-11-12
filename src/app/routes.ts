@@ -33,6 +33,7 @@ export type AppRoute =
   | "integration_health"
   | "email_marketing"
   | "customer_value"
+  | "ai_actions"
   | "users"
   | "not_found";
 
@@ -53,6 +54,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
   if (normalized === "/saude-integracoes" || normalized.startsWith("/saude-integracoes/")) return "integration_health";
   if (normalized === "/email-marketing" || normalized.startsWith("/email-marketing/")) return "email_marketing";
+  if (normalized === "/acoes-ia" || normalized.startsWith("/acoes-ia/")) return "ai_actions";
   if (normalized === "/usuarios" || normalized.startsWith("/usuarios/")) return "users";
   if (normalized === "/metas" || normalized.startsWith("/metas/")) return "goals";
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
@@ -111,6 +113,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "ai_usage") return "/consumo-ia";
   if (route === "integration_health") return "/saude-integracoes";
   if (route === "email_marketing") return "/email-marketing";
+  if (route === "ai_actions") return "/acoes-ia";
   if (route === "users") return "/usuarios";
   if (route === "meta") return "/meta";
   if (route === "integrations") return "/integracoes";

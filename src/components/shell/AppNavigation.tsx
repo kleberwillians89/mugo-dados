@@ -59,6 +59,7 @@ const INTELLIGENCE_ITEMS: NavItem[] = [
   { route: "origins", label: "CRM", also: ["customers", "customer_value"] },
   { route: "whatsapp", label: "WhatsApp" },
   { route: "email_marketing", label: "E-mail marketing" },
+  { route: "ai_actions", label: "Ações da IA" },
   { route: "media", label: "Mídia On" },
   { route: "engagement", label: "Comentários" },
   { route: "clipping", label: "Clipping" },
