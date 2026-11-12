@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
+import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routes import saas as routes
@@ -59,6 +60,18 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(cfg, "sb_rpc", AsyncMock(side_effect=RuntimeError("db unavailable"))):
             with self.assertRaises(RuntimeError):
                 await cfg.save_configuration("a", ["meta"], expected_version=None, actor_user_id="actor")
+
+
+    async def test_concurrent_update_returns_conflict(self):
+        response = httpx.Response(
+            400, request=httpx.Request("POST", "https://example.test/rpc"),
+            json={"message": "commercial_config_conflict"},
+        )
+        failure = httpx.HTTPStatusError("conflict", request=response.request, response=response)
+        with patch.object(cfg, "sb_rpc", AsyncMock(side_effect=failure)):
+            with self.assertRaises(cfg.CommercialConfigError) as error:
+                await cfg.save_configuration("a", ["meta"], expected_version=1, actor_user_id="actor")
+        self.assertEqual(error.exception.status, 409)
 
     async def test_invalid_write_never_reaches_database(self):
         with patch.object(cfg, "sb_rpc", AsyncMock()) as rpc:
