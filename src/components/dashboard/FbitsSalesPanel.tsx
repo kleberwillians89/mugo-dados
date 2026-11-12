@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { FbitsOrderRow, FbitsOrdersResponse, FbitsOrdersSummaryResponse } from "../../app/types";
 import { formatSelectedPeriodLabel } from "../../app/periodRange";
 import MetaStateNotice from "./MetaStateNotice";
+import PageSkeleton from "../data/PageSkeleton";
 
 type Props = {
   data: FbitsOrdersSummaryResponse | null;
@@ -163,7 +164,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
         <span className="pill">{sourceLabel}</span>
       </div>
 
-      {loading && !data ? <div className="fbitsSalesLoading">Carregando vendas oficiais...</div> : null}
+      {loading && !data ? <PageSkeleton label="Carregando vendas oficiais…" /> : null}
 
       {!loading && !connected && !error ? (
         <MetaStateNotice

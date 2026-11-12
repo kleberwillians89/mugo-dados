@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Period } from "../../app/PeriodContext";
+import PageSkeleton from "./PageSkeleton";
 
 /** Mantém somente a última composição utilizável DO MESMO tenant. */
 export default function PeriodTransition({tenantId, period, ready, children}: {tenantId:string; period:Period; ready:boolean; children:ReactNode}) {
@@ -11,8 +12,8 @@ export default function PeriodTransition({tenantId, period, ready, children}: {t
   // Only a period change needs the old composition. Reusing old React nodes
   // within the same period freezes live controls and hides finished errors.
   const pending = retained && !ready && changedPeriod;
-  return <>
-    {tenantPending ? <p role="status">Carregando a leitura desta empresa...</p> : pending ? <p role="status">{changedPeriod ? "Atualizando período..." : "Atualizando leitura..."} Exibindo {retained.period.start} — {retained.period.end} até a nova leitura ficar disponível.</p> : null}
-    {tenantPending ? null : pending ? retained.children : children}
-  </>;
+  // Troca de empresa ou de período: esqueleto no lugar dos números antigos (nada de dado velho piscando na tela).
+  if (tenantPending) return <PageSkeleton label="Carregando a leitura desta empresa…" />;
+  if (pending) return <PageSkeleton label={`Atualizando para ${period.start} — ${period.end}…`} />;
+  return <>{children}</>;
 }

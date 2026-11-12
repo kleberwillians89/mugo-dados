@@ -1,7 +1,7 @@
 /* Origem das vendas — página própria, mesma linguagem editorial do painel. */
 .salesOriginPage{display:flex;flex-direction:column;gap:var(--space-6,28px)}
 .salesOriginLoading,.salesOriginEmpty,.salesOriginNote{color:var(--text-secondary,#666)}
-.salesOriginPage .salesOriginKpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 20px;align-items:start;container-type:inline-size}
+.salesOriginPage .salesOriginKpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch;container-type:inline-size}
 @media (min-width:900px){.salesOriginPage .salesOriginKpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .salesOriginKpis .ds-kpi{min-width:0;container-type:inline-size}
 .salesOriginKpis .ds-kpiValue{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:clamp(20px,13cqi,40px)}

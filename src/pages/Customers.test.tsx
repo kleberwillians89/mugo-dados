@@ -143,7 +143,7 @@ describe("página Clientes", () => {
     api.getCustomers.mockImplementation(() => new Promise(() => {}));
     await render();
     expect(api.getCustomers).toHaveBeenCalledOnce();
-    expect(text()).toContain("Carregando clientes...");
+    expect(text()).toContain("Carregando clientes…");
     expect(text()).not.toContain("Nenhum cliente encontrado");
   });
 

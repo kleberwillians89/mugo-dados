@@ -8,6 +8,8 @@ import DateRangePicker from "./DateRangePicker";
 import HealthIndexCard from "./HealthIndexCard";
 import WordCloud from "../WordCloud";
 import "../../styles/brandHealth.css";
+import PageSkeleton from "../data/PageSkeleton";
+import SegmentedControl from "../data/SegmentedControl";
 
 const GRAINS: Grain[] = ["day", "week", "month", "quarter", "year"];
 const SOURCES: Source[] = ["news", "comments", "direct"];
@@ -169,7 +171,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
   return <div className="bhPage">
     <div className="bhFilters" role="group" aria-label="Período e canais">
       <span className="bhLabel">Ver por</span>
-      <div className="bhSeg">{GRAINS.map((g) => <button key={g} type="button" aria-pressed={grain === g} className={grain === g ? "is-on" : ""} onClick={() => setGrain(g)}>{GRAIN_NAME[g]}</button>)}</div>
+      <SegmentedControl ariaLabel="Agrupar por" value={grain} onSelect={(id) => setGrain(id as typeof grain)} options={GRAINS.map((g) => ({ id: g, label: GRAIN_NAME[g] }))} />
       <DateRangePicker value={range} onChange={setRange} />
       <span className="bhMuted">vs período anterior</span>
       <div className="bhChips">{SOURCES.map((s) => <button key={s} type="button" aria-pressed={sources.includes(s)} className={sources.includes(s) ? "is-on" : ""} onClick={() => toggleSource(s)}>{SOURCE_CHIP[s]}</button>)}</div>
@@ -181,7 +183,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
     {analyzeNote ? <p className="studioOk" role="status">{analyzeNote}</p> : null}
     {tooManyDays ? <p className="clipWarn">Por dia, escolha até 13 meses. Para períodos maiores, veja por semana ou mês.</p> : null}
     {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
-    {state.loading && !d ? <p className="bhMuted" role="status">Carregando…</p> : null}
+    {state.loading && !d ? <PageSkeleton label="Carregando a saúde da marca…" /> : null}
 
     {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} /> : null}
     {d?.words?.length ? <section className={state.loading ? "bhCard bhWords is-loading" : "bhCard bhWords"} aria-labelledby="bh-words">

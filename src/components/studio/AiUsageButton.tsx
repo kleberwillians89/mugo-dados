@@ -45,7 +45,7 @@ export default function AiUsageButton({ clientName, isAgency = false }: { client
           </li>)}</ul> : <p className="aiUsageHint">Ainda sem uso de IA registrado para esta empresa.</p>}
           {data.features.length ? <>
             <h4>O que mais consumiu no mês</h4>
-            <table className="aiUsageTable"><thead><tr><th>Recurso</th><th>Chamadas</th><th>Tokens</th><th>Custo</th></tr></thead>
+            <table className="aiUsageTable is-compact"><thead><tr><th>Recurso</th><th>Chamadas</th><th>Tokens</th><th>Custo</th></tr></thead>
               <tbody>{data.features.map((f) => <tr key={f.feature}><td>{featureLabel(f.feature)}</td><td>{f.calls}</td><td>{formatTokens(f.total_tokens)}</td><td>{formatUsd(f.cost_usd)}</td></tr>)}</tbody></table>
           </> : null}
           <p className="aiUsageHint">Custo estimado pelo preço de tabela da OpenAI (US$); em reais com câmbio de referência R$ {USD_BRL.toFixed(2).replace(".", ",")}. {isAgency ? " O valor cobrado de fato aparece na fatura da OpenAI. A visão de todos os clientes fica em Administração → Consumo de IA." : ""}</p>

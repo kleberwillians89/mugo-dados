@@ -94,7 +94,7 @@
 @media(min-width:900px){.businessContextForm{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}}
 
 /* Acessos da empresa: formulário e confirmação, mobile-first. */
-.accessForm{display:grid;grid-template-columns:1fr;gap:14px;margin:0 0 20px;padding:16px;border:1px solid #e3e0d8;border-radius:16px;background:#fbfaf7}
+.accessForm{display:grid;grid-template-columns:1fr;gap:14px;margin:0 0 20px;padding:16px;border:1px solid #e3e0d8;border-radius:16px;background:#fafbfc}
 .accessForm label{display:flex;flex-direction:column;gap:6px;font-weight:600;min-width:0}
 .accessForm input,.accessForm select{width:100%;box-sizing:border-box;font:inherit;font-weight:400;padding:10px 12px;border:1px solid #dedbd3;border-radius:10px;background:#fff}
 .accessForm p{margin:0;grid-column:1/-1}
@@ -111,7 +111,7 @@
 .originProbeForm select,.originProbeForm input{min-height:40px;border:1px solid #d9d6cd;border-radius:10px;padding:0 12px;font:inherit;background:#fff}
 @media (min-width:860px){.originProbeForm{grid-template-columns:2fr 1.2fr 1.4fr auto}}
 .originProbeResult{display:flex;flex-direction:column;gap:20px}
-.originProbeBlock{border:1px solid #e8e5de;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;background:#fbfaf7}
+.originProbeBlock{border:1px solid #e8e5de;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;background:#fafbfc}
 .originProbeBlock h3{margin:0;font-size:15px}
 .originProbeVerdict{margin:0;padding:12px 14px;border-radius:10px;background:#063a50;color:#fff;line-height:1.45}
 .originProbeGrid{display:grid;grid-template-columns:1fr;gap:16px}

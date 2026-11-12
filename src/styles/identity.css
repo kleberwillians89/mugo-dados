@@ -128,7 +128,7 @@
   box-shadow: 0 0 0 3px var(--id-accent-ring);
 }
 :where(#root) :where(input, textarea)::placeholder{ color: rgba(21, 24, 27, .42); }
-:where(#root) :where(input, textarea, select):where(:disabled){ background: #f6f5f2; color: rgba(21, 24, 27, .45); cursor: not-allowed; }
+:where(#root) :where(input, textarea, select):where(:disabled){ background: #f4f6f8; color: rgba(21, 24, 27, .45); cursor: not-allowed; }
 
 /* Select com seta da plataforma. */
 :where(#root) :where(select:not([multiple])){

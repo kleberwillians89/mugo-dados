@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import {
+  Activity, Bot, BrainCircuit, Building2, CalendarRange, ChartColumn, Circle, ClipboardList, Contact, Cpu, CreditCard,
+  FileBarChart, FileText, HeartPulse, LayoutDashboard, Library, ListChecks, Mail, Megaphone, Menu, MessageCircle,
+  MessagesSquare, Newspaper, PanelLeftClose, PanelLeftOpen, PartyPopper, PenLine, Plug, Search, ShoppingCart, Sparkles,
+  Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
+} from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
 import { ACCOUNT_ROLE_LABELS } from "../../app/roles";
@@ -34,6 +39,17 @@ type Props = {
 /** `also`: telas que vivem dentro deste item (abas). O item fica ativo nelas e abre a primeira permitida. */
 type NavItem = { route: AppRoute; label: string; also?: AppRoute[] };
 const COLLAPSE_KEY = "mugo.sidebarCollapsed";
+
+// Um ícone por página: com o menu recolhido sobra só o ícone (o nome aparece ao passar o mouse).
+const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
+  mugo_ia: Sparkles, central: LayoutDashboard, briefing: FileText, planning: CalendarRange, production: PartyPopper,
+  tasks: ListChecks, campaigns: Megaphone, redacao: PenLine, creators: Users, library: Library,
+  meta: ChartColumn, google: Search, ecommerce: ShoppingCart, origins: Contact, whatsapp: MessageCircle,
+  email_marketing: Mail, ai_actions: Bot, media: Target, engagement: MessagesSquare, clipping: Newspaper,
+  brand_health: HeartPulse, benchmark: Swords, social_report: FileBarChart,
+  integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
+  plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit,
+};
 
 // Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
 // Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
@@ -169,16 +185,19 @@ export default function AppNavigation({
   const routesOf = (item: NavItem): AppRoute[] => [item.route, ...(item.also || [])];
   const visible = (item: NavItem) => !canView || routesOf(item).some((target) => canView(target));
   const renderItem = (item: NavItem) => {
+    const Icon = ROUTE_ICONS[item.route] || Circle;
     const target = routesOf(item).find((candidate) => !canView || canView(candidate)) || item.route;
     return (
       <li key={item.route}>
         <a
           className="appNavLink"
           href={getPathForRoute(target)}
+          title={collapsed ? item.label : undefined}
           aria-current={routesOf(item).includes(route) ? "page" : undefined}
           onClick={(event) => go(event, target)}
         >
-          {item.label}
+          <Icon size={18} aria-hidden="true" className="appNavIcon" />
+          <span className="appNavLabel">{item.label}</span>
         </a>
       </li>
     );

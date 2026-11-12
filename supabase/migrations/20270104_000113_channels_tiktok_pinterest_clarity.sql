@@ -15,7 +15,7 @@ alter table public.oauth_sessions add constraint oauth_sessions_provider_check
 -- spend/impressions/clicks/conversions servem para somar entre canais; o resto fica em metrics.
 create table if not exists public.channel_daily_metrics (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references public.clients(id) on delete cascade,
+  client_id text not null references public.clients(id) on delete cascade,
   provider text not null check (provider in ('tiktok_ads', 'tiktok', 'pinterest_ads', 'pinterest', 'linkedin_ads', 'linkedin', 'clarity')),
   level text not null check (level in ('account', 'campaign', 'content', 'page')),
   account_id text not null default '',

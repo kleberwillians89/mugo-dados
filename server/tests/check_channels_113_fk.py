@@ -1,7 +1,8 @@
-"""Reproduce merged migration 000113 type mismatch without touching remote databases.
+"""Migration 000113 now ships the TEXT FK (clients.id is text everywhere).
 
-The correction is evaluated in memory, without rewriting the integrated SQL
-before every remote environment's applied migration history is verified.
+Production received exactly this TEXT version (applied by hand in the SQL editor on 2026-11-12; the UUID version
+failed at the FK and left nothing applied, so no environment can hold it). This check keeps proving both facts in a
+throwaway database: the old UUID text fails, the shipped TEXT text applies, keeps ids and enables RLS.
 """
 from pathlib import Path
 import os
@@ -31,8 +32,9 @@ def main():
               );
               insert into public.clients(id) values ('tenant-a'), ('legacy-customer-123');
             """)
-        original = MIGRATION.read_text(encoding="utf-8")
-        assert original.count(ORIGINAL) == 1, "the 113 migration changed; review expected definition"
+        shipped = MIGRATION.read_text(encoding="utf-8")
+        assert shipped.count(CORRECTED) == 1 and ORIGINAL not in shipped, "000113 must ship the TEXT FK"
+        original = shipped.replace(CORRECTED, ORIGINAL)  # versão antiga, só para provar que ela falha
         try:
             with conn.transaction():
                 with conn.cursor() as cur:
@@ -42,7 +44,7 @@ def main():
         else:
             raise AssertionError("Expected 000113 FK UUID -> TEXT incompatibility did not occur")
 
-        fixed = original.replace(ORIGINAL, CORRECTED)
+        fixed = shipped
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(fixed)
@@ -71,7 +73,7 @@ def main():
                 cur.execute("select id from public.clients order by id")
                 assert [row[0] for row in cur.fetchall()] == ["legacy-customer-123","tenant-a"]
 
-    print("PASS: original channels 000113 fails on UUID/TEXT FK; proposed TEXT FK passes without rewriting IDs")
+    print("PASS: old UUID 000113 fails on the TEXT FK; shipped TEXT 000113 applies without rewriting IDs")
 
 if __name__ == "__main__":
     main()

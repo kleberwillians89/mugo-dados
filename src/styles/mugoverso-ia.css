@@ -1,7 +1,7 @@
 /* Mugoverso IA: conversa em coluna de leitura, campo fixo embaixo, resposta formatada. */
 .appShell.miaShell .content.ds-content{max-width:none;padding:0}
 .mia{--mia-accent:var(--accent,#004f6e);--mia-ink:var(--text-primary,#15181b);--mia-muted:var(--text-secondary,#4d565d);
-  --mia-quiet:var(--text-muted,#687178);--mia-line:var(--border-subtle,rgba(21,24,27,.09));--mia-soft:var(--surface-subtle,#f6f5f2);
+  --mia-quiet:var(--text-muted,#687178);--mia-line:var(--border-subtle,rgba(21,24,27,.09));--mia-soft:var(--surface-subtle,#f4f6f8);
   display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:520px;background:var(--surface,#fff);
   font-family:var(--font-body,inherit);color:var(--mia-ink)}
 .miaColumn{width:100%;max-width:780px;margin:0 auto;padding:0 24px;box-sizing:border-box}

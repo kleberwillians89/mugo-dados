@@ -11,6 +11,7 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
 import "../styles/social-report.css";
+import PageSkeleton from "../components/data/PageSkeleton";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const W = 1440;
@@ -223,7 +224,7 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
     </div>} />
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioNotice" role="status">{notice}</p> : null}
-    {!report ? <p className="libHint">Carregando…</p> : !d ? <p className="libHint">{isAgency ? "O relatório deste mês ainda não foi gerado. Clique em \"Gerar relatório\": os números vêm da Meta e dos posts sincronizados." : "O relatório deste mês ainda não está pronto."}</p> : <>
+    {!report ? <PageSkeleton label="Carregando o relatório…" /> : !d ? <p className="libHint">{isAgency ? "O relatório deste mês ainda não foi gerado. Clique em \"Gerar relatório\": os números vêm da Meta e dos posts sincronizados." : "O relatório deste mês ainda não está pronto."}</p> : <>
       {isAgency ? <details className="srEditor" open={!built?.insights.length}><summary>Insights do mês ({lines.length})</summary>
         <p className="libHint">Um insight por linha. A IA sugere a partir dos números; a equipe revisa antes de salvar. O cliente vê só o que foi salvo.</p>
         <textarea rows={6} value={text} maxLength={2400} onChange={(e) => setText(e.target.value)} placeholder="O formato podcast tem performado bem…" />

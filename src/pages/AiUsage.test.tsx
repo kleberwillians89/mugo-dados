@@ -51,7 +51,7 @@ describe("Consumo de IA", () => {
   it("troca o período", async () => {
     api.getAiUsage.mockResolvedValue(report());
     await act(async () => root.render(<AiUsage />)); await act(async () => {});
-    const btn = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "Últimos 7 dias")!;
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.ds-segmented button')].find((b) => b.textContent === "Últimos 7 dias")!;
     await act(async () => { btn.click(); }); await act(async () => {});
     expect(api.getAiUsage).toHaveBeenCalledTimes(2);
   });

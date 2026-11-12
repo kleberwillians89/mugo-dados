@@ -12,6 +12,7 @@ import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
 import "../styles/salesOrigin.css";
 import { mugoColor } from "../app/mugoPalette";
+import PageSkeleton from "../components/data/PageSkeleton";
 
 const PROVIDER_LABELS: Record<string, string> = { shopify: "Shopify", fbits: "FBITS/Wake" };
 
@@ -92,7 +93,7 @@ export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) =
             Tente de novo em instantes.
           </DataNotice>
         ) : null}
-        {loading ? <p className="salesOriginLoading" role="status">Carregando a origem dos pedidos…</p> : null}
+        {loading ? <PageSkeleton label="Carregando a origem dos pedidos…" /> : null}
         {data?.status === "not_connected" ? (
           <DataNotice title="Nenhuma loja conectada a esta empresa.">
             Conecte a Shopify ou a FBITS/Wake em Integrações para ver de onde vêm os pedidos.

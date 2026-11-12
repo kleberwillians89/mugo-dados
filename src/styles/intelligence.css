@@ -25,7 +25,7 @@
   min-height: 100dvh;
   margin-inline: auto;
   padding: var(--space-5, 24px) clamp(16px, 3vw, 40px) var(--space-8, 72px);
-  background: var(--surface-subtle, #f6f5f2);
+  background: var(--surface-subtle, #f4f6f8);
   color: var(--intel-ink);
   font-family: var(--font-body);
   overflow-x: clip;
@@ -71,7 +71,7 @@
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid var(--intel-rule);
-  background: color-mix(in srgb, var(--surface-subtle, #f6f5f2) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-subtle, #f4f6f8) 92%, transparent);
   backdrop-filter: blur(8px);
 }
 .intelReadingNav::-webkit-scrollbar{ display: none; }
@@ -479,11 +479,11 @@
 .intelAnswerMetrics .intelEvidence{ display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .intelAnswerMetrics .intelEvidence li{
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
-  padding: 14px 16px; border-radius: 12px; background: var(--surface-subtle, #f6f5f2);
+  padding: 14px 16px; border-radius: 12px; background: var(--surface-subtle, #f4f6f8);
 }
 .intelAnswerMetrics .intelEvidence strong{ font-family: var(--font-display); font-size: 22px; letter-spacing: -.02em; }
 .intelFactList{ display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
-.intelFactList li{ display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: 12px; background: var(--surface-subtle, #f6f5f2); }
+.intelFactList li{ display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: 12px; background: var(--surface-subtle, #f4f6f8); }
 .intelFactLabel{ font-size: 13px; color: var(--intel-muted); }
 .intelFactList strong{ font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--intel-ink); }
 .intelFactList small{ font-size: 12px; color: var(--intel-quiet); }
