@@ -4,6 +4,7 @@ import {
   PILLAR_ORDER, getHealthIndex, healthTone, saveHealthWeights, weightShares,
   type HealthIndex, type PillarKey,
 } from "../../app/brandHealth";
+import "../../styles/brandHealth.css";
 
 const nf = new Intl.NumberFormat("pt-BR");
 
