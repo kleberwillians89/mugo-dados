@@ -5,7 +5,10 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 
-from services import saas
+from services import saas, tenant_commercial_config as commercial_config
+from services.platform_admin import is_platform_admin
+from services.tenant import require_user_id
+from services.ig_supabase import sb_get_client_membership_roles
 from services.tenant import require_agency_admin, require_client_read
 
 router = APIRouter(tags=["saas"])
@@ -78,3 +81,51 @@ async def invoice_paid(client_id: str, invoice_id: str, authorization: str | Non
         return {"ok": True, "invoice": await saas.mark_paid(client_id, invoice_id)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
+
+
+# Etapa 2B.1: somente administração declarativa (sem enforcement).
+async def _commercial_admin(authorization: str | None) -> str:
+    from fastapi import HTTPException
+    uid = await require_user_id(authorization)
+    if await is_platform_admin(uid):
+        return uid
+    memberships = await sb_get_client_membership_roles(uid)
+    if any(row.get("role") == "agency_admin" for row in memberships):
+        return uid
+    raise HTTPException(status_code=403, detail="Apenas administradores Mugô podem configurar módulos.")
+
+
+@router.get("/api/admin/commercial-modules/catalog")
+async def commercial_catalog(authorization: str | None = Header(default=None)):
+    await _commercial_admin(authorization)
+    return {"ok": True, "modules": commercial_config.catalog(),
+            "basic_capabilities": ["briefing", "tasks"], "enforcement_enabled": False}
+
+
+@router.get("/api/admin/commercial-modules/{client_id}")
+async def commercial_get(client_id: str, authorization: str | None = Header(default=None)):
+    await _commercial_admin(authorization)
+    try:
+        return {"ok": True, "configuration": await commercial_config.get_configuration(client_id)}
+    except Exception as exc:
+        print(f"[commercial_config] read unavailable type={type(exc).__name__}")
+        raise HTTPException(status_code=503, detail="Configuração comercial indisponível.") from exc
+
+
+@router.put("/api/admin/commercial-modules/{client_id}")
+async def commercial_save(client_id: str, payload: Dict[str, Any] = Body(...),
+                          authorization: str | None = Header(default=None)):
+    uid = await _commercial_admin(authorization)
+    if set(payload) != {"module_keys", "expected_version"}:
+        raise HTTPException(status_code=400, detail="Informe module_keys e expected_version.")
+    try:
+        result = await commercial_config.save_configuration(
+            client_id, payload["module_keys"], expected_version=payload["expected_version"],
+            actor_user_id=uid,
+        )
+        return {"ok": True, "configuration": result}
+    except commercial_config.CommercialConfigError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code) from exc
+    except Exception as exc:
+        print(f"[commercial_config] write failed type={type(exc).__name__}")
+        raise HTTPException(status_code=503, detail="Não foi possível salvar a configuração.") from exc
