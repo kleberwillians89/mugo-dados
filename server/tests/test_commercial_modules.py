@@ -43,12 +43,17 @@ class CatalogTests(unittest.TestCase):
         missing_plan = cm.resolve_from_subscription("tenant-a", {"plan_id": "missing", "plan": None})
         invalid_features = cm.resolve_from_subscription("tenant-a", {"plan": {"features": "social_media"}})
         unknown_feature = cm.resolve_from_subscription("tenant-a", {"plan": {"features": ["meta", "typo"]}})
+        mixed_legacy = cm.resolve_from_subscription(
+            "tenant-a", {"plan": {"features": ["meta", "Tudo do Essencial"]}}
+        )
         self.assertEqual(missing_plan["commercial_modules"], [])
         self.assertEqual(invalid_features["commercial_modules"], [])
         self.assertEqual(unknown_feature["commercial_modules"], [])
+        self.assertEqual(mixed_legacy["commercial_modules"], [])
         self.assertEqual(missing_plan["resolution_error"], "commercial_plan_unavailable")
         self.assertEqual(invalid_features["resolution_error"], "commercial_features_invalid")
         self.assertEqual(unknown_feature["resolution_error"], "commercial_features_unknown")
+        self.assertEqual(mixed_legacy["resolution_error"], "commercial_features_unknown")
 
     def test_plan_cleaning_supports_the_whole_catalog(self):
         features = list(cm.COMMERCIAL_MODULES)

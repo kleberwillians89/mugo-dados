@@ -113,7 +113,7 @@ def resolve_from_subscription(client_id: str, subscription: Optional[Dict[str, A
         return _result(client_id, frozenset(), source="unavailable", configured=False,
                        resolution_error="commercial_features_invalid")
     recognized, unknown = normalize_module_keys(features)
-    if not features or (unknown and unknown.issubset(LEGACY_FEATURE_LABELS)):
+    if not features or (not recognized and unknown and unknown.issubset(LEGACY_FEATURE_LABELS)):
         return _result(client_id, ALL_OPTIONAL_MODULES, source="legacy_plan_features", configured=False)
     if unknown:
         return _result(client_id, frozenset(), source="unavailable", configured=False,
