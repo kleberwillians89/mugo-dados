@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from .studio_calendar import FORMATS, StudioError, language_rule, list_items, normalize_profile, parse_month
 from .studio_dates import dates_for_month
-from .studio_intelligence import build_content_intelligence, coverage, to_prompt
+from .studio_intelligence import LIBRARY_RULE, PLANS_RULE, build_content_intelligence, coverage, passages_for, to_prompt
 from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
 
 ASSIST_ACTIONS = ("legenda", "variacoes", "ganchos", "hashtags", "roteiro_reels", "revisar")
@@ -288,6 +288,7 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
     boldness = BOLDNESS.get(int(d.get("boldness") or 3), "Equilibrado") if str(d.get("boldness") or "3").isdigit() else "Equilibrado"
     intel = await build_content_intelligence(client_id)
     refs = await _post_references(client_id, item_id)
+    passages = await passages_for(client_id, str(item.get("title") or ""), str(item.get("hook") or ""), str(item.get("pillar") or ""))
     fmt = item.get("format") if item.get("format") in FORMATS else "imagem"
     prompt = (
         "Monte o BRIEFING TÉCNICO desta pauta para quem vai produzir a peça (designer, editor de vídeo, redator).\n"
@@ -304,7 +305,9 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
           "- tech_requirements: especificações (proporção, duração, número de slides, legendas na tela, áudio).\n"
           f"- script: {SCRIPT_HINTS.get(fmt, SCRIPT_HINTS['imagem'])} No máximo 6 itens.\n"
           "- visual_idea: direção da arte em 2 a 4 linhas (composição, enquadramento, luz, cores da marca, texto na arte).\n"
-          "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
+          f"{LIBRARY_RULE} Em deliverables, liste os arquivos da Biblioteca a usar.\n{PLANS_RULE}\n"
+        + (f"TRECHOS DOS DOCUMENTOS DA MARCA SOBRE ESTE TEMA (fatos a usar, nunca contrariar):\n{passages}\n" if passages else "")
+        + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
     )
     data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_briefing",

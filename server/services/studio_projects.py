@@ -27,6 +27,12 @@ BUDGET_CATEGORIES = ("equipe", "equipamento", "locacao", "logistica", "pos_produ
 CHAT_LIMIT = 20
 
 
+def _forget(client_id: str) -> None:
+    from .studio_intelligence import invalidate
+    invalidate(client_id)
+
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -202,6 +208,7 @@ async def create_project(client_id: str, kind: str, data: Dict[str, Any], *, use
 
 
 async def update_project(client_id: str, project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     current = await get_project(client_id, project_id)
     patch = _clean_fields(data, current["kind"])
     patch["updated_at"] = _now()
@@ -223,6 +230,7 @@ ROLE = {
 
 
 async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = False, instruction: Optional[str] = None) -> Dict[str, Any]:
+    _forget(client_id)  # o pacote da IA relê na próxima geração
     from .studio_engines import throttle
     from .studio_intelligence import build_content_intelligence, to_prompt
     from .studio_llm import llm_json

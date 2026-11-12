@@ -71,8 +71,8 @@ export default function AgentPipeline({ clientId, onDone, onOpenCalendar }: { cl
     <header className="agentPipelineHead">
       <div>
         <h3>Esteira de agentes</h3>
-        <p>A IA lê tudo da marca (dados, material enviado, voz do público, produtos, saúde da marca e concorrentes) e monta a <b>Matriz</b> do período.
-          A esteira <b>para na Matriz</b> para vocês conferirem; no <b>Gerar conteúdo</b>, ela escreve, revisa, agenda e manda para a <b>Revisão interna</b>. A arte é com vocês.</p>
+        <p>A IA lê tudo da marca (dados, documentos, voz do público, produtos, concorrentes, briefings aprovados, planejamentos, eventos e Biblioteca) e monta a <b>Matriz</b> do período.
+          A esteira <b>para na Matriz</b> para vocês conferirem; no <b>Gerar conteúdo</b>, ela escreve, o <b>Editor-chefe</b> dá nota a cada peça e reescreve o que ficou abaixo de 8, agenda e manda para a <b>Revisão interna</b>. A arte é com vocês.</p>
       </div>
       <div className="agentPipelineActions">
         {run && !running && !waiting ? <button type="button" className="ds-link" onClick={() => setOpen(!open)}>{open ? "Esconder" : "Ver última execução"}</button> : null}

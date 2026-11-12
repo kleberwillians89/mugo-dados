@@ -20,8 +20,9 @@ def content(op_id, guard=None):
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
-    async def run_pipeline(self, *, contents, update=None, options=None, phase=1, run_extra=None, ops=None):
+    async def run_pipeline(self, *, contents, update=None, options=None, phase=1, run_extra=None, ops=None, editor=None):
         saved = []
+        editor = editor or AsyncMock(side_effect=lambda cid, op, lote, focus="": {"score": 9, "problems": [], "rewritten": False, "op": op})
 
         async def save(table, filters, patch, **kwargs):
             saved.append(patch)
@@ -39,9 +40,11 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
              patch.object(mx, "create_content", AsyncMock(side_effect=contents)) as write, \
              patch.object(mx, "export_to_calendar", AsyncMock(return_value=exported)) as export, \
              patch("services.studio_calendar.update_item", update), \
-             patch("services.studio_engines.generate_briefing", AsyncMock(return_value={})) as brief:
+             patch("services.studio_engines.generate_briefing", AsyncMock(return_value={})) as brief, \
+             patch.object(ag, "edit_piece", editor):
             out = await ag.execute("roove", run, user_id="u1", phase=phase)
         self.brief = brief
+        self.editor = editor
         return out, saved, gen, write, export, update
 
     async def test_end_to_end_sends_clean_posts_to_internal_review(self):
@@ -57,6 +60,18 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("direção de arte", saved[-1]["summary"])
         self.assertEqual(sorted(c.args[1] for c in self.brief.await_args_list), ["i1", "i2"])  # briefing técnico de cada post
         self.assertFalse(self.brief.await_args.kwargs["throttle_calls"])
+
+    async def test_editor_grades_every_piece_and_weak_one_stays_in_draft(self):
+        async def editor(cid, op, lote, focus=""):
+            self.assertEqual(len(lote), 2)  # vê o lote inteiro para cobrar variedade
+            if op["id"] == "o1":
+                return {"score": 6, "problems": ["gancho genérico"], "rewritten": True, "op": {**op, "hook": "Novo gancho"}}
+            return {"score": 3, "problems": ["inventou preço"], "rewritten": True, "op": {**op, "guard": [{"type": "editor"}]}}
+        out, saved, *_ , update = await self.run_pipeline(contents=lambda cid, oid, throttle_calls: content(oid), editor=editor)
+        detail = next(s for s in out["steps"] if s["key"] == "revisao")["detail"]
+        self.assertIn("Nota média 4.5/10", detail)
+        self.assertIn("2 de 2 reescrita", detail)
+        update.assert_awaited_once_with("roove", "i1", {"status": "em_revisao"}, user_id="u1")  # o2 (nota 3) fica em rascunho
 
     async def test_a_failed_post_does_not_stop_the_others(self):
         def flaky(cid, oid, throttle_calls):
@@ -109,7 +124,7 @@ class TwoPhaseTests(PipelineTests):
         text = ag.research_summary(COVERAGE, {"voz_do_publico": "x", "produtos_mais_vendidos": [{}, {}],
                                               "saude_da_marca": {"indice": 74}, "concorrentes": {"cadastrados": ["A"]},
                                               "negocio": {"conhecimento_da_marca": "y"}})
-        for part in ("voz do público", "2 produtos", "74/100", "1 concorrentes", "material enviado"):
+        for part in ("voz do público", "2 produtos", "74/100", "1 concorrentes", "documentos da marca"):
             self.assertIn(part, text)
 
 

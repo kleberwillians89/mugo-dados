@@ -2,13 +2,17 @@
 
 Um clique roda, de ponta a ponta, o que antes eram cliques separados:
 
-1. Pesquisador      — lê os dados autorizados da marca: perfil, negócio, posts que performaram, vendas por origem,
-                      metas, aprendizados de aprovações e tendências (studio_intelligence).
+1. Pesquisador      — lê TUDO da marca (studio_intelligence): perfil, negócio e documentos, posts que performaram,
+                      vendas por origem e produtos, metas, aprovações e ajustes, Clipping e concorrentes, voz do
+                      público, briefings aprovados, planejamentos, eventos próximos e o acervo da Biblioteca.
 2. Estrategista     — monta a Matriz do período pedido (1 a 8 semanas; 4 por padrão) por plataforma e pilar.
    >> PAUSA: a esteira para na Matriz ("aguardando") para a equipe conferir, editar, selecionar ou descartar.
       O botão "Gerar conteúdo" (``continue_run``) segue com as pautas que ficaram (fase 2).
 3. Redator          — escreve gancho, legenda, roteiro (cenas, slides ou telas) e a ideia de imagem de cada pauta.
-4. Revisor de marca — confere tom, palavras proibidas, dado inventado e citação de outra marca (brand_guard).
+4. Editor-chefe    — lê cada peça com o contexto inteiro e as outras peças do lote: dá nota de 0 a 10 (gancho, aderência
+                      ao foco/plano, verdade dos dados, tom, CTA e variedade) e REESCREVE o que ficou abaixo de 8. Depois
+                      o brand_guard confere palavras proibidas, dado inventado e citação de outra marca. Peça que nasceu
+                      muito fraca (abaixo de 5) fica em rascunho com o motivo, mesmo reescrita.
 5. Agendador        — põe no Calendário nos melhores dias e horários da conta (sem duplicar).
 6. Diretor de arte  — monta o briefing técnico de cada peça, como o Atendimento da iAgência (objetivo,
                       mensagem-chave, entregáveis, requisitos e direção de arte). A peça em si é da equipe/Canva.
@@ -37,10 +41,10 @@ RUNS = "studio_agent_runs"
 PARALLEL = 2                 # pautas escritas ao mesmo tempo (custo e limite da IA sob controle)
 STALE_MINUTES = 20
 STEPS: List[Dict[str, str]] = [
-    {"key": "pesquisa", "agent": "Pesquisador", "task": "Lê os dados da marca, os posts que performaram, as vendas e as tendências"},
+    {"key": "pesquisa", "agent": "Pesquisador", "task": "Lê tudo da marca: dados, documentos, briefings, planejamentos, eventos e Biblioteca"},
     {"key": "estrategia", "agent": "Estrategista", "task": "Monta a Matriz do período por plataforma e pilar e para para a equipe conferir"},
     {"key": "redacao", "agent": "Redator", "task": "Escreve gancho, legenda e roteiro de cada pauta"},
-    {"key": "revisao", "agent": "Revisor de marca", "task": "Confere tom, palavras proibidas e dados inventados"},
+    {"key": "revisao", "agent": "Editor-chefe", "task": "Dá nota a cada peça, reescreve o que ficou abaixo de 8 e confere a marca"},
     {"key": "agenda", "agent": "Agendador", "task": "Coloca no Calendário nos melhores dias e horários"},
     {"key": "direcao_arte", "agent": "Diretor de arte", "task": "Monta o briefing técnico e a direção de arte de cada peça"},
     {"key": "aprovacao", "agent": "Aprovação interna", "task": "Envia para a equipe revisar antes do cliente"},
@@ -218,7 +222,17 @@ def research_summary(cov: Dict[str, Any], intel: Dict[str, Any]) -> str:
     if (intel.get("concorrentes") or {}).get("cadastrados"):
         found.append(f"{len(intel['concorrentes']['cadastrados'])} concorrentes")
     if (intel.get("negocio") or {}).get("conhecimento_da_marca"):
-        found.append("material enviado da marca")
+        found.append("documentos da marca")
+    plans = intel.get("planos_aprovados") or {}
+    if intel.get("briefings_aprovados"):
+        found.append(f"{len(intel['briefings_aprovados'])} briefing(s) aprovado(s)")
+    if plans.get("planejamentos"):
+        found.append(f"planejamento \"{plans['planejamentos'][0].get('titulo', '')}\"")
+    if plans.get("eventos"):
+        found.append(f"{len(plans['eventos'])} evento(s) próximo(s)")
+    library = sum(len(v) for v in (intel.get("biblioteca") or {}).values())
+    if library:
+        found.append(f"{library} arquivo(s) da Biblioteca")
     if cov["lacunas"]:
         found.append(f"faltam dados: {', '.join(cov['lacunas'][:3])}")
     return "; ".join(found)
@@ -298,12 +312,24 @@ async def execute(client_id: str, run: Dict[str, Any], *, user_id: str, phase: i
             raise StudioError("AI_INVALID_OUTPUT", "O redator não conseguiu escrever nenhuma pauta. Rode de novo.")
         await state.step("redacao", "feito", f"{len(written)} de {len(ops)} pautas escritas" + (f" ({failed} falharam, ficam na Matriz)" if failed else ""))
 
-        # 4. Revisor de marca (o alerta de cada pauta já vem do brand_guard)
+        # 4. Editor-chefe: nota, reescrita do que ficou fraco e conferência da marca
         current = "revisao"
-        await state.step("revisao", "rodando")
+        await state.step("revisao", "rodando", f"0 de {len(written)}")
+        reviews: Dict[str, Dict[str, Any]] = {}
+        lote = [{"id": oid, "titulo": o.get("title"), "gancho": o.get("hook"), "formato": o.get("format")} for oid, o in written.items()]
+
+        async def review(oid: str) -> None:
+            async with gate:
+                try:
+                    reviews[oid] = await edit_piece(client_id, written[oid], lote, focus=str(options.get("focus") or ""))
+                    written[oid] = reviews[oid].pop("op", written[oid])
+                except Exception as exc:  # noqa: BLE001 — sem editor, a peça segue com o alerta do brand_guard
+                    print(f"[studio][agents] client_id={client_id} editor_failed={type(exc).__name__}")
+                await state.step("revisao", "rodando", f"{len(reviews)} de {len(written)}")
+
+        await asyncio.gather(*(review(oid) for oid in list(written)))
         flagged = {oid for oid, o in written.items() if o.get("guard")}
-        await state.step("revisao", "feito", "Tudo dentro do tom da marca" if not flagged
-                         else f"{len(flagged)} pauta(s) com alerta: ficam em rascunho para a equipe conferir")
+        await state.step("revisao", "feito", review_summary(reviews, flagged))
 
         # 5. Agendador
         current = "agenda"
@@ -366,6 +392,77 @@ async def execute(client_id: str, run: Dict[str, Any], *, user_id: str, phase: i
     return {"id": state.id, "steps": state.steps, **state.extra}
 
 
+# ---------------------------------------------------------------- Editor-chefe
+
+EDITOR_ROLE = ("Você é editor-chefe de conteúdo de uma agência exigente. Lê a peça com TUDO o que se sabe da marca e com o "
+               "lote inteiro do período. É duro e específico: peça genérica, gancho fraco, CTA vaga, dado que não está nos "
+               "DADOS ou peça parecida com outra do lote não passa. Quando reescreve, mantém o tema e o formato da pauta.")
+EDITOR_FIELDS = (("gancho", "hook", 400), ("legenda", "caption_draft", 4000), ("roteiro", "script", 4000), ("ideia_imagem", "visual_idea", 2000))
+PASS_SCORE = 8               # abaixo disso, reescreve
+WEAK_SCORE = 5               # abaixo disso, mesmo reescrita, a equipe olha antes (rascunho com o motivo)
+
+
+def _score(value: Any) -> int:
+    try:
+        return max(0, min(10, int(float(value))))
+    except (TypeError, ValueError):
+        return 0
+
+
+async def edit_piece(client_id: str, op: Dict[str, Any], lote: List[Dict[str, Any]], *, focus: str = "") -> Dict[str, Any]:
+    """Nota de 0 a 10 com o contexto inteiro; abaixo de 8, aplica a reescrita; depois roda o brand_guard de novo."""
+    from . import studio_matrix as matrix
+    from .studio_intelligence import LIBRARY_RULE, PLANS_RULE, build_content_intelligence, passages_for, to_prompt
+    from .studio_llm import INT, STR, arr, llm_json, obj
+
+    profile = (await load_profile(client_id))["profile"]
+    intel = await build_content_intelligence(client_id)
+    passages = await passages_for(client_id, str(op.get("title") or ""), str(op.get("angle") or ""))
+    piece = {k: op.get(k) for k in ("platform", "pillar", "format", "title", "hook", "angle", "caption_draft", "script", "visual_idea")}
+    others = [x for x in lote if x.get("id") != op.get("id")][:30]
+    prompt = (f"PEÇA:\n{json.dumps(piece, ensure_ascii=False)}\n"
+              + (f"\nFOCO DO PERÍODO (briefing da equipe):\n{focus[:1500]}\n" if focus else "")
+              + f"\nOUTRAS PEÇAS DO LOTE (não pode parecer com nenhuma; abertura e CTA diferentes):\n{json.dumps(others, ensure_ascii=False)}\n"
+              + (f"\nTRECHOS DOS DOCUMENTOS DA MARCA:\n{passages}\n" if passages else "")
+              + "\nAvalie de 0 a 10, pensando no que faz ESTA marca vender e crescer: gancho (para o dedo nos 2 primeiros segundos?), "
+                "aderência ao foco, ao planejamento e aos briefings, verdade (só fatos dos DADOS), tom da marca, CTA clara, "
+                "formato bem usado e diferença das outras peças. Em 'problemas', até 4 itens curtos e concretos. "
+                f"Se a nota for menor que {PASS_SCORE}, reescreva gancho, legenda, roteiro e ideia de imagem corrigindo os problemas; "
+                "se for 8 ou mais, devolva esses campos vazios. "
+                f"{LIBRARY_RULE} {PLANS_RULE} Sem travessão. Não invente oferta, preço, número ou prazo.\n"
+              + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
+    data = await llm_json(client_id=client_id, instructions=EDITOR_ROLE, prompt=prompt, schema_name="studio_editor_chefe",
+                          schema=obj({"nota": INT, "problemas": arr(STR), **{k: STR for k, _, _ in EDITOR_FIELDS}}), temperature=0.4)
+    score = _score(data.get("nota"))
+    problems = [" ".join(str(p).split())[:200] for p in data.get("problemas") or [] if str(p).strip()][:4]
+    patch: Dict[str, Any] = {}
+    if score < PASS_SCORE:
+        for key, column, limit in EDITOR_FIELDS:
+            value = str(data.get(key) or "").strip()[:limit]
+            if value and value != (op.get(column) or ""):
+                patch[column] = value
+    merged = {**op, **patch}
+    guard = matrix._guard(merged, list(profile.get("keywords_avoid") or []), matrix._guard_context(profile, intel, focus))
+    if score < WEAK_SCORE:
+        guard = [{"type": "editor", "text": "; ".join(problems) or "Peça fraca",
+                  "fix": f"Editor-chefe deu {score}/10 e reescreveu. Confira antes de mandar para o cliente."}, *guard][:6]
+    note = f"Editor-chefe: {score}/10" + (" e reescreveu" if patch else "") + (f" ({'; '.join(problems[:2])})" if problems and patch else "") + "."
+    rationale = (" ".join(x for x in (str(op.get("rationale") or "").split(" Editor-chefe:")[0].strip(), note) if x))[:1200]
+    rows = await sb_update(matrix.OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{op['id']}", "status": "neq.exportada"},
+                           patch={**patch, "guard": guard, "rationale": rationale, "updated_at": _now().isoformat()})
+    return {"score": score, "problems": problems, "rewritten": bool(patch), "op": rows[0] if rows else {**merged, "guard": guard, "rationale": rationale}}
+
+
+def review_summary(reviews: Dict[str, Dict[str, Any]], flagged: set) -> str:
+    if not reviews:
+        return ("Tudo dentro do tom da marca" if not flagged
+                else f"{len(flagged)} pauta(s) com alerta: ficam em rascunho para a equipe conferir")
+    scores = [r["score"] for r in reviews.values()]
+    rewritten = sum(1 for r in reviews.values() if r["rewritten"])
+    text = f"Nota média {sum(scores) / len(scores):.1f}/10; {rewritten} de {len(reviews)} reescrita(s) pelo editor"
+    return text + (f"; {len(flagged)} em rascunho com alerta" if flagged else "; tudo dentro da marca")
+
+
 # ---------------------------------------------------------------- sugestão para o ajuste pedido
 
 SUGGESTION_SCHEMA_FIELDS = ("gancho", "legenda", "roteiro", "ideia_imagem", "o_que_mudou")
@@ -389,13 +486,16 @@ async def suggest_adjustment(client_id: str, item_id: str, note: Optional[str] =
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
     current = {k: item.get(k) for k in ("format", "title", "hook", "caption_draft", "script", "visual_idea")}
+    from .studio_intelligence import LIBRARY_RULE, passages_for
+    passages = await passages_for(client_id, ask[:400], str(item.get("title") or ""))
     ref_text = "\n".join(f"- {r.get('url')}" + (f" ({r['note']})" if r.get("note") else "") for r in refs[:10])
     prompt = (f"POST ATUAL:\n{json.dumps(current, ensure_ascii=False)}\n\n"
               f"PEDIDO DE AJUSTE DO CLIENTE (atenda exatamente o que ele pediu, sem mudar o resto):\n{ask[:1500]}\n"
               + (f"\nREFERÊNCIAS QUE O CLIENTE MANDOU (links/imagens no estilo que ele quer):\n{ref_text}\n" if ref_text else "")
               + "\nDevolva a nova versão completa: gancho, legenda, roteiro e ideia de imagem (briefing visual para a equipe "
                 "produzir a arte). Se o pedido for só sobre a arte, mantenha os textos e reescreva a ideia de imagem. "
-                "Em 'o_que_mudou', uma frase curta para a equipe. Sem travessão. Não invente oferta, preço ou prazo.\n"
+                f"Em 'o_que_mudou', uma frase curta para a equipe. {LIBRARY_RULE} Sem travessão. Não invente oferta, preço ou prazo.\n"
+              + (f"\nTRECHOS DOS DOCUMENTOS DA MARCA:\n{passages}\n" if passages else "")
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
     data = await llm_json(client_id=client_id, prompt=prompt, schema_name="studio_adjust_suggestion",
                           instructions="Você é social media sênior de agência. Ajusta o post exatamente como o cliente pediu, no tom da marca.",

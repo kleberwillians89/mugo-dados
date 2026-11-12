@@ -17,3 +17,5 @@ Desktop/
 Downloads/
 stabilization_patch.diff.env.save
 supabase/.temp/
+.vercel
+.env*
