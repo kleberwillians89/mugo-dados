@@ -43,3 +43,10 @@
 .saField{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary,#4d565d)}
 .saField input{width:120px}
 .saPlanActions{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+
+.saCommercialPanel{display:grid;gap:12px;border-top:1px solid var(--stroke,#e3e0d9);padding-top:16px}
+.saCommercialPanel h3{margin:0;font-size:15px}
+.saCommercialEditor{display:grid;gap:14px}
+.saModuleGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.saModuleChoice{display:flex;align-items:center;gap:9px;font-size:13px}
+.saModuleChoice input{accent-color:var(--id-accent,#004f6e)}
