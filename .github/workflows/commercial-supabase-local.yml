@@ -1,0 +1,64 @@
+# Ephemeral local Supabase CLI environment. No hosted project, token or organization linkage.
+name: Commercial Supabase CLI integration (local)
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20270103_000112_saas_plans.sql"
+      - "supabase/migrations/20270104_000113_tenant_commercial_modules.sql"
+      - "server/tests/check_tenant_commercial_supabase.py"
+      - "server/tests/fixtures/commercial_supabase_base.sql"
+      - ".github/workflows/commercial-supabase-local.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  supabase-local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Pin CLI v2: CLI v3 changed default behavior and command contracts.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.81.3
+      - name: Prepare scratch directory and isolated schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mugo-local-homolog"
+          cd "$RUNNER_TEMP/mugo-local-homolog"
+          supabase init --yes >/dev/null
+          cp "$GITHUB_WORKSPACE/server/tests/fixtures/commercial_supabase_base.sql" \
+            supabase/migrations/20260301_000000_commercial_fixture.sql
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20270103_000112_saas_plans.sql" \
+            supabase/migrations/20270103_000112_saas_plans.sql
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20270104_000113_tenant_commercial_modules.sql" \
+            supabase/migrations/20270104_000113_tenant_commercial_modules.sql
+      - name: Start disposable Supabase with GoTrue, PostgREST and PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/mugo-local-homolog"
+          # Never output 'supabase status': it includes local JWT keys.
+          if ! supabase start > "$RUNNER_TEMP/supabase-local-start.log" 2>&1; then
+            echo "Local Supabase stack failed to start (startup log withheld to avoid exposing keys)."
+            exit 1
+          fi
+      - name: Run backend → Auth → PostgREST smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r server/requirements.txt -r server/requirements-test.txt 'psycopg[binary]==3.3.9'
+          cd "$RUNNER_TEMP/mugo-local-homolog"
+          PYTHONPATH="$GITHUB_WORKSPACE/server" python "$GITHUB_WORKSPACE/server/tests/check_tenant_commercial_supabase.py"
+      - name: Stop disposable Supabase
+        if: always()
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/mugo-local-homolog" 2>/dev/null || exit 0
+          supabase stop --no-backup >/dev/null 2>&1 || true
