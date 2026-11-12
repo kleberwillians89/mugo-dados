@@ -68,7 +68,8 @@ class TenantResolutionTests(unittest.IsolatedAsyncioTestCase):
             {"client_id": "tenant-b", "plan": {"features": ["creators"]}},
             {"client_id": "tenant-a", "plan": {"features": ["meta"]}},
         ])
-        with patch("services.saas.get_subscription", get_subscription):
+        with patch("services.tenant_commercial_config.get_configuration", AsyncMock(return_value={"configured": False})), \
+             patch("services.saas.get_subscription", get_subscription):
             first = await cm.resolve_tenant_modules("tenant-a")
             second = await cm.resolve_tenant_modules("tenant-b")
             third = await cm.resolve_tenant_modules("tenant-a")
@@ -78,7 +79,8 @@ class TenantResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call.args[0] for call in get_subscription.await_args_list], ["tenant-a", "tenant-b", "tenant-a"])
 
     async def test_resolution_error_grants_only_basic_capabilities(self):
-        with patch("services.saas.get_subscription", AsyncMock(side_effect=RuntimeError("database unavailable"))):
+        with patch("services.tenant_commercial_config.get_configuration", AsyncMock(return_value={"configured": False})), \
+             patch("services.saas.get_subscription", AsyncMock(side_effect=RuntimeError("database unavailable"))):
             rights = await cm.resolve_tenant_modules("tenant-a")
         self.assertEqual(rights["commercial_modules"], [])
         self.assertEqual(rights["capabilities"], ["briefing", "tasks"])
