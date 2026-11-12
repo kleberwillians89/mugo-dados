@@ -1,0 +1,38 @@
+/* Jornada do cliente: linha do tempo vertical dentro do detalhe do cliente. */
+
+.journey{margin-top:var(--space-6,32px);padding-top:var(--space-5,24px);border-top:1px solid var(--border-subtle,#e8e5de)}
+.journeyHead{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3,12px);margin-bottom:var(--space-4,16px)}
+.journeyHead .customerDetailHeading{margin-bottom:4px}
+.journeyLead{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary)}
+.journeyRebuild{flex:none}
+.journeyEmpty{margin:0;padding:18px;border:1px dashed var(--stroke);border-radius:var(--radius-lg,14px);color:var(--text-secondary);font-size:14px;line-height:1.5}
+.journeyError{margin:0 0 var(--space-3,12px);color:var(--negative,#b42318);font-size:14px}
+
+.journeyStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:var(--space-3,12px);margin:0 0 var(--space-5,24px)}
+.journeyStats div{padding:12px 14px;border:1px solid var(--stroke);border-radius:var(--radius-lg,14px);background:var(--white)}
+.journeyStats dt{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)}
+.journeyStats dd{margin:4px 0 0;font-size:17px;color:var(--text-primary)}
+
+.journeyTimeline{list-style:none;margin:0;padding:0;position:relative}
+.journeyTimeline::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border-subtle,#e8e5de)}
+.journeyEvent{position:relative;display:grid;grid-template-columns:16px 1fr;gap:14px;padding:0 0 18px}
+.journeyEvent:last-child{padding-bottom:0}
+.journeyDot{position:relative;z-index:1;width:16px;height:16px;margin-top:2px;border-radius:50%;background:var(--white);border:3px solid #9aa0a6}
+.journeyEvent.is-conversa_whatsapp .journeyDot{border-color:#25a35a}
+.journeyEvent.is-pedido .journeyDot{border-color:var(--id-accent,#004f6e);background:var(--id-accent,#004f6e)}
+.journeyEvent.is-recompra .journeyDot{border-color:#7a3cff;background:#7a3cff}
+.journeyEvent.is-pedido_cancelado .journeyDot{border-color:#c0392b}
+.journeyEvent.is-carrinho_abandonado .journeyDot{border-color:#e08a00}
+.journeyEvent.is-carrinho_recuperado .journeyDot{border-color:#e08a00;background:#e08a00}
+.journeyBody{min-width:0}
+.journeyTitle{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;font-size:15px}
+.journeyTitle time{font-size:12px;color:var(--text-secondary);white-space:nowrap}
+.journeyEvent.is-pedido_cancelado .journeyTitle strong{color:var(--text-secondary);text-decoration:line-through}
+.journeyLine{margin:3px 0 0;font-size:13px;line-height:1.5;color:var(--text-primary);word-break:break-word}
+.journeyEvidence{display:inline-block;margin:6px 0 0;padding:4px 10px;border-radius:999px;font-size:12px;line-height:1.4;background:#f2f0ec;color:var(--text-secondary)}
+.journeyEvidence.is-regra{background:rgba(224,138,0,.12);color:#8a5a00}
+.journeyFoot{margin:var(--space-4,16px) 0 0;font-size:12px;color:var(--text-secondary)}
+
+@media(max-width:640px){
+  .journeyHead{flex-direction:column}
+}

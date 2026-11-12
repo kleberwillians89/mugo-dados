@@ -64,6 +64,7 @@ from routes.studio import public_router as studio_public_router, router as studi
 from routes.sales_origin import router as sales_origin_router
 from routes.whatsapp import router as whatsapp_router
 from routes.customers import router as customers_router
+from routes.customer_journey import router as customer_journey_router
 from routes.intelligence import router as intelligence_router
 from routes.connections import router as connections_router
 from routes.integrations import router as integrations_router
@@ -360,6 +361,7 @@ app.include_router(intelligence_router)
 app.include_router(client_access_router)
 app.include_router(team_router)
 app.include_router(meta_ads_publish_router)
+app.include_router(customer_journey_router)
 app.include_router(customers_router)
 app.include_router(goals_router)
 app.include_router(creators_router)

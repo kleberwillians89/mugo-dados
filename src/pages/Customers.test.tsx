@@ -11,11 +11,14 @@ const tenant = vi.hoisted(() => ({ id: "roove-test", name: "Roove" }));
 vi.mock("../app/activeClient", () => ({
   getActiveClientId: () => tenant.id,
   getActiveClientName: () => tenant.name,
+  getActiveClient: () => ({ id: tenant.id, name: tenant.name, role: "client_viewer" }),
 }));
 
 const api = vi.hoisted(() => ({
   getCustomers: vi.fn(),
   getCustomerDetail: vi.fn(),
+  getCustomerJourney: vi.fn(async () => ({ ok: true, status: "not_built", events: [], summary: null, built_at: null })),
+  rebuildCustomerJourney: vi.fn(),
 }));
 
 vi.mock("../app/api", () => api);

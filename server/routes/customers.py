@@ -113,3 +113,4 @@ async def customers_detail(
         status="ok", started=started, count=len(payload.get("orders") or []),
     )
     return payload
+

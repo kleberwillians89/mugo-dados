@@ -2510,3 +2510,52 @@ export function downloadIntelligenceReport(id: string, kind: "weekly" | "monthly
     responseType: "blob", signal: options?.signal,
   });
 }
+
+// ---------------------------------------------------------------- jornada do cliente
+
+export type JourneyEventKind =
+  | "conversa_whatsapp" | "pedido" | "recompra" | "pedido_cancelado"
+  | "carrinho_abandonado" | "mensagem_enviada" | "carrinho_recuperado";
+
+export type JourneyEvent = {
+  event_key: string;
+  kind: JourneyEventKind;
+  at: string;
+  source: string | null;
+  channel: string | null;
+  campaign: string | null;
+  ad_id: string | null;
+  value: number | null;
+  evidence: "observado" | "regra";
+  detail: Record<string, unknown> | null;
+};
+
+export type JourneySummary = {
+  purchases: number;
+  revenue: number;
+  days_to_first_purchase: number | null;
+  channels: string[];
+  last_event_at: string | null;
+};
+
+export type CustomerJourneyResponse = {
+  ok: boolean;
+  status: "ok" | "not_built" | "not_found";
+  events: JourneyEvent[];
+  summary: JourneySummary | null;
+  identities?: string[];
+  built_at: string | null;
+  migration_pending?: boolean;
+};
+
+export type JourneyRebuildResponse = { ok: boolean; built_at: string; stats: Record<string, unknown> };
+
+/** Linha do tempo de um cliente (conversas e pedidos), lida do que a jornada já montou. */
+export async function getCustomerJourney(customerId: string, options?: RequestSignalOptions): Promise<CustomerJourneyResponse> {
+  return http<CustomerJourneyResponse>(`/api/customers/${encodeURIComponent(customerId)}/journey`, { signal: options?.signal });
+}
+
+/** Monta a jornada da empresa agora. Só equipe Mugô ou admin do cliente (o backend confere). */
+export async function rebuildCustomerJourney(): Promise<JourneyRebuildResponse> {
+  return http<JourneyRebuildResponse>("/api/customers/journey/rebuild", { method: "POST", timeoutMs: 120_000 });
+}

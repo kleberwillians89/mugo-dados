@@ -119,6 +119,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-weekly-digest":
         from services.weekly_digest import run_weekly_digest
         return await run_weekly_digest(args.client_id)
+    if args.command == "customer-journey":
+        from services.customer_journey import run_all as journey_run
+        return await journey_run()
     if args.command == "brand-health":
         from services.brand_health import run_all as brand_health_run
         return await brand_health_run()
@@ -302,6 +305,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sexta: grava o aprendizado semanal de cada campanha e envia o resumo no WhatsApp (MugôZap) de cada cliente.",
     )
     weekly.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    sub.add_parser("customer-journey", help="Jornada do cliente: une pedidos e conversas por pessoa (cadastro, e-mail, telefone).")
     sub.add_parser("brand-health", help="Saúde da marca: sentimento de comentários/Direct pela IA e alertas de termos sensíveis.")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
     media_monthly = sub.add_parser(
