@@ -1,6 +1,6 @@
 """Pesquisa externa (mercado, referências, creators, UGC) — interface extensível.
 
-Hoje **não existe provider real conectado**, e a regra é absoluta: nada aqui
+Sem um provider configurado, e a regra é absoluta: nada aqui
 inventa informação externa. Nenhuma função devolve handle, seguidores, views,
 tendência, concorrente ou benchmark fabricado, e não há scraping improvisado.
 Sem provider configurado, cada consulta responde `not_configured` e quem
@@ -65,11 +65,15 @@ def set_provider(provider: Optional[ExternalResearchProvider]) -> None:
 
 
 def get_provider() -> Optional[ExternalResearchProvider]:
-    return _provider
+    """Resolve provedor por ambiente, sem chamadas de rede no import."""
+    if _provider is not None:
+        return _provider
+    from .external_research_brave import from_environment
+    return from_environment()
 
 
 def provider_configured() -> bool:
-    return _provider is not None
+    return get_provider() is not None
 
 
 def validate_items(items: Any, *, allowed_kinds: tuple[str, ...] = ITEM_KINDS) -> List[Dict[str, Any]]:
@@ -96,7 +100,7 @@ def unavailable(reason: str = STATUS_NOT_CONFIGURED) -> Dict[str, Any]:
 
 
 async def _query(method: str, *, client_id: str, query: Dict[str, Any], allowed_kinds: tuple[str, ...]) -> Dict[str, Any]:
-    provider = _provider
+    provider = get_provider()
     if provider is None:
         return unavailable()
     try:
