@@ -100,7 +100,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     try {
       const res = await askMugoIA(q);
       setMessages((m) => [...(m || []), { id: res.id, role: "assistant", content: res.answer,
-        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage } }]);
+        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status } }]);
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
@@ -166,6 +166,15 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
                 {isLast && m.meta?.coverage?.gaps?.length ? <div className="miaChips is-gap"><span className="miaChipsLabel">Sem dado agora</span>
                   {m.meta.coverage.gaps.map((g) => <span key={g} className="miaChip">{gapLabel(g)}</span>)}</div> : null}
               </div> : null}
+              {m.meta?.web_sources?.length ? <div className="miaMeta">
+                <div className="miaChips"><span className="miaChipsLabel">Fontes públicas consultadas</span></div>
+                <ul className="miaWebSources">{m.meta.web_sources.map((s) => <li key={s.url}>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+                  <small>Pesquisa: {s.researched_at.slice(0, 10)}</small>
+                </li>)}</ul>
+              </div> : null}
+              {m.meta?.web_status && !["not_needed", "ok"].includes(m.meta.web_status) && isLast ?
+                <p className="miaHint">Pesquisa web indisponível ou sem fontes verificáveis neste momento.</p> : null}
               {facts.length && canManage ? <div className="miaFact">
                 <div><b>Fato novo sobre a marca</b><ul>{facts.map((f) => <li key={f}>{f}</li>)}</ul></div>
                 {saved[key]

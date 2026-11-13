@@ -417,9 +417,10 @@ export function clearBrandAgent() { return http<{ ok: true }>(base("/brand-agent
 
 // Mugoverso IA: responde tudo do mundo do cliente, lendo todo o contexto dele (dados, material, saúde, concorrentes, clipping…).
 export type MugoIACoverage = { read: string[]; gaps: string[] };
-export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage };
+export type MugoIAWebSource = { title: string; url: string; researched_at: string; snippet?: string };
+export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
 export type MugoIAMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string; meta?: MugoIAMeta };
-export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage };
+export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
 export function getMugoIA() { return http<{ messages: MugoIAMessage[] }>(base("/mugo-ia")); }
 export function askMugoIA(question: string) {
   return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question }), timeoutMs: 120_000 });
