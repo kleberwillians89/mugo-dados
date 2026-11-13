@@ -13,13 +13,27 @@ import { newDone } from "./chatWidget.helpers";
 let host: HTMLDivElement;
 let root: Root;
 const published = { id: "p-1", at: "2026-11-05T18:40:00Z", side: "mugo", kind: "publicado", text: "Publicado no Instagram: “Seu treino não é aleatório”", detail: null, item_id: "1", link: "https://instagram.com/p/x" };
+// Node 25+ expõe um localStorage global experimental (undefined sem --localstorage-file) que esconde o do jsdom:
+// o teste usa armazenamento em memória próprio, igual em qualquer versão do Node.
+function memoryStorage(): Storage {
+  const data = new Map<string, string>();
+  return {
+    get length() { return data.size; },
+    clear: () => data.clear(),
+    getItem: (key) => data.get(key) ?? null,
+    key: (i) => [...data.keys()][i] ?? null,
+    removeItem: (key) => { data.delete(key); },
+    setItem: (key, value) => { data.set(key, String(value)); },
+  };
+}
 beforeEach(() => {
-  localStorage.clear(); sessionStorage.clear();
+  vi.stubGlobal("localStorage", memoryStorage());
+  vi.stubGlobal("sessionStorage", memoryStorage());
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
   studio.listChat.mockResolvedValue({ messages: [] });
   studio.listTimeline.mockResolvedValue({ events: [published, { id: "t-1", at: "2026-11-05T10:00:00Z", side: "cliente", kind: "aprovado", text: "x", detail: null, item_id: null }] });
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); await act(async () => {}); };
 
 describe("ChatWidget", () => {
