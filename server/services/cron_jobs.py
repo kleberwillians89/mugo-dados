@@ -369,6 +369,42 @@ async def run_google_ads_sync_all(window_days: int = 7) -> Dict[str, Any]:
     return _provider_job_summary("google_ads_sync", conns, results, window_days)
 
 
+async def _refresh_fbits_official_snapshot(client_id: str) -> str:
+    """Mantém fresco o snapshot de KPI oficial que o overview/MCP lê.
+
+    O overview usa a janela móvel de 30 dias (hoje-29..hoje, UTC) — a mesma chave
+    que `persisted_snapshot` espera. Como nada além do clique manual persistia esse
+    snapshot, empresas com pedidos sincronizados apareciam como "sem dados". Aqui
+    ele é renovado no job recorrente, no máximo 1x/dia por empresa (se o snapshot
+    de hoje já existe, não repete, para não martelar GET /dashboard/faturamento).
+
+    Best-effort: qualquer falha vira apenas um rótulo no resultado; nunca
+    interrompe o sync de pedidos nem as demais empresas.
+    """
+    from datetime import datetime, timezone, timedelta
+    from .fbits_official_kpis import (
+        refresh_persisted_official_kpis, persisted_snapshot,
+        load_fbits_connection, OfficialKpisUnavailable,
+    )
+    today = datetime.now(timezone.utc).date()
+    start, end = (today - timedelta(days=29)).isoformat(), today.isoformat()
+    prev_start, prev_end = (today - timedelta(days=59)).isoformat(), (today - timedelta(days=30)).isoformat()
+    try:
+        row = await load_fbits_connection(client_id)
+        try:
+            entry, _ = persisted_snapshot(row, start, end, prev_start, prev_end)
+            if str(entry.get("updated_at") or "")[:10] == end:
+                return "fresh"
+        except OfficialKpisUnavailable:
+            pass
+        await refresh_persisted_official_kpis(client_id, start, end)
+        return "refreshed"
+    except OfficialKpisUnavailable as exc:
+        return f"unavailable:{exc.code}"
+    except Exception as exc:
+        return f"error:{exc.__class__.__name__}"
+
+
 async def run_fbits_sync_all(window_days: int = 1) -> Dict[str, Any]:
     """Sincronização recorrente da FBITS, por empresa.
 
@@ -382,8 +418,11 @@ async def run_fbits_sync_all(window_days: int = 1) -> Dict[str, Any]:
     empresa para sempre depois do primeiro erro. Só conexão desconectada é
     ignorada. Uma empresa que falha não interrompe as demais.
 
-    Os KPIs executivos continuam vindo de GET /dashboard/faturamento: este job
-    atualiza apenas os dados analíticos derivados de /pedidos.
+    Os KPIs executivos continuam vindo de GET /dashboard/faturamento: após
+    sincronizar os pedidos de cada empresa, o job também renova o snapshot oficial
+    da janela móvel de 30 dias (`_refresh_fbits_official_snapshot`, 1x/dia,
+    best-effort), para que o overview/MCP não mostre "sem dados" quando os pedidos
+    já existem.
     """
     from .fbits_connections import PROVIDER as FBITS_PROVIDER, sync_fbits_connection
 
@@ -408,11 +447,13 @@ async def run_fbits_sync_all(window_days: int = 1) -> Dict[str, Any]:
                 client_id=client_id, job_name="fbits_sync_cron",
                 trigger_source="cron", record_job_run=True,
             )
+            official = await _refresh_fbits_official_snapshot(client_id)
             results.append({
                 "client_id": client_id, "connection_id": connection_id, "ok": True,
                 "mode": response.get("mode"),
                 "orders_upserted": response.get("orders_upserted"),
                 "requests": response.get("requests"),
+                "official_snapshot": official,
             })
         except Exception as exc:
             # Mensagem já sanitizada pela IntegrationError/FbitsApiError.

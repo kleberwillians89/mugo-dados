@@ -214,9 +214,27 @@ async def resolve_commerce_context(
             entry, value = persisted_snapshot(resolved.get("_connection"), start, end,
                 (date.fromisoformat(start) - timedelta(days=days)).isoformat(),
                 (date.fromisoformat(start) - timedelta(days=1)).isoformat())
-        except OfficialKpisUnavailable as exc:
-            return {**_empty_context("unavailable"), "provider": FBITS, "provider_label": PROVIDER_LABELS[FBITS],
-                "connected": True, "unavailable_reason": exc.code, "ambiguous": resolved["ambiguous"], "active_providers": resolved["active_providers"]}
+        except OfficialKpisUnavailable:
+            # Sem snapshot oficial exato do período (comum na janela móvel, cuja
+            # chave start:end:prev muda a cada dia): em vez de reportar "sem dados"
+            # com pedidos já sincronizados, cai para esses pedidos — a mesma fonte
+            # do get_sales_by_origin — com procedência honesta (kpi_source =
+            # fbits_orders_fallback), nunca escondida. O caminho rápido (snapshot
+            # presente) continua sem varrer pedidos; esta varredura só ocorre no
+            # miss, e o job recorrente mantém o snapshot fresco para reduzi-lo.
+            from .fbits_reporting import FbitsPeriod, build_fbits_summary
+            try:
+                summary = await build_fbits_summary(client_id=client_id, period=FbitsPeriod(start=start, end=end))
+            except Exception as exc:
+                print(
+                    f"[intelligence][commerce] client_id={client_id} provider=fbits "
+                    f"stage=orders_fallback status=unavailable error_type={exc.__class__.__name__}"
+                )
+                return {**_empty_context("unavailable"), "provider": FBITS, "provider_label": PROVIDER_LABELS[FBITS],
+                    "connected": True, "ambiguous": resolved["ambiguous"], "active_providers": resolved["active_providers"]}
+            context = build_fbits_commerce_context(summary)
+            return {**context, "connection_id": resolved["connection_id"], "ambiguous": resolved["ambiguous"],
+                    "active_providers": resolved["active_providers"]}
         from .fbits_reporting import _comparison_or_empty
         current, previous = value["current"], value.get("previous") or {}
         context = build_fbits_commerce_context({"connected": True, "kpi_source": "fbits_dashboard",
