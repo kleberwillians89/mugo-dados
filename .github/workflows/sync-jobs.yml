@@ -74,17 +74,20 @@ jobs:
         run: |
           gh label create jobs-parados --color B22234 --description "Jobs automáticos falhando" 2>/dev/null || true
           now="$(TZ=America/Sao_Paulo date '+%d/%m %H:%M')"
-          number="$(gh issue list --label jobs-parados --state open --json number --jq '.[0].number // empty')"
+          # Um alerta por job: falha do GA4 não é fechada por outro job que deu certo.
+          job="${CMD%% *}"
+          title="Job parado: ${job}"
+          number="$(gh issue list --label jobs-parados --state open --limit 100 --json number,title --jq "[.[] | select(.title == \"${title}\")][0].number // empty")"
           body="Último job com falha: \`${CMD%% *}\` em ${now} (horário de Brasília).
 
           Execução: ${RUN_URL}
 
           Causa mais comum: segredo MUGO_JOBS_ENV incompleto (ele precisa do bloco inteiro de variáveis do Render).
-          Esta issue fecha sozinha quando um job voltar a rodar com sucesso."
+          Esta issue fecha sozinha quando \`${job}\` voltar a rodar com sucesso (outros jobs não fecham)."
           if [ -n "$number" ]; then
             gh issue edit "$number" --body "$body"
           else
-            gh issue create --title "Jobs automáticos falhando" --label jobs-parados --body "$body"
+            gh issue create --title "$title" --label jobs-parados --body "$body"
           fi
 
       - name: Fecha o alerta quando volta a funcionar
@@ -93,6 +96,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CMD: ${{ steps.pick.outputs.cmd }}
         run: |
-          for number in $(gh issue list --label jobs-parados --state open --json number --jq '.[].number'); do
-            gh issue close "$number" --comment "Voltou: \`${CMD%% *}\` rodou com sucesso em $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')."
+          job="${CMD%% *}"
+          # Fecha só o alerta deste job (e o antigo, genérico, de antes desta regra).
+          for number in $(gh issue list --label jobs-parados --state open --limit 100 --json number,title \
+              --jq ".[] | select(.title == \"Job parado: ${job}\" or .title == \"Jobs automáticos falhando\") | .number"); do
+            gh issue close "$number" --comment "Voltou: \`${job}\` rodou com sucesso em $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')."
           done
