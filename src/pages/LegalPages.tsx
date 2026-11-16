@@ -2,8 +2,9 @@ import MugoLogo from "../components/MugoLogo";
 import { LEGAL_CONTACT } from "../app/legalContact";
 import "../styles/LegalPages.css";
 
-/* Minutas para revisão jurídica. Não presumir certificação, prazos de retenção
-   nem configurações de treinamento da OpenAI. Não publicar sem revisão. */
+/* Textos legais da AURUM INTELLIGENCE LTDA (marca Mugô). Ainda passam por revisão jurídica final:
+   ficam pendentes só o nome do Encarregado (DPO), o foro e os níveis de serviço. Não afirmar
+   certificação nem configuração de treinamento da OpenAI que não esteja contratada. */
 type PageName = "privacy" | "terms" | "deletion" | "protection";
 type Section = { title: string; paragraphs?: string[]; points?: string[] };
 const english = () => typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/en/");
@@ -49,101 +50,181 @@ function LegalSections({ sections }: { sections: Section[] }) {
     {s.points?.length ? <ul>{s.points.map((p,j) => <li key={j}>{p}</li>)}</ul> : null}
   </section>)}</>;
 }
+const COMPANY = "AURUM INTELLIGENCE LTDA";
+const CNPJ = "63.072.471/0001-25";
+const RETENTION_DAYS = 90;
+
 const privacyPT: Section[] = [
-  {title:"1. Responsável, contexto e finalidades", paragraphs:[
-    "Mugoverso é uma plataforma SaaS B2B da Mugô para análise de marketing, comércio, relacionamento e operações. A pessoa jurídica responsável é [RAZÃO SOCIAL], [CNPJ]. A definição de controlador ou operador depende da relação contratual.",
-    "A plataforma processa dados para autenticar pessoas, conectar ativos escolhidos, gerar painéis e relatórios, planejar campanhas, oferecer suporte, manter segurança e, quando solicitado, elaborar análises por IA. A base legal aplicável depende da operação, contrato, obrigação legal ou consentimento quando exigido."
+  {title:"1. Quem somos e papéis na LGPD", paragraphs:[
+    `O Mugoverso é uma plataforma SaaS B2B da marca Mugô, operada por ${COMPANY}, CNPJ ${CNPJ} ("nós"), para análise de marketing, comércio, relacionamento e operações de empresas clientes.`,
+    "Somos CONTROLADORES dos dados das pessoas que usam a plataforma (cadastro, login, papéis, registros de uso e suporte). Somos OPERADORES dos dados que cada empresa cliente conecta ou envia (contas de anúncios, redes sociais, loja, documentos e dados de compradores finais): nesses casos a empresa cliente é a controladora e nós tratamos os dados somente para prestar o serviço contratado, conforme as instruções dela.",
   ]},
-  {title:"2. Dados consultados em integrações autorizadas", paragraphs:["As fontes e permissões disponíveis dependem da aprovação de cada provedor e da autorização de cada empresa. A presença de um conector no produto não significa que ele esteja ativo para todos."], points:[
-    "Meta / Facebook / Instagram: identificação da conta (public_profile), Páginas (pages_show_list, pages_read_engagement), perfil e conteúdo profissional (instagram_basic, instagram_manage_insights), relatórios de anúncios (ads_read) e seleção de Business Managers (business_management). Com ads_management, o Mídia On pode criar campanhas, conjuntos, criativos e anúncios em estado pausado.",
-    "Google: identificação da conta via OAuth; relatórios de Google Analytics 4 (analytics.readonly), Google Ads (adwords) e leitura de eventos do Calendar (calendar.readonly), quando vinculados.",
-    "Shopify: pedidos, produtos e clientes (read_orders, read_all_orders quando autorizado, read_products, read_customers). Pedidos podem conter dados pessoais de compradores finais, incluindo nome, contato, endereço e itens comprados, conforme disponibilizados pela loja.",
-    "TikTok Ads: contas e relatórios de investimento, impressões, cliques, conversões e outras métricas disponíveis na Marketing API.",
-    "TikTok orgânico: dados básicos e estatísticos da conta e vídeos autorizados (user.info.basic, user.info.stats e video.list). O conector de leitura não publica, edita ou remove vídeos.",
-    "Pinterest: contas, quadros e pins (user_accounts:read, boards:read e pins:read), com relatórios de publicidade (ads:read).",
-    "LinkedIn: contas de publicidade e relatórios (r_ads, r_ads_reporting), páginas de organizações e conteúdo autorizado (r_organization_admin, r_organization_social).",
-    "Microsoft Clarity: métricas agregadas de comportamento e navegação fornecidas por token de projeto, incluindo sessões e interações; não pressupõe coleta irrestrita de gravações.",
-    "Ferramentas de IA: perguntas e trechos de contexto empresarial autorizado podem ser enviados à API da OpenAI para produzir análises. Pesquisas públicas podem trazer informações e URLs externas identificadas como tais."
+  {title:"2. Dados que tratamos", points:[
+    "Usuários da plataforma: nome, e-mail profissional, empresa, papel e permissões, registros de acesso (data, hora, IP) e preferências da interface.",
+    "Dados das integrações autorizadas por cada empresa: métricas de anúncios, redes sociais, site e loja; conteúdos publicados; comentários e mensagens recebidas nos canais conectados; pedidos e produtos. Pedidos da loja (Shopify, FBits) podem conter nome, contato, endereço e itens comprados de compradores finais.",
+    "Materiais enviados pela empresa (apresentações, briefings, tabelas) e informações de negócio cadastradas (perfil da marca, metas, fornecedores, concorrentes monitorados).",
+    "Não tratamos dados pessoais sensíveis (art. 5º, II, LGPD) de forma intencional nem dados de crianças e adolescentes. A empresa cliente não deve enviar esse tipo de dado.",
   ]},
-  {title:"3. Segurança e provedores de infraestrutura", paragraphs:[
-    "O acesso é autenticado e associado à empresa autorizada. O backend aplica verificações por tenant e protege credenciais de integração criptografadas, sem expor os segredos de API no navegador.",
-    "O serviço utiliza Vercel (frontend), Render (backend), Supabase (autenticação e dados) e OpenAI (processamento de solicitações de IA). Pode haver processamento internacional conforme os contratos aplicáveis. A configuração específica de retenção e eventual uso de dados pela OpenAI para treinamento deve ser confirmada contratualmente; não afirmamos uma garantia que não foi verificada."
+  {title:"3. Para que usamos e bases legais (art. 7º da LGPD)", points:[
+    "Prestar o serviço contratado: autenticar, conectar contas, gerar painéis, relatórios, calendários e campanhas (execução de contrato, art. 7º, V).",
+    "Análises e recomendações por IA solicitadas pela empresa (execução de contrato; para dados de compradores finais, conforme instruções do controlador).",
+    "Segurança, prevenção a fraudes, auditoria e melhoria da plataforma com dados agregados (legítimo interesse, art. 7º, IX, com avaliação de impacto e medidas de proteção).",
+    "Guarda de registros de acesso e cumprimento de obrigações legais e regulatórias (art. 7º, II; Marco Civil da Internet, art. 15).",
+    "E-mail marketing e mensagens promocionais enviadas pela empresa cliente aos seus contatos: base legal definida pela empresa controladora, em regra o consentimento, com descadastro em 1 clique em cada envio.",
   ]},
-  {title:"4. Dados das APIs do Google — Limited Use", paragraphs:[
-    "O uso e a transferência de informações recebidas das APIs do Google observam a Google API Services User Data Policy, incluindo os requisitos de Limited Use. O uso destina-se às funções solicitadas pelo usuário; não se destina à venda de dados do Google nem à publicidade personalizada baseada nesses dados. O acesso humano a dados do Google deve ficar restrito às hipóteses permitidas pela política, como consentimento afirmativo, segurança, obrigação legal ou operações internas com dados agregados e desidentificados."
+  {title:"4. Integrações autorizadas", paragraphs:["Cada conector só funciona depois que a empresa autoriza a conta no provedor, e só com as permissões concedidas."], points:[
+    "Meta / Facebook / Instagram: identificação da conta (public_profile), Páginas (pages_show_list, pages_read_engagement), conteúdo profissional e insights (instagram_basic, instagram_manage_insights), comentários e mensagens recebidas para resposta pela equipe, relatórios de anúncios (ads_read) e Business Managers (business_management). Com ads_management, o Mídia On cria campanhas, conjuntos, criativos e anúncios em estado pausado.",
+    "Google: identificação via OAuth; Google Analytics 4 (analytics.readonly), Google Ads (adwords) e eventos do Calendar (calendar.readonly), quando vinculados.",
+    "Shopify e FBits: pedidos, produtos e clientes da loja, inclusive dados de compradores finais.",
+    "TikTok (anúncios e orgânico, somente leitura), Pinterest, LinkedIn, Microsoft Clarity (métricas agregadas) e WhatsApp (mensagens da equipe e do canal conectado).",
   ]},
-  {title:"5. Retenção, desconexão e direitos", paragraphs:[
-    "Os dados são mantidos conforme a prestação do serviço, obrigações legais e contratos. Prazo de retenção: [PRAZO DE RETENÇÃO — definir com jurídico]. Desconectar uma conta interrompe novas coletas pela autorização local, mas não elimina automaticamente o histórico importado. A empresa pode revogar permissões nas configurações do provedor e solicitar exclusão do histórico pela página de exclusão de dados.",
-    "Solicitações de informação, correção, acesso ou exclusão são verificadas para impedir o acesso indevido aos dados de outra empresa. O Mugoverso não vende dados de clientes como produto."
-  ]}
+  {title:"5. Inteligência artificial e pesquisa pública", paragraphs:[
+    "As funções de IA (Tira-dúvidas, criação de conteúdo, briefing, esteira de agentes, clipping) enviam à API da OpenAI a pergunta e o contexto de negócio autorizado daquela empresa. Antes do envio, aplicamos minimização: textos com padrão de e-mail, telefone, CPF ou CNPJ são removidos, dados de compradores vão apenas agregados (totais, nunca a pessoa) e telefone, e-mail e nome de contato de fornecedores não são enviados.",
+    "A pesquisa pública na web (Brave Search) recebe apenas termos públicos, como o nome da marca, o segmento e os concorrentes monitorados; nunca perguntas, métricas, documentos ou dados pessoais.",
+    "Conteúdo gerado por IA é uma sugestão e passa por revisão humana da equipe antes de ser publicado ou enviado ao cliente.",
+  ]},
+  {title:"6. Com quem compartilhamos (operadores e suboperadores)", points:[
+    "Vercel (hospedagem do site), Render (servidor de aplicação), Supabase (autenticação e banco de dados), GitHub (execução de rotinas automáticas), OpenAI (processamento de IA) e Brave Search (pesquisa pública).",
+    "Os provedores das integrações (Meta, Google, Shopify, FBits, TikTok, Pinterest, LinkedIn, Microsoft) quando a empresa conecta ou age por eles.",
+    "Autoridades, quando houver obrigação legal ou ordem judicial. Não vendemos dados pessoais.",
+  ]},
+  {title:"7. Transferência internacional", paragraphs:[
+    "Parte dos provedores processa dados fora do Brasil (por exemplo, Estados Unidos). Essas transferências seguem o art. 33 da LGPD, com cláusulas contratuais e garantias de proteção oferecidas pelos provedores.",
+  ]},
+  {title:"8. Por quanto tempo guardamos", paragraphs:[
+    `Enquanto o contrato estiver ativo, os dados ficam disponíveis para a prestação do serviço. Após o encerramento do contrato ou o pedido de exclusão de uma conexão, os dados da empresa e os importados das integrações são eliminados ou anonimizados em até ${RETENTION_DAYS} dias, prazo em que a empresa pode solicitar exportação.`,
+    "Mantemos por mais tempo apenas o que a lei exige: registros de acesso por 6 meses (Marco Civil da Internet, art. 15) e documentos fiscais e contratuais pelos prazos legais.",
+    "Desconectar uma conta interrompe novas coletas imediatamente; a eliminação do histórico já importado segue o prazo acima ou ocorre antes, a pedido.",
+  ]},
+  {title:"9. Seus direitos (art. 18 da LGPD)", paragraphs:["O titular pode pedir, a qualquer momento:"], points:[
+    "confirmação de que tratamos seus dados e acesso a eles;",
+    "correção de dados incompletos, inexatos ou desatualizados;",
+    "anonimização, bloqueio ou eliminação de dados desnecessários ou tratados em desconformidade;",
+    "portabilidade a outro fornecedor;",
+    "eliminação dos dados tratados com consentimento e informação sobre a possibilidade de não consentir;",
+    "informação sobre com quem compartilhamos os dados;",
+    "revogação do consentimento e revisão de decisões automatizadas.",
+  ]},
+  {title:"10. Como exercer e prazo de resposta", paragraphs:[
+    "Pedidos de usuários da plataforma são respondidos por nós. Pedidos de compradores finais de uma loja cliente são encaminhados à empresa controladora, e nós a apoiamos no atendimento.",
+    "Respondemos em até 15 dias (art. 19, II, LGPD), após confirmar a identidade e o vínculo do solicitante, para impedir acesso indevido a dados de outra pessoa ou empresa.",
+  ]},
+  {title:"11. Segurança e incidentes", paragraphs:[
+    "Acesso autenticado e por papel, isolamento entre empresas validado no servidor, credenciais de integração criptografadas, registros de auditoria sem senhas ou tokens e menor privilégio para a equipe.",
+    "Em incidente de segurança com risco relevante, comunicamos a ANPD e os titulares afetados em prazo razoável (art. 48 da LGPD) e as empresas clientes envolvidas.",
+  ]},
+  {title:"12. Cookies e armazenamento local", paragraphs:[
+    "A plataforma usa apenas armazenamento essencial: a sessão de login e preferências da interface (por exemplo, menu recolhido). Não usamos cookies de publicidade nem rastreadores de terceiros no Mugoverso.",
+  ]},
+  {title:"13. Dados das APIs do Google — Limited Use", paragraphs:[
+    "O uso e a transferência de informações recebidas das APIs do Google observam a Google API Services User Data Policy, incluindo os requisitos de Limited Use. Esses dados servem só às funções solicitadas pelo usuário, não são vendidos nem usados para publicidade personalizada, e o acesso humano fica restrito a consentimento afirmativo, segurança, obrigação legal ou operações internas com dados agregados e desidentificados.",
+  ]},
+  {title:"14. Encarregado (DPO) e alterações", paragraphs:[
+    `Encarregado pelo tratamento de dados pessoais de ${COMPANY}: [NOME DO ENCARREGADO], pelo e-mail informado em Contato. Mudanças relevantes nesta política serão avisadas na plataforma.`,
+  ]},
 ];
 const privacyEN: Section[] = [
-  {title:"1. Operator, context and purposes", paragraphs:[
-    "Mugoverso is a B2B marketing, commerce and operations analytics SaaS platform provided by Mugô. The legal entity is [LEGAL ENTITY NAME], [BRAZILIAN TAX ID/CNPJ]. Controller and processor roles depend on the applicable contract.",
-    "Data is processed to authenticate users, connect selected accounts, provide dashboards and reports, plan campaigns, support customers, secure the service and, when requested, generate AI-assisted insights. The applicable legal basis depends on the processing activity and may include contract performance, legal obligations, legitimate interests with safeguards, or consent when required."
+  {title:"1. Who we are and roles under the LGPD", paragraphs:[
+    `Mugoverso is a B2B SaaS platform under the Mugô brand, operated by ${COMPANY}, Brazilian CNPJ ${CNPJ} ("we"), for marketing, commerce, relationship and operations analytics.`,
+    "We are the CONTROLLER of platform users' data (registration, login, roles, usage logs and support). We are a PROCESSOR of data each customer connects or uploads (ad accounts, social media, store, documents and end-buyer data): the customer is the controller and we process it only to provide the contracted service, following its instructions.",
   ]},
-  {title:"2. Data accessed via authorized integrations", paragraphs:["Each feature depends on provider approval, granted permissions and the organization's authorization. A supported connector is not necessarily enabled for every organization."], points:[
-    "Meta / Facebook / Instagram: authorized account identity (public_profile), Pages (pages_show_list, pages_read_engagement), professional Instagram content and insights (instagram_basic, instagram_manage_insights), ad reports (ads_read) and Business Manager discovery (business_management). When ads_management is authorized, Media On may create paused campaigns, ad sets, creatives and ads.",
-    "Google: OAuth account identity, GA4 reporting (analytics.readonly), Google Ads reporting (adwords), and read-only Google Calendar events (calendar.readonly) when enabled.",
-    "Shopify: orders, products and customers (read_orders, read_all_orders when authorized, read_products, read_customers). Orders may include end-customer names, contact information, addresses and purchased items.",
-    "TikTok Ads: authorized ad accounts and campaign spend, impressions, clicks, conversions and related metrics from the Marketing API.",
-    "TikTok organic: basic account data, profile statistics and authorized videos (user.info.basic, user.info.stats and video.list). This read-only connection does not publish, edit or delete videos.",
-    "Pinterest: accounts, boards and pins (user_accounts:read, boards:read and pins:read), plus advertising metrics (ads:read).",
-    "LinkedIn: ad accounts and reporting (r_ads, r_ads_reporting), authorized organization page information and content (r_organization_admin, r_organization_social).",
-    "Microsoft Clarity: aggregated site interaction metrics obtained with an authorized project token, including session and navigation metrics. This is not unrestricted access to session recordings.",
-    "AI and public research: questions and selected authorized business context may be sent to the OpenAI API to generate analyses. Public search results may provide external links and citations."
+  {title:"2. Data we process", points:[
+    "Platform users: name, business email, company, role and permissions, access logs (date, time, IP) and interface preferences.",
+    "Data from authorized integrations: ad, social, website and store metrics; published content; comments and messages received on connected channels; orders and products. Store orders (Shopify, FBits) may include end-buyer names, contact details, addresses and items.",
+    "Materials uploaded by the customer and business information (brand profile, goals, suppliers, monitored competitors).",
+    "We do not intentionally process sensitive personal data or data of children and adolescents. Customers must not upload such data.",
   ]},
-  {title:"3. Security and service providers", paragraphs:[
-    "Access is authenticated and restricted to authorized organizations. The backend checks tenant permissions and encrypts stored integration credentials without exposing API secrets to the browser.",
-    "Infrastructure providers include Vercel (frontend), Render (backend), Supabase (authentication and database), and OpenAI (AI request processing). International processing may occur under applicable agreements. Specific OpenAI training and retention settings must be confirmed against the actual account configuration; no unverified guarantee is made."
+  {title:"3. Purposes and legal bases (LGPD art. 7)", points:[
+    "Providing the contracted service (contract performance, art. 7, V).",
+    "AI analyses and recommendations requested by the customer (contract performance; for end-buyer data, per the controller's instructions).",
+    "Security, fraud prevention, auditing and improvement using aggregated data (legitimate interest, art. 7, IX, with safeguards).",
+    "Retention of access logs and compliance with legal obligations (art. 7, II; Brazilian Internet Civil Framework, art. 15).",
+    "Email marketing sent by the customer to its contacts: legal basis defined by the customer as controller, usually consent, with one-click unsubscribe in every message.",
   ]},
-  {title:"4. Google API Services User Data Policy — Limited Use", paragraphs:[
-    "Use and transfer of information received from Google APIs adhere to the Google API Services User Data Policy, including its Limited Use requirements. Google user data is used to provide user-requested functions, not sold or used for personalized advertising based on that data. Human access must be restricted to policy-permitted circumstances, such as affirmative consent, security, legal obligations, or aggregated and de-identified internal operations."
+  {title:"4. Authorized integrations", paragraphs:["Each connector only works after the customer authorizes the account at the provider, and only with the granted permissions."], points:[
+    "Meta / Facebook / Instagram: account identity (public_profile), Pages (pages_show_list, pages_read_engagement), professional content and insights (instagram_basic, instagram_manage_insights), comments and messages received for team replies, ad reports (ads_read) and Business Managers (business_management). With ads_management, Media On creates paused campaigns, ad sets, creatives and ads.",
+    "Google: OAuth identity; GA4 (analytics.readonly), Google Ads (adwords) and Calendar events (calendar.readonly) when enabled.",
+    "Shopify and FBits: store orders, products and customers, including end-buyer data.",
+    "TikTok (ads and organic, read-only), Pinterest, LinkedIn, Microsoft Clarity (aggregated metrics) and WhatsApp (team and connected channel messages).",
   ]},
-  {title:"5. Retention, disconnection and rights", paragraphs:[
-    "Records are retained as needed for service delivery, legal obligations and contracts. Retention period: [RETENTION PERIOD — legal review required]. Disconnecting an account stops further access under the local authorization but does not automatically erase imported historical metrics. Users may revoke permissions through the respective providers and request removal under the Data Deletion instructions.",
-    "Access, correction, information and deletion requests are verified to prevent unauthorized changes to another organization's information. Mugoverso does not sell customer data as a product."
-  ]}
+  {title:"5. Artificial intelligence and public search", paragraphs:[
+    "AI features send the question and the authorized business context of that customer to the OpenAI API. Before sending, we minimize data: text matching email, phone, CPF or CNPJ patterns is removed, buyer data is sent only as aggregates, and supplier contact details are never sent.",
+    "Public web search (Brave Search) receives only public terms such as the brand name, segment and monitored competitors; never questions, metrics, documents or personal data.",
+    "AI output is advisory and is reviewed by the team before being published or sent to the customer.",
+  ]},
+  {title:"6. Sharing (processors and sub-processors)", points:[
+    "Vercel (website hosting), Render (application server), Supabase (authentication and database), GitHub (scheduled jobs), OpenAI (AI processing) and Brave Search (public search).",
+    "Integration providers (Meta, Google, Shopify, FBits, TikTok, Pinterest, LinkedIn, Microsoft) when the customer connects or acts through them.",
+    "Authorities, when legally required. We do not sell personal data.",
+  ]},
+  {title:"7. International transfers", paragraphs:["Some providers process data outside Brazil (e.g., United States), under LGPD art. 33 with contractual clauses and provider safeguards."]},
+  {title:"8. Retention", paragraphs:[
+    `While the contract is active, data is kept to provide the service. After termination or a deletion request for a connection, customer and imported data are deleted or anonymized within ${RETENTION_DAYS} days, during which the customer may request an export.`,
+    "Only legally required records are kept longer: access logs for 6 months and tax and contract records for the legal periods.",
+    "Disconnecting an account stops new collection immediately; previously imported history is deleted within the period above, or earlier upon request.",
+  ]},
+  {title:"9. Data subject rights (LGPD art. 18)", points:[
+    "confirmation and access; correction; anonymization, blocking or deletion; portability; deletion of consent-based data; information on sharing; consent withdrawal and review of automated decisions.",
+  ]},
+  {title:"10. Exercising rights and response time", paragraphs:[
+    "We answer requests from platform users. Requests from a customer's end buyers are forwarded to that customer as controller, and we support the response.",
+    "We respond within 15 days (LGPD art. 19, II) after verifying identity and authorization.",
+  ]},
+  {title:"11. Security and incidents", paragraphs:[
+    "Authenticated role-based access, server-side tenant isolation, encrypted integration credentials, audit logs without passwords or tokens, and least privilege for staff.",
+    "Security incidents with relevant risk are reported to the ANPD and affected data subjects within a reasonable time (LGPD art. 48), and to the customers involved.",
+  ]},
+  {title:"12. Cookies and local storage", paragraphs:["Only essential storage is used: the login session and interface preferences. No advertising cookies or third-party trackers run in Mugoverso."]},
+  {title:"13. Google API Services User Data Policy — Limited Use", paragraphs:[
+    "Use and transfer of information received from Google APIs adhere to the Google API Services User Data Policy, including Limited Use requirements. Google user data serves only user-requested functions, is not sold or used for personalized advertising, and human access is limited to affirmative consent, security, legal obligations or aggregated, de-identified internal operations.",
+  ]},
+  {title:"14. Data Protection Officer and changes", paragraphs:[
+    `Data Protection Officer (Encarregado) of ${COMPANY}: [DPO NAME], reachable at the contact address below. Material changes to this policy will be announced in the platform.`,
+  ]},
 ];
 const deletionPT: Section[] = [
-  {title:"1. Como solicitar", paragraphs:["Envie um e-mail ao contato abaixo com o assunto 'Exclusão de dados — Mugoverso'. Informe empresa, nome e e-mail profissional da pessoa responsável, provedor afetado e se deseja remover a conexão, o histórico importado ou ambos. Não envie senhas nem tokens."]},
-  {title:"2. Verificação e prazo", paragraphs:["Confirmaremos a identidade e o vínculo da pessoa solicitante com a empresa. Prazo de resposta: [PRAZO — definir com jurídico]. Obrigações legais ou contratuais podem exigir retenção limitada de certos registros; eventuais restrições serão explicadas."]},
-  {title:"3. Escopo da exclusão", paragraphs:["Após validação, a equipe avaliará a remoção de tokens e credenciais, conexões, dados pessoais relacionados, métricas em channel_daily_metrics e tabelas equivalentes para Meta, Google, Shopify, TikTok, Pinterest, LinkedIn e outros provedores. Excluir dados históricos é diferente de desconectar a conta e requer procedimento específico."]},
-  {title:"4. Desconectar e revogar", paragraphs:["Quando disponível, desconecte os canais nas áreas de Integrações ou Mídia do Mugoverso. Revogue também o acesso nas configurações de aplicativos conectados da Meta, Google, TikTok, Pinterest e LinkedIn, ou na área de apps da Shopify. A revogação no provedor não exclui automaticamente métricas previamente importadas."]},
-  {title:"5. Confirmação", paragraphs:["Após análise, responderemos com o escopo de exclusão realizado, limitações aplicáveis e eventuais dados retidos por obrigação."]}
+  {title:"1. Como solicitar", paragraphs:["Envie um e-mail ao contato abaixo com o assunto 'Exclusão de dados — Mugoverso'. Informe a empresa, o nome e o e-mail profissional da pessoa responsável, o provedor afetado e se deseja remover a conexão, o histórico importado ou ambos. Não envie senhas nem tokens."]},
+  {title:"2. Verificação e prazo", paragraphs:["Confirmamos a identidade e o vínculo do solicitante com a empresa e respondemos em até 15 dias (art. 19, II, LGPD). Registros que a lei obriga a guardar (por exemplo, registros de acesso por 6 meses e documentos fiscais) ficam retidos pelo prazo legal, e informamos quais são."]},
+  {title:"3. O que é excluído", paragraphs:[`Tokens e credenciais, conexões, dados pessoais relacionados, métricas e históricos importados de Meta, Google, Shopify, FBits, TikTok, Pinterest, LinkedIn e demais provedores, materiais enviados e conversas com a IA. Ao fim do contrato, a eliminação ou anonimização ocorre em até ${RETENTION_DAYS} dias mesmo sem pedido.`]},
+  {title:"4. Desconectar e revogar", paragraphs:["Desconecte os canais em Integrações. Revogue também o acesso nas configurações de aplicativos conectados da Meta, Google, TikTok, Pinterest e LinkedIn, ou na área de apps da Shopify. A revogação no provedor interrompe novas coletas; o histórico importado é eliminado conforme o item 3."]},
+  {title:"5. Compradores finais de uma loja", paragraphs:["Se você comprou de uma loja que usa o Mugoverso, a loja é a controladora dos seus dados. Encaminharemos o seu pedido a ela e apoiaremos a resposta."]},
+  {title:"6. Confirmação", paragraphs:["Respondemos com o que foi excluído, o que ficou retido por obrigação legal e até quando."]},
 ];
 const deletionEN: Section[] = [
-  {title:"1. Requesting deletion", paragraphs:["Email the address below with the subject 'Data deletion — Mugoverso'. Include the business name, authorized requester's name and business email, provider, and whether you want the connection, imported history, or both removed. Do not send passwords or tokens."]},
-  {title:"2. Verification and timeframe", paragraphs:["We verify identity and organizational authorization before processing. Response timeframe: [RESPONSE TIME — legal review required]. Legal or contractual obligations may require limited retention of some records; applicable restrictions will be explained."]},
-  {title:"3. Data covered", paragraphs:["Following verification, deletion may involve tokens, credentials, connection records, related personal data, metrics in channel_daily_metrics and equivalent Meta, Google, Shopify, TikTok, Pinterest, LinkedIn and other provider tables. Historical deletion is different from disconnecting an account and requires a separate procedure."]},
-  {title:"4. Disconnect and revoke access", paragraphs:["Where available, disconnect channels in Mugoverso Integrations or Media. Also revoke access in connected-app settings at Meta, Google, TikTok, Pinterest and LinkedIn, or in Shopify's app settings. Provider revocation does not automatically erase previously imported metrics."]},
-  {title:"5. Confirmation", paragraphs:["We will respond confirming the scope of deletion completed, applicable limitations, and any records legally required to be retained."]}
+  {title:"1. Requesting deletion", paragraphs:["Email the address below with the subject 'Data deletion — Mugoverso'. Include the business name, the requester's name and business email, the provider and whether you want the connection, imported history or both removed. Do not send passwords or tokens."]},
+  {title:"2. Verification and timeframe", paragraphs:["We verify identity and authorization and respond within 15 days (LGPD art. 19, II). Records the law requires us to keep (e.g., access logs for 6 months and tax records) are retained for the legal period, and we tell you which."]},
+  {title:"3. What is deleted", paragraphs:[`Tokens and credentials, connections, related personal data, imported metrics and history from Meta, Google, Shopify, FBits, TikTok, Pinterest, LinkedIn and other providers, uploaded materials and AI conversations. After contract termination, deletion or anonymization happens within ${RETENTION_DAYS} days even without a request.`]},
+  {title:"4. Disconnect and revoke access", paragraphs:["Disconnect channels in Integrations. Also revoke access in the connected-app settings at Meta, Google, TikTok, Pinterest and LinkedIn, or in Shopify's app settings. Provider revocation stops new collection; imported history is deleted as described above."]},
+  {title:"5. End buyers of a store", paragraphs:["If you bought from a store that uses Mugoverso, the store is the controller of your data. We forward your request to it and support the response."]},
+  {title:"6. Confirmation", paragraphs:["We confirm what was deleted, what was retained under legal obligation and until when."]},
 ];
 const termsPT: Section[] = [
-  {title:"1. Prestador e serviço", paragraphs:["O Mugoverso é disponibilizado por [RAZÃO SOCIAL], [CNPJ], como plataforma SaaS B2B de análise de marketing e operações. Esta minuta depende de revisão jurídica antes de produzir efeitos contratuais."]},
-  {title:"2. Contas e acesso por empresa", paragraphs:["Cada empresa gerencia os usuários autorizados e deve proteger suas credenciais. A plataforma aplica segregação de acesso entre empresas; o acesso depende do papel e das autorizações atribuídas."]},
-  {title:"3. Responsabilidades e uso aceitável", paragraphs:["A empresa deve possuir autorização para conectar contas de terceiros e tratar os dados importados. É proibido acessar informações de outras empresas, contornar controles, distribuir conteúdo ilícito ou utilizar o serviço de forma abusiva."]},
-  {title:"4. Integrações e dados", paragraphs:["As integrações Meta, Google, Shopify, TikTok, Pinterest, LinkedIn e outras dependem das políticas, disponibilidade e aprovações dos respectivos fornecedores. Os dados comerciais fornecidos ou conectados pelo cliente permanecem sob sua titularidade, observados os direitos de terceiros."]},
-  {title:"5. Inteligência artificial", paragraphs:["Análises e recomendações geradas por IA são auxiliares e podem conter imprecisões. A empresa deve conferir informações antes de tomar decisões sobre anúncios, investimentos, contratos ou tratamento de dados pessoais."]},
-  {title:"6. Disponibilidade e responsabilidade", paragraphs:["Níveis de serviço, disponibilidade, limitações e responsabilidade: [DISPONIBILIDADE E RESPONSABILIDADE — definir com jurídico]. Não há promessa de funcionamento ininterrupto ou de resultado comercial garantido."]},
-  {title:"7. Encerramento e exclusão", paragraphs:["Condições de encerramento: [REGRAS DE ENCERRAMENTO — definir com jurídico]. A desconexão de um serviço não remove automaticamente o histórico; solicitações de exclusão seguem a Política de Privacidade e a página de Exclusão de Dados."]},
-  {title:"8. Alterações, foro e contato", paragraphs:["Alterações destes termos serão informadas conforme procedimento contratual a definir. Foro: [FORO — definir com jurídico]. Entre em contato pelo canal abaixo."]}
+  {title:"1. Prestador e serviço", paragraphs:[`O Mugoverso é disponibilizado por ${COMPANY}, CNPJ ${CNPJ}, sob a marca Mugô, como plataforma SaaS B2B de análise de marketing, comércio e operações.`]},
+  {title:"2. Contas e acesso por empresa", paragraphs:["Cada empresa gerencia os usuários autorizados e deve proteger suas credenciais. A plataforma separa os dados por empresa; o acesso depende do papel e das permissões atribuídas."]},
+  {title:"3. Responsabilidades e uso aceitável", paragraphs:["A empresa declara ter autorização para conectar contas de terceiros e tratar os dados importados, inclusive base legal para os dados de seus clientes finais (por exemplo, consentimento para e-mail marketing). É proibido acessar informações de outras empresas, contornar controles, distribuir conteúdo ilícito ou usar o serviço de forma abusiva."]},
+  {title:"4. Integrações e titularidade dos dados", paragraphs:["As integrações dependem das políticas, disponibilidade e aprovações dos respectivos fornecedores. Os dados comerciais fornecidos ou conectados pela empresa permanecem dela; tratamos esses dados como operadores, para prestar o serviço."]},
+  {title:"5. Inteligência artificial", paragraphs:["Análises, textos e recomendações geradas por IA são auxiliares e podem conter imprecisões. A empresa deve conferir antes de decidir sobre anúncios, investimentos, contratos ou dados pessoais."]},
+  {title:"6. Disponibilidade e responsabilidade", paragraphs:["Níveis de serviço, disponibilidade e limitação de responsabilidade: [DISPONIBILIDADE E RESPONSABILIDADE — definir com jurídico]. Não há promessa de funcionamento ininterrupto nem de resultado comercial garantido."]},
+  {title:"7. Encerramento e exclusão", paragraphs:[`Condições de encerramento: conforme contrato. Após o encerramento, a empresa pode pedir exportação e os dados são eliminados ou anonimizados em até ${RETENTION_DAYS} dias, salvo registros com guarda obrigatória por lei.`]},
+  {title:"8. Proteção de dados", paragraphs:["O tratamento de dados pessoais segue a Política de Privacidade e a LGPD. As partes cooperam no atendimento a titulares e na comunicação de incidentes."]},
+  {title:"9. Alterações e foro", paragraphs:["Alterações destes termos serão avisadas na plataforma com antecedência razoável. Foro: [FORO — definir com jurídico]."]},
 ];
 const termsEN: Section[] = [
-  {title:"1. Provider and service", paragraphs:["Mugoverso is provided by [LEGAL ENTITY NAME], [BRAZILIAN TAX ID/CNPJ], as a B2B marketing analytics and operations SaaS platform. This draft requires legal approval before becoming contractually effective."]},
-  {title:"2. Organization accounts", paragraphs:["Each business manages its authorized users and protects login credentials. Access is separated by organization and governed by assigned roles and permissions."]},
-  {title:"3. Responsibilities and acceptable use", paragraphs:["Customers must be entitled to connect third-party accounts and process imported data. Unauthorized cross-tenant access, bypassing security controls, unlawful content and abusive use are prohibited."]},
-  {title:"4. Integrations and data ownership", paragraphs:["Meta, Google, Shopify, TikTok, Pinterest, LinkedIn and other integrations are subject to the respective providers' terms, availability and approvals. Customer-supplied business data remains the customer's data, subject to third-party rights."]},
-  {title:"5. Artificial intelligence", paragraphs:["AI-generated insights and recommendations are advisory and may be inaccurate. Customers must verify outputs before making advertising, financial, contractual or personal-data decisions."]},
+  {title:"1. Provider and service", paragraphs:[`Mugoverso is provided by ${COMPANY}, Brazilian CNPJ ${CNPJ}, under the Mugô brand, as a B2B marketing, commerce and operations SaaS platform.`]},
+  {title:"2. Organization accounts", paragraphs:["Each business manages its authorized users and protects credentials. Data is separated by organization and access follows assigned roles and permissions."]},
+  {title:"3. Responsibilities and acceptable use", paragraphs:["Customers declare they are entitled to connect third-party accounts and process imported data, including a legal basis for their end customers' data (e.g., consent for email marketing). Cross-tenant access, bypassing controls, unlawful content and abusive use are prohibited."]},
+  {title:"4. Integrations and data ownership", paragraphs:["Integrations depend on providers' terms, availability and approvals. Customer business data remains the customer's; we process it as a processor to provide the service."]},
+  {title:"5. Artificial intelligence", paragraphs:["AI-generated analyses, text and recommendations are advisory and may be inaccurate. Customers must verify before making advertising, financial, contractual or personal-data decisions."]},
   {title:"6. Availability and liability", paragraphs:["Service levels, availability and limitations of liability: [SERVICE LEVELS AND LIABILITY — legal review required]. Uninterrupted access and commercial outcomes are not guaranteed."]},
-  {title:"7. Termination and deletion", paragraphs:["Termination rules: [TERMINATION RULES — legal review required]. Disconnecting a provider does not automatically erase imported history; deletion requests follow the Privacy Policy and Data Deletion page."]},
-  {title:"8. Amendments, venue and contact", paragraphs:["Amendment notice processes remain subject to contract. Venue: [VENUE — legal review required]. Contact us using the address below."]}
+  {title:"7. Termination and deletion", paragraphs:[`Termination conditions: per contract. After termination, the customer may request an export and data is deleted or anonymized within ${RETENTION_DAYS} days, except records the law requires us to keep.`]},
+  {title:"8. Data protection", paragraphs:["Personal data processing follows the Privacy Policy and the LGPD. The parties cooperate on data subject requests and incident notifications."]},
+  {title:"9. Amendments and venue", paragraphs:["Amendments will be announced in the platform with reasonable notice. Venue: [VENUE — legal review required]."]},
 ];
 export function PrivacyPage() {
   const en = english();
   return <main className="legalPage" data-public-route="privacy" data-legal-status="draft-legal-review">
     <LegalHeader title={en ? "Privacy Policy" : "Política de Privacidade"} summary={en ? "How authorized data is processed in the Mugoverso platform." : "Como tratamos os dados autorizados na plataforma Mugoverso."} page="privacy" en={en}/>
-    <article className="legalContent"><LegalSections sections={en ? privacyEN : privacyPT}/><section><h2>{en ? "6. Contact" : "6. Contato"}</h2><p data-legal-contact="privacy">{LEGAL_CONTACT}</p>
+    <article className="legalContent"><LegalSections sections={en ? privacyEN : privacyPT}/><section><h2>{en ? "15. Contact" : "15. Contato"}</h2><p data-legal-contact="privacy">{LEGAL_CONTACT}</p>
       <p><a href={urls.deletion[en ? 1 : 0]}>{en ? "Data deletion instructions" : "Instruções de exclusão de dados"}</a></p></section></article><LegalFooter en={en}/>
   </main>;
 }
@@ -151,7 +232,7 @@ export function DataDeletionPage() {
   const en = english();
   return <main className="legalPage" data-public-route="data-deletion" data-legal-status="draft-legal-review">
     <LegalHeader title={en ? "Data Deletion" : "Exclusão de dados"} summary={en ? "Request deletion of imported data and account authorizations." : "Como solicitar a exclusão de dados importados e autorizações."} page="deletion" en={en}/>
-    <article className="legalContent"><LegalSections sections={en ? deletionEN : deletionPT}/><section><h2>{en ? "6. Contact" : "6. Contato"}</h2><p data-legal-contact="data-deletion">{LEGAL_CONTACT}</p></section></article><LegalFooter en={en}/>
+    <article className="legalContent"><LegalSections sections={en ? deletionEN : deletionPT}/><section><h2>{en ? "7. Contact" : "7. Contato"}</h2><p data-legal-contact="data-deletion">{LEGAL_CONTACT}</p></section></article><LegalFooter en={en}/>
   </main>;
 }
 export function TermsPage() {
@@ -159,7 +240,7 @@ export function TermsPage() {
   return <main className="legalPage" data-public-route="terms" data-legal-status="draft-legal-review">
     <LegalHeader title={en ? "Terms of Service" : "Termos de Uso"} summary={en ? "Terms for the B2B Mugoverso service." : "Condições de utilização do serviço B2B Mugoverso."} page="terms" en={en}/>
     {import.meta.env.MODE !== "production" ? <aside className="legalDraftNote" role="note">{en ? "Legal draft — not approved for publication." : "Minuta pendente de revisão jurídica — não publicar."}</aside> : null}
-    <article className="legalContent"><LegalSections sections={en ? termsEN : termsPT}/><section><h2>{en ? "9. Contact" : "9. Contato"}</h2><p data-legal-contact="terms">{LEGAL_CONTACT}</p></section></article><LegalFooter en={en}/>
+    <article className="legalContent"><LegalSections sections={en ? termsEN : termsPT}/><section><h2>{en ? "10. Contact" : "10. Contato"}</h2><p data-legal-contact="terms">{LEGAL_CONTACT}</p></section></article><LegalFooter en={en}/>
   </main>;
 }
 
