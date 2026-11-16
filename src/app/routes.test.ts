@@ -130,6 +130,9 @@ describe("platform routes", () => {
 
   it("recognizes the public legal routes before protected routing", () => {
     expect(getPublicAppRouteFromPath("/privacidade")).toBe("privacy");
+    expect(getPublicAppRouteFromPath("/en/privacy")).toBe("privacy");
+    expect(getPublicAppRouteFromPath("/en/terms")).toBe("terms");
+    expect(getPublicAppRouteFromPath("/en/data-deletion")).toBe("data_deletion");
     expect(getPublicAppRouteFromPath("/privacidade/")).toBe("privacy");
     expect(getPublicAppRouteFromPath("/exclusao-de-dados")).toBe("data_deletion");
     expect(getPublicAppRouteFromPath("/termos-de-uso")).toBe("terms");
