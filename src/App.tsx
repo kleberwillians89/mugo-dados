@@ -493,8 +493,7 @@ function PrivateApp() {
       if (!force && current?.key === key) return current.promise;
 
       const token = Symbol(key);
-      let promise: Promise<void>;
-      promise = resolveAuthenticatedView(
+      const promise: Promise<void> = resolveAuthenticatedView(
         candidateSession,
         requestedRoute,
         () => bootstrapRunRef.current?.token === token
