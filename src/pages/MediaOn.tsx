@@ -113,7 +113,9 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const autoKey = useRef<string | null>(null);
   useEffect(() => {
     const key = `${clientId}:${month}`;
-    if (!canManage || busy || view || error || !tracking || tracking.plan || history.length || autoKey.current === key) return;
+    if (!canManage || busy || view || error || !tracking ||
+      (tracking.plan && (clientId !== "pace-sneakers-demo" || (tracking.plan.strategy && "scenario" in tracking.plan.strategy))) ||
+      history.length || autoKey.current === key) return;
     autoKey.current = key;
     setAutoMade(true);
     void generate();
