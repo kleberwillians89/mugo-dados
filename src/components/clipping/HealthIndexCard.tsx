@@ -57,7 +57,7 @@ function WeightsEditor({ data, onSaved, onCancel }: { data: HealthIndex; onSaved
 }
 
 /** Índice de saúde MUGOVERSO: nota geral 0–100 + os 5 pilares que ligam conversa, atenção, mídia e vendas. */
-export default function HealthIndexCard({ start, end }: { start: string; end: string }) {
+export default function HealthIndexCard({ start, end, compact = false }: { start: string; end: string; compact?: boolean }) {
   const clientId = getActiveClientId();
   const [nonce, setNonce] = useState(0);
   const key = `${clientId}|${start}|${end}|${nonce}`;
@@ -77,12 +77,27 @@ export default function HealthIndexCard({ start, end }: { start: string; end: st
   const loading = state.key !== key;
   const d = state.data;
   if (!d) {
-    return <section className="bhCard hiCard" aria-busy={loading}>
+    return <section className={`bhCard hiCard${compact ? " is-compact" : ""}`} aria-busy={loading}>
       <h2>Índice de saúde MUGOVERSO</h2>
       {state.error ? <p className="studioError" role="alert">{state.error}</p> : <p className="bhMuted" role="status">Calculando a nota com conversa, Instagram, mídia e vendas…</p>}
     </section>;
   }
   const off = d.pillars.filter((p) => p.score == null && p.weight > 0);
+
+  if (compact) {
+    return <section className={`bhCard hiCard is-compact${loading ? " is-loading" : ""}`} aria-labelledby="hi-title-compact" aria-busy={loading}>
+      <div>
+        <h2 id="hi-title-compact">Saúde da Marca</h2>
+        <p className="bhSub">Índice consolidado do período</p>
+      </div>
+      <div className="hiCompactScore">
+        <strong>{d.index ?? "—"}<small>/100</small></strong>
+        <span className={`hiLabel is-${healthTone(d.index)}`}>{d.label ?? "Sem dados suficientes"}</span>
+      </div>
+      <p className="bhMuted">Cobertura dos indicadores: {d.coverage ?? 0}%{off.length ? ` · sem dado: ${off.map((p) => p.name.toLowerCase()).join(", ")}` : ""}</p>
+      {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
+    </section>;
+  }
 
   return <section className={`bhCard hiCard${loading ? " is-loading" : ""}`} aria-labelledby="hi-title" aria-busy={loading}>
     <div className="hiHead">

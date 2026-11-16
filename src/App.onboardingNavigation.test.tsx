@@ -426,7 +426,7 @@ describe("App — shell global: empresa, administração e conta", () => {
     expect(findNavItem("Empresas")).toBeUndefined();
   });
 
-  it("viewer mantém IA da marca, sem receber funções administrativas privilegiadas", async () => {
+  it("viewer não recebe itens administrativos nem IA da marca na navegação", async () => {
     backend.memberships = [{ client_id: "roove", role: "viewer" }];
     backend.clients = [{ id: "roove", name: "Roove", trade_name: "Roove" }];
     await renderApp();
@@ -436,7 +436,7 @@ describe("App — shell global: empresa, administração e conta", () => {
     expect(findNavItem("Empresas")).toBeUndefined();
     expect(findNavItem("Usuários")).toBeUndefined();
     expect(findNavItem("Automações")).toBeUndefined();
-    expect(findNavItem("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
+    expect(findNavItem("IA da marca")).toBeUndefined();
   });
 
   it("administração da plataforma vê Integrações e Empresas em Configurações", async () => {
@@ -605,7 +605,7 @@ describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
     expect(findNavItem("Empresas")).toBeUndefined();
     expect(findNavItem("Usuários")).toBeUndefined();
     expect(findNavItem("Automações")).toBeUndefined();
-    expect(findNavItem("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
+    expect(findNavItem("IA da marca")).toBeUndefined();
   });
 
   it("client_admin autorizado: Ecommerce com sync e atalho de Integrações", async () => {

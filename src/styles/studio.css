@@ -383,12 +383,21 @@
 .guardList{list-style:none;margin:0;padding:8px 10px;border-radius:8px;background:#fff6e0;color:#7a5600;font-size:13px;display:grid;gap:4px}
 
 /* Central da marca */
+.centralSummary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:8px 0 16px}
+.centralSummaryCard{border:1px solid var(--border,#dedbd4);border-radius:14px;background:var(--surface,#fff);padding:13px 14px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.centralSummaryCard>span{font-size:12px;color:var(--text-secondary,#4d565d)}.centralSummaryCard>strong{font-size:clamp(24px,3vw,38px);line-height:1}.centralSummaryCard>small{font-size:11px;color:var(--text-secondary,#4d565d);min-height:2.5em}
+.centralHealth{margin-bottom:16px}.centralHealth .homeHealthHead{margin-bottom:8px}
+.centralManagementGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:20px}
+.centralSectionHead{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-top:22px}.centralSectionHead h2{margin:0;font-size:18px}.centralSectionHead p{margin:0;color:var(--text-secondary,#4d565d);font-size:13px}
+.centralUnavailable{border:1px dashed var(--border,#dedbd4);border-radius:12px;padding:14px;color:var(--text-secondary,#4d565d)}
+.centralDetails{margin-top:18px;border-top:1px solid var(--border,#dedbd4);padding-top:12px}.centralDetails>summary{cursor:pointer;font-weight:700;padding:8px 0}.centralDetails[open]>summary{margin-bottom:12px}
 .centralNumbers{display:grid;grid-template-columns:minmax(0,1.7fr) repeat(3,minmax(0,1fr));gap:12px 24px;align-items:end;margin:8px 0 16px}
 /* Número cabe no próprio card (container query): nunca quebra no meio do valor ("R$ 2." / "984,"). */
 .centralNumbers .ds-kpi{container-type:inline-size;min-width:0}
 .centralNumbers .ds-kpiValue{white-space:normal;overflow-wrap:normal;word-break:normal;font-size:clamp(20px,11cqi,40px);line-height:1.05}
 .centralNumbers .ds-kpi.is-hero .ds-kpiValue{white-space:nowrap;font-size:clamp(30px,14cqi,68px)}
-@media (max-width:900px){.centralNumbers{grid-template-columns:repeat(2,minmax(0,1fr))}.centralNumbers .ds-kpi.is-hero{grid-column:1/-1}.centralNumbers .ds-kpi.is-hero .ds-kpiValue{font-size:clamp(30px,11cqi,60px)}}
+@media (max-width:900px){.centralSummary{grid-template-columns:repeat(2,minmax(0,1fr))}.centralManagementGrid{grid-template-columns:1fr}.centralNumbers{grid-template-columns:repeat(2,minmax(0,1fr))}.centralNumbers .ds-kpi.is-hero{grid-column:1/-1}.centralNumbers .ds-kpi.is-hero .ds-kpiValue{font-size:clamp(30px,11cqi,60px)}}
+@media (max-width:560px){.centralSummary{grid-template-columns:1fr 1fr}.centralSummaryCard:first-child{grid-column:1/-1}.centralSectionHead{align-items:flex-start;flex-direction:column;gap:3px}}
 .centralBest{grid-column:1/-1;margin:0;font-size:14px;opacity:.85}
 .centralAlerts{border:1px solid #f0d9a8;background:#fffaf0;border-radius:14px;padding:12px 16px;margin-bottom:16px}
 .centralAlerts h2{margin:0 0 6px;font-size:15px}

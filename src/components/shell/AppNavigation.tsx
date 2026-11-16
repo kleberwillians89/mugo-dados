@@ -56,7 +56,7 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 const OPERATION_ITEMS: NavItem[] = [
   // Mugoverso IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
   { route: "mugo_ia", label: "Tira-dúvidas" },
-  { route: "central", label: "Visão Geral" },
+  { route: "central", label: "Dashboard" },
   { route: "briefing", label: "Briefing" },
   { route: "planning", label: "Planejamento" },
   { route: "production", label: "Evento" },
@@ -97,15 +97,14 @@ const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", 
  */
 type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
 const NAV_GROUPS: NavGroup[] = [
-  // Mugoverso IA é a primeira aba (decisão do Kleber, nov/2026).
-  { id: "ia", label: "Tira-dúvidas", icon: Sparkles, routes: ["mugo_ia"] },
-  { id: "inicio", label: "Início", icon: Home, routes: ["central", "brand_health"] },
+  { id: "visao-geral", label: "Visão Geral", icon: Home, routes: ["central"] },
+  { id: "tarefas", label: "Tarefas", icon: ListChecks, routes: ["tasks"] },
+  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report", "library"] },
+  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["campaigns", "redacao", "production"] },
+  { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
   { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "tiktok", "pinterest", "linkedin", "media", "benchmark"] },
-  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["briefing", "planning", "production", "tasks", "campaigns", "redacao", "creators", "library"] },
-  { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
-  { id: "marca", label: "Marca", icon: HeartPulse, routes: ["clipping", "brand_ai"] },
-  { id: "relatorio", label: "Relatório", icon: FileBarChart, routes: ["social_report"] },
+  { id: "ia", label: "Tira-dúvidas", icon: Sparkles, routes: ["mugo_ia"] },
 ];
 
 /**
@@ -155,9 +154,6 @@ export default function AppNavigation({
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "ai_usage", label: "Consumo de IA" });
   // Configurações → WhatsApp → Automações: central da equipe Mugô.
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "automations", label: "Automações" });
-  // A posição é administrativa, mas a visibilidade continua obedecendo apenas
-  // à permissão preexistente do módulo, sem exigir um papel administrativo.
-  const brandAiItems: NavItem[] = !canView || canView("brand_ai") ? [{ route: "brand_ai", label: "IA da marca" }] : [];
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
 
   const activeClient = clients?.find((client) => client.client_id === activeClientId);
@@ -209,7 +205,6 @@ export default function AppNavigation({
   const leafItems: NavItem[] = [
     ...OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))),
     ...INTELLIGENCE_ITEMS,
-    ...brandAiItems,
   ];
   const visible = (item: NavItem) => !canView || routesOf(item).some((target) => canView(target));
   const renderItem = (item: NavItem) => {
