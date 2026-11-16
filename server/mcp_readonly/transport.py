@@ -156,6 +156,7 @@ class LocalGateway:
             "get_paid_media": "Mídia paga persistida: provider meta ou google_ads; no máximo 50 campanhas, sem sincronizar. Receitas são atribuídas pelas plataformas e não devem ser somadas entre fontes.",
             "get_site_traffic": "Métricas persistidas do GA4; dimensões sem garantia de privacidade são omitidas.",
             "get_sales_by_origin": "Vendas agregadas por origem; atribuição não comprova causalidade.",
+            "get_daily_sales": "Vendas por dia e por dia da semana (FBITS), derivadas dos pedidos: receita, pedidos e ticket de cada dia, mais o total de cada dia da semana (sábado, domingo, etc.). Sem dados de compradores.",
             "get_customer_summary": "Somente agregados de compradores; nunca retorna compradores individuais.",
             "get_goals": "Metas numéricas e progresso do período; não altera metas.",
             "get_business_context": "Disponibilidade do contexto salvo; textos sem comprovação de privacidade são omitidos.",

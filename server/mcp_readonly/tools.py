@@ -20,7 +20,7 @@ reference_key = ContextVar("mcp_reference_key", default=None)
 
 TOOLS = (
     "list_companies", "get_data_freshness", "get_business_overview", "get_paid_media",
-    "get_site_traffic", "get_sales_by_origin", "get_customer_summary", "get_goals",
+    "get_site_traffic", "get_sales_by_origin", "get_daily_sales", "get_customer_summary", "get_goals",
     "get_business_context", "get_latest_analysis", "get_best_posting_times", "get_social_report",
 )
 SOURCES = frozenset({"meta", "meta_ads", "google_ads", "ga4", "shopify", "fbits", "instagram", "commerce", "paid_media", "shopify+paid_media"})
@@ -308,6 +308,34 @@ async def _read(uid, name, cid, window, provider, pilots):
                 "medium": business_text(row.get("medium"), 80), "channel": row.get("channel") if row.get("channel") in CHANNEL_LABELS else None,
                 **numeric_fields(row)} for row in data.get("campaigns", [])[:50]],
             "observacoes": [OMITTED, "Atribuição por origem não comprova causalidade nem equivale à atribuição das plataformas."]}
+    if name == "get_daily_sales":
+        # Recorte diário e por dia da semana, a partir dos agregados já persistidos
+        # por dia (derivados de GET /pedidos). Sem compradores: só totais do dia.
+        from services.posting_times import WEEKDAYS
+        rows = await sb_select("fbits_order_daily_stats",
+            select="client_id,stat_date,receita_oficial,pedidos,ticket_medio,clientes,produtos_vendidos",
+            filters={"client_id": f"eq.{cid}", "and": f"(stat_date.gte.{window['start']},stat_date.lte.{window['end']})"},
+            order="stat_date.asc", limit=400)
+        days, weekly = [], {}
+        for row in rows:
+            day = iso_day(row.get("stat_date"))
+            if row.get("client_id") != cid or day is None or not window["start"] <= day <= window["end"]:
+                continue
+            weekday = date.fromisoformat(day).weekday()
+            revenue, orders, ticket = number(row.get("receita_oficial")), number(row.get("pedidos")), number(row.get("ticket_medio"))
+            days.append({"date": day, "weekday": WEEKDAYS[weekday], "revenue": revenue, "orders": orders,
+                "average_ticket": ticket, "products_sold": number(row.get("produtos_vendidos"))})
+            acc = weekly.setdefault(weekday, {"revenue": 0.0, "orders": 0.0, "days_count": 0})
+            acc["revenue"] += revenue or 0.0
+            acc["orders"] += orders or 0.0
+            acc["days_count"] += 1
+        by_weekday = [{"weekday": WEEKDAYS[wd], "revenue": round(acc["revenue"], 2), "orders": acc["orders"],
+            "days_count": acc["days_count"], "average_ticket": round(acc["revenue"] / acc["orders"], 2) if acc["orders"] else None}
+            for wd in range(7) if (acc := weekly.get(wd))]
+        return {"provider": "fbits", "source": "fbits_orders", "days": days[:400], "by_weekday": by_weekday,
+            "observacoes": [OMITTED,
+                "Receita e pedidos por dia derivam dos pedidos sincronizados (GET /pedidos), não do painel oficial fechado; use para padrão por dia da semana.",
+                "Fuso de São Paulo. Dias sem venda não aparecem. Somente FBITS: outra plataforma volta vazia."]}
     if name == "get_paid_media":
         if provider not in {"meta", "google_ads"}:
             raise ToolFailure("Selecione meta ou google_ads.")

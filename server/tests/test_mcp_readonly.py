@@ -68,6 +68,28 @@ class ReadonlyToolsTests(unittest.IsolatedAsyncioTestCase):
                         self.assertNotIn(forbidden, encoded)
                     self.assertIn("observacoes", result)
 
+    async def test_daily_sales_rolls_up_by_weekday_and_scopes_tenant(self):
+        from datetime import date as _date
+        from services.posting_times import WEEKDAYS
+        rows = [
+            {"client_id": "company-a", "stat_date": "2026-10-03", "receita_oficial": 100.0, "pedidos": 2, "ticket_medio": 50.0, "produtos_vendidos": 3},
+            {"client_id": "company-a", "stat_date": "2026-10-04", "receita_oficial": 200.0, "pedidos": 4, "ticket_medio": 50.0, "produtos_vendidos": 5},
+            {"client_id": "company-a", "stat_date": "2026-10-10", "receita_oficial": 60.0, "pedidos": 1, "ticket_medio": 60.0, "produtos_vendidos": 1},
+            {"client_id": "other-tenant", "stat_date": "2026-10-05", "receita_oficial": 999.0, "pedidos": 9, "ticket_medio": 1.0},
+        ]
+        with patch.object(tools, "require_user_client_access", AsyncMock(return_value="company-a")), \
+             patch.object(tools, "sb_select", AsyncMock(return_value=rows)):
+            result = await tools.dispatch("user-a", "get_daily_sales", "company-a", **WINDOW)
+        self.assertEqual(result["provider"], "fbits")
+        # Linha de outro tenant é descartada; sobram os 3 dias da company-a.
+        self.assertEqual(len(result["days"]), 3)
+        self.assertTrue(all(day["weekday"] in WEEKDAYS for day in result["days"]))
+        by_weekday = {w["weekday"]: w for w in result["by_weekday"]}
+        same_weekday = WEEKDAYS[_date.fromisoformat("2026-10-03").weekday()]  # 03 e 10 caem no mesmo dia
+        self.assertEqual(by_weekday[same_weekday]["revenue"], 160.0)
+        self.assertEqual(by_weekday[same_weekday]["orders"], 3)
+        self.assertEqual(by_weekday[same_weekday]["days_count"], 2)
+
     async def test_period_validation_before_reads(self):
         with patch.object(tools, "_read", AsyncMock()) as read:
             for window in ({"start": "2025-01-01", "end": "2026-10-20"}, {"start": "not-a-date"}, {"start": "2026-10-20", "end": "2026-10-01"}):
