@@ -265,7 +265,7 @@ function PrivateApp() {
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const authBootstrapCompletedRef = useRef(false);
   const knownSessionUserRef = useRef<string | null>(null);
-  const bootstrapRunRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const bootstrapRunRef = useRef<{ key: string; token: symbol; promise: Promise<void> } | null>(null);
   // Evita reabrir a tela de aceitação de convite depois que o usuário
   // escolheu "Pular por agora" na mesma sessão.
   const invitationPromptDismissedRef = useRef(false);
@@ -280,7 +280,11 @@ function PrivateApp() {
   }, [localMode, session]);
 
   const resolveAuthenticatedView = useCallback(
-    async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
+    async (
+      candidateSession?: Session | null,
+      requestedRoute: AppRoute = route,
+      isCurrent: () => boolean = () => true
+    ) => {
       const activeSession = candidateSession ?? session;
       if (!activeSession && !localMode) {
         authDebug("route.decision", {
@@ -332,6 +336,7 @@ function PrivateApp() {
 
       if (!localMode) {
         const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
+        if (!isCurrent()) return;
         setPlatformAdmin(bootstrap.platformAdmin);
         setAgencyAdmin(bootstrap.agencyAdmin);
         if (requestedRoute === "companies" && !bootstrap.platformAdmin && !bootstrap.agencyAdmin) {
@@ -364,6 +369,7 @@ function PrivateApp() {
             pending = [];
           }
         }
+        if (!isCurrent()) return;
         setPendingInvitations(pending);
 
         const stored = getActiveClient();
@@ -486,19 +492,24 @@ function PrivateApp() {
       const current = bootstrapRunRef.current;
       if (!force && current?.key === key) return current.promise;
 
+      const token = Symbol(key);
       let promise: Promise<void>;
-      promise = resolveAuthenticatedView(candidateSession, requestedRoute)
+      promise = resolveAuthenticatedView(
+        candidateSession,
+        requestedRoute,
+        () => bootstrapRunRef.current?.token === token
+      )
         .catch((error: unknown) => {
-          if (bootstrapRunRef.current?.promise !== promise) return;
+          if (bootstrapRunRef.current?.token !== token) return;
           authDebug("tenant_bootstrap.error", { message: toErrorMessage(error) });
           // Falhas temporárias de API, rede ou autorização não invalidam a
           // sessão. O usuário decide quando repetir o bootstrap.
           setView("bootstrap-error");
         })
         .finally(() => {
-          if (bootstrapRunRef.current?.promise === promise) bootstrapRunRef.current = null;
+          if (bootstrapRunRef.current?.token === token) bootstrapRunRef.current = null;
         });
-      bootstrapRunRef.current = { key, promise };
+      bootstrapRunRef.current = { key, token, promise };
       return promise;
     },
     [resolveAuthenticatedView]

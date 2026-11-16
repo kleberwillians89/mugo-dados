@@ -521,6 +521,37 @@ describe("App — recuperação do bootstrap autenticado", () => {
     expect(authCalls.signOut).not.toHaveBeenCalled();
   });
 
+  it("ignora o sucesso tardio de um bootstrap substituído por uma rota mais recente", async () => {
+    let finishFirst!: (value: { clients: Array<{ client_id: string; name: string; role: string }> }) => void;
+    const first = new Promise<{ clients: Array<{ client_id: string; name: string; role: string }> }>((resolve) => {
+      finishFirst = resolve;
+    });
+    vi.mocked(listClients)
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({ clients: [{ client_id: "roove", name: "Roove", role: "client_admin" }] });
+
+    await renderApp();
+    expect(container.textContent).toContain("Carregando…");
+
+    await act(async () => {
+      window.history.pushState({}, "", "/google");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await flush();
+
+    expect(getActiveClientId()).toBe("roove");
+    expect(container.querySelector('[data-testid="ga-stub"]')).toBeTruthy();
+
+    await act(async () => {
+      finishFirst({ clients: [{ client_id: "amalie", name: "Amalie", role: "client_admin" }] });
+    });
+    await flush();
+
+    expect(getActiveClientId()).toBe("roove");
+    expect(container.querySelector('[data-testid="ga-stub"]')).toBeTruthy();
+    expect(listClients).toHaveBeenCalledTimes(2);
+  });
+
   it("mantém a tela de login quando não existe sessão", async () => {
     backend.session = null;
 
