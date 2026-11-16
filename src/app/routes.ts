@@ -48,6 +48,9 @@ export type PublicAppRoute = "privacy" | "data_deletion" | "data_protection" | "
 
 export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | null {
   const normalized = String(pathname || "/").trim().toLowerCase().replace(/\/+$/, "") || "/";
+  if (normalized === "/en/privacy") return "privacy";
+  if (normalized === "/en/terms") return "terms";
+  if (normalized === "/en/data-deletion") return "data_deletion";
   if (normalized === "/privacidade") return "privacy";
   if (normalized === "/exclusao-de-dados") return "data_deletion";
   if (normalized === "/protecao-de-dados") return "data_protection";

@@ -10,7 +10,8 @@ Domínios oficiais:
 - Um único App empresarial Meta “Mugô Dados”, com seleção de Página, Instagram profissional e conta de anúncios.
 - Um único projeto Google Cloud “Mugô Dados”, com uma autorização por empresa e seleções separadas de GA4 e Google Ads.
 - Um único app Shopify “Mugô Dados”, distribuído para lojas clientes e isolado por empresa e domínio `myshopify.com`.
-- TikTok e Pinterest não possuem OAuth ou endpoints nesta etapa; aparecem somente como “Aguardando atualização da plataforma”.
+- TikTok Ads, TikTok orgânico, Pinterest e LinkedIn possuem OAuth implementado no backend; dependem de apps aprovados e credenciais.
+- Microsoft Clarity usa token, não OAuth; X ainda não tem conector implementado.
 - FBits é legado preservado e não recebe expansão nesta etapa.
 
 ## Callbacks
@@ -22,6 +23,10 @@ Produção:
 - Meta: `https://api.dados.mugoagencia.com.br/api/oauth/meta/callback`
 - Google: `https://api.dados.mugoagencia.com.br/api/oauth/google/callback`
 - Shopify: `https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback`
+- TikTok Ads: `https://api.dados.mugoagencia.com.br/api/channels/tiktok_ads/callback`
+- TikTok orgânico: `https://api.dados.mugoagencia.com.br/api/channels/tiktok/callback`
+- Pinterest: `https://api.dados.mugoagencia.com.br/api/channels/pinterest/callback`
+- LinkedIn: `https://api.dados.mugoagencia.com.br/api/channels/linkedin/callback`
 - Shopify webhooks: `https://api.dados.mugoagencia.com.br/api/webhooks/shopify`
 
 Desenvolvimento:
@@ -32,6 +37,10 @@ Desenvolvimento:
 - Meta: `http://localhost:8000/api/oauth/meta/callback`
 - Google: `http://localhost:8000/api/oauth/google/callback`
 - Shopify: `http://localhost:8000/api/oauth/shopify/callback`
+- TikTok Ads: `http://localhost:8000/api/channels/tiktok_ads/callback`
+- TikTok orgânico: `http://localhost:8000/api/channels/tiktok/callback`
+- Pinterest: `http://localhost:8000/api/channels/pinterest/callback`
+- LinkedIn: `http://localhost:8000/api/channels/linkedin/callback`
 
 Shopify webhooks exigem um túnel HTTPS durante desenvolvimento.
 

@@ -106,21 +106,26 @@ describe("public legal routes", () => {
   ])("%s fica marcado para revisão jurídica e não promete conformidade", async (path, route) => {
     await renderPublicPath(path);
     const page = container.querySelector(`[data-public-route="${route}"]`);
-    expect(page?.getAttribute("data-legal-status")).toBe("review-pending");
+    expect(page?.getAttribute("data-legal-status")).toBe(route === "data-protection" ? "review-pending" : "draft-legal-review");
     expect(container.textContent).not.toMatch(/LGPD compliant|100%|em conformidade com a LGPD|totalmente seguro|garantimos/i);
     expectNoPrivateBootstrap();
   });
 
-  it("renders /termos-de-uso as an explicitly pending document, without invented terms", async () => {
+  it("renders bilingual legal drafts without private auth", async () => {
     await renderPublicPath("/termos-de-uso");
     const page = container.querySelector('[data-public-route="terms"]');
-    expect(page).toBeTruthy();
-    expect(page?.getAttribute("data-legal-status")).toBe("pending");
+    expect(page?.getAttribute("data-legal-status")).toBe("draft-legal-review");
     expect(container.textContent).toContain("Termos de Uso");
-    expect(container.textContent).toContain("ainda não foi publicado");
-    // Sem data de atualização: não há documento para datar.
-    expect(container.textContent).not.toContain("Última atualização");
     expect(container.querySelector('[data-legal-contact="terms"]')?.textContent).toContain(LEGAL_CONTACT);
+    expectNoPrivateBootstrap();
+    await renderPublicPath("/en/privacy");
+    expect(container.textContent).toContain("Privacy Policy");
+    expectNoPrivateBootstrap();
+    await renderPublicPath("/en/terms");
+    expect(container.textContent).toContain("Terms of Service");
+    expectNoPrivateBootstrap();
+    await renderPublicPath("/en/data-deletion");
+    expect(container.textContent).toContain("Data Deletion");
     expectNoPrivateBootstrap();
   });
 });
