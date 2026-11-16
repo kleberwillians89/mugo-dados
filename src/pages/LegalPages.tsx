@@ -11,7 +11,7 @@ const urls: Record<PageName, [string, string]> = {
   privacy: ["/privacidade", "/en/privacy"], terms: ["/termos-de-uso", "/en/terms"],
   deletion: ["/exclusao-de-dados", "/en/data-deletion"], protection: ["/protecao-de-dados", "/protecao-de-dados"],
 };
-function LegalHeader({ title, summary, page, en = false }: { title: string; summary: string; page: PageName; en?: boolean }) {
+function LegalHeader({ title, summary, page = "protection", en = false }: { title: string; summary: string; page?: PageName; en?: boolean }) {
   return <>
     <header className="legalHeader">
       <a className="legalBrand" href="/" aria-label="Mugoverso — página inicial"><MugoLogo variant="responsive" /></a>
