@@ -385,8 +385,11 @@ async def _shopify_accumulators(client_id: str) -> Tuple[Dict[str, _Accumulator]
 # --------------------------------------------------------------------------
 
 async def _accumulators_for(client_id: str) -> Tuple[str, Dict[str, _Accumulator], Dict[str, Any]]:
-    resolution = await resolve_commerce_provider(client_id)
-    provider = _text(resolution.get("provider")).lower()
+    if client_id == "pace-sneakers-demo":
+        provider = SHOPIFY  # synthetic customer orders; no OAuth connection
+    else:
+        resolution = await resolve_commerce_provider(client_id)
+        provider = _text(resolution.get("provider")).lower()
     if provider == FBITS:
         accumulators, stats = await _fbits_accumulators(client_id)
     elif provider == SHOPIFY:
