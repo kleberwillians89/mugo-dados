@@ -59,12 +59,21 @@ class CronHarness(unittest.IsolatedAsyncioTestCase):
                 raise outcome
             return outcome if outcome is not None else ok(kwargs["client_id"])
 
+        self.official_calls: List[str] = []
+
+        async def official(client_id: str) -> str:
+            self.official_calls.append(client_id)
+            return "refreshed"
+
         output = io.StringIO()
         with (
             patch("services.client_lifecycle.sb_select", side_effect=active_companies),
             patch.object(cron_jobs, "sb_select", AsyncMock(return_value=[dict(row) for row in connections])),
             # run_fbits_sync_all importa do módulo em tempo de execução.
             patch.object(fbits_connections, "sync_fbits_connection", AsyncMock(side_effect=sync)),
+            # O snapshot oficial é renovado em processo próprio (testado à parte);
+            # aqui só confirmamos que é acionado por empresa sincronizada.
+            patch.object(cron_jobs, "_refresh_fbits_official_snapshot", AsyncMock(side_effect=official)),
             redirect_stdout(output),
         ):
             summary = await cron_jobs.run_fbits_sync_all(window_days=window_days)
@@ -80,6 +89,23 @@ class ConnectionSelectionTests(CronHarness):
         self.assertEqual(summary["job"], "fbits_sync")
         self.assertEqual((summary["connections_total"], summary["connections_ok"], summary["connections_fail"]), (2, 2, 0))
         self.assertEqual([call["client_id"] for call in self.synced], ["curavino", "vinhos"])
+
+    async def test_official_snapshot_is_refreshed_per_synced_company(self):
+        # O overview/MCP lê o snapshot oficial; renová-lo aqui evita "sem dados"
+        # quando os pedidos já existem.
+        summary, _log = await self.run_job([connection("curavino"), connection("vinhos")], {})
+        self.assertEqual(self.official_calls, ["curavino", "vinhos"])
+        self.assertTrue(all(r.get("official_snapshot") == "refreshed" for r in summary["results"] if r["ok"]))
+
+    async def test_official_snapshot_skipped_when_order_sync_fails(self):
+        # Sem pedidos sincronizados não há o que renovar: a empresa que falha não
+        # dispara o refresh oficial nem interrompe as demais.
+        summary, _log = await self.run_job(
+            [connection("curavino"), connection("vinhos")],
+            {"curavino": RuntimeError("falhou")},
+        )
+        self.assertEqual(self.official_calls, ["vinhos"])
+        self.assertEqual(summary["connections_fail"], 1)
 
     async def test_a_previous_failure_never_excludes_the_company_forever(self):
         # A própria sincronização marca sync_error/reauth_required ao falhar:

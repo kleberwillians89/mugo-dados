@@ -142,10 +142,33 @@ class HealthReadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['metrics']['revenue']['value'], 12)
         self.assertEqual(result['last_success_at'], STAMP)
 
-    async def test_light_fbits_missing_snapshot_has_safe_reason(self):
-        with patch.object(commerce_context, 'sb_select', AsyncMock(return_value=[connection('fbits')])):
+    async def test_light_fbits_missing_snapshot_falls_back_to_orders(self):
+        # Sem snapshot oficial, mas com pedidos já sincronizados: o caminho leve
+        # cai para os pedidos (mesma fonte do sales_by_origin), com procedência
+        # honesta, em vez de reportar "sem dados".
+        from services import fbits_reporting
+        fallback = {
+            "connected": True, "data_available": True, "kpi_source": "fbits_orders_fallback",
+            "summary": {"receita_oficial": 29972.49, "pedidos": 74, "ticket_medio": 405.03},
+            "comparison": {}, "last_sync_at": STAMP, "status_distribution": [],
+        }
+        with patch.object(commerce_context, 'sb_select', AsyncMock(return_value=[connection('fbits')])), \
+             patch.object(fbits_reporting, 'build_fbits_summary', AsyncMock(return_value=fallback)):
             result = await commerce_context.resolve_commerce_context(client_id='tenant-a', start=START, end=END, include_details=False)
-        self.assertEqual(result['unavailable_reason'], 'FBITS_OFFICIAL_SNAPSHOT_MISSING')
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['kpi_source'], 'fbits_orders_fallback')
+        self.assertFalse(result['official_kpis'])
+        self.assertEqual(result['metrics']['revenue']['value'], 29972.49)
+        self.assertEqual(result['metrics']['orders']['value'], 74)
+        self.assertEqual(result['last_success_at'], STAMP)
+
+    async def test_light_fbits_fallback_failure_is_safe_empty(self):
+        # Se nem os pedidos puderem ser lidos, retorna vazio seguro (sem exceção).
+        from services import fbits_reporting
+        with patch.object(commerce_context, 'sb_select', AsyncMock(return_value=[connection('fbits')])), \
+             patch.object(fbits_reporting, 'build_fbits_summary', AsyncMock(side_effect=RuntimeError('db down'))):
+            result = await commerce_context.resolve_commerce_context(client_id='tenant-a', start=START, end=END, include_details=False)
+        self.assertEqual(result['provider'], 'fbits')
         self.assertEqual(result['metrics'], {})
 
 class PartialPersistenceTests(unittest.IsolatedAsyncioTestCase):
