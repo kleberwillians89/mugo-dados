@@ -478,6 +478,90 @@ describe("App — shell global: empresa, administração e conta", () => {
   });
 });
 
+describe("App — recuperação do bootstrap autenticado", () => {
+  beforeEach(() => {
+    vi.mocked(listClients).mockClear();
+    authCalls.signOut.mockClear();
+    backend.pendingInvitations = [];
+    window.history.replaceState({}, "", "/meta");
+  });
+
+  it.each([
+    ["CORS", new TypeError("Failed to fetch")],
+    ["HTTP", new Error("API respondeu 503")],
+    ["rede", new Error("Network unavailable")],
+  ])("encerra o loading diante de falha de %s sem apagar a sessão", async (_kind, failure) => {
+    vi.mocked(listClients).mockRejectedValueOnce(failure);
+
+    await renderApp();
+
+    expect(container.textContent).toContain("Não foi possível carregar sua empresa agora");
+    expect(findButton("Tentar novamente")).toBeTruthy();
+    expect(container.textContent).not.toContain("Carregando…");
+    expect(authCalls.signOut).not.toHaveBeenCalled();
+    expect(listClients).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserva a sessão e conclui o bootstrap depois de tentar novamente", async () => {
+    vi.mocked(listClients)
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ clients: [{ client_id: "amalie", name: "Amalie", role: "client_admin" }] });
+
+    await renderApp();
+    expect(findButton("Tentar novamente")).toBeTruthy();
+
+    await act(async () => {
+      findButton("Tentar novamente")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeTruthy();
+    expect(getActiveClientId()).toBe("amalie");
+    expect(listClients).toHaveBeenCalledTimes(2);
+    expect(authCalls.signOut).not.toHaveBeenCalled();
+  });
+
+  it("ignora o sucesso tardio de um bootstrap substituído por uma rota mais recente", async () => {
+    let finishFirst!: (value: { clients: Array<{ client_id: string; name: string; role: string }> }) => void;
+    const first = new Promise<{ clients: Array<{ client_id: string; name: string; role: string }> }>((resolve) => {
+      finishFirst = resolve;
+    });
+    vi.mocked(listClients)
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({ clients: [{ client_id: "roove", name: "Roove", role: "client_admin" }] });
+
+    await renderApp();
+    expect(container.textContent).toContain("Carregando…");
+
+    await act(async () => {
+      window.history.pushState({}, "", "/google");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await flush();
+
+    expect(getActiveClientId()).toBe("roove");
+    expect(container.querySelector('[data-testid="ga-stub"]')).toBeTruthy();
+
+    await act(async () => {
+      finishFirst({ clients: [{ client_id: "amalie", name: "Amalie", role: "client_admin" }] });
+    });
+    await flush();
+
+    expect(getActiveClientId()).toBe("roove");
+    expect(container.querySelector('[data-testid="ga-stub"]')).toBeTruthy();
+    expect(listClients).toHaveBeenCalledTimes(2);
+  });
+
+  it("mantém a tela de login quando não existe sessão", async () => {
+    backend.session = null;
+
+    await renderApp();
+
+    expect(container.querySelector('[data-testid="login-stub"]')).toBeTruthy();
+    expect(listClients).not.toHaveBeenCalled();
+  });
+});
+
 describe("App — sync no Ecommerce e isolamento visual por empresa", () => {
   beforeEach(() => {
   vi.mocked(listClients).mockImplementation(async () => ({clients: backend.clients.filter(row => row.status !== "inactive" &&

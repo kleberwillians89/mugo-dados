@@ -84,7 +84,7 @@ const AccessRestricted = lazy(() => import("./pages/AccessRestricted"));
 const ClaudeConnect = lazy(() => import("./pages/ClaudeConnect"));
 const AcceptInvitation = lazy(loadAcceptInvitation);
 
-type AppView = "loading" | "login" | "setup" | "dashboard" | "accept-invitation";
+type AppView = "loading" | "bootstrap-error" | "login" | "setup" | "dashboard" | "accept-invitation";
 
 const AUTH_BOOTSTRAP_RETRY_MS = 350;
 const AUTH_BOOTSTRAP_RETRY_ATTEMPTS = 3;
@@ -177,6 +177,25 @@ function AppLoading() {
   );
 }
 
+function AppBootstrapError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="appBootShell" aria-live="polite">
+      <header className="appBootHeader">
+        <MugoLogo variant="symbol" className="appBootMark" alt="" />
+        <div><strong>{MUGO_APP_NAME}</strong></div>
+      </header>
+      <section className="appBootContent">
+        <div className="appBootIntro" role="alert">
+          <p>Não foi possível carregar sua empresa agora. Sua sessão foi preservada.</p>
+          <button type="button" className="ds-button is-primary" onClick={onRetry}>
+            Tentar novamente
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 // Dentro do frame (sidebar já visível): carregamento da página, sem repetir a marca.
 function PageLoading() {
   return (
@@ -246,6 +265,7 @@ function PrivateApp() {
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const authBootstrapCompletedRef = useRef(false);
   const knownSessionUserRef = useRef<string | null>(null);
+  const bootstrapRunRef = useRef<{ key: string; token: symbol; promise: Promise<void> } | null>(null);
   // Evita reabrir a tela de aceitação de convite depois que o usuário
   // escolheu "Pular por agora" na mesma sessão.
   const invitationPromptDismissedRef = useRef(false);
@@ -260,7 +280,11 @@ function PrivateApp() {
   }, [localMode, session]);
 
   const resolveAuthenticatedView = useCallback(
-    async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
+    async (
+      candidateSession?: Session | null,
+      requestedRoute: AppRoute = route,
+      isCurrent: () => boolean = () => true
+    ) => {
       const activeSession = candidateSession ?? session;
       if (!activeSession && !localMode) {
         authDebug("route.decision", {
@@ -312,6 +336,7 @@ function PrivateApp() {
 
       if (!localMode) {
         const bootstrap = await resolveTenantBootstrap(activeSession?.user.id || "");
+        if (!isCurrent()) return;
         setPlatformAdmin(bootstrap.platformAdmin);
         setAgencyAdmin(bootstrap.agencyAdmin);
         if (requestedRoute === "companies" && !bootstrap.platformAdmin && !bootstrap.agencyAdmin) {
@@ -344,6 +369,7 @@ function PrivateApp() {
             pending = [];
           }
         }
+        if (!isCurrent()) return;
         setPendingInvitations(pending);
 
         const stored = getActiveClient();
@@ -458,6 +484,35 @@ function PrivateApp() {
       setView("dashboard");
     },
     [agencyAdmin, localMode, pendingInvitations, platformAdmin, resolvedUserId, route, session]
+  );
+
+  const runAuthenticatedBootstrap = useCallback(
+    (candidateSession: Session | null, requestedRoute: AppRoute, force = false): Promise<void> => {
+      const key = `${candidateSession?.user.id || "local"}:${requestedRoute}`;
+      const current = bootstrapRunRef.current;
+      if (!force && current?.key === key) return current.promise;
+
+      const token = Symbol(key);
+      let promise: Promise<void>;
+      promise = resolveAuthenticatedView(
+        candidateSession,
+        requestedRoute,
+        () => bootstrapRunRef.current?.token === token
+      )
+        .catch((error: unknown) => {
+          if (bootstrapRunRef.current?.token !== token) return;
+          authDebug("tenant_bootstrap.error", { message: toErrorMessage(error) });
+          // Falhas temporárias de API, rede ou autorização não invalidam a
+          // sessão. O usuário decide quando repetir o bootstrap.
+          setView("bootstrap-error");
+        })
+        .finally(() => {
+          if (bootstrapRunRef.current?.token === token) bootstrapRunRef.current = null;
+        });
+      bootstrapRunRef.current = { key, token, promise };
+      return promise;
+    },
+    [resolveAuthenticatedView]
   );
 
   useEffect(() => {
@@ -618,8 +673,8 @@ function PrivateApp() {
       setView("login");
       return;
     }
-    void resolveAuthenticatedView(session, route);
-  }, [authInitializing, localMode, resolveAuthenticatedView, route, session]);
+    void runAuthenticatedBootstrap(session, route);
+  }, [authInitializing, localMode, route, runAuthenticatedBootstrap, session]);
 
   useEffect(() => {
     if (view !== "dashboard" || (!session && !localMode)) return;
@@ -719,16 +774,21 @@ function PrivateApp() {
     clearSetupUrlParams();
     setResolvedUserId(null);
     setView("loading");
-    void resolveAuthenticatedView(session, route);
-  }, [resolveAuthenticatedView, route, session]);
+    void runAuthenticatedBootstrap(session, route, true);
+  }, [route, runAuthenticatedBootstrap, session]);
 
   const handlePasswordLoginSuccess = useCallback(
     async (nextSession: Session | null) => {
       setSession(nextSession);
-      await resolveAuthenticatedView(nextSession ?? session, route);
+      await runAuthenticatedBootstrap(nextSession ?? session, route, true);
     },
-    [resolveAuthenticatedView, route, session]
+    [route, runAuthenticatedBootstrap, session]
   );
+
+  const handleBootstrapRetry = useCallback(() => {
+    setView("loading");
+    void runAuthenticatedBootstrap(session, route, true);
+  }, [route, runAuthenticatedBootstrap, session]);
 
   const handleLocalLogin = useCallback(() => {
     const localClientId = getActiveClient()?.id || "";
@@ -820,6 +880,10 @@ function PrivateApp() {
 
   if (view === "loading") {
     return <AppLoading />;
+  }
+
+  if (view === "bootstrap-error") {
+    return <AppBootstrapError onRetry={handleBootstrapRetry} />;
   }
 
   if (view === "login" || (!session && !localMode)) {
