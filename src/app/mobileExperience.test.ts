@@ -12,7 +12,9 @@ describe("mobile product experience contracts", () => {
     expect(app).toContain("<AppNavigation");
     expect(nav).toContain('className="appTopbar"');
     expect(nav).toContain('aria-controls="app-sidebar"');
-    expect(nav).not.toContain('label: "Visão Geral"');
+    // "Central da Marca" virou "Visão Geral" (uma entrada só, sem duplicar com Saúde da Marca).
+    expect(nav.match(/label: "Visão Geral"/g)?.length).toBe(1);
+    expect(nav).not.toContain('label: "Central da Marca"');
     expect(nav).toContain("Ecommerce");
     expect(nav).toContain("Social Media");
     expect(nav).not.toContain('{ route: "calendar", label: "Calendário" }');
