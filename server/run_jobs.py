@@ -87,6 +87,12 @@ async def _run(args: argparse.Namespace) -> Any:
         )
     if args.command == "ga4-sync-all":
         return await run_ga4_sync_all(window_days=args.days)
+    if args.command == "research-check":
+        from services.diagnostics import research_check
+        return await research_check(args.client)
+    if args.command == "competitors-check":
+        from services.diagnostics import competitors_check
+        return await competitors_check(args.client)
     if args.command == "google-ads-sync":
         return await run_google_ads_sync_all(window_days=args.days)
     if args.command == "refresh-token":
@@ -286,6 +292,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ga4_sync.add_argument("--until", default=None, help="Data final no formato YYYY-MM-DD.")
     ga4_sync.add_argument("--days", type=int, default=30, help="Janela padrão em dias quando since/until não forem informados.")
 
+    research = sub.add_parser("research-check", help="Diagnóstico: Brave configurado e respondendo (só código de saída).")
+    research.add_argument("--client", required=True, help="Empresa usada como marca de teste.")
+    competitors = sub.add_parser("competitors-check", help="Diagnóstico: empresa tem concorrentes no Radar do Clipping (só código de saída).")
+    competitors.add_argument("--client", required=True)
+
     ga4_all = sub.add_parser("ga4-sync-all", help="Sincroniza todas as conexões GA4 ativas.")
     ga4_all.add_argument("--days", type=int, default=3, help="Janela móvel em dias.")
 
@@ -410,6 +421,8 @@ def main() -> None:
         raise SystemExit(1)
     # Google (GA4 e Ads): conta que falhou (ex.: autorização vencida) faz o job falhar e o GitHub abrir o alerta.
     # Antes saía "ok" mesmo com todas as contas falhando, e o GA4 ficou parado dias sem ninguém saber.
+    if args.command in {"research-check", "competitors-check"} and isinstance(result, dict):
+        raise SystemExit(int(result.get("exit_code") or 0))
     if args.command in {"ga4-sync-all", "google-ads-sync"} and google_sync_failed(result):
         raise SystemExit(1)
     # IA dos comentários: se alguma marca ficou sem resposta por falha, o job falha e o GitHub abre o alerta.
