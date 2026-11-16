@@ -148,6 +148,51 @@ READERS = {"meta": _meta_rows, "google_ads": _google_rows}
 
 async def read_window(client_id: str, end: date) -> Dict[str, Dict[str, Any]]:
     start = end - timedelta(days=WINDOW_DAYS - 1)
+    # The showroom has synthetic daily data but no OAuth connections. Reuse the
+    # existing dashboard projections ONLY for this explicit demo tenant.
+    if client_id == "pace-sneakers-demo":
+        from .ig_supabase import sb_select
+        window = f"(metric_date.gte.{start.isoformat()},metric_date.lte.{end.isoformat()})"
+        days = await sb_select(
+            "dashboard_daily_metrics",
+            select=("metric_date,meta_spend,meta_impressions,meta_clicks,meta_purchases,"
+                    "meta_attributed_revenue,google_ads_spend,google_ads_impressions,"
+                    "google_ads_clicks,google_ads_conversions,google_ads_conversion_value"),
+            filters={"client_id": f"eq.{client_id}", "and": window},
+            order="metric_date.asc", limit=100,
+        )
+        campaigns = await sb_select(
+            "dashboard_campaign_metrics",
+            select="metric_date,provider,campaign_id,campaign_name,spend,impressions,clicks,conversions,revenue",
+            filters={"client_id": f"eq.{client_id}", "and": window},
+            order="metric_date.asc", limit=600,
+        )
+        out = {}
+        for provider, prefix in (("meta", "meta"), ("google_ads", "google_ads")):
+            value = "meta_attributed_revenue" if provider == "meta" else "google_ads_conversion_value"
+            conv = "meta_purchases" if provider == "meta" else "google_ads_conversions"
+            daily = [
+                {"date": str(d["metric_date"]), "spend": _f(d.get(prefix + "_spend")),
+                 "impressions": _f(d.get(prefix + "_impressions")),
+                 "clicks": _f(d.get(prefix + "_clicks")),
+                 "conversions": _f(d.get(conv)), "revenue": _f(d.get(value))}
+                for d in days if d.get("metric_date")
+            ]
+            by_campaign = {}
+            for row in campaigns:
+                if row.get("provider") != provider:
+                    continue
+                key = str(row.get("campaign_id") or row.get("campaign_name") or "")
+                bucket = by_campaign.setdefault(key, {
+                    "campaign_id": key, "campaign_name": row.get("campaign_name") or key,
+                    "spend": 0.0, "impressions": 0.0, "clicks": 0.0,
+                    "conversions": 0.0, "revenue": 0.0,
+                })
+                for field in ("spend", "impressions", "clicks", "conversions", "revenue"):
+                    bucket[field] += _f(row.get(field))
+            out[provider] = {"daily": daily, "campaigns": list(by_campaign.values()),
+                             "demo": True, "connected": False}
+        return out
     out: Dict[str, Dict[str, Any]] = {}
     for channel, reader in READERS.items():
         try:
