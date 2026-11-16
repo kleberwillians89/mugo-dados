@@ -95,6 +95,7 @@ const privacyPT: Section[] = [
     `Enquanto o contrato estiver ativo, os dados ficam disponíveis para a prestação do serviço. Após o encerramento do contrato ou o pedido de exclusão de uma conexão, os dados da empresa e os importados das integrações são eliminados ou anonimizados em até ${RETENTION_DAYS} dias, prazo em que a empresa pode solicitar exportação.`,
     "Mantemos por mais tempo apenas o que a lei exige: registros de acesso por 6 meses (Marco Civil da Internet, art. 15) e documentos fiscais e contratuais pelos prazos legais.",
     "Desconectar uma conta interrompe novas coletas imediatamente; a eliminação do histórico já importado segue o prazo acima ou ocorre antes, a pedido.",
+    "Cópias de segurança: mantemos backups criptografados (AES-256) do banco e dos arquivos, apenas para recuperação em caso de falha, por até 30 dias, em armazenamento privado. Um dado excluído a seu pedido sai da plataforma na hora e desaparece das cópias quando elas expiram, em até 30 dias; nesse período as cópias não são consultadas e, se houver restauração, os pedidos de exclusão já atendidos são reaplicados.",
   ]},
   {title:"9. Seus direitos (art. 18 da LGPD)", paragraphs:["O titular pode pedir, a qualquer momento:"], points:[
     "confirmação de que tratamos seus dados e acesso a eles;",
@@ -162,6 +163,7 @@ const privacyEN: Section[] = [
     `While the contract is active, data is kept to provide the service. After termination or a deletion request for a connection, customer and imported data are deleted or anonymized within ${RETENTION_DAYS} days, during which the customer may request an export.`,
     "Only legally required records are kept longer: access logs for 6 months and tax and contract records for the legal periods.",
     "Disconnecting an account stops new collection immediately; previously imported history is deleted within the period above, or earlier upon request.",
+    "Backups: encrypted (AES-256) backups of the database and files are kept only for disaster recovery, for up to 30 days, in private storage. Data deleted at your request leaves the platform immediately and disappears from backups when they expire, within 30 days; backups are not accessed during that period and, if a restore happens, completed deletion requests are re-applied.",
   ]},
   {title:"9. Data subject rights (LGPD art. 18)", points:[
     "confirmation and access; correction; anonymization, blocking or deletion; portability; deletion of consent-based data; information on sharing; consent withdrawal and review of automated decisions.",

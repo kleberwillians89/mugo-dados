@@ -85,9 +85,9 @@ vínculo com a empresa. Pedidos de compradores finais são encaminhados à loja 
 
 **Pendências:**
 
-1. Cópia externa (fora do Supabase), criptografada, do banco **e dos arquivos do Storage**, com retenção de 30 dias e
-   teste de restauração mensal. Destino a escolher (Google Cloud Storage, Cloudflare R2 ou Amazon S3). Nunca guardar
-   backup no GitHub (repositório público).
+1. Cópia externa criptografada do banco **e dos arquivos do Storage**, com retenção de 30 dias e teste de
+   restauração mensal: **implementada** (workflow "Backup externo", ver `docs/BACKUP.md`). Falta configurar o destino
+   (preferir região São Paulo, sem transferência internacional) e os segredos.
 2. Avaliar o PITR, para perder no máximo alguns minutos em vez de até 24 horas.
 3. Passar a organização do Supabase para uma conta da AURUM (ou adicionar um segundo dono), para não depender de uma
    pessoa.
