@@ -69,11 +69,29 @@ vínculo com a empresa. Pedidos de compradores finais são encaminhados à loja 
 - Logs públicos do GitHub não mostram dados (só comando, status e duração).
 - Incidentes: comunicação à ANPD e aos titulares em prazo razoável (art. 48).
 
-## 7. Backup e continuidade — PENDENTE
+## 7. Backup e continuidade
 
-Situação a confirmar e decisão em aberto: ver a seção "Backup" da conversa de 16/11/2026 e a issue
-correspondente. Requisitos: backup diário criptografado, fora do Supabase, com retenção definida e teste de
-restauração periódico.
+**Situação conferida em 16/11/2026 (Supabase → Database → Backups):**
+
+- Plano **Pro**: backup **físico diário** do banco, por volta de 11h UTC, com os últimos 7 dias disponíveis para restaurar
+  (09/11 a 16/11 visíveis). "Restore to new project" disponível.
+- **Point in Time Recovery (PITR): não verificado.** Ele é um add-on pago; sem ele, a perda máxima é de até 24 horas.
+- **Arquivos do Storage NÃO entram no backup** (aviso do próprio Supabase). A plataforma guarda no Storage as artes
+  dos posts (`studio_art`), os arquivos da Biblioteca (`studio_library`) e miniaturas do Instagram (`ig_supabase`).
+  Arquivo apagado não volta com a restauração do banco.
+- Os buckets dessas artes e arquivos são **públicos** (link `.../object/public/...`): quem tiver o link abre o arquivo.
+  O caminho tem identificador aleatório, mas não exige login.
+- A organização do Supabase está na conta pessoal **Danilo Portela**, e não numa conta da empresa.
+
+**Pendências:**
+
+1. Cópia externa (fora do Supabase), criptografada, do banco **e dos arquivos do Storage**, com retenção de 30 dias e
+   teste de restauração mensal. Destino a escolher (Google Cloud Storage, Cloudflare R2 ou Amazon S3). Nunca guardar
+   backup no GitHub (repositório público).
+2. Avaliar o PITR, para perder no máximo alguns minutos em vez de até 24 horas.
+3. Passar a organização do Supabase para uma conta da AURUM (ou adicionar um segundo dono), para não depender de uma
+   pessoa.
+4. Avaliar buckets privados com link assinado e de validade curta para materiais do cliente (Biblioteca).
 
 ## 8. Pendências para homologação completa
 
@@ -81,5 +99,5 @@ restauração periódico.
 2. Definir foro e níveis de serviço nos Termos.
 3. Rotina automática de eliminação/anonimização após 90 dias do encerramento.
 4. Exportação de dados por empresa (portabilidade).
-5. Backup externo criptografado e teste de restauração.
+5. Backup externo criptografado (banco + Storage) e teste de restauração; ver seção 7.
 6. Consentimento: banner informativo de armazenamento essencial e registro de consentimento de e-mail/WhatsApp.
