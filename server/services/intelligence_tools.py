@@ -91,13 +91,22 @@ class ReadTools:
                         self.active.add("instagram")
                 elif provider in {"google_ads", "ga4", "shopify", "fbits"}:
                     self.active.add(provider)
+        # A single isolated showcase tenant has persisted, deliberately synthetic facts.
+        # This is NOT an OAuth connection and must not change discovery for real clients.
+        if self._client_id == "pace-sneakers-demo":
+            self.active.update({"shopify", "meta", "google_ads", "ga4", "instagram"})
+            self.limitations.append(
+                "DEMONSTRAÇÃO: métricas inteiramente fictícias, sem conexões OAuth ou sincronização externa."
+            )
         if {"shopify", "fbits"} <= self.active:
             self.active -= {"shopify", "fbits"}
             self.limitations.append("Mais de uma origem de comércio ativa; dados de comércio não foram combinados.")
         return {"period": self.period, "sources": sorted(self.active),
+                "demo": self._client_id == "pace-sneakers-demo",
                 "metrics": [metric[0] for provider in sorted(self.active) for metric in DAILY.get(provider, [])],
                 "tools": [{"name": "read_metrics", "read_only": True},
-                          {"name": "read_campaigns", "read_only": True, "available": bool(self.accounts)}],
+                          {"name": "read_campaigns", "read_only": True,
+                           "available": bool(self.accounts) or self._client_id == "pace-sneakers-demo"}],
                 "limitations": self.limitations}
 
     async def execute(self, call: dict) -> dict:
@@ -106,6 +115,8 @@ class ReadTools:
             raise RuntimeError("AI_TOOL_NOT_ALLOWED")
         async with asyncio.timeout(READ_TIMEOUT):
             if call["name"] == "read_campaigns":
+                if self._client_id == "pace-sneakers-demo":
+                    return await self._demo_campaigns()
                 if not self.accounts:
                     return self._result([], [], [], "A integração de campanhas Meta Ads não está disponível para esta empresa.")
                 data = await self._campaign_reader(self._client_id, date.fromisoformat(self.period["start"]),
@@ -128,6 +139,50 @@ class ReadTools:
                         "quality": {"status": "partial" if reason or limitations else "good",
                                     "message": reason or "Leitura de dados persistidos; cobertura indicada por fonte."},
                         "limitations": limitations, "crossings": []})
+
+    async def _demo_campaigns(self):
+        """Only the showcase tenant can read synthetic campaign data without OAuth."""
+        rows = await sb_select(
+            "dashboard_campaign_metrics",
+            select="client_id,metric_date,provider,campaign_name,spend,revenue,conversions",
+            filters={"client_id": "eq.pace-sneakers-demo",
+                     "and": f"(metric_date.gte.{self.period['start']},metric_date.lte.{self.period['end']})"},
+            order="metric_date.asc", limit=750,
+        )
+        if len(rows) >= 750:
+            raise RuntimeError("AI_TOOL_ROW_LIMIT")
+        grouped: dict[tuple[str, str], dict[str, float]] = {}
+        for row in rows:
+            if row.get("client_id") != self._client_id or not (
+                self.period["start"] <= str(row.get("metric_date") or "") <= self.period["end"]
+            ):
+                continue
+            provider = str(row.get("provider") or "")
+            if provider not in {"meta", "google_ads"}:
+                continue
+            name = str(row.get("campaign_name") or "Campanha demonstrativa")
+            item = grouped.setdefault((provider, name), {"spend": 0.0, "revenue": 0.0, "conversions": 0.0})
+            for field in ("spend", "revenue", "conversions"):
+                try:
+                    value = float(row.get(field) or 0)
+                    if math.isfinite(value):
+                        item[field] += value
+                except (ValueError, TypeError):
+                    pass
+        top = sorted(grouped.items(), key=lambda pair: pair[1]["revenue"], reverse=True)[:3]
+        metrics, sources, campaigns = [], [], []
+        for index, ((provider, name), values) in enumerate(top):
+            mid = f"demo_campaign_{index}_revenue"
+            metrics.append({"id": mid, "label": f"Receita atribuída — {name}",
+                            "source": provider, "value": round(values["revenue"], 2),
+                            "format": "currency", "status": "partial",
+                            "previous_value": None, "variation_percent": None})
+            campaigns.append({"name": name, "metric_ids": [mid], "source_id": provider})
+        for provider in sorted({item[0][0] for item in top}):
+            sources.append({"id": provider, "label": provider, "connected": False,
+                            "demo": True, "status": "partial", "last_sync_at": None})
+        return self._result(metrics, sources, campaigns,
+                            None if metrics else "Não há dados fictícios de campanhas neste período.")
 
     async def _metrics(self):
         fields = sorted({spec[2] for provider in self.active for spec in DAILY.get(provider, [])})
@@ -165,7 +220,9 @@ class ReadTools:
                     "data_min_available": min(metric_dates) if metric_dates else None,
                     "data_max_available": max(metric_dates) if metric_dates else None})
             if DAILY.get(provider):
-                sources.append({"id": provider, "label": provider, "connected": True,
+                sources.append({"id": provider, "label": provider,
+                    "connected": self._client_id != "pace-sneakers-demo",
+                    "demo": self._client_id == "pace-sneakers-demo",
                     "status": "available" if dates and all(m["status"] == "confirmed" for m in metrics if m["source"] == provider) else "partial" if dates else "no_data",
                     "data_max_available": max(dates) if dates else None, "last_sync_at": None})
         if "fbits" in self.active:
