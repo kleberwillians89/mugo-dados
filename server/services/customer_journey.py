@@ -200,7 +200,9 @@ async def _load_orders(client_id: str, since: datetime) -> Tuple[str, List[Dict[
     from .sales_by_origin import ORIGIN_SELECT, _paged
     from .whatsapp_insights import _PHONE_FIELDS, order_phone_keys, phone_key
 
-    provider = _text((await resolve_commerce_provider(client_id)).get("provider")).lower()
+    provider = SHOPIFY if client_id == "pace-sneakers-demo" else _text(
+        (await resolve_commerce_provider(client_id)).get("provider")
+    ).lower()
     out: List[Dict[str, Any]] = []
     if provider == SHOPIFY:
         from .shopify_reporting import _is_cancelled_order, _is_recognized_order
