@@ -12,6 +12,7 @@
 #   BACKUP_PASSPHRASE    senha longa da criptografia (guardar também num cofre fora do GitHub)
 #   RCLONE_CONFIG        conteúdo do rclone.conf com um remote chamado "backup"
 #   BACKUP_PATH          bucket/pasta no destino (ex.: mugoverso-backup/prod)
+# Sem destino ainda? Rode "verificar": testa a conexão com o banco e a senha, sem enviar nada.
 #   MUGO_JOBS_ENV        já existe (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY para os arquivos)
 # Restaurar: ver docs/BACKUP.md.
 name: Backup externo
@@ -27,7 +28,7 @@ on:
         required: true
         default: "banco"
         type: choice
-        options: [banco, arquivos, tudo, teste-restauracao]
+        options: [banco, arquivos, tudo, teste-restauracao, verificar]
 
 permissions:
   contents: read
@@ -69,6 +70,33 @@ jobs:
           mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
         env:
           RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Verificar conexão e senha (sem enviar nada)
+        # Prova SUPABASE_DB_URL e BACKUP_PASSPHRASE antes de existir o destino: copia, criptografa,
+        # abre de novo e confere o arquivo. Nada sai do runner e tudo é apagado no fim.
+        if: steps.plan.outputs.what == 'verificar'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_DB_URL" ]; then echo "falta o segredo SUPABASE_DB_URL"; exit 1; fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then echo "falta o segredo BACKUP_PASSPHRASE"; exit 1; fi
+          case "$SUPABASE_DB_URL" in *"["*|*"]"*|*"XX-XXXX"*) echo "SUPABASE_DB_URL ainda tem o modelo ([senha] ou XX-XXXX): troque pelos valores reais"; exit 1;; esac
+          case "$SUPABASE_DB_URL" in *":6543/"*) echo "SUPABASE_DB_URL é do Transaction pooler (porta 6543): use o Session pooler (porta 5432)"; exit 1;; esac
+          bin="/usr/lib/postgresql/${PG_MAJOR}/bin"
+          if ! "$bin/pg_dump" --format=custom --no-owner --no-privileges "$SUPABASE_DB_URL" > check.dump 2> err.txt; then
+            if grep -qi "password authentication failed" err.txt; then echo "senha do banco errada no SUPABASE_DB_URL";
+            elif grep -qi "could not translate host\|Network is unreachable\|timeout" err.txt; then echo "endereço do banco errado ou inacessível (use o Session pooler)";
+            elif grep -qi "server version" err.txt; then echo "versão do pg_dump menor que a do banco: aumentar PG_MAJOR";
+            else echo "pg_dump falhou (motivo não exibido no log público)"; fi
+            exit 1
+          fi
+          gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o check.gpg < check.dump
+          gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" check.gpg | cmp - check.dump
+          "$bin/pg_restore" --list check.dump > list.txt
+          echo "verificacao ok banco_bytes=$(stat -c %s check.dump) objetos=$(grep -vc '^;' list.txt) criptografia=ok"
+          rm -f check.dump check.gpg list.txt err.txt
 
       - name: Banco (pg_dump completo)
         if: steps.plan.outputs.what == 'banco' || steps.plan.outputs.what == 'tudo'
@@ -112,12 +140,13 @@ jobs:
           echo "arquivos ok bytes=$(stat -c %s "$file")"
 
       - name: Apagar cópias com mais de 30 dias
+        if: steps.plan.outputs.what != 'verificar'
         env:
           BACKUP_PATH: ${{ secrets.BACKUP_PATH }}
         run: rclone delete --quiet --min-age "${RETENTION_DAYS}d" "backup:${BACKUP_PATH}"
 
       - name: Alerta se falhou
-        if: failure()
+        if: failure() && steps.plan.outputs.what != 'verificar'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -130,7 +159,7 @@ jobs:
           if [ -n "$number" ]; then gh issue edit "$number" --body "$body"; else gh issue create --title "$title" --label jobs-parados --body "$body"; fi
 
       - name: Fecha o alerta quando volta
-        if: success()
+        if: success() && steps.plan.outputs.what != 'verificar'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
