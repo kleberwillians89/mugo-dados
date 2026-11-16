@@ -91,10 +91,18 @@ class ReadTools:
                         self.active.add("instagram")
                 elif provider in {"google_ads", "ga4", "shopify", "fbits"}:
                     self.active.add(provider)
+        # A single isolated showcase tenant has persisted, deliberately synthetic facts.
+        # This is NOT an OAuth connection and must not change discovery for real clients.
+        if self._client_id == "pace-sneakers-demo":
+            self.active.update({"shopify", "meta", "google_ads", "ga4", "instagram"})
+            self.limitations.append(
+                "DEMONSTRAÇÃO: métricas inteiramente fictícias, sem conexões OAuth ou sincronização externa."
+            )
         if {"shopify", "fbits"} <= self.active:
             self.active -= {"shopify", "fbits"}
             self.limitations.append("Mais de uma origem de comércio ativa; dados de comércio não foram combinados.")
         return {"period": self.period, "sources": sorted(self.active),
+                "demo": self._client_id == "pace-sneakers-demo",
                 "metrics": [metric[0] for provider in sorted(self.active) for metric in DAILY.get(provider, [])],
                 "tools": [{"name": "read_metrics", "read_only": True},
                           {"name": "read_campaigns", "read_only": True, "available": bool(self.accounts)}],
@@ -165,7 +173,9 @@ class ReadTools:
                     "data_min_available": min(metric_dates) if metric_dates else None,
                     "data_max_available": max(metric_dates) if metric_dates else None})
             if DAILY.get(provider):
-                sources.append({"id": provider, "label": provider, "connected": True,
+                sources.append({"id": provider, "label": provider,
+                    "connected": self._client_id != "pace-sneakers-demo",
+                    "demo": self._client_id == "pace-sneakers-demo",
                     "status": "available" if dates and all(m["status"] == "confirmed" for m in metrics if m["source"] == provider) else "partial" if dates else "no_data",
                     "data_max_available": max(dates) if dates else None, "last_sync_at": None})
         if "fbits" in self.active:
