@@ -286,16 +286,28 @@ async def shopify_report(
         end=end,
     )
     try:
-        context = await resolve_shopify_connection_context(
-            client_id, connection_id=connection_id,
-            required_scopes=("read_orders", "read_products"),
-        )
+        if client_id == "pace-sneakers-demo":
+            # Offline showroom only. No OAuth token, no external store access.
+            shop_domain = "demo.invalid"
+            demo = True
+        else:
+            context = await resolve_shopify_connection_context(
+                client_id, connection_id=connection_id,
+                required_scopes=("read_orders", "read_products"),
+            )
+            shop_domain = context.shop_domain
+            demo = False
         period = resolve_shopify_report_period(start=start, end=end, days=days)
         payload = await build_shopify_report(
             client_id=client_id,
-            shop_domain=context.shop_domain,
+            shop_domain=shop_domain,
             period=period,
         )
+        if demo:
+            payload["demo"] = True
+            payload["demo_disclaimer"] = "DADOS FICTÍCIOS — nenhuma loja Shopify conectada"
+            payload["sync_state"] = {"has_synced": False, "last_sync_at": None, "last_error": None}
+            return payload
         # Zero só pode significar zero quando já existiu uma sincronização
         # válida — sem isso, "0 pedidos" é indistinguível de "nunca
         # importado". Best-effort: nunca falha o request por causa disto.
@@ -386,16 +398,23 @@ async def shopify_customers(
         end=end,
     )
     try:
-        context = await resolve_shopify_connection_context(
-            client_id, connection_id=connection_id,
-            required_scopes=("read_orders", "read_customers"),
-        )
+        if client_id == "pace-sneakers-demo":
+            shop_domain = "demo.invalid"
+        else:
+            context = await resolve_shopify_connection_context(
+                client_id, connection_id=connection_id,
+                required_scopes=("read_orders", "read_customers"),
+            )
+            shop_domain = context.shop_domain
         period = resolve_shopify_report_period(start=start, end=end, days=days)
         payload = await build_shopify_customers_report(
             client_id=client_id,
-            shop_domain=context.shop_domain,
+            shop_domain=shop_domain,
             period=period,
         )
+        if client_id == "pace-sneakers-demo":
+            payload["demo"] = True
+            payload["demo_disclaimer"] = "DADOS FICTÍCIOS — sem conexão Shopify"
         _log_endpoint_done(
             endpoint=endpoint,
             started=started,

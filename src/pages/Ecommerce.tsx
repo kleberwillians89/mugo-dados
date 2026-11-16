@@ -262,6 +262,12 @@ export default function Ecommerce(props: Props) {
   // Escolha explícita só vale nesta visita e nesta empresa; sem schema novo.
   const [chosen, setChosen] = useState<EcommerceProvider | null>(null);
 
+  // Demonstration tenant has persisted orders, deliberately without real OAuth.
+  // Render the same sales experience without presenting a fake connection.
+  if (activeClientId === "pace-sneakers-demo") {
+    return <><p role="status" className="ds-footnote">PACE Sneakers — DEMONSTRAÇÃO: vendas e clientes fictícios, sem conexão com Shopify.</p><Shopify canSync={false} onLogout={props.onLogout} onOpenDashboard={props.onOpenDashboard} onOpenGoogleReport={props.onOpenGoogleReport} /></>;
+  }
+
   if (integrations.loading) {
     return (
       <EcommerceShell>

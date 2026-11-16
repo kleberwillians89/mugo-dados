@@ -242,8 +242,12 @@ def merge_ga4_origins(orders: List[Dict[str, Any]], transactions: Dict[str, Dict
 async def build_sales_by_origin(client_id: str, *, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
     period = resolve_period(start=start, end=end)
     start_utc, end_utc = period.utc_bounds()
-    resolution = await resolve_commerce_provider(client_id)
-    provider = resolution.get("provider")
+    if client_id == "pace-sneakers-demo":
+        # Read already stored synthetic orders, never invent a Shopify connection.
+        provider = SHOPIFY
+    else:
+        resolution = await resolve_commerce_provider(client_id)
+        provider = resolution.get("provider")
     base = {
         "ok": True,
         "period": {"start": period.start.isoformat(), "end": period.end.isoformat()},
