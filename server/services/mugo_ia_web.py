@@ -16,7 +16,8 @@ PATTERNS = {
     "conteudo": r"refer[eê]nci|conte[uú]do|campanha|criativ|comunica[çc][aã]o",
     "noticias": r"not[ií]cia|imprensa|mat[eé]ria|aconteceu|atualidade",
 }
-TRIGGER = re.compile(r"pesquis|internet|web|online|p[uú]blic|atual|recent|hoje|essa semana|últim|ultimo|novidade|tend[eê]nci|concorrent|benchmark|mercado|setor|not[ií]cia|refer[eê]ncia", re.I)
+# "hoje", "últimos dias" e "essa semana" sozinhos falam dos dados da própria loja (vendas, ROAS): não vão para a web.
+TRIGGER = re.compile(r"pesquis|internet|web|online|p[uú]blic|novidade|tend[eê]nci|concorrent|competidor|benchmark|mercado|setor|not[ií]cia|imprensa|refer[eê]ncia", re.I)
 
 
 def category(question: str) -> str | None:

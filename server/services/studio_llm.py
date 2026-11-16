@@ -120,7 +120,11 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
         print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code} detail={detail}")
         raise StudioError(provider_error_code(detail), detail)
     try:
-        data = json.loads(_extract_output_text(response.json()))
+        body = response.json()
+        if isinstance(body, dict) and body.get("status") == "incomplete":
+            reason = str((body.get("incomplete_details") or {}).get("reason") or "?")
+            print(f"[studio][llm] schema={schema_name} model={chosen} status=incomplete reason={reason} max_output_tokens={max_output_tokens}")
+        data = json.loads(_extract_output_text(body))
     except (ValueError, TypeError):
         raise StudioError("AI_INVALID_OUTPUT") from None
     if not isinstance(data, dict):

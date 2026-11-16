@@ -1803,7 +1803,7 @@ async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | No
     try:
         return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
     except StudioError as exc:
-        raise _http(exc) from None
+        raise _known(exc) from None
 
 
 @router.delete("/mugo-ia")

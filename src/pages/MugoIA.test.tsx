@@ -59,6 +59,13 @@ describe("Mugoverso IA", () => {
     expect(host.querySelector(".miaAction")?.textContent).toBe("O que eu faria agoraaproveitar a Black November.");
   });
 
+  it("'O que eu faria agora' no meio do parágrafo também vira bloco", async () => {
+    studio.getMugoIA.mockResolvedValue({ messages: [{ id: "a", role: "assistant", content: "Vendeu bem. O que eu faria agora: pedir o relatório diário." }] });
+    await act(async () => { root.render(<MugoIA canManage isAgency />); });
+    expect(host.querySelector(".miaAnswer p")?.textContent).toBe("Vendeu bem.");
+    expect(host.querySelector(".miaAction")?.textContent).toBe("O que eu faria agorapedir o relatório diário.");
+  });
+
   it("erro devolve a pergunta para a caixa", async () => {
     studio.getMugoIA.mockResolvedValue({ messages: [] });
     studio.askMugoIA.mockRejectedValue(new Error("Muitas perguntas agora."));
