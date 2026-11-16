@@ -3197,6 +3197,31 @@ async def ask_intelligence(
                               user_id=user_id, conversation_id=conversation_id)
     request_period = dict(period)
     period = context.period
+    # Showcase-only: a question about the last N days must select N days of
+    # persisted demo data, not silently reuse a 90-day period in the UI.
+    # Read the end date from the tenant's own rows (never fabricate newer data).
+    if client_id == "pace-sneakers-demo" and not context.clarification:
+        from .intelligence_context import normalized
+        normalized_question = normalized(clean_question)
+        relative_days = re.search(r"\\b(7|sete|30|trinta|90|noventa)\\s+dias\\b", normalized_question)
+        days_requested = (
+            {"7": 7, "sete": 7, "30": 30, "trinta": 30, "90": 90, "noventa": 90}.get(relative_days.group(1))
+            if relative_days else (7 if re.search(r"\\bultima\\s+semana\\b", normalized_question) else None)
+        )
+        if days_requested:
+            latest = await sb_select(
+                "dashboard_daily_metrics", select="metric_date",
+                filters={"client_id": "eq.pace-sneakers-demo"},
+                order="metric_date.desc", limit=1,
+            )
+            if latest:
+                last_day = date.fromisoformat(str(latest[0]["metric_date"]))
+                first_day = last_day - timedelta(days=days_requested - 1)
+                period = {"start": first_day.isoformat(), "end": last_day.isoformat()}
+                context.limitations.append(
+                    "DEMONSTRAÇÃO: intervalo calculado a partir da última data com dados fictícios "
+                    f"({last_day.isoformat()}), não de uma sincronização em tempo real."
+                )
     if context.clarification:
         answer = empty_answer(context.clarification)
         snapshot = _investigation_snapshot(client_id, {
