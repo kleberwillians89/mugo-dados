@@ -77,26 +77,27 @@ describe("AppNavigation — sidebar global", () => {
     expect(container.querySelector<HTMLElement>("#app-nav-conteudo")?.hidden).toBe(false);
   });
 
-  it("menu enxuto: 8 grupos + Configurações, com todas as telas de antes como subitens e as mesmas rotas", async () => {
+  it("organiza o menu na hierarquia gerencial aprovada sem alterar rotas", async () => {
     await render({ agencyAdmin: true });
-    expect(groupNames()).toEqual(["Tira-dúvidas", "Início", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
-    expect(groupLinks("inicio")).toEqual(["Visão Geral", "Saúde da Marca"]);
+    expect(groupNames()).toEqual(["Visão Geral", "Tarefas", "Estratégia", "Conteúdo", "Relacionamento", "Vendas", "Mídia", "Tira-dúvidas", "Configurações"]);
+    expect(groupLinks("visao-geral")).toEqual(["Dashboard"]);
+    expect(groupLinks("tarefas")).toEqual(["Tarefas"]);
     expect(groupLinks("ia")).toEqual(["Tira-dúvidas"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);
     expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
-    expect(groupLinks("conteudo")).toEqual(["Briefing", "Planejamento", "Evento", "Tarefas", "Social Media", "Redação", "Criadores", "Biblioteca"]);
+    expect(groupLinks("estrategia")).toEqual(["Clipping e Radar", "Saúde da Marca", "Planejamento", "Briefing", "Criadores", "Relatório", "Biblioteca"]);
+    expect(groupLinks("conteudo")).toEqual(["Social Media", "Redação", "Evento"]);
     expect(groupLinks("relacionamento")).toEqual(["WhatsApp", "E-mail marketing", "Comentários"]);
-    expect(groupLinks("marca")).toEqual(["Clipping e Radar", "IA da marca"]);
-    expect(groupLinks("relatorio")).toEqual(["Relatório"]);
     expect(groupLinks("config")).toEqual([
       "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
     ]);
     // o grupo da tela aberta (Ecommerce) vem aberto; os outros fechados, mas com os links no lugar
     expect(container.querySelector<HTMLElement>("#app-nav-vendas")?.hidden).toBe(false);
     expect(container.querySelector<HTMLElement>("#app-nav-conteudo")?.hidden).toBe(true);
-    expect(container.querySelectorAll('.appNavSubList a[href="/central"]')).toHaveLength(1);
-    expect(container.querySelector('[data-group="inicio"] .appNavGroupLink')?.getAttribute("href")).toBe("/central"); // Início abre a Central
+    expect(container.querySelectorAll('.appSidebar a[href="/central"]')).toHaveLength(2); // grupo + item Dashboard
+    expect(container.querySelector('[data-group="visao-geral"] .appNavGroupLink')?.getAttribute("href")).toBe("/central");
     expect(link("Saúde da Marca")?.getAttribute("href")).toBe("/saude-da-marca");
+    expect(link("IA da marca")).toBeUndefined();
     expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
@@ -203,7 +204,7 @@ describe("AppNavigation — sidebar global", () => {
     await render({ canManageIntegrations: false });
     expect(link("Integrações")).toBeUndefined();
     expect(container.querySelector('[data-group="config"]')).toBeNull();  // nada de administração para este perfil
-    expect(groupLinks("marca")).toContain("IA da marca");
+    expect(link("IA da marca")).toBeUndefined();
     expect(link("Empresas")).toBeUndefined();
     expect(link("Automações")).toBeUndefined();
 
@@ -213,20 +214,16 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Empresas")?.getAttribute("href")).toBe("/empresas");
   });
 
-  it("aplica a permissão da Visão Geral aos dois atalhos", async () => {
+  it("aplica a permissão existente ao Dashboard sem afetar Saúde da Marca", async () => {
     await render({ agencyAdmin: true, canView: (route) => route !== "central" });
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
-    expect(groupLinks("config")).not.toContain("Visão Geral");
-    expect(groupLinks("inicio")).toEqual(["Saúde da Marca"]);
+    expect(groupLinks("estrategia")).toContain("Saúde da Marca");
+    expect(container.querySelector('[data-group="visao-geral"]')).toBeNull();
   });
 
-  it("mantém IA da marca visível pela permissão do módulo, sem exigir papel administrativo", async () => {
+  it("mantém IA da marca fora da navegação sem alterar suas permissões de rota", async () => {
     await render({ canManageIntegrations: false, canView: (route) => route !== "users" });
-    expect(groupLinks("conteudo")).not.toContain("IA da marca");
-    expect(groupLinks("marca")).toContain("IA da marca");
-    expect(link("IA da marca")?.getAttribute("href")).toBe("/ia-da-marca");
-
-    await render({ canManageIntegrations: false, canView: (route) => route !== "users" && route !== "brand_ai" });
     expect(link("IA da marca")).toBeUndefined();
+    expect(container.querySelector('[data-group="marca"]')).toBeNull();
   });
 });

@@ -71,4 +71,16 @@ describe("Índice de saúde MUGOVERSO", () => {
     expect(el.textContent).not.toContain("Editar pesos");
     act(() => root.unmount());
   });
+
+  it("oferece resumo compacto no Dashboard sem alterar o editor completo", async () => {
+    const el = document.createElement("div");
+    const root = createRoot(el);
+    await act(async () => { root.render(<HealthIndexCard start="2026-10-01" end="2026-10-31" compact />); });
+    expect(el.textContent).toContain("Saúde da Marca");
+    expect(el.textContent).toContain("66/100");
+    expect(el.textContent).toContain("Cobertura dos indicadores: 85%");
+    expect(el.textContent).not.toContain("Editar pesos");
+    expect(el.querySelector(".hiCard.is-compact")).toBeTruthy();
+    act(() => root.unmount());
+  });
 });

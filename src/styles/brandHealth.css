@@ -103,6 +103,9 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 /* Índice de saúde MUGOVERSO */
 .hiCard h2{margin:0;font-size:16px}
 .hiCard.is-loading{opacity:.6}
+.hiCard.is-compact{display:grid;grid-template-columns:minmax(170px,1fr) auto;align-items:center;gap:8px 20px;padding:14px 16px}
+.hiCompactScore{display:flex;align-items:baseline;gap:12px;justify-content:flex-end}.hiCompactScore strong{font-size:32px;line-height:1}.hiCompactScore strong small{font-size:13px;font-weight:500;color:var(--text-secondary,#4d565d)}
+.hiCard.is-compact>.bhMuted{grid-column:1/-1;margin:0}
 .hiHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
 .hiBody{display:grid;grid-template-columns:minmax(170px,220px) 1fr;gap:20px;align-items:center}
 .hiScore{display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center}
@@ -121,7 +124,7 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .hiWeightRow input[type=range]{width:100%;accent-color:var(--accent,#1e3f5a)}
 .hiWeightPct{font-weight:700;text-align:right}
 .hiEditorActions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hiSpacer{flex:1}
-@media (max-width:760px){.hiBody{grid-template-columns:1fr}.hiWeightRow{grid-template-columns:1fr 52px}.hiWeightRow input{grid-column:1 / -1;grid-row:2}}
+@media (max-width:760px){.hiBody{grid-template-columns:1fr}.hiWeightRow{grid-template-columns:1fr 52px}.hiWeightRow input{grid-column:1 / -1;grid-row:2}.hiCard.is-compact{grid-template-columns:1fr}.hiCompactScore{justify-content:flex-start}.hiCard.is-compact>.bhMuted{grid-column:1}}
 
 /* Nuvem de palavras da Saúde da marca (mesma peça da tela de Comentários) */
 .bhWords h2{margin:0;font-size:16px}

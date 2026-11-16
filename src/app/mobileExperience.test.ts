@@ -12,9 +12,12 @@ describe("mobile product experience contracts", () => {
     expect(app).toContain("<AppNavigation");
     expect(nav).toContain('className="appTopbar"');
     expect(nav).toContain('aria-controls="app-sidebar"');
-    // "Central da Marca" virou "Visão Geral" (uma entrada só, sem duplicar com Saúde da Marca).
+    // O grupo "Visão Geral" abre o Dashboard; Saúde da Marca permanece em Estratégia.
     expect(nav.match(/label: "Visão Geral"/g)?.length).toBe(1);
+    expect(nav.match(/label: "Dashboard"/g)?.length).toBe(1);
+    expect(nav).toMatch(/id: "estrategia"[\s\S]*?routes: \["clipping", "brand_health"/);
     expect(nav).not.toContain('label: "Central da Marca"');
+    expect(nav).not.toContain('label: "IA da marca"');
     expect(nav).toContain("Ecommerce");
     expect(nav).toContain("Social Media");
     expect(nav).not.toContain('{ route: "calendar", label: "Calendário" }');
