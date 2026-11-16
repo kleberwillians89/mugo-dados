@@ -57,16 +57,16 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const healthStart = `${month}-01`;
   const monthEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).toISOString().slice(0, 10);
   const healthEnd = monthEnd < today ? monthEnd : today;
-  return <Shell title="Início" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={clientName} title="Início" controls={<div className="calNav">
+  return <Shell title="Visão Geral" variant="editorial"><div className="ds-page studioPage">
+    <PageHeader company={clientName} title="Visão Geral" controls={<div className="calNav">
       <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
       <h2 className="calRange">{MONTH_NAMES[Number(month.slice(5)) - 1]} {month.slice(0, 4)}</h2>
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
       <AiUsageButton clientName={clientName} isAgency={isAgency} />
     </div>} />
-    {/* Layout novo: Saúde da Marca é o primeiro bloco do Início, e logo abaixo os canais da marca. */}
-    <section className="homeHealth" aria-label="Saúde da Marca">
-      <div className="homeHealthHead"><h2>Saúde da Marca</h2><a href={getPathForRoute("brand_health")}>Ver a marca</a></div>
+    {/* Resumo da marca no topo do Início; a tela dedicada "Saúde da Marca" abre pelo link. */}
+    <section className="homeHealth" aria-label="Resumo da marca">
+      <div className="homeHealthHead"><h2>Resumo da marca</h2><a href={getPathForRoute("brand_health")}>Ver Saúde da Marca</a></div>
       {healthStart <= today ? <HealthIndexCard start={healthStart} end={healthEnd} /> : <p className="studioOk">Este mês ainda não começou.</p>}
     </section>
     <HomeChannels />

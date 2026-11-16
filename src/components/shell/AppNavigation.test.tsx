@@ -80,7 +80,7 @@ describe("AppNavigation — sidebar global", () => {
   it("menu enxuto: 8 grupos + Configurações, com todas as telas de antes como subitens e as mesmas rotas", async () => {
     await render({ agencyAdmin: true });
     expect(groupNames()).toEqual(["Tira-dúvidas", "Início", "Vendas", "Mídia", "Conteúdo", "Relacionamento", "Marca", "Relatório", "Configurações"]);
-    expect(groupLinks("inicio")).toEqual(["Central da Marca", "Saúde da Marca"]);
+    expect(groupLinks("inicio")).toEqual(["Visão Geral", "Saúde da Marca"]);
     expect(groupLinks("ia")).toEqual(["Tira-dúvidas"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);
     expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
@@ -213,10 +213,10 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Empresas")?.getAttribute("href")).toBe("/empresas");
   });
 
-  it("aplica a permissão da Central da Marca aos dois atalhos", async () => {
+  it("aplica a permissão da Visão Geral aos dois atalhos", async () => {
     await render({ agencyAdmin: true, canView: (route) => route !== "central" });
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
-    expect(groupLinks("config")).not.toContain("Central da Marca");
+    expect(groupLinks("config")).not.toContain("Visão Geral");
     expect(groupLinks("inicio")).toEqual(["Saúde da Marca"]);
   });
 

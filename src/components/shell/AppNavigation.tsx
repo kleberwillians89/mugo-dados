@@ -56,7 +56,7 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 const OPERATION_ITEMS: NavItem[] = [
   // Mugoverso IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
   { route: "mugo_ia", label: "Tira-dúvidas" },
-  { route: "central", label: "Central da Marca" },
+  { route: "central", label: "Visão Geral" },
   { route: "briefing", label: "Briefing" },
   { route: "planning", label: "Planejamento" },
   { route: "production", label: "Evento" },
