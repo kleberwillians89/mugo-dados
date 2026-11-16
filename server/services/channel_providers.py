@@ -176,10 +176,9 @@ async def account_info(provider: str, token: Dict[str, Any]) -> Tuple[str, str, 
         return ids[0], str(names.get(ids[0]) or f"Conta {ids[0]}"), {"advertiser_ids": ids, "advertiser_names": names}
     if provider == "tiktok":
         body = await _json(provider, "GET", f"{TIKTOK_API}/user/info/", headers={"Authorization": f"Bearer {access}"},
-                           params={"fields": "open_id,display_name,username"})
+                           params={"fields": "open_id,display_name"})  # username exige user.info.profile, que não pedimos
         user = (body.get("data") or {}).get("user") or {}
-        handle = user.get("username") or user.get("display_name") or "TikTok"
-        return str(user.get("open_id") or token.get("open_id") or ""), f"@{handle}" if user.get("username") else str(handle), {}
+        return str(user.get("open_id") or token.get("open_id") or ""), str(user.get("display_name") or "TikTok"), {}
     if provider == "pinterest":
         user = await _json(provider, "GET", f"{PINTEREST_API}/user_account", headers={"Authorization": f"Bearer {access}"})
         ads = await _json(provider, "GET", f"{PINTEREST_API}/ad_accounts", headers={"Authorization": f"Bearer {access}"}, params={"page_size": 25})
