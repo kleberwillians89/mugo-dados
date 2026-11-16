@@ -1,5 +1,6 @@
 // src/components/Shell.tsx
 import React from "react";
+import { getActiveClientId } from "../app/activeClient";
 
 type Props = {
   title: string;
@@ -35,10 +36,17 @@ export default function Shell({
   variant = "default",
   children,
 }: Props) {
+  const demo = getActiveClientId() === "pace-sneakers-demo";
+  const demoNotice = demo ? (
+    <div role="status" style={{ margin: "8px 16px", padding: "8px 12px", border: "1px solid currentColor", borderRadius: 8, fontSize: 12, fontWeight: 700, letterSpacing: ".04em" }}>
+      PACE SNEAKERS · DEMONSTRAÇÃO — TODOS OS DADOS SÃO FICTÍCIOS. Nenhuma rede, loja ou automação real está conectada.
+    </div>
+  ) : null;
   if (variant === "editorial") {
     return (
       <div className={`app appShell ${themeClass || ""}`.trim()}>
         {right ? <div className="ds-utilityBar">{right}</div> : null}
+        {demoNotice}
         <main className="content ds-content" aria-label={title || undefined}>{children}</main>
       </div>
     );
@@ -77,6 +85,7 @@ export default function Shell({
         </div>
       </header>
 
+      {demoNotice}
       <main className="content">{children}</main>
     </div>
   );
