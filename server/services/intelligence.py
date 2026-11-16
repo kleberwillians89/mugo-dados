@@ -3203,10 +3203,10 @@ async def ask_intelligence(
     if client_id == "pace-sneakers-demo" and not context.clarification:
         from .intelligence_context import normalized
         normalized_question = normalized(clean_question)
-        relative_days = re.search(r"\\b(7|sete|30|trinta|90|noventa)\\s+dias\\b", normalized_question)
+        relative_days = re.search(r"\b(7|sete|30|trinta|90|noventa)\s+dias\b", normalized_question)
         days_requested = (
             {"7": 7, "sete": 7, "30": 30, "trinta": 30, "90": 90, "noventa": 90}.get(relative_days.group(1))
-            if relative_days else (7 if re.search(r"\\bultima\\s+semana\\b", normalized_question) else None)
+            if relative_days else (7 if re.search(r"\bultima\s+semana\b", normalized_question) else None)
         )
         if days_requested:
             latest = await sb_select(
