@@ -1,0 +1,192 @@
+# Backup externo do Mugoverso (fora do Supabase), criptografado.
+#
+# Por quê: o backup do Supabase (plano Pro) guarda 7 dias do BANCO e não inclui os arquivos do Storage
+# (artes, Biblioteca, miniaturas). Aqui uma cópia sai para um armazenamento privado da empresa
+# (Google Cloud Storage, Cloudflare R2 ou Amazon S3, via rclone), criptografada com uma senha que só a
+# empresa tem. O repositório é público: o backup NUNCA fica no GitHub (nem como artifact) e o log só
+# mostra totais.
+#
+# Agenda: banco todo dia 02:17 (Brasília); arquivos aos domingos; teste de restauração dia 1º.
+# Segredos necessários (Settings → Secrets → Actions):
+#   SUPABASE_DB_URL      conexão Postgres (Supabase → Connect → Session pooler, com a senha do banco)
+#   BACKUP_PASSPHRASE    senha longa da criptografia (guardar também num cofre fora do GitHub)
+#   RCLONE_CONFIG        conteúdo do rclone.conf com um remote chamado "backup"
+#   BACKUP_PATH          bucket/pasta no destino (ex.: mugoverso-backup/prod)
+#   MUGO_JOBS_ENV        já existe (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY para os arquivos)
+# Restaurar: ver docs/BACKUP.md.
+name: Backup externo
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # banco: todo dia 02:17 BRT (arquivos também aos domingos)
+    - cron: "47 6 1 * *"   # teste de restauração: dia 1º, 03:47 BRT
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "O que rodar"
+        required: true
+        default: "banco"
+        type: choice
+        options: [banco, arquivos, tudo, teste-restauracao]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: backup-externo
+  cancel-in-progress: false
+
+env:
+  RETENTION_DAYS: "30"
+  PG_MAJOR: "17"
+
+jobs:
+  backup:
+    if: github.event_name == 'workflow_dispatch' && inputs.what != 'teste-restauracao' || github.event.schedule == '17 5 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: O que copiar hoje
+        id: plan
+        run: |
+          what="${{ inputs.what }}"
+          if [ -z "$what" ]; then
+            what=banco
+            [ "$(date -u +%u)" = "7" ] && what=tudo   # domingo: banco + arquivos
+          fi
+          echo "what=$what" >> "$GITHUB_OUTPUT"
+          echo "stamp=$(date -u +%Y-%m-%dT%H%MZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Ferramentas (pg_dump, rclone)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq "postgresql-client-${PG_MAJOR}" rclone >/dev/null
+          mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
+        env:
+          RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Banco (pg_dump completo)
+        if: steps.plan.outputs.what == 'banco' || steps.plan.outputs.what == 'tudo'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_PATH: ${{ secrets.BACKUP_PATH }}
+          STAMP: ${{ steps.plan.outputs.stamp }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_DB_URL" && test -n "$BACKUP_PASSPHRASE" && test -n "$BACKUP_PATH"
+          file="banco-${STAMP}.dump.gpg"
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" --format=custom --no-owner --no-privileges "$SUPABASE_DB_URL" 2>/dev/null \
+            | gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o "$file"
+          test "$(stat -c %s "$file")" -gt 100000   # dump vazio ou falho não conta como backup
+          rclone copyto --quiet "$file" "backup:${BACKUP_PATH}/banco/${file}"
+          echo "banco ok bytes=$(stat -c %s "$file")"
+
+      - name: Arquivos do Storage
+        if: steps.plan.outputs.what == 'arquivos' || steps.plan.outputs.what == 'tudo'
+        env:
+          MUGO_JOBS_ENV: ${{ secrets.MUGO_JOBS_ENV }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_PATH: ${{ secrets.BACKUP_PATH }}
+          STAMP: ${{ steps.plan.outputs.stamp }}
+        run: |
+          set -euo pipefail
+          pip install -q httpx python-dotenv
+          eval "$(python - <<'PY'
+          import io, os, shlex
+          from dotenv import dotenv_values
+          env = dotenv_values(stream=io.StringIO(os.environ["MUGO_JOBS_ENV"]))
+          for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+              print(f"export {k}={shlex.quote(env.get(k) or '')}")
+          PY
+          )"
+          python .github/scripts/backup_storage.py storage
+          file="arquivos-${STAMP}.tar.gz.gpg"
+          tar -czf - storage | gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o "$file"
+          rclone copyto --quiet "$file" "backup:${BACKUP_PATH}/arquivos/${file}"
+          echo "arquivos ok bytes=$(stat -c %s "$file")"
+
+      - name: Apagar cópias com mais de 30 dias
+        env:
+          BACKUP_PATH: ${{ secrets.BACKUP_PATH }}
+        run: rclone delete --quiet --min-age "${RETENTION_DAYS}d" "backup:${BACKUP_PATH}"
+
+      - name: Alerta se falhou
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create jobs-parados --color B22234 --description "Jobs automáticos falhando" 2>/dev/null || true
+          title="Job parado: backup-externo"
+          body="Backup externo falhou em $(TZ=America/Sao_Paulo date '+%d/%m %H:%M') (horário de Brasília). Execução: ${RUN_URL}
+          Confira os segredos SUPABASE_DB_URL, BACKUP_PASSPHRASE, RCLONE_CONFIG e BACKUP_PATH. Fecha sozinha no próximo backup que der certo."
+          number="$(gh issue list --label jobs-parados --state open --limit 100 --json number,title --jq "[.[] | select(.title == \"${title}\")][0].number // empty")"
+          if [ -n "$number" ]; then gh issue edit "$number" --body "$body"; else gh issue create --title "$title" --label jobs-parados --body "$body"; fi
+
+      - name: Fecha o alerta quando volta
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for number in $(gh issue list --label jobs-parados --state open --limit 100 --json number,title --jq '.[] | select(.title == "Job parado: backup-externo") | .number'); do
+            gh issue close "$number" --comment "Voltou: backup externo feito em $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')."
+          done
+
+  restore-test:
+    # Prova mensal de que o backup volta: restaura o último dump num Postgres temporário e confere as tabelas.
+    if: github.event_name == 'workflow_dispatch' && inputs.what == 'teste-restauracao' || github.event.schedule == '47 6 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+    steps:
+      - name: Ferramentas
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq "postgresql-client-${PG_MAJOR}" rclone >/dev/null
+          mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
+        env:
+          RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Restaurar o último backup e conferir
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_PATH: ${{ secrets.BACKUP_PATH }}
+          PGPASSWORD: restore
+        run: |
+          set -euo pipefail
+          latest="$(rclone lsf "backup:${BACKUP_PATH}/banco" | sort | tail -1)"
+          test -n "$latest"
+          rclone copyto --quiet "backup:${BACKUP_PATH}/banco/${latest}" latest.dump.gpg
+          gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" latest.dump.gpg > latest.dump
+          bin="/usr/lib/postgresql/${PG_MAJOR}/bin"
+          "$bin/pg_restore" --list latest.dump > /dev/null   # arquivo íntegro
+          # Só o schema public (dados da plataforma); auth/storage são do Supabase e exigem extensões dele.
+          "$bin/pg_restore" --no-owner --no-privileges --schema=public -h localhost -U postgres -d postgres latest.dump 2>/dev/null || true
+          tables="$("$bin/psql" -h localhost -U postgres -d postgres -tAc "select count(*) from information_schema.tables where table_schema='public'")"
+          clients="$("$bin/psql" -h localhost -U postgres -d postgres -tAc "select count(*) from public.clients" 2>/dev/null || echo 0)"
+          echo "restauracao tabelas=${tables} empresas=${clients}"
+          test "$tables" -gt 20 && test "$clients" -gt 0
+
+      - name: Alerta se falhou
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create jobs-parados --color B22234 --description "Jobs automáticos falhando" 2>/dev/null || true
+          gh issue create --title "Job parado: teste-de-restauracao" --label jobs-parados \
+            --body "O teste mensal de restauração do backup falhou. Execução: ${RUN_URL}. Verifique antes de precisar do backup."
