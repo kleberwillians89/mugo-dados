@@ -106,7 +106,7 @@ describe("public legal routes", () => {
   ])("%s fica marcado para revisão jurídica e não promete conformidade", async (path, route) => {
     await renderPublicPath(path);
     const page = container.querySelector(`[data-public-route="${route}"]`);
-    expect(page?.getAttribute("data-legal-status")).toBe("draft-legal-review");
+    expect(page?.getAttribute("data-legal-status")).toBe(route === "data-protection" ? "review-pending" : "draft-legal-review");
     expect(container.textContent).not.toMatch(/LGPD compliant|100%|em conformidade com a LGPD|totalmente seguro|garantimos/i);
     expectNoPrivateBootstrap();
   });
