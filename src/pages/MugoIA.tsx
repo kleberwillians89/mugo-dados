@@ -42,7 +42,9 @@ export function AnswerBody({ text }: { text: string }) {
     if (list.length) blocks.push(<ul key={`l${blocks.length}`}>{list.map((item, i) => <li key={i}>{item}</li>)}</ul>);
     list = [];
   };
-  for (const raw of text.split("\n")) {
+  // "… O que eu faria agora: …" no meio do parágrafo também vira o bloco em destaque.
+  const normalized = text.replace(/\s+(o que eu faria agora\s*:)/i, "\n$1");
+  for (const raw of normalized.split("\n")) {
     const line = raw.trim();
     if (!line) { flushList(); continue; }
     if (ACTION_RE.test(line)) {
