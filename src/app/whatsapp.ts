@@ -62,7 +62,7 @@ export type WaConversation = {
 };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
-  conversations: WaConversation[];
+  conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null;
 };
 
 const base = (path = "") => clientClientPath(`/whatsapp${path}`);
