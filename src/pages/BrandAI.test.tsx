@@ -10,6 +10,7 @@ vi.mock("../components/Shell", () => ({ default: ({ children }: { children: Reac
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
 // Os componentes reaproveitados têm testes próprios: aqui só conferimos que a página os monta com a permissão certa.
 vi.mock("../components/studio/BrandKnowledge", () => ({ default: ({ canManage }: { canManage: boolean }) => <div data-testid="knowledge">{canManage ? "kb-edit" : "kb-read"}</div> }));
+vi.mock("../components/brandContext/BrandProfileEditor", () => ({ default: ({ open }: { open: boolean }) => (open ? <div data-testid="profile-editor" /> : null) }));
 vi.mock("../components/brandContext/BrandImport", () => ({ default: () => <div data-testid="import" /> }));
 vi.mock("../components/studio/BrandAgent", () => ({ default: () => <div data-testid="agent" /> }));
 vi.mock("../components/admin/BusinessContextPanel", () => ({ default: ({ canEdit }: { canEdit: boolean }) => <div data-testid="business">{canEdit ? "bc-edit" : "bc-read"}</div> }));
@@ -41,12 +42,14 @@ describe("Contexto da Marca", () => {
     expect(host.textContent).toContain("Os pesos somam 80%");  // avisa, não normaliza
     expect(host.querySelector('[data-testid="business"]')?.textContent).toBe("bc-edit");
     expect(button("Editar perfil")).toBeTruthy();
+    expect(button("Sugerir com IA")).toBeTruthy();  // sugestão da IA: só equipe Mugô
   });
 
   it("leitor só consulta: sem edição, sem upload e sem atalhos de administração", async () => {
     await show(<BrandAI canManage={false} />);
     expect(host.querySelector('[data-testid="business"]')?.textContent).toBe("bc-read");
     expect(button("Editar perfil")).toBeUndefined();
+    expect(host.querySelector('[data-testid="profile-editor"]')).toBeNull();
     await act(async () => { button("Documentos e conhecimento").click(); });
     expect(host.querySelector('[data-testid="knowledge"]')?.textContent).toBe("kb-read");
     expect(host.querySelector('[data-testid="import"]')).toBeNull();  // leitor não importa
@@ -56,11 +59,12 @@ describe("Contexto da Marca", () => {
     expect(host.textContent).not.toContain("Usuários e acessos");
   });
 
-  it("admin do cliente edita o contexto e os documentos, mas o perfil editorial segue com a equipe", async () => {
+  it("admin do cliente edita perfil, contexto e documentos da própria empresa", async () => {
     await show(<BrandAI canManage />);
     expect(host.querySelector('[data-testid="business"]')?.textContent).toBe("bc-edit");
-    expect(button("Editar perfil")).toBeUndefined();
-    expect(host.textContent).toContain("fale com a equipe Mugô");
+    expect(button("Sugerir com IA")).toBeUndefined();
+    await act(async () => { button("Editar perfil").click(); });
+    expect(host.querySelector('[data-testid="profile-editor"]')).not.toBeNull();
     await act(async () => { button("Importar do planejamento").click(); });
     expect(host.querySelector('[data-testid="import"]')).not.toBeNull();
     await act(async () => { button("Identidade e estratégia").click(); });

@@ -22,7 +22,7 @@ const field = (over: Partial<ImportField>): ImportField => ({ key: "x", label: "
   status: "found", value: null, current: null, changed: true, source: null, notes: [], max_length: 1000, ...over });
 
 const PREVIEW: ImportPreview = {
-  ok: true, document: { id: "doc-1", name: "planejamento-aurora.pdf", chars_total: 900, read_chars: 900, partial: false },
+  ok: true, document: { id: "doc-1", name: "planejamento-aurora.pdf", chars_total: 900, read_chars: 900, parts: 1, partial: false },
   counts: { found: 3, ambiguous: 1, missing: 1 }, missing: ["Diferenciais"],
   fields: [
     field({ key: "tone_of_voice", label: "Tom de voz", value: "Acolhedor e didático.", current: "Tom antigo",
@@ -36,6 +36,8 @@ const PREVIEW: ImportPreview = {
       value: { instagram: 4, tiktok: 2 }, current: { instagram: 3 } }),
     field({ key: "editorial_platforms", label: "Plataformas", group: "operacao", kind: "channels", operational: true,
       value: ["instagram", "tiktok"], current: ["instagram"] }),
+    field({ key: "competitors", label: "Concorrentes", group: "negocio", kind: "competitors",
+      value: [{ name: "Café Serra Alta", instagram_handle: null, website: null }], current: null }),
     field({ key: "differentiators", label: "Diferenciais", group: "negocio", status: "missing" }),
   ],
 };
@@ -84,6 +86,31 @@ describe("Importar configurações do planejamento", () => {
     expect(check("positioning").checked).toBe(false);
     expect(check("pillars").checked).toBe(false);
     expect(check("posts_per_week_by_platform").checked).toBe(false);
+    expect(check("competitors").checked).toBe(false);  // cadastra no Benchmarking: só marcando
+  });
+
+  it("concorrentes aprovados mostram o que entrou no Benchmarking e no Clipping", async () => {
+    api.applyBrandImport.mockResolvedValue({ ok: true, applied: ["Concorrentes"], competitors: { criados: ["Café Serra Alta"], ja_cadastrados: [],
+      fora_do_plano: [], no_clipping: ["Café Serra Alta"], fora_do_clipping: [] } });
+    await readPreview();
+    await click(check("competitors"));
+    const handle = host.querySelector<HTMLInputElement>('[aria-label="Instagram do concorrente 1"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(handle, "@serraalta");
+      handle.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Revisar e aplicar"));
+    await click(button("Confirmar e aplicar"));
+    expect(api.applyBrandImport.mock.calls[0][1].competitors.value).toEqual([{ name: "Café Serra Alta", instagram_handle: "serraalta", website: null }]);
+    expect(host.textContent).toContain("cadastrados no Benchmarking: Café Serra Alta");
+    expect(host.textContent).toContain("monitorados no Clipping: Café Serra Alta");
+    expect(host.textContent).toContain("A IA já usa o que foi aplicado");
+  });
+
+  it("documento longo informa que foi lido inteiro, em partes", async () => {
+    api.previewBrandImport.mockResolvedValue({ ...PREVIEW, document: { ...PREVIEW.document, parts: 3, read_chars: 140000 } });
+    await readPreview();
+    expect(host.textContent).toContain("lido inteiro, em 3 partes");
   });
 
   it("pesos que não fecham 100% bloqueiam a aplicação até a correção", async () => {

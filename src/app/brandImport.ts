@@ -3,10 +3,11 @@ import type { BrandPillar, BrandProfile, StudioChannel, StudioFormat } from "./s
 import type { BusinessContextFields } from "./api";
 
 /** Importar configurações do planejamento: prévia (não grava) e aplicação só do que foi aprovado. */
-export type ImportKind = "text" | "list" | "int" | "channels" | "formats" | "frequency" | "pillars";
+export type ImportKind = "text" | "list" | "int" | "channels" | "formats" | "frequency" | "pillars" | "competitors";
 export type ImportStatus = "found" | "ambiguous" | "missing";
 export type ImportPillar = Omit<BrandPillar, "weight"> & { weight: number | null };
-export type ImportValue = string | string[] | number | Partial<Record<StudioChannel, number>> | ImportPillar[] | StudioChannel[] | StudioFormat[] | null;
+export type ImportCompetitor = { name: string; instagram_handle: string | null; website: string | null };
+export type ImportValue = string | string[] | number | Partial<Record<StudioChannel, number>> | ImportPillar[] | ImportCompetitor[] | StudioChannel[] | StudioFormat[] | null;
 export type ImportGroup = "identidade" | "negocio" | "operacao" | "diretrizes";
 
 export type ImportField = {
@@ -19,13 +20,15 @@ export type ImportField = {
 };
 export type ImportPreview = {
   ok: true;
-  document: { id: string; name: string; chars_total: number; read_chars: number; partial: boolean };
+  document: { id: string; name: string; chars_total: number; read_chars: number; parts: number; partial: boolean };
   fields: ImportField[];
   counts: Record<ImportStatus, number>;
   missing: string[];
 };
 export type ApprovedField = { value: ImportValue; mode: "replace" | "append" };
-export type ImportApplied = { ok: true; applied: string[]; profile?: BrandProfile; business_context?: BusinessContextFields };
+/** Concorrentes aprovados: o que entrou no Benchmarking e no Clipping (de onde a IA lê). */
+export type CompetitorReport = { criados: string[]; ja_cadastrados: string[]; fora_do_plano: string[]; no_clipping: string[]; fora_do_clipping: string[] };
+export type ImportApplied = { ok: true; applied: string[]; profile?: BrandProfile; business_context?: BusinessContextFields; competitors?: CompetitorReport };
 
 const base = (path: string) => clientClientPath(`/studio/knowledge/import${path}`);
 

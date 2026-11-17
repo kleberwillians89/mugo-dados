@@ -7,6 +7,7 @@ import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
 import BrandImport from "../components/brandContext/BrandImport";
+import BrandProfileEditor from "../components/brandContext/BrandProfileEditor";
 import BrandProfileSummary from "../components/brandContext/BrandProfileSummary";
 import BrandAgent from "../components/studio/BrandAgent";
 import BrandKnowledge from "../components/studio/BrandKnowledge";
@@ -60,6 +61,7 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
   const [version, setVersion] = useState(0);
   // Importação aplicada: o Contexto estratégico recarrega (o Perfil recarrega pelo evento de perfil salvo).
   const [contextVersion, setContextVersion] = useState(0);
+  const [editingProfile, setEditingProfile] = useState(false);
   const team = canManage && isAgency;
 
   function selectTab(next: string) {
@@ -82,9 +84,9 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
         <p className="libHint">Tem um planejamento ou brand book? Importe as configurações dele em vez de preencher tudo à mão.</p>
         <button type="button" className="ds-button" onClick={() => selectTab("documentos")}>Importar do planejamento</button>
       </div> : null}
-      <BrandProfileSummary key={`profile:${clientId}`}
-        onEdit={team ? () => open("campaigns", "/social-media?perfil=1#social-calendario") : undefined}
-        editHint={team ? undefined : canManage ? "Para ajustar o perfil editorial, fale com a equipe Mugô." : undefined} />
+      <BrandProfileSummary key={`profile:${clientId}`} onEdit={canManage ? () => setEditingProfile(true) : undefined}
+        onSuggest={team ? () => open("campaigns", "/social-media?perfil=1#social-calendario") : undefined} />
+      {canManage ? <BrandProfileEditor open={editingProfile} onClose={() => setEditingProfile(false)} /> : null}
       <BusinessContextPanel key={`business:${clientId}:${contextVersion}`} canEdit={canManage} />
     </div> : null}
 

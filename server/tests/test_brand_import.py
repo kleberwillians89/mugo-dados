@@ -52,7 +52,9 @@ def ai_reply(**overrides):
                                         "Publicaremos 4 posts por semana no Instagram e 2 vídeos por semana no TikTok"),
         "editorial_platforms": f("found", ["instagram", "tiktok"], "4 posts por semana no Instagram e 2 vídeos por semana no TikTok"),
         "formats_enabled": f("found", ["reels", "carrossel"], "Formatos prioritários: Reels e carrossel"),
-        "competitors": f("found", ["Café Serra Alta", "Grão Paulista"], "Concorrentes de referência: Café Serra Alta e Grão Paulista"),
+        "competitors": f("found", [{"name": "Café Serra Alta", "instagram_handle": None, "website": None},
+                                   {"name": "Grão Paulista", "instagram_handle": "@graopaulista", "website": None}],
+                         "Concorrentes de referência: Café Serra Alta e Grão Paulista"),
         "keywords_avoid": f("found", ["gourmet", "barato"], "Evitar as palavras 'gourmet' e 'barato'"),
         "goals": f("found", "Aumentar em 30% as vendas do e-commerce em 2027.", "Objetivo: aumentar em 30% as vendas do e-commerce em 2027"),
         # A IA "inventou" um posicionamento com citação que não está no documento → tem que virar ambíguo.
@@ -294,11 +296,96 @@ def test_acrescentar_mantem_o_texto_atual_e_lista_soma_sem_repetir():
     assert saved["keywords_avoid"] == ["promoção", "gourmet"]
 
 
-def test_concorrentes_entram_nas_observacoes_sem_apagar_o_que_havia():
-    with Harness() as h:
-        run(bi.apply("aurora", {"competitors": {"value": ["Café Serra Alta", "Grão Paulista"]}}, user_id="u1"))
-    notes = h.save_business.await_args.kwargs["payload"]["strategic_notes"]
-    assert notes == "Sazonalidade forte no inverno.\nConcorrentes citados no planejamento: Café Serra Alta, Grão Paulista."
+def test_concorrentes_vao_para_benchmarking_e_clipping_e_respeitam_o_plano():
+    from services import benchmark, saas
+    calls = []
+
+    async def register(cid, fields):
+        calls.append((cid, fields))
+        if fields["name"] == "Torra Fina":
+            raise saas.QuotaError("PLAN_LIMIT", "limite")
+        return ("ja_cadastrado" if fields["name"] == "Grão Paulista" else "criado"), {"id": "x"}
+
+    settings = {"saved": True, "brand_terms": ["Aurora"], "competitor_terms": ["Grão Paulista"], "people": [], "keywords": [], "themes": []}
+    save_clip = AsyncMock(return_value={})
+    with Harness() as h, patch.object(benchmark, "register_competitor", register), \
+         patch("services.studio_clipping.get_settings", AsyncMock(return_value=settings)), \
+         patch("services.studio_clipping.save_settings", save_clip):
+        result = run(bi.apply("aurora", {"competitors": {"value": [
+            {"name": "Café Serra Alta"}, {"name": "Grão Paulista", "instagram_handle": "@graopaulista"}, {"name": "Torra Fina"}]}}, user_id="u1"))
+    report = result["competitors"]
+    assert report["criados"] == ["Café Serra Alta"]
+    assert report["ja_cadastrados"] == ["Grão Paulista"]
+    assert report["fora_do_plano"] == ["Torra Fina"]
+    assert calls[1][1]["instagram_handle"] == "graopaulista"
+    assert all(c[0] == "aurora" for c in calls)
+    # Clipping: soma sem repetir; a IA lê os concorrentes de lá e do Benchmarking
+    assert save_clip.await_args.args[1]["competitor_terms"] == ["Grão Paulista", "Café Serra Alta", "Torra Fina"]
+    assert report["no_clipping"] == ["Café Serra Alta", "Torra Fina"]
+    h.save_profile.assert_not_awaited()
+    h.save_business.assert_not_awaited()
+
+
+def test_concorrentes_sem_clipping_configurado_ficam_so_no_benchmarking():
+    from services import benchmark
+    with Harness(), patch.object(benchmark, "register_competitor", AsyncMock(return_value=("criado", {}))), \
+         patch("services.studio_clipping.get_settings", AsyncMock(return_value={"saved": False, "brand_terms": []})), \
+         patch("services.studio_clipping.save_settings", AsyncMock()) as save_clip:
+        result = run(bi.apply("aurora", {"competitors": {"value": [{"name": "Café Serra Alta"}]}}, user_id="u1"))
+    assert result["competitors"]["criados"] == ["Café Serra Alta"]
+    save_clip.assert_not_awaited()
+
+
+def test_ia_le_concorrentes_do_benchmarking_e_do_clipping():
+    from services import studio_intelligence as si
+
+    async def select(table, select="*", filters=None, order=None, limit=None, offset=None):
+        if table == "studio_clipping_settings":
+            return [{"competitor_terms": ["Grão Paulista"]}]
+        if table == "benchmark_competitors":
+            return [{"name": "Café Serra Alta"}, {"name": "grão paulista"}]
+        return []
+    with patch.object(si, "sb_select", select):
+        out = run(si._competitors("aurora"))
+    assert out["cadastrados"] == ["Grão Paulista", "Café Serra Alta"]
+
+
+# ---------------------------------------------------------------- documento inteiro (em partes)
+
+def test_documento_longo_e_lido_em_partes_sem_deixar_texto_de_fora():
+    chunks = [f"Trecho {i} " + "x" * 1400 for i in range(100)]  # ~141 mil caracteres
+    parts, left_out = bi.split_parts(chunks)
+    assert len(parts) == 3 and not left_out
+    assert sum(len(p) for p in parts) == 100
+    assert all(sum(len(c) + 2 for c in p) <= bi.PART_CHARS for p in parts)
+    huge = ["y" * 1500 for _ in range(200)]  # 300 mil: além do que o Conhecimento guarda
+    parts, left_out = bi.split_parts(huge)
+    assert len(parts) == bi.MAX_PARTS and left_out
+
+
+def test_partes_somam_listas_e_conflito_vira_revisar():
+    book = BRAND_BOOK + ["Tom de voz alternativo: irreverente e provocador em todas as redes.",
+                         "Formatos complementares: Stories diários. Evitar também a palavra 'promoção'."]
+    first = ai_reply()
+    second = ai_reply(tone_of_voice=f("found", "Irreverente e provocador.", "Tom de voz alternativo: irreverente e provocador"),
+                      formats_enabled=f("found", ["stories"], "Formatos complementares: Stories diários"),
+                      keywords_avoid=f("found", ["promoção"], "Evitar também a palavra 'promoção'"))
+    fields = by_key({"fields": bi.build_preview([first, second], book, {})})
+    assert fields["formats_enabled"]["value"] == ["reels", "carrossel", "stories"]
+    assert fields["keywords_avoid"]["value"] == ["gourmet", "barato", "promoção"]
+    assert fields["tone_of_voice"]["status"] == "ambiguous"
+    assert any("Outro trecho do documento diz diferente" in n for n in fields["tone_of_voice"]["notes"])
+    # campo achado só numa parte continua "encontrado"
+    assert fields["audience"]["status"] == "found"
+
+
+def test_previa_de_documento_longo_faz_uma_leitura_por_parte_numa_acao_so():
+    chunks = BRAND_BOOK + [f"Anexo {i}: " + "detalhe operacional " * 70 for i in range(60)]
+    with Harness(chunks=chunks) as h:
+        result = run(bi.preview("aurora", DOC["id"]))
+    assert result["document"]["parts"] == h.llm.await_count >= 2
+    assert result["document"]["partial"] is False
+    assert all("parte" in c.kwargs["prompt"] for c in h.llm.await_args_list)
 
 
 def test_valor_invalido_nao_e_ajustado_em_silencio():

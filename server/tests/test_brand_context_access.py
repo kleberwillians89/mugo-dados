@@ -57,3 +57,14 @@ def test_leitura_usa_a_empresa_autorizada_e_nao_a_da_url():
         run(studio.read_knowledge("roove", authorization="Bearer ruah"))
     load.assert_awaited_once_with("ruah")
     docs.assert_awaited_once_with("ruah")
+
+
+def test_admin_do_cliente_salva_o_perfil_da_propria_empresa():
+    body = studio.ProfileInput(tone_of_voice="Acolhedor")
+    with patch.object(studio, "require_client_role", AsyncMock(return_value="ruah")) as require, \
+         patch.object(studio, "require_user_id", AsyncMock(return_value="u1")), \
+         patch.object(studio, "save_profile", AsyncMock(return_value={"profile": {}, "saved": True})) as save:
+        run(studio.write_profile("roove", body, authorization="Bearer admin-ruah"))
+    assert "client_admin" in require.await_args.kwargs["allowed_roles"]
+    assert save.await_args.args[0] == "ruah"
+    assert route_module("PUT", "/api/clients/ruah/studio/brand-profile") == ("brand_ai", "brand_ai.edit")

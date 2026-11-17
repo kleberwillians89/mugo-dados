@@ -53,3 +53,5 @@
 .bcImportApply{display:grid;gap:8px}
 .bcConfirm{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:12px 14px;background:var(--surface,#fff)}
 .bcConfirm ul{margin:6px 0 10px;padding-left:18px;display:grid;gap:4px}
+.bcCompetitorRow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.2fr) auto;gap:6px;align-items:center}
+@media (max-width:640px){.bcCompetitorRow{grid-template-columns:1fr}}

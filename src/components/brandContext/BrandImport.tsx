@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileSearch, FileText, Plus, Trash2, UploadCloud } from "lucide-react";
-import { applyBrandImport, previewBrandImport, type ApprovedField, type ImportField, type ImportPillar, type ImportPreview, type ImportValue } from "../../app/brandImport";
+import { applyBrandImport, previewBrandImport, type ApprovedField, type ImportCompetitor, type ImportField, type ImportPillar, type ImportPreview, type ImportValue } from "../../app/brandImport";
 import { BRAND_PROFILE_SAVED, STUDIO_CHANNELS, STUDIO_FORMATS, getKnowledge, teachFromFile, type BrandDocument, type StudioChannel } from "../../app/studio";
 import { clearDashboardCacheByPrefix } from "../../hooks/dashboard/cache";
 import { getActiveClientId } from "../../app/activeClient";
-import { GROUP_LABELS, STATUS_LABELS, buildApproved, describeValue, fieldProblem, listToText, pillarTotal, suggestedKeys, textToList } from "./brandImport.helpers";
+import { GROUP_LABELS, STATUS_LABELS, buildApproved, competitorSummary, describeValue, fieldProblem, listToText, pillarTotal, suggestedKeys, textToList } from "./brandImport.helpers";
 
 const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md";
 type Mode = ApprovedField["mode"];
@@ -25,7 +25,7 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
   const [drafts, setDrafts] = useState<Record<string, ImportValue>>({});
   const [modes, setModes] = useState<Record<string, Mode>>({});
   const [confirming, setConfirming] = useState(false);
-  const [applied, setApplied] = useState<string[] | null>(null);
+  const [applied, setApplied] = useState<{ labels: string[]; competitors: string } | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -85,7 +85,7 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
         clearDashboardCacheByPrefix(`intelligence-workspace|c=${clientId}:`);
         clearDashboardCacheByPrefix(`intelligence-history|c=${clientId}|`);
       }
-      setApplied(res.applied); setPreview(null); setSelected(new Set()); setConfirming(false);
+      setApplied({ labels: res.applied, competitors: res.competitors ? competitorSummary(res.competitors) : "" }); setPreview(null); setSelected(new Set()); setConfirming(false);
       onApplied?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível aplicar."); }
     finally { setBusy(null); }
@@ -118,17 +118,19 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
     </div>
 
     {error ? <p role="alert" className="studioError">{error}</p> : null}
-    {applied ? <p role="status" className="studioOk"><CheckCircle2 size={14} aria-hidden="true" /> Aplicado: {applied.join(", ")}. Os demais campos ficaram como estavam.</p> : null}
+    {applied ? <p role="status" className="studioOk"><CheckCircle2 size={14} aria-hidden="true" /> Aplicado: {applied.labels.join(", ")}. Os demais campos ficaram como estavam.
+      A IA já usa o que foi aplicado nas pautas, legendas, respostas e análises.{applied.competitors ? ` ${applied.competitors}` : ""}</p> : null}
 
     {preview ? <div className="bcImportReview">
       <p className="bcImportSummary" role="status"><FileText size={14} aria-hidden="true" /> <b>{preview.document.name}</b>: {preview.counts.found} encontrado(s),
         {" "}{preview.counts.ambiguous} para revisar, {preview.counts.missing} não encontrado(s).</p>
-      {preview.document.partial ? <p className="studioWarn">O documento é longo: a IA leu os primeiros {preview.document.read_chars.toLocaleString("pt-BR")} caracteres. O que estiver depois disso não entrou na prévia.</p> : null}
+      {preview.document.parts > 1 ? <p className="libHint">Documento longo: lido inteiro, em {preview.document.parts} partes ({preview.document.read_chars.toLocaleString("pt-BR")} caracteres).</p> : null}
+      {preview.document.partial ? <p className="studioWarn">O documento passa de 200 mil caracteres: a IA leu os primeiros {preview.document.read_chars.toLocaleString("pt-BR")}. Para o restante, envie a outra parte como um documento separado.</p> : null}
       {preview.missing.length ? <p className="libHint"><b>Não encontrados no documento</b> (continuam como estão): {preview.missing.join(", ")}.</p> : null}
       {fields.length ? <div className="kbRow">
         <button type="button" className="ds-button" onClick={() => { setConfirming(false); setSelected(new Set(suggestedKeys(fields))); }}>Selecionar os encontrados (textos)</button>
         <button type="button" className="ds-button" onClick={() => { setConfirming(false); setSelected(new Set()); }}>Limpar seleção</button>
-        <small className="libHint">Pilares, pesos, frequência, formatos e plataformas só entram se você marcar um a um.</small>
+        <small className="libHint">Pilares, pesos, frequência, formatos, plataformas e concorrentes só entram se você marcar um a um.</small>
       </div> : <p className="libHint">A IA não encontrou nenhuma configuração explícita neste documento.</p>}
 
       {groups.map((g) => <fieldset key={g.id} className="bcImportGroup"><legend>{GROUP_LABELS[g.id]}</legend>
@@ -200,6 +202,22 @@ function Editor({ field, value, onChange }: { field: ImportField; value: ImportV
     return <div className="bcChecks" role="group" aria-label={label}>{(Object.keys(STUDIO_CHANNELS) as StudioChannel[]).map((c) =>
       <label key={c}>{STUDIO_CHANNELS[c]} <input type="number" min={0} max={14} value={freq[c] ?? ""} aria-label={`Posts por semana no ${STUDIO_CHANNELS[c]}`}
         onChange={(e) => { const next = { ...freq }; const n = Number(e.target.value); if (!e.target.value || n === 0) delete next[c]; else next[c] = n; onChange(next); }} /></label>)}</div>;
+  }
+  if (field.kind === "competitors") {
+    const items = (value as ImportCompetitor[] | null) || [];
+    const set = (i: number, patch: Partial<ImportCompetitor>) => onChange(items.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+    return <div className="bcPillarEdit" role="group" aria-label={label}>
+      {items.map((c, i) => <div key={i} className="bcCompetitorRow">
+        <input type="text" value={c.name} maxLength={120} placeholder="Nome" onChange={(e) => set(i, { name: e.target.value })} aria-label={`Nome do concorrente ${i + 1}`} />
+        <input type="text" value={c.instagram_handle || ""} maxLength={80} placeholder="@instagram (opcional)" aria-label={`Instagram do concorrente ${i + 1}`}
+          onChange={(e) => set(i, { instagram_handle: e.target.value.replace(/^@/, "") || null })} />
+        <input type="text" value={c.website || ""} maxLength={500} placeholder="https://site (opcional)" aria-label={`Site do concorrente ${i + 1}`}
+          onChange={(e) => set(i, { website: e.target.value || null })} />
+        <button type="button" className="kbLink" aria-label={`Tirar concorrente ${i + 1}`} onClick={() => onChange(items.filter((_, j) => j !== i))}><Trash2 size={14} aria-hidden="true" /></button>
+      </div>)}
+      {items.length < 12 ? <button type="button" className="kbLink" onClick={() => onChange([...items, { name: "", instagram_handle: null, website: null }])}>
+        <Plus size={14} aria-hidden="true" /> Adicionar concorrente</button> : null}
+    </div>;
   }
   if (field.kind === "pillars") {
     const pillars = (value as ImportPillar[] | null) || [];

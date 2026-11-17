@@ -16,10 +16,11 @@ const text = (value?: string | null) => (value && value.trim() ? value : empty);
 const list = (values?: string[] | null) => (values && values.length ? values.join(", ") : empty);
 
 /**
- * Perfil da marca (o mesmo usado pelo Calendário, pela Matriz e pelos agentes), só para consulta.
- * A edição continua no lugar de sempre: Social Media → Calendário → Perfil da marca. Nada é duplicado aqui.
+ * Perfil da marca (o mesmo usado pelo Calendário, pela Matriz e pelos agentes). A edição usa os mesmos campos
+ * do Calendário (BrandProfileEditor → BrandProfileFields); nada é duplicado.
  */
-export default function BrandProfileSummary({ onEdit, editHint }: { onEdit?: () => void; editHint?: string }) {
+/** ``onSuggest``: só equipe Mugô — abre o perfil no Calendário, onde fica a sugestão da IA (Brand Manager). */
+export default function BrandProfileSummary({ onEdit, onSuggest }: { onEdit?: () => void; onSuggest?: () => void }) {
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState(false);
 
@@ -46,9 +47,11 @@ export default function BrandProfileSummary({ onEdit, editHint }: { onEdit?: () 
         <p className="libHint">Tom de voz, pilares e frequência que a IA usa para criar pautas e legendas.
           {data.saved ? "" : " Ainda não foi salvo: a IA usa os valores padrão."}</p>
       </div>
-      {onEdit ? <button type="button" className="ds-button" onClick={onEdit}>Editar perfil</button> : null}
+      <div className="kbRow">
+        {onSuggest ? <button type="button" className="ds-button" onClick={onSuggest}>Sugerir com IA</button> : null}
+        {onEdit ? <button type="button" className="ds-button" onClick={onEdit}>Editar perfil</button> : null}
+      </div>
     </header>
-    {editHint ? <p className="libHint">{editHint}</p> : null}
     <dl className="bcList">
       <Row label="Personalidade">{text(p.personality)}</Row>
       <Row label="Tom de voz">{text(p.tone_of_voice)}</Row>

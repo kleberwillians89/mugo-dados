@@ -1,5 +1,5 @@
 import { STUDIO_CHANNELS, STUDIO_FORMATS, type StudioChannel } from "../../app/studio";
-import type { ApprovedField, ImportField, ImportPillar, ImportValue } from "../../app/brandImport";
+import type { ApprovedField, CompetitorReport, ImportCompetitor, ImportField, ImportPillar, ImportValue } from "../../app/brandImport";
 
 export const GROUP_LABELS = { identidade: "Identidade", negocio: "Negócio e objetivos", operacao: "Operação editorial", diretrizes: "Diretrizes" } as const;
 export const STATUS_LABELS = { found: "Encontrado", ambiguous: "Revisar", missing: "Não encontrado" } as const;
@@ -18,6 +18,7 @@ export function describeValue(field: Pick<ImportField, "kind">, value: ImportVal
     case "formats": return (value as string[]).map(format).join(", ") || "—";
     case "frequency": return Object.entries(value as Record<string, number>).map(([c, n]) => `${channel(c)}: ${n}/semana`).join(" · ") || "—";
     case "pillars": return (value as ImportPillar[]).map((p) => `${p.name} (${p.weight ?? "?"}%)`).join(", ") || "—";
+    case "competitors": return (value as ImportCompetitor[]).map((c) => c.name + (c.instagram_handle ? ` (@${c.instagram_handle})` : "")).join(", ") || "—";
     default: return String(value);
   }
 }
@@ -36,6 +37,11 @@ export function fieldProblem(field: ImportField, value: ImportValue, platforms: 
   if (field.kind === "text" && field.max_length && String(value).length > field.max_length) return `Até ${field.max_length} caracteres.`;
   if (field.kind === "int" && !(Number(value) >= 1 && Number(value) <= 14)) return "Use de 1 a 14 posts por semana.";
   if (field.kind === "frequency" && Object.values(value as Record<string, number>).some((n) => !(Number(n) >= 1 && Number(n) <= 14))) return "Cada canal: de 1 a 14 posts por semana.";
+  if (field.kind === "competitors") {
+    const items = value as ImportCompetitor[];
+    if (items.some((c) => c.name.trim().length < 2)) return "Todo concorrente precisa de nome.";
+    if (items.some((c) => c.website && !/^https:\/\/[^\s/]+\.[^\s]+$/.test(c.website))) return "O site precisa começar com https://.";
+  }
   if (field.kind === "pillars") {
     const pillars = value as ImportPillar[];
     if (pillars.some((p) => !p.name.trim())) return "Todo pilar precisa de nome.";
@@ -52,7 +58,8 @@ export function fieldProblem(field: ImportField, value: ImportValue, platforms: 
 
 /** Campos a pré-selecionar no "Selecionar os encontrados": descritivos, encontrados e diferentes do atual. */
 export function suggestedKeys(fields: ImportField[]): string[] {
-  return fields.filter((f) => f.status === "found" && !f.operational && f.changed).map((f) => f.key);
+  // Concorrentes cadastram no Benchmarking (conta no plano): só entram marcando um a um, como as regras operacionais.
+  return fields.filter((f) => f.status === "found" && !f.operational && f.kind !== "competitors" && f.changed).map((f) => f.key);
 }
 
 export function buildApproved(fields: ImportField[], selected: Set<string>, drafts: Record<string, ImportValue>,
@@ -64,3 +71,14 @@ export function buildApproved(fields: ImportField[], selected: Set<string>, draf
 
 export const listToText = (value: ImportValue) => ((value as string[] | null) || []).join(", ");
 export const textToList = (text: string) => text.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+
+/** Frase do que aconteceu com os concorrentes aprovados. */
+export function competitorSummary(r: CompetitorReport): string {
+  const parts: string[] = [];
+  if (r.criados.length) parts.push(`cadastrados no Benchmarking: ${r.criados.join(", ")}`);
+  if (r.ja_cadastrados.length) parts.push(`já estavam no Benchmarking: ${r.ja_cadastrados.join(", ")}`);
+  if (r.fora_do_plano.length) parts.push(`não couberam no plano: ${r.fora_do_plano.join(", ")}`);
+  if (r.no_clipping.length) parts.push(`monitorados no Clipping: ${r.no_clipping.join(", ")}`);
+  if (r.fora_do_clipping.length) parts.push(`fora do Clipping (configure ou libere espaço lá): ${r.fora_do_clipping.join(", ")}`);
+  return parts.length ? `Concorrentes — ${parts.join("; ")}.` : "";
+}
