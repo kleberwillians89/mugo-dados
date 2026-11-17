@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
 import {
-  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, previewAudience, previewEmail, scheduleCampaign,
+  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
   type Audience, type AudiencePreview, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
@@ -50,7 +50,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
 
   const editable = canEdit && !!campaign && ["rascunho", "agendada"].includes(campaign.status);
   const change = (patch: Partial<Campaign>) => setCampaign((current) => (current ? { ...current, ...patch } : current));
-  const setAud = (patch: Partial<Audience>) => campaign && change({ audience: { ...campaign.audience, ...patch } });
+  const setAud = (patch: Partial<Audience>) => { setAudience(null); if (campaign) change({ audience: { ...campaign.audience, ...patch } }); };
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label); setError(""); setMessage("");
@@ -150,7 +150,16 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                 <button type="button" className="ds-button is-primary" disabled={!!busy}
                   onClick={() => void run("send", async () => {
                     await updateCampaign(id, payload()!);
+                    const check = await preflightCampaign(id);
+                    setAudience(check.audience);
+                    if (!check.ready) throw new Error(check.blockers.join(" "));
                     const at = when ? new Date(when).toISOString() : null;
+                    const warning = check.warnings.length ? `\n\nAtenção: ${check.warnings.join(" ")}` : "";
+                    const confirmed = window.confirm(
+                      `Confirmar ${at ? "agendamento" : "envio"} para ${check.audience.count.toLocaleString("pt-BR")} contatos elegíveis?\n\n` +
+                      `Campanha: ${check.name}\nAssunto: ${check.subject}${warning}`
+                    );
+                    if (!confirmed) return;
                     const out = await scheduleCampaign(id, at);
                     setCampaign(out.campaign);
                     setMessage(at ? "Campanha agendada." : "Campanha na fila: o envio começa em até 5 minutos.");
