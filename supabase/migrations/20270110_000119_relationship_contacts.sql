@@ -2,7 +2,7 @@
 BEGIN;
 CREATE TABLE IF NOT EXISTS public.relationship_contacts (
   client_id text NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  provider text NOT NULL CHECK (provider IN ('shopify', 'fbits')),
+  provider text NOT NULL CHECK (provider IN ('shopify', 'fbits', 'whatsapp')),
   identity_hash text NOT NULL CHECK (length(identity_hash) = 64),
   external_id text,
   email_hash text CHECK (email_hash IS NULL OR length(email_hash) = 32),
