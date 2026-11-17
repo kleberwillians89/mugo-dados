@@ -125,6 +125,21 @@ class AudienceTests(unittest.TestCase):
         self.assertTrue(em.clean_audience({"segment": "todos"})["only_consent"])
 
 
+class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_shopify_unsubscribe_overrides_old_accepts_flag(self):
+        from services import commerce_context as cc
+        from services import sales_by_origin as sbo
+        person = {"shopify_customer_id": "123", "email": "ana@exemplo.com",
+                  "phone": None, "first_name": "Ana", "last_name": "S",
+                  "orders_count": 0, "consent": "unsubscribed", "accepts": "true"}
+        with patch.object(cc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
+             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False)])):
+            provider, contacts = await em.load_contacts("roove")
+        self.assertEqual(provider, "shopify")
+        self.assertEqual(len(contacts), 1)
+        self.assertIs(contacts[0]["consent"], False)
+
+
 class UnsubscribeTests(unittest.TestCase):
     def test_token_round_trip_and_tamper(self):
         with patch.dict(os.environ, ENV):
