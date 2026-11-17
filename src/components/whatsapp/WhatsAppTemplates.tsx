@@ -10,6 +10,23 @@ const initial = (): WaTemplateInput => ({
   name: "", category: "UTILITY", language: "pt_BR", body: "", footer: "", examples: [],
 });
 const vars = (body: string): number => Math.max(0, ...Array.from(body.matchAll(/\{\{(\d+)\}\}/g), (m) => Number(m[1])));
+const PRESETS: Array<{ label: string; payload: WaTemplateInput }> = [
+  { label: "Pedido confirmado", payload: {
+    name: "pedido_confirmado", category: "UTILITY", language: "pt_BR",
+    body: "Olá, {{1}}! Confirmamos seu pedido {{2}}. Se precisar de ajuda, estamos por aqui.",
+    footer: "Atendimento da marca", examples: ["Ana", "12345"],
+  } },
+  { label: "Carrinho abandonado", payload: {
+    name: "carrinho_abandonado", category: "MARKETING", language: "pt_BR",
+    body: "Oi, {{1}}! Você deixou alguns itens no carrinho. Se ainda quiser finalizar, acesse: {{2}}. Responda SAIR para não receber ofertas.",
+    footer: "Atendimento da marca", examples: ["Ana", "https://exemplo.com/carrinho"],
+  } },
+  { label: "First Access", payload: {
+    name: "first_access_lancamento", category: "MARKETING", language: "pt_BR",
+    body: "Oi, {{1}}! Seu acesso antecipado à nova coleção está liberado. Conheça as novidades em {{2}}. Responda SAIR para não receber novidades.",
+    footer: "Atendimento da marca", examples: ["Ana", "https://exemplo.com/colecao"],
+  } },
+];
 const statusLabel = (status: string) => ({
   APPROVED: "Aprovado", PENDING: "Em análise", REJECTED: "Rejeitado",
   PAUSED: "Pausado", DISABLED: "Desabilitado",
@@ -87,6 +104,10 @@ export default function WhatsAppTemplates() {
       </div>)}</div>
       : available ? <p className="waMuted">Nenhum modelo encontrado nesta WABA.</p> : null}
     {expanded && available ? <form className="waTemplateForm" onSubmit={(e) => void submit(e)}>
+      <div className="waTemplatePresets" role="group" aria-label="Exemplos editáveis de mensagens">
+        {PRESETS.map((preset) => <button type="button" className="waLinkButton" key={preset.label}
+          onClick={() => setForm({ ...preset.payload, examples: [...preset.payload.examples] })}>{preset.label}</button>)}
+      </div>
       <div className="waTemplateGrid">
         <label>Nome interno do modelo
           <input required value={form.name} placeholder="ex: roove_carrinho_abandonado" maxLength={81}
