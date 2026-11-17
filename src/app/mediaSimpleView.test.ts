@@ -24,16 +24,17 @@ const campaign = (name: string, patch: Partial<CampaignAction> = {}): CampaignAc
   conversions: 10, revenue: 2000, roas: 4, cpa: 50, share: 0.5, planned_budget: 500, ...patch,
 });
 
-describe("Visão Simples de Mídia On", () => {
+describe("Resumo Executivo de Mídia On", () => {
   it("resume apenas dados observados e prioriza até três campanhas de vendas independentemente da ordem", () => {
     const view = buildSimpleMediaView(strategy(), [
       campaign("Campanha B", { revenue: 3000 }), campaign("Campanha D", { revenue: 1000 }),
-      campaign("Campanha A", { revenue: 5000, action: "escalar" }), campaign("Campanha C", { revenue: 2000 }),
+      campaign("Campanha A", { revenue: 5000, action: "escalar", learning: "A escala anterior manteve o ROAS." }), campaign("Campanha C", { revenue: 2000 }),
       campaign("Sugestão", { revenue: 9000, suggested: true }),
     ]);
     expect(view.summary).toContain("R$ 1.000");
     expect(view.wins.map((item) => item.campaign)).toEqual(["Campanha A", "Campanha B", "Campanha C"]);
-    expect(view.wins[0].explanation).toContain("não prova isoladamente a causa");
+    expect(view.wins[0].explanation).toBe("A escala anterior manteve o ROAS.");
+    expect(view.wins.find((item) => item.campaign === "Campanha B")?.explanation).toBeNull();
     expect(view.recommendations).toHaveLength(3);
   });
 
@@ -59,5 +60,11 @@ describe("Visão Simples de Mídia On", () => {
     const view = buildSimpleMediaView(strategy({ diagnosis: [{ ...strategy().diagnosis[0], recent: empty }] }), []);
     expect(view.summary).toContain("não há dados observados suficientes");
     expect(view.dataLimitation).toContain("não substitui dados ausentes por estimativas");
+  });
+
+  it("não transforma eficiência média do canal em explicação causal", () => {
+    const view = buildSimpleMediaView(strategy(), [campaign("Campanha média", { why: "eficiência dentro da média do canal" })]);
+    expect(view.wins[0].decisionReason).toBe("eficiência dentro da média do canal");
+    expect(view.wins[0].explanation).toBeNull();
   });
 });

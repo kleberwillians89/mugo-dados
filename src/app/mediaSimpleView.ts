@@ -15,7 +15,8 @@ export type SimpleMediaCampaign = {
   campaign: string;
   channel: string;
   facts: string[];
-  explanation: string;
+  decisionReason: string;
+  explanation: string | null;
 };
 export type SimpleMediaView = {
   summary: string;
@@ -39,7 +40,8 @@ const observedCampaign = (row: CampaignAction, objective: Objective): SimpleMedi
     campaign: row.campaign,
     channel: CHANNELS[row.channel],
     facts,
-    explanation: `${row.why}. Esse dado é um sinal observado, não prova isoladamente a causa do resultado.`,
+    decisionReason: row.why,
+    explanation: row.learning || null,
   };
 };
 
@@ -121,6 +123,6 @@ export function buildSimpleMediaView(strategy: Strategy | SavedStrategy, campaig
     improvements,
     recommendations,
     winsLimitation: wins.length ? null : limitationForObjective(strategy.objective, campaigns.some((row) => !row.suggested && !row.boost && row.spend > 0)),
-    dataLimitation: hasObservedData ? null : "A Visão Simples não substitui dados ausentes por estimativas nem mistura desempenho orgânico com mídia paga.",
+    dataLimitation: hasObservedData ? null : "O Resumo Executivo não substitui dados ausentes por estimativas nem mistura desempenho orgânico com mídia paga.",
   };
 }

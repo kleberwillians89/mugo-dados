@@ -71,7 +71,7 @@ describe("Mídia On", () => {
     act(() => root.unmount());
   });
 
-  it("abre na Visão Simples e alterna para a análise técnica sem nova geração nem perda de parâmetros", async () => {
+  it("abre no Resumo Executivo e alterna para a análise técnica sem nova geração nem perda de parâmetros", async () => {
     const scenario: media.Scenario = { key: "eficiencia", label: "Eficiência", budget: 1000, why: "Dados observados", allocation: { meta: 1000 },
       allocation_pct: { meta: 1 }, change_vs_current: { meta: 0 }, marginal_roas: 3,
       result: { channels: { meta: { spend: 1000, revenue: 5000, conversions: 50, clicks: 2000, impressions: 100000, roas: 5, cpa: 20, cpc: 0.5, cpm: 10 } },
@@ -94,7 +94,9 @@ describe("Mídia On", () => {
     await act(async () => { root.render(<MediaOn canManage />); });
     await act(async () => {});
     expect(host.textContent).toContain("Seu marketing em 1 minuto");
-    expect(host.textContent?.match(/não prova isoladamente a causa/g)).toHaveLength(1);
+    expect(host.textContent).toContain("O que pode explicar os resultados?");
+    expect(host.textContent).toContain("não trazem evidência suficiente para explicar por que ele ocorreu");
+    expect(host.textContent).not.toContain("Esse dado é um sinal observado");
     expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
 
     const button = (label: string) => Array.from(host.querySelectorAll("button")).find((el) => el.textContent === label) as HTMLButtonElement;
@@ -105,7 +107,7 @@ describe("Mídia On", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(margin, "45");
       margin.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => { button("Visão Simples").click(); });
+    await act(async () => { button("Resumo Executivo").click(); });
     await act(async () => { button("Análise Técnica").click(); });
     const restored = Array.from(host.querySelectorAll("input")).find((input) => input.parentElement?.textContent?.includes("Margem de contribuição")) as HTMLInputElement;
     expect(restored.value).toBe("45");
