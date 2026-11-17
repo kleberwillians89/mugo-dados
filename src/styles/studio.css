@@ -1642,3 +1642,28 @@
 @media(max-width:600px){.taskBoard [draggable="true"]{cursor:default}.taskBoard .kanbanCol{min-width:min(86vw,320px)}}
 
 .taskBoard .taskAddCard{width:100%;margin-top:10px;padding:10px;text-align:left;background:transparent;border:1px dashed var(--line,#ccd4dc);border-radius:8px;color:inherit;cursor:pointer;font:inherit;font-size:.86rem}.taskBoard .taskAddCard:hover,.taskBoard .taskAddCard:focus-visible{border-color:#004f6e;background:rgba(0,79,110,.05)}
+
+/* Mídia ON: step-by-step campaign creation — mobile-first. */
+.metaAdsStepper{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 4px}
+.metaAdsStepper button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:46px;padding:8px;border:1px solid var(--border-subtle,#d9dce2);border-radius:10px;background:var(--surface,#fff);color:var(--text-primary,#222);font:600 12px var(--font-body,inherit);cursor:pointer}
+.metaAdsStepper button span{display:flex;align-items:center;justify-content:center;min-width:23px;height:23px;border-radius:50%;background:var(--surface-subtle,#f0f2f4);font-size:11px}
+.metaAdsStepper button.is-current{border-color:#004f6e;background:rgba(0,79,110,.065);color:#004f6e}
+.metaAdsStepper button.is-current span{background:#004f6e;color:#fff}
+.metaAdsStepper button:disabled{cursor:default;opacity:.55}
+.metaAdsStepHint{margin:0 0 2px!important}
+.metaAdsAudienceSummary{padding:12px 14px;background:var(--surface-subtle,#f5f6f7);border-radius:10px;font-size:13px}
+.metaAdsAudienceSummary p{margin:5px 0 0;line-height:1.55}
+.metaAdsCreativePreview{display:flex;align-items:center;gap:12px;padding:10px;border:1px solid var(--border-subtle,#d9dce2);border-radius:10px}
+.metaAdsCreativePreview img{width:90px;height:90px;object-fit:cover;border-radius:8px}
+.metaAdsCreativePreview p{margin:0;font-size:13px}
+.metaAdsReview{display:grid;gap:14px}
+.metaAdsReview h3{font-size:17px;margin:0}
+.metaAdsReview dl{display:grid;gap:0;margin:0;border:1px solid var(--border-subtle,#d9dce2);border-radius:12px;overflow:hidden}
+.metaAdsReview dl>div{padding:12px 14px;border-bottom:1px solid var(--border-subtle,#d9dce2)}
+.metaAdsReview dl>div:last-child{border-bottom:0}
+.metaAdsReview dt{font-size:11px;text-transform:uppercase;font-weight:700;letter-spacing:.05em;opacity:.7;margin-bottom:5px}
+.metaAdsReview dd{margin:0;overflow-wrap:anywhere;font-size:14px}
+.metaAdsReview dd p{margin:5px 0 0}
+.metaAdsReviewImage{max-width:260px;max-height:260px;width:100%;object-fit:contain;border-radius:10px;border:1px solid var(--border-subtle,#d9dce2)}
+.metaAdsButtons{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:620px){.metaAdsStepper{grid-template-columns:repeat(2,minmax(0,1fr))}.metaAdsStepper button{justify-content:flex-start;padding:9px}.metaAdsFormActions{align-items:stretch;flex-direction:column}.metaAdsButtons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.metaAdsButtons button:last-child{grid-column:1/-1}.metaAdsCreativePreview img{height:72px;width:72px}}
