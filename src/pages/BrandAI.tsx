@@ -6,6 +6,7 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
+import BrandImport from "../components/brandContext/BrandImport";
 import BrandProfileSummary from "../components/brandContext/BrandProfileSummary";
 import BrandAgent from "../components/studio/BrandAgent";
 import BrandKnowledge from "../components/studio/BrandKnowledge";
@@ -46,7 +47,8 @@ const SHORTCUTS: Shortcut[] = [
 /**
  * Configurações → Contexto da Marca. Junta, sem duplicar, o que já existia espalhado:
  * A. Identidade e estratégia: Perfil da marca (consulta) + Contexto estratégico (BusinessContextPanel, o mesmo da tela Empresas);
- * B. Documentos e conhecimento: BrandKnowledge (envio, lista, status, memória, correção, tentar de novo) + conversa com a IA da marca;
+ * B. Documentos e conhecimento: Importar configurações do planejamento (BrandImport, só admin) + BrandKnowledge (envio, lista,
+ *    status, memória, correção, tentar de novo) + conversa com a IA da marca;
  * C. Configuração operacional: atalhos para as telas que já mantêm esses dados.
  * Todo mundo da empresa consulta; editar é de admin (client_admin/owner) e da equipe — o backend valida de novo.
  * O endereço antigo /ia-da-marca abre esta mesma tela.
@@ -56,6 +58,8 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
   const company = getActiveClientName() || "empresa";
   const [tab, setTab] = useState<BrandContextTab>(tabFromLocation);
   const [version, setVersion] = useState(0);
+  // Importação aplicada: o Contexto estratégico recarrega (o Perfil recarrega pelo evento de perfil salvo).
+  const [contextVersion, setContextVersion] = useState(0);
   const team = canManage && isAgency;
 
   function selectTab(next: string) {
@@ -74,16 +78,21 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
     <SegmentedControl ariaLabel="Áreas do Contexto da Marca" options={TABS} value={tab} onSelect={selectTab} />
 
     {tab === "identidade" ? <div className="bcStack">
+      {canManage ? <div className="bcImportCta">
+        <p className="libHint">Tem um planejamento ou brand book? Importe as configurações dele em vez de preencher tudo à mão.</p>
+        <button type="button" className="ds-button" onClick={() => selectTab("documentos")}>Importar do planejamento</button>
+      </div> : null}
       <BrandProfileSummary key={`profile:${clientId}`}
         onEdit={team ? () => open("campaigns", "/social-media?perfil=1#social-calendario") : undefined}
         editHint={team ? undefined : canManage ? "Para ajustar o perfil editorial, fale com a equipe Mugô." : undefined} />
-      <BusinessContextPanel key={`business:${clientId}`} canEdit={canManage} />
+      <BusinessContextPanel key={`business:${clientId}:${contextVersion}`} canEdit={canManage} />
     </div> : null}
 
     {tab === "documentos" ? <div className="bcStack">
       <p className="libHint"><BookOpen size={14} aria-hidden="true" /> {canManage
         ? "Envie planejamentos, brand books, apresentações e tabelas de produtos. O texto fica guardado (o arquivo original não é armazenado) e a IA aprende com ele."
         : "O que a IA da Mugô aprendeu com os materiais da sua empresa."}</p>
+      {canManage ? <BrandImport key={`import:${clientId}:${version}`} onApplied={() => setContextVersion((v) => v + 1)} /> : null}
       <BrandKnowledge key={clientId} canManage={canManage} version={version} />
       <BrandAgent key={`agent:${clientId}`} canManage={canManage} company={company} onLearned={() => setVersion((v) => v + 1)} />
     </div> : null}

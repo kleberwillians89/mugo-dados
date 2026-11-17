@@ -1664,7 +1664,8 @@ async def read_timeline(client_id: str, authorization: str | None = Header(defau
 ERRORS.update({
     "DOC_TYPE_INVALID": (422, "Envie PDF, DOCX, PPTX, XLSX, CSV, TXT ou MD."),
     "DOC_UNREADABLE": (422, "Não deu para ler este arquivo (protegido por senha ou corrompido)."),
-    "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler (ex.: PDF só de imagem)."),
+    "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler. Se for um PDF escaneado ou exportado como imagem, exporte de novo "
+                       "com texto selecionável ou envie o original (Word ou PowerPoint). A leitura de imagens (OCR) ainda não está disponível."),
     "DOC_TOO_LARGE": (413, "Arquivo grande demais (até 10 MB). Divida em partes."),
     "DOC_SOURCE_REQUIRED": (422, "Envie um arquivo ou cole um texto."),
     "DOC_SAVE_FAILED": (502, "Não foi possível guardar o material agora. Tente de novo."),
@@ -1819,6 +1820,74 @@ async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: s
     from services.brand_knowledge import save_manual
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     return {"ok": True, **await save_manual(cid, body.knowledge, user_id=await require_user_id(authorization))}
+
+
+# ---------------------------------------------------------------- importar configurações do planejamento
+# Contexto da Marca → "Importar configurações do planejamento". Fica sob /knowledge para seguir a permissão do
+# módulo da marca (brand_ai.edit). A prévia não grava nada; a aplicação grava só os campos aprovados.
+
+ERRORS.update({
+    "IMPORT_TEXT_TOO_SHORT": (422, "Este documento tem pouco texto legível para importar configurações. Se for um PDF escaneado ou "
+                                   "só de imagem, envie uma versão com texto selecionável (ou o Word/PowerPoint original). "
+                                   "A leitura de imagens (OCR) ainda não está disponível."),
+    "IMPORT_NOTHING_APPROVED": (422, "Marque ao menos um campo para aplicar."),
+    "IMPORT_FIELD_INVALID": (422, "Um dos campos aprovados está inválido."),
+    "PILLARS_WEIGHT_TOTAL": (422, "Os pesos dos pilares precisam somar 100%."),
+    "FREQUENCY_PLATFORM_MISSING": (422, "A frequência por canal precisa dos canais nas Plataformas."),
+})
+# Erros de validação da aplicação levam a mensagem específica (qual campo, qual soma).
+_IMPORT_DETAILED = {"IMPORT_FIELD_INVALID", "PILLARS_WEIGHT_TOTAL", "FREQUENCY_PLATFORM_MISSING"}
+
+
+def _import_http(exc: StudioError) -> HTTPException:
+    if exc.code in _IMPORT_DETAILED and str(exc) and str(exc) != exc.code:
+        return HTTPException(status_code=422, detail=str(exc))
+    return _http(exc)
+
+
+class BrandImportPreviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: UUID
+
+
+class BrandImportField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: Any = None
+    mode: Literal["replace", "append"] = "replace"
+
+
+class BrandImportApplyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: Optional[UUID] = None
+    fields: Dict[str, BrandImportField] = Field(min_length=1, max_length=30)
+    confirm: Literal[True]
+
+
+@router.post("/knowledge/import/preview")
+async def brand_import_preview(client_id: str, body: BrandImportPreviewInput, authorization: str | None = Header(default=None)):
+    """Lê o texto já guardado do documento e propõe os campos. Uma chamada de IA, só no clique; não grava nada."""
+    from services.brand_import import preview
+    from services.studio_engines import throttle
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        throttle(cid)
+        return {"ok": True, **await preview(cid, str(body.document_id))}
+    except StudioError as exc:
+        raise _import_http(exc) from None
+
+
+@router.post("/knowledge/import/apply")
+async def brand_import_apply(client_id: str, body: BrandImportApplyInput, authorization: str | None = Header(default=None)):
+    """Grava só os campos aprovados (``confirm`` explícito), no Perfil da marca e no Contexto estratégico."""
+    from services.brand_import import apply
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    approved = {key: item.model_dump() for key, item in body.fields.items()}
+    try:
+        return {"ok": True, **await apply(cid, approved, user_id=uid,
+                                          document_id=str(body.document_id) if body.document_id else None)}
+    except StudioError as exc:
+        raise _import_http(exc) from None
 
 
 # ---------------------------------------------------------------- Meta Business Suite da marca

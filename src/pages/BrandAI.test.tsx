@@ -10,6 +10,7 @@ vi.mock("../components/Shell", () => ({ default: ({ children }: { children: Reac
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
 // Os componentes reaproveitados têm testes próprios: aqui só conferimos que a página os monta com a permissão certa.
 vi.mock("../components/studio/BrandKnowledge", () => ({ default: ({ canManage }: { canManage: boolean }) => <div data-testid="knowledge">{canManage ? "kb-edit" : "kb-read"}</div> }));
+vi.mock("../components/brandContext/BrandImport", () => ({ default: () => <div data-testid="import" /> }));
 vi.mock("../components/studio/BrandAgent", () => ({ default: () => <div data-testid="agent" /> }));
 vi.mock("../components/admin/BusinessContextPanel", () => ({ default: ({ canEdit }: { canEdit: boolean }) => <div data-testid="business">{canEdit ? "bc-edit" : "bc-read"}</div> }));
 
@@ -48,6 +49,7 @@ describe("Contexto da Marca", () => {
     expect(button("Editar perfil")).toBeUndefined();
     await act(async () => { button("Documentos e conhecimento").click(); });
     expect(host.querySelector('[data-testid="knowledge"]')?.textContent).toBe("kb-read");
+    expect(host.querySelector('[data-testid="import"]')).toBeNull();  // leitor não importa
     await act(async () => { button("Configuração operacional").click(); });
     expect(host.textContent).toContain("Calendário e perfil editorial");
     expect(host.textContent).not.toContain("Integrações");
@@ -59,8 +61,12 @@ describe("Contexto da Marca", () => {
     expect(host.querySelector('[data-testid="business"]')?.textContent).toBe("bc-edit");
     expect(button("Editar perfil")).toBeUndefined();
     expect(host.textContent).toContain("fale com a equipe Mugô");
+    await act(async () => { button("Importar do planejamento").click(); });
+    expect(host.querySelector('[data-testid="import"]')).not.toBeNull();
+    await act(async () => { button("Identidade e estratégia").click(); });
     await act(async () => { button("Documentos e conhecimento").click(); });
     expect(host.querySelector('[data-testid="knowledge"]')?.textContent).toBe("kb-edit");
+    expect(host.querySelector('[data-testid="import"]')).not.toBeNull();
     expect(window.location.search).toBe("?aba=documentos");
   });
 
