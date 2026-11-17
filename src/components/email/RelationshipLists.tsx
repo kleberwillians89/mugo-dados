@@ -68,7 +68,7 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
         onClick={() => void action(async () => {
           const entries = emails.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
           const result = await addRelationshipListMembers(selected, entries);
-          setEmails(""); setNotice(`${result.accepted} contatos associados (sem enviar mensagens).`);
+          setEmails(""); setNotice(`${result.accepted} elegíveis associados; ${result.not_eligible} ignorados sem opt-in verificável ou fora da base; ${result.duplicates_in_input} duplicados.`);
         })}>Adicionar à lista</button>
       <button type="button" className="ds-button" disabled={busy || !emails.trim()}
         onClick={() => { if (window.confirm("Remover estes contatos da lista selecionada?"))
