@@ -157,11 +157,11 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
         {hasWa ? (
             <section className="emCard">
               <h3>WhatsApp do carrinho</h3>
-              {wa && !wa.numbers.some((n) => n.status === "active") ? (
+              {wa && canAutoSendWa && !wa.numbers.some((n) => n.status === "active") ? (
                 <p className="emNotice">Esta marca ainda não tem número de WhatsApp ligado ao MUGOVERSO (Integrações → WhatsApp). Sem ele, o passo de WhatsApp é pulado.</p>
               ) : null}
               <label className="emField"><span>Template aprovado pela Meta</span>
-                <select value={settings.whatsapp_template || ""} disabled={!canEdit}
+                <select value={settings.whatsapp_template || ""} disabled={!canEdit || !canAutoSendWa}
                   onChange={(e) => {
                     const t = approved.find((x) => x.name === e.target.value);
                     change({ whatsapp_template: e.target.value || null, whatsapp_language: t?.language || "pt_BR" });
