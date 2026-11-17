@@ -10,6 +10,7 @@ import hmac
 import re
 import secrets
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -151,7 +152,7 @@ async def ingest(source_id: str, key: str, payload: dict[str, Any]) -> dict:
             return {"ok": True, "duplicate": True}
         raise
     await sb_update(SOURCE_TABLE, filters={"id": f"eq.{source_id}", "client_id": f"eq.{cid}"},
-                    patch={"last_received_at": "now()"}, returning="minimal")
+                    patch={"last_received_at": datetime.now(timezone.utc).isoformat()}, returning="minimal")
     return {"ok": True, "duplicate": False}
 
 
