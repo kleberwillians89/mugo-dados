@@ -29,7 +29,7 @@ def _url() -> tuple[str, str] | None:
     return url.removesuffix("/dados-ops-api") + "/dados-whatsapp-templates", key
 
 
-async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
+async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | None = None, mode: str | None = None) -> Dict[str, Any]:
     if not SAFE_ID.fullmatch(client_id):
         raise StudioError("CRM_TEMPLATE_INVALID_TENANT")
     cfg = _url()
@@ -41,7 +41,7 @@ async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | Non
             response = await client.request(
                 method, url,
                 headers={"X-Dados-Ops-Key": key},
-                params={"external_client_id": client_id},
+                params={"external_client_id": client_id, **({"mode": mode} if mode else {})},
                 json=payload if method == "POST" else None,
             )
         body = response.json() if response.content else {}
@@ -104,3 +104,8 @@ async def create_template(client_id: str, *, payload: Dict[str, Any]) -> Dict[st
         "status": str(template.get("status") or "PENDING").upper(),
         "provider": "mugozap_crm",
     }
+
+
+async def connection_status(client_id: str) -> bool:
+    result = await _request(client_id, method="GET", mode="status")
+    return result.get("connected") is True and result.get("templates_supported") is True
