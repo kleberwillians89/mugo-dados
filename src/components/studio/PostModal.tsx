@@ -70,6 +70,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [librarySelection, setLibrarySelection] = useState<string[]>([]);
   const [libraryReplace, setLibraryReplace] = useState(false);
+  const [libraryTenant, setLibraryTenant] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const slides = artSlides(draft.art_url);
   const folderLink = artList(draft.art_url).some(isDriveFolder);
@@ -129,6 +130,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
     if (busy || Boolean(uploading)) return;
     if (libraryOpen) { setLibraryOpen(false); return; }
     const tenant = getActiveClientId();
+    setLibraryTenant(tenant);
     setLibraryOpen(true); setLibraryLoading(true); setLibraryError(null);
     try {
       const result = await listLibrary();
@@ -146,6 +148,10 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   }
 
   function applyLibrarySelection() {
+    if (!libraryTenant || getActiveClientId() !== libraryTenant) {
+      setLibraryError("A empresa selecionada mudou. Feche a Biblioteca e abra novamente.");
+      return;
+    }
     const selected = librarySelection.map((id) => libraryItems.find((entry) => entry.id === id))
       .filter((entry): entry is LibraryItem => Boolean(entry) && entry.kind === "arquivo" && previewKind(entry) === "image");
     if (selected.length !== librarySelection.length || selected.length === 0) {
