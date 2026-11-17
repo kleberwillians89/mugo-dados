@@ -999,7 +999,7 @@ function PrivateApp() {
       ) : route === "redacao" ? (
         <RedacaoPage key={`redacao:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "media" ? (
-        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} />
+        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} canManageCampaigns={teamHere || canEdit("media")} />
       ) : route === "briefing" ? (
         <BriefingPage key={`briefing:${activeClientId}`} />
       ) : route === "library" ? (

@@ -65,19 +65,34 @@ def clean_payload(value: Dict[str, Any]) -> Dict[str, Any]:
         "keywords": clean_list("keywords", 50, 80),
         "headlines": clean_list("headlines", 15, 30),
         "descriptions": clean_list("descriptions", 4, 90),
+        "contains_eu_political_advertising": (
+            value.get("contains_eu_political_advertising")
+            if isinstance(value.get("contains_eu_political_advertising"), bool) else None
+        ),
         "notes": str(value.get("notes") or "")[:1000],
         "status": "rascunho",
     }
 
 
 def view(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = row.get("payload") or {}
+    ids = row.get("meta_ids") or {}
+    campaign_id = str(ids.get("campaign_id") or "")
+    customer_id = str(ids.get("customer_id") or "")
     return {
-        "id": str(row["id"]), "status": "rascunho",
-        "payload": row.get("payload") or {},
+        "id": str(row["id"]), "status": str(row.get("status") or "rascunho"),
+        "payload": payload,
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
-        "publication_available": False,
-        "message": "Rascunho Google Ads. Publicação pela API ainda não habilitada.",
+        "publication_available": True,
+        "external_ids": ids,
+        "error": row.get("error"),
+        "published_at": row.get("published_at"),
+        "ads_manager_url": (
+            f"https://ads.google.com/aw/campaigns?campaignId={campaign_id}&__c={customer_id}"
+            if campaign_id and customer_id else None
+        ),
+        "message": "A campanha é criada pausada e só veicula após ativação explícita.",
     }
 
 
@@ -104,7 +119,9 @@ async def create(client_id: str, user_id: str, data: Dict[str, Any]) -> Dict[str
 
 
 async def update(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    await owned(client_id, draft_id)
+    row = await owned(client_id, draft_id)
+    if row.get("status") in {"publicando", "publicada"}:
+        raise StudioError("AD_DRAFT_LOCKED")
     payload = clean_payload(data)
     rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
                            patch={"payload": payload, "updated_at": datetime.now(timezone.utc).isoformat()})
@@ -114,5 +131,7 @@ async def update(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dict[st
 
 
 async def delete(client_id: str, draft_id: str) -> None:
-    await owned(client_id, draft_id)
+    row = await owned(client_id, draft_id)
+    if row.get("status") in {"publicando", "publicada"}:
+        raise StudioError("AD_DRAFT_LOCKED")
     await sb_delete(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, returning="minimal")

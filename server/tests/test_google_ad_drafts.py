@@ -9,6 +9,7 @@ def payload(**patch):
         "final_url": "https://example.com", "locations": ["São Paulo"],
         "keywords": ["tênis de corrida"], "headlines": ["PACE Running"],
         "descriptions": ["Conheça nossa linha"], "notes": "Somente rascunho",
+        "contains_eu_political_advertising": False,
     }
     return {**data, **patch}
 
