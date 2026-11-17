@@ -179,3 +179,26 @@ export function createWhatsAppCampaignDraft(input: {
     base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},
   );
 }
+
+/** Imports the selected tenant's previously synchronized contacts; never sends messages. */
+export type WaContactImportResult = {
+  ok: true; provider: string; source_records: number; contacts_synchronized: number;
+  eligible_for_marketing: number; note: string;
+};
+export type WaContactImportStatus = {
+  ok: true; total: number; truncated: boolean; by_provider: Record<string, number>;
+  last_synced_at: string | null;
+};
+export function getWhatsAppContactImportStatus() {
+  return http<WaContactImportStatus>("/api/relationship/contacts/status");
+}
+export function importExistingCommerceContacts() {
+  return http<WaContactImportResult>("/api/relationship/contacts/sync", {
+    method: "POST", timeoutMs: 90_000,
+  });
+}
+export function importExistingWhatsAppConversations(days: number = 365) {
+  return http<WaContactImportResult>(`/api/relationship/contacts/sync-whatsapp?days=${encodeURIComponent(String(days))}`, {
+    method: "POST", timeoutMs: 90_000,
+  });
+}

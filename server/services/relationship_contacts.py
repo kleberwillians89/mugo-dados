@@ -54,8 +54,8 @@ def _row(client_id: str, provider: str, item: dict) -> dict | None:
         "name_ciphertext": encrypt_secret(name) if name else None,
         "email_ciphertext": encrypt_secret(mail) if mail else None,
         "phone_ciphertext": encrypt_secret(phone) if phone else None,
-        "marketing_email_verified": False,
-        "marketing_whatsapp_verified": False,
+        # Omitir flags: defaults do banco são false para novos registros;
+        # upserts não sobrescrevem consentimentos verificados preexistentes.
         "last_synced_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -147,8 +147,8 @@ async def sync_whatsapp_conversations(client_id: str, *, days: int = 365) -> dic
             "identity_hash": identity, "external_id": None,
             "email_hash": None, "phone_hash": None,
             "name_ciphertext": None, "email_ciphertext": None,
-            "phone_ciphertext": None, "marketing_email_verified": False,
-            "marketing_whatsapp_verified": False,
+            "phone_ciphertext": None,
+            # Consentimentos existentes são preservados no upsert.
             "last_synced_at": now.isoformat(),
         }
     values = list(data.values())
