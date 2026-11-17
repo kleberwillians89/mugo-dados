@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 
-from services import lead_capture
+from services import lead_capture, relationship_contacts
 from services.tenant import require_client_read, require_client_role
 
 router = APIRouter(tags=["lead-capture"])
@@ -69,3 +69,37 @@ async def receive_lead(source_id: str, request: Request, payload: dict[str, Any]
         return await lead_capture.ingest(source_id, x_lead_capture_key or "", payload)
     except lead_capture.LeadCaptureError as exc:
         raise _error(exc) from exc
+
+# -------------------------------------------------------- base histórica de clientes
+
+@router.get("/api/relationship/contacts/status")
+async def relationship_contacts_status(client_id: str | None = Query(default=None),
+                                       x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                       authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    return {"ok": True, **await relationship_contacts.contacts_status(cid)}
+
+
+@router.post("/api/relationship/contacts/sync")
+async def relationship_contacts_sync(client_id: str | None = Query(default=None),
+                                     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                     authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await relationship_contacts.sync_existing_customers(cid)}
+    except relationship_contacts.ContactSyncError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+
+
+@router.post("/api/relationship/contacts/sync-whatsapp")
+async def relationship_whatsapp_contacts_sync(
+    days: int = Query(default=365, ge=1, le=3650),
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await relationship_contacts.sync_whatsapp_conversations(cid, days=days)}
+    except relationship_contacts.ContactSyncError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
