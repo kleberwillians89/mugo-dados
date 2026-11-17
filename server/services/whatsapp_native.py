@@ -301,3 +301,55 @@ async def send_template(client_id: str, *, number_id: Optional[str], to: str, te
                        json_body={"messaging_product": "whatsapp", "to": digits, "type": "template",
                                   "template": {"name": template, "language": {"code": language or "pt_BR"}, "components": components}})
     return str(((out.get("messages") or [{}])[0] or {}).get("id") or "")
+
+
+# ---------------------------------------------------------------- brand-owned message-template creation
+_TEMPLATE_NAME = re.compile(r"^[a-z][a-z0-9_]{2,80}$")
+_TEMPLATE_PARAM = re.compile(r"\{\{(\d+)\}\}")
+
+
+def validate_template_input(*, name: str, category: str, language: str, body: str,
+                            examples: List[str], footer: str = "") -> Dict[str, Any]:
+    """Whitelisted v1 template builder: body + optional footer, positional variables only.
+    Sending or campaign automation is not triggered by creating a template.
+    """
+    name, category, language, body, footer = (str(value or "").strip()
+                                              for value in (name, category, language, body, footer))
+    if not _TEMPLATE_NAME.fullmatch(name):
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Nome: de 3 a 81 caracteres, iniciando com letra minúscula; use letras, números e _.")
+    if category not in {"MARKETING", "UTILITY"}:
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Escolha Marketing ou Utilidade.")
+    if language not in {"pt_BR", "en_US", "es_ES"}:
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Idioma não disponível para esta versão.")
+    if not (1 <= len(body) <= 1024) or len(footer) > 60 or "\n\n\n" in body:
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Corpo obrigatório com até 1024 caracteres, rodapé com até 60.")
+    used = [int(n) for n in _TEMPLATE_PARAM.findall(body)]
+    if re.search(r"\{\{|\}\}", _TEMPLATE_PARAM.sub("", body)):
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Use apenas variáveis numeradas como {{1}}, {{2}}.")
+    max_var = max(used, default=0)
+    if max_var > 5 or set(used) != set(range(1, max_var + 1)):
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Use até cinco variáveis consecutivas: {{1}}, {{2}} ...")
+    if len(examples) != max_var or any(not isinstance(v, str) or not v.strip() or len(v) > 100 for v in examples):
+        raise WhatsAppNativeError("TEMPLATE_INVALID", "Informe um exemplo de até 100 caracteres para cada variável.")
+    component: Dict[str, Any] = {"type": "BODY", "text": body}
+    if max_var:
+        component["example"] = {"body_text": [[v.strip() for v in examples]]}
+    components: List[Dict[str, Any]] = [component]
+    if footer:
+        components.append({"type": "FOOTER", "text": footer})
+    return {"name": name, "category": category, "language": language,
+            "allow_category_change": True, "components": components}
+
+
+async def create_template(client_id: str, *, number_id: Optional[str], name: str, category: str,
+                          language: str, body: str, examples: List[str], footer: str = "") -> Dict[str, Any]:
+    """Submits to this tenant's own WABA; Meta decides approval state."""
+    number = await _active_number(client_id, number_id)
+    payload = validate_template_input(name=name, category=category, language=language,
+                                      body=body, examples=examples, footer=footer)
+    result = await _graph("POST", f"{number['waba_id']}/message_templates", number["access_token"],
+                          json_body=payload)
+    return {"id": str(result.get("id") or ""), "name": payload["name"],
+            "category": str(result.get("category") or payload["category"]),
+            "language": payload["language"], "status": str(result.get("status") or "PENDING").upper(),
+            "waba_id": str(number["waba_id"])}
