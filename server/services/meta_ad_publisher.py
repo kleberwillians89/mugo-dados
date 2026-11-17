@@ -145,12 +145,13 @@ async def list_drafts(client_id: str) -> List[Dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001 — tabela ainda não criada
         print(f"[meta_ads_publish] list client_id={client_id} unavailable error_type={type(exc).__name__}")
         raise StudioError("AD_MIGRATION_PENDING") from None
-    return [_view(r) for r in rows]
+    # Shared draft table: never expose or publish Google drafts as Meta campaigns.
+    return [_view(r) for r in rows if (r.get("payload") or {}).get("platform", "meta") == "meta"]
 
 
 async def _draft(client_id: str, draft_id: str) -> Dict[str, Any]:
     rows = await sb_select(TABLE, select="*", filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, limit=1)
-    if not rows:
+    if not rows or (rows[0].get("payload") or {}).get("platform", "meta") != "meta":
         raise StudioError("AD_DRAFT_NOT_FOUND")
     return rows[0]
 
