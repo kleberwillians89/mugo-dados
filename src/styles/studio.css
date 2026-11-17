@@ -1640,3 +1640,5 @@
 .taskBoard [draggable="true"]:active{cursor:grabbing}
 .taskBoard .kanbanCol{min-height:180px}
 @media(max-width:600px){.taskBoard [draggable="true"]{cursor:default}.taskBoard .kanbanCol{min-width:min(86vw,320px)}}
+
+.taskBoard .taskAddCard{width:100%;margin-top:10px;padding:10px;text-align:left;background:transparent;border:1px dashed var(--line,#ccd4dc);border-radius:8px;color:inherit;cursor:pointer;font:inherit;font-size:.86rem}.taskBoard .taskAddCard:hover,.taskBoard .taskAddCard:focus-visible{border-color:#004f6e;background:rgba(0,79,110,.05)}
