@@ -68,6 +68,109 @@ Deno.serve(async (request: Request) => {
     if (request.method === "GET" && new URL(request.url).searchParams.get("mode") === "status")
       return respond({ ok: true, data: { connected: true, provider: "mugozap_crm",
         templates_supported: true } });
+
+    // Read CRM-owned conversations with the SAME explicit tenant-to-org and
+    // CRM connection checks used above for templates. No token leaves CRM.
+    const mode = new URL(request.url).searchParams.get("mode") || "";
+    const connectionId = String(connection.id);
+    if (request.method === "GET" && ["conversations", "messages", "leads"].includes(mode)) {
+      if (mode === "messages") {
+        const conversationId = String(new URL(request.url).searchParams.get("conversation_id") || "");
+        if (!uuid.test(conversationId)) return error("INVALID_CONVERSATION", 422);
+        const owned = await admin.from("whatsapp_conversations").select("id")
+          .eq("id", conversationId).eq("organization_id", organizationId)
+          .eq("connection_id", connectionId).maybeSingle();
+        if (owned.error) return error("CONVERSATION_LOOKUP_FAILED", 503);
+        if (!owned.data) return error("CONVERSATION_NOT_FOUND", 404);
+        const messages = await admin.from("whatsapp_messages")
+          .select("id,direction,message_type,status,text_content,template_name,created_at,read_at,failed_at,error_code")
+          .eq("organization_id", organizationId).eq("connection_id", connectionId)
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: false }).limit(200);
+        if (messages.error) return error("MESSAGE_QUERY_FAILED", 503);
+        return respond({ ok: true, data: { messages: (messages.data || []).reverse().map((m: any) => ({
+          id: m.id, direction: m.direction === "in" ? "inbound" : "outbound",
+          type: m.message_type || "text", status: m.status || null,
+          text: m.text_content || null, template_name: m.template_name || null,
+          at: m.created_at, read_at: m.read_at || null,
+          failed: Boolean(m.failed_at || m.status === "failed"), error_code: m.error_code || null,
+        })) } });
+      }
+      if (mode === "leads") {
+        const start = String(new URL(request.url).searchParams.get("period_start") || "");
+        const end = String(new URL(request.url).searchParams.get("period_end") || "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)
+          || start > end) return error("INVALID_PERIOD", 422);
+        const rows = await admin.from("whatsapp_conversations")
+          .select("id,created_at").eq("organization_id", organizationId)
+          .eq("connection_id", connectionId)
+          .gte("created_at", start + "T00:00:00Z").lte("created_at", end + "T23:59:59Z")
+          .order("created_at", { ascending: false }).limit(500);
+        if (rows.error) return error("LEADS_QUERY_FAILED", 503);
+        return respond({ ok: true, data: {
+          connected: true, truncated: (rows.data || []).length >= 500,
+          // No reliable attribution on this bridge; don't invent campaign metrics.
+          leads: (rows.data || []).map((c: any) => ({
+            id: c.id, first_seen_at: c.created_at, origin: { source: "direct" },
+          })),
+        } });
+      }
+      const requested = Number(new URL(request.url).searchParams.get("limit") || "60");
+      const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 60, 200));
+      const rows = await admin.from("whatsapp_conversations")
+        .select("id,contact_id,status,attendance_mode,unread_count,last_message_at,service_window_expires_at,created_at,wa_id")
+        .eq("organization_id", organizationId).eq("connection_id", connectionId)
+        .order("last_message_at", { ascending: false, nullsFirst: false }).limit(limit);
+      if (rows.error) return error("CONVERSATIONS_QUERY_FAILED", 503);
+      const conversations = rows.data || [];
+      const contactIds = [...new Set(conversations.map((c: any) => c.contact_id).filter(Boolean))];
+      const ids = conversations.map((c: any) => c.id);
+      const contacts = contactIds.length
+        ? await admin.from("whatsapp_contacts")
+          .select("id,display_name,profile_name,first_seen_at,wa_id")
+          .eq("organization_id", organizationId).eq("connection_id", connectionId)
+          .in("id", contactIds)
+        : { data: [], error: null };
+      if (contacts.error) return error("CONTACTS_QUERY_FAILED", 503);
+      const recent = ids.length
+        ? await admin.from("whatsapp_messages")
+          .select("conversation_id,direction,text_content,template_name,created_at")
+          .eq("organization_id", organizationId).eq("connection_id", connectionId)
+          .in("conversation_id", ids).order("created_at", { ascending: false }).limit(1000)
+        : { data: [], error: null };
+      if (recent.error) return error("PREVIEWS_QUERY_FAILED", 503);
+      const byContact = new Map((contacts.data || []).map((c: any) => [c.id, c]));
+      const latest = new Map();
+      for (const msg of recent.data || []) if (!latest.has(msg.conversation_id))
+        latest.set(msg.conversation_id, msg);
+      const mask = (value: unknown) => {
+        const digits = String(value || "").replace(/\D/g, "");
+        return digits ? "•••• " + digits.slice(-4) : "Número protegido";
+      };
+      return respond({ ok: true, data: {
+        connected: true,
+        conversations: conversations.map((c: any) => {
+          const contact: any = byContact.get(c.contact_id) || {};
+          const msg = latest.get(c.id);
+          return {
+            id: c.id, status: c.status, attendance_mode: c.attendance_mode,
+            unread_count: c.unread_count || 0,
+            last_message_at: c.last_message_at, service_window_expires_at: c.service_window_expires_at,
+            contact: {
+              name: String(contact.display_name || contact.profile_name || "") || null,
+              phone_masked: mask(contact.wa_id || c.wa_id),
+              first_seen_at: contact.first_seen_at || c.created_at,
+            },
+            origin: { source: "direct", ad_headline: null, entry_code: null, at: c.created_at },
+            insight: null,
+            last_message: msg ? {
+              direction: msg.direction, at: msg.created_at,
+              text: String(msg.text_content || (msg.template_name ? "Modelo: " + msg.template_name : "Mensagem")).slice(0,600),
+            } : null,
+          };
+        }),
+      } });
+    }
     const url = `https://graph.facebook.com/${version}/${wabaId}/message_templates`;
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
     if (request.method === "GET") {
