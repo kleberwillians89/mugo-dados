@@ -150,6 +150,50 @@ async def crm_task_delete(client_id: str, task_id: UUID, authorization: Optional
         raise _http(exc) from None
 
 
+class TaskWhatsAppPreferenceInput(BaseModel):
+    whatsapp_opt_in: bool
+
+
+@router.get("/task-notifications")
+async def task_notifications(client_id: str, authorization: Optional[str] = Header(None)):
+    """Only the signed-in recipient can open their assignment messages."""
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    from services.task_assignment_notifications import inbox
+    return await inbox(cid, uid)
+
+
+@router.post("/task-notifications/{notification_id}/read")
+async def task_notification_read(client_id: str, notification_id: UUID,
+                                 authorization: Optional[str] = Header(None)):
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    from services.task_assignment_notifications import read_message
+    if not await read_message(cid, uid, str(notification_id)):
+        raise HTTPException(404, "Aviso não encontrado.")
+    return {"ok": True}
+
+
+@router.get("/task-notifications/preferences")
+async def task_notification_preferences(client_id: str, authorization: Optional[str] = Header(None)):
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    from services.task_assignment_notifications import preference
+    return await preference(cid, uid)
+
+
+@router.put("/task-notifications/preferences")
+async def task_notification_preference_save(client_id: str, body: TaskWhatsAppPreferenceInput,
+                                             authorization: Optional[str] = Header(None)):
+    cid = await require_client_read(client_id, authorization)
+    uid = await require_user_id(authorization)
+    from services.task_assignment_notifications import set_preference
+    try:
+        return await set_preference(cid, uid, body.whatsapp_opt_in)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 @router.get("/assignees")
 async def crm_assignees(client_id: str, authorization: Optional[str] = Header(None)):
     """Integrantes ativos da empresa para escolher o responsável (e para quem mandar o briefing)."""
