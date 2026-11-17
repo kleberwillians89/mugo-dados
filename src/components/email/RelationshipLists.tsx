@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  addRelationshipListMembers, createRelationshipList, deleteRelationshipList, listRelationshipLists,
-  type RelationshipList,
+  addRelationshipListMembers, contactEmailHistory, createRelationshipList, deleteRelationshipList, listRelationshipLists, removeRelationshipListMembers,
+  type RelationshipList, type ContactEmailEvent,
 } from "../../app/emailMarketing";
 
 /** Listas compartilham a base da loja. Importar não concede consentimento. */
@@ -11,6 +11,8 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
   const [selected, setSelected] = useState("");
   const [emails, setEmails] = useState("");
   const [busy, setBusy] = useState(false);
+  const [historyEmail, setHistoryEmail] = useState("");
+  const [events, setEvents] = useState<ContactEmailEvent[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   async function reload() {
@@ -68,6 +70,33 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
           const result = await addRelationshipListMembers(selected, entries);
           setEmails(""); setNotice(`${result.accepted} contatos associados (sem enviar mensagens).`);
         })}>Adicionar à lista</button>
+      <button type="button" className="ds-button" disabled={busy || !emails.trim()}
+        onClick={() => { if (window.confirm("Remover estes contatos da lista selecionada?"))
+          void action(async () => {
+            const entries = emails.split(/[\\n,;]+/).map((s) => s.trim()).filter(Boolean);
+            const result = await removeRelationshipListMembers(selected, entries);
+            setEmails(""); setNotice(`${result.processed} identificadores processados para remoção.`);
+          }); }}>Remover da lista</button>
+    </div> : null}
+    {canEdit ? <div className="emCard">
+      <h3>Histórico de e-mails do contato</h3>
+      <p className="emMuted">Consulta restrita à empresa atual. O endereço não é armazenado neste histórico;
+        retornam somente eventos técnicos de envio, entrega e descadastro.</p>
+      <div className="emInlineRow">
+        <input type="email" aria-label="Pesquisar e-mail no histórico" placeholder="cliente@exemplo.com"
+          value={historyEmail} disabled={busy} onChange={(e) => { setHistoryEmail(e.target.value); setEvents(null); }} />
+        <button type="button" className="ds-button" disabled={busy || !historyEmail.trim()}
+          onClick={() => void action(async () => {
+            setEvents((await contactEmailHistory(historyEmail)).entries);
+          })}>Consultar histórico</button>
+      </div>
+      {events ? <div aria-live="polite">{events.length ? <table className="emTable">
+        <thead><tr><th>Data</th><th>Tipo</th><th>Status</th></tr></thead>
+        <tbody>{events.map((event, index) => <tr key={index}>
+          <td>{new Date(event.created_at).toLocaleDateString("pt-BR")}</td>
+          <td>{event.kind}</td><td>{event.status}</td>
+        </tr>)}</tbody>
+      </table> : <p className="emMuted">Nenhum envio registrado para este contato nesta empresa.</p>}</div> : null}
     </div> : null}
     {!lists.length && !error ? <p className="emMuted">Nenhuma lista cadastrada nesta empresa.</p> : null}
   </section>;
