@@ -76,8 +76,11 @@ export default function LibraryPage() {
   // Never pass arbitrary image URLs as trusted content through the address bar.
   function sendToCalendar() {
     if (!team || !selected.length) return;
-    const ids = items.filter((item) => selected.includes(item.id) && previewKind(item) === "image" && item.kind === "arquivo")
-      .slice(0, 12).map((item) => item.id);
+    const byId = new Map(items.map((item) => [item.id, item]));
+    const ids = selected.filter((id) => {
+      const item = byId.get(id);
+      return item && previewKind(item) === "image" && item.kind === "arquivo";
+    }).slice(0, 12);
     if (!ids.length) return;
     const params = new URLSearchParams({ library_ids: ids.join(",") });
     window.location.assign(`${getPathForRoute("calendar")}?${params.toString()}`);
