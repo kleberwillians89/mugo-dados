@@ -135,3 +135,9 @@
 .waComposer p{flex-basis:100%;margin:0}
 .waSrOnly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .waCard[hidden]{display:none}
+
+/* Per-tenant status, no keys/tokens surfaced in the browser. */
+.waConnectionSummary{display:grid;gap:5px;margin:12px 0;padding:12px 14px;background:var(--surface-subtle,#f5f7f8);border:1px solid var(--border-subtle,#dae2e5);border-radius:10px}
+.waConnectionSummary strong{font-size:14px}
+.waConnectionSummary span{font-size:13px;line-height:1.5}
+.waConnectionSummary small{font-size:12px;line-height:1.5;color:var(--text-muted,#61717c)}

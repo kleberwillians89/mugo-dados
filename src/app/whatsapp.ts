@@ -91,6 +91,15 @@ export type WaNumber = {
   id: string; waba_id: string; phone_number_id: string; display_phone_number: string | null; verified_name: string | null;
   status: "active" | "disconnected"; subscribed_at: string | null; created_at: string | null;
 };
+export type WaConnectionStatus = {
+  ok: true; client_id: string; provider: "native" | "crm_bridge" | "not_connected";
+  native_connected: boolean; crm_bridge_configured: boolean;
+  meta_credentials_saved: boolean; number_count: number; numbers: WaNumber[];
+  requires_meta_credentials: boolean; notice: string;
+};
+export function getWhatsAppConnectionStatus() {
+  return http<WaConnectionStatus>(base("/connection-status"));
+}
 export function listWhatsAppNumbers() {
   return http<{ ok: true; numbers: WaNumber[] }>(base("/numbers"));
 }
