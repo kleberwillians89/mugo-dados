@@ -5,6 +5,14 @@ Não altera o Shopify da Roove nem outros sites; não muda fluxos de e-mail ou W
 não faz disparos, não inscreve leads em campanhas e não ativa sincronização automática
 dos conectores existentes. A migração deve ser revisada e aplicada antes de testar a API.
 
+## Conectores sem dependência de plataforma
+
+- Shopify e Wake/FBITS são as duas plataformas de e-commerce inicialmente conectadas ao MUGOVERSO.
+- Novas fontes podem receber categorias livres validadas (slug, ex.: `woocommerce`, `vtex`, `hubspot`, `form_site`), sem alterar schema ou API.
+- Cadastrar uma categoria NÃO conecta automaticamente o fornecedor: cada origem exige configuração de captura server-to-server ou conector específico com autenticação, mapeamento e homologação.
+- Eventos de formulários de qualquer site podem entrar pelo endpoint universal, desde que haja backend/Edge Function do site para proteger a credencial.
+- A estrutura existe para todos os tenants, mas nenhuma fonte é ativada sem cadastro e credenciais da empresa.
+
 ## Modelo
 
 - Fonte criada por empresa com role agency_admin ou client_admin.
