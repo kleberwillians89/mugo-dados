@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getActiveClientId } from "../../app/activeClient";
 import {
   addRelationshipListMembers, contactEmailHistory, createRelationshipList, deleteRelationshipList, listRelationshipLists, removeRelationshipListMembers,
   type RelationshipList, type ContactEmailEvent,
@@ -6,6 +7,7 @@ import {
 
 /** Listas compartilham a base da loja. Importar não concede consentimento. */
 export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
+  const tenant = getActiveClientId();
   const [lists, setLists] = useState<RelationshipList[]>([]);
   const [name, setName] = useState("");
   const [selected, setSelected] = useState("");
@@ -17,12 +19,14 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
   const [notice, setNotice] = useState("");
   async function reload() {
     const result = await listRelationshipLists();
-    setLists(result.lists);
+    if (getActiveClientId() === tenant) setLists(result.lists);
   }
-  useEffect(() => { let active = true; listRelationshipLists()
-    .then((r) => { if (active) setLists(r.lists); })
-    .catch(() => { if (active) setError("Não foi possível carregar as listas."); });
-    return () => { active = false; }; }, []);
+  useEffect(() => { let active = true;
+    setLists([]); setSelected(""); setEmails(""); setEvents(null); setError(""); setNotice("");
+    listRelationshipLists()
+    .then((r) => { if (active && getActiveClientId() === tenant) setLists(r.lists); })
+    .catch(() => { if (active && getActiveClientId() === tenant) setError("Não foi possível carregar as listas."); });
+    return () => { active = false; }; }, [tenant]);
   async function action(task: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
     try { await task(); await reload(); }
