@@ -58,7 +58,9 @@ async def list_sources(client_id: str) -> list[dict]:
 async def create_source(client_id: str, name: Any, kind: Any) -> dict:
     name = " ".join(str(name or "").split())[:100]
     kind = str(kind or "custom_form").strip().lower()
-    if not name or kind not in {"custom_form", "shopify", "ecommerce", "meta_leads", "other"}:
+    # Nomes de novos provedores não exigem deploy ou alteração no schema.
+    # A categoria informa a origem, mas NÃO habilita integração nativa.
+    if not name or not re.fullmatch(r"[a-z][a-z0-9_-]{1,49}", kind):
         raise LeadCaptureError("Informe nome e origem válidos.", 422)
     key = secrets.token_urlsafe(40)
     source_id = str(uuid.uuid4())
