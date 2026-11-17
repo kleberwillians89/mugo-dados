@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, useEffectEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, useEffectEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
@@ -15,6 +15,7 @@ import Drawer from "../components/Drawer";
 import ClientHub from "../components/studio/ClientHub";
 import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
+import { listLibrary, previewKind } from "../app/library";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
 import ApprovalDelivery from "../components/studio/ApprovalDelivery";
 import Approval from "./Approval";
@@ -53,6 +54,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   const [notes, setNotes] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [modal, setModal] = useState<{ item: CalendarItem | null; draft: PostDraft } | null>(null);
+  const librarySelectionHandled = useRef(false);
   const [profile, setProfile] = useState<BrandProfile | null>(null);
   const [publisherUrl, setPublisherUrl] = useState<string | null>(null);
   // Business Suite já na Página desta marca; troca junto com a empresa ativa.
@@ -89,6 +91,44 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [months, clientId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
+  // Library → Calendar uses IDs only. Resolve every asset against this user's
+  // currently selected tenant; URLs from query params are never trusted.
+  useEffect(() => {
+    if (!team || embedded || librarySelectionHandled.current || !window.location.pathname.startsWith("/calendario")) return;
+    const raw = new URLSearchParams(window.location.search).get("library_ids");
+    if (!raw) return;
+    librarySelectionHandled.current = true;
+    const requested = [...new Set(raw.split(",").filter((id) =>
+      /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 12);
+    if (!requested.length) {
+      setError("Nenhuma imagem válida foi selecionada na Biblioteca.");
+      return;
+    }
+    let alive = true;
+    void listLibrary().then((result) => {
+      if (!alive || getActiveClientId() !== clientId) return;
+      const byId = new Map(result.items.filter((it) =>
+        it.kind === "arquivo" && previewKind(it) === "image").map((it) => [it.id, it]));
+      const selected = requested.map((id) => byId.get(id)).filter((it) => it !== undefined);
+      if (selected.length !== requested.length) {
+        setError("Algumas imagens não pertencem a esta empresa ou não estão mais disponíveis. Selecione novamente.");
+        return;
+      }
+      const date = todayKey();
+      setCursor(date);
+      setView("dia");
+      setModal({ item: null, draft: {
+        date, time: "19:00", channel: "instagram",
+        format: selected.length > 1 ? "carrossel" : "imagem", pillar: "",
+        title: selected.length === 1 ? selected[0].title.replace(/\.[^.]+$/, "") : "Novo carrossel da Biblioteca",
+        hook: "", caption_draft: "", rationale: "",
+        art_url: selected.map((it) => it.url).join("\n"),
+      } });
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }).catch(() => { if (alive) setError("Não foi possível recuperar as imagens da Biblioteca."); });
+    return () => { alive = false; };
+  }, [team, embedded, clientId]);
+
   // Pedido de fora ("abrir perfil da marca"): reage só a um pedido novo, usando o openProfile/team atuais.
   const onProfileRequest = useEffectEvent(() => { if (team) void openProfile(); });
   useEffect(() => { if (openProfileRequest > 0) onProfileRequest(); }, [openProfileRequest]);

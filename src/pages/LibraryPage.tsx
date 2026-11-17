@@ -3,6 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { LIBRARY_ACCEPT, LIBRARY_CATEGORIES, addLibraryLink, deleteLibraryItem, formatBytes, listLibrary, previewKind, uploadLibraryFile,
   type LibraryCategory, type LibraryItem } from "../app/library";
 import Shell from "../components/Shell";
+import { getPathForRoute } from "../app/routes";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
 
@@ -32,6 +33,7 @@ export default function LibraryPage() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [viewing, setViewing] = useState<LibraryItem | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
@@ -70,6 +72,20 @@ export default function LibraryPage() {
     }
   }
 
+  // The calendar resolves IDs against the currently authorized tenant again.
+  // Never pass arbitrary image URLs as trusted content through the address bar.
+  function sendToCalendar() {
+    if (!team || !selected.length) return;
+    const byId = new Map(items.map((item) => [item.id, item]));
+    const ids = selected.filter((id) => {
+      const item = byId.get(id);
+      return item && previewKind(item) === "image" && item.kind === "arquivo";
+    }).slice(0, 12);
+    if (!ids.length) return;
+    const params = new URLSearchParams({ library_ids: ids.join(",") });
+    window.location.assign(`${getPathForRoute("calendar")}?${params.toString()}`);
+  }
+
   async function remove(item: LibraryItem) {
     if (!window.confirm(`Apagar "${item.title}" da Biblioteca?`)) return;
     try { await deleteLibraryItem(item.id); setItems((list) => list.filter((i) => i.id !== item.id)); setViewing(null); }
@@ -101,6 +117,12 @@ export default function LibraryPage() {
     {adding === "link" ? <LinkForm onCancel={() => setAdding(null)} onSaved={(item) => { setItems((l) => [item, ...l]); setAdding(null); }} onError={setError} /> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
 
+    {team ? <div className="libCalendarActions">
+      <span>Selecione até 12 imagens da Biblioteca para montar uma pauta ou carrossel no Calendário.</span>
+      <button type="button" className="ds-button is-primary" disabled={!selected.length}
+        onClick={sendToCalendar}>Enviar {selected.length || ""} {selected.length === 1 ? "imagem" : "imagens"} ao Calendário</button>
+      {selected.length ? <button type="button" className="ds-button" onClick={() => setSelected([])}>Limpar seleção</button> : null}
+    </div> : null}
     <div className="libToolbar">
       <div className="studioTabs" role="tablist" aria-label="Seções">{SECTIONS.map((s) => <button key={s.key} type="button" role="tab" aria-selected={section === s.key}
         className={`studioTab${section === s.key ? " is-active" : ""}`} onClick={() => setSection(s.key)}>
@@ -119,6 +141,13 @@ export default function LibraryPage() {
         : <p>Nada aqui ainda. Envie um arquivo ou cole um link do Drive, Canva ou Figma.</p>}
     </div> : null}
     <ul className="libGrid" aria-label="Materiais">{shown.map((item) => <li key={item.id}>
+      {team && item.kind === "arquivo" && previewKind(item) === "image" ? <label className="libCalendarSelect">
+        <input type="checkbox" checked={selected.includes(item.id)} aria-label={`Selecionar ${item.title} para o Calendário`}
+          onChange={(e) => setSelected((current) => e.target.checked
+            ? current.includes(item.id) || current.length >= 12 ? current : [...current, item.id]
+            : current.filter((id) => id !== item.id))} />
+        <span>{selected.includes(item.id) ? `Selecionada · ${selected.indexOf(item.id) + 1}` : "Selecionar para o Calendário"}</span>
+      </label> : null}
       <button type="button" className="libCard" onClick={() => setViewing(item)} aria-label={`Abrir ${item.title}`}>
         <Thumb item={item} />
         <span className="libCardBody"><b>{item.title}</b>
