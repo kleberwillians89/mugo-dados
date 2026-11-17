@@ -15,11 +15,12 @@ const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Cri
 // Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
 const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
-  category: string; assignee_name: string; assignee_user_id: string; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
+  category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", assignee_user_id: "", visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
+  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "", assignee_user_id: t.assignee?.user_id || "",
+  assignee_user_ids: (t.assignees || (t.assignee ? [t.assignee] : [])).map((a) => a.user_id).filter((id): id is string => Boolean(id)),
   visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
 
 export type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
@@ -99,14 +100,17 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
 
   const people = useMemo(() => {
     const map = new Map<string, string>();
-    for (const t of tasks) if (t.assignee?.name) map.set(t.assignee.name, t.assignee.color || "#9aa3ad");
+    for (const t of tasks) for (const person of (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : [])) {
+      if (person.name) map.set(person.name, person.color || "#9aa3ad");
+    }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [tasks]);
 
   const departments = useMemo(() => [...new Set([...DEPARTMENTS, ...tasks.map((t) => t.category).filter((v): v is string => Boolean(v))])].sort((a, b) => a.localeCompare(b)), [tasks]);
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tasks.filter((t) => (!who || (who === "-" ? !t.assignee : t.assignee?.name === who))
+    return tasks.filter((t) => (!who || (who === "-" ? !(t.assignees?.length || t.assignee) :
+      (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []).some((a) => a.name === who)))
       && (!department || t.category === department)
       && (taskView !== "content" || Boolean(t.calendar_item_id))
       && (!q || `${t.title} ${t.notes || ""} ${t.category || ""}`.toLowerCase().includes(q)));
@@ -118,7 +122,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     const input: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, status: draft.status, priority: draft.priority || null,
       due_date: draft.due_date || null, due_time: draft.due_time || null, category: draft.category.trim() || null,
       assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null,
-      ...(team?.length ? { assignee_user_id: draft.assignee_user_id || null } : {}),
+      ...(team?.length ? { assignee_user_ids: draft.assignee_user_ids } : {}),
       ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval } : {}) };
     setBusy(true); setError(null);
     try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
@@ -328,12 +332,21 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
             <label className="ds-field">Hora<input type="time" value={draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.value })} /></label>
           </div>
           <div className="taskFormRow">
-            {team?.length ? <label className="ds-field">Responsável<select value={draft.assignee_user_id} disabled={scope.mine_only && !approver}
-              onChange={(e) => { const p = team.find((x) => x.user_id === e.target.value); setDraft({ ...draft, assignee_user_id: e.target.value, assignee_name: p?.name || "" }); }}>
-              <option value="">Sem responsável</option>
-              {draft.assignee_user_id && !team.some((p) => p.user_id === draft.assignee_user_id) ? <option value={draft.assignee_user_id}>{draft.assignee_name || "Pessoa"}</option> : null}
-              {team.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
-            </select></label>
+            {team?.length ? <fieldset className="taskAssigneePicker" disabled={scope.mine_only && !approver}>
+              <legend>Responsáveis <small>({draft.assignee_user_ids.length} selecionados)</small></legend>
+              <div className="taskAssigneeOptions" role="group" aria-label="Selecione vários responsáveis">
+                {team.map((p) => <label key={p.user_id} className={draft.assignee_user_ids.includes(p.user_id) ? "is-selected" : ""}>
+                  <input type="checkbox" checked={draft.assignee_user_ids.includes(p.user_id)}
+                    onChange={(e) => setDraft((current) => current ? {
+                      ...current, assignee_user_ids: e.target.checked
+                        ? [...current.assignee_user_ids, p.user_id]
+                        : current.assignee_user_ids.filter((id) => id !== p.user_id),
+                    } : current)} />
+                  <span>{p.name}</span>
+                </label>)}
+              </div>
+              <small>Você pode marcar várias pessoas na mesma tarefa.</small>
+            </fieldset>
             : <label className="ds-field">Responsável<input maxLength={80} value={draft.assignee_name} onChange={(e) => setDraft({ ...draft, assignee_name: e.target.value })} placeholder="Nome" /></label>}
             <label className="ds-field">Departamento<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
               <option value="">Selecione a área</option>
@@ -404,9 +417,13 @@ function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => v
     {t.calendar_item_id ? <span className="taskFromCalendar">Calendário</span> : null}
     {t.deliverable_url ? <a className="taskLink" href={t.deliverable_url} target="_blank" rel="noreferrer noopener">Entrega ↗</a> : null}
     {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
-    {t.assignee || t.category ? <small className="taskWho">
-      {t.assignee ? <><i style={{ background: t.assignee.color || "#9aa3ad" }} aria-hidden="true" />{t.assignee.name}</> : null}
-      {t.assignee && t.category ? " · " : ""}{t.category}
+    {(t.assignees?.length || t.assignee || t.category) ? <small className="taskWho">
+      {(t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []).map((person, index) => (
+        <span key={person.user_id || index} className="taskAssigneeBadge">
+          <i style={{ background: person.color || "#9aa3ad" }} aria-hidden="true" />{person.name}
+        </span>
+      ))}
+      {t.category ? <span>{t.category}</span> : null}
     </small> : null}
   </article>;
 }
