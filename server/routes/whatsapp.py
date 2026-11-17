@@ -15,7 +15,7 @@ from services.whatsapp_sources import brand_messages, brand_reply
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
-from services.whatsapp_native import WhatsAppNativeError, disconnect_number, list_numbers, register_number
+from services.whatsapp_native import WhatsAppNativeError, disconnect_number, list_numbers, register_number, list_templates, create_template
 
 router = APIRouter(prefix="/api/clients/{client_id}/whatsapp", tags=["whatsapp"])
 
@@ -122,6 +122,44 @@ async def delete_whatsapp_number(client_id: str, number_id: str, authorization: 
     if not await disconnect_number(cid, number_id):
         raise HTTPException(404, "Número não encontrado para esta empresa.")
     return {"ok": True}
+
+
+# ---- Biblioteca por WABA: criar modelos e acompanhar aprovação na Meta.
+# Nenhum endpoint daqui dispara mensagens aos contatos.
+TEMPLATE_ROLES = ("agency_admin", "client_admin")
+
+
+class TemplateIn(BaseModel):
+    number_id: Optional[str] = Field(default=None, max_length=50)
+    name: str = Field(min_length=3, max_length=81)
+    category: str = Field(pattern="^(MARKETING|UTILITY)$")
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    body: str = Field(min_length=1, max_length=1024)
+    footer: str = Field(default="", max_length=60)
+    examples: list[str] = Field(default_factory=list, max_length=5)
+
+
+@router.get("/templates")
+async def read_whatsapp_templates(client_id: str, number_id: Optional[str] = None,
+                                  authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    try:
+        return {"ok": True, "templates": await list_templates(cid, number_id)}
+    except WhatsAppNativeError as exc:
+        raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+
+
+@router.post("/templates", status_code=201)
+async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
+                                   authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    try:
+        template = await create_template(cid, number_id=payload.number_id, name=payload.name,
+                                         category=payload.category, language=payload.language,
+                                         body=payload.body, examples=payload.examples, footer=payload.footer)
+    except WhatsAppNativeError as exc:
+        raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+    return {"ok": True, "template": template}
 
 
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).

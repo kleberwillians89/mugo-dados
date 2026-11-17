@@ -1,0 +1,21 @@
+.waTemplateHead{align-items:flex-start;gap:12px;flex-wrap:wrap}
+.waTemplateHead p{margin:5px 0 0;max-width:630px;font-size:13px}
+.waTemplateActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.waTemplateList{display:grid;gap:8px;margin-top:15px}
+.waTemplateItem{border:1px solid var(--border-subtle,#dce2e6);border-radius:10px;padding:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.waTemplateItem strong,.waTemplateItem small{display:block}
+.waTemplateItem small{font-size:12px;color:var(--text-muted,#657180);margin-top:4px}
+.waTemplateItem p{margin:7px 0 0;white-space:pre-wrap;font-size:13px;max-width:550px;overflow-wrap:anywhere}
+.waTemplateStatus{font-size:11px;padding:5px 8px;border-radius:30px;background:var(--surface-subtle,#f1f2f4);white-space:nowrap}
+.waTemplateStatus.is-approved{background:#e1f5e7;color:#116835}
+.waTemplateSuccess{border:1px solid #7bc69e;background:#eefaf3;color:#12673c;padding:10px;border-radius:10px}
+.waTemplateForm{border-top:1px solid var(--border-subtle,#dce2e6);margin-top:16px;padding-top:14px;display:grid;gap:13px}
+.waTemplateForm label{display:grid;gap:5px;font-size:13px;font-weight:600;min-width:0}
+.waTemplateForm input,.waTemplateForm select,.waTemplateForm textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-subtle,#dce2e6);border-radius:8px;padding:10px;background:var(--surface,#fff);color:inherit;font:inherit;font-weight:400;max-width:100%}
+.waTemplateGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.waTemplatePreview{background:var(--surface-subtle,#f1f2f4);border-radius:12px;padding:14px}
+.waTemplatePreview p{white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0;font-size:14px}
+.waTemplatePreview small{font-size:12px;color:var(--text-muted,#657180)}
+@media(max-width:720px){.waTemplateGrid{grid-template-columns:1fr}.waTemplateItem{flex-direction:column}.waTemplateActions{width:100%}.waTemplateActions button{flex:1}}
+
+.waTemplatePresets{display:flex;gap:8px;flex-wrap:wrap}.waTemplatePresets button{white-space:normal;text-align:center}

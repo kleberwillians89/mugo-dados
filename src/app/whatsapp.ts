@@ -101,6 +101,24 @@ export function disconnectWhatsAppNumber(id: string) {
   return http<{ ok: true }>(base(`/numbers/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 
+/** Each tenant manages only its own WhatsApp Business Account message templates. */
+export type WaTemplate = {
+  name: string; language: string; status: string; category: string; body: string; variables: number;
+};
+export type WaTemplateInput = {
+  number_id?: string | null; name: string; category: "MARKETING" | "UTILITY";
+  language: "pt_BR" | "en_US" | "es_ES"; body: string; footer?: string; examples: string[];
+};
+export function listWhatsAppTemplates(numberId?: string | null) {
+  const suffix = numberId ? `?number_id=${encodeURIComponent(numberId)}` : "";
+  return http<{ ok: true; templates: WaTemplate[] }>(base(`/templates${suffix}`));
+}
+export function submitWhatsAppTemplate(input: WaTemplateInput) {
+  return http<{ ok: true; template: WaTemplate & { id: string; waba_id: string } }>(base("/templates"), {
+    method: "POST", body: JSON.stringify(input), timeoutMs: 60_000,
+  });
+}
+
 /** Direct do Instagram da marca (mesma tela do WhatsApp). */
 export type IgThreadSummary = {
   sender_id: string; username: string | null; follows: boolean | null; last_at: string; last_text: string;
