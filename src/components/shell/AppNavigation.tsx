@@ -65,6 +65,7 @@ const OPERATION_ITEMS: NavItem[] = [
   { route: "redacao", label: "Redação" },
   { route: "creators", label: "Criadores" },
   { route: "library", label: "Biblioteca" },
+  { route: "brand_ai", label: "Aprendizado da IA" },
 ];
 
 const INTELLIGENCE_ITEMS: NavItem[] = [
@@ -99,7 +100,7 @@ type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[
 const NAV_GROUPS: NavGroup[] = [
   { id: "visao-geral", label: "Visão Geral", icon: Home, routes: ["central"] },
   { id: "tarefas", label: "Tarefas", icon: ListChecks, routes: ["tasks"] },
-  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report", "library"] },
+  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report", "library", "brand_ai"] },
   { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["campaigns", "redacao", "production"] },
   { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
