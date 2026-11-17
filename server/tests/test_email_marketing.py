@@ -190,6 +190,35 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await em.handle_event({"type": "email.opened", "data": {"email_id": "x"}}), {"ignored": True})
 
 
+class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_audience_blocks_preflight_and_schedule(self):
+        campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
+                    "audience": {"segment": "consentimento", "only_consent": True}}
+        audience = {"count": 0, "base": 3, "with_consent": 0, "blocked": 1,
+                    "consent_known": True, "audience": em.clean_audience(campaign["audience"])}
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \\
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \\
+             patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
+            result = await em.campaign_preflight("roove", "campaign-id")
+            self.assertFalse(result["ready"])
+            self.assertEqual(result["audience"]["count"], 0)
+            with self.assertRaises(em.EmailError) as caught:
+                await em.schedule("roove", "campaign-id", None)
+            self.assertEqual(caught.exception.code, "EMPTY_AUDIENCE")
+
+    async def test_preflight_warns_when_consent_is_not_confirmed(self):
+        campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
+                    "audience": {"segment": "todos", "only_consent": False}}
+        audience = {"count": 8, "base": 10, "with_consent": 0, "blocked": 2,
+                    "consent_known": False, "audience": em.clean_audience(campaign["audience"])}
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \\
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \\
+             patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
+            result = await em.campaign_preflight("roove", "campaign-id")
+        self.assertTrue(result["ready"])
+        self.assertEqual(len(result["warnings"]), 2)
+
+
 class CampaignSendTests(unittest.IsolatedAsyncioTestCase):
     async def test_scheduled_campaign_queues_audience_sends_and_finishes(self):
         campaign = {"id": "c1", "client_id": "roove", "status": "agendada", "name": "Black", "subject": "Oi {{primeiro_nome}}", "preheader": "",
