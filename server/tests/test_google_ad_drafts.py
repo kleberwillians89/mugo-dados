@@ -1,4 +1,4 @@
-from datetime import date
+import asyncio
 import pytest
 from services import google_ad_drafts
 
@@ -28,13 +28,12 @@ def test_google_campaign_dates_and_url_are_validated():
     with pytest.raises(StudioError):
         google_ad_drafts.clean_payload(payload(daily_budget=-5))
 
-@pytest.mark.asyncio
-async def test_google_draft_lookup_is_tenant_and_platform_scoped(monkeypatch):
+def test_google_draft_lookup_is_tenant_and_platform_scoped(monkeypatch):
     seen = []
     async def fake_select(table, *, select=None, filters=None, limit=None, **kwargs):
         seen.append(filters)
         return [{"id": "abc", "client_id": "acme", "payload": {"platform": "meta"}}]
     monkeypatch.setattr(google_ad_drafts, "sb_select", fake_select)
     with pytest.raises(Exception):
-        await google_ad_drafts.owned("acme", "abc")
+        asyncio.run(google_ad_drafts.owned("acme", "abc"))
     assert seen == [{"client_id": "eq.acme", "id": "eq.abc"}]
