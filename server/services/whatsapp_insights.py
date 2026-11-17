@@ -515,4 +515,5 @@ async def build_whatsapp_inbox(client_id: str, *, limit: int = 60) -> Dict[str, 
             "origin": {**origin, "bucket": origin_bucket(origin), "label": origin_label(origin)},
             "purchase": {**purchase, "revenue": round(purchase["revenue"], 2)} if purchase else None,
         })
-    return {"ok": True, "status": "available", "provider": provider, "conversations": out}
+    return {"ok": True, "status": "available", "provider": provider,
+            "channel_provider": result.get("channel_provider"), "conversations": out}
