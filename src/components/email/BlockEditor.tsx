@@ -77,6 +77,7 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled 
               <textarea aria-label="Texto" rows={3} value={block.text || ""} disabled={disabled} onChange={(e) => patch(index, { text: e.target.value })} />
             ) : null}
             {block.type === "imagem" ? (
+              <>
               <div className="emBlockRow">
                 <input aria-label="Link da imagem (https)" placeholder="https://… imagem" value={block.url || ""} disabled={disabled} onChange={(e) => patch(index, { url: e.target.value })} />
                 <input aria-label="Link ao clicar" placeholder="Link ao clicar (opcional)" value={block.href || ""} disabled={disabled} onChange={(e) => patch(index, { href: e.target.value })} />
@@ -97,6 +98,7 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled 
                     aria-label={`Selecionar ${it.title}`}><img src={it.url} alt="" loading="lazy" /><span>{it.title}</span></button>)}
                 </div> : null}
               </div> : null}
+              </>
             ) : null}
             {block.type === "botao" ? (
               <div className="emBlockRow">
