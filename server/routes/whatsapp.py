@@ -107,26 +107,50 @@ async def whatsapp_connection_status(client_id: str, authorization: Optional[str
     """
     cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
     from services.whatsapp_sources import bridge_for
+    from services.crm_bridge import brand_conversations as crm_brand_conversations, _config as crm_config
+    from services.studio_calendar import StudioError
+
     numbers = await list_numbers(cid)
     active = [number for number in numbers if number.get("status") == "active"]
-    bridge = bool(bridge_for(cid))
+    brand_bridge = bool(bridge_for(cid))
+    crm_connected = False
+    crm_unavailable = False
+    if not active and not brand_bridge and crm_config():
+        # CRM Mugô is a per-company bridge. The global server credentials alone
+        # do NOT prove this particular tenant owns a connected WhatsApp number.
+        try:
+            state = await crm_brand_conversations(cid, limit=1)
+            crm_connected = bool(state.get("available") and state.get("connected"))
+            crm_unavailable = not bool(state.get("available"))
+        except StudioError:
+            crm_unavailable = True
+    provider = ("native" if active else "crm_bridge" if brand_bridge
+                else "mugozap_crm" if crm_connected else "not_connected")
+    is_connected = bool(active or brand_bridge or crm_connected)
+    notice = (
+        "Número Cloud API cadastrado e credencial protegida no Mugô Dados."
+        if active else
+        "WhatsApp conectado pelo CRM próprio. As conversas são mantidas nessa integração."
+        if brand_bridge else
+        "WhatsApp conectado pelo CRM Mugô (MugôZap), com as conversas acessíveis pela ponte."
+        if crm_connected else
+        "Não foi possível confirmar a conexão do CRM neste momento. Confira as conversas antes de cadastrar outro número."
+        if crm_unavailable else
+        "Nenhuma conexão WhatsApp ativa identificada para esta empresa."
+    )
     return {
         "ok": True,
         "client_id": cid,
-        "provider": "native" if active else "crm_bridge" if bridge else "not_connected",
+        "provider": provider,
+        "connected": is_connected,
         "native_connected": bool(active),
-        "crm_bridge_configured": bridge,
+        "crm_bridge_configured": brand_bridge or crm_connected,
         "meta_credentials_saved": bool(active),
         "number_count": len(active),
         "numbers": active,
         "requires_meta_credentials": not bool(active),
-        "notice": (
-            "A ponte do CRM está configurada, mas não fornece credenciais da Meta para modelos oficiais."
-            if bridge and not active else
-            "Credenciais da Meta configuradas com segurança."
-            if active else
-            "Conecte um número da empresa com WABA ID, Phone Number ID e token da Meta."
-        ),
+        "notice": notice,
+        "crm_status_unavailable": crm_unavailable,
     }
 
 
