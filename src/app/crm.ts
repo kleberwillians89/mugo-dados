@@ -22,6 +22,7 @@ export type CrmTask = {
   id: string; title: string; status: TaskStatus; priority: string | null; due_date: string | null; due_time: string | null;
   starts_at: string | null; category: string | null; task_type: string | null; tags: string[]; notes: string | null;
   updated_at: string | null; assignee: { name: string; color: string | null; user_id?: string | null } | null;
+  assignees?: Array<{ name: string; color: string | null; user_id?: string | null }>;
   /** Tarefas do Mugoverso: aparece também para o cliente. */
   visible_to_client?: boolean;
   /** Link da entrega (Drive, Canva, Figma…) que vai para aprovação. */
@@ -55,7 +56,8 @@ export type Person = { user_id: string; name: string };
 export function listAssignees() { return http<{ available: boolean; people: Person[] }>(base("/assignees")); }
 /** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
 export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;
-  due_time: string | null; category: string | null; assignee_name: string | null; assignee_user_id: string | null; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
+  due_time: string | null; category: string | null; assignee_name: string | null; assignee_user_id: string | null;
+  assignee_user_ids: string[]; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
 export function createTask(input: TaskInput) {
   return http<{ task: CrmTask }>(base("/tasks"), { method: "POST", body: JSON.stringify(input) });
 }

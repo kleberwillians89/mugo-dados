@@ -1667,3 +1667,17 @@
 .metaAdsReviewImage{max-width:260px;max-height:260px;width:100%;object-fit:contain;border-radius:10px;border:1px solid var(--border-subtle,#d9dce2)}
 .metaAdsButtons{flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:620px){.metaAdsStepper{grid-template-columns:repeat(2,minmax(0,1fr))}.metaAdsStepper button{justify-content:flex-start;padding:9px}.metaAdsFormActions{align-items:stretch;flex-direction:column}.metaAdsButtons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.metaAdsButtons button:last-child{grid-column:1/-1}.metaAdsCreativePreview img{height:72px;width:72px}}
+
+/* Multi-owner Trello cards and accessible multi-select in the task editor */
+.taskAssigneePicker{min-width:0;margin:0;padding:10px 12px;border:1px solid var(--border-subtle,#d8dce1);border-radius:10px}
+.taskAssigneePicker legend{padding:0 5px;font-size:13px;font-weight:600}
+.taskAssigneePicker legend small{font-weight:400;color:var(--text-muted,#68737e)}
+.taskAssigneeOptions{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 8px;max-height:180px;overflow-y:auto}
+.taskAssigneeOptions label{display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border-subtle,#d8dce1);cursor:pointer;background:var(--surface,#fff);font-size:13px}
+.taskAssigneeOptions label.is-selected{background:rgba(0,79,110,.08);border-color:#004f6e}
+.taskAssigneeOptions label input{accent-color:#004f6e}
+.taskAssigneeOptions label span{overflow-wrap:anywhere}
+.taskAssigneePicker>small{display:block;color:var(--text-muted,#68737e);margin-top:4px}
+.taskAssigneeBadge{display:inline-flex;gap:4px;align-items:center;margin-right:7px;white-space:normal}
+.taskWho{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+@media(max-width:620px){.taskAssigneeOptions{max-height:240px}.taskAssigneeOptions label{min-height:40px}}
