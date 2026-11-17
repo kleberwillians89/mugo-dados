@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../../app/api";
-import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, type WaNumber } from "../../app/whatsapp";
+import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, getWhatsAppConnectionStatus, type WaNumber, type WaConnectionStatus } from "../../app/whatsapp";
 
 /**
  * Números de WhatsApp da empresa ligados direto no MUGOVERSO (app da Mugô na Meta).
@@ -9,6 +9,7 @@ import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, t
  */
 export default function WhatsAppNumbers({ onChange }: { onChange?: () => void }) {
   const [numbers, setNumbers] = useState<WaNumber[] | null>(null);
+  const [connection, setConnection] = useState<WaConnectionStatus | null>(null);
   const [allowed, setAllowed] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "" });
@@ -17,8 +18,8 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
 
   useEffect(() => {
     let alive = true;
-    listWhatsAppNumbers()
-      .then((res) => { if (alive) setNumbers(res.numbers); })
+    Promise.all([listWhatsAppNumbers(), getWhatsAppConnectionStatus()])
+      .then(([res, status]) => { if (alive) { setNumbers(res.numbers); setConnection(status); } })
       .catch(() => { if (alive) setAllowed(false); });
     return () => { alive = false; };
   }, []);
@@ -62,6 +63,15 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
         <h2 id="wa-numbers">Número de WhatsApp da marca</h2>
         <span className="waMuted">só a agência vê esta parte</span>
       </div>
+      {connection ? <div className="waConnectionSummary" role="status">
+        <strong>{connection.provider === "native" ? "Cloud API conectada" :
+          connection.provider === "crm_bridge" ? "Conectado via CRM próprio" : "WhatsApp não conectado"}</strong>
+        <span>{connection.notice}</span>
+        <small>Credencial da Meta: {connection.meta_credentials_saved ? "Configurada e protegida" :
+          "Ainda não cadastrada nesta empresa"} · {connection.number_count} número(s) Cloud API ativo(s)</small>
+        {connection.provider === "crm_bridge" && !connection.native_connected ?
+          <small>Para criar modelos diretamente pela Meta, conecte uma WABA e seu número oficial. A chave da ponte CRM não é um token Meta.</small> : null}
+      </div> : null}
       {active.length ? (
         <ul className="waNumbers">
           {active.map((n) => (
@@ -78,7 +88,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
         <button type="button" className="waPrimary" onClick={() => setOpen(true)}>{active.length ? "Ligar outro número" : "Ligar número"}</button>
       ) : (
         <form className="waForm" onSubmit={(e) => void submit(e)}>
-          <p className="waMuted">Copie os IDs do gerenciador do WhatsApp na Meta (Configuração da API). Use o token do usuário do sistema do BM da Mugô com acesso a esta WABA.</p>
+          <p className="waMuted">Os dados pertencem exclusivamente à empresa selecionada. Copie WABA ID e Phone Number ID do gerenciador da Meta e cadastre um token de usuário do sistema autorizado para esta WABA. Tokens nunca são exibidos novamente na tela.</p>
           <label>ID da conta do WhatsApp Business (WABA)
             <input inputMode="numeric" autoComplete="off" required value={form.waba_id}
               onChange={(e) => setForm({ ...form, waba_id: e.target.value.replace(/\D/g, "") })} />
