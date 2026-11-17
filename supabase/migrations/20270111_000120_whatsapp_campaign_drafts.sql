@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_campaign_drafts (
   language text NOT NULL CHECK (language IN ('pt_BR', 'en_US', 'es_ES')),
   provider text NOT NULL DEFAULT 'whatsapp',
   audience_source text NOT NULL CHECK (audience_source IN ('relationship_contacts')),
+  audience_provider text NOT NULL DEFAULT 'all' CHECK (audience_provider IN ('all', 'shopify', 'fbits', 'whatsapp')),
   status text NOT NULL DEFAULT 'draft' CHECK (status = 'draft'),
   simulated_count integer NOT NULL DEFAULT 0 CHECK (simulated_count >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
