@@ -12,6 +12,7 @@ from .commerce_context import FBITS, SHOPIFY, resolve_commerce_provider
 from .crypto import encrypt_secret
 from .email_marketing import valid_email
 from .ig_supabase import sb_select, sb_upsert
+from .sales_by_origin import _paged
 
 TABLE = "relationship_contacts"
 LIMIT = 20000
@@ -66,9 +67,9 @@ async def sync_existing_customers(client_id: str) -> dict:
         raise ContactSyncError("Empresa sem e-commerce conectado. CRM externo precisa de adaptador próprio.", 409)
     table = "shopify_customers" if provider == SHOPIFY else "fbits_customers"
     order = "updated_at_shopify.desc" if provider == SHOPIFY else "synced_at.desc"
-    rows = await sb_select(table, select="*", filters={"client_id": f"eq.{client_id}"}, order=order, limit=LIMIT + 1)
-    if len(rows) > LIMIT:
-        raise ContactSyncError("Base excede 20 mil contatos; sincronização completa exige paginação antes de liberar.", 409)
+    rows, truncated = await _paged(table, select="*", filters={"client_id": f"eq.{client_id}"}, order=order, max_rows=LIMIT)
+    if truncated:
+        raise ContactSyncError("Base com 20 mil registros ou mais: aumente a janela de importação antes de executar.", 409)
     data = {}
     for item in rows:
         if str(item.get("client_id") or "") != client_id:
@@ -85,9 +86,9 @@ async def sync_existing_customers(client_id: str) -> dict:
 
 async def contacts_status(client_id: str) -> dict:
     """Resumo sem PII, limitado ao tenant."""
-    rows = await sb_select(TABLE, select="provider,identity_hash,last_synced_at", filters={
-        "client_id": f"eq.{client_id}"}, order="last_synced_at.desc", limit=LIMIT + 1)
-    return {"total": min(len(rows), LIMIT), "truncated": len(rows) > LIMIT,
+    rows, truncated = await _paged(TABLE, select="provider,identity_hash,last_synced_at", filters={
+        "client_id": f"eq.{client_id}"}, order="last_synced_at.desc", max_rows=LIMIT)
+    return {"total": len(rows), "truncated": truncated,
             "by_provider": {provider: sum(1 for r in rows if r.get("provider") == provider)
                             for provider in sorted({str(r.get("provider") or "") for r in rows})},
             "last_synced_at": rows[0].get("last_synced_at") if rows else None}
