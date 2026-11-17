@@ -4,7 +4,6 @@ import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDra
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
-import CampaignTasks from "./CampaignTasks";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const STATUS: Record<AdDraft["status"], { label: string; tone: "neutral" | "info" | "success" | "error" }> = {
@@ -175,7 +174,6 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </span> : null}
         </div>
       </form> : null}
-      {editing ? <CampaignTasks key={editing.draft.id} draftId={editing.draft.id} campaignName={editing.payload.name} /> : null}
     </Drawer>
   </section>;
 }
