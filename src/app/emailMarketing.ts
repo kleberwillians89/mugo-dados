@@ -5,8 +5,8 @@ import { http } from "./api";
 export type BlockType = "logo" | "titulo" | "texto" | "imagem" | "botao" | "produtos" | "divisor" | "espaco";
 export type EmailBlock = { type: BlockType; text?: string; url?: string; href?: string; alt?: string; label?: string; align?: "left" | "center" };
 export type EmailDesign = { blocks: EmailBlock[] };
-export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra";
-export type Audience = { segment: Segment; days: number; only_consent: boolean };
+export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra" | "primeira_compra" | "lista";
+export type Audience = { segment: Segment; days: number; only_consent: boolean; list_id?: string };
 export type CampaignStatus = "rascunho" | "agendada" | "enviando" | "enviada" | "falhou" | "cancelada";
 
 export type EmailSettings = {
@@ -64,6 +64,15 @@ const json = (body: unknown) => ({ body: JSON.stringify(body), headers: { "Conte
 export const getEmailSettings = () => http<{ settings: EmailSettings; status: SenderStatus }>("/api/email/settings", { timeoutMs: 30_000 });
 export const saveEmailSettings = (patch: Partial<EmailSettings>) =>
   http<{ settings: EmailSettings; status: SenderStatus }>("/api/email/settings", { method: "PUT", ...json(patch) });
+export type RelationshipList = { id: string; name: string; description: string | null; created_at: string };
+export const listRelationshipLists = () => http<{ lists: RelationshipList[] }>("/api/email/lists");
+export const createRelationshipList = (name: string, description = "") =>
+  http<{ list: RelationshipList }>("/api/email/lists", { method: "POST", ...json({ name, description }) });
+export const addRelationshipListMembers = (id: string, emails: string[]) =>
+  http<{ accepted: number; duplicates_in_input: number }>(`/api/email/lists/${encodeURIComponent(id)}/members`,
+    { method: "POST", ...json({ emails }) });
+export const deleteRelationshipList = (id: string) =>
+  http<{ ok: boolean }>(`/api/email/lists/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const previewAudience = (audience: Audience) =>
   http<AudiencePreview>("/api/email/audience", { method: "POST", ...json({ audience }), timeoutMs: 60_000 });
 export const previewEmail = (campaign: Partial<Campaign>) =>
@@ -104,6 +113,8 @@ export const SEGMENT_LABEL: Record<Segment, string> = {
   compraram: "Compraram nos últimos dias",
   sem_compra: "Sem comprar há um tempo",
   recompra: "Compraram 2 vezes ou mais",
+  primeira_compra: "Compraram somente uma vez",
+  lista: "Lista de Relacionamento",
 };
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
   rascunho: "Rascunho", agendada: "Agendada", enviando: "Enviando", enviada: "Enviada", falhou: "Falhou", cancelada: "Cancelada",
