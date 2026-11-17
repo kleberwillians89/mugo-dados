@@ -294,6 +294,48 @@ async def whatsapp_template_preflight(client_id: str, payload: WhatsAppTemplateP
             "messages_sent": 0}
 
 
+
+# ---- Campanhas: prévia e rascunhos; nenhum endpoint de envio em massa.
+class BulkCampaignDraftIn(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    template_name: str = Field(min_length=3, max_length=81)
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp)$")
+
+
+@router.get("/campaigns/drafts")
+async def whatsapp_campaign_draft_list(client_id: str, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_drafts import list_drafts
+    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": False}
+
+
+@router.get("/campaigns/audience-preview")
+async def whatsapp_campaign_audience_preview(client_id: str, provider: str = "all",
+                                              authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_drafts import audience_preview
+    try:
+        return {"ok": True, **await audience_preview(cid, provider)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/drafts", status_code=201)
+async def whatsapp_campaign_create_draft(client_id: str, payload: BulkCampaignDraftIn,
+                                          authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    validated = await whatsapp_template_preflight(
+        client_id, WhatsAppTemplatePreflight(template_name=payload.template_name, language=payload.language),
+        authorization=authorization,
+    )
+    from services.whatsapp_campaign_drafts import save_draft
+    try:
+        result = await save_draft(cid, payload.model_dump(), approved=bool(validated["template_approved"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, **result, "sending_enabled": False}
+
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
 class InstagramReply(BaseModel):
     text: str = Field(min_length=1, max_length=1000)

@@ -146,3 +146,36 @@ export const replyInstagram = (senderId: string, text: string) =>
 export const replyWhatsApp = (conversationId: string, text: string) =>
   http<{ status: string; at?: string; ai_paused_minutes?: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/reply`),
     { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
+
+/** Planejamento de disparos em massa: APIs não têm envio real. */
+export type WaCampaignAudience = {
+  ok: true; total_contacts: number; consent_verified_count: number;
+  sendable_count: number; truncated: boolean; reason: string;
+};
+export type WaCampaignDraft = {
+  id: string; name: string; template_name: string; language: string;
+  status: "draft"; simulated_count: number; created_at: string;
+  audience_provider?: string;
+};
+export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" = "all") {
+  return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
+}
+export function listWhatsAppCampaignDrafts() {
+  return http<{ ok: true; drafts: WaCampaignDraft[]; sending_enabled: false }>(base("/campaigns/drafts"));
+}
+export function preflightWhatsAppCampaignTemplate(template_name: string, language: string) {
+  return http<{
+    ok: true; provider: string; template_found: boolean; template_approved: boolean;
+    template_status: string | null; can_send: false; reason: string; messages_sent: 0;
+  }>(base("/campaigns/template-preflight"), {
+    method: "POST", body: JSON.stringify({template_name, language}),
+  });
+}
+export function createWhatsAppCampaignDraft(input: {
+  name: string; template_name: string; language: string;
+  provider: "all" | "shopify" | "fbits" | "whatsapp";
+}) {
+  return http<{ ok: true; sending_enabled: false; draft: WaCampaignDraft; messages_sent: 0 }>(
+    base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},
+  );
+}
