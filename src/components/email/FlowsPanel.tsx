@@ -26,6 +26,10 @@ function FlowEditor({ flow, canEdit, templates, waSendSupported, onSaved }: {
   const chosen = approved.find((t) => t.name === draft.whatsapp_template);
 
   async function save(patch: Partial<CommercialFlow> = {}) {
+    if (!waSendSupported && draft.channel === "whatsapp" && (patch.enabled ?? draft.enabled)) {
+      setError("O envio WhatsApp pelo CRM da marca ainda não está disponível neste fluxo. Mantenha o fluxo desligado.");
+      return;
+    }
     setBusy(true); setError(""); setMessage("");
     const next = { ...draft, ...patch, custom_html: html ? draft.custom_html || "" : null };
     try {
@@ -121,11 +125,12 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
   const [data, setData] = useState<FlowsOverview | null>(null);
   const [open, setOpen] = useState<FlowKind | null>(null);
   const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [waSendSupported, setWaSendSupported] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     getFlows(30).then(setData).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler os fluxos."));
-    getWaTemplates().then((out) => setTemplates(out.templates)).catch(() => setTemplates([]));
+    getWaTemplates().then((out) => { setTemplates(out.templates); setWaSendSupported(out.send_supported !== false); }).catch(() => setTemplates([]));
   }, []);
 
   if (!data) return error ? <p className="emError" role="alert">{error}</p> : <p className="emMuted">Carregando fluxos…</p>;
@@ -164,7 +169,7 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
                 <button type="button" className="emLink" onClick={() => setOpen(open === flow.kind ? null : flow.kind)}>
                   {open === flow.kind ? "Fechar" : canEdit ? "Configurar mensagem" : "Ver mensagem"}
                 </button>
-                {open === flow.kind ? <FlowEditor flow={flow} canEdit={canEdit} templates={templates} onSaved={replace} /> : null}
+                {open === flow.kind ? <FlowEditor flow={flow} canEdit={canEdit} templates={templates} waSendSupported={waSendSupported} onSaved={replace} /> : null}
               </article>
             );
           })}
