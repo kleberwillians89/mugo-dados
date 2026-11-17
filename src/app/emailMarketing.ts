@@ -69,7 +69,7 @@ export const listRelationshipLists = () => http<{ lists: RelationshipList[] }>("
 export const createRelationshipList = (name: string, description = "") =>
   http<{ list: RelationshipList }>("/api/email/lists", { method: "POST", ...json({ name, description }) });
 export const addRelationshipListMembers = (id: string, emails: string[]) =>
-  http<{ accepted: number; duplicates_in_input: number }>(`/api/email/lists/${encodeURIComponent(id)}/members`,
+  http<{ accepted: number; duplicates_in_input: number; not_eligible: number }>(`/api/email/lists/${encodeURIComponent(id)}/members`,
     { method: "POST", ...json({ emails }) });
 export type ContactEmailEvent = { kind: string; campaign_id: string | null; status: string; created_at: string; updated_at: string };
 export const contactEmailHistory = (email: string) =>
