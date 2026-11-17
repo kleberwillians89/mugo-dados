@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-const api = vi.hoisted(() => ({ listWhatsAppNumbers: vi.fn(), connectWhatsAppNumber: vi.fn(), disconnectWhatsAppNumber: vi.fn() }));
+const api = vi.hoisted(() => ({ listWhatsAppNumbers: vi.fn(), getWhatsAppConnectionStatus: vi.fn(), connectWhatsAppNumber: vi.fn(), disconnectWhatsAppNumber: vi.fn() }));
 vi.mock("../../app/whatsapp", () => api);
 import WhatsAppNumbers from "./WhatsAppNumbers";
 
@@ -29,6 +29,7 @@ describe("Número de WhatsApp da marca", () => {
 
   it("liga o número e não mostra o token depois", async () => {
     api.listWhatsAppNumbers.mockResolvedValue({ ok: true, numbers: [] });
+    api.getWhatsAppConnectionStatus.mockResolvedValue({ ok: true, provider: "not_connected", native_connected: false, crm_bridge_configured: false, meta_credentials_saved: false, number_count: 0, numbers: [], notice: "Conecte o número.", requires_meta_credentials: true });
     api.connectWhatsAppNumber.mockResolvedValue({ ok: true, number: { id: "n1", waba_id: "1", phone_number_id: "2", display_phone_number: "+55 11 99316-1161", verified_name: "Roove", status: "active", subscribed_at: "2026-11-10T12:00:00Z", created_at: null } });
     const onChange = vi.fn();
     await act(async () => root.render(<WhatsAppNumbers onChange={onChange} />));
