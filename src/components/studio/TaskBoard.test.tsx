@@ -146,7 +146,8 @@ describe("Tarefas com aprovação", () => {
     await act(async () => { choice.click(); });
     const form = host.querySelector("[data-drawer] form") as HTMLFormElement;
     await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
-    const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_ids: string[] };
-    expect(sent.assignee_user_ids).toEqual(["u-liliu"]);
+    const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_id: string; assignee_name: string; assignee_user_ids?: string[] };
+    expect([sent.assignee_user_id, sent.assignee_name]).toEqual(["u-liliu", "Liliu"]);
+    expect(sent.assignee_user_ids).toBeUndefined(); // legacy-safe for a single responsible person
   });
 });
