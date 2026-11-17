@@ -67,6 +67,29 @@ async def email_add_list_members(list_id: str, payload: Dict[str, Any] = Body(..
         raise _fail(exc) from exc
 
 
+@router.post("/api/email/lists/{list_id}/remove-members")
+async def email_remove_list_members(list_id: str, payload: Dict[str, Any] = Body(...),
+                                    client_id: str | None = Query(default=None),
+                                    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                    authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await relationship_lists.remove_members(cid, list_id, payload.get("emails"))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/history")
+async def email_contact_history(payload: Dict[str, Any] = Body(...), client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, "entries": await relationship_lists.contact_email_history(cid, payload.get("email"))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.delete("/api/email/lists/{list_id}")
 async def email_delete_list(list_id: str, client_id: str | None = Query(default=None),
                             x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
