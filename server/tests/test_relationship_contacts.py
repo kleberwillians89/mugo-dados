@@ -16,7 +16,7 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
             {"client_id": "other", "shopify_customer_id": "999", "email": "other@example.com"}
         ]
         with patch.object(rc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
-             patch.object(rc, "sb_select", AsyncMock(return_value=profiles)), \
+             patch.object(rc, "_paged", AsyncMock(return_value=(profiles, False))), \
              patch.object(rc, "sb_upsert", AsyncMock()) as upsert, \
              patch.object(rc, "encrypt_secret", side_effect=lambda val: "encrypted"):
             result = await rc.sync_existing_customers("roove")
@@ -31,9 +31,9 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_fbits_existing_contacts(self):
         with patch.object(rc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "fbits"})), \
-             patch.object(rc, "sb_select", AsyncMock(return_value=[
+             patch.object(rc, "_paged", AsyncMock(return_value=([
                  {"client_id": "curavino", "fbits_customer_id": "ABC", "name": "Maria", "phone": "(11) 99999-1234"}
-             ])), patch.object(rc, "sb_upsert", AsyncMock()) as upsert, \
+             ], False))), patch.object(rc, "sb_upsert", AsyncMock()) as upsert, \
              patch.object(rc, "encrypt_secret", return_value="cipher"):
             result = await rc.sync_existing_customers("curavino")
         self.assertEqual(result["provider"], "fbits")
