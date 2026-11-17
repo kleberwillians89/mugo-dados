@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
+import { getActiveClientId } from "../../app/activeClient";
 import {
   cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
@@ -28,6 +29,7 @@ function StatsRow({ stats }: { stats: Partial<CampaignStats> | null | undefined 
 }
 
 export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: boolean; onBack: () => void }) {
+  const tenant = getActiveClientId();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [mode, setMode] = useState<"blocos" | "html">("blocos");
@@ -42,19 +44,20 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
 
   useEffect(() => {
     let alive = true;
+    setCampaign(null); setAudience(null); setStats(null);
     getCampaign(id).then((out) => {
       if (!alive) return;
       setCampaign(out.campaign); setStats(out.stats); setMode(out.campaign.custom_html ? "html" : "blocos");
     }).catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Campanha não encontrada."); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, tenant]);
 
   useEffect(() => {
     let alive = true;
     listRelationshipLists().then((result) => { if (alive) setSavedLists(result.lists); })
       .catch(() => { if (alive) setSavedLists([]); });
     return () => { alive = false; };
-  }, []);
+  }, [tenant]);
 
   const editable = canEdit && !!campaign && ["rascunho", "agendada"].includes(campaign.status);
   const change = (patch: Partial<Campaign>) => setCampaign((current) => (current ? { ...current, ...patch } : current));
