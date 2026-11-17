@@ -1,0 +1,17 @@
+.taskAssignmentInbox{margin:0 0 20px;padding:15px;border:1px solid var(--border-subtle,#dbe0e5);border-radius:13px}
+.taskAssignmentInboxHeading{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
+.taskAssignmentInboxHeading h2{margin:0 0 4px;font-size:17px}
+.taskAssignmentInboxHeading p{margin:0;color:var(--text-muted,#63717a);font-size:13px}
+.taskAssignmentUnread{display:inline-block;vertical-align:middle;background:#004f6e;color:white;padding:3px 8px;border-radius:9px;font-size:11px;margin-left:7px}
+.taskAssignmentInboxActions,.taskAssignmentMessageActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.taskAssignmentWhatsApp{display:grid;gap:4px;margin:12px 0;padding:12px;background:var(--surface-subtle,#f5f6f8);border-radius:9px}
+.taskAssignmentWhatsApp label{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600}
+.taskAssignmentWhatsApp input{accent-color:#004f6e}
+.taskAssignmentWhatsApp small{font-size:12px;color:var(--text-muted,#63717a)}
+.taskAssignmentMessages{display:grid;gap:8px;max-height:450px;overflow:auto}
+.taskAssignmentMessages article{padding:11px 13px;border:1px solid var(--border-subtle,#dbe0e5);border-radius:9px}
+.taskAssignmentMessages article.is-unread{border-left:3px solid #004f6e;background:rgba(0,79,110,.035)}
+.taskAssignmentMessageTop{display:flex;gap:9px;justify-content:space-between;flex-wrap:wrap}
+.taskAssignmentMessageTop span,.taskAssignmentMessageActions small{font-size:11px;color:var(--text-muted,#63717a)}
+.taskAssignmentMessages article p{white-space:pre-wrap;font-size:13px;line-height:1.5;overflow-wrap:anywhere;margin:7px 0}
+@media(max-width:600px){.taskAssignmentInboxHeading{display:grid}.taskAssignmentInboxActions{width:100%}.taskAssignmentInboxActions button{flex:1}}
