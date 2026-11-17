@@ -251,6 +251,8 @@ async def _normalize_assignees(client_id: str, row: Dict[str, Any], *, only_user
 
 async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool,
                       only_user: Optional[str] = None) -> Dict[str, Any]:
+    # Delivery preference belongs to the creation request, not the tasks table.
+    send_whatsapp = data.get("send_whatsapp") is True
     row = _clean(data, partial=False)
     await _normalize_assignees(client_id, row, only_user=only_user)
     if only_user and not row.get("assignee_user_id"):
@@ -265,7 +267,7 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
     # must never turn a successful task create into a failed UI response.
     try:
         from .task_assignment_notifications import notify_assignment
-        await notify_assignment(client_id, created)
+        await notify_assignment(client_id, created, send_whatsapp=send_whatsapp)
     except Exception as exc:  # noqa: BLE001
         print(f"[studio_tasks] notification_failed error_type={type(exc).__name__}")
     return task_view(created)
