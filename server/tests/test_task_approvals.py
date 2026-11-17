@@ -85,7 +85,7 @@ class PerPersonTests(unittest.IsolatedAsyncioTestCase):
         select = AsyncMock(return_value=[])
         with patch.object(stk, "sb_select", select):
             await stk.list_tasks("roove", only_user="u1")
-        self.assertEqual(select.await_args.kwargs["filters"]["or"], "(assignee_user_id.eq.u1,created_by.eq.u1)")
+        self.assertEqual(select.await_args.kwargs["filters"]["or"], "(assignee_user_ids.cs.{u1},assignee_user_id.eq.u1,created_by.eq.u1)")
 
     async def test_someone_elses_task_is_not_found(self):
         from services import studio_tasks as stk
