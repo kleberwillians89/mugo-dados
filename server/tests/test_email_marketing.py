@@ -100,7 +100,7 @@ class AudienceTests(unittest.TestCase):
 
     def test_todos_without_consent_filter(self):
         cs = [contact("a"), contact("b", consent=False)]
-        self.assertEqual(self.pick({"segment": "todos"}, cs), ["a", "b"])
+        self.assertEqual(self.pick({"segment": "todos"}, cs), ["a"])
 
     def test_bought_recently_inactive_and_repeat(self):
         cs = [contact("a", last="2026-11-01T00:00:00Z"), contact("b", last="2026-05-01T00:00:00Z"),
@@ -109,9 +109,20 @@ class AudienceTests(unittest.TestCase):
         self.assertEqual(self.pick({"segment": "sem_compra", "days": 90}, cs), ["b", "d"])
         self.assertEqual(self.pick({"segment": "recompra"}, cs), ["d"])
 
+    def test_lists_never_send_without_optin_and_membership(self):
+        cs = [contact("a"), contact("b", consent=False), contact("c")]
+        aud = {"segment": "lista", "list_id": "b5bf2268-6e12-4e45-935f-1f4b0685197e"}
+        chosen = em.select_audience(cs, aud, blocked=set(),
+            list_hashes={"a" * 32, "b" * 32}, now=self.NOW)
+        self.assertEqual([c["hash"][0] for c in chosen], ["a"])
+
+    def test_first_purchase_only(self):
+        cs = [contact("a", orders=1), contact("b", orders=2), contact("c", consent=False)]
+        self.assertEqual(self.pick({"segment": "primeira_compra"}, cs), ["a"])
+
     def test_clean_audience_bounds(self):
         self.assertEqual(em.clean_audience({"segment": "xx", "days": 99999}), {"segment": "consentimento", "days": 730, "only_consent": True})
-        self.assertFalse(em.clean_audience({"segment": "todos"})["only_consent"])
+        self.assertTrue(em.clean_audience({"segment": "todos"})["only_consent"])
 
 
 class UnsubscribeTests(unittest.TestCase):
@@ -216,7 +227,7 @@ class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
              patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
             result = await em.campaign_preflight("roove", "campaign-id")
         self.assertTrue(result["ready"])
-        self.assertEqual(len(result["warnings"]), 2)
+        self.assertEqual(len(result["warnings"]), 1)
 
 
 class CampaignSendTests(unittest.IsolatedAsyncioTestCase):
