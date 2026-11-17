@@ -8,6 +8,8 @@ import PostReview from "./PostReview";
 import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
+const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Criação", "Dados", "CRM", "Operações", "Estratégia", "Atendimento"];
+
 
 
 // Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
@@ -40,6 +42,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [showCancelled, setShowCancelled] = useState(false);
   const [who, setWho] = useState<string>("");
+  const [department, setDepartment] = useState("");
+  const [taskView, setTaskView] = useState<"all" | "team" | "content">("team");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,11 +101,14 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [tasks]);
 
+  const departments = useMemo(() => [...new Set([...DEPARTMENTS, ...tasks.map((t) => t.category).filter((v): v is string => Boolean(v))])].sort((a, b) => a.localeCompare(b)), [tasks]);
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tasks.filter((t) => (!who || (who === "-" ? !t.assignee : t.assignee?.name === who))
+      && (!department || t.category === department)
+      && (taskView !== "content" || Boolean(t.calendar_item_id))
       && (!q || `${t.title} ${t.notes || ""} ${t.category || ""}`.toLowerCase().includes(q)));
-  }, [tasks, who, query]);
+  }, [tasks, who, department, taskView, query]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -234,7 +241,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   // Post que já virou tarefa (ajuste) aparece só como tarefa; o resto entra como card de post.
   const linked = new Set(tasks.map((t) => t.calendar_item_id).filter(Boolean) as string[]);
   const q = query.trim().toLowerCase();
-  const postCards = posts.filter((p) => !linked.has(p.id) && (!q || `${p.title} ${p.caption_draft || ""}`.toLowerCase().includes(q)));
+  const postCards = taskView !== "all" || department || who ? [] : posts.filter((p) => !linked.has(p.id) && (!q || `${p.title} ${p.caption_draft || ""}`.toLowerCase().includes(q)));
   const postsIn = (status: TaskStatus) => postCards.filter((p) => {
     const column = STAGE_COLUMN[p.stage];
     return (column === "internal_review" && !submitter ? "in_progress" : column) === status;
@@ -243,6 +250,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const late = visible.filter((t) => OPEN.includes(t.status) && dueInfo(t.due_date).late).length;
 
   return <div className="taskBoardWrap">
+    <div className="taskWorkstreamNav" role="group" aria-label="Visão de tarefas">
+      <button type="button" className={taskView === "team" ? "is-active" : ""} aria-pressed={taskView === "team"} onClick={() => setTaskView("team")}>Equipe e projetos</button>
+      <button type="button" className={taskView === "all" ? "is-active" : ""} aria-pressed={taskView === "all"} onClick={() => setTaskView("all")}>Tudo + Calendário</button>
+      <button type="button" className={taskView === "content" ? "is-active" : ""} aria-pressed={taskView === "content"} onClick={() => setTaskView("content")}>Conteúdo</button>
+    </div>
     <div className="taskToolbar">
       <input type="search" placeholder="Buscar tarefa" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar tarefa" />
       <select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Responsável">
@@ -250,12 +262,17 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         {people.map(([name]) => <option key={name} value={name}>{name}</option>)}
         <option value="-">Sem responsável</option>
       </select>
+      <select value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Departamento">
+        <option value="">Todos os departamentos</option>
+        {departments.map((area) => <option key={area} value={area}>{area}</option>)}
+      </select>
       <label className="taskToggle"><input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} /> Mostrar canceladas</label>
       {late ? <span className="taskLateBadge">{late} atrasada{late > 1 ? "s" : ""}</span> : null}
       {canManage ? <button type="button" className="ds-button is-primary taskNew" onClick={() => setDraft(emptyDraft(isAgency))}>+ Nova tarefa</button> : null}
     </div>
     {scope.mine_only ? <p className="libHint taskMineOnly">Você vê as tarefas em que é responsável (ou que criou). Ao terminar, envie para a aprovação interna.</p> : null}
-    <p className="libHint">{isAgency ? "Tarefas da empresa no Mugoverso. Marque \"Visível ao cliente\" para o cliente acompanhar." : "O que está em andamento com a Mugô para a sua empresa."}</p>
+    <p className="libHint">{isAgency ? "Gestão de todas as áreas desta empresa: desenvolvimento, design, mídia, operações e conteúdo. Marque \"Visível ao cliente\" apenas quando a tarefa puder ser compartilhada." : "O que está em andamento com a Mugô para a sua empresa."}</p>
+    <div className="taskSummary" role="status"><strong>{visible.length}</strong> tarefas nesta visão <span>·</span> <strong>{visible.filter((t) => OPEN.includes(t.status)).length}</strong> abertas <span>·</span> <strong>{late}</strong> atrasadas</div>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice && !draft ? <p role="status" className="studioOk">{notice}{sentLink ? <> <a href={sentLink.href} target="_blank" rel="noreferrer noopener">{sentLink.label}</a></> : null}</p> : null}
     {unavailable ? <div className="studioEmpty"><p>{CRM_UNAVAILABLE_TEXT[unavailable]}</p></div> : null}
@@ -297,7 +314,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
               {team.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
             </select></label>
             : <label className="ds-field">Responsável<input maxLength={80} value={draft.assignee_name} onChange={(e) => setDraft({ ...draft, assignee_name: e.target.value })} placeholder="Nome" /></label>}
-            <label className="ds-field">Categoria<input maxLength={60} value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="Ex.: Conteúdo" /></label>
+            <label className="ds-field">Departamento<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+              <option value="">Selecione a área</option>
+              {draft.category && !departments.includes(draft.category) ? <option value={draft.category}>{draft.category}</option> : null}
+              {departments.map((area) => <option key={area} value={area}>{area}</option>)}
+            </select></label>
           </div>
           <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
           <label className="ds-field">Link da entrega (Drive, Canva, Figma…)<input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
