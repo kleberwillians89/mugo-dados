@@ -92,6 +92,10 @@ async def disable_source(client_id: str, source_id: str) -> None:
 
 
 async def _authenticate(source_id: str, key: str) -> dict:
+    try:
+        source_id = str(uuid.UUID(source_id))
+    except (ValueError, TypeError):
+        raise LeadCaptureError("Fonte inválida.", 401) from None
     # Um ID não determina a empresa por si só: o segredo forte é obrigatório.
     if len(key) < 40 or len(key) > 256:
         raise LeadCaptureError("Credencial inválida.", 401)
