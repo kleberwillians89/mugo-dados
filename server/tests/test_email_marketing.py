@@ -196,8 +196,8 @@ class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
                     "audience": {"segment": "consentimento", "only_consent": True}}
         audience = {"count": 0, "base": 3, "with_consent": 0, "blocked": 1,
                     "consent_known": True, "audience": em.clean_audience(campaign["audience"])}
-        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \\
-             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \\
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \
              patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
             result = await em.campaign_preflight("roove", "campaign-id")
             self.assertFalse(result["ready"])
@@ -211,8 +211,8 @@ class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
                     "audience": {"segment": "todos", "only_consent": False}}
         audience = {"count": 8, "base": 10, "with_consent": 0, "blocked": 2,
                     "consent_known": False, "audience": em.clean_audience(campaign["audience"])}
-        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \\
-             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \\
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \
              patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
             result = await em.campaign_preflight("roove", "campaign-id")
         self.assertTrue(result["ready"])
