@@ -140,11 +140,13 @@ describe("Tarefas com aprovação", () => {
     await show(<TaskBoard canManage />);
     expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toContain("Aprovar ✓");
     await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
-    const select = [...host.querySelectorAll("[data-drawer] select")].find((s) => s.querySelector('option[value="u-liliu"]')) as HTMLSelectElement;
-    await act(async () => { select.value = "u-liliu"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    const choice = [...host.querySelectorAll("[data-drawer] .taskAssigneeOptions label")]
+      .find((label) => label.textContent?.includes("Liliu"))?.querySelector("input") as HTMLInputElement;
+    expect(choice).toBeTruthy();
+    await act(async () => { choice.click(); });
     const form = host.querySelector("[data-drawer] form") as HTMLFormElement;
     await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
-    const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_id: string; assignee_name: string };
-    expect([sent.assignee_user_id, sent.assignee_name]).toEqual(["u-liliu", "Liliu"]);
+    const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_ids: string[] };
+    expect(sent.assignee_user_ids).toEqual(["u-liliu"]);
   });
 });
