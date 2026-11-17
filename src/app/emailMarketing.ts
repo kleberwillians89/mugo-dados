@@ -71,6 +71,12 @@ export const createRelationshipList = (name: string, description = "") =>
 export const addRelationshipListMembers = (id: string, emails: string[]) =>
   http<{ accepted: number; duplicates_in_input: number }>(`/api/email/lists/${encodeURIComponent(id)}/members`,
     { method: "POST", ...json({ emails }) });
+export type ContactEmailEvent = { kind: string; campaign_id: string | null; status: string; created_at: string; updated_at: string };
+export const contactEmailHistory = (email: string) =>
+  http<{ entries: ContactEmailEvent[] }>("/api/email/history", { method: "POST", ...json({ email }) });
+export const removeRelationshipListMembers = (id: string, emails: string[]) =>
+  http<{ processed: number }>(`/api/email/lists/${encodeURIComponent(id)}/remove-members`,
+    { method: "POST", ...json({ emails }) });
 export const deleteRelationshipList = (id: string) =>
   http<{ ok: boolean }>(`/api/email/lists/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const previewAudience = (audience: Audience) =>
