@@ -195,7 +195,11 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
             if not email:
                 continue
             dates = by_customer.get(_text(p.get("shopify_customer_id")), [])
-            consent = _text(p.get("consent"), 30).lower() == "subscribed" or _text(p.get("accepts"), 10).lower() == "true"
+            # Estado atual explícito do Shopify prevalece sobre o legado
+            # accepts_marketing (pode continuar true após revogação).
+            consent_state = _text(p.get("consent"), 30).lower()
+            consent = (consent_state == "subscribed" if consent_state
+                       else _text(p.get("accepts"), 10).lower() == "true")
             _merge(contacts, email, first=_text(p.get("first_name"), 80), name=f"{_text(p.get('first_name'), 80)} {_text(p.get('last_name'), 80)}".strip(),
                    consent=consent, orders=max(int(p.get("orders_count") or 0), len(dates)), last=max(dates) if dates else None,
                    first_order=min(dates) if dates else None, phone=_text(p.get("phone"), 40) or None)
