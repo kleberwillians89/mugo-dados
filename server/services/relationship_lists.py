@@ -78,10 +78,18 @@ async def add_members(client_id: str, list_id: str, emails: Any) -> Dict[str, in
         if not email:
             raise ListError("Há um e-mail inválido na lista. Corrija e tente novamente.", 422)
         hashes.add(email_hash(email))
-    rows = [{"client_id": client_id, "list_id": list_id, "email_hash": h} for h in sorted(hashes)]
+    # Valida elegibilidade ANTES de persistir pseudônimos: somente a base
+    # conectada, com opt-in verificável, e sem supressão.
+    from .email_marketing import load_contacts, suppressed
+    _, contacts = await load_contacts(client_id)
+    blocked = await suppressed(client_id)
+    eligible = {c["hash"] for c in contacts if c.get("consent") is True and c["hash"] not in blocked}
+    accepted = hashes & eligible
+    rows = [{"client_id": client_id, "list_id": list_id, "email_hash": h} for h in sorted(accepted)]
     for i in range(0, len(rows), 200):
         await sb_upsert(MEMBERS, rows[i:i + 200], on_conflict="client_id,list_id,email_hash")
-    return {"accepted": len(rows), "duplicates_in_input": len(emails) - len(rows)}
+    return {"accepted": len(rows), "duplicates_in_input": len(emails) - len(hashes),
+            "not_eligible": len(hashes - eligible)}
 
 
 async def remove_members(client_id: str, list_id: str, emails: Any) -> Dict[str, int]:
