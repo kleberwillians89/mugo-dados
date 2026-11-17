@@ -46,7 +46,7 @@ compartilha, por quanto tempo guarda e como protege. Os textos públicos ficam e
 
 | Provedor | Uso | País |
 |---|---|---|
-| Supabase | autenticação e banco de dados | EUA (região do projeto) |
+| Supabase | autenticação e banco de dados | EUA — `us-east-2` (Ohio) |
 | Render | servidor da aplicação (API) | EUA |
 | Vercel | site (frontend) | EUA/global |
 | GitHub | código e rotinas agendadas | EUA |
@@ -71,7 +71,7 @@ vínculo com a empresa. Pedidos de compradores finais são encaminhados à loja 
 
 ## 7. Backup e continuidade
 
-**Situação conferida em 16/11/2026 (Supabase → Database → Backups):**
+**Situação conferida em 16/11/2026 (Supabase → Database → Backups):** banco no Supabase em `us-east-2` (Ohio, EUA).
 
 - Plano **Pro**: backup **físico diário** do banco, por volta de 11h UTC, com os últimos 7 dias disponíveis para restaurar
   (09/11 a 16/11 visíveis). "Restore to new project" disponível.
