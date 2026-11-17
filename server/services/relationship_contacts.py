@@ -118,3 +118,42 @@ async def project_updated_customers(client_id: str, provider: str, items: list[d
     except Exception as exc:
         # Sync da loja é a fonte primária: não falhar por causa de projeção derivada.
         print(f"[relationship_contacts] provider={provider} status=incremental_error error_type={type(exc).__name__}")
+
+
+async def sync_whatsapp_conversations(client_id: str, *, days: int = 365) -> dict:
+    """Converte conversas históricas em perfis identificados apenas pela phone_key.
+
+    O CRM/WhatsApp continua sendo a fonte de verdade: não copia mensagens,
+    não tenta recuperar telefone mascarado e não presume consentimento.
+    """
+    from datetime import timedelta
+    from .whatsapp_sources import brand_leads
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=max(1, min(days, 3650)))).date().isoformat()
+    result = await brand_leads(client_id, since, now.date().isoformat())
+    if not result.get("available"):
+        raise ContactSyncError("Fonte WhatsApp não disponível para esta empresa.", 409)
+    if result.get("truncated"):
+        raise ContactSyncError("Histórico WhatsApp incompleto; sincronização paginada necessária.", 409)
+    leads = result.get("leads") or []
+    data = {}
+    for lead in leads:
+        key = _clean(lead.get("phone_key"), 120)
+        if not key or len(key) < 16 or not all(ch in "0123456789abcdefABCDEF" for ch in key):
+            continue
+        identity = _key(client_id, "whatsapp", key)
+        data[identity] = {
+            "client_id": client_id, "provider": "whatsapp",
+            "identity_hash": identity, "external_id": None,
+            "email_hash": None, "phone_hash": None,
+            "name_ciphertext": None, "email_ciphertext": None,
+            "phone_ciphertext": None, "marketing_email_verified": False,
+            "marketing_whatsapp_verified": False,
+            "last_synced_at": now.isoformat(),
+        }
+    values = list(data.values())
+    for start in range(0, len(values), BATCH):
+        await sb_upsert(TABLE, values[start:start + BATCH], on_conflict="client_id,provider,identity_hash")
+    return {"provider": "whatsapp", "source_records": len(leads),
+            "contacts_synchronized": len(values), "eligible_for_marketing": 0,
+            "note": "Chaves de conversa, sem número em claro e sem opt-in presumido."}
