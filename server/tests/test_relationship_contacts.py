@@ -24,8 +24,8 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
         rows = upsert.await_args.args[1]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["client_id"], "roove")
-        self.assertFalse(rows[0]["marketing_email_verified"])
-        self.assertFalse(rows[0]["marketing_whatsapp_verified"])
+        self.assertNotIn("marketing_email_verified", rows[0])
+        self.assertNotIn("marketing_whatsapp_verified", rows[0])
         self.assertEqual(rows[0]["email_ciphertext"], "encrypted")
         self.assertNotIn("ANA@EXAMPLE.COM", str(rows))
 
@@ -67,7 +67,7 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
         rows = upsert.await_args.args[1]
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(row["client_id"] == "ruah" for row in rows))
-        self.assertTrue(all(not row["marketing_whatsapp_verified"] for row in rows))
+        self.assertTrue(all("marketing_whatsapp_verified" not in row for row in rows))
         self.assertTrue(all(row["phone_ciphertext"] is None for row in rows))
         self.assertNotIn("a" * 32, str(rows))
 
