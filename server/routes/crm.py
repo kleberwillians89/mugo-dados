@@ -64,6 +64,7 @@ class TaskInput(BaseModel):
     assignee_user_ids: Optional[list[UUID]] = Field(default=None, max_length=15)
     visible_to_client: Optional[bool] = None
     needs_client_approval: Optional[bool] = None
+    send_whatsapp: Optional[bool] = None
     deliverable_url: Optional[str] = Field(default=None, max_length=1000)
 
 
