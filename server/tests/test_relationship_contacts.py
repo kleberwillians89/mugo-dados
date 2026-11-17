@@ -48,8 +48,9 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
         select.assert_not_awaited()
 
     async def test_existing_contact_is_idempotent_by_source_identity(self):
-        a = rc._row("roove", "shopify", {"shopify_customer_id": "123", "email": "ana@example.com"})
-        b = rc._row("roove", "shopify", {"shopify_customer_id": "123", "email": "ana+new@example.com"})
+        with patch.object(rc, "encrypt_secret", return_value="cipher"):
+            a = rc._row("roove", "shopify", {"shopify_customer_id": "123", "email": "ana@example.com"})
+            b = rc._row("roove", "shopify", {"shopify_customer_id": "123", "email": "ana+new@example.com"})
         self.assertEqual(a["identity_hash"], b["identity_hash"])
         self.assertNotEqual(rc._key("ruah", "shopify", "123"), a["identity_hash"])
 
