@@ -82,3 +82,31 @@ async def add_members(client_id: str, list_id: str, emails: Any) -> Dict[str, in
     for i in range(0, len(rows), 200):
         await sb_upsert(MEMBERS, rows[i:i + 200], on_conflict="client_id,list_id,email_hash")
     return {"accepted": len(rows), "duplicates_in_input": len(emails) - len(rows)}
+
+
+async def remove_members(client_id: str, list_id: str, emails: Any) -> Dict[str, int]:
+    await get_list(client_id, list_id)
+    if not isinstance(emails, list) or not 1 <= len(emails) <= 500:
+        raise ListError("Informe entre 1 e 500 e-mails.", 422)
+    from .email_marketing import email_hash, valid_email
+    hashes = set()
+    for raw in emails:
+        email = valid_email(raw)
+        if not email:
+            raise ListError("Há um e-mail inválido. Corrija e tente novamente.", 422)
+        hashes.add(email_hash(email))
+    for h in hashes:
+        await sb_delete(MEMBERS, filters={"client_id": f"eq.{client_id}", "list_id": f"eq.{list_id}",
+                                          "email_hash": f"eq.{h}"}, returning="minimal")
+    return {"processed": len(hashes)}
+
+
+async def contact_email_history(client_id: str, email: Any) -> List[Dict[str, Any]]:
+    from .email_marketing import email_hash, valid_email
+    normalized = valid_email(email)
+    if not normalized:
+        raise ListError("Informe um e-mail válido.", 422)
+    # A consulta não armazena nem devolve o e-mail digitado.
+    return await sb_select("email_sends", select="kind,campaign_id,status,created_at,updated_at",
+                           filters={"client_id": f"eq.{client_id}", "email_hash": f"eq.{email_hash(normalized)}"},
+                           order="created_at.desc", limit=100)
