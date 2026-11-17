@@ -122,7 +122,16 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     const input: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, status: draft.status, priority: draft.priority || null,
       due_date: draft.due_date || null, due_time: draft.due_time || null, category: draft.category.trim() || null,
       assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null,
-      ...(team?.length ? { assignee_user_ids: draft.assignee_user_ids } : {}),
+      ...(team?.length ? {
+        // Legacy Render versions still accept only the primary assignee.
+        // Send the new array only when it is needed for multiple people,
+        // or when editing a previously multi-assigned task (including removal).
+        assignee_user_id: draft.assignee_user_ids[0] || null,
+        assignee_name: team.find((person) => person.user_id === draft.assignee_user_ids[0])?.name || null,
+        ...((draft.assignee_user_ids.length > 1 ||
+          (tasks.find((task) => task.id === draft.id)?.assignees?.length || 0) > 1)
+          ? { assignee_user_ids: draft.assignee_user_ids } : {}),
+      } : {}),
       ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval } : {}) };
     setBusy(true); setError(null);
     try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
