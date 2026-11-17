@@ -55,8 +55,10 @@ export default function WhatsAppTemplates() {
     } catch (cause) {
       if (getActiveClientId() !== clientId) return;
       const problem = cause instanceof Error ? cause.message : "Falha ao consultar modelos na Meta.";
-      if (/não tem número|nenhum número|não encontrado|not found/i.test(problem)) setAvailable(false);
-      else setError(problem);
+      // CRM-owned numbers do not live in whatsapp_numbers. Never suggest
+      // reconnecting an already connected CRM WhatsApp just to view templates.
+      if (/número não encontrado|nenhum número cloud api/i.test(problem)) setAvailable(false);
+      else { setAvailable(true); setError(problem); }
     } finally {
       if (getActiveClientId() === clientId) setLoading(false);
     }
@@ -94,7 +96,7 @@ export default function WhatsAppTemplates() {
         {available ? <button className="waPrimary" type="button" onClick={() => setExpanded((v) => !v)}>{expanded ? "Fechar" : "+ Criar modelo"}</button> : null}
       </div>
     </div>
-    {!available ? <p className="waMuted" role="status">Conecte primeiro o número oficial desta empresa para administrar os modelos na WABA dela.</p> : null}
+    {!available ? <p className="waMuted" role="status">Esta empresa ainda não tem uma WABA disponível para gerenciar modelos. Se já usa MugôZap, confira o vínculo da organização com o CRM; não cadastre outro número.</p> : null}
     {message ? <p className="waTemplateSuccess" role="status">{message}</p> : null}
     {error ? <p className="waError" role="alert">{error}</p> : null}
     {loading ? <p className="waMuted">Consultando modelos…</p> : templates.length > 0
