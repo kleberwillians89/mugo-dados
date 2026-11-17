@@ -35,6 +35,7 @@ COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,
 LINKED_COLUMNS = COLUMNS + ",calendar_item_id"
 # Com o responsável como usuário (migração 000100): quem não é admin vê só as tarefas dele.
 SCOPED_COLUMNS = LINKED_COLUMNS + ",assignee_user_id,created_by"
+MULTI_COLUMNS = SCOPED_COLUMNS + ",assignee_user_ids,assignee_names"
 LEGACY_COLUMNS = ("id,client_id,title,notes,status,priority,due_date,due_time,category,assignee_name,"
                   "visible_to_client,completed_at,created_at,updated_at")
 _COLORS = ("#2f6f8f", "#8a5a9e", "#b0693a", "#3f7f5a", "#a3485a", "#5b6bbf", "#7a7a2a", "#3a8a8a")
@@ -50,6 +51,17 @@ def task_view(row: Dict[str, Any], *, client_view: bool = False) -> Dict[str, An
     status = row.get("status") or "pending"
     if client_view and status == "internal_review":
         status = "in_progress"  # a etapa interna não aparece para o cliente
+    ids = [str(uid) for uid in (row.get("assignee_user_ids") or []) if uid]
+    names = [str(name) for name in (row.get("assignee_names") or [])]
+    if not ids and row.get("assignee_user_id"):
+        ids = [str(row["assignee_user_id"])]
+    if not names and who:
+        names = [who]
+    assignees = [{"user_id": uid, "name": names[index] if index < len(names) else who or "Responsável",
+                  "color": _color(names[index] if index < len(names) else who or uid)}
+                 for index, uid in enumerate(ids)]
+    if not assignees and who:
+        assignees = [{"user_id": None, "name": who, "color": _color(who)}]
     return {
         "id": str(row.get("id")), "title": row.get("title") or "", "status": status,
         "deliverable_url": row.get("deliverable_url"), "needs_client_approval": row.get("needs_client_approval", True) is not False,
@@ -58,14 +70,16 @@ def task_view(row: Dict[str, Any], *, client_view: bool = False) -> Dict[str, An
         "due_time": str(row["due_time"])[:5] if row.get("due_time") else None,
         "starts_at": None, "category": row.get("category"), "task_type": None, "tags": [],
         "notes": row.get("notes"), "updated_at": row.get("updated_at"),
-        "assignee": {"name": who, "color": _color(who), "user_id": str(row["assignee_user_id"]) if row.get("assignee_user_id") else None} if who else None,
+        "assignee": assignees[0] if assignees else None,
+        "assignees": assignees,
         "visible_to_client": bool(row.get("visible_to_client")),
         "calendar_item_id": str(row["calendar_item_id"]) if row.get("calendar_item_id") else None,
     }
 
 
 def _mine(row: Dict[str, Any], user_id: str) -> bool:
-    return user_id in (str(row.get("assignee_user_id") or ""), str(row.get("created_by") or ""))
+    return (user_id in (str(row.get("assignee_user_id") or ""), str(row.get("created_by") or ""))
+            or user_id in {str(uid) for uid in (row.get("assignee_user_ids") or [])})
 
 
 async def _rows(client_id: str, *, status: Optional[str], limit: int, client_view: bool,
@@ -81,10 +95,14 @@ async def _rows(client_id: str, *, status: Optional[str], limit: int, client_vie
     if only_user:
         # Membro sem "ver tarefas de todos": só as dele (responsável ou quem criou).
         try:
-            return await sb_select(TABLE, select=SCOPED_COLUMNS, **{**kwargs, "filters": {
-                **filters, "or": f"(assignee_user_id.eq.{only_user},created_by.eq.{only_user})"}})
+            return await sb_select(TABLE, select=MULTI_COLUMNS, **{**kwargs, "filters": {
+                **filters, "or": f"(assignee_user_ids.cs.{{{only_user}}},assignee_user_id.eq.{only_user},created_by.eq.{only_user})"}})
         except Exception:  # noqa: BLE001 — sem a migração 000100: só as que ele criou (nunca as dos outros)
             kwargs["filters"] = {**filters, "created_by": f"eq.{only_user}"}
+    try:
+        return await sb_select(TABLE, select=MULTI_COLUMNS if not only_user else LINKED_COLUMNS, **kwargs)
+    except Exception:  # noqa: BLE001 — migration 000116 pending
+        pass
     try:
         return await sb_select(TABLE, select=SCOPED_COLUMNS if not only_user else LINKED_COLUMNS, **kwargs)
     except Exception:  # noqa: BLE001 — sem a migração 000100
@@ -163,6 +181,15 @@ def _clean(data: Dict[str, Any], *, partial: bool) -> Dict[str, Any]:
     for key, size in (("category", 60), ("assignee_name", 80)):
         if key in data:
             row[key] = (str(data.get(key) or "").strip()[:size]) or None
+    if "assignee_user_ids" in data:
+        values = data["assignee_user_ids"]
+        if not isinstance(values, list) or len(values) > 15:
+            raise StudioError("ASSIGNEE_INVALID", "Selecione até 15 responsáveis.")
+        ids = [str(item).strip() for item in values]
+        if (any(not re.fullmatch(r"[0-9a-fA-F-]{36}", item) for item in ids)
+                or len(ids) != len(set(ids))):
+            raise StudioError("ASSIGNEE_INVALID", "Responsáveis inválidos ou repetidos.")
+        row["assignee_user_ids"] = ids
     if "assignee_user_id" in data:
         value = str(data.get("assignee_user_id") or "").strip()
         if value and not re.fullmatch(r"[0-9a-fA-F-]{36}", value):
@@ -183,29 +210,41 @@ def _clean(data: Dict[str, Any], *, partial: bool) -> Dict[str, Any]:
 async def _owned(client_id: str, task_id: str, *, client_view: bool, only_user: Optional[str] = None) -> Dict[str, Any]:
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}
     rows = None
-    try:
-        rows = await sb_select(TABLE, select=SCOPED_COLUMNS, filters=filters, limit=1)
-    except Exception:  # noqa: BLE001 — sem a migração 000100
-        if only_user:
-            rows = await sb_select(TABLE, select=LINKED_COLUMNS + ",created_by", filters=filters, limit=1)
-    if rows is None:
+    for columns in (MULTI_COLUMNS, SCOPED_COLUMNS, LINKED_COLUMNS, COLUMNS, LEGACY_COLUMNS):
         try:
-            rows = await sb_select(TABLE, select=LINKED_COLUMNS, filters=filters, limit=1)
-        except Exception:  # noqa: BLE001 — sem a migração 000097
-            rows = None
-    if rows is None:
-        try:
-            rows = await sb_select(TABLE, select=COLUMNS, filters=filters, limit=1)
-        except Exception:  # noqa: BLE001 — sem a migração 000096
-            rows = await sb_select(TABLE, select=LEGACY_COLUMNS, filters=filters, limit=1)
+            rows = await sb_select(TABLE, select=columns, filters=filters, limit=1)
+            break
+        except Exception:  # noqa: BLE001 — legacy migration compatibility
+            continue
     if not rows or (client_view and not rows[0].get("visible_to_client")) or (only_user and not _mine(rows[0], only_user)):
         raise StudioError("TASK_NOT_FOUND")
     return rows[0]
 
 
+async def _normalize_assignees(client_id: str, row: Dict[str, Any], *, only_user: Optional[str] = None) -> None:
+    """Validate every selected user belongs to this tenant; keep legacy primary fields in sync."""
+    if "assignee_user_ids" not in row:
+        return
+    ids = row["assignee_user_ids"]
+    if only_user and (not ids or any(uid != only_user for uid in ids)):
+        raise StudioError("ASSIGNEE_INVALID", "Este perfil só pode atribuir tarefas a si mesmo.")
+    if ids:
+        from .team_admin import list_members
+        members = (await list_members(client_id)).get("items") or []
+        by_id = {str(m.get("user_id")): m for m in members if m.get("user_id") and m.get("status") == "active"}
+        if any(uid not in by_id for uid in ids):
+            raise StudioError("ASSIGNEE_INVALID", "Selecione somente integrantes ativos desta empresa.")
+        names = [str(by_id[uid].get("name") or by_id[uid].get("login") or "Integrante")[:80] for uid in ids]
+    else:
+        names = []
+    row.update(assignee_names=names, assignee_user_id=ids[0] if ids else None,
+               assignee_name=names[0] if names else None)
+
+
 async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool,
                       only_user: Optional[str] = None) -> Dict[str, Any]:
     row = _clean(data, partial=False)
+    await _normalize_assignees(client_id, row, only_user=only_user)
     if only_user and not row.get("assignee_user_id"):
         row["assignee_user_id"] = only_user  # quem só vê as próprias tarefas cria para si
     row.setdefault("status", "pending")
@@ -221,6 +260,7 @@ async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, cli
                       only_user: Optional[str] = None) -> Dict[str, Any]:
     await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
     patch = _clean(data, partial=True)
+    await _normalize_assignees(client_id, patch, only_user=only_user)
     if client_view:
         patch.pop("visible_to_client", None)  # cliente não esconde tarefa da própria visão
     patch["updated_at"] = datetime.now(timezone.utc).isoformat()
