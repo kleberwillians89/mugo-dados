@@ -48,7 +48,7 @@ async def audience_preview(client_id: str, provider: str = "all") -> dict[str, A
 
 async def list_drafts(client_id: str) -> list[dict]:
     rows = await sb_select(DRAFTS,
-        select="id,client_id,name,template_name,language,provider,audience_source,status,simulated_count,created_at",
+        select="id,client_id,name,template_name,language,provider,audience_provider,audience_source,status,simulated_count,created_at",
         filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
     return [r for r in rows if r.get("client_id") == client_id]
 
@@ -72,7 +72,7 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
     row = await sb_insert(DRAFTS, {
         "client_id": client_id, "name": name, "template_name": template,
         "language": language, "provider": "whatsapp",
-        "audience_source": "relationship_contacts", "status": "draft",
+        "audience_source": "relationship_contacts", "audience_provider": provider, "status": "draft",
         "simulated_count": 0,
     })
     return {"draft": row, "audience": audience, "messages_sent": 0}
