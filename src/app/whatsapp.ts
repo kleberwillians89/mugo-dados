@@ -92,7 +92,8 @@ export type WaNumber = {
   status: "active" | "disconnected"; subscribed_at: string | null; created_at: string | null;
 };
 export type WaConnectionStatus = {
-  ok: true; client_id: string; provider: "native" | "crm_bridge" | "not_connected";
+  ok: true; client_id: string; provider: "native" | "crm_bridge" | "mugozap_crm" | "not_connected";
+  connected: boolean; crm_status_unavailable: boolean;
   native_connected: boolean; crm_bridge_configured: boolean;
   meta_credentials_saved: boolean; number_count: number; numbers: WaNumber[];
   requires_meta_credentials: boolean; notice: string;
