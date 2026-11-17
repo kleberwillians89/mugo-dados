@@ -55,3 +55,18 @@
 .bcConfirm ul{margin:6px 0 10px;padding-left:18px;display:grid;gap:4px}
 .bcCompetitorRow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.2fr) auto;gap:6px;align-items:center}
 @media (max-width:640px){.bcCompetitorRow{grid-template-columns:1fr}}
+/* Saúde do contexto e aprender com o uso */
+.bcHealth{margin-top:14px}
+.bcHealthScore{display:flex;align-items:center;gap:14px}
+.bcHealthScore h2{margin:0 0 2px;font-size:17px}
+.bcScore{display:grid;place-items:center;min-width:58px;height:58px;border-radius:50%;font-weight:800;font-size:16px;border:3px solid currentColor}
+.bcScore.is-good{color:#2f7d4f}.bcScore.is-mid{color:#9a6b00}.bcScore.is-low{color:#b3261e}
+.bcHealthList{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:8px}
+.bcHealthList li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--surface-2,#faf9f6)}
+.bcHealthList li div{display:grid;gap:2px}
+.bcHealthList li small{opacity:.8}
+.bcHealthList li.is-ok svg{color:#2f7d4f}.bcHealthList li.is-atencao svg{color:#9a6b00}.bcHealthList li.is-falta svg{color:#b3261e}
+.bcLearning h2{display:flex;align-items:center;gap:8px}
+.bcLearnList{display:grid;gap:10px;margin-top:8px}
+.bcLearnList textarea{width:100%;box-sizing:border-box;font:inherit;padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:10px}
+.bcOnlyChanged{display:flex;align-items:center;gap:8px;font-size:14px}

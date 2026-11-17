@@ -1671,6 +1671,8 @@ ERRORS.update({
     "DOC_SAVE_FAILED": (502, "Não foi possível guardar o material agora. Tente de novo."),
     "DOC_NOT_FOUND": (404, "Material não encontrado nesta empresa."),
     "FACTS_EMPTY": (422, "Nenhum fato para guardar."),
+    "OCR_PDF_ONLY": (422, "A leitura das páginas com IA é só para PDF."),
+    "OCR_EMPTY": (422, "A IA não conseguiu ler texto nas páginas deste PDF. Confira a qualidade do arquivo ou envie o original."),
     "AGENT_QUESTION_EMPTY": (422, "Escreva uma pergunta sobre a marca."),
 })
 
@@ -1681,6 +1683,8 @@ class KnowledgeDocInput(BaseModel):
     kind: Literal["institucional", "produto", "campanha", "tom_de_voz", "restricao", "outro"] = "outro"
     content_base64: Optional[str] = Field(default=None, max_length=14_500_000)
     text: Optional[str] = Field(default=None, max_length=60_000)
+    # PDF escaneado (só imagem): a IA lê as páginas. Só quando a pessoa pede (custa uma chamada por página).
+    ocr: bool = False
 
 
 class KnowledgeInput(BaseModel):
@@ -1712,14 +1716,35 @@ async def add_knowledge_document(client_id: str, body: KnowledgeDocInput, author
     from services.brand_knowledge import decode_upload, extract_text, learn
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
+    is_pdf = body.file_name.lower().endswith(".pdf")
+    ocr: Optional[Dict[str, Any]] = None
     try:
         if body.content_base64:
-            text = extract_text(body.file_name, decode_upload(body.content_base64))
+            raw = decode_upload(body.content_base64)
+            if body.ocr:
+                if not is_pdf:
+                    raise StudioError("OCR_PDF_ONLY")
+                from services.brand_ocr import ocr_pdf
+                from services.studio_engines import throttle
+                throttle(cid)
+                ocr = await ocr_pdf(cid, raw)
+                text = ocr.pop("text")
+            else:
+                try:
+                    text = extract_text(body.file_name, raw)
+                except StudioError as exc:
+                    if exc.code == "DOC_EMPTY" and is_pdf:
+                        # A tela oferece "Ler as páginas com IA" (código estável, não depende do texto).
+                        raise HTTPException(status_code=422, detail={"code": "DOC_NEEDS_OCR", "message": (
+                            "Este PDF não tem texto selecionável (escaneado ou exportado como imagem). Você pode pedir para a IA "
+                            "ler as páginas (até 20) ou enviar o Word/PowerPoint original.")}) from None
+                    raise
         elif body.text and len(body.text.strip()) >= 30:
             text = body.text.strip()
         else:
             raise StudioError("DOC_SOURCE_REQUIRED")
-        return {"ok": True, **await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)}
+        result = await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)
+        return {"ok": True, **result, **({"ocr": ocr} if ocr else {})}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1820,6 +1845,45 @@ async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: s
     from services.brand_knowledge import save_manual
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     return {"ok": True, **await save_manual(cid, body.knowledge, user_id=await require_user_id(authorization))}
+
+
+# ---------------------------------------------------------------- saúde do contexto e aprender com o uso
+
+class LearningConfirmInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    facts: List[str] = Field(min_length=1, max_length=10)
+
+
+@router.get("/knowledge/health")
+async def brand_context_health(client_id: str, authorization: str | None = Header(default=None)):
+    """O que falta ou está velho no Contexto da Marca (regras fixas, sem IA)."""
+    from services.brand_context_health import health
+    cid = await require_client_read(client_id, authorization)
+    return {"ok": True, **await health(cid)}
+
+
+@router.post("/knowledge/learn/suggest")
+async def brand_learning_suggest(client_id: str, authorization: str | None = Header(default=None)):
+    """Retorno do cliente e perguntas do WhatsApp → fatos sugeridos para a memória. Uma chamada de IA; nada gravado."""
+    from services.brand_learning import suggest
+    from services.studio_engines import throttle
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        throttle(cid)
+        return {"ok": True, **await suggest(cid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/knowledge/learn/confirm", status_code=201)
+async def brand_learning_confirm(client_id: str, body: LearningConfirmInput, authorization: str | None = Header(default=None)):
+    """Grava na memória da marca só os fatos que a pessoa aprovou."""
+    from services.brand_learning import confirm
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await confirm(cid, body.facts, user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 # ---------------------------------------------------------------- importar configurações do planejamento

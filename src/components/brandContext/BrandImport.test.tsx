@@ -8,6 +8,8 @@ const api = vi.hoisted(() => ({ previewBrandImport: vi.fn(), applyBrandImport: v
 const studio = vi.hoisted(() => ({ getKnowledge: vi.fn(), teachFromFile: vi.fn() }));
 vi.mock("../../app/brandImport", () => api);
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...studio }));
+const upload = vi.hoisted(() => ({ teachAndKeepOriginal: vi.fn() }));
+vi.mock("../../app/brandKnowledgeUpload", async (original) => ({ ...(await original<typeof import("../../app/brandKnowledgeUpload")>()), ...upload }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "aurora", getActiveClientName: () => "Aurora" }));
 vi.mock("../../hooks/dashboard/cache", () => ({ clearDashboardCacheByPrefix: vi.fn() }));
 
@@ -105,6 +107,15 @@ describe("Importar configurações do planejamento", () => {
     expect(host.textContent).toContain("cadastrados no Benchmarking: Café Serra Alta");
     expect(host.textContent).toContain("monitorados no Clipping: Café Serra Alta");
     expect(host.textContent).toContain("A IA já usa o que foi aplicado");
+  });
+
+  it("versão nova do planejamento: esconde o que já está igual, com opção de ver tudo", async () => {
+    api.previewBrandImport.mockResolvedValue({ ...PREVIEW, fields: PREVIEW.fields.map((f) => (f.key === "positioning" ? { ...f, changed: false } : f)) });
+    await readPreview();
+    expect(fieldEl("positioning")).toBeNull();
+    expect(host.textContent).toContain("1 campo(s) igual(is) escondido(s)");
+    await click(host.querySelector<HTMLInputElement>(".bcOnlyChanged input"));
+    expect(fieldEl("positioning")).not.toBeNull();
   });
 
   it("documento longo informa que foi lido inteiro, em partes", async () => {

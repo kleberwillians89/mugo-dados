@@ -7,6 +7,8 @@ import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
 import BusinessContextPanel from "../components/admin/BusinessContextPanel";
 import BrandImport from "../components/brandContext/BrandImport";
+import BrandLearning from "../components/brandContext/BrandLearning";
+import ContextHealth from "../components/brandContext/ContextHealth";
 import BrandProfileEditor from "../components/brandContext/BrandProfileEditor";
 import BrandProfileSummary from "../components/brandContext/BrandProfileSummary";
 import BrandAgent from "../components/studio/BrandAgent";
@@ -48,7 +50,9 @@ const SHORTCUTS: Shortcut[] = [
 /**
  * Configurações → Contexto da Marca. Junta, sem duplicar, o que já existia espalhado:
  * A. Identidade e estratégia: Perfil da marca (consulta) + Contexto estratégico (BusinessContextPanel, o mesmo da tela Empresas);
- * B. Documentos e conhecimento: Importar configurações do planejamento (BrandImport, só admin) + BrandKnowledge (envio, lista,
+ * Acima das abas, a Saúde do contexto (o que falta ou está velho, sem IA).
+ * B. Documentos e conhecimento: Aprender com o uso (BrandLearning) e Importar configurações do planejamento (BrandImport), só
+ *    admin; BrandKnowledge (envio com original na Biblioteca e OCR no clique, lista,
  *    status, memória, correção, tentar de novo) + conversa com a IA da marca;
  * C. Configuração operacional: atalhos para as telas que já mantêm esses dados.
  * Todo mundo da empresa consulta; editar é de admin (client_admin/owner) e da equipe — o backend valida de novo.
@@ -77,6 +81,10 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
     <p className="libHint">Tudo o que a plataforma sabe sobre {company}: quem a marca é, o que diz o material enviado e como a operação
       está configurada. A IA usa isso nas pautas, nas legendas, nas respostas e nas análises.
       {canManage ? "" : " Você pode consultar; a edição é dos administradores da empresa."}</p>
+    <ContextHealth version={contextVersion + version} onAction={(action) => {
+      if (action.tab) selectTab(action.tab);
+      else if (action.route) open(action.route as AppRoute);
+    }} />
     <SegmentedControl ariaLabel="Áreas do Contexto da Marca" options={TABS} value={tab} onSelect={selectTab} />
 
     {tab === "identidade" ? <div className="bcStack">
@@ -94,6 +102,7 @@ export default function BrandAI({ canManage, isAgency = false }: { canManage: bo
       <p className="libHint"><BookOpen size={14} aria-hidden="true" /> {canManage
         ? "Envie planejamentos, brand books, apresentações e tabelas de produtos. O texto fica guardado (o arquivo original não é armazenado) e a IA aprende com ele."
         : "O que a IA da Mugô aprendeu com os materiais da sua empresa."}</p>
+      {canManage ? <BrandLearning key={`learning:${clientId}`} onLearned={() => setVersion((v) => v + 1)} /> : null}
       {canManage ? <BrandImport key={`import:${clientId}:${version}`} onApplied={() => setContextVersion((v) => v + 1)} /> : null}
       <BrandKnowledge key={clientId} canManage={canManage} version={version} />
       <BrandAgent key={`agent:${clientId}`} canManage={canManage} company={company} onLearned={() => setVersion((v) => v + 1)} />

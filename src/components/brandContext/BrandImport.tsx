@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileSearch, FileText, Plus, Trash2, UploadCloud } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSearch, FileText, Plus, ScanText, Trash2, UploadCloud } from "lucide-react";
 import { applyBrandImport, previewBrandImport, type ApprovedField, type ImportCompetitor, type ImportField, type ImportPillar, type ImportPreview, type ImportValue } from "../../app/brandImport";
-import { BRAND_PROFILE_SAVED, STUDIO_CHANNELS, STUDIO_FORMATS, getKnowledge, teachFromFile, type BrandDocument, type StudioChannel } from "../../app/studio";
+import { BRAND_PROFILE_SAVED, STUDIO_CHANNELS, STUDIO_FORMATS, getKnowledge, type BrandDocument, type StudioChannel } from "../../app/studio";
+import { needsOcr, teachAndKeepOriginal } from "../../app/brandKnowledgeUpload";
 import { clearDashboardCacheByPrefix } from "../../hooks/dashboard/cache";
 import { getActiveClientId } from "../../app/activeClient";
 import { GROUP_LABELS, STATUS_LABELS, buildApproved, competitorSummary, describeValue, fieldProblem, listToText, pillarTotal, suggestedKeys, textToList } from "./brandImport.helpers";
@@ -26,6 +27,9 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
   const [modes, setModes] = useState<Record<string, Mode>>({});
   const [confirming, setConfirming] = useState(false);
   const [applied, setApplied] = useState<{ labels: string[]; competitors: string } | null>(null);
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  // Versão nova do planejamento: por padrão mostra só o que difere do que já está configurado.
+  const [onlyChanged, setOnlyChanged] = useState(true);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,14 +40,17 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
     }).catch(() => setDocs([]));
   }, []);
 
-  async function upload(file: File | undefined) {
+  async function upload(file: File | undefined, ocr = false) {
     if (!file) return;
-    setBusy("upload"); setError(null);
+    setBusy("upload"); setError(null); setOcrFile(null);
     try {
-      const res = await teachFromFile(file, "institucional");
+      const res = await teachAndKeepOriginal(file, "institucional", { ocr });
       setDocs((list) => [res.document, ...(list || []).filter((d) => d.id !== res.document.id)]);
       setDocId(res.document.id);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ler o arquivo."); }
+    } catch (cause) {
+      if (needsOcr(cause)) setOcrFile(file);
+      setError(cause instanceof Error ? cause.message : "Não foi possível ler o arquivo.");
+    }
     finally { setBusy(null); if (input.current) input.current.value = ""; }
   }
 
@@ -58,7 +65,9 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
     finally { setBusy(null); }
   }
 
-  const fields = useMemo(() => preview?.fields.filter((f) => f.status !== "missing") || [], [preview]);
+  const found = useMemo(() => preview?.fields.filter((f) => f.status !== "missing") || [], [preview]);
+  const unchanged = found.filter((f) => !f.changed).length;
+  const fields = useMemo(() => (onlyChanged ? found.filter((f) => f.changed || selected.has(f.key)) : found), [found, onlyChanged, selected]);
   const problems = useMemo(() => {
     // Plataformas que valerão depois de aplicar: as aprovadas agora ou as atuais.
     const current = (preview?.fields.find((f) => f.key === "editorial_platforms")?.current as string[] | null) || [];
@@ -118,6 +127,11 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
     </div>
 
     {error ? <p role="alert" className="studioError">{error}</p> : null}
+    {ocrFile ? <div className="kbRow">
+      <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void upload(ocrFile, true)}>
+        <ScanText size={14} aria-hidden="true" /> Ler as páginas com IA</button>
+      <small className="libHint">Até 20 páginas, leva 1 a 3 minutos.</small>
+    </div> : null}
     {applied ? <p role="status" className="studioOk"><CheckCircle2 size={14} aria-hidden="true" /> Aplicado: {applied.labels.join(", ")}. Os demais campos ficaram como estavam.
       A IA já usa o que foi aplicado nas pautas, legendas, respostas e análises.{applied.competitors ? ` ${applied.competitors}` : ""}</p> : null}
 
@@ -127,11 +141,15 @@ export default function BrandImport({ onApplied }: { onApplied?: () => void }) {
       {preview.document.parts > 1 ? <p className="libHint">Documento longo: lido inteiro, em {preview.document.parts} partes ({preview.document.read_chars.toLocaleString("pt-BR")} caracteres).</p> : null}
       {preview.document.partial ? <p className="studioWarn">O documento passa de 200 mil caracteres: a IA leu os primeiros {preview.document.read_chars.toLocaleString("pt-BR")}. Para o restante, envie a outra parte como um documento separado.</p> : null}
       {preview.missing.length ? <p className="libHint"><b>Não encontrados no documento</b> (continuam como estão): {preview.missing.join(", ")}.</p> : null}
+      {unchanged ? <label className="bcOnlyChanged">
+        <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
+        Mostrar só o que mudou em relação ao que está configurado ({unchanged} campo(s) igual(is) escondido(s))
+      </label> : null}
       {fields.length ? <div className="kbRow">
         <button type="button" className="ds-button" onClick={() => { setConfirming(false); setSelected(new Set(suggestedKeys(fields))); }}>Selecionar os encontrados (textos)</button>
         <button type="button" className="ds-button" onClick={() => { setConfirming(false); setSelected(new Set()); }}>Limpar seleção</button>
         <small className="libHint">Pilares, pesos, frequência, formatos, plataformas e concorrentes só entram se você marcar um a um.</small>
-      </div> : <p className="libHint">A IA não encontrou nenhuma configuração explícita neste documento.</p>}
+      </div> : <p className="libHint">{found.length ? "Tudo o que o documento traz já está configurado igual." : "A IA não encontrou nenhuma configuração explícita neste documento."}</p>}
 
       {groups.map((g) => <fieldset key={g.id} className="bcImportGroup"><legend>{GROUP_LABELS[g.id]}</legend>
         {g.items.map((f) => <FieldRow key={f.key} field={f} checked={selected.has(f.key)} onToggle={() => toggle(f.key)}
