@@ -13,6 +13,7 @@ import PeriodSelector from "../components/data/PeriodSelector";
 import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
 import WhatsAppNumbers from "../components/whatsapp/WhatsAppNumbers";
+import WhatsAppTemplates from "../components/whatsapp/WhatsAppTemplates";
 import InstagramInbox from "../components/whatsapp/InstagramInbox";
 import "../styles/whatsapp.css";
 
@@ -160,6 +161,7 @@ export default function WhatsApp() {
           </DataNotice>
         ) : null}
         <WhatsAppNumbers key={clientId || "none"} onChange={() => window.location.reload()} />
+        <WhatsAppTemplates key={`templates-${clientId || "none"}`} />
 
         {totals ? (
           <>
