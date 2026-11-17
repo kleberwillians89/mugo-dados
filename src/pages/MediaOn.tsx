@@ -16,6 +16,7 @@ import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
+import GoogleAdsPanel from "../components/studio/GoogleAdsPanel";
 import "../styles/studio.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -216,7 +217,10 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
-    {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
+    {canManage ? <div className="mediaAdCreation" id="media-campaign-builder">
+      <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} />
+      <GoogleAdsPanel />
+    </div> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
     {canManage && experienceMode === "technical" ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
