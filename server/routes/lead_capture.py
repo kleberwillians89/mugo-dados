@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 
 from services import lead_capture
 from services.tenant import require_client_read, require_client_role
@@ -59,8 +59,12 @@ async def captured_leads(client_id: str | None = Query(default=None),
 
 
 @router.post("/api/hooks/leads/{source_id}")
-async def receive_lead(source_id: str, payload: dict[str, Any] = Body(...),
+async def receive_lead(source_id: str, request: Request, payload: dict[str, Any] = Body(...),
                        x_lead_capture_key: str | None = Header(default=None, alias="X-Lead-Capture-Key")):
+    # Limita payload de fontes externas; nunca aceitar arquivo ou dados arbitrários.
+    raw = await request.body()
+    if len(raw) > 16_384:
+        raise HTTPException(status_code=413, detail="Evento excede o limite de 16 KB.")
     try:
         return await lead_capture.ingest(source_id, x_lead_capture_key or "", payload)
     except lead_capture.LeadCaptureError as exc:
