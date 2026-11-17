@@ -12,8 +12,8 @@ const ICON: Record<FlowKind, typeof Gift> = { boas_vindas: Gift, pos_venda: Hear
 const money = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const WA_VARS = [{ id: "nome", label: "Nome" }, { id: "marca", label: "Marca" }, { id: "link", label: "Link da loja" }] as const;
 
-function FlowEditor({ flow, canEdit, templates, onSaved }: {
-  flow: CommercialFlow; canEdit: boolean; templates: WaTemplate[]; onSaved: (flow: CommercialFlow) => void;
+function FlowEditor({ flow, canEdit, templates, waSendSupported, onSaved }: {
+  flow: CommercialFlow; canEdit: boolean; templates: WaTemplate[]; waSendSupported: boolean; onSaved: (flow: CommercialFlow) => void;
 }) {
   const [draft, setDraft] = useState(flow);
   const [html, setHtml] = useState(!!flow.custom_html);
@@ -77,8 +77,9 @@ function FlowEditor({ flow, canEdit, templates, onSaved }: {
             </>
           ) : (
             <>
+              {!waSendSupported ? <p className="emNotice">Os modelos do CRM desta marca já estão visíveis, mas o envio automático por esta integração ainda não está disponível. Não ative este fluxo WhatsApp antes de integrar o transmissor.</p> : null}
               <label className="emField"><span>Template aprovado pela Meta</span>
-                <select value={draft.whatsapp_template || ""} disabled={!canEdit}
+                <select value={draft.whatsapp_template || ""} disabled={!canEdit || !waSendSupported}
                   onChange={(e) => change({ whatsapp_template: e.target.value || null, whatsapp_language: approved.find((t) => t.name === e.target.value)?.language || "pt_BR" })}>
                   <option value="">Escolha…</option>
                   {approved.map((t) => <option key={`${t.name}:${t.language}`} value={t.name}>{t.name}</option>)}
