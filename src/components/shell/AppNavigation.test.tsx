@@ -85,7 +85,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(groupLinks("ia")).toEqual(["Tira-dúvidas"]);
     expect(groupLinks("vendas")).toEqual(["Ecommerce", "CRM"]);
     expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
-    expect(groupLinks("estrategia")).toEqual(["Clipping e Radar", "Saúde da Marca", "Planejamento", "Briefing", "Criadores", "Relatório", "Biblioteca"]);
+    expect(groupLinks("estrategia")).toEqual(["Clipping e Radar", "Saúde da Marca", "Planejamento", "Briefing", "Criadores", "Relatório", "Biblioteca", "Aprendizado da IA"]);
     expect(groupLinks("conteudo")).toEqual(["Social Media", "Redação", "Evento"]);
     expect(groupLinks("relacionamento")).toEqual(["WhatsApp", "E-mail marketing", "Comentários"]);
     expect(groupLinks("config")).toEqual([
@@ -97,7 +97,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(container.querySelectorAll('.appSidebar a[href="/central"]')).toHaveLength(2); // grupo + item Dashboard
     expect(container.querySelector('[data-group="visao-geral"] .appNavGroupLink')?.getAttribute("href")).toBe("/central");
     expect(link("Saúde da Marca")?.getAttribute("href")).toBe("/saude-da-marca");
-    expect(link("IA da marca")).toBeUndefined();
+    expect(link("Aprendizado da IA")?.getAttribute("href")).toBe("/ia-da-marca");
     expect(link("Benchmarking")?.getAttribute("href")).toBe("/benchmark");
     expect(link("Relatório social")).toBeUndefined();
     expect(link("Relatório")?.getAttribute("href")).toBe("/relatorio-social");
@@ -204,7 +204,7 @@ describe("AppNavigation — sidebar global", () => {
     await render({ canManageIntegrations: false });
     expect(link("Integrações")).toBeUndefined();
     expect(container.querySelector('[data-group="config"]')).toBeNull();  // nada de administração para este perfil
-    expect(link("IA da marca")).toBeUndefined();
+    expect(link("Aprendizado da IA")?.getAttribute("href")).toBe("/ia-da-marca");
     expect(link("Empresas")).toBeUndefined();
     expect(link("Automações")).toBeUndefined();
 
@@ -221,9 +221,13 @@ describe("AppNavigation — sidebar global", () => {
     expect(container.querySelector('[data-group="visao-geral"]')).toBeNull();
   });
 
-  it("mantém IA da marca fora da navegação sem alterar suas permissões de rota", async () => {
+  it("mostra Aprendizado da IA imediatamente após Biblioteca sem elevar permissões", async () => {
     await render({ canManageIntegrations: false, canView: (route) => route !== "users" });
-    expect(link("IA da marca")).toBeUndefined();
-    expect(container.querySelector('[data-group="marca"]')).toBeNull();
+    expect(groupLinks("estrategia").slice(-2)).toEqual(["Biblioteca", "Aprendizado da IA"]);
+    expect(link("Aprendizado da IA")?.getAttribute("href")).toBe("/ia-da-marca");
+
+    await render({ canManageIntegrations: false, canView: (route) => route !== "users" && route !== "brand_ai" });
+    expect(link("Aprendizado da IA")).toBeUndefined();
+    expect(link("Biblioteca")).toBeTruthy();
   });
 });
