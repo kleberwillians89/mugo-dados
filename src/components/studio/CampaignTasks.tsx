@@ -39,10 +39,10 @@ export default function CampaignTasks({ draftId, campaignName }: { draftId: stri
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const results = await Promise.all([listCrmTasks(), listCrmTasks("completed"), listAssignees()]);
+      const [open, completed, assignees] = await Promise.all([listCrmTasks(), listCrmTasks("completed"), listAssignees()]);
       if (getActiveClientId() !== clientId) return;
       const mine = new Map<string, CrmTask>();
-      for (const result of results.slice(0, 2)) {
+      for (const result of [open, completed]) {
         if (!("available" in result) || !result.available) {
           throw new Error("As tarefas ainda não estão disponíveis para esta empresa.");
         }
@@ -51,7 +51,7 @@ export default function CampaignTasks({ draftId, campaignName }: { draftId: stri
         }
       }
       setTasks([...mine.values()]);
-      setPeople(results[2].available ? results[2].people : []);
+      setPeople(assignees.available ? assignees.people : []);
       setError(null);
     } catch (cause) { setError(errorText(cause)); }
     finally { if (getActiveClientId() === clientId) setLoading(false); }
