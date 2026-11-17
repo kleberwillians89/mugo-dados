@@ -65,6 +65,9 @@ Deno.serve(async (request: Request) => {
     const version = Deno.env.get("GRAPH_API_VERSION") || "";
     if (!token || !/^v\d+\.\d+$/.test(version)) return error("META_NOT_CONFIGURED", 503);
 
+    if (request.method === "GET" && new URL(request.url).searchParams.get("mode") === "status")
+      return respond({ ok: true, data: { connected: true, provider: "mugozap_crm",
+        templates_supported: true } });
     const url = `https://graph.facebook.com/${version}/${wabaId}/message_templates`;
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
     if (request.method === "GET") {
