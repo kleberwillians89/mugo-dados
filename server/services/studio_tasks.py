@@ -104,7 +104,11 @@ async def _rows(client_id: str, *, status: Optional[str], limit: int, client_vie
     except Exception:  # noqa: BLE001 — migration 000116 pending
         pass
     try:
-        return await sb_select(TABLE, select=SCOPED_COLUMNS if not only_user else LINKED_COLUMNS, **kwargs)
+        if only_user:
+            # Older DB fallback stays scoped; never list other people's tasks.
+            legacy_filters = {**filters, "or": f"(assignee_user_id.eq.{only_user},created_by.eq.{only_user})"}
+            return await sb_select(TABLE, select=SCOPED_COLUMNS, **{**kwargs, "filters": legacy_filters})
+        return await sb_select(TABLE, select=SCOPED_COLUMNS, **kwargs)
     except Exception:  # noqa: BLE001 — sem a migração 000100
         pass
     try:
@@ -226,8 +230,12 @@ async def _normalize_assignees(client_id: str, row: Dict[str, Any], *, only_user
     if "assignee_user_ids" not in row:
         return
     ids = row["assignee_user_ids"]
-    if only_user and (not ids or any(uid != only_user for uid in ids)):
-        raise StudioError("ASSIGNEE_INVALID", "Este perfil só pode atribuir tarefas a si mesmo.")
+    if only_user:
+        if not ids:
+            ids = [only_user]  # restricted member creates or updates only own assignment
+            row["assignee_user_ids"] = ids
+        if any(uid != only_user for uid in ids):
+            raise StudioError("ASSIGNEE_INVALID", "Este perfil só pode atribuir tarefas a si mesmo.")
     if ids:
         from .team_admin import list_members
         members = (await list_members(client_id)).get("items") or []
