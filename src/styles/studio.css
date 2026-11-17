@@ -1632,3 +1632,11 @@
 .taskSummary{display:flex;gap:7px;flex-wrap:wrap;align-items:center;font-size:.85rem;margin:8px 0 16px}
 .taskSummary strong{font-variant-numeric:tabular-nums}
 @media(max-width:680px){.taskWorkstreamNav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.taskWorkstreamNav button{border-radius:9px;min-height:42px}.taskToolbar select,.taskToolbar input[type=search]{width:100%;min-width:0}.taskToolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.taskToolbar input[type=search]{grid-column:1/-1}.taskNew{grid-column:1/-1}}
+
+/* Trello-style board feedback; native HTML5 drag/drop keeps touch edit actions available. */
+.taskBoard .kanbanCol.is-drop-target{outline:2px dashed #004f6e;outline-offset:-4px;background:rgba(0,79,110,.06)}
+.taskBoard .is-task-dragging{opacity:.42}
+.taskBoard [draggable="true"]{cursor:grab;touch-action:pan-y}
+.taskBoard [draggable="true"]:active{cursor:grabbing}
+.taskBoard .kanbanCol{min-height:180px}
+@media(max-width:600px){.taskBoard [draggable="true"]{cursor:default}.taskBoard .kanbanCol{min-width:min(86vw,320px)}}
