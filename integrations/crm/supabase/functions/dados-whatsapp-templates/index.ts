@@ -111,7 +111,7 @@ Deno.serve(async (request: Request) => {
           connected: true, truncated: (rows.data || []).length >= 500,
           // No reliable attribution on this bridge; don't invent campaign metrics.
           leads: (rows.data || []).map((c: any) => ({
-            id: c.id, first_seen_at: c.created_at, origin: { source: "direct" },
+            id: c.id, first_seen_at: c.created_at, origin: { source: "unknown" },
           })),
         } });
       }
@@ -161,7 +161,7 @@ Deno.serve(async (request: Request) => {
               phone_masked: mask(contact.wa_id || c.wa_id),
               first_seen_at: contact.first_seen_at || c.created_at,
             },
-            origin: { source: "direct", ad_headline: null, entry_code: null, at: c.created_at },
+            origin: { source: "unknown", ad_headline: null, entry_code: null, at: c.created_at },
             insight: null,
             last_message: msg ? {
               direction: msg.direction, at: msg.created_at,
