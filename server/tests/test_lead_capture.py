@@ -21,6 +21,19 @@ class CaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["token_hash"], lc._digest(result["ingest_key"]))
         self.assertEqual(len(row["token_hash"]), 64)
 
+    async def test_any_future_provider_can_be_registered_without_schema_change(self):
+        for provider in ("shopify", "wake_fbits", "woocommerce", "vtex", "hubspot", "custom_form"):
+            with self.subTest(provider=provider), patch.object(lc, "sb_insert", AsyncMock()) as insert:
+                source = await lc.create_source("roove", "Origem " + provider, provider)
+                self.assertEqual(source["kind"], provider)
+                self.assertEqual(insert.await_args.args[1]["kind"], provider)
+
+    async def test_invalid_provider_slug_cannot_be_registered(self):
+        with patch.object(lc, "sb_insert", AsyncMock()) as insert:
+            with self.assertRaises(lc.LeadCaptureError):
+                await lc.create_source("roove", "Form", "https://evil.example/?x=1")
+        insert.assert_not_awaited()
+
     async def test_bad_key_rejected_before_write(self):
         with patch.object(lc, "sb_select", AsyncMock(return_value=[{
             "id": SOURCE, "client_id": "roove", "active": True, "token_hash": lc._digest(KEY)
