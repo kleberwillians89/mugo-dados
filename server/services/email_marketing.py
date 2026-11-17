@@ -395,6 +395,31 @@ async def send_test(client_id: str, campaign: Dict[str, Any], to: str) -> Dict[s
     return {"status": "enviado" if ids[0] else "simulado"}
 
 
+async def campaign_preflight(client_id: str, campaign_id: str) -> Dict[str, Any]:
+    """Pré-envio sem efeitos: público real após consentimento/supressão, remetente e avisos."""
+    campaign = await get_campaign(client_id, campaign_id)
+    if campaign["status"] not in EDITABLE:
+        raise EmailError("LOCKED", "Esta campanha não pode mais ser agendada.", 409)
+    audience = await audience_preview(client_id, campaign.get("audience") or {})
+    settings = await get_settings(client_id)
+    blockers: List[str] = []
+    warnings: List[str] = []
+    if not _text(campaign.get("subject")):
+        blockers.append("Escreva o assunto da campanha.")
+    try:
+        sender(settings)
+    except EmailError as exc:
+        blockers.append(exc.message)
+    if not audience["count"]:
+        blockers.append("Nenhum destinatário elegível após filtros e descadastros.")
+    if not audience["audience"]["only_consent"]:
+        warnings.append("O público inclui contatos sem consentimento confirmado. Revise a base legal antes de enviar.")
+    if not audience["consent_known"]:
+        warnings.append("Esta plataforma de loja não informa consentimento de marketing.")
+    return {"ready": not blockers, "blockers": blockers, "warnings": warnings, "audience": audience,
+            "subject": _text(campaign.get("subject"), 200), "name": _text(campaign.get("name"), 120)}
+
+
 async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dict[str, Any]:
     campaign = await get_campaign(client_id, campaign_id)
     if campaign["status"] not in EDITABLE:
@@ -402,9 +427,12 @@ async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dic
     if not _text(campaign.get("subject")):
         raise EmailError("NO_SUBJECT", "Escreva o assunto antes de enviar.")
     sender(await get_settings(client_id))
+    # Não agenda uma campanha vazia; a lista é reavaliada no job de envio.
+    size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
+    if size == 0:
+        raise EmailError("EMPTY_AUDIENCE", "Nenhum destinatário elegível. Confira a lista e o consentimento.", 422)
     from . import saas
     if await saas.remaining(client_id, "email_sends_month") is not None:
-        size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
         try:
             await saas.require(client_id, "email_sends_month", size)
         except saas.QuotaError as exc:
