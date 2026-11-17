@@ -98,3 +98,32 @@ def test_global_crm_config_does_not_mark_other_tenants_connected(monkeypatch):
     assert data["provider"] == "not_connected"
     assert data["connected"] is False
     assert data["crm_status_unavailable"] is True
+
+
+def test_mugo_organization_owned_connection_detected_only_after_explicit_link(monkeypatch):
+    import services.crm_bridge as crm
+    import services.whatsapp_sources as sources
+    from services import crm_whatsapp_templates
+
+    async def role(cid, auth, *, allowed_roles):
+        assert cid == "mugo-agency-tenant"
+        return cid
+    async def no_numbers(cid):
+        return []
+    async def not_linked(cid, limit):
+        return {"available": False, "reason": "not_linked"}
+    async def templates_probe(cid):
+        assert cid == "mugo-agency-tenant"
+        return True
+
+    monkeypatch.setattr(whatsapp, "require_client_role", role)
+    monkeypatch.setattr(whatsapp, "list_numbers", no_numbers)
+    monkeypatch.setattr(sources, "bridge_for", lambda cid: None)
+    monkeypatch.setattr(crm, "_config", lambda: ("https://example/functions/v1/dados-ops-api", "private-key"))
+    monkeypatch.setattr(crm, "brand_conversations", not_linked)
+    monkeypatch.setattr(crm_whatsapp_templates, "connection_status", templates_probe)
+    result = asyncio.run(whatsapp.whatsapp_connection_status("mugo-agency-tenant"))
+    assert result["connected"] is True
+    assert result["provider"] == "mugozap_crm"
+    assert result["meta_credentials_saved"] is False  # not copied into Mugô Dados
+    assert "private-key" not in str(result)
