@@ -14,11 +14,12 @@ import KpiFigure from "../components/data/KpiFigure";
 import DataNotice from "../components/data/DataNotice";
 import WhatsAppNumbers from "../components/whatsapp/WhatsAppNumbers";
 import WhatsAppTemplates from "../components/whatsapp/WhatsAppTemplates";
+import WhatsAppBulkCampaigns from "../components/whatsapp/WhatsAppBulkCampaigns";
 import InstagramInbox from "../components/whatsapp/InstagramInbox";
 import "../styles/whatsapp.css";
 
 type Filter = "all" | "ad" | "bought" | "waiting";
-type WorkspaceView = "conversations" | "models" | "analytics" | "connection";
+type WorkspaceView = "conversations" | "models" | "analytics" | "connection" | "bulk";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Todas" }, { key: "ad", label: "De anúncio" },
   { key: "bought", label: "Compraram" }, { key: "waiting", label: "Sem resposta" },
@@ -149,7 +150,7 @@ export default function WhatsApp() {
         />
 
         <nav className="waWorkspaceTabs" aria-label="Áreas do WhatsApp">
-          {([["conversations", "Conversas"], ["models", "Modelos"], ["analytics", "Resultados"], ["connection", "Conexão"]] as const).map(([key, label]) => (
+          {([["conversations", "Conversas"], ["models", "Modelos"], ["bulk", "Disparos em massa"], ["analytics", "Resultados"], ["connection", "Conexão"]] as const).map(([key, label]) => (
             <button type="button" key={key} className={workspaceView === key ? "is-active" : ""}
               aria-current={workspaceView === key ? "page" : undefined}
               onClick={() => setWorkspaceView(key)}>{label}
@@ -158,6 +159,9 @@ export default function WhatsApp() {
             </button>
           ))}
         </nav>
+        <div className="waWorkspacePanel" hidden={workspaceView !== "bulk"}>
+          {workspaceView === "bulk" ? <WhatsAppBulkCampaigns key={`bulk-${clientId || "none"}`} /> : null}
+        </div>
         <div className="waWorkspacePanel" hidden={workspaceView !== "analytics"}>
         {current.error ? (
           <DataNotice tone="negative" role="alert" title="WhatsApp indisponível no momento.">Tente de novo em instantes.</DataNotice>
