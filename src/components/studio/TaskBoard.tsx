@@ -136,7 +136,19 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval && draft.visible_to_client } : {}),
       ...(!draft.id ? { send_whatsapp: draft.send_whatsapp } : {}) };
     setBusy(true); setError(null);
-    try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
+    try {
+      if (draft.id) {
+        await updateTask(draft.id, input);
+        setNotice("Tarefa atualizada.");
+      } else {
+        await createTask(input);
+        setNotice(draft.send_whatsapp
+          ? "Tarefa criada. O sistema tentou avisar pelo WhatsApp os responsáveis autorizados. Confira o status individual em Meu chat de tarefas."
+          : "Tarefa criada. Os responsáveis receberam o aviso no chat de tarefas.");
+      }
+      setDraft(null);
+      await load();
+    }
     catch (cause) { setError(message(cause, "Não foi possível salvar a tarefa.")); }
     finally { setBusy(false); }
   }
