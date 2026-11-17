@@ -7,6 +7,7 @@ import {
   percent, ratio, savePlan, shortDate,
   type Action, type CampaignAction, type Channel, type Distribution, type Objective, type ObjectiveParameters, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
+import { buildSimpleMediaView, type SimpleMediaCampaign } from "../app/mediaSimpleView";
 import { navigateToAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -27,6 +28,7 @@ const changePct = (now: number | null | undefined, before: number | null | undef
 const emptyObjectiveParameters = (): Record<Objective, ObjectiveParameters> => ({ vendas: {}, leads: {}, trafego: {}, alcance: {}, retencao: {}, remarketing: {} });
 
 type View = { strategy: Strategy | SavedStrategy; scenarios: Scenario[]; saved: boolean; source: "plan" | "history" | "new"; generatedAt?: string | null };
+type ExperienceMode = "simple" | "technical";
 const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Mídia On: estratégia de mídia paga calculada com os dados da conta, cruzada com o calendário editorial. */
@@ -51,6 +53,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const [briefing, setBriefing] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignAction[]>([]);
   const [objectiveParameters, setObjectiveParameters] = useState<Record<Objective, ObjectiveParameters>>(emptyObjectiveParameters);
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>("simple");
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
@@ -198,6 +201,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   const roles = new Map((narrative?.channel_roles || []).map((r) => [r.channel, r]));
   const activeDiagnosis = (strategy?.diagnosis || []).filter((d) => d.confidence === "boa" || d.confidence === "baixa");
   const plan = tracking?.plan;
+  const simpleView = useMemo(() => strategy ? buildSimpleMediaView(strategy, campaigns) : null, [strategy, campaigns]);
 
   return <Shell title="Mídia On" variant="editorial"><div className="ds-page mediaPage">
     <PageHeader company={clientName} title="Mídia On" controls={<div className="mediaMonth">
@@ -206,10 +210,16 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
-    {canManage ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
+    <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
+      <button type="button" className={`mediaExperienceButton is-simple ${experienceMode === "simple" ? "is-active" : ""}`}
+        aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Visão Simples</button>
+      <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
+        aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
+    </div>
+    {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
-    {canManage ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
-    {canManage ? <section className="mediaControls" aria-label="Parâmetros da estratégia">
+    {canManage && experienceMode === "technical" ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
+    {canManage && experienceMode === "technical" ? <section className="mediaControls" aria-label="Parâmetros da estratégia">
       <div><span className="mediaControlLabel">Objetivo</span>
         <SegmentedControl ariaLabel="Objetivo" value={objective} onSelect={(id) => pickObjective(id as Objective)}
           options={(Object.keys(OBJECTIVES) as Objective[]).map((o) => ({ id: o, label: readyByObjective.has(o) ? `${OBJECTIVES[o]} ✓` : OBJECTIVES[o] }))} />
@@ -249,9 +259,16 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     {!strategy && busy === "generate" && autoMade ? <div className="ds-notice"><p className="ds-noticeTitle">A IA está montando a estratégia de {monthLabel}…</p>
       <p className="ds-noticeText">Usa Meta Ads, Google Ads, a meta do mês e o calendário editorial. Leva até 1 minuto.</p></div> : null}
     {!strategy && !busy ? <div className="ds-notice"><p className="ds-noticeTitle">{plan ? "Plano salvo sem estratégia detalhada." : `Nenhuma estratégia para ${monthLabel} ainda.`}</p>
-      <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
+      <p className="ds-noticeText">{canManage
+        ? experienceMode === "simple"
+          ? "Abra a Análise Técnica para escolher o objetivo e os parâmetros. Nenhuma geração será iniciada até você solicitar."
+          : "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial."
+        : "A equipe ainda não publicou a estratégia deste mês."}</p>
+      {canManage && experienceMode === "simple" ? <button type="button" className="ds-button is-primary" onClick={() => setExperienceMode("technical")}>Preparar minha primeira análise</button> : null}</div> : null}
 
-    {strategy && scenario && result ? <>
+    {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} /> : null}
+
+    {strategy && scenario && result && experienceMode === "technical" ? <>
       {strategy.objective_projection?.message ? <p className={`mediaEstimate ${strategy.objective_projection.status === "declared_only" ? "is-limited" : ""}`}>
         {strategy.objective_projection.message}</p> : null}
       {strategy.briefing?.text ? <section className="ds-section mediaBriefingApplied" aria-labelledby="media-briefing">
@@ -424,7 +441,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         <p>Janela analisada: {shortDate(strategy.window.start)} a {shortDate(strategy.window.end)}.</p></details>
     </> : null}
 
-    {tracking && tracking.channels.length ? <section className="ds-section" aria-labelledby="media-tracking">
+    {experienceMode === "technical" && tracking && tracking.channels.length ? <section className="ds-section" aria-labelledby="media-tracking">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-tracking" className="ds-sectionTitle">Planejado x realizado</h2>
         <p className="ds-caption">Até {tracking.through ? shortDate(tracking.through) : "—"} · {tracking.elapsed_days} de {tracking.days_in_month} dias.</p></div></div>
       <div className="ds-tableWrap"><table className="ds-table">
@@ -435,6 +452,56 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
           <td>{ratio(r.roas)} <small>({ratio(r.target_roas)})</small></td></tr>)}</tbody></table></div>
     </section> : null}
   </div></Shell>;
+}
+
+function SimpleCampaignCard({ item, showExplanation = false }: { item: SimpleMediaCampaign; showExplanation?: boolean }) {
+  return <article className="mediaSimpleCampaign">
+    <div><span className="mediaSimpleChannel">{item.channel}</span><h3>{item.campaign}</h3></div>
+    <ul>{item.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
+    {showExplanation ? <p><b>Leitura possível:</b> {item.explanation}</p> : null}
+  </article>;
+}
+
+function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMediaView> }) {
+  return <div className="mediaSimpleView" aria-label="Visão simples do desempenho">
+    <section className="ds-section mediaSimpleHero" aria-labelledby="media-simple-summary">
+      <span className="mediaSimpleEyebrow">Seu marketing em 1 minuto</span>
+      <h2 id="media-simple-summary">{view.summary}</h2>
+      <p className="ds-caption">Dados observados em mídia paga · período {view.period}</p>
+      <div className="mediaSimpleMetrics">{view.metrics.map((metric) => <div key={metric.label} className="mediaSimpleMetric">
+        <span>{metric.label}</span><strong>{metric.value}</strong>{metric.explanation ? <small>{metric.explanation}</small> : null}
+      </div>)}</div>
+      {view.dataLimitation ? <p className="mediaSimpleLimitation">{view.dataLimitation}</p> : null}
+    </section>
+
+    <section className="ds-section" aria-labelledby="media-simple-wins">
+      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-wins" className="ds-sectionTitle">O que deu certo?</h2>
+        <p className="ds-caption">Até três campanhas comparáveis pelo objetivo selecionado.</p></div></div>
+      {view.wins.length ? <div className="mediaSimpleGrid">{view.wins.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} />)}</div>
+        : <p className="mediaSimpleLimitation">{view.winsLimitation || "Não há evidência suficiente para destacar uma campanha neste período."}</p>}
+    </section>
+
+    <section className="ds-section" aria-labelledby="media-simple-why">
+      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-why" className="ds-sectionTitle">Por que funcionou?</h2>
+        <p className="ds-caption">Os dados mostram sinais; não provam causalidade.</p></div></div>
+      {view.wins.length ? <ul className="mediaSimpleReasons">{view.wins.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
+        : <p className="mediaSimpleLimitation">Sem campanhas comparáveis, não é seguro sugerir explicações para o desempenho.</p>}
+    </section>
+
+    <section className="ds-section" aria-labelledby="media-simple-improve">
+      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-improve" className="ds-sectionTitle">O que pode melhorar?</h2>
+        <p className="ds-caption">Campanhas marcadas pela análise atual para revisão ou otimização.</p></div></div>
+      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showExplanation />)}</div>
+        : <p className="mediaSimpleLimitation">Nenhuma campanha foi marcada para revisão com os dados disponíveis.</p>}
+    </section>
+
+    <section className="ds-section mediaSimpleNext" aria-labelledby="media-simple-next">
+      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-next" className="ds-sectionTitle">O que fazer agora?</h2>
+        <p className="ds-caption">Recomendações já produzidas pela análise técnica existente, sem nova chamada de IA.</p></div></div>
+      {view.recommendations.length ? <ol>{view.recommendations.map((item) => <li key={item}>{item}</li>)}</ol>
+        : <p className="mediaSimpleLimitation">Ainda não há recomendações sustentadas pelos dados deste período.</p>}
+    </section>
+  </div>;
 }
 
 function CurveChart({ strategy, allocation }: { strategy: Strategy | SavedStrategy; allocation: Partial<Record<Channel, number>> }) {

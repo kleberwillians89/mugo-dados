@@ -214,6 +214,24 @@
 @media (max-width:640px){.aiTurn{max-width:100%}}
 /* ---- Mídia On (design system do Dados) ---- */
 .mediaPage{gap:var(--space-7,40px)}
+.mediaExperienceSwitch{display:flex;flex-wrap:wrap;gap:10px;padding:5px;border:1px solid var(--border-subtle,#e6e3dc);border-radius:14px;background:var(--surface-muted,#f3f1ec);width:max-content;max-width:100%}
+.mediaExperienceButton{border:1px solid transparent;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease,box-shadow .15s ease}
+.mediaExperienceButton.is-simple{background:#dbe9ec;color:#164b57}.mediaExperienceButton.is-simple.is-active{background:#1f5b67;color:#fff;box-shadow:0 2px 8px rgba(31,91,103,.22)}
+.mediaExperienceButton.is-technical{background:#f4e7d9;color:#80502c}.mediaExperienceButton.is-technical.is-active{background:#965229;color:#fff;box-shadow:0 2px 8px rgba(150,82,41,.22)}
+.mediaExperienceButton:focus-visible{outline:3px solid rgba(30,63,90,.28);outline-offset:2px}.mediaExperienceButton:not(.is-active):hover{border-color:currentColor}
+.mediaSimpleView{display:grid;gap:var(--space-7,40px)}
+.mediaSimpleHero{background:linear-gradient(145deg,#edf4f4,#fff);border-color:#cbdede}
+.mediaSimpleEyebrow{display:block;color:#1f5b67;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.mediaSimpleHero h2{margin:8px 0 4px;max-width:34ch;font-size:clamp(22px,3vw,34px);line-height:1.18}
+.mediaSimpleMetrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}
+.mediaSimpleMetric{display:grid;gap:5px;padding:14px;border:1px solid #d8e5e5;border-radius:12px;background:rgba(255,255,255,.82)}
+.mediaSimpleMetric>span{font-size:12px;color:var(--text-secondary,#5f5b53)}.mediaSimpleMetric>strong{font-size:clamp(20px,3vw,28px);font-variant-numeric:tabular-nums}.mediaSimpleMetric>small{line-height:1.4;color:var(--text-tertiary,#687178)}
+.mediaSimpleGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.mediaSimpleCampaign{display:grid;align-content:start;gap:12px;padding:16px;border:1px solid var(--border-subtle,#e6e3dc);border-radius:12px;background:var(--surface,#fff)}
+.mediaSimpleCampaign h3{margin:4px 0 0;font-size:17px}.mediaSimpleChannel{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#1f5b67}
+.mediaSimpleCampaign ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px}.mediaSimpleCampaign p{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary,#5f5b53)}
+.mediaSimpleReasons{margin:0;padding-left:20px;display:grid;gap:10px;line-height:1.55}.mediaSimpleLimitation{margin:0;padding:12px 14px;border-left:3px solid #b56f3f;border-radius:8px;background:#fbf5ef;color:var(--text-secondary,#5f5b53)}
+.mediaSimpleNext ol{margin:0;padding:0;list-style:none;counter-reset:media-next;display:grid;gap:10px}.mediaSimpleNext li{counter-increment:media-next;display:grid;grid-template-columns:32px minmax(0,1fr);gap:10px;align-items:start;line-height:1.5}.mediaSimpleNext li::before{content:counter(media-next);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#1f5b67;color:#fff;font-weight:800}
 .mediaMonth{display:flex;align-items:center;gap:10px}
 .mediaMonth strong{font-size:16px;text-transform:capitalize;min-width:130px;text-align:center}
 .mediaControls{display:flex;flex-wrap:wrap;gap:16px 20px;align-items:flex-end;padding:16px 18px;border:1px solid var(--border-subtle,#e6e3dc);border-radius:12px;background:var(--surface,#fff)}
@@ -276,6 +294,7 @@
 .mediaMethod summary{cursor:pointer}
 .ds-table td.is-over{color:#9b2c2c;font-weight:600}.ds-table td.is-under{color:#8a5a00;font-weight:600}.ds-table td.is-ok{color:#1f6b45}
 @media (max-width:640px){
+  .mediaExperienceSwitch{width:100%}.mediaExperienceButton{flex:1 1 140px;padding-inline:12px}
   .mediaControls{padding:12px}.mediaControls input{width:100%}.mediaControls label{flex:1 1 100%}
   .mediaWeeks li{grid-template-columns:1fr auto}.mediaWeekBar{grid-column:1 / -1;order:3}.mediaWeekPhase{grid-column:1 / -1;order:4}
 }
