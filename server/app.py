@@ -55,6 +55,7 @@ from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
 from routes.team import router as team_router
 from routes.meta_ads_publish import router as meta_ads_publish_router
+from routes.google_ads_drafts import router as google_ads_drafts_router
 from routes.goals import router as goals_router
 from routes.creators import router as creators_router
 from routes.radar import router as radar_router
@@ -366,6 +367,7 @@ app.include_router(intelligence_router)
 app.include_router(client_access_router)
 app.include_router(team_router)
 app.include_router(meta_ads_publish_router)
+app.include_router(google_ads_drafts_router)
 app.include_router(customer_journey_router)
 app.include_router(email_marketing_router)
 app.include_router(ai_actions_router)
