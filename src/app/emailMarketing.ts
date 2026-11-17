@@ -89,7 +89,7 @@ export const saveCartSettings = (patch: Partial<CartSettings>) =>
   http<{ settings: CartSettings }>("/api/cart-recovery/settings", { method: "PUT", ...json(patch) });
 export const registerCartWebhooks = () =>
   http<{ registered: string[]; existing: string[]; failed: { topic: string; status: number }[] }>("/api/cart-recovery/webhooks", { method: "POST" });
-export const getWaTemplates = () => http<{ numbers: WaNumber[]; templates: WaTemplate[] }>("/api/cart-recovery/whatsapp-templates");
+export const getWaTemplates = () => http<{ numbers: WaNumber[]; templates: WaTemplate[]; provider?: string; send_supported?: boolean }>("/api/cart-recovery/whatsapp-templates");
 export const previewCartEmail = (email_design: EmailDesign, email_subject: string, email_custom_html?: string | null) =>
   http<EmailPreviewResult>("/api/cart-recovery/preview", { method: "POST", ...json({ email_design, email_subject, email_custom_html }) });
 

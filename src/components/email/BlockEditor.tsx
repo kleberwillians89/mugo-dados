@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import { getActiveClientId } from "../../app/activeClient";
+import { listLibrary, previewKind, type LibraryItem } from "../../app/library";
 import { BLOCK_LABEL, type BlockType, type EmailBlock, type EmailDesign } from "../../app/emailMarketing";
 
 const ADDABLE: BlockType[] = ["logo", "titulo", "texto", "imagem", "botao", "produtos", "divisor", "espaco"];
@@ -16,7 +19,34 @@ function emptyBlock(type: BlockType): EmailBlock {
 export default function BlockEditor({ design, onChange, allowProducts, disabled }: {
   design: EmailDesign; onChange: (design: EmailDesign) => void; allowProducts?: boolean; disabled?: boolean;
 }) {
+  const [picker, setPicker] = useState<number | null>(null);
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [pickerTenant, setPickerTenant] = useState<string | null>(null);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerError, setPickerError] = useState("");
   const blocks = design.blocks || [];
+  async function openPicker(index: number) {
+    if (disabled) return;
+    if (picker === index) { setPicker(null); return; }
+    const tenant = getActiveClientId();
+    setPicker(index); setPickerTenant(tenant); setPickerBusy(true); setPickerError("");
+    try {
+      const library = await listLibrary();
+      if (getActiveClientId() !== tenant) { setPicker(null); return; }
+      setItems(library.items.filter((it) => it.kind === "arquivo" && previewKind(it) === "image"
+        && /^https:\/\//i.test(it.url) && /^(image\/jpeg|image\/png|image\/webp|image\/gif)$/i.test(it.mime_type || "")));
+    } catch (cause) {
+      if (getActiveClientId() === tenant) setPickerError(cause instanceof Error ? cause.message : "Biblioteca indisponível.");
+    } finally { if (getActiveClientId() === tenant) setPickerBusy(false); }
+  }
+  function chooseImage(index: number, item: LibraryItem) {
+    if (disabled || pickerTenant !== getActiveClientId() || !items.some((it) => it.id === item.id)) {
+      setPickerError("A empresa mudou ou a imagem não está mais disponível. Reabra a Biblioteca.");
+      return;
+    }
+    patch(index, { url: item.url, alt: item.title.slice(0, 180) });
+    setPicker(null);
+  }
   const set = (next: EmailBlock[]) => onChange({ blocks: next });
   const patch = (index: number, change: Partial<EmailBlock>) => set(blocks.map((b, i) => (i === index ? { ...b, ...change } : b)));
   const move = (index: number, delta: number) => {
@@ -47,10 +77,28 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled 
               <textarea aria-label="Texto" rows={3} value={block.text || ""} disabled={disabled} onChange={(e) => patch(index, { text: e.target.value })} />
             ) : null}
             {block.type === "imagem" ? (
+              <>
               <div className="emBlockRow">
                 <input aria-label="Link da imagem (https)" placeholder="https://… imagem" value={block.url || ""} disabled={disabled} onChange={(e) => patch(index, { url: e.target.value })} />
                 <input aria-label="Link ao clicar" placeholder="Link ao clicar (opcional)" value={block.href || ""} disabled={disabled} onChange={(e) => patch(index, { href: e.target.value })} />
               </div>
+              <div className="emLibraryRow">
+                <button type="button" className="ds-button" disabled={disabled} aria-expanded={picker === index}
+                  onClick={() => void openPicker(index)}>
+                  {picker === index ? "Fechar Biblioteca" : "Escolher da Biblioteca"}
+                </button>
+                {block.url && /^https:\/\//i.test(block.url) ? <img src={block.url} alt={block.alt || "Imagem selecionada"} className="emLibraryCurrent" /> : null}
+              </div>
+              {picker === index ? <div className="emLibraryPicker" aria-label="Imagens da Biblioteca">
+                {pickerBusy ? <p role="status">Carregando imagens da marca…</p> : null}
+                {pickerError ? <p role="alert">{pickerError}</p> : null}
+                {!pickerBusy && !items.length && !pickerError ? <p>Nenhuma imagem disponível. Envie fotos pela Biblioteca.</p> : null}
+                {!pickerBusy && items.length ? <div className="emLibraryImages">
+                  {items.map((it) => <button key={it.id} type="button" onClick={() => chooseImage(index, it)}
+                    aria-label={`Selecionar ${it.title}`}><img src={it.url} alt="" loading="lazy" /><span>{it.title}</span></button>)}
+                </div> : null}
+              </div> : null}
+              </>
             ) : null}
             {block.type === "botao" ? (
               <div className="emBlockRow">
