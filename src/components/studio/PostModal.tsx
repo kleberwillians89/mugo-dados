@@ -153,7 +153,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
       return;
     }
     const selected = librarySelection.map((id) => libraryItems.find((entry) => entry.id === id))
-      .filter((entry): entry is LibraryItem => Boolean(entry) && entry.kind === "arquivo" && previewKind(entry) === "image");
+      .filter((entry): entry is LibraryItem => entry !== undefined && entry.kind === "arquivo" && previewKind(entry) === "image");
     if (selected.length !== librarySelection.length || selected.length === 0) {
       setLibraryError("Selecione imagens válidas desta Biblioteca.");
       return;
