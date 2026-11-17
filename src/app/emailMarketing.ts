@@ -79,6 +79,11 @@ export const updateCampaign = (id: string, body: Partial<Campaign>) =>
 export const deleteCampaign = (id: string) => http<{ ok: boolean }>(`/api/email/campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const sendTestEmail = (id: string, to: string) =>
   http<{ status: string }>(`/api/email/campaigns/${encodeURIComponent(id)}/test`, { method: "POST", ...json({ to }) });
+export type CampaignPreflight = {
+  ready: boolean; blockers: string[]; warnings: string[]; audience: AudiencePreview; subject: string; name: string;
+};
+export const preflightCampaign = (id: string) =>
+  http<CampaignPreflight>(`/api/email/campaigns/${encodeURIComponent(id)}/preflight`, { timeoutMs: 60_000 });
 export const scheduleCampaign = (id: string, at: string | null) =>
   http<{ campaign: Campaign }>(`/api/email/campaigns/${encodeURIComponent(id)}/schedule`, { method: "POST", ...json({ at }) });
 export const cancelCampaign = (id: string) =>
