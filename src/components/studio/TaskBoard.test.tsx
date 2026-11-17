@@ -87,6 +87,9 @@ describe("Tarefas com aprovação", () => {
     studio.getPipeline.mockImplementation(async (month: string) => ({ items: month.endsWith(String(new Date().getMonth() + 1).padStart(2, "0")) ? [post] : [] }));
     crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
     await show(<TaskBoard />);
+    // Tarefas abre como quadro independente; posts do calendário são opt-in.
+    expect(host.textContent).not.toContain("Reels Black Friday");
+    await click("Tudo + Calendário");
     const column = [...host.querySelectorAll(".kanbanCol")].find((c) => c.querySelector("header b")?.textContent === "Aprovação do cliente")!;
     expect(column.textContent).toContain("Reels Black Friday");
     expect(column.textContent).toContain("com Gabi");
