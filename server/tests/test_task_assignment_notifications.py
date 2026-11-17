@@ -31,7 +31,7 @@ def test_each_assignee_gets_one_private_message_and_demo_never_sends_whatsapp(mo
     monkeypatch.setattr(notices, "sb_insert", insert)
     monkeypatch.setattr(notices, "sb_update", update)
     task = {"id": "task-1", "title": "Entregar layout", "assignee_user_ids": ["u1", "u2", "u2"]}
-    result = asyncio.run(notices.notify_assignment("pace-sneakers-demo", task))
+    result = asyncio.run(notices.notify_assignment("pace-sneakers-demo", task, send_whatsapp=True))
     assert result == 2
     assert {m["recipient_user_id"] for m in writes} == {"u1", "u2"}
     assert all(m["client_id"] == "pace-sneakers-demo" for m in writes)
@@ -60,3 +60,47 @@ def test_whatsapp_requires_opt_in_verified_number_and_sender_configuration(monke
     result = asyncio.run(notices._whatsapp_dispatch("tenant-a", "u1", "A tarefa"))
     assert result == ("not_opted_in", None)
     called.assert_not_awaited()
+
+
+def test_internal_notification_is_created_without_whatsapp_request(monkeypatch):
+    monkeypatch.setattr("services.studio_approvals.frontend_base_url", lambda: "https://dados.example.com")
+    inserts, statuses = [], []
+    async def insert(table, row, **kwargs):
+        inserts.append(row)
+        return {"id": "notice-id", **row}
+    async def update(table, *, filters, patch, **kwargs):
+        statuses.append(patch["whatsapp_status"])
+        return [patch]
+    async def dispatch(*args):
+        raise AssertionError("WhatsApp must not be sent unless creator opts in")
+    monkeypatch.setattr(notices, "sb_insert", insert)
+    monkeypatch.setattr(notices, "sb_update", update)
+    monkeypatch.setattr(notices, "_whatsapp_dispatch", dispatch)
+    count = asyncio.run(notices.notify_assignment("roove", {
+        "id": "task-1", "title": "Subir fotos", "assignee_user_ids": ["user-1", "user-2"],
+    }, send_whatsapp=False))
+    assert count == 2
+    assert len(inserts) == 2
+    assert statuses == ["not_configured", "not_configured"]
+
+
+def test_explicit_opt_in_still_checks_whatsapp_eligibility(monkeypatch):
+    monkeypatch.setattr("services.studio_approvals.frontend_base_url", lambda: "https://dados.example.com")
+    sends = []
+    async def insert(table, row, **kwargs):
+        return {"id": "notice-id", **row}
+    async def update(table, *, filters, patch, **kwargs):
+        sends.append(patch)
+        return [patch]
+    async def dispatch(client_id, user_id, body):
+        assert client_id == "roove"
+        assert user_id == "user-1"
+        return ("not_opted_in", None)
+    monkeypatch.setattr(notices, "sb_insert", insert)
+    monkeypatch.setattr(notices, "sb_update", update)
+    monkeypatch.setattr(notices, "_whatsapp_dispatch", dispatch)
+    count = asyncio.run(notices.notify_assignment("roove", {
+        "id": "task-1", "title": "Subir fotos", "assignee_user_ids": ["user-1"],
+    }, send_whatsapp=True))
+    assert count == 1
+    assert sends[0]["whatsapp_status"] == "not_opted_in"
