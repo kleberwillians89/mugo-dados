@@ -373,7 +373,9 @@ export default function WhatsApp() {
                     </li>
                   ) : null}
                 </ol>
-                {windowOpen(open.service_window_expires_at) ? (
+                {inbox.data?.channel_provider === "mugozap_crm"
+                  ? <p className="waMuted waPad">As conversas da Mugô já estão sincronizadas. Para responder, use o CRM Mugô por enquanto; o envio por esta tela ainda não foi habilitado.</p>
+                  : windowOpen(open.service_window_expires_at) ? (
                   <form className="waComposer" onSubmit={sendReply}>
                     <label className="waSrOnly" htmlFor="wa-reply">Responder no WhatsApp</label>
                     <textarea id="wa-reply" rows={2} maxLength={4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
