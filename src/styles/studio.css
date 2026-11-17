@@ -1708,3 +1708,20 @@
 .libTargetPosts strong{font-size:14px}
 .libTargetPosts small{font-size:12px;color:var(--text-secondary,#64717b)}
 @media(max-width:650px){.libTargetOverlay{padding:7px;align-items:end}.libTargetPicker{max-height:93vh;border-radius:16px 16px 0 0;padding:16px}.libTargetPickerHead{flex-direction:column}.libTargetPickerHead h2{font-size:19px}.libTargetOptions{align-items:stretch}.libTargetOptions label{width:100%}}
+
+/* Select brand-owned Library images directly inside Calendar post editor. */
+.postLibraryBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0}
+.postLibraryBar small{flex:1;min-width:190px;font-size:12px;color:var(--text-secondary,#637078)}
+.postLibraryPicker{display:grid;gap:12px;padding:14px;border:1px solid var(--border-subtle,#d7dfe4);border-radius:13px;background:var(--surface-subtle,#f7f9fa)}
+.postLibraryPickerHead,.postLibraryFooter{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.postLibraryPickerHead strong{font-size:14px}
+.postLibraryGallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;max-height:360px;overflow:auto;padding:2px}
+.postLibraryGallery label{display:grid;grid-template-rows:auto 96px minmax(30px,auto);gap:6px;padding:7px;border-radius:10px;border:1px solid var(--border-subtle,#d7dfe4);background:var(--surface,#fff);cursor:pointer;min-width:0}
+.postLibraryGallery label.is-selected{border-color:#004f6e;background:rgba(0,79,110,.07);box-shadow:inset 0 0 0 1px #004f6e}
+.postLibraryGallery label input{accent-color:#004f6e;width:18px;height:18px;margin:0}
+.postLibraryGallery label img{width:100%;height:96px;object-fit:cover;border-radius:6px}
+.postLibraryGallery label span{font-size:11px;overflow-wrap:anywhere;line-height:1.3}
+.postLibraryReplace{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;font-size:13px}
+.postLibraryReplace input{accent-color:#004f6e;width:17px;height:17px}
+.postLibraryFooter span{font-size:12px;color:var(--text-secondary,#637078)}
+@media(max-width:650px){.postLibraryBar{display:grid}.postLibraryPicker{padding:10px}.postLibraryGallery{grid-template-columns:repeat(2,minmax(0,1fr))}.postLibraryFooter button{width:100%}}
