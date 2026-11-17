@@ -54,6 +54,32 @@ class RelationshipCustomersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(a["identity_hash"], b["identity_hash"])
         self.assertNotEqual(rc._key("ruah", "shopify", "123"), a["identity_hash"])
 
+    async def test_whatsapp_conversations_form_contact_base_without_opt_in(self):
+        leads = {"available": True, "truncated": False, "leads": [
+            {"phone_key": "a" * 32, "first_seen_at": "2026-10-01T13:00:00Z"},
+            {"phone_key": "a" * 32, "first_seen_at": "2026-10-02T13:00:00Z"},
+            {"phone_key": "b" * 32, "first_seen_at": "2026-10-03T13:00:00Z"},
+        ]}
+        with patch("services.whatsapp_sources.brand_leads", AsyncMock(return_value=leads)), \
+             patch.object(rc, "sb_upsert", AsyncMock()) as upsert:
+            result = await rc.sync_whatsapp_conversations("ruah")
+        self.assertEqual(result["contacts_synchronized"], 2)
+        rows = upsert.await_args.args[1]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row["client_id"] == "ruah" for row in rows))
+        self.assertTrue(all(not row["marketing_whatsapp_verified"] for row in rows))
+        self.assertTrue(all(row["phone_ciphertext"] is None for row in rows))
+        self.assertNotIn("a" * 32, str(rows))
+
+    async def test_whatsapp_truncated_history_rejected_before_persist(self):
+        with patch("services.whatsapp_sources.brand_leads", AsyncMock(return_value={
+            "available": True, "truncated": True, "leads": [{"phone_key": "a" * 32}]
+        })), patch.object(rc, "sb_upsert", AsyncMock()) as upsert:
+            with self.assertRaises(rc.ContactSyncError) as caught:
+                await rc.sync_whatsapp_conversations("ruah")
+        self.assertEqual(caught.exception.status, 409)
+        upsert.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
