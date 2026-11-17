@@ -258,6 +258,7 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
     if only_user and not row.get("assignee_user_id"):
         row["assignee_user_id"] = only_user  # quem só vê as próprias tarefas cria para si
     row.setdefault("status", "pending")
+    row.setdefault("needs_client_approval", False)  # new tasks require client review only by explicit choice
     if client_view:
         row["visible_to_client"] = True  # o que o cliente cria é dele também
     created = await sb_insert(TABLE, {"client_id": client_id, "created_by": user_id, **row})
