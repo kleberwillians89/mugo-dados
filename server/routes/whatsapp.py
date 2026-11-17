@@ -98,6 +98,38 @@ class NumberIn(BaseModel):
     access_token: str = Field(min_length=20, max_length=2000)
 
 
+@router.get("/connection-status")
+async def whatsapp_connection_status(client_id: str, authorization: Optional[str] = Header(None)):
+    """Connection overview for any tenant, never returning credentials.
+
+    A CRM bridge key does NOT constitute a Meta WhatsApp Cloud API token.
+    The UI should distinguish these providers instead of suggesting token reuse.
+    """
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    from services.whatsapp_sources import bridge_for
+    numbers = await list_numbers(cid)
+    active = [number for number in numbers if number.get("status") == "active"]
+    bridge = bool(bridge_for(cid))
+    return {
+        "ok": True,
+        "client_id": cid,
+        "provider": "native" if active else "crm_bridge" if bridge else "not_connected",
+        "native_connected": bool(active),
+        "crm_bridge_configured": bridge,
+        "meta_credentials_saved": bool(active),
+        "number_count": len(active),
+        "numbers": active,
+        "requires_meta_credentials": not bool(active),
+        "notice": (
+            "A ponte do CRM está configurada, mas não fornece credenciais da Meta para modelos oficiais."
+            if bridge and not active else
+            "Credenciais da Meta configuradas com segurança."
+            if active else
+            "Conecte um número da empresa com WABA ID, Phone Number ID e token da Meta."
+        ),
+    }
+
+
 @router.get("/numbers")
 async def read_whatsapp_numbers(client_id: str, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
