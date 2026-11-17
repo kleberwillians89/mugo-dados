@@ -124,6 +124,16 @@ async def whatsapp_connection_status(client_id: str, authorization: Optional[str
             crm_unavailable = not bool(state.get("available"))
         except StudioError:
             crm_unavailable = True
+        if not crm_connected:
+            # Mugô owns its CRM number at the organization level, not as a
+            # normal CRM client. Only an explicit org link can authorize it.
+            from services.crm_whatsapp_templates import connection_status as crm_templates_connected
+            try:
+                crm_connected = await crm_templates_connected(cid)
+                if crm_connected:
+                    crm_unavailable = False
+            except StudioError:
+                pass
     provider = ("native" if active else "crm_bridge" if brand_bridge
                 else "mugozap_crm" if crm_connected else "not_connected")
     is_connected = bool(active or brand_bridge or crm_connected)
