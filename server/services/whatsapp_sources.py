@@ -80,7 +80,18 @@ async def brand_leads(client_id: str, start: str, end: str) -> Dict[str, Any]:
         return await _bridge_call(cfg, "leads", client_id, {"period_start": start[:10], "period_end": end[:10]})
     if await whatsapp_native.active_number_ids(client_id):
         return await whatsapp_native.leads(client_id, start, end)
-    return await crm_bridge.brand_leads(client_id, start, end)
+    # CRM Mugô org-owned WABA has no client_id in external_integrations.
+    # Only the explicit, server-authorized organization link can read it.
+    result = await crm_bridge.brand_leads(client_id, start, end)
+    if result.get("available") or result.get("reason") != "not_linked":
+        return result
+    from .crm_whatsapp_templates import brand_leads as org_leads
+    try:
+        return await org_leads(client_id, start, end)
+    except StudioError as exc:
+        if exc.code in {"CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED"}:
+            return result
+        raise
 
 
 async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
@@ -89,7 +100,16 @@ async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]
         return await _bridge_call(cfg, "conversations", client_id, {"limit": max(1, min(int(limit), 200))})
     if await whatsapp_native.active_number_ids(client_id):
         return await whatsapp_native.conversations(client_id, limit=limit)
-    return await crm_bridge.brand_conversations(client_id, limit=limit)
+    result = await crm_bridge.brand_conversations(client_id, limit=limit)
+    if result.get("available") or result.get("reason") != "not_linked":
+        return result
+    from .crm_whatsapp_templates import brand_conversations as org_conversations
+    try:
+        return await org_conversations(client_id, limit=limit)
+    except StudioError as exc:
+        if exc.code in {"CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED"}:
+            return result
+        raise
 
 
 async def brand_messages(client_id: str, conversation_id: str, limit: int = 100) -> Dict[str, Any]:
@@ -103,7 +123,16 @@ async def brand_messages(client_id: str, conversation_id: str, limit: int = 100)
         if not native.pop("found", False):
             raise StudioError("CONVERSATION_NOT_FOUND")
         return native
-    return await crm_bridge.list_messages(client_id, conversation_id, limit=limit)
+    result = await crm_bridge.list_messages(client_id, conversation_id, limit=limit)
+    if result.get("available") or result.get("reason") != "not_linked":
+        return result
+    from .crm_whatsapp_templates import brand_messages as org_messages
+    try:
+        return await org_messages(client_id, conversation_id, limit=limit)
+    except StudioError as exc:
+        if exc.code in {"CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED"}:
+            return result
+        raise
 
 
 async def brand_reply(client_id: str, conversation_id: str, text: str, *, author: str) -> Dict[str, Any]:

@@ -29,7 +29,7 @@ def _url() -> tuple[str, str] | None:
     return url.removesuffix("/dados-ops-api") + "/dados-whatsapp-templates", key
 
 
-async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | None = None, mode: str | None = None) -> Dict[str, Any]:
+async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | None = None, mode: str | None = None, options: Dict[str, str | int] | None = None) -> Dict[str, Any]:
     if not SAFE_ID.fullmatch(client_id):
         raise StudioError("CRM_TEMPLATE_INVALID_TENANT")
     cfg = _url()
@@ -41,7 +41,7 @@ async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | Non
             response = await client.request(
                 method, url,
                 headers={"X-Dados-Ops-Key": key},
-                params={"external_client_id": client_id, **({"mode": mode} if mode else {})},
+                params={"external_client_id": client_id, **({"mode": mode} if mode else {}), **(options or {})},
                 json=payload if method == "POST" else None,
             )
         body = response.json() if response.content else {}
@@ -52,7 +52,9 @@ async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | Non
     if response.status_code == 403:
         raise StudioError("CRM_TEMPLATES_NOT_LINKED", "Esta empresa ainda não está vinculada à WABA correta no CRM.")
     if response.status_code == 404:
-        raise StudioError("CRM_TEMPLATES_NOT_READY", "A ponte de modelos ainda não foi publicada no CRM.")
+        if body.get("code") == "CONVERSATION_NOT_FOUND":
+            raise StudioError("CONVERSATION_NOT_FOUND")
+        raise StudioError("CRM_TEMPLATES_NOT_READY", "A ponte do CRM ainda não foi publicada.")
     if response.status_code == 409:
         raise StudioError("CRM_TEMPLATES_NOT_CONNECTED", "Não foi encontrada uma WABA autorizada para esta empresa.")
     if response.status_code == 422:
@@ -109,3 +111,25 @@ async def create_template(client_id: str, *, payload: Dict[str, Any]) -> Dict[st
 async def connection_status(client_id: str) -> bool:
     result = await _request(client_id, method="GET", mode="status")
     return result.get("connected") is True and result.get("templates_supported") is True
+
+
+async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
+    data = await _request(client_id, method="GET", mode="conversations",
+                          options={"limit": max(1, min(int(limit), 200))})
+    return {"available": True, "connected": bool(data.get("connected")),
+            "conversations": data.get("conversations") or []}
+
+
+async def brand_messages(client_id: str, conversation_id: str, limit: int = 100) -> Dict[str, Any]:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", conversation_id):
+        raise StudioError("CONVERSATION_NOT_FOUND")
+    data = await _request(client_id, method="GET", mode="messages",
+                          options={"conversation_id": conversation_id})
+    return {"available": True, "messages": (data.get("messages") or [])[-max(1, min(int(limit), 200)):]}
+
+
+async def brand_leads(client_id: str, start: str, end: str) -> Dict[str, Any]:
+    data = await _request(client_id, method="GET", mode="leads",
+                          options={"period_start": start[:10], "period_end": end[:10]})
+    return {"available": True, "connected": bool(data.get("connected")),
+            "leads": data.get("leads") or [], "truncated": bool(data.get("truncated"))}

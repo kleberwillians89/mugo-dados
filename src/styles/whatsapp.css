@@ -141,3 +141,26 @@
 .waConnectionSummary strong{font-size:14px}
 .waConnectionSummary span{font-size:13px;line-height:1.5}
 .waConnectionSummary small{font-size:12px;line-height:1.5;color:var(--text-muted,#61717c)}
+
+/* Inbox-first workspace: clear separation of live messages, model library and connections. */
+.waWorkspaceTabs{display:flex;align-items:center;gap:7px;overflow-x:auto;padding:5px;border:1px solid var(--wa-line);background:var(--surface,#fff);border-radius:14px}
+.waWorkspaceTabs button{border:0;border-radius:10px;background:transparent;color:var(--text-secondary,#4d565d);font:600 14px inherit;padding:11px 16px;white-space:nowrap;cursor:pointer;min-height:44px}
+.waWorkspaceTabs button.is-active{background:#004f6e;color:white}
+.waWorkspaceTabs button span{display:inline-block;margin-left:8px;padding:2px 6px;border-radius:7px;background:rgba(0,79,110,.09);font-size:11px}
+.waWorkspaceTabs button.is-active span{background:rgba(255,255,255,.2)}
+.waWorkspacePanel{display:flex;flex-direction:column;gap:16px;min-width:0}
+.waWorkspacePanel[hidden]{display:none!important}
+.waInboxIntro{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.waInboxIntro h2{margin:0 0 5px;font-size:20px;letter-spacing:-.025em}
+.waInboxIntro p{margin:0;color:var(--text-secondary,#4d565d);font-size:13px}
+.waInbox{display:grid;grid-template-columns:minmax(245px,28%) minmax(320px,1fr) minmax(215px,23%);flex-direction:unset;flex-wrap:unset;min-height:600px}
+.waInboxList,.waThread,.waJourney{min-width:0;flex:unset;max-height:740px}
+.waInboxList{border-right:1px solid var(--wa-line)}
+.waThread{background:#f3f6f7}
+.waJourney{border-left:1px solid var(--wa-line)}
+.waConvList button{transition:background-color .12s ease}
+.waConvList button:hover,.waConvList button:focus-visible{background:rgba(0,79,110,.05)}
+.waBubble{box-shadow:0 1px 3px rgba(10,30,40,.04)}
+.waMessages{scrollbar-gutter:stable}
+@media(max-width:1180px){.waInbox{grid-template-columns:minmax(230px,34%) minmax(0,1fr)}.waJourney{grid-column:1/-1;border-left:0;border-top:1px solid var(--wa-line);max-height:none}.waSteps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}}
+@media(max-width:760px){.waWorkspaceTabs{gap:2px}.waWorkspaceTabs button{font-size:13px;padding:10px 12px}.waInbox{display:flex;flex-direction:column;min-height:0}.waInboxList{max-height:360px;border-right:0;border-bottom:1px solid var(--wa-line)}.waThread{min-height:420px;max-height:650px}.waJourney{max-height:none}.waSteps{grid-template-columns:1fr}.waInboxIntro .ds-button{width:100%}.waBubble{max-width:90%}}
