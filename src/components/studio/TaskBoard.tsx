@@ -44,6 +44,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [who, setWho] = useState<string>("");
   const [department, setDepartment] = useState("");
   const [taskView, setTaskView] = useState<"all" | "team" | "content">("team");
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropColumn, setDropColumn] = useState<TaskStatus | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,6 +130,14 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     setError(null);
     setTasks((current) => current.map((t) => (t.id === task.id ? { ...t, status } : t)));
     try { await updateTask(task.id, { status }); } catch (cause) { setError(message(cause, "Não foi possível mudar a etapa.")); await load(); }
+  }
+
+  async function dropTask(taskId: string, status: TaskStatus) {
+    setDragging(null); setDropColumn(null);
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.status === status || !canManage || task.calendar_item_id ||
+      !MANUAL.includes(task.status) || !MANUAL.includes(status)) return;
+    await move(task, status);
   }
 
   async function openTask(task: CrmTask) {
@@ -271,7 +281,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       {canManage ? <button type="button" className="ds-button is-primary taskNew" onClick={() => setDraft(emptyDraft(isAgency))}>+ Nova tarefa</button> : null}
     </div>
     {scope.mine_only ? <p className="libHint taskMineOnly">Você vê as tarefas em que é responsável (ou que criou). Ao terminar, envie para a aprovação interna.</p> : null}
-    <p className="libHint">{isAgency ? "Gestão de todas as áreas desta empresa: desenvolvimento, design, mídia, operações e conteúdo. Marque \"Visível ao cliente\" apenas quando a tarefa puder ser compartilhada." : "O que está em andamento com a Mugô para a sua empresa."}</p>
+    <p className="libHint">{isAgency ? "Quadro independente de tarefas para todas as áreas. Arraste os cartões entre as colunas de execução ou abra para editar e comentar. Itens em aprovação seguem seu próprio fluxo." : "Tarefas da sua empresa, com responsáveis, prazos e etapas."}</p>
     <div className="taskSummary" role="status"><strong>{visible.length}</strong> tarefas nesta visão <span>·</span> <strong>{visible.filter((t) => OPEN.includes(t.status)).length}</strong> abertas <span>·</span> <strong>{late}</strong> atrasadas</div>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice && !draft ? <p role="status" className="studioOk">{notice}{sentLink ? <> <a href={sentLink.href} target="_blank" rel="noreferrer noopener">{sentLink.label}</a></> : null}</p> : null}
@@ -282,9 +292,18 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       {columns.map((status) => {
         const list = sortTasks(visible.filter((t) => t.status === status));
         const colPosts = who ? [] : postsIn(status);
-        return <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>
+        return <section key={status} className={`kanbanCol is-task-${status}${dropColumn === status ? " is-drop-target" : ""}`} aria-label={TASK_STATUS[status]}
+          onDragOver={(event) => { if (dragging && MANUAL.includes(status) && canManage) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropColumn(status); } }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropColumn(null); }}
+          onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain") || dragging; if (id) void dropTask(id, status); }}>
           <header><b>{TASK_STATUS[status]}</b><span>{list.length + colPosts.length}</span></header>
-          {list.map((t) => <TaskCard key={t.id} task={t} onOpen={() => void openTask(t)} actions={busy ? [] : quick(t)} />)}
+          {list.map((t) => <div key={t.id}
+            draggable={canManage && !busy && !t.calendar_item_id && MANUAL.includes(t.status)}
+            onDragStart={(event) => { setDragging(t.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", t.id); }}
+            onDragEnd={() => { setDragging(null); setDropColumn(null); }}
+            className={dragging === t.id ? "is-task-dragging" : ""}>
+            <TaskCard task={t} onOpen={() => void openTask(t)} actions={busy ? [] : quick(t)} />
+          </div>)}
           {colPosts.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setReview(p); }} actions={busy ? [] : postQuick(p)} />)}
           {!list.length && !colPosts.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
         </section>;
