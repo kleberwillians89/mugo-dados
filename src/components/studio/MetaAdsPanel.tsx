@@ -4,6 +4,7 @@ import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDra
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
+import { META_STEPS, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const STATUS: Record<AdDraft["status"], { label: string; tone: "neutral" | "info" | "success" | "error" }> = {
@@ -26,6 +27,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const [objectives, setObjectives] = useState<Record<string, string>>({});
   const [ctas, setCtas] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<{ draft: AdDraft; payload: AdPayload } | null>(null);
+  const [step, setStep] = useState<MetaStep>(0);
+  const [audienceApproved, setAudienceApproved] = useState(false);
+  const [stepIssue, setStepIssue] = useState<string | null>(null);
   const [arts, setArts] = useState<CalendarItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +52,12 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     try { return await fn(); } catch (cause) { setError(message(cause, fallback)); return null; } finally { setBusy(null); }
   }
 
-  const open = (draft: AdDraft) => setEditing({ draft, payload: JSON.parse(JSON.stringify(draft.payload)) as AdPayload });
+  const open = (draft: AdDraft) => {
+    setEditing({ draft, payload: JSON.parse(JSON.stringify(draft.payload)) as AdPayload });
+    setStep(0);
+    setAudienceApproved(false);
+    setStepIssue(null);
+  };
   const upsert = (d: AdDraft) => setDrafts((list) => [d, ...(list || []).filter((x) => x.id !== d.id)]);
 
   const generate = useCallback(async (campaign: Record<string, unknown>) => {
@@ -66,8 +75,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   }
 
   async function publish() {
-    if (!editing) return;
+    if (!editing || step !== 3 || !audienceApproved || busy) return;
     const p = editing.payload;
+    const missing = metaStepIssues(p, 3);
+    if (missing.length) { setStepIssue(missing.join(" ")); return; }
     if (!window.confirm(`Criar "${p.name}" no Meta Ads?\n\nVai PAUSADA, com orçamento de ${brl(p.daily_budget)}/dia de ${p.start_date.split("-").reverse().join("/")} a ${p.end_date.split("-").reverse().join("/")}. Nada é gasto até alguém ativar no Gerenciador de Anúncios.`)) return;
     const saved = await save();
     if (!saved) return;
@@ -83,9 +94,23 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   }
 
   const set = (patch: Partial<AdPayload>) => setEditing((e) => (e ? { ...e, payload: { ...e.payload, ...patch } } : e));
-  const setAud = (patch: Partial<AdPayload["audience"]>) => setEditing((e) => (e ? { ...e, payload: { ...e.payload, audience: { ...e.payload.audience, ...patch } } } : e));
+  const setAud = (patch: Partial<AdPayload["audience"]>) => {
+    setAudienceApproved(false);
+    setEditing((e) => (e ? { ...e, payload: { ...e.payload, audience: { ...e.payload.audience, ...patch } } } : e));
+  };
   const setAd = (patch: Partial<AdPayload["ad"]>) => setEditing((e) => (e ? { ...e, payload: { ...e.payload, ad: { ...e.payload.ad, ...patch } } } : e));
   const locked = editing ? editing.draft.status === "publicada" || editing.draft.status === "publicando" : false;
+  function advance() {
+    if (!editing || busy) return;
+    const missing = metaStepIssues(editing.payload, step);
+    if (missing.length) { setStepIssue(missing.join(" ")); return; }
+    if (step === 1 && !audienceApproved) {
+      setStepIssue("Confirme o público selecionado antes de escolher o criativo.");
+      return;
+    }
+    setStepIssue(null);
+    if (step < 3) setStep((step + 1) as MetaStep);
+  }
 
   return <section className="ds-section metaAds" aria-labelledby="media-meta-ads">
     <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-meta-ads" className="ds-sectionTitle">Campanhas no Meta Ads</h2>
@@ -116,8 +141,17 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     <Drawer open={Boolean(editing)} width="lg" title={editing ? editing.payload.name : ""} onClose={() => { if (!busy) setEditing(null); }}
       description={locked ? "Já criada no Meta Ads (pausada). Ajustes daqui em diante, no Gerenciador de Anúncios." : "Revise tudo antes de criar. A campanha vai pausada: nada é gasto até alguém ativar no Meta."}>
       {editing ? <form className="metaAdsForm" onSubmit={(e) => void save(e)}>
-        <fieldset disabled={locked || Boolean(busy)}>
-          <legend>Campanha</legend>
+        <nav aria-label="Etapas para criar campanha" className="metaAdsStepper">
+          {META_STEPS.map((label, index) => <button key={label} type="button" aria-current={step === index ? "step" : undefined}
+            className={step === index ? "is-current" : ""}
+            disabled={Boolean(busy) || (!locked && index > step)}
+            onClick={() => { if (locked || index <= step) { setStep(index as MetaStep); setStepIssue(null); } }}>
+            <span>{index + 1}</span>{label}
+          </button>)}
+        </nav>
+        <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha a imagem e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
+        {step === 0 ? <fieldset disabled={locked || Boolean(busy)}>
+          <legend>1 · Campanha</legend>
           <label className="ds-field">Nome<input required maxLength={120} value={editing.payload.name} onChange={(e) => set({ name: e.target.value })} /></label>
           <div className="metaAdsRow">
             <label className="ds-field">Objetivo<select value={editing.payload.objective} onChange={(e) => set({ objective: e.target.value as AdPayload["objective"] })}>
@@ -128,9 +162,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <label className="ds-field">Início<input type="date" value={editing.payload.start_date} onChange={(e) => set({ start_date: e.target.value })} /></label>
             <label className="ds-field">Fim<input type="date" value={editing.payload.end_date} onChange={(e) => set({ end_date: e.target.value })} /></label>
           </div>
-        </fieldset>
-        <fieldset disabled={locked || Boolean(busy)}>
-          <legend>Público</legend>
+        </fieldset> : null}
+        {step === 1 ? <fieldset disabled={locked || Boolean(busy)}>
+          <legend>2 · Público</legend>
           <div className="metaAdsRow">
             <label className="ds-field">Idade mínima<input type="number" min={18} max={65} value={editing.payload.audience.age_min} onChange={(e) => setAud({ age_min: Number(e.target.value) })} /></label>
             <label className="ds-field">Idade máxima<input type="number" min={18} max={65} value={editing.payload.audience.age_max} onChange={(e) => setAud({ age_max: Number(e.target.value) })} /></label>
@@ -143,9 +177,16 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             onChange={(e) => setAud({ interests: e.target.value.split(",").map((s) => s.trimStart()) })} /></label>
           <label className="metaAdsCheck"><input type="checkbox" checked={editing.payload.audience.advantage} onChange={(e) => setAud({ advantage: e.target.checked })} />
             Público Advantage+ (o Meta pode ampliar além dos interesses quando achar gente com mais chance)</label>
-        </fieldset>
-        <fieldset disabled={locked || Boolean(busy)}>
-          <legend>Anúncio</legend>
+          <div className="metaAdsAudienceSummary">
+            <strong>Prévia do público</strong>
+            <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p>
+          </div>
+          {!locked ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
+            onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
+            Revisei e confirmo esse público, inclusive a possível ampliação pelo Advantage+.</label> : null}
+        </fieldset> : null}
+        {step === 2 ? <fieldset disabled={locked || Boolean(busy)}>
+          <legend>3 · Criativo e anúncio</legend>
           <label className="ds-field">Texto principal<textarea rows={4} maxLength={2000} value={editing.payload.ad.primary_text} onChange={(e) => setAd({ primary_text: e.target.value })} /></label>
           <div className="metaAdsRow">
             <label className="ds-field">Título<input maxLength={120} value={editing.payload.ad.headline} onChange={(e) => setAd({ headline: e.target.value })} /></label>
@@ -160,18 +201,37 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               return <button key={item.id} type="button" className={`metaAdsArt${editing.payload.ad.image_url === url ? " is-selected" : ""}`} title={item.title}
                 onClick={() => setAd({ image_url: url, calendar_item_id: item.id })}><img src={url} alt="" loading="lazy" /><span>{item.title}</span></button>;
             })}</div> : <small>Nenhum post com arte em imagem no Calendário deste mês.</small>}
+            {editing.payload.ad.image_url ? <div className="metaAdsCreativePreview"><img src={editing.payload.ad.image_url} alt="Prévia do criativo selecionado" loading="lazy" /><p>Imagem escolhida para o anúncio</p></div> : null}
             <input type="url" maxLength={1000} value={editing.payload.ad.image_url} placeholder="ou cole o link direto da imagem (JPG/PNG)"
               onChange={(e) => setAd({ image_url: e.target.value, calendar_item_id: null })} />
           </div>
-        </fieldset>
-        {!locked && editing.draft.missing.length ? <p className="ds-caption metaAdsMissing">Para criar no Meta falta: {editing.draft.missing.join(" · ")} (salve para conferir de novo).</p> : null}
+        </fieldset> : null}
+        {step === 3 ? <section className="metaAdsReview" aria-label="Revisão da campanha">
+          <h3>Revise antes de criar no Meta</h3>
+          <dl>
+            <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
+            <div><dt>Orçamento e período</dt><dd>{brl(editing.payload.daily_budget)}/dia · {editing.payload.start_date.split("-").reverse().join("/")} até {editing.payload.end_date.split("-").reverse().join("/")}</dd></div>
+            <div><dt>Público confirmado</dt><dd>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</dd></div>
+            <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
+          </dl>
+          {editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
+          <p className="ds-caption">A campanha, o conjunto e o anúncio serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
+          {!locked && metaStepIssues(editing.payload, 3).length ? <p role="alert" className="metaAdsMissing">{metaStepIssues(editing.payload, 3).join(" ")}</p> : null}
+        </section> : null}
+        {stepIssue ? <p className="ds-caption metaAdsMissing" role="alert">{stepIssue}</p> : null}
         {editing.draft.status === "erro" && editing.draft.error ? <div className="ds-notice is-negative"><p className="ds-noticeTitle">{editing.draft.error}</p></div> : null}
         <div className="metaAdsFormActions">
           {editing.draft.ads_manager_url ? <a className="ds-link" href={editing.draft.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador de Anúncios</a> : <span />}
-          {!locked ? <span className="metaAdsButtons">
-            <button className="ds-button" disabled={Boolean(busy)}>{busy === "save" ? "Salvando…" : "Salvar rascunho"}</button>
-            <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : "Criar no Meta Ads (pausada)"}</button>
-          </span> : null}
+          <span className="metaAdsButtons">
+            {step > 0 ? <button type="button" className="ds-button" disabled={Boolean(busy)}
+              onClick={() => { setStep((step - 1) as MetaStep); setStepIssue(null); }}>Voltar</button> : null}
+            {!locked ? <button type="submit" className="ds-button" disabled={Boolean(busy)}>{busy === "save" ? "Salvando…" : "Salvar rascunho"}</button> : null}
+            {!locked && step < 3 ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)}
+              onClick={advance}>{step === 0 ? "Escolher público" : step === 1 ? "Escolher criativo" : "Revisar campanha"}</button> : null}
+            {!locked && step === 3 ? <button type="button" className="ds-button is-primary"
+              disabled={Boolean(busy) || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
+              onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : "Criar no Meta Ads (pausada)"}</button> : null}
+          </span>
         </div>
       </form> : null}
     </Drawer>
