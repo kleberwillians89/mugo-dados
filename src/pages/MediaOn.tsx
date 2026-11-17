@@ -33,7 +33,7 @@ type ExperienceMode = "simple" | "technical";
 const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Mídia On: estratégia de mídia paga calculada com os dados da conta, cruzada com o calendário editorial. */
-export default function MediaOn({ canManage }: { canManage: boolean }) {
+export default function MediaOn({ canManage, canManageCampaigns = canManage }: { canManage: boolean; canManageCampaigns?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(nextMonth);
@@ -217,8 +217,8 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
-    {canManage ? <div className="mediaAdCreation" id="media-campaign-builder">
-      <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} />
+    {canManageCampaigns ? <div className="mediaAdCreation" id="media-campaign-builder">
+      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
       <GoogleAdsPanel />
     </div> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}

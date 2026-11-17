@@ -276,6 +276,7 @@ _STUDIO_SEGMENTS: Dict[str, Tuple[str, bool]] = {
     "social-report": ("social_report", True),
     "media": ("media", True),
     "strategy": ("media", True),
+    "google-ads": ("media", True),
     "brand-agent": ("brand_ai", True),
     "knowledge": ("brand_ai", True),
     "brand-profile": ("brand_ai", False),

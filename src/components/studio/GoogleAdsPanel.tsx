@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
   createGoogleCampaignDraft, deleteGoogleCampaignDraft, listGoogleCampaignDrafts,
-  updateGoogleCampaignDraft, type GoogleCampaignDraft, type GoogleCampaignPayload,
+  getGoogleCampaignPublicationContext, publishGoogleCampaignDraft, updateGoogleCampaignDraft,
+  type GoogleCampaignDraft, type GoogleCampaignPayload,
 } from "../../app/googleCampaignDrafts";
 import Drawer from "../Drawer";
 import "./googleAdsPanel.css";
@@ -13,6 +14,7 @@ const blank = (): GoogleCampaignPayload => ({
   platform: "google_ads", name: "", objective: "vendas", type: "SEARCH",
   daily_budget: 30, start_date: today(), end_date: later(), final_url: "",
   locations: [], keywords: [], headlines: [], descriptions: [], notes: "",
+  contains_eu_political_advertising: null,
 });
 const splitLines = (text: string) => text.split("\n").map((s) => s.trim()).filter(Boolean);
 const friendlyError = (cause: unknown) => cause instanceof Error ? cause.message : "Não foi possível salvar a campanha.";
@@ -59,6 +61,28 @@ export default function GoogleAdsPanel() {
     } catch (cause) { setError(friendlyError(cause)); }
     finally { setBusy(false); }
   }
+  async function publish(draft: GoogleCampaignDraft) {
+    if (busy || draft.status === "publicando" || draft.status === "publicada") return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const context = await getGoogleCampaignPublicationContext();
+      const start = new Date(`${draft.payload.start_date}T12:00:00`);
+      const end = new Date(`${draft.payload.end_date}T12:00:00`);
+      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+      const total = draft.payload.daily_budget * days;
+      const confirmed = window.confirm(
+        `Criar "${draft.payload.name}" na conta Google Ads ${context.account}?\n\n` +
+        `R$ ${draft.payload.daily_budget.toLocaleString("pt-BR")} por dia · ${days} dias · até R$ ${total.toLocaleString("pt-BR")}\n` +
+        `${draft.payload.start_date} a ${draft.payload.end_date}\n\n` +
+        "A campanha, o grupo, as palavras-chave e o anúncio serão criados PAUSADOS. Nenhum gasto começa agora.",
+      );
+      if (!confirmed) return;
+      const result = await publishGoogleCampaignDraft(draft.id);
+      setDrafts((list) => list.map((item) => item.id === result.draft.id ? result.draft : item));
+      setNotice("Campanha criada pausada no Google Ads. Revise-a antes de qualquer ativação.");
+    } catch (cause) { setError(friendlyError(cause)); }
+    finally { setBusy(false); }
+  }
   return <section className="ds-section googleCampaignPanel" aria-labelledby="google-ads-campaigns">
     <div className="ds-sectionHead">
       <div className="ds-sectionHeadText">
@@ -71,10 +95,17 @@ export default function GoogleAdsPanel() {
     {notice ? <p className="studioOk" role="status">{notice}</p> : null}
     {loading ? <p className="ds-caption">Carregando campanhas…</p> : drafts.length ? <div className="googleCampaignCards">
       {drafts.map((draft) => <article className="googleCampaignCard" key={draft.id}>
-        <div><strong>{draft.payload.name}</strong><small>{draft.payload.objective} · Pesquisa · R$ {draft.payload.daily_budget.toLocaleString("pt-BR")}/dia · Rascunho</small></div>
+        <div><strong>{draft.payload.name}</strong><small>{draft.payload.objective} · Pesquisa · R$ {draft.payload.daily_budget.toLocaleString("pt-BR")}/dia · {draft.status}</small>
+          {draft.error ? <small className="studioError">{draft.error}</small> : null}</div>
         <div className="googleCampaignCardActions">
-          <button type="button" className="ds-button" disabled={busy} onClick={() => open(draft)}>Editar</button>
-          <button type="button" className="ds-link" disabled={busy} onClick={() => void remove(draft)}>Excluir</button>
+          {draft.status === "publicada" && draft.ads_manager_url
+            ? <a className="ds-button" href={draft.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Google Ads</a>
+            : <button type="button" className="ds-button is-primary" disabled={busy || draft.status === "publicando"} onClick={() => void publish(draft)}>
+              {draft.status === "publicando" ? "Publicando…" : "Criar pausada no Google"}</button>}
+          {draft.status !== "publicada" && draft.status !== "publicando" ? <>
+            <button type="button" className="ds-button" disabled={busy} onClick={() => open(draft)}>Editar</button>
+            <button type="button" className="ds-link" disabled={busy} onClick={() => void remove(draft)}>Excluir</button>
+          </> : null}
         </div>
       </article>)}
     </div> : <p className="ds-emptyLine">Nenhuma campanha Google preparada.</p>}
@@ -96,8 +127,12 @@ export default function GoogleAdsPanel() {
         <label>Palavras-chave (uma por linha)<textarea rows={4} value={form.keywords.join("\n")} onChange={(e) => set({ keywords: splitLines(e.target.value) })} placeholder={"tênis de corrida\ntênis para caminhada"} /></label>
         <label>Títulos dos anúncios (até 15, 30 caracteres cada)<textarea rows={4} value={form.headlines.join("\n")} onChange={(e) => set({ headlines: splitLines(e.target.value) })} /></label>
         <label>Descrições (até 4, 90 caracteres cada)<textarea rows={3} value={form.descriptions.join("\n")} onChange={(e) => set({ descriptions: splitLines(e.target.value) })} /></label>
+        <label>Publicidade política na União Europeia<select required value={form.contains_eu_political_advertising === null ? "" : String(form.contains_eu_political_advertising)}
+          onChange={(e) => set({ contains_eu_political_advertising: e.target.value === "" ? null : e.target.value === "true" })}>
+          <option value="">Selecione para confirmar</option><option value="false">Não contém</option><option value="true">Contém</option>
+        </select></label>
         <label>Observações<textarea rows={2} value={form.notes} onChange={(e) => set({ notes: e.target.value })} /></label>
-        <p className="ds-caption">Esta etapa salva apenas o planejamento. Não gera anúncios, campanhas ou gastos reais.</p>
+        <p className="ds-caption">Salvar mantém apenas o planejamento. A criação no Google é uma ação separada e sempre começa pausada.</p>
         <button className="ds-button is-primary" disabled={busy || !form.name.trim()}>{busy ? "Salvando…" : "Salvar rascunho Google Ads"}</button>
       </form> : null}
     </Drawer>
