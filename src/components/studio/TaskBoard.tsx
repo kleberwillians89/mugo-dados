@@ -306,6 +306,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           </div>)}
           {colPosts.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setReview(p); }} actions={busy ? [] : postQuick(p)} />)}
           {!list.length && !colPosts.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
+          {canManage && MANUAL.includes(status) ? <button type="button" className="taskAddCard"
+            onClick={() => setDraft({ ...emptyDraft(isAgency), status, category: department })}>+ Adicionar cartão</button> : null}
         </section>;
       })}
     </div> : null}
