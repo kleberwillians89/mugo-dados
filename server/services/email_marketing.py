@@ -238,7 +238,10 @@ def _merge(contacts: Dict[str, Dict[str, Any]], email: str, *, first: str, name:
     if first_order and (not current.get("first_order_at") or first_order < current["first_order_at"]):
         current["first_order_at"] = first_order
     current["phone"] = current.get("phone") or phone
-    current["consent"] = bool(current["consent"]) or bool(consent) if consent is not None else current["consent"]
+    # Mesma pessoa em múltiplos registros: uma negativa explícita impede
+    # que outro registro com aceite antigo reative o marketing por acidente.
+    if consent is not None:
+        current["consent"] = consent if current["consent"] is None else bool(current["consent"]) and bool(consent)
     current["orders"] += orders
     if last and (not current["last_order_at"] or last > current["last_order_at"]):
         current["last_order_at"] = last
