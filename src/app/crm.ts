@@ -57,7 +57,7 @@ export function listAssignees() { return http<{ available: boolean; people: Pers
 /** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
 export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;
   due_time: string | null; category: string | null; assignee_name: string | null; assignee_user_id: string | null;
-  assignee_user_ids: string[]; visible_to_client: boolean ; needs_client_approval: boolean; deliverable_url: string | null}>;
+  assignee_user_ids: string[]; visible_to_client: boolean ; needs_client_approval: boolean; send_whatsapp: boolean; deliverable_url: string | null}>;
 export function createTask(input: TaskInput) {
   return http<{ task: CrmTask }>(base("/tasks"), { method: "POST", body: JSON.stringify(input) });
 }
