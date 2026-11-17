@@ -150,6 +150,8 @@ def origin_label(origin: Optional[Dict[str, Any]]) -> str:
     """Rótulo curto para a etiqueta da conversa: 'Anúncio · Kit BF', 'Link · loja-qr'."""
     origin = origin or {}
     bucket = origin_bucket(origin)
+    if _text(origin.get("source")).upper() == "UNKNOWN":
+        return "Origem não identificada"
     if bucket == "ad":
         headline = _text(origin.get("ad_headline"))
         return f"Anúncio · {headline[:28]}" if headline else "Anúncio"
@@ -427,6 +429,8 @@ async def build_whatsapp_insights(client_id: str, *, start: Optional[str] = None
 
     provider = (await resolve_commerce_provider(client_id)).get("provider")
     notes = [ATTRIBUTION_LABEL]
+    if any(_text((lead.get("origin") or {}).get("source")).upper() == "UNKNOWN" for lead in leads):
+        notes.append("A ponte CRM da organização não possui origem de campanha verificável para estes contatos; não classificamos conversas como anúncios.")
     orders_window: List[Dict[str, Any]] = []
     store_orders: List[Dict[str, Any]] = []
     truncated = bool(result.get("truncated"))
