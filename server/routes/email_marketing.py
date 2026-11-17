@@ -148,6 +148,18 @@ async def email_test(campaign_id: str, payload: Dict[str, Any] = Body(...), clie
         raise _fail(exc) from exc
 
 
+@router.get("/api/email/campaigns/{campaign_id}/preflight")
+async def email_campaign_preflight(campaign_id: str, client_id: str | None = Query(default=None),
+                                   x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                   authorization: str | None = Header(default=None)):
+    """Confere público e remetente antes de confirmar; não dispara nem agenda nada."""
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **(await email_marketing.campaign_preflight(cid, campaign_id))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.post("/api/email/campaigns/{campaign_id}/schedule")
 async def email_schedule(campaign_id: str, payload: Dict[str, Any] = Body(default={}), client_id: str | None = Query(default=None),
                          x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
