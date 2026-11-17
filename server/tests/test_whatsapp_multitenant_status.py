@@ -54,3 +54,47 @@ def test_unconnected_tenant_has_clear_setup_state(monkeypatch):
     assert data["provider"] == "not_connected"
     assert data["number_count"] == 0
     assert data["requires_meta_credentials"] is True
+
+
+def test_mugo_crm_with_messages_shows_connected_and_no_tokens(monkeypatch):
+    import services.crm_bridge as crm
+    import services.whatsapp_sources as sources
+    async def role(cid, auth, *, allowed_roles):
+        return cid
+    async def numbers(_):
+        return []
+    async def crm_threads(cid, limit):
+        assert cid == "mugo"
+        assert limit == 1
+        return {"available": True, "connected": True, "conversations": [{"id": "thread"}]}
+    monkeypatch.setattr(whatsapp, "require_client_role", role)
+    monkeypatch.setattr(whatsapp, "list_numbers", numbers)
+    monkeypatch.setattr(sources, "bridge_for", lambda cid: None)
+    monkeypatch.setattr(crm, "_config", lambda: ("https://crm.example", "SECRET-DO-NOT-EXPOSE"))
+    monkeypatch.setattr(crm, "brand_conversations", crm_threads)
+    data = asyncio.run(whatsapp.whatsapp_connection_status("mugo"))
+    assert data["provider"] == "mugozap_crm"
+    assert data["connected"] is True
+    assert data["requires_meta_credentials"] is True
+    assert data["meta_credentials_saved"] is False
+    assert "SECRET-DO-NOT-EXPOSE" not in str(data)
+
+
+def test_global_crm_config_does_not_mark_other_tenants_connected(monkeypatch):
+    import services.crm_bridge as crm
+    import services.whatsapp_sources as sources
+    async def role(cid, auth, *, allowed_roles):
+        return cid
+    async def numbers(_):
+        return []
+    async def crm_threads(cid, limit):
+        return {"available": False, "reason": "not_linked"}
+    monkeypatch.setattr(whatsapp, "require_client_role", role)
+    monkeypatch.setattr(whatsapp, "list_numbers", numbers)
+    monkeypatch.setattr(sources, "bridge_for", lambda cid: None)
+    monkeypatch.setattr(crm, "_config", lambda: ("https://crm.example", "SECRET"))
+    monkeypatch.setattr(crm, "brand_conversations", crm_threads)
+    data = asyncio.run(whatsapp.whatsapp_connection_status("other"))
+    assert data["provider"] == "not_connected"
+    assert data["connected"] is False
+    assert data["crm_status_unavailable"] is True

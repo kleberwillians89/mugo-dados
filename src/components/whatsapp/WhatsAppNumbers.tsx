@@ -65,12 +65,17 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
       </div>
       {connection ? <div className="waConnectionSummary" role="status">
         <strong>{connection.provider === "native" ? "Cloud API conectada" :
-          connection.provider === "crm_bridge" ? "Conectado via CRM próprio" : "WhatsApp não conectado"}</strong>
+          connection.provider === "crm_bridge" ? "WhatsApp conectado via CRM próprio" :
+          connection.provider === "mugozap_crm" ? "WhatsApp conectado via MugôZap" :
+          connection.crm_status_unavailable ? "Conexão com CRM não verificada" : "WhatsApp não conectado"}</strong>
         <span>{connection.notice}</span>
-        <small>Credencial da Meta: {connection.meta_credentials_saved ? "Configurada e protegida" :
-          "Ainda não cadastrada nesta empresa"} · {connection.number_count} número(s) Cloud API ativo(s)</small>
-        {connection.provider === "crm_bridge" && !connection.native_connected ?
-          <small>Para criar modelos diretamente pela Meta, conecte uma WABA e seu número oficial. A chave da ponte CRM não é um token Meta.</small> : null}
+        <small>{connection.native_connected
+          ? `Credencial Meta protegida · ${connection.number_count} número(s) Cloud API`
+          : connection.connected
+          ? "Conexão existente preservada. Credenciais do CRM protegidas no backend; não é necessário reconectar para acessar mensagens."
+          : "Nenhuma credencial Meta nativa cadastrada nesta empresa."}</small>
+        {connection.connected && !connection.native_connected ?
+          <small>As mensagens já funcionam pelo CRM. A criação de modelos diretamente na Meta requer uma WABA vinculada ou suporte de templates pela ponte, sem substituir a conexão atual.</small> : null}
       </div> : null}
       {active.length ? (
         <ul className="waNumbers">
@@ -82,10 +87,10 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
             </li>
           ))}
         </ul>
-      ) : numbers ? <p className="waMuted">Nenhum número ligado direto no MUGOVERSO.</p> : null}
+      ) : numbers && !connection?.connected ? <p className="waMuted">Nenhum número Cloud API ligado diretamente ao Mugô Dados.</p> : null}
 
       {!open ? (
-        <button type="button" className="waPrimary" onClick={() => setOpen(true)}>{active.length ? "Ligar outro número" : "Ligar número"}</button>
+        <button type="button" className="waPrimary" onClick={() => setOpen(true)}>{active.length ? "Ligar outro número" : connection?.connected ? "Adicionar Cloud API (opcional)" : "Ligar número"}</button>
       ) : (
         <form className="waForm" onSubmit={(e) => void submit(e)}>
           <p className="waMuted">Os dados pertencem exclusivamente à empresa selecionada. Copie WABA ID e Phone Number ID do gerenciador da Meta e cadastre um token de usuário do sistema autorizado para esta WABA. Tokens nunca são exibidos novamente na tela.</p>
