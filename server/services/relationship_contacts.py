@@ -6,6 +6,7 @@ esta projeção criptografada é atualizada por tenant e não concede opt-in.
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timezone
 
 from .commerce_context import FBITS, SHOPIFY, resolve_commerce_provider
@@ -92,3 +93,28 @@ async def contacts_status(client_id: str) -> dict:
             "by_provider": {provider: sum(1 for r in rows if r.get("provider") == provider)
                             for provider in sorted({str(r.get("provider") or "") for r in rows})},
             "last_synced_at": rows[0].get("last_synced_at") if rows else None}
+
+
+async def project_updated_customers(client_id: str, provider: str, items: list[dict]) -> None:
+    """Atualização incremental após sync nativo; nunca interrompe o conector.
+
+    Desligada por padrão até revisar exclusões/retificação e validar a migração.
+    """
+    if (os.getenv("RELATIONSHIP_AUTO_PROJECT_ENABLED") or "").lower() != "true":
+        return
+    if provider not in (SHOPIFY, FBITS):
+        return
+    data = {}
+    for item in items:
+        if str(item.get("client_id") or "") != client_id:
+            continue
+        projected = _row(client_id, provider, item)
+        if projected:
+            data[projected["identity_hash"]] = projected
+    values = list(data.values())
+    try:
+        for start in range(0, len(values), BATCH):
+            await sb_upsert(TABLE, values[start:start + BATCH], on_conflict="client_id,provider,identity_hash")
+    except Exception as exc:
+        # Sync da loja é a fonte primária: não falhar por causa de projeção derivada.
+        print(f"[relationship_contacts] provider={provider} status=incremental_error error_type={type(exc).__name__}")
