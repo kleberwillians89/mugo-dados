@@ -73,7 +73,7 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
       <button type="button" className="ds-button" disabled={busy || !emails.trim()}
         onClick={() => { if (window.confirm("Remover estes contatos da lista selecionada?"))
           void action(async () => {
-            const entries = emails.split(/[\\n,;]+/).map((s) => s.trim()).filter(Boolean);
+            const entries = emails.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
             const result = await removeRelationshipListMembers(selected, entries);
             setEmails(""); setNotice(`${result.processed} identificadores processados para remoção.`);
           }); }}>Remover da lista</button>
@@ -81,7 +81,7 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
     {canEdit ? <div className="emCard">
       <h3>Histórico de e-mails do contato</h3>
       <p className="emMuted">Consulta restrita à empresa atual. O endereço não é armazenado neste histórico;
-        retornam somente eventos técnicos de envio, entrega e descadastro.</p>
+        retornam somente eventos técnicos de envio, entrega, abertura e falha.</p>
       <div className="emInlineRow">
         <input type="email" aria-label="Pesquisar e-mail no histórico" placeholder="cliente@exemplo.com"
           value={historyEmail} disabled={busy} onChange={(e) => { setHistoryEmail(e.target.value); setEvents(null); }} />
