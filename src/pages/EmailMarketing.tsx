@@ -7,12 +7,14 @@ import CampaignsPanel from "../components/email/CampaignsPanel";
 import CartRecoveryPanel from "../components/email/CartRecoveryPanel";
 import FlowsPanel from "../components/email/FlowsPanel";
 import SenderPanel from "../components/email/SenderPanel";
+import RelationshipLists from "../components/email/RelationshipLists";
 import Shell from "../components/Shell";
 import "../styles/emailMarketing.css";
 
-type Tab = "campanhas" | "fluxos" | "carrinho" | "remetente";
+type Tab = "campanhas" | "listas" | "fluxos" | "carrinho" | "remetente";
 const TABS = [
   { id: "campanhas", label: "Campanhas" },
+  { id: "listas", label: "Listas" },
   { id: "fluxos", label: "Fluxos automáticos" },
   { id: "carrinho", label: "Carrinho abandonado" },
   { id: "remetente", label: "Remetente" },
@@ -38,6 +40,7 @@ export default function EmailMarketing({ initialTab = "campanhas" }: { initialTa
         <div hidden={tab !== "remetente"}><SenderPanel canEdit={canEdit} onStatus={onStatus} /></div>
         {notice ? <p className="emNotice">{notice}</p> : null}
         {tab === "campanhas" ? <CampaignsPanel canEdit={canEdit} /> : null}
+        {tab === "listas" ? <RelationshipLists canEdit={canEdit} /> : null}
         {tab === "fluxos" ? <FlowsPanel canEdit={canEdit} /> : null}
         {tab === "carrinho" ? <CartRecoveryPanel canEdit={canEdit} /> : null}
       </div>
