@@ -199,22 +199,47 @@ class TemplateIn(BaseModel):
 async def read_whatsapp_templates(client_id: str, number_id: Optional[str] = None,
                                   authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_native import active_number_ids
+    from services.whatsapp_sources import bridge_for
+    from services import crm_whatsapp_templates
     try:
-        return {"ok": True, "templates": await list_templates(cid, number_id)}
+        if number_id or await active_number_ids(cid):
+            return {"ok": True, "templates": await list_templates(cid, number_id), "provider": "native"}
+        if bridge_for(cid):
+            raise HTTPException(409, "A ponte do CRM próprio desta marca ainda não disponibiliza modelos da Meta.")
+        return {"ok": True, "templates": await crm_whatsapp_templates.list_templates(cid),
+                "provider": "mugozap_crm"}
     except WhatsAppNativeError as exc:
         raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+    except StudioError as exc:
+        raise HTTPException(409 if exc.code in {"CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED"}
+                            else 503 if exc.code in {"CRM_TEMPLATES_NOT_READY", "CRM_TEMPLATES_NOT_CONFIGURED"}
+                            else 502, str(exc)) from None
 
 
 @router.post("/templates", status_code=201)
 async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
                                    authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_native import active_number_ids
+    from services.whatsapp_sources import bridge_for
+    from services import crm_whatsapp_templates
     try:
-        template = await create_template(cid, number_id=payload.number_id, name=payload.name,
-                                         category=payload.category, language=payload.language,
-                                         body=payload.body, examples=payload.examples, footer=payload.footer)
+        if payload.number_id or await active_number_ids(cid):
+            template = await create_template(cid, number_id=payload.number_id, name=payload.name,
+                                             category=payload.category, language=payload.language,
+                                             body=payload.body, examples=payload.examples, footer=payload.footer)
+        else:
+            if bridge_for(cid):
+                raise HTTPException(409, "A ponte do CRM próprio desta marca ainda não permite criar modelos na Meta.")
+            template = await crm_whatsapp_templates.create_template(cid, payload=payload.model_dump())
     except WhatsAppNativeError as exc:
         raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+    except StudioError as exc:
+        raise HTTPException(409 if exc.code in {"CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED"}
+                            else 422 if exc.code == "CRM_TEMPLATE_INVALID"
+                            else 503 if exc.code in {"CRM_TEMPLATES_NOT_READY", "CRM_TEMPLATES_NOT_CONFIGURED"}
+                            else 502, str(exc)) from None
     return {"ok": True, "template": template}
 
 
