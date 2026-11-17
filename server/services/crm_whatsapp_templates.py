@@ -116,7 +116,7 @@ async def connection_status(client_id: str) -> bool:
 async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
     data = await _request(client_id, method="GET", mode="conversations",
                           options={"limit": max(1, min(int(limit), 200))})
-    return {"available": True, "connected": bool(data.get("connected")),
+    return {"available": True, "connected": bool(data.get("connected")), "channel_provider": "mugozap_crm",
             "conversations": data.get("conversations") or []}
 
 
