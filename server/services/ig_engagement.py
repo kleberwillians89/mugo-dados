@@ -464,9 +464,9 @@ AI_FAILURE_REASONS = {
 PROVIDER_DETAILS = {
     "insufficient_quota": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
     "credit_balance_exhausted": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
-    "invalid_api_key": "Chave da OpenAI inválida: atualize OPENAI_API_KEY no Render e no segredo MUGO_JOBS_ENV do GitHub.",
+    "invalid_api_key": "Chave da OpenAI inválida ou indisponível para esta empresa.",
     "rate_limit_exceeded": "Limite de uso da OpenAI por minuto atingido.",
-    "model_not_found": "O modelo configurado em OPENAI_MODEL não existe ou não está liberado na conta.",
+    "model_not_found": "O modelo selecionado não existe ou não está liberado para esta empresa.",
 }
 
 

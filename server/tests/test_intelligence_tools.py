@@ -98,7 +98,8 @@ class InvestigativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("99999", json.dumps(result))
         self.assertEqual([p["max_output_tokens"] for p in self.payloads], [100, 1100])
         self.assertEqual([p["timeout_seconds"] for p in self.payloads], [10, 15])
-        self.assertNotIn(cid, json.dumps(self.payloads))
+        # client_id é metadado interno para resolução BYOK; nunca integra o payload enviado ao modelo.
+        self.assertNotIn(cid, json.dumps([entry["payload"] for entry in self.payloads]))
 
     async def test_five_tenants_and_sixth_onboarding_without_code_changes(self):
         fixtures = [{"meta"}, {"google_ads", "ga4"}, {"shopify"}, {"instagram"}, {"fbits", "meta"}, {"ga4"}]

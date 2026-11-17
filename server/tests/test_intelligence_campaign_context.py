@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services import intelligence as service
+from services import ai_runtime, intelligence as service
 
 START = date(2026, 1, 1)
 END = date(2026, 1, 2)
@@ -146,7 +146,8 @@ class UpdatedBusinessGenerationTests(unittest.IsolatedAsyncioTestCase):
         async def model(**kwargs):
             payload = kwargs["payload"]; campaign = payload["top_campaigns"][0]
             return content(campaign["metric_ids"][0], campaign["source_id"])
-        with patch.object(business_context, "sb_select", AsyncMock(side_effect=lambda *a, **k: [dict(persisted)])),              patch.object(business_context, "sb_upsert", AsyncMock(side_effect=upsert)),              patch.object(service, "_read_model_executive_context", AsyncMock(return_value={})),              patch.object(service, "resolve_commerce_context", AsyncMock(return_value={})),              patch.object(service, "external_research_context", AsyncMock(return_value={"status": "not_configured"})),              patch.object(service, "sb_select", AsyncMock(return_value=[row(), row(stat_date="2026-01-02")])),              patch.object(service, "provider_configured", return_value=True),              patch.object(service, "_reusable_analysis", AsyncMock(return_value=None)) as reuse,              patch.object(service, "_generation_cooldown_remaining", AsyncMock(return_value=0)),              patch.object(service, "_call_analysis_with_numeric_repair", AsyncMock(side_effect=model)) as provider,              patch.object(service, "_insert_analysis", save_analysis), redirect_stdout(io.StringIO()):
+        runtime = ai_runtime.AiRuntime("tenant-a", "platform_managed", "openai", "gpt-4.1-mini", "fixture-key")
+        with patch.object(business_context, "sb_select", AsyncMock(side_effect=lambda *a, **k: [dict(persisted)])),              patch.object(business_context, "sb_upsert", AsyncMock(side_effect=upsert)),              patch.object(service, "_read_model_executive_context", AsyncMock(return_value={})),              patch.object(service, "resolve_commerce_context", AsyncMock(return_value={})),              patch.object(service, "external_research_context", AsyncMock(return_value={"status": "not_configured"})),              patch.object(service, "sb_select", AsyncMock(return_value=[row(), row(stat_date="2026-01-02")])),              patch.object(ai_runtime, "resolve", AsyncMock(return_value=runtime)),              patch.object(service, "_reusable_analysis", AsyncMock(return_value=None)) as reuse,              patch.object(service, "_generation_cooldown_remaining", AsyncMock(return_value=0)),              patch.object(service, "_call_analysis_with_numeric_repair", AsyncMock(side_effect=model)) as provider,              patch.object(service, "_insert_analysis", save_analysis), redirect_stdout(io.StringIO()):
             await service.generate_analysis(client_id="tenant-a", user_id="user-a", start=START.isoformat(), end=END.isoformat())
             await business_context.save_business_context(client_id="tenant-a", user_id="user-a",
                 payload={"segment": "Moda", "product_description": "Roupas", "goals": "Margem"})

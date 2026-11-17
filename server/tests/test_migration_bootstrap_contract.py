@@ -34,7 +34,9 @@ class MigrationBootstrapContractTests(unittest.TestCase):
             )
 
     def test_auth_oauth_migration_is_nineteenth(self):
-        names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        all_names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        self.assertIn("20270109_000118_client_ai_settings.sql", all_names)
+        names = [name for name in all_names if name != "20270109_000118_client_ai_settings.sql"]
         self.assertEqual(len(names), 117)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")
         self.assertEqual(names[30], "20260816_000031_cron_job_runs_polymorphic_connections.sql")
@@ -131,7 +133,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         versions = [name.split("_", 1)[0] for name in names]
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         self.assertEqual(len(versions), len(set(versions)))
-        self.assertEqual(logical_numbers, list(range(1, 118)))
+        self.assertEqual(logical_numbers, list(range(1, 119)))
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
