@@ -259,7 +259,12 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
     {!strategy && busy === "generate" && autoMade ? <div className="ds-notice"><p className="ds-noticeTitle">A IA está montando a estratégia de {monthLabel}…</p>
       <p className="ds-noticeText">Usa Meta Ads, Google Ads, a meta do mês e o calendário editorial. Leva até 1 minuto.</p></div> : null}
     {!strategy && !busy ? <div className="ds-notice"><p className="ds-noticeTitle">{plan ? "Plano salvo sem estratégia detalhada." : `Nenhuma estratégia para ${monthLabel} ainda.`}</p>
-      <p className="ds-noticeText">{canManage ? "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial." : "A equipe ainda não publicou a estratégia deste mês."}</p></div> : null}
+      <p className="ds-noticeText">{canManage
+        ? experienceMode === "simple"
+          ? "Abra a Análise Técnica para escolher o objetivo e os parâmetros. Nenhuma geração será iniciada até você solicitar."
+          : "Escolha o objetivo e clique em Gerar estratégia. O cálculo usa os últimos 90 dias de Meta Ads e Google Ads, a meta do mês e o calendário editorial."
+        : "A equipe ainda não publicou a estratégia deste mês."}</p>
+      {canManage && experienceMode === "simple" ? <button type="button" className="ds-button is-primary" onClick={() => setExperienceMode("technical")}>Preparar minha primeira análise</button> : null}</div> : null}
 
     {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} /> : null}
 
@@ -449,11 +454,11 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   </div></Shell>;
 }
 
-function SimpleCampaignCard({ item }: { item: SimpleMediaCampaign }) {
+function SimpleCampaignCard({ item, showExplanation = false }: { item: SimpleMediaCampaign; showExplanation?: boolean }) {
   return <article className="mediaSimpleCampaign">
     <div><span className="mediaSimpleChannel">{item.channel}</span><h3>{item.campaign}</h3></div>
     <ul>{item.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
-    <p><b>Leitura possível:</b> {item.explanation}</p>
+    {showExplanation ? <p><b>Leitura possível:</b> {item.explanation}</p> : null}
   </article>;
 }
 
@@ -486,7 +491,7 @@ function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMedi
     <section className="ds-section" aria-labelledby="media-simple-improve">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-improve" className="ds-sectionTitle">O que pode melhorar?</h2>
         <p className="ds-caption">Campanhas marcadas pela análise atual para revisão ou otimização.</p></div></div>
-      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} />)}</div>
+      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showExplanation />)}</div>
         : <p className="mediaSimpleLimitation">Nenhuma campanha foi marcada para revisão com os dados disponíveis.</p>}
     </section>
 

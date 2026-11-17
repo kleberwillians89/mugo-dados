@@ -94,6 +94,7 @@ describe("Mídia On", () => {
     await act(async () => { root.render(<MediaOn canManage />); });
     await act(async () => {});
     expect(host.textContent).toContain("Seu marketing em 1 minuto");
+    expect(host.textContent?.match(/não prova isoladamente a causa/g)).toHaveLength(1);
     expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
 
     const button = (label: string) => Array.from(host.querySelectorAll("button")).find((el) => el.textContent === label) as HTMLButtonElement;
@@ -108,6 +109,24 @@ describe("Mídia On", () => {
     await act(async () => { button("Análise Técnica").click(); });
     const restored = Array.from(host.querySelectorAll("input")).find((input) => input.parentElement?.textContent?.includes("Margem de contribuição")) as HTMLInputElement;
     expect(restored.value).toBe("45");
+    expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("leva à Análise Técnica quando ainda não há estratégia sem iniciar geração", async () => {
+    vi.mocked(media.getPlan).mockResolvedValueOnce({ month: "2026-12", elapsed_days: 1, days_in_month: 31, channels: [], plan: {
+      id: "plan-empty", month: "2026-12", objective: "vendas", budget: 0, allocation: {}, scenario: null, margin: null,
+      strategy: {}, notes: null, status: "rascunho",
+    } });
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<MediaOn canManage />); });
+    await act(async () => {});
+    const prepare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Preparar minha primeira análise") as HTMLButtonElement;
+    expect(prepare).toBeTruthy();
+    await act(async () => { prepare.click(); });
+    expect(host.textContent).toContain("Escolha o objetivo e clique em Gerar estratégia");
+    expect(host.textContent).not.toContain("Preparar minha primeira análise");
     expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
