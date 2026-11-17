@@ -15,13 +15,13 @@ const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Cri
 // Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
 const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
-  category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; deliverable_url: string };
+  category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; send_whatsapp: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: true, deliverable_url: "" });
+  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: false, send_whatsapp: false, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "", assignee_user_id: t.assignee?.user_id || "",
   assignee_user_ids: (t.assignees || (t.assignee ? [t.assignee] : [])).map((a) => a.user_id).filter((id): id is string => Boolean(id)),
-  visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval !== false, deliverable_url: t.deliverable_url || "" });
+  visible_to_client: Boolean(t.visible_to_client), needs_client_approval: t.needs_client_approval === true, send_whatsapp: false, deliverable_url: t.deliverable_url || "" });
 
 export type Quick = { label: string; run: () => void; tone?: "primary" | "quiet" };
 
@@ -133,7 +133,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           (tasks.find((task) => task.id === draft.id)?.assignees?.length || 0) > 1)
           ? { assignee_user_ids: draft.assignee_user_ids } : {}),
       } : {}),
-      ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval } : {}) };
+      ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval && draft.visible_to_client } : {}),
+      ...(!draft.id ? { send_whatsapp: draft.send_whatsapp } : {}) };
     setBusy(true); setError(null);
     try { if (draft.id) await updateTask(draft.id, input); else await createTask(input); setDraft(null); await load(); }
     catch (cause) { setError(message(cause, "Não foi possível salvar a tarefa.")); }
@@ -360,6 +361,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
                       ...current, assignee_user_ids: e.target.checked
                         ? [...current.assignee_user_ids, p.user_id]
                         : current.assignee_user_ids.filter((id) => id !== p.user_id),
+                      send_whatsapp: e.target.checked ? current.send_whatsapp :
+                        current.assignee_user_ids.filter((id) => id !== p.user_id).length > 0 && current.send_whatsapp,
                     } : current)} />
                   <span>{p.name}</span>
                 </label>)}
@@ -375,8 +378,18 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           </div>
           <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
           <label className="ds-field">Link da entrega (Drive, Canva, Figma…)<input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
-          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.visible_to_client} onChange={(e) => setDraft({ ...draft, visible_to_client: e.target.checked })} /> Visível ao cliente</label> : null}
-          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.needs_client_approval} disabled={!draft.visible_to_client} onChange={(e) => setDraft({ ...draft, needs_client_approval: e.target.checked })} /> Precisa da aprovação do cliente (depois da aprovação interna)</label> : null}
+          {!draft.id ? <label className="taskCheck">
+            <input type="checkbox" checked={draft.send_whatsapp} disabled={!draft.assignee_user_ids.length}
+              onChange={(e) => setDraft({ ...draft, send_whatsapp: e.target.checked })} />
+            Avisar responsáveis também pelo WhatsApp
+          </label> : null}
+          {!draft.id ? <p className="libHint">O aviso no chat de tarefas é automático. O WhatsApp só será enviado a quem tiver telefone confirmado, aceitado receber notificações e tiver um modelo aprovado configurado.</p> : null}
+          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.visible_to_client}
+            onChange={(e) => setDraft({ ...draft, visible_to_client: e.target.checked, needs_client_approval: e.target.checked ? draft.needs_client_approval : false })} /> Visível ao cliente</label> : null}
+          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.needs_client_approval}
+            disabled={!draft.visible_to_client}
+            onChange={(e) => setDraft({ ...draft, needs_client_approval: e.target.checked })} />
+            Exigir aprovação do cliente (opcional)</label> : null}
         </fieldset>
         {current ? <section className="taskApproval" aria-label="Aprovação">
           <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
