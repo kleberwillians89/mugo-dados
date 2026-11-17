@@ -75,7 +75,7 @@ async def _whatsapp_dispatch(client_id: str, user_id: str, body: str) -> tuple[s
         return "failed", None
 
 
-async def notify_assignment(client_id: str, task: Dict[str, Any]) -> int:
+async def notify_assignment(client_id: str, task: Dict[str, Any], *, send_whatsapp: bool = False) -> int:
     """One notification per assigned person/task, including multi-assignee cards."""
     task_id = str(task.get("id") or "")
     ids = [str(item) for item in (task.get("assignee_user_ids") or []) if item]
@@ -94,7 +94,8 @@ async def notify_assignment(client_id: str, task: Dict[str, Any]) -> int:
             })
             if not row:
                 continue
-            status, provider_id = await _whatsapp_dispatch(client_id, user_id, body)
+            status, provider_id = (await _whatsapp_dispatch(client_id, user_id, body)
+                                   if send_whatsapp else ("not_configured", None))
             await sb_update(NOTIFICATIONS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"},
                             patch={"whatsapp_status": status, "whatsapp_message_id": provider_id},
                             returning="minimal")
