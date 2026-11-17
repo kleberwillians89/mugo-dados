@@ -11,6 +11,9 @@ vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: 
 // Os componentes reaproveitados têm testes próprios: aqui só conferimos que a página os monta com a permissão certa.
 vi.mock("../components/studio/BrandKnowledge", () => ({ default: ({ canManage }: { canManage: boolean }) => <div data-testid="knowledge">{canManage ? "kb-edit" : "kb-read"}</div> }));
 vi.mock("../components/brandContext/BrandProfileEditor", () => ({ default: ({ open }: { open: boolean }) => (open ? <div data-testid="profile-editor" /> : null) }));
+vi.mock("../components/brandContext/ContextHealth", () => ({ default: ({ onAction }: { onAction: (a: { tab?: string }) => void }) =>
+  <button type="button" onClick={() => onAction({ tab: "documentos" })}>Resolver pendência</button> }));
+vi.mock("../components/brandContext/BrandLearning", () => ({ default: () => <div data-testid="learning" /> }));
 vi.mock("../components/brandContext/BrandImport", () => ({ default: () => <div data-testid="import" /> }));
 vi.mock("../components/studio/BrandAgent", () => ({ default: () => <div data-testid="agent" /> }));
 vi.mock("../components/admin/BusinessContextPanel", () => ({ default: ({ canEdit }: { canEdit: boolean }) => <div data-testid="business">{canEdit ? "bc-edit" : "bc-read"}</div> }));
@@ -53,6 +56,7 @@ describe("Contexto da Marca", () => {
     await act(async () => { button("Documentos e conhecimento").click(); });
     expect(host.querySelector('[data-testid="knowledge"]')?.textContent).toBe("kb-read");
     expect(host.querySelector('[data-testid="import"]')).toBeNull();  // leitor não importa
+    expect(host.querySelector('[data-testid="learning"]')).toBeNull();
     await act(async () => { button("Configuração operacional").click(); });
     expect(host.textContent).toContain("Calendário e perfil editorial");
     expect(host.textContent).not.toContain("Integrações");
@@ -83,6 +87,13 @@ describe("Contexto da Marca", () => {
     expect(window.location.pathname).toBe("/social-media");
     expect(pop).toHaveBeenCalled();
     window.removeEventListener("popstate", pop);
+  });
+
+  it("a saúde do contexto leva para a aba que resolve", async () => {
+    await show(<BrandAI canManage />);
+    await act(async () => { button("Resolver pendência").click(); });
+    expect(host.querySelector('[data-testid="learning"]')).not.toBeNull();
+    expect(window.location.search).toBe("?aba=documentos");
   });
 
   it("abre direto na aba pedida no endereço", async () => {

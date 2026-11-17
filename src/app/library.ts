@@ -32,7 +32,7 @@ export function addLibraryLink(input: { url: string; title?: string; category: L
 export function deleteLibraryItem(id: string) { return http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
 /** Envia direto para o Storage (link assinado) com progresso e registra na Biblioteca. */
-export async function uploadLibraryFile(file: File, category: LibraryCategory, onProgress?: (pct: number) => void, title?: string) {
+export async function uploadLibraryFile(file: File, category: LibraryCategory, onProgress?: (pct: number) => void, title?: string, note?: string) {
   const type = (file.type || "").toLowerCase();
   if (!LIBRARY_ACCEPT.includes(type)) throw new Error("Tipo de arquivo não aceito. Envie imagem, vídeo, PDF ou documento do Office.");
   if (file.size > LIBRARY_MAX_BYTES) throw new Error("Arquivo acima de 500 MB.");
@@ -49,6 +49,7 @@ export async function uploadLibraryFile(file: File, category: LibraryCategory, o
   });
   return http<{ item: LibraryItem }>(base(), { method: "POST", body: JSON.stringify({
     kind: "arquivo", category, url: target.public_url, title: title || file.name, mime_type: type, size_bytes: file.size,
+    ...(note ? { note } : {}),
   }) });
 }
 
