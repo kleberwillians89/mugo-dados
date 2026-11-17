@@ -212,7 +212,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
     <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
       <button type="button" className={`mediaExperienceButton is-simple ${experienceMode === "simple" ? "is-active" : ""}`}
-        aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Visão Simples</button>
+        aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Resumo Executivo</button>
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
@@ -454,16 +454,17 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
   </div></Shell>;
 }
 
-function SimpleCampaignCard({ item, showExplanation = false }: { item: SimpleMediaCampaign; showExplanation?: boolean }) {
+function SimpleCampaignCard({ item, showDecisionReason = false }: { item: SimpleMediaCampaign; showDecisionReason?: boolean }) {
   return <article className="mediaSimpleCampaign">
     <div><span className="mediaSimpleChannel">{item.channel}</span><h3>{item.campaign}</h3></div>
     <ul>{item.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
-    {showExplanation ? <p><b>Leitura possível:</b> {item.explanation}</p> : null}
+    {showDecisionReason ? <p><b>Motivo da revisão:</b> {item.decisionReason}</p> : null}
   </article>;
 }
 
 function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMediaView> }) {
-  return <div className="mediaSimpleView" aria-label="Visão simples do desempenho">
+  const supportedExplanations = view.wins.filter((item) => item.explanation);
+  return <div className="mediaSimpleView" aria-label="Resumo executivo do desempenho">
     <section className="ds-section mediaSimpleHero" aria-labelledby="media-simple-summary">
       <span className="mediaSimpleEyebrow">Seu marketing em 1 minuto</span>
       <h2 id="media-simple-summary">{view.summary}</h2>
@@ -482,16 +483,16 @@ function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMedi
     </section>
 
     <section className="ds-section" aria-labelledby="media-simple-why">
-      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-why" className="ds-sectionTitle">Por que funcionou?</h2>
+      <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-why" className="ds-sectionTitle">O que pode explicar os resultados?</h2>
         <p className="ds-caption">Os dados mostram sinais; não provam causalidade.</p></div></div>
-      {view.wins.length ? <ul className="mediaSimpleReasons">{view.wins.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
-        : <p className="mediaSimpleLimitation">Sem campanhas comparáveis, não é seguro sugerir explicações para o desempenho.</p>}
+      {supportedExplanations.length ? <ul className="mediaSimpleReasons">{supportedExplanations.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
+        : <p className="mediaSimpleLimitation">Os dados disponíveis mostram desempenho, mas não trazem evidência suficiente para explicar por que ele ocorreu.</p>}
     </section>
 
     <section className="ds-section" aria-labelledby="media-simple-improve">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-improve" className="ds-sectionTitle">O que pode melhorar?</h2>
         <p className="ds-caption">Campanhas marcadas pela análise atual para revisão ou otimização.</p></div></div>
-      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showExplanation />)}</div>
+      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showDecisionReason />)}</div>
         : <p className="mediaSimpleLimitation">Nenhuma campanha foi marcada para revisão com os dados disponíveis.</p>}
     </section>
 
