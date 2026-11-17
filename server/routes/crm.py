@@ -29,6 +29,7 @@ TASK_APPROVERS = ("agency_admin", "client_admin", "viewer", "owner", "admin")
 ERRORS = {
     "STATUS_INVALID": (400, "Status de tarefa inválido."),
     "PRIORITY_INVALID": (400, "Prioridade inválida."),
+    "ASSIGNEE_INVALID": (422, "Selecione responsáveis válidos cadastrados nesta empresa."),
     "DUE_DATE_INVALID": (400, "Prazo inválido."),
     "TASK_TITLE_REQUIRED": (422, "Escreva o título da tarefa."),
     "TASK_NOT_FOUND": (404, "Tarefa não encontrada."),
@@ -60,6 +61,7 @@ class TaskInput(BaseModel):
     category: Optional[str] = Field(default=None, max_length=60)
     assignee_name: Optional[str] = Field(default=None, max_length=80)
     assignee_user_id: Optional[UUID] = None
+    assignee_user_ids: Optional[list[UUID]] = Field(default=None, max_length=15)
     visible_to_client: Optional[bool] = None
     needs_client_approval: Optional[bool] = None
     deliverable_url: Optional[str] = Field(default=None, max_length=1000)
