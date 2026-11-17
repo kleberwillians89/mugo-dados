@@ -255,6 +255,45 @@ async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
     return {"ok": True, "template": template}
 
 
+# ---- Pré-validação segura para futuras campanhas WhatsApp.
+# Não reutiliza listas de e-mail como autorização para mensagens WhatsApp.
+class WhatsAppTemplatePreflight(BaseModel):
+    template_name: str = Field(min_length=3, max_length=81)
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    number_id: Optional[str] = None
+
+
+@router.post("/campaigns/template-preflight")
+async def whatsapp_template_preflight(client_id: str, payload: WhatsAppTemplatePreflight,
+                                      authorization: Optional[str] = Header(None)):
+    """Somente leitura: valida template aprovado no tenant; nunca envia mensagens."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_native import active_number_ids
+    from services.whatsapp_sources import bridge_for
+    from services import crm_whatsapp_templates, brand_whatsapp_templates
+    try:
+        if payload.number_id or await active_number_ids(cid):
+            templates = await list_templates(cid, payload.number_id)
+            provider = "native"
+        elif bridge_for(cid):
+            templates = await brand_whatsapp_templates.list_templates(cid)
+            provider = "crm_bridge"
+        else:
+            templates = await crm_whatsapp_templates.list_templates(cid)
+            provider = "mugozap_crm"
+    except WhatsAppNativeError as exc:
+        raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+    except StudioError as exc:
+        raise HTTPException(503, str(exc)) from None
+    matched = next((t for t in templates if t.get("name") == payload.template_name
+                    and t.get("language") == payload.language), None)
+    approved = bool(matched and str(matched.get("status", "")).upper() == "APPROVED")
+    return {"ok": True, "provider": provider, "template_found": bool(matched),
+            "template_approved": approved, "template_status": matched.get("status") if matched else None,
+            "can_send": False, "reason": "Campanhas WhatsApp ainda exigem listas com opt-in específico, fila e homologação.",
+            "messages_sent": 0}
+
+
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
 class InstagramReply(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
