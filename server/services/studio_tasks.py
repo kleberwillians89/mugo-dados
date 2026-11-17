@@ -261,6 +261,13 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
     created = await sb_insert(TABLE, {"client_id": client_id, "created_by": user_id, **row})
     if not created:
         raise StudioError("TASK_SAVE_FAILED")
+    # Persist private notifications after the task is committed. Delivery errors
+    # must never turn a successful task create into a failed UI response.
+    try:
+        from .task_assignment_notifications import notify_assignment
+        await notify_assignment(client_id, created)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_tasks] notification_failed error_type={type(exc).__name__}")
     return task_view(created)
 
 
