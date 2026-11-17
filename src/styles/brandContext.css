@@ -1,0 +1,20 @@
+/* Configurações → Contexto da Marca */
+.bcPage .ds-segmented{margin:14px 0 4px}
+.bcStack{display:grid;gap:18px;margin-top:18px}
+.bcStack .companiesCard{margin-top:0}
+.bcCard{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:20px;padding:22px}
+.bcCardHead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px}
+.bcCardHead h2{margin:0 0 4px;font-size:18px}
+.bcList{display:grid;gap:0;margin:0}
+.bcRow{display:grid;grid-template-columns:180px minmax(0,1fr);gap:14px;padding:10px 0;border-top:1px solid var(--border,#eeebe4)}
+.bcRow dt{font-weight:600}
+.bcRow dd{margin:0;white-space:pre-line}
+.bcEmpty{opacity:.55;font-style:italic}
+.bcSub{opacity:.75}
+.bcPillars{margin:0;padding-left:18px;display:grid;gap:4px}
+.bcShortcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:18px}
+.bcShortcut{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 12px;align-items:start}
+.bcShortcut h3{margin:0 0 4px;font-size:15px}
+.bcShortcut p{margin:0}
+.bcShortcut .ds-button{grid-column:2;justify-self:start}
+@media (max-width:640px){.bcRow{grid-template-columns:1fr;gap:4px}.bcCardHead{flex-direction:column}}

@@ -51,7 +51,13 @@ export default function Campaigns({
 }: SocialMediaProps) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [profileOpenRequest, setProfileOpenRequest] = useState(0);
+  // ?perfil=1 (atalho do Contexto da Marca) já abre o Perfil da marca do Calendário; o parâmetro sai do endereço.
+  const [profileOpenRequest, setProfileOpenRequest] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("perfil") === "1" ? 1 : 0);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("perfil") !== "1") return;
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+  }, []);
   // Esteira de agentes terminou: recarrega a Matriz e o Calendário com o que ela criou.
   const [agentsRound, setAgentsRound] = useState(0);
   const onAgentsDone = useCallback(() => setAgentsRound((n) => n + 1), []);

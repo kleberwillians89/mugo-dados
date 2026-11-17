@@ -145,6 +145,8 @@ export default function AppNavigation({
   // integrações da própria empresa; Empresas é só plataforma/agência.
   const showIntegrations = canManageIntegrations ?? (platformAdmin || agencyAdmin);
   const adminItems: NavItem[] = [];
+  // Contexto da Marca: quem vê o módulo da IA da marca consulta; editar continua sendo do admin (o backend valida).
+  if (canView ? canView("brand_ai") : true) adminItems.push({ route: "brand_ai", label: "Contexto da Marca" });
   if (showIntegrations) adminItems.push({ route: "integrations", label: "Integrações" });
   if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });

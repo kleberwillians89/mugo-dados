@@ -1021,7 +1021,7 @@ function PrivateApp() {
       ) : route === "brand_health" ? (
         <BrandHealthPage key={`brand_health:${activeClientId}`} canManage={teamHere} />
       ) : route === "brand_ai" ? (
-        <BrandAI key={`brand_ai:${activeClientId}`} canManage={canEdit("brand_ai")} />
+        <BrandAI key={`brand_ai:${activeClientId}`} canManage={canEdit("brand_ai")} isAgency={teamHere} />
       ) : route === "mugo_ia" ? (
         <MugoIA key={`mugo_ia:${activeClientId}`} canManage={canEdit("brand_ai")} isAgency={teamHere} />
       ) : route === "social_report" ? (
