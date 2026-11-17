@@ -17,3 +17,5 @@
 .waTemplatePreview p{white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0;font-size:14px}
 .waTemplatePreview small{font-size:12px;color:var(--text-muted,#657180)}
 @media(max-width:720px){.waTemplateGrid{grid-template-columns:1fr}.waTemplateItem{flex-direction:column}.waTemplateActions{width:100%}.waTemplateActions button{flex:1}}
+
+.waTemplatePresets{display:flex;gap:8px;flex-wrap:wrap}.waTemplatePresets button{white-space:normal;text-align:center}
