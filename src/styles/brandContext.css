@@ -1,0 +1,57 @@
+/* Configurações → Contexto da Marca */
+.bcPage .ds-segmented{margin:14px 0 4px}
+.bcStack{display:grid;gap:18px;margin-top:18px}
+.bcStack .companiesCard{margin-top:0}
+.bcCard{background:var(--surface,#fff);border:1px solid var(--border,#dedbd4);border-radius:20px;padding:22px}
+.bcCardHead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px}
+.bcCardHead h2{margin:0 0 4px;font-size:18px}
+.bcList{display:grid;gap:0;margin:0}
+.bcRow{display:grid;grid-template-columns:180px minmax(0,1fr);gap:14px;padding:10px 0;border-top:1px solid var(--border,#eeebe4)}
+.bcRow dt{font-weight:600}
+.bcRow dd{margin:0;white-space:pre-line}
+.bcEmpty{opacity:.55;font-style:italic}
+.bcSub{opacity:.75}
+.bcPillars{margin:0;padding-left:18px;display:grid;gap:4px}
+.bcShortcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:18px}
+.bcShortcut{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 12px;align-items:start}
+.bcShortcut h3{margin:0 0 4px;font-size:15px}
+.bcShortcut p{margin:0}
+.bcShortcut .ds-button{grid-column:2;justify-self:start}
+@media (max-width:640px){.bcRow{grid-template-columns:1fr;gap:4px}.bcCardHead{flex-direction:column}}
+/* Importar configurações do planejamento */
+.bcImportCta{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border:1px dashed var(--border,#dedbd4);border-radius:14px}
+.bcImportCta p{margin:0}
+.bcImport h2{display:flex;align-items:center;gap:8px}
+.bcImportPick{display:grid;gap:10px;margin-bottom:8px}
+.bcImportPick label{display:grid;gap:4px;max-width:520px}
+.bcImportPick select{font:inherit;padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:10px;background:var(--surface,#fff)}
+.bcImportReview{display:grid;gap:12px;margin-top:14px}
+.bcImportSummary{margin:0}
+.bcImportSummary svg,.bcImport .studioOk svg,.bcImportApply .studioWarn svg{vertical-align:-2px}
+.bcImportApply>.ds-button{justify-self:start}
+.bcImportGroup{border:1px solid var(--border,#eeebe4);border-radius:16px;padding:12px 14px;display:grid;gap:10px;margin:0}
+.bcImportGroup legend{font-weight:700;padding:0 6px}
+.bcField{display:grid;gap:6px;padding:10px 12px;border-radius:12px;background:var(--surface-2,#faf9f6);border:1px solid transparent}
+.bcField.is-checked{border-color:var(--accent,#c8102e)}
+.bcField textarea,.bcField input[type=text]{width:100%;box-sizing:border-box;font:inherit;padding:8px 10px;border:1px solid var(--border,#dedbd4);border-radius:10px;background:var(--surface,#fff)}
+.bcField input[type=number]{width:72px;font:inherit;padding:6px 8px;border:1px solid var(--border,#dedbd4);border-radius:8px}
+.bcFieldHead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bcFieldHead label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.bcBadge{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface,#fff);border:1px solid var(--border,#dedbd4)}
+.bcBadge.is-found{background:#e8f4ec;border-color:#b9dcc5}
+.bcBadge.is-ambiguous{background:#fff4dc;border-color:#f0d58f}
+.bcCurrent{margin:0;opacity:.8;white-space:pre-line}
+.bcSource{margin:0;padding:6px 10px;border-left:3px solid #b9dcc5;font-size:13px;opacity:.9}
+.bcSource.is-unverified{border-left-color:#f0d58f}
+.bcSource small{opacity:.75}
+.bcNote{margin:0;font-size:13px;opacity:.85}
+.bcMode,.bcChecks{display:flex;gap:12px;flex-wrap:wrap;font-size:14px}
+.bcMode label,.bcChecks label{display:flex;align-items:center;gap:6px}
+.bcPillarEdit{display:grid;gap:6px}
+.bcPillarRow{display:grid;grid-template-columns:minmax(0,1fr) 80px auto;gap:6px;align-items:center}
+.bcWarnText{color:#9a5b00}
+.bcImportApply{display:grid;gap:8px}
+.bcConfirm{border:1px solid var(--border,#dedbd4);border-radius:14px;padding:12px 14px;background:var(--surface,#fff)}
+.bcConfirm ul{margin:6px 0 10px;padding-left:18px;display:grid;gap:4px}
+.bcCompetitorRow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.2fr) auto;gap:6px;align-items:center}
+@media (max-width:640px){.bcCompetitorRow{grid-template-columns:1fr}}

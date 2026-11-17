@@ -377,10 +377,21 @@ async def _audience_voice(client_id: str) -> str:
 
 
 async def _competitors(client_id: str) -> Dict[str, Any]:
-    """Concorrentes cadastrados no Clipping e o que saiu sobre eles nos últimos 30 dias."""
+    """Concorrentes cadastrados (Clipping e Benchmarking, inclusive os vindos do planejamento) e o que saiu sobre eles
+    nos últimos 30 dias."""
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     settings = await sb_select("studio_clipping_settings", select="competitor_terms", limit=1, filters={"client_id": f"eq.{client_id}"})
-    names = [clean_text(t, 60) for t in ((settings[0].get("competitor_terms") if settings else None) or []) if clean_text(t, 60)][:10]
+    try:
+        bench = await sb_select("benchmark_competitors", select="name", limit=30,
+                                filters={"client_id": f"eq.{client_id}", "active": "is.true"})
+    except Exception:  # noqa: BLE001 — Benchmarking indisponível não tira os concorrentes do Clipping
+        bench = []
+    names: List[str] = []
+    for term in [*((settings[0].get("competitor_terms") if settings else None) or []), *(r.get("name") for r in bench)]:
+        name = clean_text(term, 60)
+        if name and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    names = names[:12]
     rows = await sb_select("studio_clippings", select="title,source,term,sentiment,summary,relevant,published_at", limit=30,
                            order="published_at.desc.nullslast",
                            filters={"client_id": f"eq.{client_id}", "kind": "eq.concorrente", "created_at": f"gte.{since}",

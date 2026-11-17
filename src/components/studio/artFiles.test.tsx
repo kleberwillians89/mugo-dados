@@ -33,8 +33,9 @@ describe("ArtFiles", () => {
     expect(onChange).toHaveBeenLastCalledWith([A, V, B].join("\n"));
   });
 
-  it("IA da marca tem endereço próprio", () => {
+  it("Contexto da Marca tem endereço próprio e o antigo /ia-da-marca continua abrindo", () => {
+    expect(getAppRouteFromPath("/contexto-da-marca")).toBe("brand_ai");
     expect(getAppRouteFromPath("/ia-da-marca")).toBe("brand_ai");
-    expect(getPathForRoute("brand_ai")).toBe("/ia-da-marca");
+    expect(getPathForRoute("brand_ai")).toBe("/contexto-da-marca");
   });
 });
