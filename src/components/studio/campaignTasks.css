@@ -1,0 +1,16 @@
+.campaignTasks{display:grid;gap:14px;margin-top:22px;padding:18px;border:1px solid var(--border,#d8dce3);border-radius:14px}
+.campaignTasksHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.campaignTasksHeader h3{margin:0 0 6px;font-size:1.05rem}
+.campaignTasksHeader p{margin:0;font-size:.88rem;color:var(--text-muted,#657180);max-width:560px}
+.campaignTaskForm{display:grid;grid-template-columns:minmax(180px,2fr) repeat(2,minmax(120px,1fr));gap:10px;align-items:end}
+.campaignTaskForm label{display:grid;gap:5px;min-width:0;font-size:.8rem}
+.campaignTaskForm input,.campaignTaskForm select,.campaignTaskList select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:9px;border:1px solid var(--border,#d8dce3);border-radius:8px;background:var(--surface,#fff);color:inherit;font:inherit}
+.campaignTaskForm button{min-height:40px}
+.campaignTaskList{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.campaignTaskList li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border,#d8dce3);border-radius:10px}
+.campaignTaskList li div{min-width:0}
+.campaignTaskList strong{display:block;overflow-wrap:anywhere;font-size:.9rem}
+.campaignTaskList small{display:block;color:var(--text-muted,#657180);margin-top:4px}
+.campaignTaskList select{width:min(190px,45%);flex-shrink:0}
+@media(max-width:900px){.campaignTaskForm{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.campaignTasks{padding:12px}.campaignTaskForm{grid-template-columns:1fr}.campaignTaskList li{flex-direction:column;align-items:stretch}.campaignTaskList select{width:100%}}

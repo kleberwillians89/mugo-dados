@@ -216,6 +216,7 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
+    {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
     {canManage && experienceMode === "technical" ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
@@ -387,8 +388,6 @@ export default function MediaOn({ canManage }: { canManage: boolean }) {
         {mismatch.length ? <p role="alert" className="studioError">A soma das campanhas não bate com a verba de {mismatch.map((c) => CHANNELS[c]).join(" e ")}. Ajuste as verbas ou a divisão por canal.</p> : null}
         {lowCampaigns.length ? <p role="alert" className="studioError">{lowCampaigns.map((c) => c.campaign).join(", ")} abaixo de {money(MIN_DAILY)} por dia. Aumente a verba ou pause.</p> : null}
       </section>
-
-      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy.days || 14} request={prepare} /> : null}
 
       <section className="ds-section" aria-labelledby="media-weeks">
         <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-weeks" className="ds-sectionTitle">Calendário de investimento</h2>
