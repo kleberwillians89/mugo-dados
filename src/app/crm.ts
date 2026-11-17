@@ -67,6 +67,26 @@ export function updateTask(id: string, input: TaskInput) {
 export function deleteTask(id: string) {
   return http<{ ok: true }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
+export type TaskAssignmentMessage = {
+  id: string; task_id: string; title: string; body: string; task_url: string;
+  read_at: string | null; whatsapp_status: "not_configured" | "not_opted_in" | "pending" | "sent" | "failed" | "skipped_demo";
+  created_at: string;
+};
+export function listTaskNotifications() {
+  return http<{ messages: TaskAssignmentMessage[]; unread: number }>(base("/task-notifications"));
+}
+export function markTaskNotificationRead(id: string) {
+  return http<{ ok: boolean }>(base(`/task-notifications/${encodeURIComponent(id)}/read`), { method: "POST" });
+}
+export function getTaskWhatsAppPreference() {
+  return http<{ whatsapp_opt_in: boolean; provider_configured: boolean }>(base("/task-notifications/preferences"));
+}
+export function setTaskWhatsAppPreference(whatsapp_opt_in: boolean) {
+  return http<{ whatsapp_opt_in: boolean; provider_configured: boolean }>(base("/task-notifications/preferences"), {
+    method: "PUT", body: JSON.stringify({ whatsapp_opt_in }),
+  });
+}
+
 /** Tarefas que a Mugô marcou com a etiqueta "cliente" no CRM — visíveis a qualquer membro da empresa. */
 export type ClientTask = { id: string; title: string; status: TaskStatus; due_date: string | null; updated_at: string | null };
 export function listClientTasks() {

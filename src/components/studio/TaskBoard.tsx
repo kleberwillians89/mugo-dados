@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
@@ -41,6 +41,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
   const [tasks, setTasks] = useState<CrmTask[]>([]);
+  const openedNotificationTask = useRef<string | null>(null);
   const [showCancelled, setShowCancelled] = useState(false);
   const [who, setWho] = useState<string>("");
   const [department, setDepartment] = useState("");
@@ -157,6 +158,15 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null); setSentLink(null);
     try { const out = await taskHistory(task.id); setHistory({ id: task.id, events: out.events }); } catch { setHistory({ id: task.id, events: [] }); }
   }
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("task");
+    if (!requested || openedNotificationTask.current === requested) return;
+    const task = tasks.find((item) => item.id === requested);
+    if (!task) return; // never fetch a task outside the viewer's authorized task scope
+    openedNotificationTask.current = requested;
+    void openTask(task);
+  }, [tasks]);
 
   async function act(task: CrmTask, action: TaskAction, text?: string) {
     const needsText = action === "internal_changes" || action === "client_changes" || action === "comment";
