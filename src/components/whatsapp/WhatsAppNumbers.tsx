@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../../app/api";
-import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, getWhatsAppConnectionStatus, getRooveMetaRegistrationStatus, registerRooveMetaNumber, type WaMetaRegistration, type WaNumber, type WaConnectionStatus } from "../../app/whatsapp";
+import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, getWhatsAppConnectionStatus, getRooveMetaRegistrationStatus, registerRooveMetaNumber, requestRooveMetaCode, verifyRooveMetaCode, type WaMetaRegistration, type WaNumber, type WaConnectionStatus } from "../../app/whatsapp";
 
 /**
  * Números de WhatsApp da empresa ligados direto no MUGOVERSO (app da Mugô na Meta).
@@ -18,6 +18,9 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
   const [metaState, setMetaState] = useState<WaMetaRegistration | null>(null);
   const [metaBusy, setMetaBusy] = useState(false);
   const [registrationPin, setRegistrationPin] = useState("");
+  const [smsCode, setSmsCode] = useState("");
+  const [codeRequested, setCodeRequested] = useState(false);
+  const [metaNotice, setMetaNotice] = useState("");
   const rooveNumber = (numbers || []).find((n) => n.status === "active" && n.phone_number_id === "1063683626819387" && n.meta_app_id === "1161210926623351");
 
   useEffect(() => {
@@ -63,12 +66,39 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
 
   async function checkMetaRegistration() {
     if (!rooveNumber) return;
-    setMetaBusy(true); setMetaState(null); setRegistrationPin(""); setError("");
+    setMetaBusy(true); setMetaState(null); setRegistrationPin(""); setError(""); setMetaNotice("");
     try {
       setMetaState(await getRooveMetaRegistrationStatus(rooveNumber.id));
+      setCodeRequested(false); setSmsCode("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Não foi possível consultar o status na Meta.");
     } finally { setMetaBusy(false); }
+  }
+
+  async function requestCode(method: "SMS" | "VOICE") {
+    if (!rooveNumber || metaBusy || !window.confirm(`Enviar código de verificação por ${method === "SMS" ? "SMS" : "ligação"} para +55 11 94470-6392? A Meta poderá limitar novas solicitações.`)) return;
+    setMetaBusy(true); setError(""); setMetaNotice("");
+    try {
+      await requestRooveMetaCode(rooveNumber.id, method, true);
+      setCodeRequested(true);
+      setMetaNotice("A Meta confirmou a solicitação. Digite abaixo o código recebido.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "A Meta não confirmou o envio. Não repita sem conferir.");
+    } finally { setMetaBusy(false); }
+  }
+
+  async function confirmSmsCode(event: FormEvent) {
+    event.preventDefault();
+    if (!rooveNumber || !codeRequested || !/^[0-9]{4,8}$/.test(smsCode) || metaBusy) return;
+    if (!window.confirm("Confirmar na Meta o código de verificação recebido no número secundário Roove?")) return;
+    setMetaBusy(true); setError(""); setMetaNotice("");
+    try {
+      await verifyRooveMetaCode(rooveNumber.id, smsCode, true);
+      setMetaNotice("Código aceito pela Meta. Clique em Consultar status na Meta para liberar o registro.");
+      setMetaState(null); setCodeRequested(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Não foi possível confirmar o código.");
+    } finally { setSmsCode(""); setMetaBusy(false); }
   }
 
   async function registerAtMeta(event: FormEvent) {
@@ -137,6 +167,24 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
             <div role="status">
               <p>Status Meta: <strong>{metaState.status || "Indisponível"}</strong> · Verificação: {metaState.code_verification_status || "—"}</p>
               {metaState.registered ? <p>Número registrado na Cloud API. Faça um teste de recebimento.</p> : null}
+              {!metaState.registered && metaState.code_verification_status?.toUpperCase() !== "VERIFIED" ? (
+                <div className="waForm">
+                  <p className="waMuted">Verifique primeiro a posse deste número. A Meta envia um código diferente do PIN da Cloud API. Não compartilhe nenhum dos dois.</p>
+                  <div className="waFormActions">
+                    <button type="button" className="waLinkButton" disabled={metaBusy} onClick={() => void requestCode("SMS")}>Enviar código por SMS</button>
+                    <button type="button" className="waLinkButton" disabled={metaBusy} onClick={() => void requestCode("VOICE")}>Receber ligação</button>
+                  </div>
+                  {codeRequested ? (
+                    <form className="waForm" onSubmit={(e) => void confirmSmsCode(e)}>
+                      <label>Código recebido por SMS ou ligação
+                        <input type="password" inputMode="numeric" autoComplete="off" required pattern="[0-9]{4,8}" maxLength={8}
+                          value={smsCode} onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 8))} />
+                      </label>
+                      <button type="submit" className="waPrimary" disabled={metaBusy || !/^[0-9]{4,8}$/.test(smsCode)}>Confirmar código na Meta</button>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
               {!metaState.registered && !metaState.can_register ? <p>Registro bloqueado: estado desconhecido ou incompatível. Confira com a Meta.</p> : null}
               {metaState.can_register ? (
                 <form className="waForm" onSubmit={(e) => void registerAtMeta(e)}>
@@ -184,6 +232,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
           </div>
         </form>
       )}
+      {metaNotice ? <p role="status">{metaNotice}</p> : null}
       {error && !open ? <p className="waError" role="alert">{error}</p> : null}
     </section>
   );
