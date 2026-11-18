@@ -106,5 +106,63 @@ class RegistrationTests(unittest.TestCase):
         graph.assert_awaited_once()
 
 
+class VerificationTests(unittest.TestCase):
+    def test_request_requires_confirmation_without_graph_calls(self):
+        with patch.object(wn, "_graph", AsyncMock()) as graph, \
+             patch.object(wn, "sb_select", AsyncMock()) as select:
+            with self.assertRaises(wn.WhatsAppNativeError) as err:
+                asyncio.run(wn.request_roove_verification_code("roove", PHONE, method="SMS", confirmed=False))
+        self.assertEqual(err.exception.code, "CONFIRMATION_REQUIRED")
+        graph.assert_not_awaited()
+        select.assert_not_awaited()
+
+    def test_request_sms_uses_only_roove_secondary_number(self):
+        with patch.object(wn, "sb_select", AsyncMock(return_value=[ROW])), \
+             patch.object(wn, "_graph", AsyncMock(side_effect=fake_graph_verify)) as graph:
+            out = asyncio.run(wn.request_roove_verification_code("roove", PHONE, method="SMS", confirmed=True))
+        self.assertTrue(out["requested"])
+        self.assertEqual(graph.await_args_list[1].args[1], "1063683626819387/request_code")
+        self.assertEqual(graph.await_args_list[1].kwargs["json_body"], {"code_method": "SMS", "locale": "pt_BR"})
+
+    def test_request_rejects_verified_status_and_does_not_send(self):
+        async def verified(method, path, token, params=None, json_body=None):
+            return {"data": [{"id": ROW["phone_number_id"], "status": "DISCONNECTED",
+                              "code_verification_status": "VERIFIED"}]}
+        with patch.object(wn, "sb_select", AsyncMock(return_value=[ROW])), \
+             patch.object(wn, "_graph", AsyncMock(side_effect=verified)) as graph:
+            with self.assertRaises(wn.WhatsAppNativeError) as err:
+                asyncio.run(wn.request_roove_verification_code("roove", PHONE, method="VOICE", confirmed=True))
+        self.assertEqual(err.exception.code, "ALREADY_VERIFIED")
+        graph.assert_awaited_once()
+
+    def test_verify_code_never_exposes_received_otp(self):
+        with patch.object(wn, "sb_select", AsyncMock(return_value=[ROW])), \
+             patch.object(wn, "_graph", AsyncMock(side_effect=fake_graph_verify)) as graph:
+            out = asyncio.run(wn.verify_roove_verification_code("roove", PHONE, code="483719", confirmed=True))
+        self.assertTrue(out["verified"])
+        self.assertNotIn("code", out)
+        self.assertEqual(graph.await_args_list[1].args[1], "1063683626819387/verify_code")
+        self.assertEqual(graph.await_args_list[1].kwargs["json_body"], {"code": "483719"})
+
+    def test_verify_refuses_wrong_tenant_and_bad_code(self):
+        with patch.object(wn, "_graph", AsyncMock()) as graph, \
+             patch.object(wn, "sb_select", AsyncMock(return_value=[ROW])) as select:
+            with self.assertRaises(wn.WhatsAppNativeError):
+                asyncio.run(wn.verify_roove_verification_code("another", PHONE, code="483719", confirmed=True))
+            with self.assertRaises(wn.WhatsAppNativeError):
+                asyncio.run(wn.verify_roove_verification_code("roove", PHONE, code="abc", confirmed=True))
+        graph.assert_not_awaited()
+
+
+async def fake_graph_verify(method, path, token, params=None, json_body=None):
+    if method == "GET":
+        return {"data": [{"id": ROW["phone_number_id"], "status": "DISCONNECTED",
+                          "code_verification_status": "EXPIRED"}]}
+    if method == "POST" and path in ("1063683626819387/request_code", "1063683626819387/verify_code"):
+        return {"success": True}
+    raise AssertionError((method, path))
+
+
+
 if __name__ == "__main__":
     unittest.main()

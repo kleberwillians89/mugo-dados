@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-const api = vi.hoisted(() => ({ listWhatsAppNumbers: vi.fn(), getWhatsAppConnectionStatus: vi.fn(), connectWhatsAppNumber: vi.fn(), disconnectWhatsAppNumber: vi.fn(), getRooveMetaRegistrationStatus: vi.fn(), registerRooveMetaNumber: vi.fn() }));
+const api = vi.hoisted(() => ({ listWhatsAppNumbers: vi.fn(), getWhatsAppConnectionStatus: vi.fn(), connectWhatsAppNumber: vi.fn(), disconnectWhatsAppNumber: vi.fn(), getRooveMetaRegistrationStatus: vi.fn(), registerRooveMetaNumber: vi.fn(), requestRooveMetaCode: vi.fn(), verifyRooveMetaCode: vi.fn() }));
 vi.mock("../../app/whatsapp", () => api);
 import WhatsAppNumbers from "./WhatsAppNumbers";
 
@@ -80,6 +80,38 @@ describe("Número de WhatsApp da marca", () => {
     await flush();
     expect(container.textContent).not.toContain("Consultar status na Meta");
     expect(api.registerRooveMetaNumber).not.toHaveBeenCalled();
+  });
+
+  it("solicita OTP somente com confirmação e valida o código informado", async () => {
+    const number = { id: "00000000-0000-4000-8000-000000000001", phone_number_id: "1063683626819387",
+      meta_app_id: "1161210926623351", display_phone_number: "+55 11 94470-6392", status: "active", subscribed_at: null };
+    api.listWhatsAppNumbers.mockResolvedValue({ numbers: [number] });
+    api.getWhatsAppConnectionStatus.mockResolvedValue({ provider: "native", native_connected: true, connected: true,
+      number_count: 1, notice: "Cadastrado" });
+    api.getRooveMetaRegistrationStatus.mockResolvedValue({ ok: true, status: "DISCONNECTED",
+      code_verification_status: "EXPIRED", registered: false, can_register: false, registered_by_this_request: false });
+    api.requestRooveMetaCode.mockResolvedValue({ ok: true, requested: true, method: "SMS" });
+    api.verifyRooveMetaCode.mockResolvedValue({ ok: true, verified: true });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await act(async () => root.render(<WhatsAppNumbers />));
+    await flush();
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Consultar status na Meta"))!.click());
+    await flush();
+    const smsButton = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Enviar código por SMS"))!;
+    await act(async () => smsButton.click());
+    await flush();
+    expect(api.requestRooveMetaCode).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await act(async () => smsButton.click());
+    await flush();
+    expect(api.requestRooveMetaCode).toHaveBeenCalledWith(number.id, "SMS", true);
+    const otpInput = [...container.querySelectorAll('input[type="password"]')].find((x) => (x as HTMLInputElement).maxLength === 8) as HTMLInputElement;
+    await act(async () => type(otpInput, "493821"));
+    await act(async () => (otpInput.closest("form") as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(api.verifyRooveMetaCode).toHaveBeenCalledWith(number.id, "493821", true);
+    expect(container.textContent).not.toContain("493821");
+    confirm.mockRestore();
   });
 
 });
