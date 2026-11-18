@@ -45,3 +45,12 @@
 .metaCreativeDisclaimer{font-size:11px;line-height:1.5;color:var(--text-secondary,#5d717b);margin:0}
 @media(max-width:1000px){.metaCreativeStudioColumns{grid-template-columns:1fr}.metaCreativeDevice{width:min(100%,280px)}}
 @media(max-width:500px){.metaCreativeFilters{grid-template-columns:1fr}.metaCreativeAssetGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.metaCreativeFormats button b{font-size:9px}}
+
+/* Prioridade de interação: o modal de campanhas bloqueia o chat flutuante, que não deve
+   cobrir Salvar/Avançar/Publicar nem receber cliques por cima do editor. */
+body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
+.drawerBackdrop:has(.metaAdsForm){z-index:100}
+.drawerBackdrop:has(.metaAdsForm) .drawerPanel-lg{width:min(980px,calc(100vw - 20px));max-width:980px}
+.drawerBackdrop:has(.metaAdsForm) .metaAdsFormActions{position:sticky;bottom:0;z-index:4;background:var(--surface,#fff);padding:14px 0 5px;box-shadow:0 -7px 15px -15px rgba(0,0,0,.35)}
+.drawerBackdrop:has(.metaAdsForm) .metaAdsButtons{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:650px){.drawerBackdrop:has(.metaAdsForm) .drawerPanel-lg{width:100vw;max-width:none}.drawerBackdrop:has(.metaAdsForm) .metaAdsButtons{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.drawerBackdrop:has(.metaAdsForm) .metaAdsButtons .ds-button{white-space:normal;min-height:44px}}
