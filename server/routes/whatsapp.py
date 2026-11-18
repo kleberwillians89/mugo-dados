@@ -462,3 +462,118 @@ async def reply_instagram_thread(client_id: str, sender_id: str, body: Instagram
         return await manual_reply(cid, sender_id, body.text)
     except StudioError as exc:
         raise _ig_http(exc) from None
+
+
+
+# ---- Atendente de IA (números ligados direto no MUGOVERSO). Agência e admin da marca configuram e aprovam.
+_AI_ERRORS = {"NOT_FOUND": 404, "NO_SUGGESTION": 409, "OUTSIDE_WINDOW": 409, "EMPTY": 422, "INVALID_MODE": 422,
+              "INVALID_CATALOG": 422}
+
+
+def _ai_http(exc: Exception) -> HTTPException:
+    from services.whatsapp_ai import WhatsAppAiError
+    if isinstance(exc, WhatsAppAiError):
+        return HTTPException(_AI_ERRORS.get(exc.code, 400), exc.message)
+    if isinstance(exc, WhatsAppNativeError):
+        return HTTPException(409 if exc.code == "OUTSIDE_WINDOW" else 502, exc.message)
+    if isinstance(exc, StudioError):
+        return HTTPException(502, str(exc) if str(exc) != exc.code else "A IA não respondeu agora. Tente de novo.")
+    print(f"[whatsapp_ai] route_error error_type={exc.__class__.__name__}")
+    return HTTPException(503, "Não foi possível falar com a IA agora. Tente de novo em instantes.")
+
+
+class AiSettingsIn(BaseModel):
+    mode: Optional[str] = Field(default=None, pattern=r"^(off|suggest|auto)$")
+    instructions: Optional[str] = Field(default=None, max_length=12000)
+    offers: Optional[str] = Field(default=None, max_length=4000)
+    welcome_buttons: Optional[list[str]] = Field(default=None, max_length=3)
+    featured_products: Optional[list[str]] = Field(default=None, max_length=30)
+    catalog_id: Optional[str] = Field(default=None, max_length=30)
+    product_cards: Optional[bool] = None
+    human_pause_minutes: Optional[int] = Field(default=None, ge=0, le=10080)
+
+
+class SimTurn(BaseModel):
+    role: str = Field(pattern=r"^(cliente|marca)$")
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class SimulateIn(BaseModel):
+    conversation: list[SimTurn] = Field(min_length=1, max_length=20)
+
+
+class SuggestionSendIn(BaseModel):
+    text: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.get("/ai-settings")
+async def read_ai_settings(client_id: str, authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import get_settings
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return {"settings": await get_settings(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.put("/ai-settings")
+async def update_ai_settings(client_id: str, body: AiSettingsIn, authorization: Optional[str] = Header(None)):
+    from services.tenant import require_user_id
+    from services.whatsapp_ai import save_settings
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"settings": await save_settings(cid, user_id=user_id, **body.model_dump(exclude_unset=True))}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.get("/ai-settings/catalog")
+async def read_ai_catalog_status(client_id: str, authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import catalog_status
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return await catalog_status(cid)
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.post("/ai-settings/simulate")
+async def simulate_ai(client_id: str, body: SimulateIn, authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import simulate
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return await simulate(cid, [turn.model_dump() for turn in body.conversation])
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.post("/conversations/{conversation_id}/ai-suggestion/send")
+async def send_ai_suggestion(client_id: str, conversation_id: str, body: SuggestionSendIn,
+                             authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import send_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return await send_suggestion(cid, conversation_id, text=body.text)
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.delete("/conversations/{conversation_id}/ai-suggestion")
+async def discard_ai_suggestion(client_id: str, conversation_id: str, authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import discard_suggestion
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return await discard_suggestion(cid, conversation_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.post("/conversations/{conversation_id}/ai/resume")
+async def resume_ai(client_id: str, conversation_id: str, authorization: Optional[str] = Header(None)):
+    from services.whatsapp_ai import resume
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    try:
+        return await resume(cid, conversation_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None

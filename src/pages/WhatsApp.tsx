@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
-import { CRM_UNAVAILABLE_TEXT, windowOpen, type CrmMessage } from "../app/crm";
+import { CRM_UNAVAILABLE_TEXT, windowOpen } from "../app/crm";
 import {
-  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound, replyWhatsApp,
-  type WaConversation, type WhatsAppInbox, type WhatsAppInsights,
+  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, discardWhatsAppAiSuggestion, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages,
+  isOutbound, replyWhatsApp, resumeWhatsAppAi, sendWhatsAppAiSuggestion,
+  type WaConversation, type WaMessage, type WhatsAppInbox, type WhatsAppInsights,
 } from "../app/whatsapp";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -16,10 +17,11 @@ import WhatsAppNumbers from "../components/whatsapp/WhatsAppNumbers";
 import WhatsAppTemplates from "../components/whatsapp/WhatsAppTemplates";
 import WhatsAppBulkCampaigns from "../components/whatsapp/WhatsAppBulkCampaigns";
 import InstagramInbox from "../components/whatsapp/InstagramInbox";
+import WhatsAppAiAttendant, { AiExtras } from "../components/whatsapp/WhatsAppAiAttendant";
 import "../styles/whatsapp.css";
 
 type Filter = "all" | "ad" | "bought" | "waiting";
-type WorkspaceView = "conversations" | "models" | "analytics" | "connection" | "bulk";
+type WorkspaceView = "conversations" | "ai" | "models" | "analytics" | "connection" | "bulk";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Todas" }, { key: "ad", label: "De anúncio" },
   { key: "bought", label: "Compraram" }, { key: "waiting", label: "Sem resposta" },
@@ -62,7 +64,9 @@ export default function WhatsApp() {
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [thread, setThread] = useState<{ id: string; messages: CrmMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
+  const [thread, setThread] = useState<{ id: string; messages: WaMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
+  const [suggestionDraft, setSuggestionDraft] = useState<{ id: string; text: string } | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     if (!clientId) return;
@@ -102,6 +106,36 @@ export default function WhatsApp() {
       .catch(() => { if (alive) setInbox({ data: null, error: true }); });
     return () => { alive = false; };
   }, [clientId, openConversation]);
+
+  const refreshInbox = useCallback(() => {
+    getWhatsAppInbox().then((data) => { if (getActiveClientId() === clientId) setInbox({ data, error: false }); }).catch(() => undefined);
+  }, [clientId]);
+
+  /** Sugestão da IA: aprova (com o texto editado), descarta, ou devolve a conversa para a IA depois da equipe. */
+  async function aiAction(kind: "send" | "discard" | "resume") {
+    if (!openId) return;
+    setAiBusy(true); setSendNote(null);
+    try {
+      if (kind === "send") {
+        const text = suggestionDraft?.id === openId ? suggestionDraft.text : undefined;
+        await sendWhatsAppAiSuggestion(openId, text);
+        setSendNote({ ok: true, text: "Resposta da IA enviada." });
+      } else if (kind === "discard") {
+        await discardWhatsAppAiSuggestion(openId);
+        setSendNote({ ok: true, text: "Sugestão descartada." });
+      } else {
+        await resumeWhatsAppAi(openId);
+        setSendNote({ ok: true, text: "A IA volta a atender esta conversa na próxima mensagem da cliente." });
+      }
+      setSuggestionDraft(null);
+      await openConversation(openId, true);
+      refreshInbox();
+    } catch (cause) {
+      setSendNote({ ok: false, text: cause instanceof Error && cause.message ? cause.message : "Não foi possível agora." });
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   async function sendReply(event: FormEvent) {
     event.preventDefault();
@@ -150,7 +184,7 @@ export default function WhatsApp() {
         />
 
         <nav className="waWorkspaceTabs" aria-label="Áreas do WhatsApp">
-          {([["conversations", "Conversas"], ["models", "Modelos"], ["bulk", "Disparos em massa"], ["analytics", "Resultados"], ["connection", "Conexão"]] as const).map(([key, label]) => (
+          {([["conversations", "Conversas"], ["ai", "Atendimento IA"], ["models", "Modelos"], ["bulk", "Disparos em massa"], ["analytics", "Resultados"], ["connection", "Conexão"]] as const).map(([key, label]) => (
             <button type="button" key={key} className={workspaceView === key ? "is-active" : ""}
               aria-current={workspaceView === key ? "page" : undefined}
               onClick={() => setWorkspaceView(key)}>{label}
@@ -159,6 +193,12 @@ export default function WhatsApp() {
             </button>
           ))}
         </nav>
+        <div className="waWorkspacePanel" hidden={workspaceView !== "ai"}>
+          {workspaceView === "ai" ? <>
+            <div className="waInboxIntro"><div><h2>Atendimento com IA</h2><p>A assistente virtual da marca no WhatsApp: tom, botões, produtos da Shopify e do catálogo da Meta.</p></div></div>
+            <WhatsAppAiAttendant key={`ai-${clientId || "none"}`} />
+          </> : null}
+        </div>
         <div className="waWorkspacePanel" hidden={workspaceView !== "bulk"}>
           {workspaceView === "bulk" ? <WhatsAppBulkCampaigns key={`bulk-${clientId || "none"}`} /> : null}
         </div>
@@ -344,6 +384,8 @@ export default function WhatsApp() {
                       {conv.insight ? <span className={`waTag is-stage-${conv.insight.stage}`}>{STAGE_LABELS[conv.insight.stage] || conv.insight.stage}</span> : null}
                       {conv.purchase ? <span className="waTag is-bought">Comprou {money(conv.purchase.revenue)}</span> : null}
                       {!conv.purchase && isWaiting(conv) ? <span className="waTag is-waiting">Aguardando resposta</span> : null}
+                      {conv.ai_suggestion ? <span className="waTag is-link">IA sugeriu resposta</span> : null}
+                      {conv.ai_handoff_reason && conv.ai_handoff_reason !== "Pausada pela equipe" ? <span className="waTag is-waiting">IA chamou a equipe</span> : null}
                     </span>
                   </button>
                 </li>
@@ -355,7 +397,7 @@ export default function WhatsApp() {
             {open ? (
               <>
                 <header className="waThreadHead">
-                  <div><b>{open.contact.name || "Contato"}</b><small>{open.contact.phone_masked}{open.attendance_mode === "bot" ? " · atendida pela IA" : ""}</small></div>
+                  <div><b>{open.contact.name || "Contato"}</b><small>{open.contact.phone_masked}{open.attendance_mode === "bot" ? " · atendida pela IA" : open.attendance_mode === "suggest" ? " · IA sugerindo respostas" : ""}</small></div>
                   <span className={windowOpen(open.service_window_expires_at) ? "waTag is-bought" : "waTag"}>
                     {windowOpen(open.service_window_expires_at) ? "Janela de 24h aberta" : "Fora da janela de 24h"}
                   </span>
@@ -366,9 +408,10 @@ export default function WhatsApp() {
                   {thread.loading ? <li className="waEvent is-plain">Carregando…</li> : null}
                   {thread.error ? <li className="waEvent is-plain">Não foi possível abrir esta conversa agora.</li> : null}
                   {messages.map((m) => (
-                    <li key={m.id} className={`waBubble${isOutbound(m.direction) ? " is-out" : ""}${m.failed ? " is-failed" : ""}`}>
+                    <li key={m.id} className={`waBubble${isOutbound(m.direction) ? " is-out" : ""}${m.by_ai ? " is-ai" : ""}${m.failed ? " is-failed" : ""}`}>
                       <p>{m.text || (m.template_name ? `Modelo: ${m.template_name}` : `[${m.type}]`)}</p>
-                      <small>{fullWhen(m.at)}{isOutbound(m.direction) && m.read_at ? " · lida" : ""}{m.failed ? " · falhou" : ""}</small>
+                      {m.payload ? <AiExtras buttons={m.payload.buttons || []} products={m.payload.cards === false || !m.payload.products ? [] : m.payload.products} /> : null}
+                      <small>{m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{isOutbound(m.direction) && m.read_at ? " · lida" : ""}{m.failed ? " · falhou" : ""}</small>
                     </li>
                   ))}
                   {open.purchase ? (
@@ -377,6 +420,26 @@ export default function WhatsApp() {
                     </li>
                   ) : null}
                 </ol>
+                {open.ai_handoff_reason && open.ai_handoff_reason !== "Pausada pela equipe" ? (
+                  <div className="waAiHandoff" role="status">
+                    <p><b>A IA passou para a equipe:</b> {open.ai_handoff_reason}</p>
+                    <button type="button" className="ds-button" disabled={aiBusy} onClick={() => void aiAction("resume")}>Devolver para a IA</button>
+                  </div>
+                ) : null}
+                {open.ai_suggestion && windowOpen(open.service_window_expires_at) ? (
+                  <div className="waAiSuggestion" aria-label="Sugestão da IA">
+                    <p className="waAiSuggestionHead"><b>Sugestão da IA</b>{open.ai_suggestion.handoff ? <span className="waTag is-waiting">passa para a equipe</span> : null}</p>
+                    <label className="waSrOnly" htmlFor="wa-ai-suggestion">Texto sugerido</label>
+                    <textarea id="wa-ai-suggestion" rows={3} maxLength={1000}
+                      value={suggestionDraft?.id === open.id ? suggestionDraft.text : open.ai_suggestion.reply}
+                      onChange={(e) => setSuggestionDraft({ id: open.id, text: e.target.value })} />
+                    <AiExtras buttons={open.ai_suggestion.buttons} products={open.ai_suggestion.products} />
+                    <div className="waFormActions">
+                      <button type="button" className="ds-button is-primary" disabled={aiBusy} onClick={() => void aiAction("send")}>{aiBusy ? "Enviando…" : "Aprovar e enviar"}</button>
+                      <button type="button" className="ds-button" disabled={aiBusy} onClick={() => void aiAction("discard")}>Descartar</button>
+                    </div>
+                  </div>
+                ) : null}
                 {inbox.data?.channel_provider === "mugozap_crm"
                   ? <p className="waMuted waPad">As conversas da Mugô já estão sincronizadas. Para responder, use o CRM Mugô por enquanto; o envio por esta tela ainda não foi habilitado.</p>
                   : windowOpen(open.service_window_expires_at) ? (

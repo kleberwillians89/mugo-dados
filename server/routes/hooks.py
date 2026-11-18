@@ -69,3 +69,18 @@ async def instagram_dm_hook(body: InstagramDmHook, x_ig_dm_key: Optional[str] = 
         raise HTTPException(status_code=401, detail="Chave inválida.")
     from services.ig_direct import process_client
     return await process_client(body.client_id)
+
+
+class WhatsAppAiHook(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    client_id: str = Field(min_length=1, max_length=120)
+
+
+@router.post("/whatsapp-ai")
+async def whatsapp_ai_hook(body: WhatsAppAiHook, x_whatsapp_ai_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Aviso da Edge Function whatsapp-webhook: chegou mensagem nova nesta marca → a IA responde (ou sugere) agora."""
+    expected = (os.getenv("WHATSAPP_AI_HOOK_KEY") or "").strip()
+    if not expected or not hmac.compare_digest(expected, (x_whatsapp_ai_key or "").strip()):
+        raise HTTPException(status_code=401, detail="Chave inválida.")
+    from services.whatsapp_ai import process_client
+    return await process_client(body.client_id)
