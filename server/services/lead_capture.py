@@ -286,3 +286,29 @@ async def campaign_recent_contacts(client_id: str, campaign: str, limit: int = 5
             "consent_verified": row.get("consent_verified") is True,
         })
     return output
+
+
+async def list_capture_campaigns(client_id: str) -> list[dict]:
+    """Tenant-scoped campaigns observed in captured events (no PII).
+
+    Draft links without a lead are not persisted; this discovery is intentionally
+    based on real events rather than inventing a campaign registry.
+    """
+    from .sales_by_origin import _paged
+    rows, truncated = await _paged(
+        EVENT_TABLE,
+        select="campaign_key,created_at",
+        filters={"client_id": f"eq.{client_id}"},
+        order="created_at.desc", max_rows=20000,
+    )
+    if truncated:
+        raise LeadCaptureError("Muitos cadastros para listar campanhas; use a chave da campanha.", 422)
+    counts: dict[str, dict] = {}
+    for item in rows:
+        campaign = str(item.get("campaign_key") or "").strip()
+        if not campaign:
+            continue
+        if campaign not in counts:
+            counts[campaign] = {"key": campaign, "leads": 0, "last_received_at": item.get("created_at")}
+        counts[campaign]["leads"] += 1
+    return sorted(counts.values(), key=lambda row: str(row.get("last_received_at") or ""), reverse=True)
