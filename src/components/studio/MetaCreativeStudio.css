@@ -1,0 +1,53 @@
+/* Mugô creative studio — scoped within Meta campaign editor */
+.mcs{border:1px solid var(--border-subtle,#dde3e5);border-radius:14px;background:var(--surface,#fff);padding:16px;min-width:0}
+.mcsHead{display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap}
+.mcsHead h3{font-size:19px;line-height:1.2;letter-spacing:-.035em;margin:5px 0 8px}
+.mcsHead p{color:var(--text-secondary,#63737f);font-size:12px;line-height:1.45;margin:0}
+.mcsEyebrow{font-weight:780;letter-spacing:.13em;font-size:10px;color:#0b596f}
+.mcsHeadActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mcsWorkspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.95fr);gap:14px;margin-top:16px}
+.mcsLibrary,.mcsPreviewSide{border:1px solid var(--border-subtle,#e0e4e7);border-radius:11px;padding:13px;min-width:0}
+.mcsFilters{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,.7fr);gap:10px}
+.mcsSearch,.mcsExternal{display:grid;gap:6px;color:var(--text-secondary,#657681);font-size:12px;font-weight:600}
+.mcsSearch input,.mcsSearch select,.mcsExternal input{width:100%;min-width:0;border:1px solid var(--border-subtle,#d5dce0);border-radius:8px;padding:10px;font:inherit;color:var(--text-primary,#263743);background:var(--surface,#fff);box-sizing:border-box}
+.mcsCount{font-size:11px;color:var(--text-secondary,#657681);padding:12px 0 8px}
+.mcsAssets{display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:9px;max-height:330px;overflow-y:auto;align-content:start}
+.mcsAsset{border:2px solid transparent;padding:5px;border-radius:10px;background:var(--surface-subtle,#f2f5f6);text-align:left;cursor:pointer;min-width:0;display:flex;flex-direction:column;gap:3px}
+.mcsAsset:hover{border-color:#94b7c2}
+.mcsAsset.is-selected{border-color:#0b6075;box-shadow:0 0 0 1px #0b6075}
+.mcsAsset:disabled{opacity:.65;cursor:default}
+.mcsAsset img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px}
+.mcsAsset span{font-size:11px;font-weight:720;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcsAsset small{font-size:10px;color:var(--text-secondary,#6b7982)}
+.mcsEmpty{border:1px dashed var(--border-subtle,#dbe2e5);border-radius:8px;padding:25px 14px;font-size:12px;color:var(--text-secondary,#67757b);line-height:1.4}
+.mcsExternal{margin-top:16px}
+.mcsPreviewTop{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
+.mcsPreviewTop span{font-size:11px;background:#e4eef1;border-radius:20px;color:#124e62;font-weight:750;padding:5px 8px}
+.mcsFormats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:12px 0}
+.mcsFormats button{min-width:0;border:1px solid var(--border-subtle,#d9e2e5);background:var(--surface,#fff);color:var(--text-primary,#24313a);border-radius:8px;padding:8px 4px;font:inherit;font-weight:750;font-size:12px;cursor:pointer}
+.mcsFormats button small{font-size:9px;display:block;margin-top:3px;font-weight:450;line-height:1.3;color:var(--text-secondary,#66757e)}
+.mcsFormats button.is-active{border-color:#0b6075;background:#eaf4f5;color:#0b5668}
+.mcsStage{background:#eff3f5;border:1px solid #e0e5e8;padding:13px 10px;border-radius:11px;display:flex;justify-content:center;min-height:280px;align-items:center}
+.mcsAdMock{width:100%;max-width:280px;background:#fff;border:1px solid #e1e5e8;border-radius:10px;overflow:hidden;color:#20262b;box-shadow:0 8px 20px rgba(20,40,55,.08)}
+.mcsMockHead{display:flex;align-items:center;gap:8px;padding:9px 10px}
+.mcsBrandDot{width:27px;height:27px;display:grid;place-items:center;background:#0b586b;color:#fff;border-radius:50%;font-weight:750}
+.mcsMockHead b,.mcsMockHead small,.mcsMockFooter b,.mcsMockFooter small{display:block;font-size:10px;line-height:1.3}
+.mcsMockHead small,.mcsMockFooter small{color:#79818a;font-size:9px}
+.mcsMockCopy{font-size:10px;line-height:1.5;margin:0;padding:4px 10px 10px;white-space:pre-wrap;max-height:100px;overflow:auto}
+.mcsImage{overflow:hidden;background:#e0e5e8;width:100%}
+.mcsImage.is-feed{aspect-ratio:1}
+.mcsImage.is-portrait{aspect-ratio:4/5}
+.mcsImage.is-story{aspect-ratio:9/16;max-height:350px}
+.mcsImage.is-wide{aspect-ratio:1.91/1}
+.mcsImage img{display:block;width:100%;height:100%;object-fit:cover}
+.mcsNoImage{display:grid;place-items:center;text-align:center;height:100%;padding:20px;color:#72838c;font-size:12px}
+.mcsMockFooter{padding:8px;display:flex;align-items:center;justify-content:space-between;gap:9px}
+.mcsMockFooter>span:first-child{min-width:0;overflow-wrap:anywhere}
+.mcsMockCta{background:#e9edf0;color:#303e49;border-radius:5px;padding:6px;font-size:9px;font-weight:750;white-space:nowrap}
+.mcsFormatInfo,.mcsWarning{font-size:11px;line-height:1.5;margin:12px 0 0;color:var(--text-secondary,#657581)}
+.mcsWarning{padding:10px;background:#fff7e7;border-left:3px solid #c79830;border-radius:5px;color:#72551a}
+.mcs button:focus-visible,.mcs input:focus-visible,.mcs select:focus-visible{outline:2px solid #0c647a;outline-offset:2px}
+@media(max-width:950px){.mcsWorkspace{grid-template-columns:minmax(0,1fr)}.mcsAssets{max-height:270px}.mcsStage{min-height:200px}}
+@media(max-width:520px){.mcs{padding:11px}.mcsFilters{grid-template-columns:minmax(0,1fr)}.mcsHeadActions{width:100%}.mcsHeadActions button{flex:1}.mcsFormats button small{font-size:8px}}
+/* A modal editor must always win over the global floating task chat, including in mobile. */
+body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
