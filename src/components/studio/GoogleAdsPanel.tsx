@@ -28,7 +28,7 @@ function fromBrief(brief: Brief): GoogleCampaignPayload {
   const objective: GoogleCampaignPayload["objective"] = raw.includes("lead") || raw.includes("cadastro") ? "leads"
     : raw.includes("tráfego") || raw.includes("trafego") ? "trafego" : "vendas";
   const validDeadline = detail.deadline?.slice(0, 10) || "";
-  const endDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(validDeadline) && validDeadline >= base.start_date
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(validDeadline) && validDeadline >= base.start_date
     ? validDeadline : base.end_date;
   const days = Math.max(1, Math.round((new Date(endDate + "T12:00:00").getTime() -
     new Date(base.start_date + "T12:00:00").getTime()) / 86_400_000) + 1);
@@ -39,7 +39,7 @@ function fromBrief(brief: Brief): GoogleCampaignPayload {
       detail.audience && "Público: " + detail.audience, detail.goal && "Meta: " + detail.goal,
       detail.media?.budget ? "Verba total informada: R$ " + detail.media.budget : "",
       "Revise datas, orçamento diário, URL de destino e anúncios antes de publicar.",
-    ].filter(Boolean).join("\\n"),
+    ].filter(Boolean).join("\n"),
   };
 }
 
