@@ -96,6 +96,7 @@ class NumberIn(BaseModel):
     waba_id: str = Field(min_length=5, max_length=30)
     phone_number_id: str = Field(min_length=5, max_length=30)
     access_token: str = Field(min_length=20, max_length=2000)
+    meta_app_id: Optional[str] = Field(default=None, pattern=r"^[0-9]{5,30}$")
 
 
 @router.get("/connection-status")
@@ -175,7 +176,7 @@ async def create_whatsapp_number(client_id: str, payload: NumberIn, authorizatio
     cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
     try:
         number = await register_number(cid, waba_id=payload.waba_id, phone_number_id=payload.phone_number_id,
-                                       access_token=payload.access_token)
+                                       access_token=payload.access_token, meta_app_id=payload.meta_app_id)
     except WhatsAppNativeError as exc:
         status = 409 if exc.code == "NUMBER_IN_USE" else 502 if exc.code in {"META_UNREACHABLE", "META_FAILED"} else 422
         raise HTTPException(status, exc.message) from None
