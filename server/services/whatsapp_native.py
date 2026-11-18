@@ -169,6 +169,8 @@ async def _roove_registration_number(client_id: str, number_id: str) -> Dict[str
     if not rows:
         raise WhatsAppNativeError("NOT_FOUND", "Número da Roove não encontrado ou desconectado.")
     number = rows[0]
+    if str(number.get("id") or "") != str(number_id):
+        raise WhatsAppNativeError("NOT_FOUND", "Número da Roove não encontrado.")
     for field in ("client_id", "waba_id", "phone_number_id", "meta_app_id"):
         if str(number.get(field) or "") != ROOVE_REGISTRATION[field]:
             raise WhatsAppNativeError("NOT_FOUND", "Identidade do número não corresponde à Roove.")
@@ -177,7 +179,7 @@ async def _roove_registration_number(client_id: str, number_id: str) -> Dict[str
     return number
 
 
-async def _meta_roove_status(number: Dict[str, Any]) -> Dict[str, str]:
+async def _meta_roove_status(number: Dict[str, Any]) -> Dict[str, Any]:
     # Consulta na WABA (não confiar em public.whatsapp_numbers.status, que é local).
     payload = await _graph(
         "GET", f"{number['waba_id']}/phone_numbers", number["access_token"],
