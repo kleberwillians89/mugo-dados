@@ -112,6 +112,39 @@ async def _authenticate(source_id: str, key: str) -> dict:
 
 async def ingest(source_id: str, key: str, payload: dict[str, Any]) -> dict:
     source = await _authenticate(source_id, key)
+    return await _ingest_authenticated(source, payload)
+
+
+async def ingest_shopify_proxy(shop_domain: str, payload: dict[str, Any]) -> dict:
+    """Trusted only after verifying the Shopify app-proxy HMAC at the route.
+
+    Resolve the tenant from the installed store, never from user-supplied fields.
+    Each connected store gets one reusable source for all campaigns; its secret
+    is kept server-side and is never returned to the Shopify theme.
+    """
+    from .shopify_oauth import resolve_store_by_domain
+    store = await resolve_store_by_domain(shop_domain)
+    if not store or str(store.get("status") or "").lower() != "active":
+        raise LeadCaptureError("Loja não conectada ou inativa.", 403)
+    cid = str(store.get("client_id") or "").strip()
+    if not cid:
+        raise LeadCaptureError("Empresa não identificada.", 403)
+    sources = await sb_select(
+        SOURCE_TABLE, select="id,client_id,kind,active,name",
+        filters={"client_id": f"eq.{cid}", "kind": "eq.shopify", "active": "eq.true"},
+        order="created_at.asc", limit=100,
+    )
+    source = next((s for s in sources if s.get("name") == "Shopify Landing Pages"), None)
+    if source is None:
+        # Provision via the established source service; the issued secret is
+        # deliberately discarded, as signed Shopify app proxies do not use it.
+        issued = await create_source(cid, "Shopify Landing Pages", "shopify")
+        source = {"id": issued["id"], "client_id": cid, "kind": "shopify", "active": True}
+    return await _ingest_authenticated(source, payload)
+
+
+async def _ingest_authenticated(source: dict, payload: dict[str, Any]) -> dict:
+    source_id = str(source["id"])
     event_id = str(payload.get("event_id") or "").strip()
     if not 1 <= len(event_id) <= 160 or any(ord(c) < 32 for c in event_id):
         raise LeadCaptureError("event_id estável é obrigatório.", 422)
