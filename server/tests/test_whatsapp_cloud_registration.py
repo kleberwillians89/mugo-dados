@@ -204,5 +204,49 @@ class GraphErrorDiagnosticsTests(unittest.TestCase):
 
 
 
+class SafeMetaReasonTests(unittest.TestCase):
+    def test_identifies_unsupported_operation_without_echoing_sensitive_details(self):
+        detail = "Unsupported post request. Object with ID '1063683626819387' does not support this operation. token EAAGsecret"
+        reason, trace = wn._safe_meta_operation_diagnostic({
+            "message": detail, "fbtrace_id": "AqBcDfGh12345",
+        })
+        self.assertEqual(reason, "operacao_nao_suportada")
+        self.assertEqual(trace, "AqBcDfGh12345")
+        self.assertNotIn("1063683626819387", reason)
+        self.assertNotIn("EAAG", reason)
+
+    def test_untrusted_trace_rejected(self):
+        reason, trace = wn._safe_meta_operation_diagnostic({
+            "message": "Invalid parameter: locale", "fbtrace_id": "token secret!\nprivate",
+        })
+        self.assertEqual(reason, "idioma_ou_locale")
+        self.assertEqual(trace, "")
+
+    def test_meta_100_returns_categorized_diagnostic_without_raw_error(self):
+        import httpx
+        from unittest.mock import Mock
+        request = httpx.Request("POST", "https://graph.facebook.com/v23.0/1063683626819387/request_code")
+        response = httpx.Response(
+            400, request=request,
+            json={"error": {
+                "code": 100, "message": "Unsupported post request for token SECRETDO_NOT_LEAK",
+                "fbtrace_id": "AbCdEf123456",
+            }},
+        )
+        fake_client = Mock()
+        fake_client.request = AsyncMock(return_value=response)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+        with patch.object(wn.httpx, "AsyncClient", return_value=fake_client):
+            with self.assertRaises(wn.WhatsAppNativeError) as ctx:
+                asyncio.run(wn._graph("POST", "1063683626819387/request_code", "secret-token",
+                                      json_body={"code_method": "SMS", "locale": "pt_BR"}))
+        self.assertEqual(ctx.exception.code, "META_REQUEST_INVALID")
+        self.assertIn("motivo=operacao_nao_suportada", ctx.exception.message)
+        self.assertIn("trace=AbCdEf123456", ctx.exception.message)
+        self.assertNotIn("SECRETDO_NOT_LEAK", ctx.exception.message)
+
+
+
 if __name__ == "__main__":
     unittest.main()
