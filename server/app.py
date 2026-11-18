@@ -80,6 +80,7 @@ from routes.channels import router as channels_router
 from routes.crm import router as crm_router
 from routes.hooks import router as hooks_router
 from routes.lead_capture import router as lead_capture_router
+from routes.roove_first_access import router as roove_first_access_router
 from routes.content_ops import router as content_ops_router
 from routes.ai_settings import router as ai_settings_router
 
@@ -386,6 +387,7 @@ app.include_router(studio_public_router)
 app.include_router(crm_router)
 app.include_router(hooks_router)
 app.include_router(lead_capture_router)
+app.include_router(roove_first_access_router)
 app.include_router(content_ops_router)
 app.include_router(ai_settings_router)
 app.include_router(sales_origin_router)
