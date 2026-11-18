@@ -50,6 +50,28 @@ async def disable_source(source_id: str, client_id: str | None = Query(default=N
         raise _error(exc) from exc
 
 
+@router.get("/api/relationship/campaigns/{campaign}/summary")
+async def campaign_summary(campaign: str, client_id: str | None = Query(default=None),
+                           x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                           authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    try:
+        return {"ok": True, **await lead_capture.campaign_summary(cid, campaign)}
+    except lead_capture.LeadCaptureError as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/api/relationship/campaigns/{campaign}/recent")
+async def campaign_recent(campaign: str, client_id: str | None = Query(default=None),
+                          x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                          authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, "contacts": await lead_capture.campaign_recent_contacts(cid, campaign)}
+    except lead_capture.LeadCaptureError as exc:
+        raise _error(exc) from exc
+
+
 @router.get("/api/relationship/captured-leads")
 async def captured_leads(client_id: str | None = Query(default=None),
                          x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
