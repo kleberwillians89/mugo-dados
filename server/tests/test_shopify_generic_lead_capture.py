@@ -87,18 +87,32 @@ class ShopifyProxyCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ingest.await_args.args[0]["client_id"],"roove")
         create.assert_not_awaited()
 
-    async def test_initial_capture_creates_one_source_without_exposing_key(self):
+    async def test_initial_capture_creates_one_deterministic_source(self):
         with patch("services.shopify_oauth.resolve_store_by_domain",new_callable=AsyncMock,
                    return_value={"client_id":"new-client","status":"active"}), \
              patch.object(lc,"sb_select",new_callable=AsyncMock,return_value=[]), \
-             patch.object(lc,"create_source",new_callable=AsyncMock,
-                   return_value={"id":"generated","ingest_key":"private"}) as create, \
+             patch.object(lc,"sb_insert",new_callable=AsyncMock) as insert, \
              patch.object(lc,"_ingest_authenticated",new_callable=AsyncMock,
                    return_value={"ok":True,"duplicate":False}) as ingest:
             result = await lc.ingest_shopify_proxy("other.myshopify.com",{"event_id":"a"})
         self.assertNotIn("ingest_key",result)
-        self.assertEqual(create.await_args.args,("new-client","Shopify Landing Pages","shopify"))
+        row = insert.await_args.args[1]
+        self.assertEqual(row["client_id"],"new-client")
+        self.assertEqual(row["name"],"Shopify Landing Pages")
         self.assertEqual(ingest.await_args.args[0]["client_id"],"new-client")
+        self.assertEqual(ingest.await_args.args[0]["id"],row["id"])
+
+    async def test_disabled_auto_source_is_not_reenabled(self):
+        with patch("services.shopify_oauth.resolve_store_by_domain",new_callable=AsyncMock,
+                   return_value={"client_id":"disabled","status":"active"}), \
+             patch.object(lc,"sb_select",new_callable=AsyncMock,side_effect=[
+                [],[{"id":"existing","client_id":"disabled","active":False}]
+             ]), \
+             patch.object(lc,"sb_insert",new_callable=AsyncMock) as insert:
+            with self.assertRaises(lc.LeadCaptureError) as caught:
+                await lc.ingest_shopify_proxy("disabled.myshopify.com",{"event_id":"a"})
+        self.assertEqual(caught.exception.status,409)
+        insert.assert_not_awaited()
 
 
 if __name__ == "__main__":
