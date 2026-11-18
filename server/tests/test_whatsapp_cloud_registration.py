@@ -164,5 +164,45 @@ async def fake_graph_verify(method, path, token, params=None, json_body=None):
 
 
 
+
+class GraphErrorDiagnosticsTests(unittest.TestCase):
+    def test_otp_error_100_not_misreported_as_wrong_id(self):
+        import httpx
+        from unittest.mock import Mock
+        request = httpx.Request("POST", "https://graph.facebook.com/v23.0/1063683626819387/request_code")
+        response = httpx.Response(
+            400, request=request,
+            json={"error": {"code": 100, "error_subcode": 33, "message": "private upstream detail"}},
+        )
+        fake_client = Mock()
+        fake_client.request = AsyncMock(return_value=response)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+        with patch.object(wn.httpx, "AsyncClient", return_value=fake_client):
+            with self.assertRaises(wn.WhatsAppNativeError) as ctx:
+                asyncio.run(wn._graph("POST", "1063683626819387/request_code", "secret-token",
+                                      json_body={"code_method": "SMS", "locale": "pt_BR"}))
+        self.assertEqual(ctx.exception.code, "META_REQUEST_INVALID")
+        self.assertIn("Meta #100", ctx.exception.message)
+        self.assertIn("subcódigo 33", ctx.exception.message)
+        self.assertNotIn("private upstream detail", ctx.exception.message)
+        self.assertNotIn("secret-token", ctx.exception.message)
+
+    def test_normal_get_error_100_keeps_legacy_id_diagnostic(self):
+        import httpx
+        from unittest.mock import Mock
+        request = httpx.Request("GET", "https://graph.facebook.com/v23.0/invalid")
+        response = httpx.Response(400, request=request, json={"error": {"code": 100}})
+        fake_client = Mock()
+        fake_client.request = AsyncMock(return_value=response)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+        with patch.object(wn.httpx, "AsyncClient", return_value=fake_client):
+            with self.assertRaises(wn.WhatsAppNativeError) as ctx:
+                asyncio.run(wn._graph("GET", "invalid", "secret-token"))
+        self.assertEqual(ctx.exception.code, "NOT_FOUND")
+
+
+
 if __name__ == "__main__":
     unittest.main()
