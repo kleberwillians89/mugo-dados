@@ -111,6 +111,7 @@ async def first_access(request: Request):
         raise HTTPException(exc.status, exc.message) from None
 
 
+@router.post("/api/shopify/lead-capture/", include_in_schema=False)
 @router.post("/api/shopify/lead-capture")
 async def generic_shopify_lead_capture(request: Request):
     """Reusable signed App Proxy for any connected Shopify tenant.

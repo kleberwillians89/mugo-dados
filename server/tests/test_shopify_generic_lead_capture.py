@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fastapi import HTTPException
+from fastapi import HTTPException, FastAPI
 from starlette.requests import Request
+from starlette.routing import Match
 
 from routes.roove_first_access import generic_shopify_lead_capture, verify_shopify_proxy_signature
 from services import lead_capture as lc
@@ -31,6 +32,16 @@ def signed_request(shop: str, form: dict, *, secret="test-shopify-app-secret"):
 
 
 class ShopifyProxyCaptureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_both_proxy_paths_match_without_redirect(self):
+        from routes.roove_first_access import router
+        app = FastAPI()
+        app.include_router(router)
+        for path in ("/api/shopify/lead-capture", "/api/shopify/lead-capture/"):
+            scope = {"type": "http", "method": "POST", "path": path, "root_path": ""}
+            matches = [route for route in app.routes if route.matches(scope)[0] == Match.FULL]
+            self.assertEqual(len(matches), 1, f"{path} must resolve without a redirect")
+            self.assertEqual(matches[0].endpoint, generic_shopify_lead_capture)
+
     async def test_campaign_from_signed_store(self):
         form = {
             "name": "Cliente Teste", "email": "cliente@example.org", "phone": "11912345678",
