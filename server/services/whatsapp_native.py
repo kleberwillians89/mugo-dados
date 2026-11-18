@@ -267,6 +267,8 @@ async def register_roove_cloud_number(client_id: str, number_id: str, *,
     status = await _meta_roove_status(number)
     if status["registered"]:
         return {**status, "registered_by_this_request": False, "already_connected": True}
+    if status["status"] not in REGISTERABLE_STATUSES:
+        raise WhatsAppNativeError("REGISTRATION_UNSAFE", "Estado Meta não permite registro automático.")
     if status["code_verification_status"].upper() != "VERIFIED":
         raise WhatsAppNativeError("VERIFICATION_REQUIRED", "Verifique o número por SMS ou ligação antes de registrar.")
     if not status["can_register"]:
