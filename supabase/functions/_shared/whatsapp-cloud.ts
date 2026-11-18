@@ -28,6 +28,14 @@ export function messageText(message: Json) {
     return String(obj(interactive.button_reply).title ?? obj(interactive.list_reply).title ?? '')
   }
   if (type === 'reaction') return ''
+  if (type === 'order') {
+    // Carrinho montado no catálogo do WhatsApp: o atendente de IA lê os retailer_id e monta o link da loja.
+    const items = (Array.isArray(obj(message.order).product_items) ? obj(message.order).product_items as unknown[] : [])
+      .map(obj).map((item) => `${Math.max(1, Number(item.quantity) || 1)}x ${String(item.product_retailer_id ?? '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 120)}`)
+      .filter((line) => !line.endsWith('x '))
+    const note = String(obj(message.order).text ?? '').trim()
+    return `[pedido pelo catálogo] ${items.join('; ')}${note ? ` · ${note}` : ''}`.slice(0, 4096)
+  }
   const caption = String(obj(message[type]).caption ?? '').trim()
   return `${LABELS[type] ?? `[${type || 'mensagem'}]`}${caption ? ` ${caption}` : ''}`
 }

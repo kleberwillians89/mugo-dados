@@ -8,6 +8,9 @@
 // repassado sem alteração, com a mesma assinatura, para WHATSAPP_FORWARD_URL. O CRM confere a assinatura
 // com o mesmo segredo do app e ignora números que não são dele.
 //
+// Depois de gravar, marca a conversa para o atendente de IA (ai_pending_at) e avisa o backend
+// (WHATSAPP_AI_HOOK_URL + WHATSAPP_AI_HOOK_KEY). A IA só age se a marca estiver com ela ligada no MUGOVERSO.
+//
 // Responde 500 quando o banco falha, para a Meta reenviar (a gravação é idempotente: mensagem repetida
 // não duplica nem conta "não lida" em dobro). Número desligado no MUGOVERSO: a mensagem é descartada e
 // NÃO vai para o CRM.
@@ -29,6 +32,24 @@ function inBackground(task: Promise<unknown>) {
   const runtime = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime
   if (runtime?.waitUntil) runtime.waitUntil(guarded)
   return guarded
+}
+
+// Avisa o backend (atendente de IA) que esta marca tem conversa nova: responde (ou sugere) na hora.
+// Sem WHATSAPP_AI_HOOK_URL/KEY, o job de 5 em 5 minutos responde.
+async function notifyAi(clientIds: string[]) {
+  const url = Deno.env.get('WHATSAPP_AI_HOOK_URL')?.trim(), key = Deno.env.get('WHATSAPP_AI_HOOK_KEY')?.trim()
+  if (!url || !key) return
+  for (const clientId of clientIds) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 90_000) // Render gratuito pode estar acordando
+    try {
+      const resp = await fetch(url, { method: 'POST', signal: controller.signal,
+        headers: { 'content-type': 'application/json', 'x-whatsapp-ai-key': key }, body: JSON.stringify({ client_id: clientId }) })
+      console.info({ event: 'whatsapp_ai_notified', status: resp.status })
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 }
 
 async function forward(raw: string, signature: string) {
@@ -73,6 +94,7 @@ Deno.serve(async (req) => {
 
   const numbers = new Map<string, { id: string; client_id: string; status: string; waba_id: string; meta_app_id: string | null } | null>()
   let foreign = false, failed = false, saved = 0
+  const aiClients = new Set<string>()
   let inboundEvents = 0, statusEvents = 0, unmatched = 0, inactive = 0
   if (payload.object !== 'whatsapp_business_account') return text('ok')
   for (const entry of list(payload.entry)) {
@@ -116,6 +138,11 @@ Deno.serve(async (req) => {
         const data = obj(result.data)
         if (data.status !== 'ok') continue
         saved += 1
+        // Fila do atendente de IA (migration 000131). Coluna ausente → só registra; a mensagem já está salva.
+        const pending = await admin.from('whatsapp_threads').update({ ai_pending_at: new Date().toISOString() })
+          .eq('id', String(data.thread_id)).eq('client_id', number.client_id)
+        if (pending.error) console.warn({ event: 'whatsapp_ai_pending_failed', code: pending.error.code })
+        else aiClients.add(number.client_id)
         const touch = extractOriginTouch(message.referral ? obj(message.referral) : null, body)
         if (touch) {
           const stored = await admin.from('whatsapp_origin_touches').upsert(
@@ -142,6 +169,7 @@ Deno.serve(async (req) => {
   }
 
   if (foreign && signature && app.legacy) inBackground(forward(raw, signature))
+  if (aiClients.size) inBackground(notifyAi([...aiClients]))
   console.info({ event: 'whatsapp_webhook_processed', saved, forwarded: foreign, failed,
     inbound_events: inboundEvents, status_events: statusEvents, unmatched, inactive })
   return failed ? text('retry', 500) : text('ok')

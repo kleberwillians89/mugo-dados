@@ -172,7 +172,15 @@ async def _run(args: argparse.Namespace) -> Any:
             result["direct"] = await process_all()
         except Exception as exc:  # noqa: BLE001 — o Direct não derruba os gatilhos
             result["direct"] = {"error": type(exc).__name__}
+        try:  # WhatsApp com IA que o aviso do webhook não respondeu na hora
+            from services.whatsapp_ai import process_all as whatsapp_ai_all
+            result["whatsapp_ai"] = await whatsapp_ai_all()
+        except Exception as exc:  # noqa: BLE001
+            result["whatsapp_ai"] = {"error": type(exc).__name__}
         return result
+    if args.command == "whatsapp-ai-run":
+        from services.whatsapp_ai import process_all as whatsapp_ai_all
+        return await whatsapp_ai_all()
     if args.command == "ig-ai-replies":
         from services.ig_engagement import run_all
         return await run_all(ai=True)
@@ -361,6 +369,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "ig-engagement-run",
         help="Gatilhos do Instagram (comentário com palavra-chave → resposta e Direct). Sem IG_AUTOREPLY_ENABLED=true, só simula.",
+    )
+    sub.add_parser(
+        "whatsapp-ai-run",
+        help="Atendente de IA do WhatsApp: responde (ou sugere) as conversas pendentes das marcas com a IA ligada.",
     )
     sub.add_parser(
         "ig-ai-replies",

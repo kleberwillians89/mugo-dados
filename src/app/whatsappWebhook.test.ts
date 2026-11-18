@@ -64,6 +64,14 @@ describe("webhook do WhatsApp nativo", () => {
     expect(messageText({ type: "reaction" })).toBe("");
   });
 
+  it("transforma o carrinho do catálogo em texto que o atendente de IA entende", () => {
+    expect(messageText({ type: "order", order: { catalog_id: "1", text: "tem P?", product_items: [
+      { product_retailer_id: "shopify_BR_111_222", quantity: 2 }, { product_retailer_id: "abc", quantity: "1" },
+    ] } })).toBe("[pedido pelo catálogo] 2x shopify_BR_111_222; 1x abc · tem P?");
+    expect(webhook).toMatch(/ai_pending_at/);
+    expect(webhook).toMatch(/'x-whatsapp-ai-key': key/);
+  });
+
   it("mesma origem e mesma chave de telefone dos CRMs", async () => {
     expect(extractOriginTouch({ source_type: "ad", source_id: "120", ctwa_clid: "c" }, "oi")).toMatchObject({ ad_id: "120", ctwa_clid: "c" });
     expect(await phoneKey("5511993161161", { international: true })).toBe("8da0ce4f7795d49d1331629bcee13398");

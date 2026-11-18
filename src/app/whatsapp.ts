@@ -59,7 +59,14 @@ export type WaConversation = {
   purchase: { orders: number; revenue: number; last_order: string | null; last_order_at: string | null } | null;
   last_message: { direction: string; at: string; text: string } | null;
   insight?: WaInsight | null;
+  /** Atendente de IA (número ligado no MUGOVERSO): resposta pendente de aprovação e motivo da passagem para a equipe. */
+  ai_suggestion?: WaAiSuggestion | null;
+  ai_handoff_reason?: string | null;
 };
+export type WaAiProduct = { handle: string; title: string; price: number; url: string; image: string | null };
+export type WaAiSuggestion = { reply: string; buttons: string[]; products: WaAiProduct[]; handoff: boolean; handoff_reason: string; created_at: string };
+/** Mensagem da conversa; by_ai/payload só nos números ligados no MUGOVERSO. */
+export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
   conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null;
@@ -74,7 +81,7 @@ export function getWhatsAppInbox() {
   return http<WhatsAppInbox>(base("/inbox"));
 }
 export function getWhatsAppMessages(conversationId: string) {
-  return http<({ available: true; messages: CrmMessage[] }) | CrmUnavailable>(
+  return http<({ available: true; messages: WaMessage[] }) | CrmUnavailable>(
     base(`/conversations/${encodeURIComponent(conversationId)}/messages`),
   );
 }
@@ -232,3 +239,33 @@ export function importExistingWhatsAppConversations(days: number = 365) {
     method: "POST", timeoutMs: 90_000,
   });
 }
+
+
+/** Atendente de IA do WhatsApp (números ligados direto no MUGOVERSO). */
+export type WaAiMode = "off" | "suggest" | "auto";
+export type WaAiSettings = {
+  mode: WaAiMode; instructions: string; welcome_buttons: string[]; featured_products: string[]; offers: string;
+  catalog_id: string | null; product_cards: boolean; human_pause_minutes: number; updated_at?: string | null;
+};
+export type WaAiCatalogStatus = {
+  shopify: { ok: boolean; domain?: string; products?: number; available?: number; error?: string };
+  meta: { ok: boolean; catalog_id?: string; items?: number; matched_products?: number };
+  featured: { name: string; found: { title: string; available: boolean }[] }[];
+};
+export type WaAiSimulation = {
+  reply: string; buttons: string[]; products: WaAiProduct[]; handoff: boolean; handoff_reason: string;
+  insight: WaInsight | null; catalog_loaded: boolean;
+};
+export const getWhatsAppAiSettings = () => http<{ settings: WaAiSettings }>(base("/ai-settings"));
+export const saveWhatsAppAiSettings = (changes: Partial<WaAiSettings>) =>
+  http<{ settings: WaAiSettings }>(base("/ai-settings"), { method: "PUT", body: JSON.stringify(changes) });
+export const getWhatsAppAiCatalog = () => http<WaAiCatalogStatus>(base("/ai-settings/catalog"), { timeoutMs: 90_000 });
+export const simulateWhatsAppAi = (conversation: { role: "cliente" | "marca"; text: string }[]) =>
+  http<WaAiSimulation>(base("/ai-settings/simulate"), { method: "POST", body: JSON.stringify({ conversation }), timeoutMs: 90_000 });
+export const sendWhatsAppAiSuggestion = (conversationId: string, text?: string) =>
+  http<{ status: string; messages: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/ai-suggestion/send`),
+    { method: "POST", body: JSON.stringify(text === undefined ? {} : { text }), timeoutMs: 90_000 });
+export const discardWhatsAppAiSuggestion = (conversationId: string) =>
+  http<{ status: string }>(base(`/conversations/${encodeURIComponent(conversationId)}/ai-suggestion`), { method: "DELETE" });
+export const resumeWhatsAppAi = (conversationId: string) =>
+  http<{ status: string }>(base(`/conversations/${encodeURIComponent(conversationId)}/ai/resume`), { method: "POST", body: "{}" });
