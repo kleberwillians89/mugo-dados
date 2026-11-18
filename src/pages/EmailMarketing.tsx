@@ -43,7 +43,7 @@ export default function EmailMarketing({ initialTab = "campanhas" }: { initialTa
         {notice ? <p className="emNotice">{notice}</p> : null}
         {tab === "campanhas" ? <CampaignsPanel canEdit={canEdit} /> : null}
         {tab === "listas" ? <RelationshipLists canEdit={canEdit} /> : null}
-        {tab === "captacao" ? <FirstAccessLeads /> : null}
+        {tab === "captacao" ? <FirstAccessLeads canEdit={canEdit} /> : null}
         {tab === "fluxos" ? <FlowsPanel canEdit={canEdit} /> : null}
         {tab === "carrinho" ? <CartRecoveryPanel canEdit={canEdit} /> : null}
       </div>
