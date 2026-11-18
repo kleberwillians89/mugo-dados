@@ -76,7 +76,8 @@ describe("webhook do WhatsApp nativo", () => {
     expect(webhook).toMatch(/return text\('unauthorized', 401\)/);
     // Banco falhou → 500 para a Meta reenviar; número desligado não vai para o CRM.
     expect(webhook).toMatch(/return failed \? text\('retry', 500\) : text\('ok'\)/);
-    expect(webhook).toMatch(/if \(number\.status !== 'active'\) continue/);
+    expect(webhook).toMatch(/if \(number\.status !== 'active'\) \{ inactive \+= 1; continue \}/);
+    expect(webhook).toContain('inbound_events: inboundEvents, status_events: statusEvents, unmatched, inactive');
   });
 
   it("banco: só service role, token nunca exposto e recebimento idempotente", () => {
