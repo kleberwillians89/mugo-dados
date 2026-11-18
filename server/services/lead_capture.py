@@ -222,3 +222,34 @@ async def campaign_summary(client_id: str, campaign: str) -> dict:
         "sources": [{"source": s, "leads": n} for s, n in sorted(sources.items(), key=lambda kv: -kv[1])],
         "sending_enabled": False,
     }
+
+
+async def campaign_recent_contacts(client_id: str, campaign: str, limit: int = 50) -> list[dict]:
+    """Privacy-conscious operational list: masked channels, no export of plaintext contact data."""
+    if not re.fullmatch(r"[a-z0-9_-]{2,80}", campaign):
+        raise LeadCaptureError("Campanha inválida.", 422)
+    from .crypto import decrypt_secret
+    rows = await sb_select(EVENT_TABLE,
+        select="id,name_ciphertext,email_ciphertext,phone_ciphertext,created_at,utm_source,consent_email_claimed,consent_whatsapp_claimed,consent_verified",
+        filters={"client_id": f"eq.{client_id}", "campaign_key": f"eq.{campaign}"},
+        order="created_at.desc", limit=min(100, max(1, limit)))
+    output = []
+    for row in rows:
+        try:
+            name = decrypt_secret(row["name_ciphertext"]) if row.get("name_ciphertext") else ""
+            email = decrypt_secret(row["email_ciphertext"]) if row.get("email_ciphertext") else ""
+            phone = decrypt_secret(row["phone_ciphertext"]) if row.get("phone_ciphertext") else ""
+        except RuntimeError:
+            name, email, phone = "", "", ""
+        local, sep, domain = email.partition("@")
+        masked_email = (local[:2] + "***@" + domain) if sep else ""
+        masked_phone = ("***" + phone[-4:]) if len(phone) >= 4 else ""
+        output.append({
+            "id": row["id"], "name": name[:100], "email_masked": masked_email,
+            "phone_masked": masked_phone, "created_at": row["created_at"],
+            "utm_source": row.get("utm_source") or "não identificada",
+            "email_opt_in_claimed": row.get("consent_email_claimed") is True,
+            "whatsapp_opt_in_claimed": row.get("consent_whatsapp_claimed") is True,
+            "consent_verified": row.get("consent_verified") is True,
+        })
+    return output
