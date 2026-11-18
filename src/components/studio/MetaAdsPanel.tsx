@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, type AdDraft, type AdPayload } from "../../app/metaAds";
+import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
@@ -37,6 +37,23 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [metaPreflight, setMetaPreflight] = useState<MetaPublicationPreflight | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [preflightVersion, setPreflightVersion] = useState(0);
+  useEffect(() => {
+    if (!editing || step !== 3 || editing.draft.status === "publicada") return;
+    const tenant = clientId;
+    let valid = true;
+    setMetaPreflight(null); setPreflightError(null); setPreflightBusy(true);
+    metaPublicationPreflight(editing.payload.objective)
+      .then((result) => { if (valid && getActiveClientId() === tenant) setMetaPreflight(result); })
+      .catch((cause) => { if (valid && getActiveClientId() === tenant)
+        setPreflightError(message(cause, "Não foi possível verificar a conta de anúncios.")); })
+      .finally(() => { if (valid && getActiveClientId() === tenant) setPreflightBusy(false); });
+    return () => { valid = false; };
+  }, [clientId, editing?.draft.id, editing?.payload.objective, step, preflightVersion]);
+
 
   const load = useCallback(async () => {
     try {
@@ -219,6 +236,32 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             calendar={arts} ad={editing.payload.ad} disabled={locked || Boolean(busy)} onChoose={setAd} />
         </fieldset> : null}
         {step === 3 ? <section className="metaAdsReview" aria-label="Revisão da campanha">
+          <div className="metaPublishPreflight" aria-label="Verificação de publicação na conta Meta">
+            <div className="metaPublishPreflightHead"><div>
+              <h3>Conta Meta: pronta para publicar?</h3>
+              <p className="ds-caption">Checagem em tempo real da conta, permissões, página e pixel. Nenhum anúncio será enviado nesta verificação.</p>
+            </div>
+              <button type="button" className="ds-button" disabled={preflightBusy || Boolean(busy)}
+                onClick={() => setPreflightVersion((n) => n + 1)}>
+                {preflightBusy ? "Conferindo…" : "Verificar novamente"}
+              </button>
+            </div>
+            {preflightError ? <p className="studioError" role="alert">{preflightError}</p> : null}
+            {preflightBusy ? <p className="ds-caption">Conferindo as conexões desta empresa na Meta…</p> : null}
+            {metaPreflight ? <>
+              <p className={metaPreflight.ready ? "metaPublishReady" : "metaPublishBlocked"} role="status">
+                {metaPreflight.ready ? "Conta pronta para tentar criar a campanha PAUSADA." :
+                  "Há pendências na conexão Meta. Resolva antes de publicar."}
+              </p>
+              <div className="metaPublishChecklist">
+                {metaPreflight.checks.map((check) => <div key={check.key} className={check.ok ? "is-ok" : "is-missing"}>
+                  <span aria-hidden="true">{check.ok ? "✓" : "!"}</span>
+                  <div><b>{({account:"Conta de anúncios",page:"Página do Facebook",instagram:"Instagram",pixel:"Pixel de conversão"} as Record<string,string>)[check.key] || check.key}</b>
+                    <small>{check.label ? check.label + " · " : ""}{check.message}</small></div>
+                </div>)}
+              </div>
+            </> : null}
+          </div>
           <h3>Revise antes de criar no Meta</h3>
           <dl>
             <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
@@ -242,7 +285,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             {!locked && step < 3 ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)}
               onClick={advance}>{step === 0 ? "Escolher público" : step === 1 ? "Escolher criativo" : "Revisar campanha"}</button> : null}
             {!locked && step === 3 ? <button type="button" className="ds-button is-primary"
-              disabled={Boolean(busy) || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
+              disabled={Boolean(busy) || preflightBusy || !metaPreflight?.ready || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
               onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : "Criar no Meta Ads (pausada)"}</button> : null}
           </span>
         </div>
