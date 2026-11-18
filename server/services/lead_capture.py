@@ -136,10 +136,38 @@ async def ingest_shopify_proxy(shop_domain: str, payload: dict[str, Any]) -> dic
     )
     source = next((s for s in sources if s.get("name") == "Shopify Landing Pages"), None)
     if source is None:
-        # Provision via the established source service; the issued secret is
-        # deliberately discarded, as signed Shopify app proxies do not use it.
-        issued = await create_source(cid, "Shopify Landing Pages", "shopify")
-        source = {"id": issued["id"], "client_id": cid, "kind": "shopify", "active": True}
+        # Stable UUID makes concurrent first signups idempotent across workers.
+        # This source does not grant any sending permissions.
+        source_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"mugo:shopify-capture:{cid}"))
+        existing = await sb_select(
+            SOURCE_TABLE, select="id,client_id,kind,active",
+            filters={"id": f"eq.{source_id}", "client_id": f"eq.{cid}"},
+            limit=1,
+        )
+        if existing:
+            source = existing[0]
+            if source.get("active") is not True:
+                raise LeadCaptureError("Fonte Shopify desativada pela empresa.", 409)
+        else:
+            row = {
+                "id": source_id, "client_id": cid,
+                "name": "Shopify Landing Pages", "kind": "shopify",
+                "token_hash": _digest(secrets.token_urlsafe(40)), "active": True,
+            }
+            try:
+                await sb_insert(SOURCE_TABLE, row)
+            except httpx.HTTPStatusError as exc:
+                if exc.response is None or exc.response.status_code != 409:
+                    raise
+                # Concurrent worker created the same deterministic source.
+                confirmed = await sb_select(
+                    SOURCE_TABLE, select="id,client_id,kind,active",
+                    filters={"id": f"eq.{source_id}", "client_id": f"eq.{cid}"},
+                    limit=1,
+                )
+                if not confirmed or confirmed[0].get("active") is not True:
+                    raise LeadCaptureError("Fonte Shopify não disponível.", 409) from None
+            source = {"id": source_id, "client_id": cid, "kind": "shopify", "active": True}
     return await _ingest_authenticated(source, payload)
 
 
