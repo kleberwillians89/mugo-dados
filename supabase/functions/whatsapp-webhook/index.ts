@@ -73,11 +73,14 @@ Deno.serve(async (req) => {
 
   const numbers = new Map<string, { id: string; client_id: string; status: string; waba_id: string; meta_app_id: string | null } | null>()
   let foreign = false, failed = false, saved = 0
+  let inboundEvents = 0, statusEvents = 0, unmatched = 0, inactive = 0
   if (payload.object !== 'whatsapp_business_account') return text('ok')
   for (const entry of list(payload.entry)) {
     const entryWabaId = digits(entry.id)
     for (const change of list(entry.changes)) {
       const value = obj(change.value)
+      inboundEvents += list(value.messages).length
+      statusEvents += list(value.statuses).length
       const phoneNumberId = digits(obj(value.metadata).phone_number_id)
       if (!phoneNumberId) continue
       if (!numbers.has(phoneNumberId)) {
@@ -87,12 +90,13 @@ Deno.serve(async (req) => {
       }
       const number = numbers.get(phoneNumberId)
       if (number === undefined) continue
-      if (!number) { if (app.legacy) foreign = true; continue }
+      if (!number) { unmatched += 1; if (app.legacy) foreign = true; continue }
       if (!webhookMatchesNumber(app, number, entryWabaId)) {
-        console.warn({ event: 'whatsapp_webhook_app_or_waba_mismatch', app_id: app.appId, phone_number_id: phoneNumberId })
+        unmatched += 1
+        console.warn({ event: 'whatsapp_webhook_app_or_waba_mismatch', app_id: app.appId })
         continue
       }
-      if (number.status !== 'active') continue
+      if (number.status !== 'active') { inactive += 1; continue }
 
       const contacts = list(value.contacts)
       for (const message of list(value.messages)) {
@@ -138,6 +142,7 @@ Deno.serve(async (req) => {
   }
 
   if (foreign && signature && app.legacy) inBackground(forward(raw, signature))
-  console.info({ event: 'whatsapp_webhook_processed', saved, forwarded: foreign, failed })
+  console.info({ event: 'whatsapp_webhook_processed', saved, forwarded: foreign, failed,
+    inbound_events: inboundEvents, status_events: statusEvents, unmatched, inactive })
   return failed ? text('retry', 500) : text('ok')
 })
