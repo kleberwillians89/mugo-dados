@@ -61,6 +61,11 @@ async def first_access(request: Request):
     data = await request.form()
     if data.get("website"):
         return JSONResponse({"ok": True})
+    name = " ".join(str(data.get("name") or "").split())
+    email = str(data.get("email") or "").strip()
+    phone = str(data.get("phone") or "").strip()
+    if not (2 <= len(name) <= 100 and 3 <= len(email) <= 254 and 10 <= len(phone) <= 20):
+        raise HTTPException(422, "Preencha nome, e-mail e WhatsApp com DDD.")
     source_id = os.getenv("ROOVE_FIRST_ACCESS_SOURCE_ID", "").strip()
     source_key = os.getenv("ROOVE_FIRST_ACCESS_INGEST_KEY", "").strip()
     if not source_id or not source_key:
@@ -69,8 +74,8 @@ async def first_access(request: Request):
     consent_whatsapp = data.get("consent_whatsapp") == "sim"
     event_id = str(data.get("event_id") or "")
     payload: dict[str, Any] = {
-        "event_id": event_id, "name": str(data.get("name") or ""),
-        "email": str(data.get("email") or ""), "phone": str(data.get("phone") or ""),
+        "event_id": event_id, "name": name,
+        "email": email, "phone": phone,
         "campaign": "roove_first_access_2026",
         "origin": "shopify_first_access",
         "utm_source": str(data.get("utm_source") or ""),
