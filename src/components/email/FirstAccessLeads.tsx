@@ -33,8 +33,8 @@ function makeLink(base: string, campaign: string, source: string): string | null
   } catch { return null; }
 }
 function Stat({label,value}:{label:string;value:string|number}) {
-  return <div style={{border:"1px solid var(--ds-border,#dbe0e5)",borderRadius:12,padding:14,minWidth:130}}>
-    <strong style={{fontSize:25,display:"block"}}>{value}</strong><span style={{fontSize:12}}>{label}</span>
+  return <div className="emCaptureStat">
+    <strong>{value}</strong><span>{label}</span>
   </div>;
 }
 
@@ -117,11 +117,12 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
     catch { setError("Não foi possível copiar automaticamente."); }
   }
 
-  return <section className="emFirstAccess" aria-label="Captação e campanhas" style={{display:"grid",gap:24}}>
-    <header>
-      <h2>Captação de leads</h2>
-      <p>Fontes conectadas uma vez; links diferentes para cada campanha. Todos os dados respeitam a empresa ativa.</p>
-      <button type="button" className="ds-button" disabled={loading} onClick={() => void refresh()}>
+  return <section className="emFirstAccess emCapture" aria-label="Captação e campanhas">
+    <header className="emCaptureHero">
+      <div><span className="emCaptureEyebrow">RELACIONAMENTO / CAPTAÇÃO</span>
+      <h2>Campanhas que viram conexões.</h2>
+      <p>Crie links de campanha, acompanhe cadastros e gerencie fontes em um só lugar.</p></div>
+      <button type="button" className="emCaptureRefresh ds-button" disabled={loading} onClick={() => void refresh()}>
         {loading ? "Atualizando..." : "Atualizar dados"}
       </button>
     </header>
@@ -129,31 +130,31 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
     {error ? <p className="studioError" role="alert">{error}</p> : null}
     {info ? <p role="status">{info}</p> : null}
 
-    <div style={{border:"1px solid #dbe0e5",borderRadius:12,padding:18,display:"grid",gap:12}}>
-      <h3>1. Criar link de campanha</h3>
+    <div className="emCapturePanel emCaptureCreate">
+      <div className="emCapturePanelHead"><span className="emCaptureStep">01 / CRIAR</span><h3>Seu próximo link de campanha</h3><p>Escolha a página de destino e o identificador. O Mugô prepara os links para anunciar.</p></div>
       <p>Não é necessário configurar uma nova chave no Render para cada campanha. A página deve enviar
         <code> mugo_campaign </code> e <code>campaign</code> pelo App Proxy conectado.</p>
-      <label>Identificador da campanha
+      <label className="emCaptureField">Identificador da campanha
         <input style={{display:"block",width:"100%"}} value={campaign} onChange={e=>setCampaign(normalizeSlug(e.target.value))}
           placeholder="ex: summer_drop_2027" maxLength={80}/>
       </label>
-      <label>URL da landing page (https)
+      <label className="emCaptureField">URL da landing page (https)
         <input style={{display:"block",width:"100%"}} type="url" value={landing}
           onChange={e=>setLanding(e.target.value)} placeholder="https://loja.com/pages/campanha"/>
       </label>
-      {campaigns.length ? <label>Campanhas já recebidas
+      {campaigns.length ? <label className="emCaptureSelectLabel">Campanhas já recebidas
         <select value="" onChange={e=>{if(e.target.value)setCampaign(e.target.value)}}>
           <option value="">Selecionar campanha...</option>
           {campaigns.map(item=><option key={item.key} value={item.key}>{item.key} ({item.leads} cadastros)</option>)}
         </select>
       </label> : null}
       {!safeCampaign ? <p role="alert">Informe um identificador com letras minúsculas, números, hífen ou _.</p> : null}
-      {links.instagram ? <div style={{display:"grid",gap:8}}>
-        <div><strong>Instagram</strong><p style={{overflowWrap:"anywhere",fontSize:12}}>{links.instagram}</p>
+      {links.instagram ? <div className="emCaptureLinkGrid">
+        <div className="emCaptureLink"><strong>Instagram</strong><p style={{overflowWrap:"anywhere",fontSize:12}}>{links.instagram}</p>
           <button type="button" onClick={()=>void copy(links.instagram!)}>Copiar link Instagram</button></div>
-        <div><strong>Facebook</strong><p style={{overflowWrap:"anywhere",fontSize:12}}>{links.facebook}</p>
+        <div className="emCaptureLink"><strong>Facebook</strong><p style={{overflowWrap:"anywhere",fontSize:12}}>{links.facebook}</p>
           <button type="button" onClick={()=>void copy(links.facebook!)}>Copiar link Facebook</button></div>
-        <div><strong>Meta Ads — Parâmetros de URL dinâmicos</strong>
+        <div className="emCaptureLink emCaptureLinkWide"><strong>Meta Ads — Parâmetros dinâmicos</strong>
           <p style={{overflowWrap:"anywhere",fontSize:12}}>{metaParams}</p>
           <button type="button" onClick={()=>void copy(metaParams)}>Copiar parâmetros da Meta</button>
         </div>
@@ -163,15 +164,15 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
       <p><strong>Importante:</strong> gerar o link não publica nem agenda uma campanha. Ela aparece no histórico após o primeiro cadastro confirmado.</p>
     </div>
 
-    <div style={{border:"1px solid #dbe0e5",borderRadius:12,padding:18,display:"grid",gap:10}}>
-      <h3>2. Fontes da empresa</h3>
+    <div className="emCapturePanel emCaptureSources">
+      <div className="emCapturePanelHead"><span className="emCaptureStep">02 / CONEXÕES</span><h3>Fontes de captação</h3><p>Conecte uma vez, use em quantas campanhas precisar.</p></div>
       <p>Uma fonte Shopify conectada pode servir várias campanhas. Uma nova fonte só é necessária
         ao conectar um canal externo diferente.</p>
-      {sources.length ? <table><thead><tr><th>Fonte</th><th>Tipo</th><th>Situação</th></tr></thead><tbody>
+      {sources.length ? <div className="emTableWrap"><table className="emTable"><thead><tr><th>Fonte</th><th>Tipo</th><th>Situação</th></tr></thead><tbody>
         {sources.map(source=><tr key={source.id}><td>{source.name}</td><td>{source.kind}</td>
           <td>{source.active ? "Ativa" : "Desativada"}</td></tr>)}
-      </tbody></table> : <p>Nenhuma fonte cadastrada ainda. Shopify poderá provisionar a fonte ao receber um cadastro assinado da loja conectada.</p>}
-      {canEdit ? <div style={{display:"grid",gap:8}}>
+      </tbody></table></div> : <p>Nenhuma fonte cadastrada ainda. Shopify poderá provisionar a fonte ao receber um cadastro assinado da loja conectada.</p>}
+      {canEdit ? <div className="emCaptureConnect">
         <h4>Conectar outra fonte externa</h4>
         <label>Nome<input value={sourceName} onChange={e=>setSourceName(e.target.value)} maxLength={100}/></label>
         <label>Tipo<select value={sourceKind} onChange={e=>setSourceKind(e.target.value)}>
@@ -194,10 +195,10 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
       </div> : null}
     </div>
 
-    <div style={{display:"grid",gap:12}}>
-      <h3>3. Resultados — {safeCampaign || "Selecione uma campanha"}</h3>
+    <div className="emCapturePanel emCaptureResults">
+      <div className="emCapturePanelHead"><span className="emCaptureStep">03 / RESULTADOS</span><h3>Desempenho da captação</h3><p>{safeCampaign || "Selecione uma campanha para acompanhar os resultados."}</p></div>
       {summary ? <>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12}}>
+        <div className="emCaptureStats">
           <Stat label="Cadastros" value={summary.total}/><Stat label="Contatos únicos" value={summary.unique}/>
           <Stat label="Aceites e-mail declarados" value={summary.email_opt_in_claimed}/>
           <Stat label="Aceites WhatsApp declarados" value={summary.whatsapp_opt_in_claimed}/>
