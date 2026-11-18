@@ -70,7 +70,6 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     listLibrary().then((result) => {
       if (!active || getActiveClientId() !== clientId) return;
       setLibrary([...result.items, ...result.approved].filter((item) => previewKind(item) === "image"));
-      setLibraryLoaded(true);
     }).catch((cause) => {
       if (active && getActiveClientId() === clientId)
         setLibraryError(cause instanceof Error ? cause.message : "Não foi possível carregar imagens.");
