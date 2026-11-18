@@ -136,6 +136,15 @@ async def ingest(source_id: str, key: str, payload: dict[str, Any]) -> dict:
     }, limit=1)
     if rows:
         return {"ok": True, "duplicate": True}
+    name = " ".join(str(payload.get("name") or "").split())[:100]
+    campaign = str(payload.get("campaign") or "").strip()[:80]
+    if campaign and not re.fullmatch(r"[a-z0-9_-]{2,80}", campaign):
+        raise LeadCaptureError("Campanha inválida.", 422)
+    attribution = {}
+    for field in ("utm_source", "utm_medium", "utm_campaign"):
+        value = str(payload.get(field) or "").strip()[:100]
+        attribution[field] = value or None
+    consent_version = str(payload.get("consent_version") or "").strip()[:80] or None
     row = {
         "id": str(uuid.uuid4()),
         "client_id": cid,
@@ -146,6 +155,10 @@ async def ingest(source_id: str, key: str, payload: dict[str, Any]) -> dict:
         "email_ciphertext": encrypt_secret(email) if email else None,
         "phone_ciphertext": encrypt_secret(phone) if phone else None,
         "origin_label": str(payload.get("origin") or "")[:100],
+        "name_ciphertext": encrypt_secret(name) if name else None,
+        "campaign_key": campaign or None,
+        **attribution,
+        "consent_version": consent_version,
         "consent_email_claimed": consent.get("email"),
         "consent_whatsapp_claimed": consent.get("whatsapp"),
         "consent_verified": False,
@@ -167,3 +180,45 @@ async def list_events(client_id: str, limit: int = 50) -> list[dict]:
                            select="id,source_id,event_id,origin_label,consent_email_claimed,consent_whatsapp_claimed,consent_verified,status,created_at",
                            filters={"client_id": f"eq.{client_id}"},
                            order="created_at.desc", limit=max(1, min(limit, 100)))
+
+
+async def campaign_summary(client_id: str, campaign: str) -> dict:
+    """Aggregate tenant-isolated campaign signups without returning personal data."""
+    if not re.fullmatch(r"[a-z0-9_-]{2,80}", campaign):
+        raise LeadCaptureError("Campanha inválida.", 422)
+    from .sales_by_origin import _paged
+    rows, truncated = await _paged(
+        EVENT_TABLE,
+        select="email_hash,phone_hash,consent_email_claimed,consent_whatsapp_claimed,consent_verified,utm_source,utm_medium,created_at,status",
+        filters={"client_id": f"eq.{client_id}", "campaign_key": f"eq.{campaign}"},
+        order="created_at.desc", max_rows=100_000,
+    )
+    if truncated:
+        raise LeadCaptureError("Campanha grande demais para totalização completa.", 422)
+    unique = set()
+    daily = {}
+    sources = {}
+    opted_email = opted_whatsapp = verified = 0
+    for item in rows:
+        identity = item.get("email_hash") or item.get("phone_hash")
+        if identity:
+            unique.add(identity)
+        if item.get("consent_email_claimed") is True:
+            opted_email += 1
+        if item.get("consent_whatsapp_claimed") is True:
+            opted_whatsapp += 1
+        if item.get("consent_verified") is True:
+            verified += 1
+        day = str(item.get("created_at") or "")[:10]
+        if day:
+            daily[day] = daily.get(day, 0) + 1
+        source = str(item.get("utm_source") or "direto/nao_identificado")[:100]
+        sources[source] = sources.get(source, 0) + 1
+    return {
+        "campaign": campaign, "total": len(rows), "unique": len(unique),
+        "email_opt_in_claimed": opted_email, "whatsapp_opt_in_claimed": opted_whatsapp,
+        "consent_verified": verified, "pending_validation": len(rows) - verified,
+        "daily": [{"day": d, "leads": n} for d, n in sorted(daily.items())],
+        "sources": [{"source": s, "leads": n} for s, n in sorted(sources.items(), key=lambda kv: -kv[1])],
+        "sending_enabled": False,
+    }
