@@ -16,8 +16,11 @@ import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
-import GoogleAdsPanel from "../components/studio/GoogleAdsPanel";
+import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
+import MediaCampaignHub from "../components/studio/MediaCampaignHub";
+import { listBriefs, type Brief } from "../app/briefs";
 import "../styles/studio.css";
+import "../styles/mediaCampaignHub.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const PHASE = { base: "Base", aquecimento: "Aquecimento", pico: "Pico" } as const;
@@ -39,6 +42,11 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const [month, setMonth] = useState(nextMonth);
   const [objective, setObjective] = useState<Objective>("vendas");
   const [prepare, setPrepare] = useState<PrepareRequest>(null);
+  const [googlePrepare, setGooglePrepare] = useState<GooglePrepareRequest>(null);
+  const [mediaBriefs, setMediaBriefs] = useState<Brief[]>([]);
+  const [selectedBriefId, setSelectedBriefId] = useState("");
+  const [briefsLoading, setBriefsLoading] = useState(false);
+  const [briefsError, setBriefsError] = useState<string | null>(null);
   const [margin, setMargin] = useState("");
   const [customBudget, setCustomBudget] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -57,6 +65,45 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("simple");
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
+
+  const loadCampaignBriefs = useCallback(async () => {
+    if (!clientId || !canManageCampaigns) return;
+    setBriefsLoading(true); setBriefsError(null);
+    try {
+      const response = await listBriefs();
+      if (getActiveClientId() !== clientId) return;
+      const available = (response.briefs || []).filter((b) => b.status !== "arquivado");
+      setMediaBriefs(available);
+      setSelectedBriefId((old) => available.some((b) => b.id === old) ? old :
+        (available.find((b) => b.brief.destinations?.some((d) => d.key === "midia_on") || b.destinations?.midia_on?.status === "feito") || available[0])?.id || "");
+    } catch (cause) {
+      if (getActiveClientId() === clientId) setBriefsError(message(cause, "Não foi possível carregar os briefings desta empresa."));
+    } finally {
+      if (getActiveClientId() === clientId) setBriefsLoading(false);
+    }
+  }, [clientId, canManageCampaigns]);
+  useEffect(() => {
+    setMediaBriefs([]); setSelectedBriefId(""); setGooglePrepare(null); setPrepare(null);
+    void loadCampaignBriefs();
+  }, [loadCampaignBriefs]);
+
+  function prepareBriefForMeta(brief: Brief) {
+    const sourceObjective = String(brief.brief.media?.objective || brief.brief.objective || "").toLowerCase();
+    const targetObjective: Objective = sourceObjective.includes("lead") || sourceObjective.includes("cadastro") ? "leads"
+      : sourceObjective.includes("tráfego") || sourceObjective.includes("trafego") ? "trafego" : "vendas";
+    setObjective(targetObjective);
+    setPrepare({ nonce: Date.now(), campaign: {
+      campaign: brief.brief.title, action: "testar",
+      why: [brief.brief.summary, brief.brief.key_message, brief.brief.audience ? `Público: ${brief.brief.audience}` : "",
+        brief.brief.goal ? `Meta: ${brief.brief.goal}` : ""].filter(Boolean).join(" | "),
+      planned_budget: brief.brief.media?.budget || 0,
+    } });
+    document.getElementById("media-campaign-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function prepareBriefForGoogle(brief: Brief) {
+    setGooglePrepare({ nonce: Date.now(), brief });
+    document.getElementById("media-campaign-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   function showGenerated(s: Strategy, source: "history" | "new") {
     setView({ strategy: s, scenarios: s.scenarios, saved: false, source, generatedAt: s.generated_at });
@@ -211,6 +258,12 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
+    {canManageCampaigns ? <MediaCampaignHub
+      briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
+      canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
+      onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
+      onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle}
+    /> : null}
     <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
       <button type="button" className={`mediaExperienceButton is-simple ${experienceMode === "simple" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Resumo Executivo</button>
@@ -219,7 +272,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
     </div>
     {canManageCampaigns ? <div className="mediaAdCreation" id="media-campaign-builder">
       {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
-      <GoogleAdsPanel />
+      <GoogleAdsPanel request={googlePrepare} />
     </div> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
