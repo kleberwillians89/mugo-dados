@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -58,6 +59,25 @@ def _text(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
+def _ref(value: Any) -> Optional[Dict[str, str]]:
+    """Público da conta escolhido na tela: só o id (número do Meta) e o nome para mostrar."""
+    if not isinstance(value, dict):
+        return None
+    audience_id = str(value.get("id") or "").strip()
+    if not re.fullmatch(r"\d{5,30}", audience_id):
+        return None
+    return {"id": audience_id, "name": _text(value.get("name"), 120) or audience_id}
+
+
+def _refs(value: Any, limit: int = 20) -> List[Dict[str, str]]:
+    out: Dict[str, Dict[str, str]] = {}
+    for item in value if isinstance(value, list) else []:
+        ref = _ref(item)
+        if ref and ref["id"] not in out:
+            out[ref["id"]] = ref
+    return list(out.values())[:limit]
+
+
 def _names(value: Any, limit: int = 12) -> List[str]:
     items = value if isinstance(value, list) else str(value or "").split(",")
     return [s for s in dict.fromkeys(str(i).strip()[:60] for i in items) if s][:limit]
@@ -93,6 +113,8 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
     except (TypeError, ValueError):
         age_min, age_max = 18, 65
     gender = str(aud.get("gender") or "todos")
+    excluded = _refs(aud.get("excluded_audiences"))
+    skip = {a["id"] for a in excluded}  # o mesmo público nos dois lados: vale a exclusão
     ad = data.get("ad") if isinstance(data.get("ad"), dict) else {}
     cta = str(ad.get("cta") or "LEARN_MORE")
     return {
@@ -102,7 +124,11 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "audience": {"age_min": age_min, "age_max": age_max, "gender": gender if gender in GENDERS else "todos",
                      "regions": _names(aud.get("regions")), "interests": _names(aud.get("interests")),
-                     "advantage": bool(aud.get("advantage", True))},
+                     "advantage": bool(aud.get("advantage", True)),
+                     # Públicos que já existem na conta de anúncios do cliente (lista em /studio/ads/audiences).
+                     "saved_audience": _ref(aud.get("saved_audience")),
+                     "custom_audiences": [a for a in _refs(aud.get("custom_audiences")) if a["id"] not in skip],
+                     "excluded_audiences": excluded},
         "ad": {"primary_text": _text(ad.get("primary_text"), LIMITS["primary_text"]),
                "headline": _text(ad.get("headline"), LIMITS["headline"]),
                "description": _text(ad.get("description"), LIMITS["description"]),
@@ -265,8 +291,8 @@ async def _graph(method: str, path: str, *, token: str, data: Optional[Dict[str,
     return body
 
 
-async def _context(client_id: str) -> Dict[str, Any]:
-    """Conta de anúncios + token (conexão paga) e página/Instagram (conexão orgânica)."""
+async def _ad_account(client_id: str) -> Dict[str, str]:
+    """Conta de anúncios + token da conexão paga (sem exigir página: serve para ler os públicos)."""
     from .connection_resolver import resolve_connection_for_scope
     from .meta_tokens import ensure_valid_meta_token
     paid = await resolve_connection_for_scope(client_id=client_id, platform="meta_ads", connection_type="paid", require_ad_account=True)
@@ -279,6 +305,12 @@ async def _context(client_id: str) -> Dict[str, Any]:
     if scopes and ADS_SCOPE not in scopes:
         raise StudioError("AD_PERMISSION_MISSING")
     token = await ensure_valid_meta_token(client_id, connection_id=connection_id, platform="meta_ads", connection_type="paid", persisted_only=True)
+    return {"token": token, "act": act if act.startswith("act_") else f"act_{act}"}
+
+
+async def _context(client_id: str) -> Dict[str, Any]:
+    """Conta de anúncios + token (conexão paga) e página/Instagram (conexão orgânica)."""
+    account = await _ad_account(client_id)
     page_id, ig_id = "", ""
     try:
         from .ig_engagement import credentials
@@ -288,7 +320,7 @@ async def _context(client_id: str) -> Dict[str, Any]:
         pass
     if not page_id:
         raise StudioError("AD_PAGE_MISSING")
-    return {"token": token, "act": act if act.startswith("act_") else f"act_{act}", "page_id": page_id, "ig_id": ig_id}
+    return {**account, "page_id": page_id, "ig_id": ig_id}
 
 
 async def _interest_ids(names: List[str], token: str) -> List[Dict[str, str]]:
@@ -374,6 +406,101 @@ async def ensure_audience(act: str, token: str, key: str, pixel_id: str) -> str:
     return str(made["id"])
 
 
+# ---------------------------------------------------------------- públicos da conta do cliente
+
+AUDIENCE_KINDS = {"LOOKALIKE": "Semelhante", "WEBSITE": "Visitantes do site", "ENGAGEMENT": "Engajamento",
+                  "CUSTOM": "Lista de clientes", "VIDEO": "Quem viu vídeo", "APP": "App", "OFFLINE_CONVERSION": "Compras offline",
+                  "IG_BUSINESS": "Instagram", "FB_EVENT": "Evento", "LEAD_AD": "Formulário de cadastro", "SHOPPING": "Loja"}
+
+
+def _people(value: Any) -> str:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f} mi".replace(".", ",").replace(",0 ", " ")
+    if n >= 1_000:
+        return f"{round(n / 1_000):.0f} mil"
+    return str(n)
+
+
+def size_label(lower: Any, upper: Any) -> str:
+    """Faixa de tamanho que o Meta informa (-1 ou nada = pequeno demais para estimar)."""
+    try:
+        low = int(lower)
+    except (TypeError, ValueError):
+        low = -1
+    if low < 1000:
+        return "menos de 1 mil pessoas"
+    high = _people(upper)
+    return f"{_people(low)} a {high} pessoas" if high and high != _people(low) else f"{_people(low)} pessoas"
+
+
+async def _paged(path: str, token: str, fields: str, pages: int = 3) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    params: Dict[str, Any] = {"fields": fields, "limit": 200}
+    for _ in range(pages):
+        body = await _graph("GET", path, token=token, params=params)
+        rows.extend(body.get("data") or [])
+        after = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+        if not after or not (body.get("paging") or {}).get("next"):
+            break
+        params = {**params, "after": after}
+    return rows
+
+
+def audience_view(row: Dict[str, Any], saved: bool = False) -> Dict[str, Any]:
+    status = (row.get("delivery_status") or {}) if isinstance(row.get("delivery_status"), dict) else {}
+    code = int(status.get("code") or 200) if str(status.get("code") or "200").isdigit() else 200
+    kind = "SAVED" if saved else str(row.get("subtype") or "CUSTOM").upper()
+    return {"id": str(row.get("id") or ""), "name": _text(row.get("name"), 120) or "Sem nome",
+            "kind": kind, "kind_label": "Público salvo" if saved else AUDIENCE_KINDS.get(kind, "Personalizado"),
+            "size": size_label(row.get("approximate_count_lower_bound"), row.get("approximate_count_upper_bound")),
+            # 200 = pronto; 300 = pequeno demais; o resto o Meta ainda está preparando ou bloqueou.
+            "ready": code == 200, "status": _text(status.get("description"), 200) if code != 200 else ""}
+
+
+async def list_account_audiences(client_id: str) -> Dict[str, Any]:
+    """Públicos que já existem na conta de anúncios do cliente, para escolher em vez de escrever o público."""
+    account = await _ad_account(client_id)
+    token, act = account["token"], account["act"]
+    size = "approximate_count_lower_bound,approximate_count_upper_bound"
+    custom = await _paged(f"/{act}/customaudiences", token, f"id,name,subtype,delivery_status,{size}")
+    try:
+        saved = await _paged(f"/{act}/saved_audiences", token, f"id,name,{size}", pages=1)
+    except MetaAdError:
+        saved = []  # algumas contas não liberam a leitura de públicos salvos; os personalizados seguem
+    views = [audience_view(row) for row in custom if row.get("id")]
+    views.sort(key=lambda a: (not a["ready"], a["kind"] != "LOOKALIKE", a["name"].lower()))
+    return {"account": act, "saved": [audience_view(row, saved=True) for row in saved if row.get("id")], "custom": views}
+
+
+async def saved_targeting(saved_id: str, token: str) -> Dict[str, Any]:
+    """Segmentação de um público salvo (idade, locais, interesses…) para usar no conjunto de anúncios."""
+    body = await _graph("GET", f"/{saved_id}", token=token, params={"fields": "targeting"})
+    targeting = body.get("targeting")
+    if not isinstance(targeting, dict) or not targeting:
+        raise MetaAdError("AD_META_REJECTED", "O Meta não devolveu a segmentação do público salvo escolhido.")
+    return dict(targeting)
+
+
+def apply_account_audiences(targeting: Dict[str, Any], audience: Dict[str, Any]) -> Dict[str, Any]:
+    """Soma os públicos escolhidos da conta aos que a campanha já usa (sem repetir) e aplica as exclusões."""
+    def merged(key: str, extra: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        current = [a for a in targeting.get(key) or [] if isinstance(a, dict) and a.get("id")]
+        seen = {str(a["id"]) for a in current}
+        return current + [{"id": a["id"]} for a in extra if a["id"] not in seen]
+    excluded = merged("excluded_custom_audiences", audience.get("excluded_audiences") or [])
+    skip = {str(a["id"]) for a in excluded}
+    included = [a for a in merged("custom_audiences", audience.get("custom_audiences") or []) if str(a["id"]) not in skip]
+    if included:
+        targeting["custom_audiences"] = included
+    if excluded:
+        targeting["excluded_custom_audiences"] = excluded
+    return targeting
+
+
 def _ts(day: str, end: bool = False) -> str:
     return f"{day}T{'23:59:00' if end else '08:00:00'}-0300"
 
@@ -401,9 +528,14 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 "daily_budget": str(int(round(payload["daily_budget"] * 100))), "bid_strategy": "LOWEST_COST_WITHOUT_CAP"})
             ids["campaign_id"] = str(camp["id"])
         if not ids.get("adset_id"):
-            interests = await _interest_ids(payload["audience"]["interests"], token)
-            regions = await _region_keys(payload["audience"]["regions"], token)
-            targeting = targeting_for(payload, interests, regions)
+            saved = payload["audience"].get("saved_audience")
+            if saved:
+                # Público salvo da conta: usa a segmentação dele (idade, locais, interesses) no lugar da escrita.
+                targeting = await saved_targeting(saved["id"], token)
+            else:
+                interests = await _interest_ids(payload["audience"]["interests"], token)
+                regions = await _region_keys(payload["audience"]["regions"], token)
+                targeting = targeting_for(payload, interests, regions)
             pixel = await _pixel_id(act, token) if cfg.get("event") else ""
             if cfg.get("audience"):
                 # Retenção/remarketing: o público é a lista (não amplia com Advantage+ nem interesses).
@@ -416,6 +548,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 if exclude:
                     ids["audiences"][exclude] = await ensure_audience(act, token, exclude, pixel)
                     targeting["excluded_custom_audiences"] = [{"id": ids["audiences"][exclude]}]
+            targeting = apply_account_audiences(targeting, payload["audience"])
             adset = {"name": f"{payload['name']} · público", "campaign_id": ids["campaign_id"], "status": "PAUSED",
                      "billing_event": "IMPRESSIONS", "optimization_goal": cfg["optimization"],
                      "targeting": json.dumps(targeting),

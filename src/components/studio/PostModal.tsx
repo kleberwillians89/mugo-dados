@@ -14,6 +14,8 @@ import ArtFiles from "./ArtFiles";
 import ItemHistory from "./ItemHistory";
 import Collaborators from "./Collaborators";
 import ProductTags from "./ProductTags";
+import ReelsOptions from "./ReelsOptions";
+import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import { listLibrary, previewKind, type LibraryItem } from "../../app/library";
@@ -72,6 +74,9 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [libraryReplace, setLibraryReplace] = useState(false);
   const [libraryTenant, setLibraryTenant] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  // Reels: prévia como aparece na aba Reels ou na grade do perfil, com as áreas que o app cobre.
+  const [reelsView, setReelsView] = useState<"reels" | "grade">("reels");
+  const [showSafe, setShowSafe] = useState(false);
   const slides = artSlides(draft.art_url);
   const folderLink = artList(draft.art_url).some(isDriveFolder);
   const art = slides.length && slides[0] !== artFailed ? slides : null;
@@ -87,6 +92,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
   const vertical = VERTICAL.includes(draft.format);
   const channel: StudioChannel = draft.channel || "instagram";
+  const isReels = draft.format === "reels" && channel === "instagram";
+  const firstArt = artList(draft.art_url)[0] || "";
+  const reelsVideo = /\.(mp4|mov)$/i.test(firstArt.split("?")[0]) ? firstArt : null;
+  const reelsOpts = draft.reels_options || {};
+  const coverImage = reelsOpts.cover_mode === "image" && reelsOpts.cover_url ? reelsOpts.cover_url : null;
   const channelLabel = STUDIO_CHANNELS[channel];
   // Só o Instagram publica sozinho; nas outras plataformas o agendamento lembra a equipe de publicar à mão.
   const autoPublish = AUTO_PUBLISH_CHANNELS.includes((item?.channel || "instagram") as StudioChannel);
@@ -201,7 +211,14 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
           <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
-        <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}
+        {isReels && reelsView === "grade" ? <div className="reelsGrid" aria-label="Prévia na grade do perfil">
+          <div className="is-new">{coverImage ? <img src={coverImage} alt="" />
+            : reelsVideo ? <video src={frameSrc(reelsVideo, reelsOpts.thumb_offset_ms ?? 0)} preload="metadata" muted playsInline aria-hidden="true" />
+            : <span>{draft.hook || draft.title || "Capa"}</span>}</div>
+          {Array.from({ length: 5 }, (_, i) => <div key={i} />)}
+          <small>{reelsOpts.share_to_feed === false ? "“Mostrar também no Feed” está desligado: este Reels não entra na grade."
+            : "Na grade do perfil o Instagram mostra o centro da capa."}</small>
+        </div> : <div className={`igMedia ${vertical ? "is-vertical" : ""} is-${draft.format}${art ? " has-art" : ""}`}
           style={art && !vertical && ratio ? { aspectRatio: String(ratio) } : undefined}>
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
           {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} onRatio={setRatio} />
@@ -209,7 +226,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
           {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
-        </div>
+          {isReels && showSafe ? <div className="reelsSafe" aria-hidden="true"><span>área da grade</span></div> : null}
+        </div>}
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
           <svg viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-3.1-6.6L21 4l-1 4.1A8.4 8.4 0 0 1 20.5 12z" /></svg>
@@ -221,6 +239,13 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {caption.length > 125 ? <button type="button" onClick={() => setCaptionOpen(!captionOpen)}>{captionOpen ? " menos" : " mais"}</button> : null}</p>
           {when ? <small>{when.weekday}, {when.label} · {when.time}</small> : null}
         </div>
+        {isReels ? <div className="reelsPreviewBar">
+          <div className="reelsSeg" role="group" aria-label="Ver a prévia como">
+            <button type="button" className={reelsView === "reels" ? "is-on" : ""} aria-pressed={reelsView === "reels"} onClick={() => setReelsView("reels")}>Reels</button>
+            <button type="button" className={reelsView === "grade" ? "is-on" : ""} aria-pressed={reelsView === "grade"} onClick={() => setReelsView("grade")}>Grade do perfil</button>
+          </div>
+          {reelsView === "reels" ? <label><input type="checkbox" checked={showSafe} onChange={(e) => setShowSafe(e.target.checked)} /> Mostrar áreas seguras</label> : null}
+        </div> : null}
       </section>
 
       <form className="postPanel" onSubmit={submit}>
@@ -252,7 +277,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
           format={draft.format} slides={slides} disabled={busy} /> : null}
         {canManage && !clientMode ? <div className="postArt">
-          <span className="postArtTitle">Arte do post {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
+          <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <div className="postLibraryBar">
             <button type="button" className="ds-button is-primary"
               disabled={busy || Boolean(uploading)} aria-expanded={libraryOpen}
@@ -326,6 +351,8 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           {folderLink ? <p className="postArtWarn">Esse é o link de uma <b>pasta</b> do Drive: não aparece na prévia, o cliente não vê a arte e não publica sozinho. No Drive, clique com o botão direito no <b>arquivo</b> → Compartilhar → Copiar link (deixe como "qualquer pessoa com o link"). Ou baixe e envie o arquivo aqui em cima.</p> : null}
           {!item && artList(draft.art_url).length ? <small className="postArtHint">A arte já subiu. Ela fica salva na pauta quando você clicar em <b>Criar pauta</b>.</small> : null}
         </div> : null}
+        {canManage && !clientMode && isReels ? <ReelsOptions value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
+          videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} itemId={item?.id} onApply={(patch) => set(patch)} /> : null}

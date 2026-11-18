@@ -3,7 +3,13 @@ import { clientClientPath, http } from "./api";
 /** Mídia On → Meta Ads: rascunhos de campanha e publicação PAUSADA (só equipe Mugô). */
 export type AdPayload = {
   name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads"; daily_budget: number; start_date: string; end_date: string;
-  audience: { age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean };
+  audience: {
+    age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean;
+    /** Público salvo da conta: a segmentação dele (idade, locais, interesses) substitui a escrita acima. */
+    saved_audience?: AudienceRef | null;
+    /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
+    custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
+  };
   ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null };
 };
 export type AdDraft = {
@@ -11,6 +17,10 @@ export type AdDraft = {
   payload: AdPayload; missing: string[]; meta_ids: Record<string, string>; ads_manager_url: string | null; error: string | null;
   published_at: string | null; updated_at: string | null;
 };
+export type AudienceRef = { id: string; name: string };
+/** Público que já existe na conta de anúncios do cliente. ready=false: o Meta não entrega (pequeno ou preparando). */
+export type AccountAudience = AudienceRef & { kind: string; kind_label: string; size: string; ready: boolean; status: string };
+export type AccountAudiences = { account: string; saved: AccountAudience[]; custom: AccountAudience[] };
 export type AdsList = { drafts: AdDraft[]; objectives: Record<string, string>; ctas: Record<string, string> };
 
 const base = (path = "") => clientClientPath(`/studio/ads${path}`);
@@ -22,3 +32,4 @@ export const saveAdDraft = (id: string, payload: AdPayload) =>
 export const publishAdDraft = (id: string) =>
   http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/publish`), { method: "POST", timeoutMs: 180_000 });
 export const deleteAdDraft = (id: string) => http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" });
+export const listAdAudiences = () => http<AccountAudiences>(base("/audiences"), { timeoutMs: 60_000 });

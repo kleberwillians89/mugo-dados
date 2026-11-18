@@ -27,3 +27,12 @@ export function metaStepIssues(payload: AdPayload, step: MetaStep): string[] {
   }
   return issues;
 }
+
+/** Texto curto dos públicos da conta escolhidos (prévia e revisão). */
+export function accountAudienceText(a: AdPayload["audience"]): string {
+  const parts: string[] = [];
+  if (a.saved_audience) parts.push(`Público salvo: ${a.saved_audience.name}`);
+  if (a.custom_audiences?.length) parts.push(`Inclui: ${a.custom_audiences.map((x) => x.name).join(", ")}`);
+  if (a.excluded_audiences?.length) parts.push(`Exclui: ${a.excluded_audiences.map((x) => x.name).join(", ")}`);
+  return parts.join(" · ");
+}

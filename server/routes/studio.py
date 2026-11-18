@@ -66,6 +66,7 @@ ERRORS = {
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
     "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
     "ART_URL_INVALID": (422, "Link da arte inválido: use um link https (Canva, Google Drive…)."),
+    "REELS_COVER_INVALID": (422, "Link da capa do Reels inválido: envie o JPG pelo modal ou use um link https."),
     "IMPORT_EMPTY": (422, "Não encontrei texto nos slides. Confira o arquivo ou cole o conteúdo."),
     "IMPORT_TOO_LARGE": (413, "Arquivo grande demais para importar de uma vez (até 150 slides)."),
     "IMPORT_NOTHING": (422, "Nenhum post válido para importar."),
@@ -138,6 +139,7 @@ class ItemCreate(BaseModel):
     art_url: Optional[str] = Field(default=None, max_length=1000)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
+    reels_options: Optional["ReelsOptionsInput"] = None
 
 
 class ItemPatch(BaseModel):
@@ -155,6 +157,19 @@ class ItemPatch(BaseModel):
     art_url: Optional[str] = Field(default=None, max_length=1000)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
+    reels_options: Optional["ReelsOptionsInput"] = None
+
+
+class ReelsOptionsInput(BaseModel):
+    """Capa e opções do Reels (só valem no formato Reels do Instagram)."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    cover_mode: Optional[Literal["frame", "image"]] = None
+    thumb_offset_ms: Optional[int] = Field(default=None, ge=0, le=900_000)
+    cover_url: Optional[str] = Field(default=None, max_length=1000)
+    share_to_feed: Optional[bool] = None
+    trial: Optional[Literal["off", "manual", "auto"]] = None
+    audio_name: Optional[str] = Field(default=None, max_length=100)
+    first_comment: Optional[str] = Field(default=None, max_length=2200)
 
 
 class ProductTagInput(BaseModel):

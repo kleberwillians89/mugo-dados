@@ -61,6 +61,16 @@ async def read_drafts(client_id: str, authorization: Optional[str] = Header(defa
         raise _http(exc) from None
 
 
+@router.get("/audiences")
+async def read_audiences(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Públicos que já existem na conta de anúncios do cliente (salvos, personalizados e semelhantes)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.list_account_audiences(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("", status_code=201)
 async def create_draft(client_id: str, body: GenerateInput, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
