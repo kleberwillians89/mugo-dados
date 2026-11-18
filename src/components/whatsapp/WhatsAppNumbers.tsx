@@ -131,7 +131,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
         <span className="waMuted">só a agência vê esta parte</span>
       </div>
       {connection ? <div className="waConnectionSummary" role="status">
-        <strong>{connection.provider === "native" ? "Cloud API conectada" :
+        <strong>{connection.provider === "native" ? "Cloud API cadastrada (status Meta pendente)" :
           connection.provider === "crm_bridge" ? "WhatsApp conectado via CRM próprio" :
           connection.provider === "mugozap_crm" ? "WhatsApp conectado via MugôZap" :
           connection.crm_status_unavailable ? "Conexão com CRM não verificada" : "WhatsApp não conectado"}</strong>
@@ -149,7 +149,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
           {active.map((n) => (
             <li key={n.id}>
               <span><b>{n.display_phone_number || n.phone_number_id}</b>{n.verified_name ? ` · ${n.verified_name}` : ""}
-                <small>Recebendo mensagens pelo {n.meta_app_id ? `Meta App ${n.meta_app_id}` : "app da Mugô"}{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
+                <small>Cadastrado no {n.meta_app_id ? `Meta App ${n.meta_app_id}` : "app da Mugô"}{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
               <button type="button" className="waLinkButton" onClick={() => void disconnect(n)}>Desligar</button>
             </li>
           ))}
@@ -185,7 +185,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
                   ) : null}
                 </div>
               ) : null}
-              {!metaState.registered && !metaState.can_register ? <p>Registro bloqueado: estado desconhecido ou incompatível. Confira com a Meta.</p> : null}
+              {!metaState.registered && !metaState.can_register ? <p>{metaState.code_verification_status?.toUpperCase() !== "VERIFIED" ? "Registro aguardando verificação do telefone na Meta. Se SMS/ligação falhar, consulte o código e o motivo do erro; não repita a solicitação automaticamente." : "Registro bloqueado pelo status informado pela Meta. Confira antes de tentar novamente."}</p> : null}
               {metaState.can_register ? (
                 <form className="waForm" onSubmit={(e) => void registerAtMeta(e)}>
                   <p className="waMuted">Ação opcional, nunca automática. PIN de seis dígitos usado uma única vez e não salvo. Não informe PIN de SMS ou código de login.</p>

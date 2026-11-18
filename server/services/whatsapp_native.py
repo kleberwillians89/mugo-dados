@@ -44,6 +44,33 @@ def mask_phone(value: Any) -> str:
     return f"•••• {digits[-4:]}" if len(digits) >= 4 else "••••"
 
 
+def _safe_meta_operation_diagnostic(error: Dict[str, Any]) -> tuple[str, str]:
+    """Only expose an allowlisted interpretation and validated Meta trace ID.
+
+    Graph error.message / error_data can include account, phone, OTP and other PII:
+    NEVER return or log these fields verbatim.
+    """
+    detail = str(error.get("message") or "").lower()
+    if "unsupported post request" in detail or "does not support this operation" in detail:
+        reason = "operacao_nao_suportada"
+    elif "permission" in detail or "access token" in detail or "authorization" in detail:
+        reason = "permissao_ou_acesso"
+    elif "locale" in detail or "language" in detail:
+        reason = "idioma_ou_locale"
+    elif "parameter" in detail or "parametro" in detail or "param\u00e2metro" in detail:
+        reason = "parametro_invalido"
+    elif "rate limit" in detail or "too many" in detail:
+        reason = "limite_de_tentativas"
+    elif "verification" in detail or "verified" in detail:
+        reason = "estado_de_verificacao"
+    else:
+        reason = "indeterminado"
+    trace = str(error.get("fbtrace_id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,128}", trace):
+        trace = ""
+    return reason, trace
+
+
 async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, Any]] = None,
                  json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
@@ -58,10 +85,17 @@ async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, 
         code = str(error.get("code") or resp.status_code)
         subcode = str(error.get("error_subcode") or "")
         operation = path.rsplit("/", 1)[-1]
-        # Só códigos numéricos da Meta: não registrar error.message, body, PIN, OTP ou token.
-        print(f"[whatsapp_native] graph operation={operation} status={resp.status_code} code={code} subcode={subcode or '-'}")
+        # Classifica a mensagem em categorias fixas; nunca registra texto bruto, PIN, OTP ou token.
+        reason, trace = _safe_meta_operation_diagnostic(error)
+        print(
+            f"[whatsapp_native] graph operation={operation} status={resp.status_code} "
+            f"code={code} subcode={subcode or '-'} reason={reason} trace={trace or '-'}"
+        )
         if operation in {"request_code", "verify_code", "register"}:
-            diagnostic = f"(Meta #{code}" + (f", subcódigo {subcode}" if subcode else "") + ")"
+            diagnostic = (
+                f"(Meta #{code}" + (f", subcódigo {subcode}" if subcode else "") +
+                f"; motivo={reason}" + (f"; trace={trace}" if trace else "") + ")"
+            )
             if code in {"190", "102"} or resp.status_code == 401:
                 raise WhatsAppNativeError("TOKEN_INVALID", f"Credencial Meta inválida ou expirada {diagnostic}.")
             if code in {"10", "200", "294"} or resp.status_code == 403:
