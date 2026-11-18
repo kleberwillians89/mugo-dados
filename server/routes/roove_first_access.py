@@ -19,7 +19,7 @@ from services import lead_capture
 router = APIRouter(tags=["shopify-first-access"])
 
 
-def verify_shopify_proxy_signature(request: Request) -> str:
+def verify_shopify_proxy_signature(request: Request, *, secret_env: str = "SHOPIFY_CLIENT_SECRET") -> str:
     params = request.query_params
     for key in ("signature", "shop", "timestamp"):
         if len(params.getlist(key)) != 1:
@@ -27,7 +27,8 @@ def verify_shopify_proxy_signature(request: Request) -> str:
     signature = str(params.get("signature") or "")
     if len(signature) != 64:
         raise HTTPException(401, "Assinatura inválida.")
-    secret = os.getenv("SHOPIFY_CLIENT_SECRET", "").strip()
+    # Distinct app-proxy credentials must never replace the existing Shopify OAuth secret.
+    secret = os.getenv(secret_env, "").strip()
     if not secret:
         raise HTTPException(503, "Integração Shopify não configurada.")
     try:
@@ -117,7 +118,7 @@ async def generic_shopify_lead_capture(request: Request):
     Configure the Shopify app proxy once to forward /apps/mugo-first-access
     to this route; no brand-specific env vars or private keys in Liquid.
     """
-    shop = verify_shopify_proxy_signature(request)
+    shop = verify_shopify_proxy_signature(request, secret_env="SHOPIFY_MUGO_METRICS_CLIENT_SECRET")
     if int(request.headers.get("content-length") or 0) > 8192:
         raise HTTPException(413, "Cadastro muito grande.")
     raw = await request.body()
