@@ -56,7 +56,26 @@ async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, 
     if resp.status_code >= 400 or (isinstance(body, dict) and body.get("error")):
         error = (body or {}).get("error") or {}
         code = str(error.get("code") or resp.status_code)
-        print(f"[whatsapp_native] graph path={path.split('/')[-1] or path} status={resp.status_code} code={code}")
+        subcode = str(error.get("error_subcode") or "")
+        operation = path.rsplit("/", 1)[-1]
+        # Só códigos numéricos da Meta: não registrar error.message, body, PIN, OTP ou token.
+        print(f"[whatsapp_native] graph operation={operation} status={resp.status_code} code={code} subcode={subcode or '-'}")
+        if operation in {"request_code", "verify_code", "register"}:
+            diagnostic = f"(Meta #{code}" + (f", subcódigo {subcode}" if subcode else "") + ")"
+            if code in {"190", "102"} or resp.status_code == 401:
+                raise WhatsAppNativeError("TOKEN_INVALID", f"Credencial Meta inválida ou expirada {diagnostic}.")
+            if code in {"10", "200", "294"} or resp.status_code == 403:
+                raise WhatsAppNativeError("PERMISSION", f"Permissão insuficiente para {operation} {diagnostic}.")
+            if code in {"100", "803"} or resp.status_code == 404:
+                raise WhatsAppNativeError(
+                    "META_REQUEST_INVALID",
+                    f"A Meta recusou a operação {operation} {diagnostic}. Pode ser parâmetro, recurso indisponível ou ID; "
+                    "não conclua que o número está errado. Não repita o pedido antes de analisar o código.",
+                )
+            raise WhatsAppNativeError(
+                "META_FAILED", f"A Meta recusou a operação {operation} {diagnostic}. "
+                "Consulte o código oficial do erro antes de tentar novamente.",
+            )
         if code in {"190", "102"} or resp.status_code == 401:
             raise WhatsAppNativeError("TOKEN_INVALID", "A Meta recusou o token. Gere um token do usuário do sistema com acesso a esta WABA.")
         if code in {"100", "803"} or resp.status_code == 404:
