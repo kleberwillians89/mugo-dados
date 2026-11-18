@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { clampTaskChatPosition, defaultTaskChatPosition, taskChatPanelGeometry, TASK_CHAT_STORAGE_KEY, type TaskChatPosition } from "./taskChatPosition";
 import { getActiveClientId } from "../../app/activeClient";
 import { dueInfo, listCrmTasks, listTaskNotifications, markTaskNotificationRead, TASK_STATUS, type CrmTask, type TaskAssignmentMessage } from "../../app/crm";
 import "./globalTaskChat.css";
@@ -7,6 +8,69 @@ import "./globalTaskChat.css";
 export default function GlobalTaskChat() {
   const clientId = getActiveClientId();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dragRef = useRef<{pointerId: number; originX: number; originY: number; initial: TaskChatPosition; moved: boolean} | null>(null);
+  const suppressClickRef = useRef(false);
+  const [position, setPosition] = useState<TaskChatPosition>(() => {
+    const w = window.innerWidth, h = window.innerHeight;
+    const defaultPosition = defaultTaskChatPosition(w, h, 173, 48);
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(TASK_CHAT_STORAGE_KEY) || "null") as TaskChatPosition | null;
+      return stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)
+        ? clampTaskChatPosition(stored, w, h, 173, 48) : defaultPosition;
+    } catch { return defaultPosition; }
+  });
+  const [viewport, setViewport] = useState({width: window.innerWidth, height: window.innerHeight});
+  const [triggerSize, setTriggerSize] = useState({width: 173, height: 48});
+  const bounds = useCallback((pos: TaskChatPosition) => clampTaskChatPosition(pos,
+    window.innerWidth, window.innerHeight,
+    triggerRef.current?.offsetWidth || triggerSize.width, triggerRef.current?.offsetHeight || triggerSize.height
+  ), [triggerSize.width, triggerSize.height]);
+  useEffect(() => {
+    const measure = () => {
+      setViewport({width: window.innerWidth, height: window.innerHeight});
+      const width = triggerRef.current?.offsetWidth || 173;
+      const height = triggerRef.current?.offsetHeight || 48;
+      setTriggerSize({width, height});
+      setPosition((current) => clampTaskChatPosition(current, window.innerWidth, window.innerHeight, width, height));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const onDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    dragRef.current = {pointerId: event.pointerId, originX: event.clientX, originY: event.clientY,
+      initial: position, moved: false};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onDragMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.originX, dy = event.clientY - drag.originY;
+    if (!drag.moved && Math.hypot(dx,dy) < 7) return;
+    if (!drag.moved) setOpen(false);
+    drag.moved = true;
+    setPosition(bounds({x: drag.initial.x + dx, y: drag.initial.y + dy}));
+  };
+  const onDragEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      const next = bounds({x: drag.initial.x + event.clientX - drag.originX,
+        y: drag.initial.y + event.clientY - drag.originY});
+      setPosition(next);
+      try { window.localStorage.setItem(TASK_CHAT_STORAGE_KEY, JSON.stringify(next)); } catch { /* blocked storage */ }
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const onDragCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
   const [tab, setTab] = useState<"tasks" | "messages">("tasks");
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [messages, setMessages] = useState<TaskAssignmentMessage[]>([]);
@@ -58,13 +122,21 @@ export default function GlobalTaskChat() {
   }
   if (!clientId) return null;
   const pending = tasks.filter((t) => t.status !== "completed" && t.status !== "cancelled").length;
-  return <div className="globalTaskChat">
-    <button type="button" className="globalTaskChatTrigger"
+  const panel = taskChatPanelGeometry(position, viewport.width, viewport.height, triggerSize.width, triggerSize.height);
+  return <div className="globalTaskChat" style={{left:position.x,top:position.y,right:"auto",bottom:"auto"}}>
+    <button ref={triggerRef} type="button" className="globalTaskChatTrigger"
       aria-expanded={open} aria-controls="global-task-chat-panel"
-      onClick={() => { setOpen((o) => !o); void refresh(); }}>
+      aria-label={open ? "Fechar chat de tarefas (arraste para mover)" : "Abrir chat de tarefas (arraste para mover)"}
+      title="Arraste para posicionar; clique para abrir o chat de tarefas"
+      onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragCancel}
+      onClick={() => {
+        if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+        setOpen((o) => !o); void refresh();
+      }}>
       Chat de tarefas {pending ? <span>{pending}</span> : null}{unread ? <b>{unread} novas</b> : null}
     </button>
-    {open ? <section id="global-task-chat-panel" className="globalTaskChatPanel" aria-label="Tarefas da empresa ativa">
+    {open ? <section id="global-task-chat-panel" className="globalTaskChatPanel"
+      style={panel} aria-label="Tarefas da empresa ativa">
       <header><strong>Chat de tarefas</strong><div>
         <button type="button" onClick={() => void refresh()}>Atualizar</button>
         <button type="button" onClick={() => setOpen(false)}>Fechar</button>
