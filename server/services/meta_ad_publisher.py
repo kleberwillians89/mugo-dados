@@ -583,6 +583,11 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
     cfg = OBJECTIVES[payload["objective"]]
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}
     await sb_update(TABLE, filters=filters, patch={"status": "publicando", "error": None, "updated_at": _now()})
+    async def checkpoint() -> None:
+        # Persist provider IDs after EACH successful create to resume safely on failure.
+        # This avoids creating a second campaign when a later adset/creative request is rejected.
+        await sb_update(TABLE, filters=filters, patch={"meta_ids": ids, "updated_at": _now()})
+
     try:
         token, act, ad = ctx["token"], ctx["act"], payload["ad"]
         if not ids.get("campaign_id"):
@@ -590,6 +595,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 "name": payload["name"], "objective": cfg["objective"], "status": "PAUSED", "special_ad_categories": "[]",
                 "daily_budget": str(int(round(payload["daily_budget"] * 100))), "bid_strategy": "LOWEST_COST_WITHOUT_CAP"})
             ids["campaign_id"] = str(camp["id"])
+            await checkpoint()
         if not ids.get("adset_id"):
             saved = payload["audience"].get("saved_audience")
             if saved:
@@ -621,6 +627,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             if cfg.get("event"):
                 adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
+            await checkpoint()
         if not ids.get("creative_id"):
             image_hash = await _image_hash(act, ad["image_url"], token)
             link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
@@ -636,11 +643,13 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             creative = await _graph("POST", f"/{act}/adcreatives", token=token,
                                     data={"name": f"{payload['name']} · criativo", "object_story_spec": json.dumps(spec)})
             ids["creative_id"] = str(creative["id"])
+            await checkpoint()
         if not ids.get("ad_id"):
             made = await _graph("POST", f"/{act}/ads", token=token, data={
                 "name": f"{payload['name']} · anúncio", "adset_id": ids["adset_id"], "status": "PAUSED",
                 "creative": json.dumps({"creative_id": ids["creative_id"]})})
             ids["ad_id"] = str(made["id"])
+            await checkpoint()
     except StudioError as exc:
         message = str(exc) if str(exc) != exc.code else exc.code
         await sb_update(TABLE, filters=filters, patch={"status": "erro", "meta_ids": ids, "error": str(message)[:600], "updated_at": _now()})
