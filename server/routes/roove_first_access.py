@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import os
 import time
+from urllib.parse import parse_qs
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -58,9 +59,22 @@ async def first_access(request: Request):
     raw = await request.body()
     if len(raw) > 8192:
         raise HTTPException(413, "Cadastro muito grande.")
-    data = await request.form()
+    # Shopify App Proxy forwards application/x-www-form-urlencoded bodies.
+    # Parse explicitly: request.form() depends on python-multipart, which is
+    # not a declared server requirement, and would break live submissions.
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/x-www-form-urlencoded":
+        raise HTTPException(415, "Envie o cadastro como formulário.")
+    try:
+        fields = parse_qs(raw.decode("utf-8"), keep_blank_values=True, max_num_fields=24)
+    except (UnicodeDecodeError, ValueError):
+        raise HTTPException(422, "Formulário inválido.") from None
+    if any(len(values) != 1 for values in fields.values()):
+        raise HTTPException(422, "Campos repetidos não são permitidos.")
+    data = {key: values[0] for key, values in fields.items()}
     if data.get("website"):
-        return JSONResponse({"ok": True})
+        # Honeypot: silently drop bot submissions; do not record a lead.
+        return JSONResponse({"ok": True, "accepted": False})
     name = " ".join(str(data.get("name") or "").split())
     email = str(data.get("email") or "").strip()
     phone = str(data.get("phone") or "").strip()

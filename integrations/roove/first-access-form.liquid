@@ -1,0 +1,84 @@
+{% comment %}
+  ROOVE / First Access — integration reference, not a replacement for the live design.
+  Requirements:
+  - Shopify app proxy: /apps/mugo-first-access -> https://<backend>/api/shopify/first-access
+  - App proxy signed on Shopify side; no private keys in Liquid.
+  - Include once in landing page and keep the existing visual CSS.
+  - Never redirect to WhatsApp before Mugô confirms the lead was persisted.
+{% endcomment %}
+<form id="roove-first-access-mugo" action="/apps/mugo-first-access" method="post" accept-charset="UTF-8">
+  <label for="roove-lead-name">Nome</label>
+  <input id="roove-lead-name" type="text" name="name" autocomplete="name" required minlength="2" maxlength="100">
+
+  <label for="roove-lead-email">E-mail</label>
+  <input id="roove-lead-email" type="email" name="email" autocomplete="email" required maxlength="254">
+
+  <label for="roove-lead-phone">WhatsApp com DDD</label>
+  <input id="roove-lead-phone" type="tel" name="phone" autocomplete="tel" required inputmode="tel">
+
+  <label><input type="checkbox" name="consent_email" value="sim">
+    Autorizo receber comunicações de marketing por e-mail da Roove.</label>
+  <label><input type="checkbox" name="consent_whatsapp" value="sim">
+    Autorizo receber comunicações de marketing por WhatsApp da Roove.</label>
+
+  <input type="hidden" name="consent_version" value="roove-bf2026-v1">
+  <input type="hidden" name="event_id" value="">
+  <input type="hidden" name="utm_source" value="">
+  <input type="hidden" name="utm_medium" value="">
+  <input type="hidden" name="utm_campaign" value="">
+  <div class="visually-hidden" aria-hidden="true" style="position:absolute;left:-10000px">
+    <label>Deixe vazio <input name="website" tabindex="-1" autocomplete="off"></label>
+  </div>
+
+  <button type="submit">QUERO MEU FIRST ACCESS</button>
+  <p role="status" aria-live="polite" data-roove-form-status></p>
+</form>
+
+<script>
+(() => {
+  const form = document.querySelector('#roove-first-access-mugo');
+  if (!form || form.dataset.mugoBound === 'true') return;
+  form.dataset.mugoBound = 'true';
+  const button = form.querySelector('[type="submit"]');
+  const status = form.querySelector('[data-roove-form-status]');
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ['utm_source', 'utm_medium', 'utm_campaign']) {
+    const field = form.elements.namedItem(key);
+    if (field) field.value = (params.get(key) || '').slice(0, 100);
+  }
+  // Stable per attempt: retries should never create a second event.
+  function freshEventId() {
+    return window.crypto && crypto.randomUUID ? crypto.randomUUID() :
+      'roove-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  }
+  form.elements.namedItem('event_id').value = freshEventId();
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity() || button.disabled) return;
+    button.disabled = true;
+    status.textContent = 'Enviando cadastro...';
+    try {
+      const body = new URLSearchParams(new FormData(form));
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        credentials: 'same-origin',
+        body
+      });
+      if (!response.ok) throw new Error('Cadastro não confirmado pelo servidor.');
+      const result = await response.json();
+      if (result.ok !== true || result.accepted === false) throw new Error('Cadastro não confirmado.');
+      status.textContent = 'Cadastro confirmado! Seu First Access foi registrado.';
+      form.reset();
+      form.elements.namedItem('event_id').value = freshEventId();
+      // Optional: only after confirmed success, display/link the approved WhatsApp group.
+      // Never redirect on 4xx/5xx, network error, invalid JSON or honeypot.
+    } catch (_) {
+      status.textContent = 'Não foi possível confirmar seu cadastro. Tente novamente.';
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();
+</script>
