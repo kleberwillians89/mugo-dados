@@ -15,7 +15,7 @@ from services.whatsapp_sources import brand_messages, brand_reply
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
-from services.whatsapp_native import WhatsAppNativeError, disconnect_number, get_roove_registration_status, register_roove_cloud_number, list_numbers, register_number, list_templates, create_template
+from services.whatsapp_native import WhatsAppNativeError, disconnect_number, get_roove_registration_status, register_roove_cloud_number, request_roove_verification_code, verify_roove_verification_code, list_numbers, register_number, list_templates, create_template
 
 router = APIRouter(prefix="/api/clients/{client_id}/whatsapp", tags=["whatsapp"])
 
@@ -194,6 +194,48 @@ async def delete_whatsapp_number(client_id: str, number_id: str, authorization: 
 class RooveCloudRegistrationIn(BaseModel):
     pin: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
     confirmed: bool = Field(default=False)
+
+
+class RooveVerificationRequestIn(BaseModel):
+    method: str = Field(pattern=r"^(SMS|VOICE)$")
+    confirmed: bool = Field(default=False)
+
+
+class RooveVerificationConfirmIn(BaseModel):
+    code: str = Field(min_length=4, max_length=8, pattern=r"^[0-9]{4,8}$")
+    confirmed: bool = Field(default=False)
+
+
+def _roove_meta_error(exc: WhatsAppNativeError) -> HTTPException:
+    status = (
+        404 if exc.code == "NOT_FOUND" else
+        409 if exc.code in {"CONFIRMATION_REQUIRED", "STATUS_UNKNOWN", "REGISTRATION_UNSAFE",
+                            "NOT_IN_WABA", "ALREADY_VERIFIED", "VERIFICATION_REQUIRED"} else
+        422 if exc.code in {"PIN_INVALID", "CODE_INVALID", "METHOD_INVALID"} else 502
+    )
+    return HTTPException(status, exc.message)
+
+
+@router.post("/numbers/{number_id}/meta-request-code")
+async def whatsapp_roove_request_code(client_id: str, number_id: str, payload: RooveVerificationRequestIn,
+                                      authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await request_roove_verification_code(
+            cid, number_id, method=payload.method, confirmed=payload.confirmed)}
+    except WhatsAppNativeError as exc:
+        raise _roove_meta_error(exc) from None
+
+
+@router.post("/numbers/{number_id}/meta-verify-code")
+async def whatsapp_roove_verify_code(client_id: str, number_id: str, payload: RooveVerificationConfirmIn,
+                                     authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await verify_roove_verification_code(
+            cid, number_id, code=payload.code, confirmed=payload.confirmed)}
+    except WhatsAppNativeError as exc:
+        raise _roove_meta_error(exc) from None
 
 
 @router.get("/numbers/{number_id}/meta-registration")
