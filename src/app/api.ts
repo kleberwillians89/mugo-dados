@@ -139,6 +139,35 @@ export async function getApiVersion(): Promise<ApiVersion> {
   return http<ApiVersion>("/api/version");
 }
 
+export type AiSettings = {
+  client_id: string;
+  mode: "platform_managed" | "byok";
+  provider: "openai";
+  model: string;
+  credential_status: "platform" | "missing" | "valid" | "invalid" | "unchecked";
+  has_credential: boolean;
+  credential_updated_at?: string | null;
+  validated_at?: string | null;
+};
+
+export type AiModelOption = { provider: "openai"; model: string; max_output_tokens: number };
+
+function aiSettingsPath(suffix = ""): string {
+  return `/api/clients/${encodeURIComponent(getActiveClientId())}/ai-settings${suffix}`;
+}
+
+export function getAiSettings(): Promise<{ settings: AiSettings; models: AiModelOption[] }> {
+  return http(aiSettingsPath());
+}
+
+export function saveAiSettings(input: { mode: AiSettings["mode"]; model: string; api_key?: string }): Promise<{ settings: AiSettings }> {
+  return http(aiSettingsPath(), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export function revokeAiCredential(): Promise<{ settings: AiSettings }> {
+  return http(aiSettingsPath("/credential"), { method: "DELETE" });
+}
+
 export type ClientsResponse = {
   ok: boolean;
   clients: ClientMembership[];

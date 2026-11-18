@@ -69,15 +69,18 @@ AI_SCHEMA = {
 }
 
 
-async def _call_openai_json(prompt: str) -> Dict[str, Any]:
-    api_key = _need("OPENAI_API_KEY")
-    model = _env("OPENAI_MODEL") or "gpt-4.1-mini"
+async def _call_openai_json(prompt: str, client_id: str) -> Dict[str, Any]:
+    from .ai_runtime import bounded_output_tokens, resolve
+    runtime = await resolve(client_id)
+    api_key = runtime.api_key
+    model = runtime.model
 
     payload = {
         "model": model,
         "instructions": "Você é um estrategista sênior de social media para agência. Nunca invente dados.",
         "input": prompt,
         "temperature": 0.35,
+        "max_output_tokens": bounded_output_tokens("summary", None, model),
         "text": {
             "format": {
                 "type": "json_schema",
@@ -95,9 +98,11 @@ async def _call_openai_json(prompt: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=90) as client:
         r = await client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
         from .ai_usage import track_response
-        track_response(r, feature="ai_summary", model=str(payload.get("model") or ""))
+        track_response(r, feature="ai_summary", model=str(payload.get("model") or ""), client_id=client_id,
+                       credential_mode=runtime.mode)
         if r.status_code >= 400:
-            raise RuntimeError(f"OpenAI error {r.status_code}: {r.text}")
+            from .studio_llm import provider_error_code, provider_error_detail
+            raise RuntimeError(provider_error_code(provider_error_detail(r)))
 
         data = r.json()
         text = _extract_output_text(data)
@@ -179,7 +184,7 @@ async def ai_summary(
         f"JSON:\n{json.dumps(context, ensure_ascii=False)}"
     )
 
-    report = await _call_openai_json(prompt)
+    report = await _call_openai_json(prompt, client_id)
     report["ok"] = True
     report["days"] = context["days"]
     report["start"] = context["start"]

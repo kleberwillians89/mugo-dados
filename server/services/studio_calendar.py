@@ -438,38 +438,19 @@ def build_prompt(
 
 
 async def call_llm(prompt: str) -> Dict[str, Any]:
-    from .ai_summary import _extract_output_text
-
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    if not api_key:
-        raise StudioError("AI_PROVIDER_NOT_CONFIGURED")
-    payload = {
-        "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip(),
-        "instructions": "Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.\n\n" + CREATIVE_GUIDANCE,
-        "input": prompt,
-        "temperature": float(os.getenv("STUDIO_CALENDAR_TEMPERATURE") or 0.8),
-        "text": {"format": {"type": "json_schema", "name": LLM_SCHEMA["name"], "schema": LLM_SCHEMA["schema"], "strict": True}},
-    }
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post("https://api.openai.com/v1/responses",
-                                         headers={"Authorization": f"Bearer {api_key}"}, json=payload)
-    except httpx.TimeoutException:
-        from .ai_usage import track
-        track(feature="studio_calendar_month", model=payload["model"], error_code="timeout")
-        raise StudioError("AI_PROVIDER_TIMEOUT") from None
-    from .ai_usage import track_response
-    track_response(response, feature="studio_calendar_month", model=payload["model"])
-    if response.status_code >= 400:
-        print(f"[studio][llm] status={response.status_code}")
-        from .studio_llm import provider_error_detail
-        detail = provider_error_detail(response)
-        from .studio_llm import provider_error_code
-        raise StudioError(provider_error_code(detail), detail)
-    try:
-        return json.loads(_extract_output_text(response.json()))
-    except (ValueError, TypeError):
-        raise StudioError("AI_INVALID_OUTPUT") from None
+    from .studio_llm import llm_json
+    from .tenant import _REQUEST_CLIENT
+    return await llm_json(
+        instructions="Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.",
+        prompt=prompt,
+        schema_name=LLM_SCHEMA["name"],
+        schema=LLM_SCHEMA["schema"],
+        temperature=float(os.getenv("STUDIO_CALENDAR_TEMPERATURE") or 0.8),
+        timeout=120,
+        client_id=_REQUEST_CLIENT.get(),
+        guidance=True,
+        max_output_tokens=8192,
+    )
 
 
 def validate_items(

@@ -184,7 +184,7 @@ def _list(values: Any, limit: int = 4, size: int = 200) -> List[str]:
     return [c for c in (_clean(v, size) for v in (values or [])[:limit]) if c] if isinstance(values, list) else []
 
 
-async def _classify(context: str, items: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+async def _classify(context: str, items: List[Dict[str, Any]], *, client_id: str | None = None) -> Dict[int, Dict[str, Any]]:
     """Análise contextual por cliente. Saída validada: índice existente, enums, evidência presente no texto."""
     if not items:
         return {}
@@ -198,7 +198,7 @@ async def _classify(context: str, items: List[Dict[str, Any]]) -> Dict[int, Dict
         f"TEXTO: {(it.get('content_text') or it.get('excerpt') or '')[:1200]}" for i, it in enumerate(items))
     try:
         # Matérias de terceiros podem citar concorrentes (às vezes outro cliente): aqui não é vazamento.
-        data = await llm_json(leak_check=False,
+        data = await llm_json(client_id=client_id, leak_check=False,
             instructions=("Você faz clipping para uma agência. Analise cada matéria SÓ em relação ao cliente descrito no CONTEXTO "
                           "(a mesma matéria pode importar para outro cliente por outros motivos). Use apenas título, fonte e TEXTO; "
                           "não invente fatos, números nem conclusões. relevancia: 0 a 100 para ESTE cliente (homônimo ou citação de "
@@ -300,7 +300,7 @@ async def refresh(client_id: str, *, manual: bool = False) -> Dict[str, Any]:
     context = _context(brand, settings)
     for start in range(0, len(analyzable), AI_BATCH):
         batch = analyzable[start:start + AI_BATCH]
-        result = await _classify(context, batch)
+        result = await _classify(context, batch, client_id=client_id)
         labels.update({start + k: v for k, v in result.items()})
         try:
             await _spend(client_id, len(batch))
@@ -357,7 +357,7 @@ async def analyze_pending(client_id: str, *, limit: int = AI_BATCH * 2, ignore_b
     context = _context(brand, settings)
     for start in range(0, len(items), AI_BATCH):
         batch = items[start:start + AI_BATCH]
-        labels = await _classify(context, batch)
+        labels = await _classify(context, batch, client_id=client_id)
         if not labels:
             break
         try:

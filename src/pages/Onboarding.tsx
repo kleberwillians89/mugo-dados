@@ -71,6 +71,7 @@ import { navigateToExternalAuthorization } from "../app/externalNavigation";
 import AssetCombobox from "../components/AssetCombobox";
 import FbitsIntegrationPanel from "../components/FbitsIntegrationPanel";
 import StatusBadge, { type StatusTone } from "../components/StatusBadge";
+import AiSettingsPanel from "../components/AiSettingsPanel";
 import { PlatformLogo } from "../components/BrandLogo";
 import { getIntegrationPlatformBrand } from "../app/brandRegistry";
 import {
@@ -1469,6 +1470,8 @@ export default function Onboarding({
             </button>
           </div>
         </header>
+
+        {canManageConnections ? <AiSettingsPanel /> : null}
 
         <ChannelsPanel canManage={canManageConnections} />
         <p className="integrationsLead">

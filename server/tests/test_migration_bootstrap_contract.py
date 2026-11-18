@@ -48,6 +48,8 @@ class MigrationBootstrapContractTests(unittest.TestCase):
             )
 
     def test_auth_oauth_migration_is_nineteenth(self):
+        all_names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        self.assertIn("20270113_000122_client_ai_settings.sql", all_names)
         names = historical_migration_names()
         self.assertEqual(len(names), HISTORICAL_LAST_NUMBER)
         self.assertEqual(names[18], "20260731_000019_auth_oauth_connections.sql")

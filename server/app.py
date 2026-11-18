@@ -81,6 +81,7 @@ from routes.crm import router as crm_router
 from routes.hooks import router as hooks_router
 from routes.lead_capture import router as lead_capture_router
 from routes.content_ops import router as content_ops_router
+from routes.ai_settings import router as ai_settings_router
 
 from services.ai_summary import ai_summary
 from services.ads_sync import sync_ads_for_client_period
@@ -386,6 +387,7 @@ app.include_router(crm_router)
 app.include_router(hooks_router)
 app.include_router(lead_capture_router)
 app.include_router(content_ops_router)
+app.include_router(ai_settings_router)
 app.include_router(sales_origin_router)
 app.include_router(whatsapp_router)
 app.include_router(connections_router)
@@ -1618,7 +1620,17 @@ async def api_ai_summary(
     authorization: str | None = Header(default=None),
 ):
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
-    return await ai_summary(client_id=cid, days=days, month=month, start=start, end=end)
+    try:
+        return await ai_summary(client_id=cid, days=days, month=month, start=start, end=end)
+    except Exception as exc:
+        from services.ai_runtime import AiRuntimeError
+        if isinstance(exc, AiRuntimeError):
+            raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from None
+        code = str(exc)
+        if code in {"AI_PROVIDER_AUTH", "AI_PROVIDER_PERMISSION", "AI_MODEL_UNAVAILABLE", "AI_PROVIDER_QUOTA", "AI_PROVIDER_RATE"}:
+            raise HTTPException(status_code=422 if code in {"AI_PROVIDER_AUTH", "AI_PROVIDER_PERMISSION", "AI_MODEL_UNAVAILABLE"} else 429 if code == "AI_PROVIDER_RATE" else 503,
+                                detail={"code": code, "message": "A configuracao de IA desta empresa precisa de atencao."}) from None
+        raise
 
 # Adaptador opcional; sem autenticação de produção nesta primeira entrega.
 from mcp_readonly.transport import install as install_mcp

@@ -1,7 +1,4 @@
-"""Chamada à OpenAI com saída JSON validada por schema, comum a todos os motores do Studio.
-
-Mesma chave e mesmo modelo da Inteligência (OPENAI_API_KEY / OPENAI_MODEL).
-"""
+"""Chamada central à OpenAI com credencial e modelo resolvidos por empresa."""
 from __future__ import annotations
 
 import json
@@ -85,10 +82,13 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
     from .ai_usage import track, track_response
     from .studio_calendar import StudioError
 
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    if not api_key:
-        raise StudioError("AI_PROVIDER_NOT_CONFIGURED")
-    chosen = (model or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip()
+    from .ai_runtime import AiRuntimeError, bounded_output_tokens, resolve
+    try:
+        runtime = await resolve(client_id, requested_model=model)
+    except AiRuntimeError as exc:
+        raise StudioError(exc.code, exc.message) from None
+    api_key = runtime.api_key
+    chosen = runtime.model
     # Imagens (data URLs já baixadas por nós) vão junto do texto, na mesma mensagem.
     user_input: Any = prompt
     if images:
@@ -102,22 +102,22 @@ async def _llm_json_once(*, instructions: str, prompt: str, schema_name: str, sc
     }
     if _accepts_temperature(chosen):
         payload["temperature"] = temperature
-    if max_output_tokens:
-        payload["max_output_tokens"] = int(max_output_tokens)
+    operation = "matrix" if "matrix" in schema_name else "calendar" if "calendar" in schema_name else "chat" if "chat" in schema_name else "default"
+    payload["max_output_tokens"] = bounded_output_tokens(operation, max_output_tokens, chosen)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post("https://api.openai.com/v1/responses",
                                          headers={"Authorization": f"Bearer {api_key}"}, json=payload)
     except httpx.TimeoutException:
-        track(feature=schema_name, model=chosen, client_id=client_id, error_code="timeout")
+        track(feature=schema_name, model=chosen, client_id=client_id, credential_mode=runtime.mode, error_code="timeout")
         raise StudioError("AI_PROVIDER_TIMEOUT") from None
     except httpx.HTTPError:
-        track(feature=schema_name, model=chosen, client_id=client_id, error_code="network")
+        track(feature=schema_name, model=chosen, client_id=client_id, credential_mode=runtime.mode, error_code="network")
         raise StudioError("AI_PROVIDER_ERROR") from None
-    track_response(response, feature=schema_name, model=chosen, client_id=client_id)
+    track_response(response, feature=schema_name, model=chosen, client_id=client_id, credential_mode=runtime.mode)
     if response.status_code >= 400:
         detail = provider_error_detail(response)
-        print(f"[studio][llm] schema={schema_name} model={chosen} images={len(images)} status={response.status_code} detail={detail}")
+        print(f"[studio][llm] schema={schema_name} model={chosen} credential_mode={runtime.mode} images={len(images)} status={response.status_code} detail={detail}")
         raise StudioError(provider_error_code(detail), detail)
     try:
         body = response.json()

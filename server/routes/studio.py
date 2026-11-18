@@ -49,7 +49,11 @@ ERRORS = {
     "AI_PROVIDER_NOT_CONFIGURED": (503, "O provedor de IA ainda não está configurado no backend."),
     "AI_PROVIDER_TIMEOUT": (502, "A IA demorou mais que o esperado. Tente novamente."),
     "AI_PROVIDER_QUOTA": (503, "A IA está sem crédito na OpenAI. Recarregue em platform.openai.com → Billing e tente de novo. O consumo por cliente está em Administração → Consumo de IA."),
-    "AI_PROVIDER_AUTH": (503, "A chave da OpenAI do Mugoverso foi recusada (inválida ou de outro projeto). Confira a OPENAI_API_KEY no Render."),
+    "AI_PROVIDER_AUTH": (503, "A chave OpenAI configurada para esta empresa foi recusada."),
+    "AI_PROVIDER_PERMISSION": (403, "A chave OpenAI nao possui permissao para o modelo selecionado."),
+    "AI_BYOK_CREDENTIAL_MISSING": (409, "Cadastre uma chave OpenAI em Integracoes antes de usar a IA."),
+    "AI_BYOK_CREDENTIAL_INVALID": (503, "A credencial de IA desta empresa precisa ser configurada novamente."),
+    "AI_MODEL_UNAVAILABLE": (422, "O modelo selecionado nao esta disponivel para esta empresa."),
     "AI_PROVIDER_RATE": (429, "A OpenAI pediu para esperar: limite de uso por minuto da conta. Tente de novo em 1 minuto."),
     "AI_PROVIDER_REQUEST": (502, "A OpenAI recusou o pedido (modelo ou formato). Avise a equipe técnica: o código do erro está em Administração → Consumo de IA."),
     "AI_PROVIDER_ERROR": (502, "A IA não respondeu agora. Tente novamente."),
@@ -306,7 +310,7 @@ async def import_parse(client_id: str, body: ImportParseInput, authorization: st
     try:
         from services.studio_engines import throttle
         throttle(cid)
-        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name)
+        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name, client_id=cid)
     except StudioError as exc:
         raise _http(exc) from None
 

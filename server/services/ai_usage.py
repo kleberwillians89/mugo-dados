@@ -78,10 +78,11 @@ def _client(client_id: Optional[str]) -> Optional[str]:
 
 
 def build_row(*, feature: str, model: str, client_id: Optional[str] = None, body: Any = None,
-              error_code: Optional[str] = None) -> Dict[str, Any]:
+              credential_mode: str = "platform_managed", error_code: Optional[str] = None) -> Dict[str, Any]:
     use = usage_from(body) if body is not None else {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    return {"client_id": _client(client_id), "feature": (feature or "ia")[:80], "model": (model or "")[:80],
-            **use, "cost_usd": estimate_cost(model, use["input_tokens"], use["output_tokens"]),
+    mode = credential_mode if credential_mode in {"platform_managed", "byok"} else "platform_managed"
+    return {"client_id": _client(client_id), "feature": (feature or "ia")[:80], "model": (model or "")[:80], "credential_mode": mode,
+            **use, "cost_usd": estimate_cost(model, use["input_tokens"], use["output_tokens"]) if mode == "platform_managed" else None,
             "status": "erro" if error_code else "ok", "error_code": (error_code or None) and str(error_code)[:80]}
 
 
@@ -94,9 +95,9 @@ async def _insert(row: Dict[str, Any]) -> None:
 
 
 def track(*, feature: str, model: str, client_id: Optional[str] = None, body: Any = None,
-          error_code: Optional[str] = None) -> None:
+          credential_mode: str = "platform_managed", error_code: Optional[str] = None) -> None:
     """Registra em segundo plano (não espera o banco)."""
-    row = build_row(feature=feature, model=model, client_id=client_id, body=body, error_code=error_code)
+    row = build_row(feature=feature, model=model, client_id=client_id, body=body, credential_mode=credential_mode, error_code=error_code)
     try:
         task = asyncio.get_running_loop().create_task(_insert(row))
     except RuntimeError:
@@ -105,7 +106,8 @@ def track(*, feature: str, model: str, client_id: Optional[str] = None, body: An
     task.add_done_callback(_pending.discard)
 
 
-def track_response(response: Any, *, feature: str, model: str, client_id: Optional[str] = None) -> None:
+def track_response(response: Any, *, feature: str, model: str, client_id: Optional[str] = None,
+                   credential_mode: str = "platform_managed") -> None:
     """Atalho para a resposta httpx da OpenAI: sucesso grava tokens; erro grava o código (status + tipo)."""
     status = getattr(response, "status_code", 0)
     try:
@@ -115,9 +117,9 @@ def track_response(response: Any, *, feature: str, model: str, client_id: Option
     if status >= 400:
         err = (body or {}).get("error") if isinstance(body, dict) else None
         code = str((err.get("code") or err.get("type") or "") if isinstance(err, dict) else "").strip()[:60]
-        track(feature=feature, model=model, client_id=client_id, error_code=f"http_{status}" + (f":{code}" if code else ""))
+        track(feature=feature, model=model, client_id=client_id, credential_mode=credential_mode, error_code=f"http_{status}" + (f":{code}" if code else ""))
     else:
-        track(feature=feature, model=model, client_id=client_id, body=body)
+        track(feature=feature, model=model, client_id=client_id, credential_mode=credential_mode, body=body)
 
 
 # ---------------------------------------------------------------- relatório
@@ -131,6 +133,10 @@ def aggregate(rows: List[Dict[str, Any]], names: Dict[str, str]) -> Dict[str, An
     features: Dict[str, Dict[str, Any]] = {}
     days: Dict[str, Dict[str, Any]] = {}
     totals = {"calls": 0, "errors": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
+    credential_modes = {
+        "platform_managed": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "byok": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    }
     last_error: Optional[Dict[str, Any]] = None
     unpriced: set = set()
 
@@ -143,6 +149,10 @@ def aggregate(rows: List[Dict[str, Any]], names: Dict[str, str]) -> Dict[str, An
 
     empty = lambda: {"calls": 0, "errors": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}  # noqa: E731
     for row in rows:
+        mode = row.get("credential_mode") if row.get("credential_mode") in credential_modes else "platform_managed"
+        credential_modes[mode]["calls"] += 1
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            credential_modes[mode][key] += int(row.get(key) or 0)
         cid = row.get("client_id") or "_sem_empresa"
         c = clients.setdefault(cid, {"client_id": row.get("client_id"), "name": names.get(cid) or ("Sem empresa (tarefas internas)" if cid == "_sem_empresa" else cid),
                                      **empty(), "features": {}, "last_error": None, "last_call": None})
@@ -159,13 +169,13 @@ def aggregate(rows: List[Dict[str, Any]], names: Dict[str, str]) -> Dict[str, An
                 c["last_error"] = err
             if not last_error or str(err["at"]) > str(last_error["at"]):
                 last_error = err
-        if row.get("status") == "ok" and row.get("cost_usd") is None and row.get("model"):
+        if row.get("status") == "ok" and row.get("credential_mode", "platform_managed") == "platform_managed" and row.get("cost_usd") is None and row.get("model"):
             unpriced.add(row["model"])
     ordered = sorted(clients.values(), key=lambda c: (-c["total_tokens"], c["name"]))
     for c in ordered:
         c["features"] = [{"feature": k, **v} for k, v in sorted(c["features"].items(), key=lambda kv: -kv[1]["total_tokens"])]
     quota = bool(last_error and any(code in str(last_error.get("code") or "") for code in QUOTA_CODES))
-    return {"totals": totals, "clients": ordered,
+    return {"totals": totals, "credential_modes": credential_modes, "clients": ordered,
             "features": [{"feature": k, **v} for k, v in sorted(features.items(), key=lambda kv: -kv[1]["total_tokens"])],
             "daily": [{"date": k, **v} for k, v in sorted(days.items())],
             "last_error": last_error, "quota_exhausted": quota, "unpriced_models": sorted(unpriced)}
@@ -186,7 +196,7 @@ async def report(*, start: Optional[str] = None, end: Optional[str] = None) -> D
     rows: List[Dict[str, Any]] = []
     offset, page = 0, 1000
     while True:
-        chunk = await sb_select(TABLE, select="client_id,feature,model,input_tokens,output_tokens,total_tokens,cost_usd,status,error_code,created_at",
+        chunk = await sb_select(TABLE, select="client_id,feature,model,credential_mode,input_tokens,output_tokens,total_tokens,cost_usd,status,error_code,created_at",
                                 filters={"created_at": f"gte.{first.isoformat()}T00:00:00Z", "and": f"(created_at.lt.{(last + timedelta(days=1)).isoformat()}T00:00:00Z)"},
                                 order="created_at.asc", limit=page, offset=offset)
         rows.extend(chunk or [])
@@ -216,7 +226,7 @@ async def client_summary(client_id: str, *, today: Optional[date] = None) -> Dic
     rows: List[Dict[str, Any]] = []
     offset, page = 0, 1000
     while True:
-        chunk = await sb_select(TABLE, select="feature,model,input_tokens,output_tokens,total_tokens,cost_usd,status,error_code,created_at",
+        chunk = await sb_select(TABLE, select="feature,model,credential_mode,input_tokens,output_tokens,total_tokens,cost_usd,status,error_code,created_at",
                                 filters={"client_id": f"eq.{client_id}", "created_at": f"gte.{since.isoformat()}T00:00:00Z"},
                                 order="created_at.asc", limit=page, offset=offset)
         rows.extend(chunk or [])
