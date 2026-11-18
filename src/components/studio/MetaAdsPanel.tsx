@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, type AdDraft, type AdPayload } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
@@ -24,6 +24,7 @@ export type PrepareRequest = { nonce: number; campaign: Record<string, unknown> 
  */
 export default function MetaAdsPanel({ month, objective, daysLeft, request }: { month: string; objective: string; daysLeft: number; request: PrepareRequest }) {
   const clientId = getActiveClientId();
+  const handledRequest = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<AdDraft[] | null>(null);
   const [objectives, setObjectives] = useState<Record<string, string>>({});
   const [ctas, setCtas] = useState<Record<string, string>>({});
@@ -65,7 +66,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     const r = await run("generate", () => generateAdDraft({ month, objective, days_left: daysLeft, campaign }), "Não foi possível montar a campanha.");
     if (r) { upsert(r.draft); open(r.draft); }
   }, [month, objective, daysLeft]);
-  useEffect(() => { if (request) void generate(request.campaign); }, [request, generate]);
+  useEffect(() => { if (request && request.nonce !== handledRequest.current) { handledRequest.current = request.nonce; void generate(request.campaign); } }, [request, generate]);
 
   async function save(event?: FormEvent) {
     event?.preventDefault();
@@ -122,22 +123,33 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}</p></div> : null}
     {busy === "generate" ? <p className="ds-caption">A IA está montando público, texto e verba… até 1 minuto.</p> : null}
     {!drafts ? <p className="ds-caption">Carregando…</p> : !drafts.length ? <p className="ds-emptyLine">Nenhuma campanha preparada. Use “Preparar no Meta Ads” numa campanha do Meta acima ou “+ Nova campanha”.</p> :
-      <div className="ds-tableWrap"><table className="ds-table metaAdsTable">
-        <thead><tr><th>Campanha</th><th>Objetivo</th><th>Verba/dia</th><th>Período</th><th>Status</th><th aria-label="Ações" /></tr></thead>
-        <tbody>{drafts.map((d) => <tr key={d.id}>
-          <td><b>{d.payload.name}</b>{d.source_campaign && d.source_campaign !== d.payload.name ? <span className="ds-tableSub">do plano: {d.source_campaign}</span> : null}
-            {d.status === "erro" && d.error ? <span className="ds-tableSub metaAdsErr">{d.error}</span> : null}
-            {d.status === "rascunho" && d.missing.length ? <span className="ds-tableSub">Falta: {d.missing.join(" · ")}</span> : null}</td>
-          <td>{objectives[d.payload.objective] || d.payload.objective}</td>
-          <td>{brl(d.payload.daily_budget)}</td>
-          <td>{d.payload.start_date.slice(8, 10)}/{d.payload.start_date.slice(5, 7)} a {d.payload.end_date.slice(8, 10)}/{d.payload.end_date.slice(5, 7)}</td>
-          <td><StatusBadge label={STATUS[d.status].label} tone={STATUS[d.status].tone} /></td>
-          <td><div className="metaAdsActions">
-            {d.ads_manager_url ? <a className="ds-link" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
-            <button type="button" className="ds-button" onClick={() => open(d)}>{d.status === "publicada" ? "Ver" : "Revisar"}</button>
-            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>{d.status === "publicada" ? "Tirar da lista" : "Excluir"}</button>
-          </div></td>
-        </tr>)}</tbody></table></div>}
+      <div className="metaAdsCampaignCards" aria-label="Campanhas Meta Ads já preparadas">
+        {drafts.map((d) => <article className="metaAdsCampaignCard" key={d.id}>
+          <StatusBadge label={STATUS[d.status].label} tone={STATUS[d.status].tone} />
+          <h3>{d.payload.name}</h3>
+          {d.source_campaign && d.source_campaign !== d.payload.name ? <p className="ds-caption">Origem: {d.source_campaign}</p> : null}
+          <div className="metaAdsCampaignMeta">
+            <span>{objectives[d.payload.objective] || d.payload.objective}</span>
+            <span>{brl(d.payload.daily_budget)}/dia</span>
+            <span>{d.payload.start_date.slice(8, 10)}/{d.payload.start_date.slice(5, 7)} a {d.payload.end_date.slice(8, 10)}/{d.payload.end_date.slice(5, 7)}</span>
+          </div>
+          {d.status === "erro" && d.error ? <p className="studioError" role="alert">{d.error}</p> : null}
+          {d.status === "rascunho" && d.missing.length ? <p className="ds-caption">Antes de publicar: {d.missing.join(" · ")}</p> : null}
+          <div className="metaAdsActions">
+            <button type="button" className="ds-button is-primary" onClick={() => open(d)}>
+              {d.status === "publicada" ? "Ver campanha" : "Editar campanha"}
+            </button>
+            {d.status !== "publicada" && d.status !== "publicando" ? <>
+              <button type="button" className="ds-button" onClick={() => { open(d); setStep(2); }}>Criativos</button>
+              <button type="button" className="ds-button" onClick={() => { open(d); setStep(3); }}>Revisar publicação</button>
+            </> : null}
+            {d.ads_manager_url ? <a className="ds-button" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
+            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>
+              {d.status === "publicada" ? "Tirar da lista" : "Excluir"}
+            </button>
+          </div>
+        </article>)}
+      </div>}
 
     <Drawer open={Boolean(editing)} width="lg" title={editing ? editing.payload.name : ""} onClose={() => { if (!busy) setEditing(null); }}
       description={locked ? "Já criada no Meta Ads (pausada). Ajustes daqui em diante, no Gerenciador de Anúncios." : "Revise tudo antes de criar. A campanha vai pausada: nada é gasto até alguém ativar no Meta."}>
