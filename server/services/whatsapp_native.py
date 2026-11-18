@@ -200,7 +200,7 @@ async def _meta_roove_status(number: Dict[str, Any]) -> Dict[str, Any]:
         "status": meta_status,
         "code_verification_status": str(matched.get("code_verification_status") or ""),
         "registered": meta_status in _CONNECTED_STATUSES,
-        "can_register": meta_status in REGISTERABLE_STATUSES,
+        "can_register": meta_status in REGISTERABLE_STATUSES and str(matched.get("code_verification_status") or "").upper() == "VERIFIED",
     }
 
 
@@ -209,6 +209,51 @@ async def get_roove_registration_status(client_id: str, number_id: str) -> Dict[
     number = await _roove_registration_number(client_id, number_id)
     status = await _meta_roove_status(number)
     return {**status, "requires_confirmation": True, "registered_by_this_request": False}
+
+
+async def request_roove_verification_code(client_id: str, number_id: str, *,
+                                          method: str, confirmed: bool) -> Dict[str, Any]:
+    """Solicita um OTP somente ao telefone secundário Roove, após consentimento explícito."""
+    if confirmed is not True:
+        raise WhatsAppNativeError("CONFIRMATION_REQUIRED", "Confirme o envio de código ao número secundário da Roove.")
+    if method not in ("SMS", "VOICE"):
+        raise WhatsAppNativeError("METHOD_INVALID", "Escolha SMS ou ligação.")
+    number = await _roove_registration_number(client_id, number_id)
+    state = await _meta_roove_status(number)
+    verification = state["code_verification_status"].upper()
+    if state["registered"] or verification == "VERIFIED":
+        raise WhatsAppNativeError("ALREADY_VERIFIED", "A Meta já informa verificação concluída. Não solicite outro código.")
+    if verification not in ("EXPIRED", "NOT_VERIFIED", "PENDING", "UNVERIFIED"):
+        raise WhatsAppNativeError("REGISTRATION_UNSAFE", "Estado de verificação desconhecido. Solicitação bloqueada.")
+    response = await _graph(
+        "POST", f"{number['phone_number_id']}/request_code", number["access_token"],
+        json_body={"code_method": method, "locale": "pt_BR"},
+    )
+    if response.get("success") is not True:
+        raise WhatsAppNativeError("META_FAILED", "A Meta não confirmou o envio do código.")
+    return {"requested": True, "method": method, "phone_number_id": number["phone_number_id"]}
+
+
+async def verify_roove_verification_code(client_id: str, number_id: str, *,
+                                         code: str, confirmed: bool) -> Dict[str, Any]:
+    """Valida OTP em chamada explícita, nunca persiste nem retorna o código."""
+    if confirmed is not True:
+        raise WhatsAppNativeError("CONFIRMATION_REQUIRED", "Confirme a validação do código recebido.")
+    if not isinstance(code, str) or not re.fullmatch(r"[0-9]{4,8}", code):
+        raise WhatsAppNativeError("CODE_INVALID", "O código recebido deve conter de 4 a 8 dígitos.")
+    number = await _roove_registration_number(client_id, number_id)
+    state = await _meta_roove_status(number)
+    if state["registered"] or state["code_verification_status"].upper() == "VERIFIED":
+        return {"verified": True, "already_verified": True}
+    if state["code_verification_status"].upper() not in ("EXPIRED", "NOT_VERIFIED", "PENDING", "UNVERIFIED"):
+        raise WhatsAppNativeError("REGISTRATION_UNSAFE", "Estado de verificação desconhecido. Validação bloqueada.")
+    result = await _graph(
+        "POST", f"{number['phone_number_id']}/verify_code", number["access_token"],
+        json_body={"code": code},
+    )
+    if result.get("success") is not True:
+        raise WhatsAppNativeError("META_FAILED", "A Meta não confirmou a verificação do telefone.")
+    return {"verified": True, "phone_number_id": number["phone_number_id"]}
 
 
 async def register_roove_cloud_number(client_id: str, number_id: str, *,
@@ -222,6 +267,8 @@ async def register_roove_cloud_number(client_id: str, number_id: str, *,
     status = await _meta_roove_status(number)
     if status["registered"]:
         return {**status, "registered_by_this_request": False, "already_connected": True}
+    if status["code_verification_status"].upper() != "VERIFIED":
+        raise WhatsAppNativeError("VERIFICATION_REQUIRED", "Verifique o número por SMS ou ligação antes de registrar.")
     if not status["can_register"]:
         raise WhatsAppNativeError(
             "REGISTRATION_UNSAFE",
