@@ -2,12 +2,50 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { messageText, validSignature } from "../../supabase/functions/_shared/whatsapp-cloud";
+import { resolveMetaWebhookApp, webhookMatchesNumber } from "../../supabase/functions/_shared/whatsapp-meta-app";
 import { extractOriginTouch, phoneKey } from "../../supabase/functions/_shared/whatsapp-origin";
 
 const webhook = readFileSync(new URL("../../supabase/functions/whatsapp-webhook/index.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../../supabase/migrations/20261208_000087_whatsapp_native.sql", import.meta.url), "utf8");
 
 describe("webhook do WhatsApp nativo", () => {
+  it("separa GET e assinatura POST por Meta App, sem fallback para Mugô", () => {
+    const secrets = new Map([
+      ["WHATSAPP_VERIFY_TOKEN", "legacy-verify"],
+      ["WHATSAPP_APP_SECRET", "legacy-secret"],
+      ["META_APP_1161210926623351_WEBHOOK_VERIFY_TOKEN", "roove-verify"],
+      ["META_APP_1161210926623351_APP_SECRET", "roove-secret"],
+    ]);
+    const env = (key: string) => secrets.get(key);
+    const legacy = resolveMetaWebhookApp(new URL("https://example.test/webhook"), env)!;
+    const roove = resolveMetaWebhookApp(new URL("https://example.test/webhook?meta_app_id=1161210926623351"), env)!;
+    expect(legacy).toMatchObject({ legacy: true, verifyToken: "legacy-verify", appSecret: "legacy-secret" });
+    expect(roove).toMatchObject({ legacy: false, appId: "1161210926623351", verifyToken: "roove-verify", appSecret: "roove-secret" });
+    expect(resolveMetaWebhookApp(new URL("https://example.test/webhook?meta_app_id="), env)).toBeNull();
+    expect(resolveMetaWebhookApp(new URL("https://example.test/webhook?meta_app_id=99999"), env)).toBeNull();
+    const onlyVerify = resolveMetaWebhookApp(new URL("https://example.test/webhook?meta_app_id=1161210926623351"),
+      (key: string) => key.endsWith("WEBHOOK_VERIFY_TOKEN") ? "roove-verify" : undefined);
+    expect(onlyVerify?.verifyToken).toBe("roove-verify");
+    expect(onlyVerify?.appSecret).toBe("");
+  });
+
+  it("aceita apenas WABA e Meta App do numero, com legado separado", () => {
+    const env = (key: string) => ({
+      WHATSAPP_VERIFY_TOKEN: "legacy", WHATSAPP_APP_SECRET: "legacy-secret",
+      META_APP_1161210926623351_WEBHOOK_VERIFY_TOKEN: "roove",
+    } as Record<string, string>)[key];
+    const legacy = resolveMetaWebhookApp(new URL("https://test.local/"), env)!;
+    const roove = resolveMetaWebhookApp(new URL("https://test.local/?meta_app_id=1161210926623351"), env)!;
+    const legacyNumber = { waba_id: "111111", meta_app_id: null };
+    const rooveNumber = { waba_id: "1491824329400600", meta_app_id: "1161210926623351" };
+    expect(webhookMatchesNumber(roove, rooveNumber, rooveNumber.waba_id)).toBe(true);
+    expect(webhookMatchesNumber(roove, rooveNumber, "111111")).toBe(false);
+    expect(webhookMatchesNumber(roove, legacyNumber, legacyNumber.waba_id)).toBe(false);
+    expect(webhookMatchesNumber(legacy, rooveNumber, rooveNumber.waba_id)).toBe(false);
+    expect(webhookMatchesNumber(legacy, legacyNumber, legacyNumber.waba_id)).toBe(true);
+    expect(webhook).toContain("if (foreign && signature && app.legacy) inBackground(forward(raw, signature))");
+  });
+
   it("aceita só a assinatura da Meta com o segredo do app", async () => {
     const raw = '{"entry":[]}';
     const sig = `sha256=${createHmac("sha256", "segredo").update(raw).digest("hex")}`;
@@ -32,9 +70,9 @@ describe("webhook do WhatsApp nativo", () => {
   });
 
   it("repassa ao CRM só o que não é número do MUGOVERSO, com a assinatura original", () => {
-    expect(webhook).toMatch(/if \(!number\) \{ foreign = true; continue \}/);
+    expect(webhook).toMatch(/if \(!number\) \{ if \(app\.legacy\) foreign = true; continue \}/);
     expect(webhook).toMatch(/'x-hub-signature-256': signature/);
-    expect(webhook).toMatch(/if \(foreign && signature\) inBackground\(forward\(raw, signature\)\)/);
+    expect(webhook).toMatch(/if \(foreign && signature && app\.legacy\) inBackground\(forward\(raw, signature\)\)/);
     expect(webhook).toMatch(/return text\('unauthorized', 401\)/);
     // Banco falhou → 500 para a Meta reenviar; número desligado não vai para o CRM.
     expect(webhook).toMatch(/return failed \? text\('retry', 500\) : text\('ok'\)/);
