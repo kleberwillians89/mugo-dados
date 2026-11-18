@@ -12,7 +12,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
   const [connection, setConnection] = useState<WaConnectionStatus | null>(null);
   const [allowed, setAllowed] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "" });
+  const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "", meta_app_id: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,10 +33,10 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
     setError("");
     try {
       const res = await connectWhatsAppNumber({
-        waba_id: form.waba_id.trim(), phone_number_id: form.phone_number_id.trim(), access_token: form.access_token.trim(),
+        waba_id: form.waba_id.trim(), phone_number_id: form.phone_number_id.trim(), access_token: form.access_token.trim(), meta_app_id: form.meta_app_id.trim() || null,
       });
       setNumbers((current) => [...(current || []).filter((n) => n.id !== res.number.id), res.number]);
-      setForm({ waba_id: "", phone_number_id: "", access_token: "" });
+      setForm({ waba_id: "", phone_number_id: "", access_token: "", meta_app_id: "" });
       setOpen(false);
       onChange?.();
     } catch (err) {
@@ -82,7 +82,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
           {active.map((n) => (
             <li key={n.id}>
               <span><b>{n.display_phone_number || n.phone_number_id}</b>{n.verified_name ? ` · ${n.verified_name}` : ""}
-                <small>Recebendo mensagens pelo app da Mugô{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
+                <small>Recebendo mensagens pelo {n.meta_app_id ? `Meta App ${n.meta_app_id}` : "app da Mugô"}{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
               <button type="button" className="waLinkButton" onClick={() => void disconnect(n)}>Desligar</button>
             </li>
           ))}
@@ -102,6 +102,11 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
             <input inputMode="numeric" autoComplete="off" required value={form.phone_number_id}
               onChange={(e) => setForm({ ...form, phone_number_id: e.target.value.replace(/\D/g, "") })} />
           </label>
+          <label>ID do Meta App (opcional, use para ROOVEWHATS ou apps de clientes)
+            <input inputMode="numeric" autoComplete="off" value={form.meta_app_id}
+              onChange={(e) => setForm({ ...form, meta_app_id: e.target.value.replace(/\D/g, "") })} />
+          </label>
+          <p className="waMuted">Para ROOVEWHATS, use o App ID 1161210926623351. Para a conexão legada da Mugô, deixe vazio. Configure o webhook deste App no Supabase do Mugô Dados.</p>
           <label>Token de acesso
             <input type="password" autoComplete="off" required value={form.access_token}
               onChange={(e) => setForm({ ...form, access_token: e.target.value })} />

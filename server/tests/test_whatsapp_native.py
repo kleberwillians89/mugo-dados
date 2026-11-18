@@ -65,6 +65,30 @@ class RegisterTests(unittest.TestCase):
         ins.assert_not_awaited()
         upd.assert_awaited_once()
 
+    def test_roove_meta_app_id_is_verified_and_saved(self):
+        async def graph_with_app(method, path, token, params=None):
+            if path == "app":
+                return {"id": "1161210926623351"}
+            return graph_ok(method, path, token, params)
+
+        out, graph, inserted, _ = self.run_register(
+            graph=graph_with_app, meta_app_id="1161210926623351"
+        )
+        self.assertEqual(graph.await_args_list[0].args[1], "app")
+        self.assertEqual(inserted.await_args.args[1]["meta_app_id"], "1161210926623351")
+        self.assertEqual(out["meta_app_id"], "1161210926623351")
+        self.assertNotIn("access_token", out)
+
+    def test_rejects_token_issued_by_different_meta_app(self):
+        async def graph_wrong_app(method, path, token, params=None):
+            if path == "app":
+                return {"id": "999999"}
+            return graph_ok(method, path, token, params)
+
+        with self.assertRaises(wn.WhatsAppNativeError) as ctx:
+            self.run_register(graph=graph_wrong_app, meta_app_id="1161210926623351")
+        self.assertEqual(ctx.exception.code, "META_APP_MISMATCH")
+
     def test_bad_input(self):
         for kw in ({"waba_id": "abc"}, {"access_token": "curto"}, {"access_token": TOKEN + " x"}):
             with self.assertRaises(wn.WhatsAppNativeError):

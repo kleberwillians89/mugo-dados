@@ -22,7 +22,7 @@ from .ig_supabase import sb_insert, sb_select, sb_update, sb_upsert
 GRAPH_TIMEOUT = 20
 _DIGITS = re.compile(r"^[0-9]{5,30}$")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
-NUMBER_PUBLIC_FIELDS = "id,client_id,waba_id,phone_number_id,display_phone_number,verified_name,status,subscribed_at,created_at"
+NUMBER_PUBLIC_FIELDS = "id,client_id,waba_id,phone_number_id,meta_app_id,display_phone_number,verified_name,status,subscribed_at,created_at"
 
 
 class WhatsAppNativeError(Exception):
@@ -74,6 +74,7 @@ def public_number(row: Dict[str, Any]) -> Dict[str, Any]:
         "id": row.get("id"),
         "waba_id": row.get("waba_id"),
         "phone_number_id": row.get("phone_number_id"),
+        "meta_app_id": row.get("meta_app_id"),
         "display_phone_number": row.get("display_phone_number"),
         "verified_name": row.get("verified_name"),
         "status": row.get("status"),
@@ -95,8 +96,11 @@ async def active_number_ids(client_id: str) -> List[str]:
 
 
 async def register_number(client_id: str, *, waba_id: str, phone_number_id: str, access_token: str,
-                          user_id: Optional[str] = None) -> Dict[str, Any]:
+                          user_id: Optional[str] = None, meta_app_id: Optional[str] = None) -> Dict[str, Any]:
     waba_id, phone_number_id, token = str(waba_id).strip(), str(phone_number_id).strip(), str(access_token).strip()
+    meta_app_id = str(meta_app_id or "").strip() or None
+    if meta_app_id and not _DIGITS.match(meta_app_id):
+        raise WhatsAppNativeError("META_APP_ID_INVALID", "ID do aplicativo Meta inválido.")
     if not _DIGITS.match(waba_id) or not _DIGITS.match(phone_number_id):
         raise WhatsAppNativeError("IDS_INVALID", "O ID da WABA e o ID do número são só números (copie do gerenciador da Meta).")
     if not 20 <= len(token) <= 2000 or re.search(r"\s", token):
@@ -109,6 +113,12 @@ async def register_number(client_id: str, *, waba_id: str, phone_number_id: str,
     if existing and str(existing[0].get("client_id")) != client_id:
         raise WhatsAppNativeError("NUMBER_IN_USE", "Este número já foi ligado a outra empresa do MUGOVERSO.")
 
+    # Identidade do aplicativo que emitiu o token: impede vincular um numero Roove
+    # ao callback de outro app e perder os eventos.
+    if meta_app_id:
+        token_app = await _graph("GET", "app", token, {"fields": "id"})
+        if str(token_app.get("id") or "") != meta_app_id:
+            raise WhatsAppNativeError("META_APP_MISMATCH", "O token pertence a outro aplicativo Meta.")
     phone = await _graph("GET", phone_number_id, token, {"fields": "display_phone_number,verified_name"})
     numbers = await _graph("GET", f"{waba_id}/phone_numbers", token, {"fields": "id", "limit": 100})
     if phone_number_id not in {str(n.get("id")) for n in numbers.get("data") or []}:
@@ -120,6 +130,7 @@ async def register_number(client_id: str, *, waba_id: str, phone_number_id: str,
     now = datetime.now(timezone.utc).isoformat()
     row = {
         "client_id": client_id, "waba_id": waba_id, "phone_number_id": phone_number_id,
+        "meta_app_id": meta_app_id,
         "display_phone_number": str(phone.get("display_phone_number") or "")[:40] or None,
         "verified_name": str(phone.get("verified_name") or "")[:120] or None,
         "access_token": token, "status": "active", "subscribed_at": now, "updated_at": now,

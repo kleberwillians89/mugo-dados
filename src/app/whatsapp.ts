@@ -88,7 +88,7 @@ export const ORIGIN_COLORS: Record<WaOriginKey, string> = {
 
 /** Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência vê e cadastra. */
 export type WaNumber = {
-  id: string; waba_id: string; phone_number_id: string; display_phone_number: string | null; verified_name: string | null;
+  id: string; waba_id: string; phone_number_id: string; meta_app_id?: string | null; display_phone_number: string | null; verified_name: string | null;
   status: "active" | "disconnected"; subscribed_at: string | null; created_at: string | null;
 };
 export type WaConnectionStatus = {
@@ -104,7 +104,7 @@ export function getWhatsAppConnectionStatus() {
 export function listWhatsAppNumbers() {
   return http<{ ok: true; numbers: WaNumber[] }>(base("/numbers"));
 }
-export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id: string; access_token: string }) {
+export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id: string; access_token: string; meta_app_id?: string | null }) {
   return http<{ ok: true; number: WaNumber }>(base("/numbers"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 });
 }
 export function disconnectWhatsAppNumber(id: string) {
