@@ -4,7 +4,6 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import ClientTasks from "../components/studio/ClientTasks";
 import TaskBoard from "../components/studio/TaskBoard";
-import TaskAssignmentInbox from "../components/studio/TaskAssignmentInbox";
 import "../styles/studio.css";
 
 /** Tarefas da empresa ativa, em quadro, guardadas no Mugoverso. Quem gerencia cria, edita e move. */
@@ -12,7 +11,6 @@ export default function Tasks({ canManage = true, isAgency = true }: { canManage
   const refresh = useRef<() => void>(() => undefined);
   return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" controls={<button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>} />
-    <TaskAssignmentInbox />
     <TaskBoard canManage={canManage} isAgency={isAgency} onRefreshRef={(fn) => { refresh.current = fn; }} />
   </div></Shell>;
 }
