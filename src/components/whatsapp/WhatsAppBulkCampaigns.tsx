@@ -8,12 +8,13 @@ import {
 } from "../../app/whatsapp";
 import "./WhatsAppBulkCampaigns.css";
 
-type Provider = "all" | "shopify" | "fbits" | "whatsapp";
+type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture";
 const SOURCES: { value: Provider; title: string }[] = [
   { value: "all", title: "Todas as origens" },
   { value: "shopify", title: "Shopify" },
   { value: "fbits", title: "Wake / FBITS" },
   { value: "whatsapp", title: "Conversas WhatsApp" },
+  { value: "capture", title: "Captação / Landing Pages (First Access)" },
 ];
 const fmt = (n: number) => new Intl.NumberFormat("pt-BR").format(n);
 
@@ -195,6 +196,10 @@ export default function WhatsAppBulkCampaigns() {
           <p>{selected.body || "Este modelo não disponibilizou prévia de texto."}</p>
           {selected.variables ? <small>{selected.variables} variável(is) exigem parametrização antes de qualquer envio real.</small> : null}
         </div> : <p className="waBulkHelp">Se não houver modelos aprovados, crie um na aba Modelos e aguarde aprovação da Meta.</p>}
+        {audience && (provider === "capture" || provider === "all") ? <p className="waBulkHelp" role="status">
+          Captação / Landing Pages: {fmt(audience.consent_claimed_count || 0)} aceite(s) WhatsApp declarado(s).
+          Os cadastros ficam visíveis nesta origem, mas não entram automaticamente na fila de envio.
+        </p> : null}
         {audience ? <p className="waBulkHelp">{audience.reason} {audience.truncated ? "Consulta incompleta." : ""}</p> : null}
         {preflight ? <p role="status" className={preflight.approved ? "waBulkSuccess" : "waBulkError"}>{preflight.note}</p> : null}
         {notice ? <p role="status" className="waBulkSuccess">{notice}</p> : null}
