@@ -4,7 +4,8 @@ import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDra
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
-import { META_STEPS, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
+import MetaAudiencePicker from "./MetaAudiencePicker";
+import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const STATUS: Record<AdDraft["status"], { label: string; tone: "neutral" | "info" | "success" | "error" }> = {
@@ -165,6 +166,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
         </fieldset> : null}
         {step === 1 ? <fieldset disabled={locked || Boolean(busy)}>
           <legend>2 · Público</legend>
+          <MetaAudiencePicker audience={editing.payload.audience} onChange={setAud} disabled={locked || Boolean(busy)} />
+          {editing.payload.audience.saved_audience ? <p className="ds-caption metaAudSavedNote">
+            Idade, gênero, locais e interesses vêm do público salvo “{editing.payload.audience.saved_audience.name}”. Os campos abaixo ficam de lado.</p> : null}
+          <fieldset className="metaAudManual" disabled={Boolean(editing.payload.audience.saved_audience)}>
           <div className="metaAdsRow">
             <label className="ds-field">Idade mínima<input type="number" min={18} max={65} value={editing.payload.audience.age_min} onChange={(e) => setAud({ age_min: Number(e.target.value) })} /></label>
             <label className="ds-field">Idade máxima<input type="number" min={18} max={65} value={editing.payload.audience.age_max} onChange={(e) => setAud({ age_max: Number(e.target.value) })} /></label>
@@ -177,9 +182,11 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             onChange={(e) => setAud({ interests: e.target.value.split(",").map((s) => s.trimStart()) })} /></label>
           <label className="metaAdsCheck"><input type="checkbox" checked={editing.payload.audience.advantage} onChange={(e) => setAud({ advantage: e.target.checked })} />
             Público Advantage+ (o Meta pode ampliar além dos interesses quando achar gente com mais chance)</label>
+          </fieldset>
           <div className="metaAdsAudienceSummary">
             <strong>Prévia do público</strong>
-            <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p>
+            {!editing.payload.audience.saved_audience ? <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p> : null}
+            {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}
           </div>
           {!locked ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
             onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
@@ -211,7 +218,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           <dl>
             <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
             <div><dt>Orçamento e período</dt><dd>{brl(editing.payload.daily_budget)}/dia · {editing.payload.start_date.split("-").reverse().join("/")} até {editing.payload.end_date.split("-").reverse().join("/")}</dd></div>
-            <div><dt>Público confirmado</dt><dd>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</dd></div>
+            <div><dt>Público confirmado</dt><dd>{editing.payload.audience.saved_audience ? "" : <>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</>}
+              {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
             <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
           </dl>
           {editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
