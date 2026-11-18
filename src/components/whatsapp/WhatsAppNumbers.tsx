@@ -104,7 +104,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
           </label>
           <label>ID do Meta App (opcional, use para ROOVEWHATS ou apps de clientes)
             <input inputMode="numeric" autoComplete="off" value={form.meta_app_id}
-              onChange={(e) => setForm({ ...form, meta_app_id: e.target.value.replace(/\\D/g, "") })} />
+              onChange={(e) => setForm({ ...form, meta_app_id: e.target.value.replace(/\D/g, "") })} />
           </label>
           <p className="waMuted">Para ROOVEWHATS, use o App ID 1161210926623351. Para a conexão legada da Mugô, deixe vazio. Configure o webhook deste App no Supabase do Mugô Dados.</p>
           <label>Token de acesso
