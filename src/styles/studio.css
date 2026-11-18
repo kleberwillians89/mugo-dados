@@ -1789,3 +1789,18 @@
 .cw.is-below .cwPanel{bottom:auto;top:calc(100% + 12px)}
 .cw.is-left .cwPanel{right:auto;left:0}
 @media(max-height:650px){.cwPanel{height:min(400px,calc(100dvh - 80px))}}
+
+/* Preflight da primeira campanha Meta: leitura, acessibilidade e resposta clara. */
+.metaPublishPreflight{background:var(--surface-subtle,#f6f8f8);border:1px solid var(--border,#dbe2e5);border-radius:12px;padding:15px;margin:0 0 17px}
+.metaPublishPreflightHead{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.metaPublishPreflightHead h3{font-size:17px;margin:0 0 5px}
+.metaPublishPreflightHead p{margin:0;max-width:56ch}
+.metaPublishChecklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:11px}
+.metaPublishChecklist>div{display:flex;align-items:flex-start;gap:8px;background:var(--surface,#fff);border:1px solid var(--border,#dce4e7);border-radius:9px;padding:10px;min-width:0}
+.metaPublishChecklist>div>span{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:50%;background:#e7f5ec;color:#286849;font-weight:800}
+.metaPublishChecklist .is-missing>span{background:#fff0e2;color:#a24b24}
+.metaPublishChecklist b{display:block;font-size:12px}
+.metaPublishChecklist small{display:block;color:var(--text-secondary,#65737b);margin-top:3px;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.metaPublishReady,.metaPublishBlocked{margin:9px 0 0;font-size:12px;font-weight:700}
+.metaPublishReady{color:#25704b}.metaPublishBlocked{color:#ab5d2b}
+@media(max-width:610px){.metaPublishChecklist{grid-template-columns:1fr}.metaPublishPreflightHead .ds-button{width:100%}}
