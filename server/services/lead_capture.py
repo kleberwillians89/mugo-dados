@@ -112,6 +112,67 @@ async def _authenticate(source_id: str, key: str) -> dict:
 
 async def ingest(source_id: str, key: str, payload: dict[str, Any]) -> dict:
     source = await _authenticate(source_id, key)
+    return await _ingest_authenticated(source, payload)
+
+
+async def ingest_shopify_proxy(shop_domain: str, payload: dict[str, Any]) -> dict:
+    """Trusted only after verifying the Shopify app-proxy HMAC at the route.
+
+    Resolve the tenant from the installed store, never from user-supplied fields.
+    Each connected store gets one reusable source for all campaigns; its secret
+    is kept server-side and is never returned to the Shopify theme.
+    """
+    from .shopify_oauth import resolve_store_by_domain
+    store = await resolve_store_by_domain(shop_domain)
+    if not store or str(store.get("status") or "").lower() != "active":
+        raise LeadCaptureError("Loja não conectada ou inativa.", 403)
+    cid = str(store.get("client_id") or "").strip()
+    if not cid:
+        raise LeadCaptureError("Empresa não identificada.", 403)
+    sources = await sb_select(
+        SOURCE_TABLE, select="id,client_id,kind,active,name",
+        filters={"client_id": f"eq.{cid}", "kind": "eq.shopify", "active": "eq.true"},
+        order="created_at.asc", limit=100,
+    )
+    source = next((s for s in sources if s.get("name") == "Shopify Landing Pages"), None)
+    if source is None:
+        # Stable UUID makes concurrent first signups idempotent across workers.
+        # This source does not grant any sending permissions.
+        source_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"mugo:shopify-capture:{cid}"))
+        existing = await sb_select(
+            SOURCE_TABLE, select="id,client_id,kind,active",
+            filters={"id": f"eq.{source_id}", "client_id": f"eq.{cid}"},
+            limit=1,
+        )
+        if existing:
+            source = existing[0]
+            if source.get("active") is not True:
+                raise LeadCaptureError("Fonte Shopify desativada pela empresa.", 409)
+        else:
+            row = {
+                "id": source_id, "client_id": cid,
+                "name": "Shopify Landing Pages", "kind": "shopify",
+                "token_hash": _digest(secrets.token_urlsafe(40)), "active": True,
+            }
+            try:
+                await sb_insert(SOURCE_TABLE, row)
+            except httpx.HTTPStatusError as exc:
+                if exc.response is None or exc.response.status_code != 409:
+                    raise
+                # Concurrent worker created the same deterministic source.
+                confirmed = await sb_select(
+                    SOURCE_TABLE, select="id,client_id,kind,active",
+                    filters={"id": f"eq.{source_id}", "client_id": f"eq.{cid}"},
+                    limit=1,
+                )
+                if not confirmed or confirmed[0].get("active") is not True:
+                    raise LeadCaptureError("Fonte Shopify não disponível.", 409) from None
+            source = {"id": source_id, "client_id": cid, "kind": "shopify", "active": True}
+    return await _ingest_authenticated(source, payload)
+
+
+async def _ingest_authenticated(source: dict, payload: dict[str, Any]) -> dict:
+    source_id = str(source["id"])
     event_id = str(payload.get("event_id") or "").strip()
     if not 1 <= len(event_id) <= 160 or any(ord(c) < 32 for c in event_id):
         raise LeadCaptureError("event_id estável é obrigatório.", 422)
@@ -253,3 +314,29 @@ async def campaign_recent_contacts(client_id: str, campaign: str, limit: int = 5
             "consent_verified": row.get("consent_verified") is True,
         })
     return output
+
+
+async def list_capture_campaigns(client_id: str) -> list[dict]:
+    """Tenant-scoped campaigns observed in captured events (no PII).
+
+    Draft links without a lead are not persisted; this discovery is intentionally
+    based on real events rather than inventing a campaign registry.
+    """
+    from .sales_by_origin import _paged
+    rows, truncated = await _paged(
+        EVENT_TABLE,
+        select="campaign_key,created_at",
+        filters={"client_id": f"eq.{client_id}"},
+        order="created_at.desc", max_rows=20000,
+    )
+    if truncated:
+        raise LeadCaptureError("Muitos cadastros para listar campanhas; use a chave da campanha.", 422)
+    counts: dict[str, dict] = {}
+    for item in rows:
+        campaign = str(item.get("campaign_key") or "").strip()
+        if not campaign:
+            continue
+        if campaign not in counts:
+            counts[campaign] = {"key": campaign, "leads": 0, "last_received_at": item.get("created_at")}
+        counts[campaign]["leads"] += 1
+    return sorted(counts.values(), key=lambda row: str(row.get("last_received_at") or ""), reverse=True)
