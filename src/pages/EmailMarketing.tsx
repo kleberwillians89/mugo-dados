@@ -8,13 +8,15 @@ import CartRecoveryPanel from "../components/email/CartRecoveryPanel";
 import FlowsPanel from "../components/email/FlowsPanel";
 import SenderPanel from "../components/email/SenderPanel";
 import RelationshipLists from "../components/email/RelationshipLists";
+import FirstAccessLeads from "../components/email/FirstAccessLeads";
 import Shell from "../components/Shell";
 import "../styles/emailMarketing.css";
 
-type Tab = "campanhas" | "listas" | "fluxos" | "carrinho" | "remetente";
+type Tab = "campanhas" | "listas" | "captacao" | "fluxos" | "carrinho" | "remetente";
 const TABS = [
   { id: "campanhas", label: "Campanhas" },
   { id: "listas", label: "Listas" },
+  { id: "captacao", label: "Captação" },
   { id: "fluxos", label: "Fluxos automáticos" },
   { id: "carrinho", label: "Carrinho abandonado" },
   { id: "remetente", label: "Remetente" },
@@ -41,6 +43,7 @@ export default function EmailMarketing({ initialTab = "campanhas" }: { initialTa
         {notice ? <p className="emNotice">{notice}</p> : null}
         {tab === "campanhas" ? <CampaignsPanel canEdit={canEdit} /> : null}
         {tab === "listas" ? <RelationshipLists canEdit={canEdit} /> : null}
+        {tab === "captacao" ? <FirstAccessLeads /> : null}
         {tab === "fluxos" ? <FlowsPanel canEdit={canEdit} /> : null}
         {tab === "carrinho" ? <CartRecoveryPanel canEdit={canEdit} /> : null}
       </div>
