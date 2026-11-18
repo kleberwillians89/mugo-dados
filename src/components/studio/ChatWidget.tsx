@@ -131,11 +131,16 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
   const markRead = useCallback(() => { window.setTimeout(() => void refresh(), 300); }, [refresh]);
   const brand = getActiveClientName() || "Cliente";
 
-  const panelBelow = position.y < Math.min(575, window.innerHeight * 0.57);
-  const panelOnLeft = position.x < 390;
-  return <div className={`cw${panelBelow ? " is-below" : ""}${panelOnLeft ? " is-left" : ""}`}
+  const roomAbove = Math.max(0, position.y - 24);
+  const roomBelow = Math.max(0, window.innerHeight - position.y - widgetSize - 24);
+  const panelBelow = roomBelow >= roomAbove;
+  const panelHeight = Math.min(560, panelBelow ? roomBelow : roomAbove);
+  const panelWidth = Math.min(380, window.innerWidth - 28);
+  const preferredPanelX = position.x > window.innerWidth / 2 ? position.x + widgetSize - panelWidth : position.x;
+  const panelX = Math.max(14, Math.min(preferredPanelX, window.innerWidth - panelWidth - 14));
+  return <div className={`cw${panelBelow ? " is-below" : ""}`}
     style={{ left: position.x, top: position.y, right: "auto", bottom: "auto" }}>
-    {open ? <section className="cwPanel" role="dialog" aria-label={team ? `Conversa com ${brand}` : "Conversa com a Mugô"}>
+    {open ? <section className="cwPanel" style={{ left: panelX - position.x, right: "auto", height: panelHeight }} role="dialog" aria-label={team ? `Conversa com ${brand}` : "Conversa com a Mugô"}>
       <header className="cwHead">
         <span className="cwAvatar" aria-hidden="true">{team ? brand.slice(0, 1).toUpperCase() : "M"}</span>
         <span className="cwTitle"><b>{team ? brand : "Equipe Mugô"}</b><small>{team ? "Conversa e o que foi feito" : "Fale com a gente e veja o que foi feito"}</small></span>
