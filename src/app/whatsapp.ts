@@ -143,6 +143,13 @@ export const replyInstagram = (senderId: string, text: string) =>
   http<{ status: string; at: string }>(base(`/instagram/${encodeURIComponent(senderId)}/reply`), { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
 
 /** Equipe responde a conversa pelo número da marca (CRM da marca ou número ligado no MUGOVERSO). */
+export function suggestWhatsAppReply(conversationId: string) {
+  return http<{ ok: true; draft: string; needs_human: boolean; reason: string; sent: false; approval_required: true }>(
+    base(`/conversations/${encodeURIComponent(conversationId)}/ai-suggestion`),
+    { method: "POST", timeoutMs: 60_000 },
+  );
+}
+
 export const replyWhatsApp = (conversationId: string, text: string) =>
   http<{ status: string; at?: string; ai_paused_minutes?: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/reply`),
     { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
