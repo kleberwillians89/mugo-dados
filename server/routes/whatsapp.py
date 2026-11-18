@@ -15,7 +15,7 @@ from services.whatsapp_sources import brand_messages, brand_reply
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
-from services.whatsapp_native import WhatsAppNativeError, disconnect_number, list_numbers, register_number, list_templates, create_template
+from services.whatsapp_native import WhatsAppNativeError, disconnect_number, get_roove_registration_status, register_roove_cloud_number, list_numbers, register_number, list_templates, create_template
 
 router = APIRouter(prefix="/api/clients/{client_id}/whatsapp", tags=["whatsapp"])
 
@@ -189,6 +189,40 @@ async def delete_whatsapp_number(client_id: str, number_id: str, authorization: 
     if not await disconnect_number(cid, number_id):
         raise HTTPException(404, "Número não encontrado para esta empresa.")
     return {"ok": True}
+
+
+class RooveCloudRegistrationIn(BaseModel):
+    pin: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+    confirmed: bool = Field(default=False)
+
+
+@router.get("/numbers/{number_id}/meta-registration")
+async def whatsapp_meta_registration_status(client_id: str, number_id: str,
+                                            authorization: Optional[str] = Header(None)):
+    """Consulta registro na Meta, sem alterar a Cloud API."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await get_roove_registration_status(cid, number_id)}
+    except WhatsAppNativeError as exc:
+        status = 404 if exc.code == "NOT_FOUND" else 409 if exc.code in {"STATUS_UNKNOWN", "NOT_IN_WABA"} else 502
+        raise HTTPException(status, exc.message) from None
+
+
+@router.post("/numbers/{number_id}/meta-register")
+async def whatsapp_meta_registration(client_id: str, number_id: str, payload: RooveCloudRegistrationIn,
+                                     authorization: Optional[str] = Header(None)):
+    """Ação explícita de administrador, usa PIN sem persistir e token já salvo; não envia mensagens."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await register_roove_cloud_number(
+            cid, number_id, pin=payload.pin, confirmed=payload.confirmed)}
+    except WhatsAppNativeError as exc:
+        status = (
+            404 if exc.code == "NOT_FOUND" else
+            409 if exc.code in {"CONFIRMATION_REQUIRED", "STATUS_UNKNOWN", "REGISTRATION_UNSAFE", "NOT_IN_WABA"} else
+            422 if exc.code == "PIN_INVALID" else 502
+        )
+        raise HTTPException(status, exc.message) from None
 
 
 # ---- Biblioteca por WABA: criar modelos e acompanhar aprovação na Meta.
