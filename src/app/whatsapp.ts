@@ -186,7 +186,7 @@ export const replyWhatsApp = (conversationId: string, text: string) =>
 
 /** Planejamento de disparos em massa: APIs não têm envio real. */
 export type WaCampaignAudience = {
-  ok: true; total_contacts: number; consent_verified_count: number;
+  ok: true; total_contacts: number; consent_claimed_count: number; consent_verified_count: number;
   sendable_count: number; truncated: boolean; reason: string;
 };
 export type WaCampaignDraft = {
@@ -194,7 +194,7 @@ export type WaCampaignDraft = {
   status: "draft"; simulated_count: number; created_at: string;
   audience_provider?: string;
 };
-export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" = "all") {
+export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" = "all") {
   return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
 }
 export function listWhatsAppCampaignDrafts() {
@@ -210,7 +210,7 @@ export function preflightWhatsAppCampaignTemplate(template_name: string, languag
 }
 export function createWhatsAppCampaignDraft(input: {
   name: string; template_name: string; language: string;
-  provider: "all" | "shopify" | "fbits" | "whatsapp";
+  provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture";
 }) {
   return http<{ ok: true; sending_enabled: false; draft: WaCampaignDraft; messages_sent: 0 }>(
     base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},

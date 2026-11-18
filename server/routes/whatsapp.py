@@ -377,7 +377,7 @@ class BulkCampaignDraftIn(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     template_name: str = Field(min_length=3, max_length=81)
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
-    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture)$")
 
 
 @router.get("/campaigns/drafts")
