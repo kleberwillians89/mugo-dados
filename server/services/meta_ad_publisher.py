@@ -323,6 +323,69 @@ async def _context(client_id: str) -> Dict[str, Any]:
     return {**account, "page_id": page_id, "ig_id": ig_id}
 
 
+async def publication_preflight(client_id: str, objective: str = "leads") -> Dict[str, Any]:
+    """Read-only account readiness for creating one PAUSED Meta ad.
+
+    No credentials, pixel IDs or other private Meta connection values are returned.
+    The publish endpoint revalidates permissions and prerequisites at write time.
+    """
+    if objective not in OBJECTIVES:
+        raise StudioError("AD_OBJECTIVE_INVALID")
+    checks: List[Dict[str, Any]] = []
+    def record(key: str, ok: bool, message: str, label: str = "") -> None:
+        checks.append({"key": key, "ok": ok, "message": message, "label": label})
+
+    try:
+        account = await _ad_account(client_id)
+    except StudioError as exc:
+        record("account", False, {
+            "AD_ACCOUNT_MISSING": "Conecte uma conta Meta Ads desta empresa em Integrações.",
+            "AD_PERMISSION_MISSING": "Reconecte a conta com permissão ads_management.",
+        }.get(exc.code, "A conexão Meta Ads não está disponível; confira Integrações."))
+        return {"ready": False, "checks": checks, "objective": objective}
+
+    act, token = account["act"], account["token"]
+    try:
+        remote = await _graph("GET", f"/{act}", token=token,
+                              params={"fields": "id,name,account_status,currency,timezone_name"})
+        status = int(remote.get("account_status") or 0)
+        record("account", status == 1, "Conta ativa e disponível para preparar anúncios." if status == 1
+               else "A conta Meta não está ativa para anúncios. Confira o Gerenciador.",
+               _text(remote.get("name"), 120))
+    except (StudioError, ValueError, TypeError):
+        record("account", False, "Não foi possível verificar o status da conta Meta.")
+
+    try:
+        from .ig_engagement import credentials
+        creds = await credentials(client_id)
+        page = bool(creds.get("page_id"))
+        record("page", page, "Página do Facebook conectada." if page
+               else "Conecte a Página do Facebook desta marca em Integrações.")
+        record("instagram", bool(creds.get("ig_user_id")),
+               "Instagram conectado." if creds.get("ig_user_id")
+               else "Instagram não conectado: revise os posicionamentos que exigem Instagram.")
+    except StudioError:
+        record("page", False, "Conecte a Página do Facebook desta marca em Integrações.")
+        record("instagram", False, "Instagram não pôde ser verificado.")
+
+    if OBJECTIVES[objective].get("event"):
+        try:
+            pixel = await _graph("GET", f"/{act}/adspixels", token=token,
+                                 params={"fields": "id,name", "limit": 5})
+            found = pixel.get("data") or []
+            record("pixel", bool(found), "Pixel associado à conta de anúncios." if found
+                   else "Nenhum pixel associado. É necessário para otimizar esta campanha por evento.",
+                   _text(found[0].get("name"), 120) if found else "")
+        except StudioError:
+            record("pixel", False, "Não foi possível consultar os pixels da conta.")
+    else:
+        record("pixel", True, "O objetivo selecionado não exige pixel.")
+
+    # Instagram is advisory: Facebook-only placements can still publish.
+    ready = all(item["ok"] for item in checks if item["key"] != "instagram")
+    return {"ready": ready, "checks": checks, "objective": objective}
+
+
 async def _interest_ids(names: List[str], token: str) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     for name in names[:8]:
