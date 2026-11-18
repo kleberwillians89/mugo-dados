@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import type { Brief } from "../../app/briefs";
 import { getActiveClientId } from "../../app/activeClient";
 import {
   createGoogleCampaignDraft, deleteGoogleCampaignDraft, listGoogleCampaignDrafts,
@@ -19,8 +20,32 @@ const blank = (): GoogleCampaignPayload => ({
 const splitLines = (text: string) => text.split("\n").map((s) => s.trim()).filter(Boolean);
 const friendlyError = (cause: unknown) => cause instanceof Error ? cause.message : "Não foi possível salvar a campanha.";
 
-export default function GoogleAdsPanel() {
+export type GooglePrepareRequest = { nonce: number; brief: Brief } | null;
+function fromBrief(brief: Brief): GoogleCampaignPayload {
+  const base = blank();
+  const detail = brief.brief;
+  const raw = String(detail.media?.objective || detail.objective || "").toLowerCase();
+  const objective: GoogleCampaignPayload["objective"] = raw.includes("lead") || raw.includes("cadastro") ? "leads"
+    : raw.includes("tráfego") || raw.includes("trafego") ? "trafego" : "vendas";
+  const validDeadline = detail.deadline?.slice(0, 10) || "";
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(validDeadline) && validDeadline >= base.start_date
+    ? validDeadline : base.end_date;
+  const days = Math.max(1, Math.round((new Date(endDate + "T12:00:00").getTime() -
+    new Date(base.start_date + "T12:00:00").getTime()) / 86_400_000) + 1);
+  const dailyBudget = detail.media?.budget && detail.media.budget > 0
+    ? Math.max(6, Math.round(detail.media.budget / days * 100) / 100) : base.daily_budget;
+  return { ...base, name: detail.title.slice(0, 120), objective, daily_budget: dailyBudget, end_date: endDate,
+    notes: ["Briefing: " + brief.id, detail.summary, detail.key_message && "Mensagem: " + detail.key_message,
+      detail.audience && "Público: " + detail.audience, detail.goal && "Meta: " + detail.goal,
+      detail.media?.budget ? "Verba total informada: R$ " + detail.media.budget : "",
+      "Revise datas, orçamento diário, URL de destino e anúncios antes de publicar.",
+    ].filter(Boolean).join("\n"),
+  };
+}
+
+export default function GoogleAdsPanel({ request = null }: { request?: GooglePrepareRequest }) {
   const clientId = getActiveClientId();
+  const handled = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<GoogleCampaignDraft[]>([]);
   const [editing, setEditing] = useState<GoogleCampaignDraft | "new" | null>(null);
   const [form, setForm] = useState<GoogleCampaignPayload>(blank);
@@ -37,6 +62,11 @@ export default function GoogleAdsPanel() {
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
   const newDraft = () => { setForm(blank()); setEditing("new"); setError(null); setNotice(null); };
+  useEffect(() => {
+    if (!request || request.nonce === handled.current) return;
+    handled.current = request.nonce;
+    setForm(fromBrief(request.brief)); setEditing("new"); setError(null); setNotice(null);
+  }, [request]);
   const open = (draft: GoogleCampaignDraft) => { setForm(draft.payload); setEditing(draft); setError(null); };
   const set = (patch: Partial<GoogleCampaignPayload>) => setForm((f) => ({ ...f, ...patch }));
   async function save(event: FormEvent) {
