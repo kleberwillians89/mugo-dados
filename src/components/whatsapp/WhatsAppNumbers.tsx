@@ -185,7 +185,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
                   ) : null}
                 </div>
               ) : null}
-              {!metaState.registered && !metaState.can_register ? <p>Registro bloqueado: estado desconhecido ou incompatível. Confira com a Meta.</p> : null}
+              {!metaState.registered && !metaState.can_register ? <p>{metaState.code_verification_status?.toUpperCase() !== "VERIFIED" ? "Registro aguardando verificação do telefone na Meta. Se SMS/ligação falhar, consulte o código e o motivo do erro; não repita a solicitação automaticamente." : "Registro bloqueado pelo status informado pela Meta. Confira antes de tentar novamente."}</p> : null}
               {metaState.can_register ? (
                 <form className="waForm" onSubmit={(e) => void registerAtMeta(e)}>
                   <p className="waMuted">Ação opcional, nunca automática. PIN de seis dígitos usado uma única vez e não salvo. Não informe PIN de SMS ou código de login.</p>
