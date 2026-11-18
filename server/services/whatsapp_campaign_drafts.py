@@ -127,7 +127,8 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
     row = await sb_insert(DRAFTS, {
         "client_id": client_id, "name": name, "template_name": template,
         "language": language, "provider": "whatsapp",
-        "audience_source": "relationship_contacts", "audience_provider": provider, "status": "draft",
+        "audience_source": "lead_capture_events" if provider == "capture" else "relationship_contacts",
+        "audience_provider": provider, "status": "draft",
         "simulated_count": 0,
     })
     return {"draft": row, "audience": audience, "messages_sent": 0}
