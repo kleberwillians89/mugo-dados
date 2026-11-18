@@ -111,6 +111,24 @@ export function disconnectWhatsAppNumber(id: string) {
   return http<{ ok: true }>(base(`/numbers/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 
+/** Consultas/registro Roove: Meta status real, sem revelar token nem persistir PIN. */
+export type WaMetaRegistration = {
+  ok: true; phone_number_id: string; display_phone_number?: string;
+  status?: string; code_verification_status?: string;
+  registered?: boolean; can_register?: boolean; requires_confirmation?: boolean;
+  registered_by_this_request: boolean; already_connected?: boolean;
+  registration_requested?: boolean; note?: string;
+};
+export function getRooveMetaRegistrationStatus(numberId: string) {
+  return http<WaMetaRegistration>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-registration`), { timeoutMs: 30_000 });
+}
+export function registerRooveMetaNumber(numberId: string, pin: string, confirmed: boolean) {
+  return http<WaMetaRegistration>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-register`),
+    { method: "POST", body: JSON.stringify({ pin, confirmed }), timeoutMs: 45_000 });
+}
+
 /** Each tenant manages only its own WhatsApp Business Account message templates. */
 export type WaTemplate = {
   name: string; language: string; status: string; category: string; body: string; variables: number;
