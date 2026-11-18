@@ -10,9 +10,11 @@ type Summary = {
   sending_enabled: boolean;
 };
 const CAMPAIGN = "roove_first_access_2026";
-export default function FirstAccessLeads() {
+type Recent = { id: string; name: string; email_masked: string; phone_masked: string; utm_source: string; email_opt_in_claimed: boolean; whatsapp_opt_in_claimed: boolean; consent_verified: boolean };
+export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) {
   const clientId = getActiveClientId();
   const [report, setReport] = useState<Summary | null>(null);
+  const [recent, setRecent] = useState<Recent[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const refresh = useCallback(async () => {
@@ -21,12 +23,17 @@ export default function FirstAccessLeads() {
     try {
       const result = await http<Summary & {ok: true}>(`/api/relationship/campaigns/${CAMPAIGN}/summary?client_id=${encodeURIComponent(clientId)}`);
       if (getActiveClientId() === clientId) { setReport(result); setError(""); }
+      if(canEdit){
+        try { const response = await http<{contacts:Recent[]}>("/api/relationship/campaigns/"+CAMPAIGN+"/recent?client_id="+encodeURIComponent(clientId));
+          if(getActiveClientId()===clientId)setRecent(response.contacts);
+        } catch { if(getActiveClientId()===clientId)setRecent([]); }
+      }
     } catch (err) {
       if (getActiveClientId() === clientId) setError(err instanceof Error ? err.message : "Falha ao carregar.");
     } finally { if (getActiveClientId() === clientId) setLoading(false); }
-  }, [clientId]);
+  }, [clientId, canEdit]);
   useEffect(() => {
-    setReport(null);
+    setReport(null); setRecent([]);
     void refresh();
     const id = window.setInterval(() => void refresh(), 60000);
     return () => window.clearInterval(id);
@@ -59,6 +66,9 @@ export default function FirstAccessLeads() {
       {report.daily.length ? <div style={{overflowX:"auto"}}><table><thead><tr><th>Dia</th><th>Leads</th></tr></thead>
         <tbody>{report.daily.map(item=><tr key={item.day}><td>{item.day.split("-").reverse().join("/")}</td><td>{item.leads}</td></tr>)}</tbody>
       </table></div> : <p>Nenhum cadastro registrado ainda.</p>}
+      {canEdit ? <><h3>Cadastros recentes (contatos protegidos)</h3>
+      {recent.length ? <div style={{overflowX:"auto"}}><table><thead><tr><th>Nome</th><th>E-mail</th><th>WhatsApp</th><th>Origem</th><th>Consentimento</th></tr></thead><tbody>{recent.map(item=><tr key={item.id}><td>{item.name}</td><td>{item.email_masked}</td><td>{item.phone_masked}</td><td>{item.utm_source}</td><td>{item.consent_verified ? "Verificado" : "Pendente"}</td></tr>)}</tbody></table></div> : <p>Nenhum cadastro recente.</p>}
+      </> : null}
       <h3>Origem dos cadastros</h3>
       {report.sources.length ? <div style={{overflowX:"auto"}}><table><thead><tr><th>Origem UTM</th><th>Leads</th></tr></thead>
         <tbody>{report.sources.map(item=><tr key={item.source}><td>{item.source}</td><td>{item.leads}</td></tr>)}</tbody>
