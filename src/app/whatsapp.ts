@@ -129,6 +129,18 @@ export function registerRooveMetaNumber(numberId: string, pin: string, confirmed
     { method: "POST", body: JSON.stringify({ pin, confirmed }), timeoutMs: 45_000 });
 }
 
+/** Verificação da posse do número secundário Roove. Requer confirmação na interface. */
+export function requestRooveMetaCode(numberId: string, method: "SMS" | "VOICE", confirmed: boolean) {
+  return http<{ ok: true; requested: boolean; method: string }>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-request-code`),
+    { method: "POST", body: JSON.stringify({ method, confirmed }), timeoutMs: 45_000 });
+}
+export function verifyRooveMetaCode(numberId: string, code: string, confirmed: boolean) {
+  return http<{ ok: true; verified: boolean; already_verified?: boolean }>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-verify-code`),
+    { method: "POST", body: JSON.stringify({ code, confirmed }), timeoutMs: 45_000 });
+}
+
 /** Each tenant manages only its own WhatsApp Business Account message templates. */
 export type WaTemplate = {
   name: string; language: string; status: string; category: string; body: string; variables: number;
