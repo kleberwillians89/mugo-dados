@@ -27,8 +27,8 @@ export function taskChatPanelGeometry(
   const leftAbsolute = Math.min(Math.max(margin, pos.x + triggerWidth - width), Math.max(margin, viewportWidth - margin - width));
   return {
     left: leftAbsolute - pos.x,
-    top: opensBelow ? triggerHeight + gap : undefined,
-    bottom: opensBelow ? undefined : triggerHeight + gap,
+    top: opensBelow ? triggerHeight + gap : "auto",
+    bottom: opensBelow ? "auto" : triggerHeight + gap,
     maxHeight: Math.max(0, Math.min(620, opensBelow ? below : above)),
     width,
   };
