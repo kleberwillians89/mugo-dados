@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { CheckCircle2, ClipboardCheck, Image as ImageIcon, MessageCircle, MessageSquareText, X } from "lucide-react";
 import { getActiveClientName } from "../../app/activeClient";
 import { chatUnread, listTimeline, type ChatChannel, type TimelineEvent } from "../../app/studio";
@@ -17,6 +17,23 @@ async function fetchActivity(): Promise<Activity> {
 const DONE_ICON: Record<string, typeof CheckCircle2> = { publicado: CheckCircle2, pedido: ClipboardCheck, comentario_mugo: MessageSquareText, referencia: ImageIcon };
 const seenKey = (clientId: string) => `mugo.widget.seen.${clientId}`;
 const autoKey = (clientId: string) => `mugo.widget.auto.${clientId}`;
+const positionKey = "mugo.widget.position.v1";
+type WidgetPosition = { x: number; y: number };
+const widgetSize = 54;
+const edgeGap = 12;
+const positionBounds = (pos: WidgetPosition): WidgetPosition => ({
+  x: Math.max(edgeGap, Math.min(pos.x, window.innerWidth - widgetSize - edgeGap)),
+  y: Math.max(edgeGap, Math.min(pos.y, window.innerHeight - widgetSize - edgeGap)),
+});
+const initialPosition = (): WidgetPosition => {
+  const defaultPosition = { x: window.innerWidth - widgetSize - 20, y: window.innerHeight - widgetSize - 20 };
+  try {
+    const saved = JSON.parse(localStorage.getItem(positionKey) || "null") as WidgetPosition | null;
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return positionBounds(saved);
+  } catch { /* posição padrão */ }
+  return positionBounds(defaultPosition);
+};
+
 const read = (store: Storage | undefined, key: string) => { try { return store?.getItem(key) || ""; } catch { return ""; } };
 const write = (store: Storage | undefined, key: string, value: string) => { try { store?.setItem(key, value); } catch { /* sem armazenamento */ } };
 
@@ -27,6 +44,46 @@ const write = (store: Storage | undefined, key: string, value: string) => { try 
  */
 export default function ChatWidget({ clientId, team }: { clientId: string; team: boolean }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<WidgetPosition>(initialPosition);
+  const drag = useRef<{ id: number; x: number; y: number; origin: WidgetPosition; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  useEffect(() => {
+    const onResize = () => setPosition((current) => positionBounds(current));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, origin: position, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = drag.current;
+    if (!current || current.id !== event.pointerId) return;
+    const dx = event.clientX - current.x, dy = event.clientY - current.y;
+    if (!current.moved && Math.hypot(dx, dy) < 7) return;
+    current.moved = true;
+    setPosition(positionBounds({ x: current.origin.x + dx, y: current.origin.y + dy }));
+  };
+  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = drag.current;
+    if (!current || current.id !== event.pointerId) return;
+    drag.current = null;
+    if (current.moved) {
+      suppressClick.current = true;
+      const updated = positionBounds({
+        x: current.origin.x + event.clientX - current.x,
+        y: current.origin.y + event.clientY - current.y,
+      });
+      setPosition(updated);
+      try { localStorage.setItem(positionKey, JSON.stringify(updated)); } catch { /* sem armazenamento */ }
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const cancelDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
   const [tab, setTab] = useState<Tab>("conversa");
   const [channel, setChannel] = useState<ChatChannel>("cliente");
   const [unread, setUnread] = useState<Partial<Record<ChatChannel, number>>>({});
@@ -74,7 +131,10 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
   const markRead = useCallback(() => { window.setTimeout(() => void refresh(), 300); }, [refresh]);
   const brand = getActiveClientName() || "Cliente";
 
-  return <div className="cw">
+  const panelBelow = position.y < Math.min(575, window.innerHeight * 0.57);
+  const panelOnLeft = position.x < 390;
+  return <div className={`cw${panelBelow ? " is-below" : ""}${panelOnLeft ? " is-left" : ""}`}
+    style={{ left: position.x, top: position.y, right: "auto", bottom: "auto" }}>
     {open ? <section className="cwPanel" role="dialog" aria-label={team ? `Conversa com ${brand}` : "Conversa com a Mugô"}>
       <header className="cwHead">
         <span className="cwAvatar" aria-hidden="true">{team ? brand.slice(0, 1).toUpperCase() : "M"}</span>
@@ -105,7 +165,9 @@ export default function ChatWidget({ clientId, team }: { clientId: string; team:
         })}</ul> : <p className="chatEmpty">Assim que a equipe publicar um post ou enviar algo para aprovação, aparece aqui.</p>}
       </div>
     </section> : null}
-    <button type="button" className="cwBubble" aria-label={open ? "Fechar conversa" : `Abrir conversa${total ? ` (${total} novidades)` : ""}`} aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+    <button type="button" className="cwBubble" aria-label={open ? "Fechar conversa" : `Abrir conversa${total ? ` (${total} novidades)` : ""}`} aria-expanded={open}
+      title="Clique para abrir ou arraste para reposicionar o chat" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={finishDrag} onPointerCancel={cancelDrag}
+      onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (open) close(); else setOpen(true); }}>
       {open ? <X size={22} /> : <MessageCircle size={22} />}
       {!open && total ? <i className="cwBadge">{total > 9 ? "9+" : total}</i> : null}
     </button>
