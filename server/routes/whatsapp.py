@@ -88,6 +88,25 @@ async def reply_whatsapp_conversation(client_id: str, conversation_id: str, body
         raise HTTPException(status, detail) from None
 
 
+@router.post("/conversations/{conversation_id}/ai-suggestion")
+async def suggest_whatsapp_reply(client_id: str, conversation_id: str,
+                                 authorization: Optional[str] = Header(None)):
+    """Gera rascunho privado, sem enviar WhatsApp. Revisão humana obrigatória."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    from services.whatsapp_ai_reply import suggest_reply
+    try:
+        suggestion = await suggest_reply(cid, conversation_id)
+    except StudioError as exc:
+        if exc.code == "CONVERSATION_NOT_FOUND":
+            raise HTTPException(404, "Conversa não encontrada nesta empresa.") from None
+        if exc.code == "NUMBER_NOT_CONNECTED":
+            raise HTTPException(409, "Número WhatsApp da marca não está ativo.") from None
+        if exc.code in {"OUTSIDE_WINDOW", "NO_INBOUND_MESSAGES"}:
+            raise HTTPException(409, "A IA precisa de uma mensagem recebida na janela de 24 horas.") from None
+        raise HTTPException(502, "Não foi possível gerar a sugestão. Responda manualmente.") from None
+    return {"ok": True, **suggestion}
+
+
 # ---- Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência cadastra e vê.
 NUMBER_ROLES = ("agency_admin",)
 

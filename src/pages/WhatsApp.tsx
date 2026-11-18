@@ -4,7 +4,7 @@ import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
 import { CRM_UNAVAILABLE_TEXT, windowOpen, type CrmMessage } from "../app/crm";
 import {
-  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound, replyWhatsApp,
+  ORIGIN_COLORS, OBJECTION_LABELS, STAGE_LABELS, getWhatsAppInbox, getWhatsAppInsights, getWhatsAppMessages, isOutbound, replyWhatsApp, suggestWhatsAppReply,
   type WaConversation, type WhatsAppInbox, type WhatsAppInsights,
 } from "../app/whatsapp";
 import Shell from "../components/Shell";
@@ -60,6 +60,8 @@ export default function WhatsApp() {
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ id: string; messages: CrmMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
@@ -78,7 +80,7 @@ export default function WhatsApp() {
   const openConversation = useCallback(async (id: string, keep = false) => {
     wanted.current = id;
     setOpenId(id);
-    if (!keep) { setDraft(""); setSendNote(null); }
+    if (!keep) { setDraft(""); setSendNote(null); setAiNote(null); }
     setThread((t) => (keep && t.id === id ? { ...t, loading: true } : { id, messages: [], loading: true, error: false }));
     try {
       const res = await getWhatsAppMessages(id);
@@ -102,6 +104,22 @@ export default function WhatsApp() {
       .catch(() => { if (alive) setInbox({ data: null, error: true }); });
     return () => { alive = false; };
   }, [clientId, openConversation]);
+
+  async function suggestReply() {
+    if (!openId || suggesting || sending) return;
+    const requested = openId;
+    setSuggesting(true); setAiNote(null);
+    try {
+      const suggestion = await suggestWhatsAppReply(requested);
+      if (wanted.current !== requested || getActiveClientId() !== clientId) return;
+      setDraft(suggestion.draft);
+      setAiNote(suggestion.needs_human
+        ? `Sugestão para revisão humana. ${suggestion.reason || "Confira antes de enviar."}`
+        : "IA gerou um rascunho. Revise o texto; nada foi enviado.");
+    } catch (cause) {
+      if (wanted.current === requested) setAiNote(cause instanceof Error ? cause.message : "Não foi possível sugerir uma resposta.");
+    } finally { setSuggesting(false); }
+  }
 
   async function sendReply(event: FormEvent) {
     event.preventDefault();
@@ -384,7 +402,15 @@ export default function WhatsApp() {
                     <label className="waSrOnly" htmlFor="wa-reply">Responder no WhatsApp</label>
                     <textarea id="wa-reply" rows={2} maxLength={4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
-                    <button type="submit" className="ds-button is-primary" disabled={sending || !draft.trim()}>{sending ? "Enviando…" : "Enviar"}</button>
+                    <div className="waFormActions">
+                      {inbox.data?.channel_provider === "native" ? (
+                        <button type="button" className="ds-button" onClick={() => void suggestReply()} disabled={sending || suggesting}>
+                          {suggesting ? "Preparando sugestão…" : "Sugerir com IA"}
+                        </button>
+                      ) : null}
+                      <button type="submit" className="ds-button is-primary" disabled={sending || suggesting || !draft.trim()}>{sending ? "Enviando…" : "Enviar"}</button>
+                    </div>
+                    {aiNote ? <p className="waMuted waSmall" role="status">{aiNote}</p> : null}
                     {sendNote ? <p className="waMuted waSmall" role={sendNote.ok ? "status" : "alert"}>{sendNote.text}</p>
                       : <p className="waMuted waSmall">Sai pelo número da marca e fica registrada na conversa. Respondendo aqui, a IA para nesta conversa por um tempo. Ctrl/⌘ + Enter envia.</p>}
                   </form>
