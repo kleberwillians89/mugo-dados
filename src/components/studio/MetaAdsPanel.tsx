@@ -5,6 +5,7 @@ import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
+import MetaCreativeStudio from "./MetaCreativeStudio";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -214,16 +215,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           <label className="ds-field">Descrição (opcional)<input maxLength={200} value={editing.payload.ad.description} onChange={(e) => setAd({ description: e.target.value })} /></label>
           <label className="ds-field">Link de destino<input type="url" maxLength={500} value={editing.payload.ad.link} placeholder="https://loja.com.br/produto" onChange={(e) => setAd({ link: e.target.value })} /></label>
-          <div className="ds-field">Imagem do anúncio
-            {arts.length ? <div className="metaAdsArts">{arts.slice(0, 12).map((item) => {
-              const url = firstArt(item);
-              return <button key={item.id} type="button" className={`metaAdsArt${editing.payload.ad.image_url === url ? " is-selected" : ""}`} title={item.title}
-                onClick={() => setAd({ image_url: url, calendar_item_id: item.id })}><img src={url} alt="" loading="lazy" /><span>{item.title}</span></button>;
-            })}</div> : <small>Nenhum post com arte em imagem no Calendário deste mês.</small>}
-            {editing.payload.ad.image_url ? <div className="metaAdsCreativePreview"><img src={editing.payload.ad.image_url} alt="Prévia do criativo selecionado" loading="lazy" /><p>Imagem escolhida para o anúncio</p></div> : null}
-            <input type="url" maxLength={1000} value={editing.payload.ad.image_url} placeholder="ou cole o link direto da imagem (JPG/PNG)"
-              onChange={(e) => setAd({ image_url: e.target.value, calendar_item_id: null })} />
-          </div>
+          <MetaCreativeStudio key={clientId + ":" + editing.draft.id} clientId={clientId} month={month}
+            calendar={arts} ad={editing.payload.ad} disabled={locked || Boolean(busy)} onChoose={setAd} />
         </fieldset> : null}
         {step === 3 ? <section className="metaAdsReview" aria-label="Revisão da campanha">
           <h3>Revise antes de criar no Meta</h3>
