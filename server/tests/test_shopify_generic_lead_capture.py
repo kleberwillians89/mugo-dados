@@ -39,7 +39,7 @@ class ShopifyProxyCaptureTests(unittest.IsolatedAsyncioTestCase):
             "consent_email": "sim", "consent_whatsapp": "",
         }
         req = signed_request("roove-test.myshopify.com", form)
-        with patch.dict("os.environ", {"SHOPIFY_CLIENT_SECRET": "test-shopify-app-secret"}), \
+        with patch.dict("os.environ", {"SHOPIFY_MUGO_METRICS_CLIENT_SECRET": "test-shopify-app-secret", "SHOPIFY_CLIENT_SECRET": "unrelated-oauth-secret"}), \
              patch("routes.roove_first_access.lead_capture.ingest_shopify_proxy", new_callable=AsyncMock,
                    return_value={"ok": True, "duplicate": False}) as ingest:
             result = await generic_shopify_lead_capture(req)
@@ -48,10 +48,40 @@ class ShopifyProxyCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ingest.await_args.args[1]["campaign"], "first_access_bf_2026")
         self.assertEqual(ingest.await_args.args[1]["consent"]["whatsapp"], False)
 
+    async def test_fails_closed_when_dedicated_secret_missing(self):
+        req = signed_request("roove-test.myshopify.com", {
+            "name": "Ana Silva", "email": "ana@example.org", "phone": "11988887777",
+            "event_id": "event-1", "campaign": "roove_first_access_2026"
+        })
+        with patch.dict("os.environ", {
+            "SHOPIFY_CLIENT_SECRET": "test-shopify-app-secret",
+            "SHOPIFY_MUGO_METRICS_CLIENT_SECRET": ""
+        }), patch("routes.roove_first_access.lead_capture.ingest_shopify_proxy",
+                  new_callable=AsyncMock) as ingest:
+            with self.assertRaises(HTTPException) as caught:
+                await generic_shopify_lead_capture(req)
+        self.assertEqual(caught.exception.status_code, 503)
+        ingest.assert_not_awaited()
+
+    async def test_unrelated_oauth_secret_is_not_accepted_for_proxy(self):
+        req = signed_request("roove-test.myshopify.com", {
+            "name": "Ana Silva", "email": "ana@example.org", "phone": "11988887777",
+            "event_id": "event-2", "campaign": "roove_first_access_2026"
+        }, secret="legacy-oauth-secret")
+        with patch.dict("os.environ", {
+            "SHOPIFY_CLIENT_SECRET": "legacy-oauth-secret",
+            "SHOPIFY_MUGO_METRICS_CLIENT_SECRET": "metrics-proxy-secret"
+        }), patch("routes.roove_first_access.lead_capture.ingest_shopify_proxy",
+                  new_callable=AsyncMock) as ingest:
+            with self.assertRaises(HTTPException) as caught:
+                await generic_shopify_lead_capture(req)
+        self.assertEqual(caught.exception.status_code, 401)
+        ingest.assert_not_awaited()
+
     async def test_unsigned_request_cannot_reach_database(self):
         req = signed_request("evil.myshopify.com", {"name":"Ana"})
         req.scope["query_string"] = req.scope["query_string"] + b"&changed=true"
-        with patch.dict("os.environ", {"SHOPIFY_CLIENT_SECRET": "test-shopify-app-secret"}), \
+        with patch.dict("os.environ", {"SHOPIFY_MUGO_METRICS_CLIENT_SECRET": "test-shopify-app-secret", "SHOPIFY_CLIENT_SECRET": "unrelated-oauth-secret"}), \
              patch("routes.roove_first_access.lead_capture.ingest_shopify_proxy",new_callable=AsyncMock) as ingest:
             with self.assertRaises(HTTPException) as caught:
                 await generic_shopify_lead_capture(req)
