@@ -143,7 +143,7 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
                   <p className="waMuted">Ação opcional, nunca automática. PIN de seis dígitos usado uma única vez e não salvo. Não informe PIN de SMS ou código de login.</p>
                   <label>PIN da verificação em duas etapas da Cloud API
                     <input type="password" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" required
-                      value={registrationPin} onChange={(e) => setRegistrationPin(e.target.value.replace(/\\D/g, "").slice(0, 6))} />
+                      value={registrationPin} onChange={(e) => setRegistrationPin(e.target.value.replace(/\D/g, "").slice(0, 6))} />
                   </label>
                   <button type="submit" className="waPrimary" disabled={metaBusy || registrationPin.length !== 6}>
                     Registrar número na Meta (exige confirmação)
