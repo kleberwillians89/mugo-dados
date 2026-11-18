@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { FileText, MessageSquare, Pencil, RotateCw, Sparkles, Type, UploadCloud } from "lucide-react";
-import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromFile, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
+import { ExternalLink, FileText, MessageSquare, Pencil, RotateCw, ScanText, Sparkles, Type, UploadCloud } from "lucide-react";
+import { needsOcr, originalsByDocument, teachAndKeepOriginal, type TeachWithOriginal } from "../../app/brandKnowledgeUpload";
+import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
 import { parseKnowledge } from "./brandKnowledge.helpers";
 
 const KINDS: Record<KnowledgeKind, string> = { institucional: "Institucional", produto: "Produtos e preços", campanha: "Campanha",
@@ -10,6 +11,15 @@ const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md";
 const MAX = 6000;
 const when = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 
+
+/** Complemento da mensagem de sucesso: páginas lidas pela IA e original guardado na Biblioteca. */
+function describeUpload(res: Partial<TeachWithOriginal>): string {
+  const parts: string[] = [];
+  if (res.ocr) parts.push(` A IA leu ${res.ocr.pages_read} de ${res.ocr.pages_total} página(s)${res.ocr.pages_total > res.ocr.pages_limit ? ` (limite de ${res.ocr.pages_limit} por envio)` : ""}.`);
+  if (res.original === "guardado") parts.push(" O arquivo original ficou na Biblioteca.");
+  if (res.original === "nao_guardado") parts.push(" O original não pôde ir para a Biblioteca; o texto ficou guardado.");
+  return parts.join("");
+}
 
 /**
  * Marca & IA → Conhecimento. À esquerda, ensinar (arrastar arquivos ou colar texto); à direita, o que a IA já sabe.
@@ -27,9 +37,15 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
   const [ok, setOk] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  // PDF sem texto: a pessoa decide se a IA lê as páginas (custa uma leitura por página).
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [originals, setOriginals] = useState<Record<string, string>>({});
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { getKnowledge().then(setData).catch(() => setData({ knowledge: "", sources: 0, updated_at: null, documents: [] })); }, [version]);
+  useEffect(() => {
+    getKnowledge().then(setData).catch(() => setData({ knowledge: "", sources: 0, updated_at: null, documents: [] }));
+    void originalsByDocument().then(setOriginals);
+  }, [version]);
 
   async function run(label: string, task: () => Promise<TeachResult>) {
     setBusy(label); setError(null); setOk(null); setWarn(null);
@@ -37,15 +53,36 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
       const res = await task();
       setData((d) => ({ knowledge: res.knowledge, sources: res.sources, updated_at: new Date().toISOString(),
         documents: [res.document, ...(d?.documents || []).filter((x) => x.id !== res.document.id)] }));
-      if (res.warning) setWarn(`“${res.document.name}”: ${res.warning}`);
-      else setOk(res.document.summary ? `Aprendi com “${res.document.name}”: ${res.document.summary}` : `Aprendi com “${res.document.name}”.`);
+      const extra = describeUpload(res as Partial<TeachWithOriginal>);
+      if (res.warning) setWarn(`“${res.document.name}”: ${res.warning}${extra}`);
+      else setOk((res.document.summary ? `Aprendi com “${res.document.name}”: ${res.document.summary}` : `Aprendi com “${res.document.name}”.`) + extra);
+      const kept = res as Partial<TeachWithOriginal>;
+      if (kept.original === "guardado") void originalsByDocument().then(setOriginals);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível processar."); return false; }
     finally { setBusy(null); }
   }
   async function onFiles(files: FileList | File[] | null) {
-    for (const file of Array.from(files || [])) await run(file.name, () => teachFromFile(file, kind));
+    setOcrFile(null);
+    for (const file of Array.from(files || [])) {
+      setBusy(file.name); setError(null); setOk(null); setWarn(null);
+      try {
+        const res = await teachAndKeepOriginal(file, kind);
+        setBusy(null);
+        await run(file.name, async () => res);
+      } catch (cause) {
+        setBusy(null);
+        if (needsOcr(cause)) { setOcrFile(file); setWarn(cause instanceof Error ? cause.message : "Este PDF não tem texto selecionável."); }
+        else setError(cause instanceof Error ? cause.message : "Não foi possível processar.");
+      }
+    }
     if (input.current) input.current.value = "";
+  }
+  async function readWithOcr() {
+    const file = ocrFile;
+    if (!file) return;
+    setOcrFile(null);
+    await run(file.name, () => teachAndKeepOriginal(file, kind, { ocr: true }));
   }
   function onDrop(event: DragEvent) { event.preventDefault(); setDrag(false); if (canManage && !busy) void onFiles(event.dataTransfer.files); }
   async function saveEdit() {
@@ -73,9 +110,9 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
         onClick={() => !busy && input.current?.click()} onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !busy) { e.preventDefault(); input.current?.click(); } }}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop} aria-label="Enviar documentos">
         {busy && busy !== "texto" && busy !== "edit"
-          ? <><span className="kbSpinner" aria-hidden="true" /><b>Lendo “{busy}”…</b><small>A IA está aprendendo. Leva até 1 minuto.</small></>
+          ? <><span className="kbSpinner" aria-hidden="true" /><b>Lendo “{busy}”…</b><small>A IA está aprendendo. Leva até 1 minuto (PDF lido página a página: até 3).</small></>
           : <><FileText size={26} aria-hidden="true" /><b>Arraste arquivos aqui ou clique para escolher</b>
-            <small>PDF, Word, PowerPoint, Excel, CSV ou TXT · até 10 MB · o conteúdo fica guardado para a IA consultar</small></>}
+            <small>PDF, Word, PowerPoint, Excel, CSV ou TXT · até 10 MB · o texto ensina a IA e o original fica na Biblioteca</small></>}
       </div>
       <input ref={input} type="file" accept={ACCEPT} multiple hidden onChange={(e) => void onFiles(e.target.files)} />
       {pasting ? <div className="kbPaste">
@@ -88,6 +125,11 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
       </div> : <button type="button" className="kbLink" onClick={() => setPasting(true)}><Type size={14} aria-hidden="true" /> ou colar um texto</button>}
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       {warn ? <p role="status" className="studioWarn">{warn}</p> : null}
+      {ocrFile ? <div className="kbRow">
+        <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void readWithOcr()}>
+          <ScanText size={14} aria-hidden="true" /> Ler as páginas com IA</button>
+        <small className="libHint">Até 20 páginas, leva 1 a 3 minutos.</small>
+      </div> : null}
       {ok ? <p className="studioOk">{ok}</p> : null}
       {data.documents.length ? <div className="kbDocs">
         <h4>Já lidos <span>{data.documents.length}</span></h4>
@@ -96,6 +138,8 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
           {d.kind === "conversa" ? <MessageSquare size={14} aria-hidden="true" /> : <FileText size={14} aria-hidden="true" />}<span>{d.name}</span>
           <small>{KINDS[d.kind] || d.kind} · {d.created_at ? when(d.created_at) : "agora"}
             {d.status === "falhou" ? " · guardado, a IA ainda não aprendeu" : d.status === "pendente" ? " · guardado, aguardando a IA" : ""}</small>
+          {d.id && originals[d.id] ? <a className="kbLink" href={originals[d.id]} target="_blank" rel="noreferrer">
+            <ExternalLink size={13} aria-hidden="true" /> Abrir original</a> : null}
           {d.status && d.status !== "aprendido" && d.id ? <button type="button" className="kbLink kbRetry" disabled={Boolean(busy)}
             onClick={() => void run(d.name, () => retryKnowledgeDocument(d.id))}><RotateCw size={13} aria-hidden="true" /> Tentar de novo</button> : null}
         </li>)}</ul>

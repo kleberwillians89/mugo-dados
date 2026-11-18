@@ -25,7 +25,7 @@ SETTINGS = "email_settings"
 SUPPRESSIONS = "email_suppressions"
 CAMPAIGNS = "email_campaigns"
 SENDS = "email_sends"
-SEGMENTS = ("consentimento", "todos", "compraram", "sem_compra", "recompra")
+SEGMENTS = ("consentimento", "todos", "compraram", "sem_compra", "recompra", "primeira_compra", "lista")
 SEND_PER_RUN = 1000
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -195,7 +195,11 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
             if not email:
                 continue
             dates = by_customer.get(_text(p.get("shopify_customer_id")), [])
-            consent = _text(p.get("consent"), 30).lower() == "subscribed" or _text(p.get("accepts"), 10).lower() == "true"
+            # Estado atual explícito do Shopify prevalece sobre o legado
+            # accepts_marketing (pode continuar true após revogação).
+            consent_state = _text(p.get("consent"), 30).lower()
+            consent = (consent_state == "subscribed" if consent_state
+                       else _text(p.get("accepts"), 10).lower() == "true")
             _merge(contacts, email, first=_text(p.get("first_name"), 80), name=f"{_text(p.get('first_name'), 80)} {_text(p.get('last_name'), 80)}".strip(),
                    consent=consent, orders=max(int(p.get("orders_count") or 0), len(dates)), last=max(dates) if dates else None,
                    first_order=min(dates) if dates else None, phone=_text(p.get("phone"), 40) or None)
@@ -234,7 +238,10 @@ def _merge(contacts: Dict[str, Dict[str, Any]], email: str, *, first: str, name:
     if first_order and (not current.get("first_order_at") or first_order < current["first_order_at"]):
         current["first_order_at"] = first_order
     current["phone"] = current.get("phone") or phone
-    current["consent"] = bool(current["consent"]) or bool(consent) if consent is not None else current["consent"]
+    # Mesma pessoa em múltiplos registros: uma negativa explícita impede
+    # que outro registro com aceite antigo reative o marketing por acidente.
+    if consent is not None:
+        current["consent"] = consent if current["consent"] is None else bool(current["consent"]) and bool(consent)
     current["orders"] += orders
     if last and (not current["last_order_at"] or last > current["last_order_at"]):
         current["last_order_at"] = last
@@ -248,12 +255,17 @@ def clean_audience(audience: Any) -> Dict[str, Any]:
         days = max(1, min(int(raw.get("days") or 90), 730))
     except (TypeError, ValueError):
         days = 90
-    only_consent = segment == "consentimento" or bool(raw.get("only_consent", segment != "todos"))
-    return {"segment": segment, "days": days, "only_consent": only_consent}
+    # Política opt-in conservadora: campanhas promocionais só a contatos com
+    # aceite verificável na fonte; listas importadas não substituem o aceite.
+    result = {"segment": segment, "days": days, "only_consent": True}
+    if segment == "lista":
+        from .relationship_lists import valid_id
+        result["list_id"] = valid_id(raw.get("list_id"))
+    return result
 
 
 def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any], *, blocked: set,
-                    now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+                    now: Optional[datetime] = None, list_hashes: Optional[set] = None) -> List[Dict[str, Any]]:
     """Função pura: quem recebe. Bloqueados (descadastro/bounce/spam) nunca entram."""
     audience = clean_audience(audience)
     now = now or _now()
@@ -262,10 +274,14 @@ def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any]
     for c in contacts:
         if c["hash"] in blocked:
             continue
-        if audience["only_consent"] and c.get("consent") is not True:
+        if c.get("consent") is not True:
             continue
         last = _dt(c.get("last_order_at"))
         segment = audience["segment"]
+        if segment == "lista" and (list_hashes is None or c["hash"] not in list_hashes):
+            continue
+        if segment == "primeira_compra" and int(c.get("orders") or 0) != 1:
+            continue
         if segment == "compraram" and not (last and last >= cutoff):
             continue
         if segment == "sem_compra" and not (last and last < cutoff):
@@ -279,10 +295,13 @@ def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any]
 async def audience_preview(client_id: str, audience: Any) -> Dict[str, Any]:
     provider, contacts = await load_contacts(client_id)
     blocked = await suppressed(client_id)
-    chosen = select_audience(contacts, audience, blocked=blocked)
+    from . import relationship_lists
+    cleaned = clean_audience(audience)
+    members = await relationship_lists.member_hashes(client_id, cleaned["list_id"]) if cleaned["segment"] == "lista" else None
+    chosen = select_audience(contacts, cleaned, blocked=blocked, list_hashes=members)
     return {"provider": provider or None, "count": len(chosen), "base": len(contacts),
             "with_consent": sum(1 for c in contacts if c.get("consent") is True), "blocked": len(blocked),
-            "consent_known": provider != "fbits", "audience": clean_audience(audience)}
+            "consent_known": provider != "fbits", "audience": cleaned}
 
 
 # ---------------------------------------------------------------- campanhas
@@ -395,6 +414,30 @@ async def send_test(client_id: str, campaign: Dict[str, Any], to: str) -> Dict[s
     return {"status": "enviado" if ids[0] else "simulado"}
 
 
+async def campaign_preflight(client_id: str, campaign_id: str) -> Dict[str, Any]:
+    """Pré-envio sem efeitos: público real após consentimento/supressão, remetente e avisos."""
+    campaign = await get_campaign(client_id, campaign_id)
+    if campaign["status"] not in EDITABLE:
+        raise EmailError("LOCKED", "Esta campanha não pode mais ser agendada.", 409)
+    audience = await audience_preview(client_id, campaign.get("audience") or {})
+    settings = await get_settings(client_id)
+    blockers: List[str] = []
+    warnings: List[str] = []
+    if not _text(campaign.get("subject")):
+        blockers.append("Escreva o assunto da campanha.")
+    try:
+        sender(settings)
+    except EmailError as exc:
+        blockers.append(exc.message)
+    if not audience["count"]:
+        blockers.append("Nenhum destinatário elegível após filtros e descadastros.")
+    # O filtro é sempre opt-in, inclusive nas listas personalizadas.
+    if not audience["consent_known"]:
+        warnings.append("A loja não informa consentimento; nenhum contato não verificado será incluído.")
+    return {"ready": not blockers, "blockers": blockers, "warnings": warnings, "audience": audience,
+            "subject": _text(campaign.get("subject"), 200), "name": _text(campaign.get("name"), 120)}
+
+
 async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dict[str, Any]:
     campaign = await get_campaign(client_id, campaign_id)
     if campaign["status"] not in EDITABLE:
@@ -402,9 +445,12 @@ async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dic
     if not _text(campaign.get("subject")):
         raise EmailError("NO_SUBJECT", "Escreva o assunto antes de enviar.")
     sender(await get_settings(client_id))
+    # Não agenda uma campanha vazia; a lista é reavaliada no job de envio.
+    size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
+    if size == 0:
+        raise EmailError("EMPTY_AUDIENCE", "Nenhum destinatário elegível. Confira a lista e o consentimento.", 422)
     from . import saas
     if await saas.remaining(client_id, "email_sends_month") is not None:
-        size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
         try:
             await saas.require(client_id, "email_sends_month", size)
         except saas.QuotaError as exc:
@@ -463,7 +509,10 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
     _, contacts = await load_contacts(cid)
     by_hash = {c["hash"]: c for c in contacts}
     if campaign["status"] == "agendada":
-        chosen = select_audience(contacts, campaign.get("audience") or {}, blocked=await suppressed(cid))
+        from . import relationship_lists
+        audience = clean_audience(campaign.get("audience") or {})
+        members = await relationship_lists.member_hashes(cid, audience["list_id"]) if audience["segment"] == "lista" else None
+        chosen = select_audience(contacts, audience, blocked=await suppressed(cid), list_hashes=members)
         await _insert_ignore([{"client_id": cid, "kind": "campanha", "campaign_id": campaign_id, "email_hash": c["hash"],
                                "idem_key": f"campanha/{campaign_id}/{c['hash']}"} for c in chosen])
         await sb_update(CAMPAIGNS, filters={"id": f"eq.{campaign_id}"}, returning="minimal",
@@ -481,8 +530,8 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
         messages, rows, skipped = [], [], []
         for row in chunk:
             contact = by_hash.get(row["email_hash"])
-            if not contact or row["email_hash"] in blocked:
-                skipped.append({**row, "status": "bloqueado", "error": "fora da base ou descadastrado", "updated_at": _now().isoformat()})
+            if not contact or contact.get("consent") is not True or row["email_hash"] in blocked:
+                skipped.append({**row, "status": "bloqueado", "error": "sem opt-in válido, fora da base ou descadastrado", "updated_at": _now().isoformat()})
                 continue
             subject, html, text = render_campaign(campaign, settings, contact, cid)
             unsub = unsubscribe_url(cid, contact["hash"])

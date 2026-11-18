@@ -89,7 +89,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(groupLinks("conteudo")).toEqual(["Social Media", "Redação", "Evento"]);
     expect(groupLinks("relacionamento")).toEqual(["WhatsApp", "E-mail marketing", "Comentários"]);
     expect(groupLinks("config")).toEqual([
-      "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
+      "Contexto da Marca", "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
     ]);
     // o grupo da tela aberta (Ecommerce) vem aberto; os outros fechados, mas com os links no lugar
     expect(container.querySelector<HTMLElement>("#app-nav-vendas")?.hidden).toBe(false);
@@ -203,7 +203,9 @@ describe("AppNavigation — sidebar global", () => {
   it("administração exibe somente os itens permitidos pelas regras existentes", async () => {
     await render({ canManageIntegrations: false });
     expect(link("Integrações")).toBeUndefined();
-    expect(container.querySelector('[data-group="config"]')).toBeNull();  // nada de administração para este perfil
+    // Admin do cliente sem integrações: em Configurações só o Contexto da Marca da própria empresa.
+    expect(groupLinks("config")).toEqual(["Contexto da Marca"]);
+    expect(link("Contexto da Marca")?.getAttribute("href")).toBe("/contexto-da-marca");
     expect(link("IA da marca")).toBeUndefined();
     expect(link("Empresas")).toBeUndefined();
     expect(link("Automações")).toBeUndefined();
@@ -225,5 +227,11 @@ describe("AppNavigation — sidebar global", () => {
     await render({ canManageIntegrations: false, canView: (route) => route !== "users" });
     expect(link("IA da marca")).toBeUndefined();
     expect(container.querySelector('[data-group="marca"]')).toBeNull();
+  });
+
+  it("Contexto da Marca some do menu para quem não vê o módulo da marca", async () => {
+    await render({ canManageIntegrations: false, canView: (route) => route !== "brand_ai" && route !== "users" });
+    expect(link("Contexto da Marca")).toBeUndefined();
+    expect(container.querySelector('[data-group="config"]')).toBeNull();
   });
 });

@@ -88,7 +88,7 @@ export const ORIGIN_COLORS: Record<WaOriginKey, string> = {
 
 /** Números ligados direto no MUGOVERSO (app da Mugô na Meta). Só a agência vê e cadastra. */
 export type WaNumber = {
-  id: string; waba_id: string; phone_number_id: string; display_phone_number: string | null; verified_name: string | null;
+  id: string; waba_id: string; phone_number_id: string; meta_app_id?: string | null; display_phone_number: string | null; verified_name: string | null;
   status: "active" | "disconnected"; subscribed_at: string | null; created_at: string | null;
 };
 export type WaConnectionStatus = {
@@ -104,11 +104,29 @@ export function getWhatsAppConnectionStatus() {
 export function listWhatsAppNumbers() {
   return http<{ ok: true; numbers: WaNumber[] }>(base("/numbers"));
 }
-export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id: string; access_token: string }) {
+export function connectWhatsAppNumber(input: { waba_id: string; phone_number_id: string; access_token: string; meta_app_id?: string | null }) {
   return http<{ ok: true; number: WaNumber }>(base("/numbers"), { method: "POST", body: JSON.stringify(input), timeoutMs: 60_000 });
 }
 export function disconnectWhatsAppNumber(id: string) {
   return http<{ ok: true }>(base(`/numbers/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+
+/** Consultas/registro Roove: Meta status real, sem revelar token nem persistir PIN. */
+export type WaMetaRegistration = {
+  ok: true; phone_number_id: string; display_phone_number?: string;
+  status?: string; code_verification_status?: string;
+  registered?: boolean; can_register?: boolean; requires_confirmation?: boolean;
+  registered_by_this_request: boolean; already_connected?: boolean;
+  registration_requested?: boolean; note?: string;
+};
+export function getRooveMetaRegistrationStatus(numberId: string) {
+  return http<WaMetaRegistration>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-registration`), { timeoutMs: 30_000 });
+}
+export function registerRooveMetaNumber(numberId: string, pin: string, confirmed: boolean) {
+  return http<WaMetaRegistration>(
+    base(`/numbers/${encodeURIComponent(numberId)}/meta-register`),
+    { method: "POST", body: JSON.stringify({ pin, confirmed }), timeoutMs: 45_000 });
 }
 
 /** Each tenant manages only its own WhatsApp Business Account message templates. */
@@ -146,3 +164,59 @@ export const replyInstagram = (senderId: string, text: string) =>
 export const replyWhatsApp = (conversationId: string, text: string) =>
   http<{ status: string; at?: string; ai_paused_minutes?: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/reply`),
     { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
+
+/** Planejamento de disparos em massa: APIs não têm envio real. */
+export type WaCampaignAudience = {
+  ok: true; total_contacts: number; consent_verified_count: number;
+  sendable_count: number; truncated: boolean; reason: string;
+};
+export type WaCampaignDraft = {
+  id: string; name: string; template_name: string; language: string;
+  status: "draft"; simulated_count: number; created_at: string;
+  audience_provider?: string;
+};
+export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" = "all") {
+  return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
+}
+export function listWhatsAppCampaignDrafts() {
+  return http<{ ok: true; drafts: WaCampaignDraft[]; sending_enabled: false }>(base("/campaigns/drafts"));
+}
+export function preflightWhatsAppCampaignTemplate(template_name: string, language: string) {
+  return http<{
+    ok: true; provider: string; template_found: boolean; template_approved: boolean;
+    template_status: string | null; can_send: false; reason: string; messages_sent: 0;
+  }>(base("/campaigns/template-preflight"), {
+    method: "POST", body: JSON.stringify({template_name, language}),
+  });
+}
+export function createWhatsAppCampaignDraft(input: {
+  name: string; template_name: string; language: string;
+  provider: "all" | "shopify" | "fbits" | "whatsapp";
+}) {
+  return http<{ ok: true; sending_enabled: false; draft: WaCampaignDraft; messages_sent: 0 }>(
+    base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},
+  );
+}
+
+/** Imports the selected tenant's previously synchronized contacts; never sends messages. */
+export type WaContactImportResult = {
+  ok: true; provider: string; source_records: number; contacts_synchronized: number;
+  eligible_for_marketing: number; note: string;
+};
+export type WaContactImportStatus = {
+  ok: true; total: number; truncated: boolean; by_provider: Record<string, number>;
+  last_synced_at: string | null;
+};
+export function getWhatsAppContactImportStatus() {
+  return http<WaContactImportStatus>("/api/relationship/contacts/status");
+}
+export function importExistingCommerceContacts() {
+  return http<WaContactImportResult>("/api/relationship/contacts/sync", {
+    method: "POST", timeoutMs: 90_000,
+  });
+}
+export function importExistingWhatsAppConversations(days: number = 365) {
+  return http<WaContactImportResult>(`/api/relationship/contacts/sync-whatsapp?days=${encodeURIComponent(String(days))}`, {
+    method: "POST", timeoutMs: 90_000,
+  });
+}

@@ -15,7 +15,7 @@ from services.whatsapp_sources import brand_messages, brand_reply
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role
 from services.whatsapp_insights import build_whatsapp_inbox, build_whatsapp_insights
-from services.whatsapp_native import WhatsAppNativeError, disconnect_number, list_numbers, register_number, list_templates, create_template
+from services.whatsapp_native import WhatsAppNativeError, disconnect_number, get_roove_registration_status, register_roove_cloud_number, list_numbers, register_number, list_templates, create_template
 
 router = APIRouter(prefix="/api/clients/{client_id}/whatsapp", tags=["whatsapp"])
 
@@ -96,6 +96,7 @@ class NumberIn(BaseModel):
     waba_id: str = Field(min_length=5, max_length=30)
     phone_number_id: str = Field(min_length=5, max_length=30)
     access_token: str = Field(min_length=20, max_length=2000)
+    meta_app_id: Optional[str] = Field(default=None, pattern=r"^[0-9]{5,30}$")
 
 
 @router.get("/connection-status")
@@ -175,7 +176,7 @@ async def create_whatsapp_number(client_id: str, payload: NumberIn, authorizatio
     cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
     try:
         number = await register_number(cid, waba_id=payload.waba_id, phone_number_id=payload.phone_number_id,
-                                       access_token=payload.access_token)
+                                       access_token=payload.access_token, meta_app_id=payload.meta_app_id)
     except WhatsAppNativeError as exc:
         status = 409 if exc.code == "NUMBER_IN_USE" else 502 if exc.code in {"META_UNREACHABLE", "META_FAILED"} else 422
         raise HTTPException(status, exc.message) from None
@@ -188,6 +189,40 @@ async def delete_whatsapp_number(client_id: str, number_id: str, authorization: 
     if not await disconnect_number(cid, number_id):
         raise HTTPException(404, "Número não encontrado para esta empresa.")
     return {"ok": True}
+
+
+class RooveCloudRegistrationIn(BaseModel):
+    pin: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+    confirmed: bool = Field(default=False)
+
+
+@router.get("/numbers/{number_id}/meta-registration")
+async def whatsapp_meta_registration_status(client_id: str, number_id: str,
+                                            authorization: Optional[str] = Header(None)):
+    """Consulta registro na Meta, sem alterar a Cloud API."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await get_roove_registration_status(cid, number_id)}
+    except WhatsAppNativeError as exc:
+        status = 404 if exc.code == "NOT_FOUND" else 409 if exc.code in {"STATUS_UNKNOWN", "NOT_IN_WABA"} else 502
+        raise HTTPException(status, exc.message) from None
+
+
+@router.post("/numbers/{number_id}/meta-register")
+async def whatsapp_meta_registration(client_id: str, number_id: str, payload: RooveCloudRegistrationIn,
+                                     authorization: Optional[str] = Header(None)):
+    """Ação explícita de administrador, usa PIN sem persistir e token já salvo; não envia mensagens."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=NUMBER_ROLES)
+    try:
+        return {"ok": True, **await register_roove_cloud_number(
+            cid, number_id, pin=payload.pin, confirmed=payload.confirmed)}
+    except WhatsAppNativeError as exc:
+        status = (
+            404 if exc.code == "NOT_FOUND" else
+            409 if exc.code in {"CONFIRMATION_REQUIRED", "STATUS_UNKNOWN", "REGISTRATION_UNSAFE", "NOT_IN_WABA"} else
+            422 if exc.code == "PIN_INVALID" else 502
+        )
+        raise HTTPException(status, exc.message) from None
 
 
 # ---- Biblioteca por WABA: criar modelos e acompanhar aprovação na Meta.
@@ -211,12 +246,13 @@ async def read_whatsapp_templates(client_id: str, number_id: Optional[str] = Non
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     from services.whatsapp_native import active_number_ids
     from services.whatsapp_sources import bridge_for
-    from services import crm_whatsapp_templates
+    from services import crm_whatsapp_templates, brand_whatsapp_templates
     try:
         if number_id or await active_number_ids(cid):
             return {"ok": True, "templates": await list_templates(cid, number_id), "provider": "native"}
         if bridge_for(cid):
-            raise HTTPException(409, "A ponte do CRM próprio desta marca ainda não disponibiliza modelos da Meta.")
+            return {"ok": True, "templates": await brand_whatsapp_templates.list_templates(cid),
+                    "provider": "crm_bridge"}
         return {"ok": True, "templates": await crm_whatsapp_templates.list_templates(cid),
                 "provider": "mugozap_crm"}
     except WhatsAppNativeError as exc:
@@ -233,7 +269,7 @@ async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     from services.whatsapp_native import active_number_ids
     from services.whatsapp_sources import bridge_for
-    from services import crm_whatsapp_templates
+    from services import crm_whatsapp_templates, brand_whatsapp_templates
     try:
         if payload.number_id or await active_number_ids(cid):
             template = await create_template(cid, number_id=payload.number_id, name=payload.name,
@@ -241,8 +277,9 @@ async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
                                              body=payload.body, examples=payload.examples, footer=payload.footer)
         else:
             if bridge_for(cid):
-                raise HTTPException(409, "A ponte do CRM próprio desta marca ainda não permite criar modelos na Meta.")
-            template = await crm_whatsapp_templates.create_template(cid, payload=payload.model_dump())
+                template = await brand_whatsapp_templates.create_template(cid, payload=payload.model_dump())
+            else:
+                template = await crm_whatsapp_templates.create_template(cid, payload=payload.model_dump())
     except WhatsAppNativeError as exc:
         raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
     except StudioError as exc:
@@ -252,6 +289,87 @@ async def submit_whatsapp_template(client_id: str, payload: TemplateIn,
                             else 502, str(exc)) from None
     return {"ok": True, "template": template}
 
+
+# ---- Pré-validação segura para futuras campanhas WhatsApp.
+# Não reutiliza listas de e-mail como autorização para mensagens WhatsApp.
+class WhatsAppTemplatePreflight(BaseModel):
+    template_name: str = Field(min_length=3, max_length=81)
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    number_id: Optional[str] = None
+
+
+@router.post("/campaigns/template-preflight")
+async def whatsapp_template_preflight(client_id: str, payload: WhatsAppTemplatePreflight,
+                                      authorization: Optional[str] = Header(None)):
+    """Somente leitura: valida template aprovado no tenant; nunca envia mensagens."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_native import active_number_ids
+    from services.whatsapp_sources import bridge_for
+    from services import crm_whatsapp_templates, brand_whatsapp_templates
+    try:
+        if payload.number_id or await active_number_ids(cid):
+            templates = await list_templates(cid, payload.number_id)
+            provider = "native"
+        elif bridge_for(cid):
+            templates = await brand_whatsapp_templates.list_templates(cid)
+            provider = "crm_bridge"
+        else:
+            templates = await crm_whatsapp_templates.list_templates(cid)
+            provider = "mugozap_crm"
+    except WhatsAppNativeError as exc:
+        raise HTTPException(422 if exc.code in {"NOT_FOUND", "TEMPLATE_INVALID"} else 502, exc.message) from None
+    except StudioError as exc:
+        raise HTTPException(503, str(exc)) from None
+    matched = next((t for t in templates if t.get("name") == payload.template_name
+                    and t.get("language") == payload.language), None)
+    approved = bool(matched and str(matched.get("status", "")).upper() == "APPROVED")
+    return {"ok": True, "provider": provider, "template_found": bool(matched),
+            "template_approved": approved, "template_status": matched.get("status") if matched else None,
+            "can_send": False, "reason": "Campanhas WhatsApp ainda exigem listas com opt-in específico, fila e homologação.",
+            "messages_sent": 0}
+
+
+
+# ---- Campanhas: prévia e rascunhos; nenhum endpoint de envio em massa.
+class BulkCampaignDraftIn(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    template_name: str = Field(min_length=3, max_length=81)
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp)$")
+
+
+@router.get("/campaigns/drafts")
+async def whatsapp_campaign_draft_list(client_id: str, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_drafts import list_drafts
+    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": False}
+
+
+@router.get("/campaigns/audience-preview")
+async def whatsapp_campaign_audience_preview(client_id: str, provider: str = "all",
+                                              authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_drafts import audience_preview
+    try:
+        return {"ok": True, **await audience_preview(cid, provider)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/drafts", status_code=201)
+async def whatsapp_campaign_create_draft(client_id: str, payload: BulkCampaignDraftIn,
+                                          authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    validated = await whatsapp_template_preflight(
+        client_id, WhatsAppTemplatePreflight(template_name=payload.template_name, language=payload.language),
+        authorization=authorization,
+    )
+    from services.whatsapp_campaign_drafts import save_draft
+    try:
+        result = await save_draft(cid, payload.model_dump(), approved=bool(validated["template_approved"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, **result, "sending_enabled": False}
 
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
 class InstagramReply(BaseModel):

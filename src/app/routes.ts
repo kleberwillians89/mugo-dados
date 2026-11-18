@@ -89,6 +89,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/canais" || normalized.startsWith("/canais/")) return "channels";
   if (normalized === "/clipping" || normalized.startsWith("/clipping/")) return "clipping";
   if (normalized === "/comentarios" || normalized.startsWith("/comentarios/")) return "engagement";
+  // Contexto da Marca (Configurações). /ia-da-marca é o endereço antigo e continua abrindo a mesma tela.
+  if (normalized === "/contexto-da-marca" || normalized.startsWith("/contexto-da-marca/")) return "brand_ai";
   if (normalized === "/ia-da-marca" || normalized.startsWith("/ia-da-marca/")) return "brand_ai";
   if (normalized === "/mugo-ia" || normalized.startsWith("/mugo-ia/") || normalized === "/mugoverso-ia" || normalized.startsWith("/mugoverso-ia/")) return "mugo_ia";
   if (normalized === "/relatorio-social" || normalized.startsWith("/relatorio-social/")) return "social_report";
@@ -161,7 +163,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "clipping") return "/clipping";
   if (route === "engagement") return "/comentarios";
   if (route === "social_report") return "/relatorio-social";
-  if (route === "brand_ai") return "/ia-da-marca";
+  if (route === "brand_ai") return "/contexto-da-marca";
   if (route === "mugo_ia") return "/mugo-ia";
   if (route === "campaigns") return "/social-media";
   if (route === "redacao") return "/redacao";

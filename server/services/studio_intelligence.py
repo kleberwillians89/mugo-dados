@@ -202,7 +202,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products, briefs, plans, library) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library, whatsapp) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -224,6 +224,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("briefings_aprovados", gaps, lambda: _approved_briefs(client_id, today), []),
         _safe("planos_aprovados", gaps, lambda: _plans(client_id, today), {}),
         _safe("biblioteca", gaps, lambda: _library(client_id), {}),
+        _safe("whatsapp", gaps, lambda: _whatsapp(client_id), {}),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -247,6 +248,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "referencias_do_cliente": references,
         "saude_da_marca": health,
         "voz_do_publico": voice,
+        "whatsapp": whatsapp,
         "concorrentes": competitors,
         "produtos_mais_vendidos": products,
         "briefings_aprovados": briefs,
@@ -370,6 +372,12 @@ async def _health(client_id: str) -> Dict[str, Any]:
                                 for a in (data.get("alerts") or [])[:5]]}
 
 
+async def _whatsapp(client_id: str) -> Dict[str, Any]:
+    """O que os clientes perguntam no WhatsApp da marca (últimos 30 dias), sem quem perguntou: vira pauta e resposta."""
+    from .brand_signals import whatsapp_section
+    return await whatsapp_section(client_id)
+
+
 async def _audience_voice(client_id: str) -> str:
     """Como o público fala da marca (comentários, Direct e notícias), já agregado e sem dado de pessoa."""
     from .brand_health import audience_voice
@@ -377,10 +385,21 @@ async def _audience_voice(client_id: str) -> str:
 
 
 async def _competitors(client_id: str) -> Dict[str, Any]:
-    """Concorrentes cadastrados no Clipping e o que saiu sobre eles nos últimos 30 dias."""
+    """Concorrentes cadastrados (Clipping e Benchmarking, inclusive os vindos do planejamento) e o que saiu sobre eles
+    nos últimos 30 dias."""
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     settings = await sb_select("studio_clipping_settings", select="competitor_terms", limit=1, filters={"client_id": f"eq.{client_id}"})
-    names = [clean_text(t, 60) for t in ((settings[0].get("competitor_terms") if settings else None) or []) if clean_text(t, 60)][:10]
+    try:
+        bench = await sb_select("benchmark_competitors", select="name", limit=30,
+                                filters={"client_id": f"eq.{client_id}", "active": "is.true"})
+    except Exception:  # noqa: BLE001 — Benchmarking indisponível não tira os concorrentes do Clipping
+        bench = []
+    names: List[str] = []
+    for term in [*((settings[0].get("competitor_terms") if settings else None) or []), *(r.get("name") for r in bench)]:
+        name = clean_text(term, 60)
+        if name and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    names = names[:12]
     rows = await sb_select("studio_clippings", select="title,source,term,sentiment,summary,relevant,published_at", limit=30,
                            order="published_at.desc.nullslast",
                            filters={"client_id": f"eq.{client_id}", "kind": "eq.concorrente", "created_at": f"gte.{since}",
@@ -495,24 +514,38 @@ async def _library(client_id: str) -> Dict[str, Any]:
 
 async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
     """Trechos dos DOCUMENTOS da marca (manual, apresentação, tabela de preços) mais ligados a esta peça.
-    O pacote traz o conhecimento consolidado; aqui vai o texto original do que importa para a pauta. Nunca levanta."""
+    O pacote traz o conhecimento consolidado; aqui vai o texto original do que importa para a pauta, com o nome do documento
+    entre colchetes para a IA citar a origem. Nunca levanta."""
     try:
         from .brand_knowledge import search_chunks
         rows = await search_chunks(client_id, *[t for t in texts if t], limit=limit)
     except Exception:  # noqa: BLE001
         return ""
+    names: Dict[str, str] = {}
+    ids = sorted({str(r.get("document_id")) for r in rows if r.get("document_id")})
+    if ids:
+        try:
+            docs = await sb_select("brand_documents", select="id,name", limit=len(ids),
+                                   filters={"client_id": f"eq.{client_id}", "id": f"in.({','.join(ids)})"})
+            names = {str(d.get("id")): clean_text(d.get("name"), 80) for d in docs}
+        except Exception:  # noqa: BLE001 — sem o nome, o trecho continua valendo
+            names = {}
     out = []
     for r in rows:
         text = _PERSONAL.sub("[…]", re.sub(r"\s+", " ", str(r.get("content") or ""))).strip()[:700]
         if text:
-            out.append(f"- {text}")
+            # O nome do documento vai junto: a IA cita de onde tirou ("conforme o Planejamento 2027").
+            source = names.get(str(r.get("document_id") or ""))
+            out.append(f"- [{source}] {text}" if source else f"- {text}")
     return "\n".join(out)
 
 
 LIBRARY_RULE = ("Se a BIBLIOTECA dos DADOS tiver o arquivo certo (foto do produto, logo, vídeo bruto, referência), cite-o pelo "
                 "nome exato na ideia de imagem para a equipe achar; não invente arquivo que não está lá.")
 PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
-              "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois.")
+              "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois. As perguntas reais dos clientes "
+              "(seção whatsapp e voz_do_publico) são ponto de partida para pauta, FAQ e objeção a quebrar. Ao usar um trecho de "
+              "documento da marca, cite o nome do documento (entre colchetes nos trechos) na justificativa.")
 
 
 def invalidate(client_id: str) -> None:
@@ -538,7 +571,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 
 PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
-                "biblioteca", "voz_do_publico", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis",
+                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis",
                 "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
                 "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
 

@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
-from services import cart_recovery, commercial_flows, email_marketing, email_resend
+from services import cart_recovery, commercial_flows, email_marketing, email_resend, relationship_lists
 from services.tenant import require_client_read, require_client_role, require_user_id
 
 router = APIRouter(tags=["email"])
@@ -18,6 +18,8 @@ WRITERS = ("agency_admin", "client_admin")
 def _fail(exc: Exception) -> HTTPException:
     if isinstance(exc, (email_marketing.EmailError, cart_recovery.CartError, commercial_flows.FlowError)):
         return HTTPException(status_code=exc.status, detail=exc.message)
+    if isinstance(exc, relationship_lists.ListError):
+        return HTTPException(status_code=exc.status, detail=exc.message)
     if isinstance(exc, email_resend.ResendError):
         return HTTPException(status_code=502 if exc.retryable else 400, detail=exc.message)
     from services.whatsapp_native import WhatsAppNativeError
@@ -25,6 +27,79 @@ def _fail(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=exc.message)
     print(f"[email_routes] unexpected {type(exc).__name__}")
     return HTTPException(status_code=502, detail="Não foi possível concluir agora. Tente de novo.")
+
+
+# ---------------------------------------------------------------- listas de relacionamento
+
+@router.get("/api/email/lists")
+async def email_lists(client_id: str | None = Query(default=None),
+                      x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                      authorization: str | None = Header(default=None)):
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    try:
+        return {"ok": True, "lists": await relationship_lists.list_lists(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/lists")
+async def email_create_list(payload: Dict[str, Any] = Body(...), client_id: str | None = Query(default=None),
+                            x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                            authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        item = await relationship_lists.create_list(cid, name=str(payload.get("name") or ""),
+                description=str(payload.get("description") or ""), user_id=await require_user_id(authorization))
+        return {"ok": True, "list": item}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/lists/{list_id}/members")
+async def email_add_list_members(list_id: str, payload: Dict[str, Any] = Body(...),
+                                 client_id: str | None = Query(default=None),
+                                 x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                 authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await relationship_lists.add_members(cid, list_id, payload.get("emails"))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/lists/{list_id}/remove-members")
+async def email_remove_list_members(list_id: str, payload: Dict[str, Any] = Body(...),
+                                    client_id: str | None = Query(default=None),
+                                    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                    authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **await relationship_lists.remove_members(cid, list_id, payload.get("emails"))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/history")
+async def email_contact_history(payload: Dict[str, Any] = Body(...), client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, "entries": await relationship_lists.contact_email_history(cid, payload.get("email"))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.delete("/api/email/lists/{list_id}")
+async def email_delete_list(list_id: str, client_id: str | None = Query(default=None),
+                            x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                            authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await relationship_lists.delete_list(cid, list_id)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
 
 
 # ---------------------------------------------------------------- remetente
@@ -144,6 +219,18 @@ async def email_test(campaign_id: str, payload: Dict[str, Any] = Body(...), clie
     try:
         campaign = await email_marketing.get_campaign(cid, campaign_id)
         return {"ok": True, **(await email_marketing.send_test(cid, campaign, str(payload.get("to") or "")))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.get("/api/email/campaigns/{campaign_id}/preflight")
+async def email_campaign_preflight(campaign_id: str, client_id: str | None = Query(default=None),
+                                   x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                   authorization: str | None = Header(default=None)):
+    """Confere público e remetente antes de confirmar; não dispara nem agenda nada."""
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return {"ok": True, **(await email_marketing.campaign_preflight(cid, campaign_id))}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
+import { getActiveClientId } from "../../app/activeClient";
 import {
-  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, previewAudience, previewEmail, scheduleCampaign,
+  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
-  type Audience, type AudiencePreview, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
+  type Audience, type AudiencePreview, type RelationshipList, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
@@ -28,10 +29,12 @@ function StatsRow({ stats }: { stats: Partial<CampaignStats> | null | undefined 
 }
 
 export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: boolean; onBack: () => void }) {
+  const tenant = getActiveClientId();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [mode, setMode] = useState<"blocos" | "html">("blocos");
   const [audience, setAudience] = useState<AudiencePreview | null>(null);
+  const [savedLists, setSavedLists] = useState<RelationshipList[]>([]);
   const [report, setReport] = useState<HtmlReport | null>(null);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
@@ -41,16 +44,24 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
 
   useEffect(() => {
     let alive = true;
+    setCampaign(null); setAudience(null); setStats(null);
     getCampaign(id).then((out) => {
       if (!alive) return;
       setCampaign(out.campaign); setStats(out.stats); setMode(out.campaign.custom_html ? "html" : "blocos");
     }).catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Campanha não encontrada."); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, tenant]);
+
+  useEffect(() => {
+    let alive = true;
+    listRelationshipLists().then((result) => { if (alive) setSavedLists(result.lists); })
+      .catch(() => { if (alive) setSavedLists([]); });
+    return () => { alive = false; };
+  }, [tenant]);
 
   const editable = canEdit && !!campaign && ["rascunho", "agendada"].includes(campaign.status);
   const change = (patch: Partial<Campaign>) => setCampaign((current) => (current ? { ...current, ...patch } : current));
-  const setAud = (patch: Partial<Audience>) => campaign && change({ audience: { ...campaign.audience, ...patch } });
+  const setAud = (patch: Partial<Audience>) => { setAudience(null); if (campaign) change({ audience: { ...campaign.audience, ...patch } }); };
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label); setError(""); setMessage("");
@@ -104,17 +115,23 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             <h3>Para quem</h3>
             <div className="emAudience">
               <select aria-label="Público" value={campaign.audience.segment} disabled={!editable}
-                onChange={(e) => setAud({ segment: e.target.value as Segment, only_consent: e.target.value !== "todos" })}>
+                onChange={(e) => setAud({ segment: e.target.value as Segment, only_consent: true,
+                  list_id: e.target.value === "lista" ? savedLists[0]?.id : undefined })}>
                 {(Object.keys(SEGMENT_LABEL) as Segment[]).map((s) => <option key={s} value={s}>{SEGMENT_LABEL[s]}</option>)}
               </select>
               {["compraram", "sem_compra"].includes(campaign.audience.segment) ? (
                 <label className="emInline">há <input type="number" min={1} max={730} value={campaign.audience.days} disabled={!editable}
                   onChange={(e) => setAud({ days: Number(e.target.value) || 90 })} /> dias</label>
               ) : null}
-              {campaign.audience.segment !== "consentimento" ? (
-                <label className="emInline"><input type="checkbox" checked={campaign.audience.only_consent} disabled={!editable}
-                  onChange={(e) => setAud({ only_consent: e.target.checked })} /> Só quem aceitou receber e-mails</label>
+              {campaign.audience.segment === "lista" ? (
+                <select aria-label="Lista de Relacionamento" value={campaign.audience.list_id || ""} disabled={!editable}
+                  onChange={(e) => setAud({ list_id: e.target.value })}>
+                  <option value="">Selecione uma lista</option>
+                  {savedLists.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+                </select>
               ) : null}
+              <p className="emHint">Segurança de marketing: somente contatos com aceite comprovado
+                na plataforma conectada. Importar uma lista não cria consentimento.</p>
               {canEdit ? (
                 <button type="button" className="ds-button" disabled={!!busy}
                   onClick={() => void run("audience", async () => setAudience(await previewAudience(campaign.audience)))}>
@@ -126,8 +143,9 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                 {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
                 {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</p>
             ) : null}
-            {!campaign.audience.only_consent ? (
-              <p className="emNotice">Enviar para quem não aceitou receber e-mails é responsabilidade da marca (LGPD). O descadastro em 1 clique vai em todos.</p>
+            {!audience?.consent_known && audience ? (
+              <p className="emNotice">A fonte não informa consentimento de marketing.
+                A campanha ficará sem destinatários elegíveis até existir uma fonte verificável.</p>
             ) : null}
           </section>
 
@@ -150,7 +168,16 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                 <button type="button" className="ds-button is-primary" disabled={!!busy}
                   onClick={() => void run("send", async () => {
                     await updateCampaign(id, payload()!);
+                    const check = await preflightCampaign(id);
+                    setAudience(check.audience);
+                    if (!check.ready) throw new Error(check.blockers.join(" "));
                     const at = when ? new Date(when).toISOString() : null;
+                    const warning = check.warnings.length ? `\n\nAtenção: ${check.warnings.join(" ")}` : "";
+                    const confirmed = window.confirm(
+                      `Confirmar ${at ? "agendamento" : "envio"} para ${check.audience.count.toLocaleString("pt-BR")} contatos elegíveis?\n\n` +
+                      `Campanha: ${check.name}\nAssunto: ${check.subject}${warning}`
+                    );
+                    if (!confirmed) return;
                     const out = await scheduleCampaign(id, at);
                     setCampaign(out.campaign);
                     setMessage(at ? "Campanha agendada." : "Campanha na fila: o envio começa em até 5 minutos.");

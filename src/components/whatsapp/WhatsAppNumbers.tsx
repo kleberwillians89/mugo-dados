@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../../app/api";
-import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, getWhatsAppConnectionStatus, type WaNumber, type WaConnectionStatus } from "../../app/whatsapp";
+import { connectWhatsAppNumber, disconnectWhatsAppNumber, listWhatsAppNumbers, getWhatsAppConnectionStatus, getRooveMetaRegistrationStatus, registerRooveMetaNumber, type WaMetaRegistration, type WaNumber, type WaConnectionStatus } from "../../app/whatsapp";
 
 /**
  * Números de WhatsApp da empresa ligados direto no MUGOVERSO (app da Mugô na Meta).
@@ -12,9 +12,13 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
   const [connection, setConnection] = useState<WaConnectionStatus | null>(null);
   const [allowed, setAllowed] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "" });
+  const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "", meta_app_id: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [metaState, setMetaState] = useState<WaMetaRegistration | null>(null);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [registrationPin, setRegistrationPin] = useState("");
+  const rooveNumber = (numbers || []).find((n) => n.status === "active" && n.phone_number_id === "1063683626819387" && n.meta_app_id === "1161210926623351");
 
   useEffect(() => {
     let alive = true;
@@ -33,10 +37,10 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
     setError("");
     try {
       const res = await connectWhatsAppNumber({
-        waba_id: form.waba_id.trim(), phone_number_id: form.phone_number_id.trim(), access_token: form.access_token.trim(),
+        waba_id: form.waba_id.trim(), phone_number_id: form.phone_number_id.trim(), access_token: form.access_token.trim(), meta_app_id: form.meta_app_id.trim() || null,
       });
       setNumbers((current) => [...(current || []).filter((n) => n.id !== res.number.id), res.number]);
-      setForm({ waba_id: "", phone_number_id: "", access_token: "" });
+      setForm({ waba_id: "", phone_number_id: "", access_token: "", meta_app_id: "" });
       setOpen(false);
       onChange?.();
     } catch (err) {
@@ -54,6 +58,39 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
       onChange?.();
     } catch {
       setError("Não foi possível desligar agora.");
+    }
+  }
+
+  async function checkMetaRegistration() {
+    if (!rooveNumber) return;
+    setMetaBusy(true); setMetaState(null); setRegistrationPin(""); setError("");
+    try {
+      setMetaState(await getRooveMetaRegistrationStatus(rooveNumber.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Não foi possível consultar o status na Meta.");
+    } finally { setMetaBusy(false); }
+  }
+
+  async function registerAtMeta(event: FormEvent) {
+    event.preventDefault();
+    if (!rooveNumber || !metaState?.can_register || !/^[0-9]{6}$/.test(registrationPin) || metaBusy) return;
+    const accepted = window.confirm(
+      "Confirmar registro na Meta APENAS do número secundário +55 11 94470-6392 (Roove)? " +
+      "Esta ação altera o estado do número na Cloud API. O número principal não será alterado."
+    );
+    if (!accepted) return;
+    setMetaBusy(true); setError("");
+    try {
+      const outcome = await registerRooveMetaNumber(rooveNumber.id, registrationPin, true);
+      setMetaState(null); // Força uma nova consulta à Meta, nunca presume Connected.
+      if (outcome.registration_requested || outcome.already_connected) {
+        setError("A Meta recebeu o registro. Clique em 'Consultar status na Meta' para confirmar Connected.");
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "A Meta não confirmou o registro. Não tente repetidamente.");
+    } finally {
+      setRegistrationPin("");
+      setMetaBusy(false);
     }
   }
 
@@ -82,12 +119,41 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
           {active.map((n) => (
             <li key={n.id}>
               <span><b>{n.display_phone_number || n.phone_number_id}</b>{n.verified_name ? ` · ${n.verified_name}` : ""}
-                <small>Recebendo mensagens pelo app da Mugô{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
+                <small>Recebendo mensagens pelo {n.meta_app_id ? `Meta App ${n.meta_app_id}` : "app da Mugô"}{n.subscribed_at ? ` desde ${new Date(n.subscribed_at).toLocaleDateString("pt-BR")}` : ""}</small></span>
               <button type="button" className="waLinkButton" onClick={() => void disconnect(n)}>Desligar</button>
             </li>
           ))}
         </ul>
       ) : numbers && !connection?.connected ? <p className="waMuted">Nenhum número Cloud API ligado diretamente ao Mugô Dados.</p> : null}
+
+      {rooveNumber ? (
+        <div className="waConnectionSummary">
+          <strong>Registro Cloud API — número secundário Roove</strong>
+          <p className="waMuted">O status “active” deste painel é interno. Consulte o registro real na Meta antes de tentar ativar.</p>
+          <button type="button" className="waLinkButton" onClick={() => void checkMetaRegistration()} disabled={metaBusy}>
+            {metaBusy ? "Consultando…" : "Consultar status na Meta"}
+          </button>
+          {metaState ? (
+            <div role="status">
+              <p>Status Meta: <strong>{metaState.status || "Indisponível"}</strong> · Verificação: {metaState.code_verification_status || "—"}</p>
+              {metaState.registered ? <p>Número registrado na Cloud API. Faça um teste de recebimento.</p> : null}
+              {!metaState.registered && !metaState.can_register ? <p>Registro bloqueado: estado desconhecido ou incompatível. Confira com a Meta.</p> : null}
+              {metaState.can_register ? (
+                <form className="waForm" onSubmit={(e) => void registerAtMeta(e)}>
+                  <p className="waMuted">Ação opcional, nunca automática. PIN de seis dígitos usado uma única vez e não salvo. Não informe PIN de SMS ou código de login.</p>
+                  <label>PIN da verificação em duas etapas da Cloud API
+                    <input type="password" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" required
+                      value={registrationPin} onChange={(e) => setRegistrationPin(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+                  </label>
+                  <button type="submit" className="waPrimary" disabled={metaBusy || registrationPin.length !== 6}>
+                    Registrar número na Meta (exige confirmação)
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {!open ? (
         <button type="button" className="waPrimary" onClick={() => setOpen(true)}>{active.length ? "Ligar outro número" : connection?.connected ? "Adicionar Cloud API (opcional)" : "Ligar número"}</button>
@@ -102,6 +168,11 @@ export default function WhatsAppNumbers({ onChange }: { onChange?: () => void })
             <input inputMode="numeric" autoComplete="off" required value={form.phone_number_id}
               onChange={(e) => setForm({ ...form, phone_number_id: e.target.value.replace(/\D/g, "") })} />
           </label>
+          <label>ID do Meta App (opcional, use para ROOVEWHATS ou apps de clientes)
+            <input inputMode="numeric" autoComplete="off" value={form.meta_app_id}
+              onChange={(e) => setForm({ ...form, meta_app_id: e.target.value.replace(/\D/g, "") })} />
+          </label>
+          <p className="waMuted">Para ROOVEWHATS, use o App ID 1161210926623351. Para a conexão legada da Mugô, deixe vazio. Configure o webhook deste App no Supabase do Mugô Dados.</p>
           <label>Token de acesso
             <input type="password" autoComplete="off" required value={form.access_token}
               onChange={(e) => setForm({ ...form, access_token: e.target.value })} />

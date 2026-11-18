@@ -21,7 +21,7 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from .ig_supabase import sb_select, sb_upsert
+from .ig_supabase import sb_insert, sb_select, sb_update, sb_upsert
 
 SNAPSHOTS = "benchmark_ig_snapshots"
 POSTS_PER_PROFILE = 30
@@ -175,3 +175,28 @@ async def _brand_handle(client_id: str) -> Optional[str]:
     connection = await get_active_connection_for_client(client_id)
     handle = str((connection or {}).get("username") or "").strip().lstrip("@").lower()
     return handle or None
+
+
+COMPETITORS = "benchmark_competitors"
+
+
+async def register_competitor(client_id: str, fields: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
+    """Cadastra um concorrente da empresa (mesma regra da tela de Benchmarking e da importação do planejamento).
+
+    Devolve (``"criado" | "reativado" | "ja_cadastrado"``, linha). Respeita o limite do plano (``saas.QuotaError``).
+    ``facebook_page`` vazio não vai (a coluna vem da 000111; sem ela o resto continua funcionando)."""
+    data = {k: v for k, v in fields.items() if not (k == "facebook_page" and not v)}
+    existing = await sb_select(COMPETITORS, filters={"client_id": f"eq.{client_id}", "name": f"eq.{data['name']}"}, limit=1)
+    if existing and existing[0].get("active", True):
+        return "ja_cadastrado", existing[0]
+    if existing:
+        # Removido antes: volta com os dados novos (as evidências antigas continuam ligadas a ele).
+        rows = await sb_update(COMPETITORS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{existing[0]['id']}"},
+                               patch={**data, "active": True, "updated_at": _now().isoformat()})
+        return "reativado", (rows[0] if rows else existing[0])
+    from . import saas
+    await saas.require(client_id, "competitors")
+    saved = await sb_insert(COMPETITORS, {"client_id": client_id, **data})
+    if not saved:
+        raise RuntimeError("COMPETITOR_SAVE_FAILED")
+    return "criado", saved

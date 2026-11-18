@@ -265,6 +265,8 @@ async def _persist_customer_identities(
                 for field in ("name", "email", "phone"):
                     row[field] = profiles.get(row["fbits_customer_id"], {}).get(field) or row[field]
         await sb_upsert("fbits_customers", rows, on_conflict="client_id,fbits_customer_id")
+        from .relationship_contacts import project_updated_customers
+        await project_updated_customers(client_id, "fbits", rows)
     except Exception as exc:  # noqa: BLE001 - identidade não derruba pedidos
         print(
             f"[fbits][customers] client_id={client_id} status=unavailable "

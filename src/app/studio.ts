@@ -384,7 +384,9 @@ export type KnowledgeKind = "institucional" | "produto" | "campanha" | "tom_de_v
 export type BrandDocumentStatus = "pendente" | "aprendido" | "falhou";
 export type BrandDocument = { id: string; name: string; kind: KnowledgeKind; summary: string | null; facts_added: number; truncated: boolean; created_at: string;
   status?: BrandDocumentStatus; error?: string | null; chars_total?: number };
-export type TeachResult = { ok: true; document: BrandDocument; knowledge: string; sources: number; warning?: string };
+export type TeachResult = { ok: true; document: BrandDocument; knowledge: string; sources: number; warning?: string;
+  /** Leitura das páginas pela IA (PDF escaneado). */
+  ocr?: { pages_read: number; pages_total: number; pages_limit: number; partial: boolean } };
 export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
 export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
 export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
@@ -427,10 +429,12 @@ export function askMugoIA(question: string) {
 }
 export function clearMugoIA() { return http<{ ok: true }>(base("/mugo-ia"), { method: "DELETE" }); }
 
-export async function teachFromFile(file: File, kind: KnowledgeKind) {
+/** ``ocr``: PDF escaneado, a IA lê as páginas (até 20); só quando a pessoa pede. */
+export async function teachFromFile(file: File, kind: KnowledgeKind, options: { ocr?: boolean } = {}) {
   if (file.size > KNOWLEDGE_MAX_BYTES) throw new Error("Arquivo grande demais (até 10 MB). Divida em partes.");
   return http<TeachResult>(base("/knowledge/documents"),
-    { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file) }), timeoutMs: 180_000 });
+    { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file), ...(options.ocr ? { ocr: true } : {}) }),
+      timeoutMs: options.ocr ? 300_000 : 180_000 });
 }
 export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto colado") {
   return http<TeachResult>(base("/knowledge/documents"),

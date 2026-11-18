@@ -1,4 +1,4 @@
--- LOCAL: NAO APLICADA. Configuracao aditiva de IA por empresa.
+-- LOCAL: NAO APLICADA. Migration 000122 aditiva de IA por empresa.
 -- A ausencia de linha preserva o comportamento legado: chave da plataforma.
 
 create table if not exists public.client_ai_settings (
