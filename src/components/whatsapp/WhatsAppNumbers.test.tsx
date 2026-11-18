@@ -35,11 +35,11 @@ describe("Número de WhatsApp da marca", () => {
     await act(async () => root.render(<WhatsAppNumbers onChange={onChange} />));
     await flush();
     await act(async () => (container.querySelector(".waPrimary") as HTMLButtonElement).click());
-    const [waba, phone, token] = [...container.querySelectorAll("input")] as HTMLInputElement[];
-    await act(async () => { type(waba, "112233445566778"); type(phone, "109876543210987"); type(token, "EAAG-token-secreto-1234567890"); });
+    const [waba, phone, metaAppId, token] = [...container.querySelectorAll("input")] as HTMLInputElement[];
+    await act(async () => { type(waba, "112233445566778"); type(phone, "109876543210987"); type(metaAppId, "1161210926623351"); type(token, "EAAG-token-secreto-1234567890"); });
     await act(async () => (container.querySelector("form") as HTMLFormElement).requestSubmit());
     await flush();
-    expect(api.connectWhatsAppNumber).toHaveBeenCalledWith({ waba_id: "112233445566778", phone_number_id: "109876543210987", access_token: "EAAG-token-secreto-1234567890" });
+    expect(api.connectWhatsAppNumber).toHaveBeenCalledWith({ waba_id: "112233445566778", phone_number_id: "109876543210987", access_token: "EAAG-token-secreto-1234567890", meta_app_id: "1161210926623351" });
     expect(container.textContent).toContain("+55 11 99316-1161");
     expect(container.textContent).not.toContain("EAAG-token");
     expect(onChange).toHaveBeenCalled();
