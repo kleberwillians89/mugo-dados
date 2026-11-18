@@ -41,3 +41,36 @@ Confirmar presentes, sem compartilhar valores:
 - A credencial de envio do formulário é persistida na tabela `whatsapp_numbers` existente, com acesso restrito a service role; recomenda-se futura integração com cofre de segredos/cifragem em repouso própria da aplicação.
 - O envio real de campanhas permanece bloqueado até evidências de opt-in por pessoa, opt-out, supressão, fila idempotente, auditoria e aprovação explícita, conforme `docs/WHATSAPP_BULK_CAMPAIGNS.md`.
 - Não é possível inferir o ref do projeto Supabase do Mugô Dados a partir dos digests SHA256 dos secrets. Conferir a URL do painel antes de aplicar migration/deploy.
+
+
+## Registro operacional do número secundário (PR de habilitação; sem execução automática)
+
+**Somente o número secundário** de Roove `+55 11 94470-6392` (`1063683626819387`), na WABA
+`1491824329400600`, App `1161210926623351`. Nunca usar o número principal.
+
+O cadastro `public.whatsapp_numbers.status='active'` indica apenas integração salva no Mugô Dados.
+Não comprova `CONNECTED` na Meta.
+
+1. Após merge, CI e deploy do **backend Render** e do **frontend Vercel**, selecionar Roove →
+   Relacionamento → WhatsApp → Conexão → **Consultar status na Meta**.
+2. A consulta é read-only: usa a credencial já salva no banco e GET
+   `/{waba_id}/phone_numbers?fields=id,display_phone_number,status,code_verification_status`.
+   Nenhum token volta ao navegador.
+3. Se a Meta indicar `CONNECTED`, **não registrar novamente**. Testar recebimento real, persistência
+   e resposta pelo painel. Se indicar `OFFLINE`, `PENDING` ou `DISCONNECTED`, pode surgir a
+   opção de registro, desde que a identidade exata da Roove corresponda ao cadastro.
+   Outros estados são bloqueados para revisão manual.
+4. O administrador da agência informa o PIN de seis dígitos da verificação em duas etapas
+   (não o código SMS). O PIN não é salvo no banco e não deve ser compartilhado em chat/log.
+5. **Somente após clicar em Registrar e confirmar a janela explícita** o backend tenta
+   `POST /{phone_number_id}/register` com `messaging_product=whatsapp` e o PIN.
+   Sem aprovação, nenhuma requisição de registro é enviada. Essa chamada pode alterar o
+   status do número na Meta; não repetir se houver erro.
+6. Consultar status de novo; confirmar `CONNECTED`. O webhook e a assinatura
+   `messages` são fluxos separados e devem ser homologados com uma mensagem real.
+
+**Este PR não requer migration**, não utiliza credenciais de outro Supabase, não executa o
+registro no merge, não envia WhatsApp e não habilita IA. As rotas restringem consulta/registro
+a `agency_admin`, `client_id=roove` e aos IDs exatos do número secundário.
+Não usar `hdyjuyhiybjqvxsukmbn` (CRM Mugô). O Supabase de Dados é
+`rxjonbqkluzavozzmhze`.

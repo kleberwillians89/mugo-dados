@@ -144,6 +144,104 @@ async def register_number(client_id: str, *, waba_id: str, phone_number_id: str,
     return public_number(saved_row)
 
 
+# Registro operacional do número secundário ROOVE: opt-in explícito do administrador.
+# Nunca executar no cadastro, na leitura de status, em cron ou em resposta a webhook.
+ROOVE_REGISTRATION = {
+    "client_id": "roove",
+    "waba_id": "1491824329400600",
+    "phone_number_id": "1063683626819387",
+    "meta_app_id": "1161210926623351",
+}
+REGISTERABLE_STATUSES = {"OFFLINE", "DISCONNECTED", "PENDING"}
+_CONNECTED_STATUSES = {"CONNECTED"}
+
+
+async def _roove_registration_number(client_id: str, number_id: str) -> Dict[str, Any]:
+    """Credencial somente server-side, valida tenant, número e Meta App exatos."""
+    if client_id != ROOVE_REGISTRATION["client_id"] or not _UUID.fullmatch(str(number_id)):
+        raise WhatsAppNativeError("NOT_FOUND", "Este registro está disponível somente para o número secundário da Roove.")
+    rows = await sb_select(
+        "whatsapp_numbers",
+        select="id,client_id,waba_id,phone_number_id,meta_app_id,status,access_token",
+        filters={"id": f"eq.{number_id}", "client_id": f"eq.{client_id}", "status": "eq.active"},
+        limit=1,
+    )
+    if not rows:
+        raise WhatsAppNativeError("NOT_FOUND", "Número da Roove não encontrado ou desconectado.")
+    number = rows[0]
+    if str(number.get("id") or "") != str(number_id):
+        raise WhatsAppNativeError("NOT_FOUND", "Número da Roove não encontrado.")
+    for field in ("client_id", "waba_id", "phone_number_id", "meta_app_id"):
+        if str(number.get(field) or "") != ROOVE_REGISTRATION[field]:
+            raise WhatsAppNativeError("NOT_FOUND", "Identidade do número não corresponde à Roove.")
+    if not str(number.get("access_token") or "").strip():
+        raise WhatsAppNativeError("TOKEN_INVALID", "A credencial deste número não está disponível.")
+    return number
+
+
+async def _meta_roove_status(number: Dict[str, Any]) -> Dict[str, Any]:
+    # Consulta na WABA (não confiar em public.whatsapp_numbers.status, que é local).
+    payload = await _graph(
+        "GET", f"{number['waba_id']}/phone_numbers", number["access_token"],
+        params={"fields": "id,display_phone_number,status,code_verification_status", "limit": 100},
+    )
+    matched = next(
+        (item for item in payload.get("data") or []
+         if str(item.get("id") or "") == str(number["phone_number_id"])), None,
+    )
+    if not matched:
+        raise WhatsAppNativeError("NOT_IN_WABA", "A Meta não retornou este número na WABA da Roove.")
+    meta_status = str(matched.get("status") or "").upper().strip()
+    if not meta_status:
+        raise WhatsAppNativeError("STATUS_UNKNOWN", "A Meta não informou o status de registro. Não é seguro registrar.")
+    return {
+        "phone_number_id": str(number["phone_number_id"]),
+        "display_phone_number": str(matched.get("display_phone_number") or ""),
+        "status": meta_status,
+        "code_verification_status": str(matched.get("code_verification_status") or ""),
+        "registered": meta_status in _CONNECTED_STATUSES,
+        "can_register": meta_status in REGISTERABLE_STATUSES,
+    }
+
+
+async def get_roove_registration_status(client_id: str, number_id: str) -> Dict[str, Any]:
+    """GET: somente leitura, não registra, não expõe PIN ou token."""
+    number = await _roove_registration_number(client_id, number_id)
+    status = await _meta_roove_status(number)
+    return {**status, "requires_confirmation": True, "registered_by_this_request": False}
+
+
+async def register_roove_cloud_number(client_id: str, number_id: str, *,
+                                      pin: str, confirmed: bool) -> Dict[str, Any]:
+    """POST: registro somente após confirmação explícita e PIN válido, sem armazenamento de PIN."""
+    if confirmed is not True:
+        raise WhatsAppNativeError("CONFIRMATION_REQUIRED", "Confirme explicitamente o registro do número da Roove.")
+    if not isinstance(pin, str) or not re.fullmatch(r"[0-9]{6}", pin):
+        raise WhatsAppNativeError("PIN_INVALID", "O PIN deve conter exatamente seis dígitos.")
+    number = await _roove_registration_number(client_id, number_id)
+    status = await _meta_roove_status(number)
+    if status["registered"]:
+        return {**status, "registered_by_this_request": False, "already_connected": True}
+    if not status["can_register"]:
+        raise WhatsAppNativeError(
+            "REGISTRATION_UNSAFE",
+            f"Estado Meta {status['status']}: registro automático bloqueado para proteger o número.",
+        )
+    # Única operação de mutação: nunca logar PIN/token nem persistir segredo.
+    result = await _graph(
+        "POST", f"{number['phone_number_id']}/register", number["access_token"],
+        json_body={"messaging_product": "whatsapp", "pin": pin},
+    )
+    if result.get("success") is not True:
+        raise WhatsAppNativeError("META_FAILED", "A Meta não confirmou o registro do número.")
+    return {
+        "phone_number_id": number["phone_number_id"],
+        "registration_requested": True,
+        "registered_by_this_request": True,
+        "note": "A Meta confirmou o registro. Atualize o status para verificar CONNECTED.",
+    }
+
+
 async def disconnect_number(client_id: str, number_id: str) -> bool:
     if not _UUID.match(str(number_id)):
         return False
