@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listLibrary, previewKind, uploadLibraryFile, type LibraryItem } from "../../app/library";
 import { getActiveClientId } from "../../app/activeClient";
 import type { CalendarItem } from "../../app/studio";
@@ -26,7 +26,7 @@ type Props = {
 export default function MetaCreativeStudio({ clientId, month, calendar, ad, disabled, onChoose }: Props) {
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryLoaded, setLibraryLoaded] = useState(false);
+
   const [libraryError, setLibraryError] = useState("");
   const [format, setFormat] = useState<CreativePreviewFormat>("portrait");
   const [source, setSource] = useState<"all" | "library" | "calendar">("all");
@@ -59,19 +59,24 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       const result = await listLibrary();
       if (getActiveClientId() !== clientId) return;
       setLibrary([...result.items, ...result.approved].filter((item) => previewKind(item) === "image"));
-      setLibraryLoaded(true);
     } catch (e) {
       if (getActiveClientId() === clientId) setLibraryError(e instanceof Error ? e.message : "Não foi possível carregar a Biblioteca.");
     } finally { if (getActiveClientId() === clientId) setLibraryLoading(false); }
   }
 
-  // Gallery loads on demand: no extra API calls for users who never open creative editing.
-  const initialized = useRef(false);
-  if (!initialized.current && !libraryLoaded && !libraryLoading) {
-    initialized.current = true;
-    // Schedule after render without side effects during render.
-    queueMicrotask(() => { if (getActiveClientId() === clientId) void refresh(); });
-  }
+  useEffect(() => {
+    let active = true;
+    setLibraryLoading(true); setLibraryError("");
+    listLibrary().then((result) => {
+      if (!active || getActiveClientId() !== clientId) return;
+      setLibrary([...result.items, ...result.approved].filter((item) => previewKind(item) === "image"));
+      setLibraryLoaded(true);
+    }).catch((cause) => {
+      if (active && getActiveClientId() === clientId)
+        setLibraryError(cause instanceof Error ? cause.message : "Não foi possível carregar imagens.");
+    }).finally(() => { if (active && getActiveClientId() === clientId) setLibraryLoading(false); });
+    return () => { active = false; };
+  }, [clientId]);
 
   async function upload(file: File | undefined) {
     if (!file || uploading) return;
