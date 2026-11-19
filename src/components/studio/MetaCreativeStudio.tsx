@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listLibrary, previewKind, uploadLibraryFile, type LibraryItem } from "../../app/library";
 import { getActiveClientId } from "../../app/activeClient";
 import type { CalendarItem } from "../../app/studio";
-import type { AdPayload } from "../../app/metaAds";
+import type { AdPayload, InstagramCreativePost } from "../../app/metaAds";
+import { listInstagramCreativePosts } from "../../app/metaAds";
 import "./MetaCreativeStudio.css";
 
 export type CreativePreviewFormat = "feed" | "portrait" | "story";
@@ -13,7 +14,7 @@ const FORMATS: { id: CreativePreviewFormat; title: string; ratio: string; hint: 
 ];
 const image = (value: string) => /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(value) || value.includes("/storage/v1/object/public/");
 const firstArt = (item: CalendarItem) => String(item.art_url || "").split("\n")[0].trim();
-type Asset = { id: string; title: string; url: string; source: "library" | "calendar"; itemId?: string | null };
+type Asset = { id: string; title: string; url: string; source: "library" | "calendar" | "instagram"; itemId?: string | null; selectable?: boolean; permalink?: string | null; kind?: string };
 type Props = {
   clientId: string;
   month: string;
@@ -26,10 +27,13 @@ type Props = {
 export default function MetaCreativeStudio({ clientId, month, calendar, ad, disabled, onChoose }: Props) {
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [igPosts, setIgPosts] = useState<InstagramCreativePost[]>([]);
+  const [igLoading, setIgLoading] = useState(false);
+  const [igError, setIgError] = useState("");
 
   const [libraryError, setLibraryError] = useState("");
   const [format, setFormat] = useState<CreativePreviewFormat>("portrait");
-  const [source, setSource] = useState<"all" | "library" | "calendar">("all");
+  const [source, setSource] = useState<"all" | "library" | "calendar" | "instagram">("all");
   const [query, setQuery] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -42,15 +46,24 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       id: "cal:" + item.id, title: item.title || "Post do calendário", url: firstArt(item),
       source: "calendar" as const, itemId: item.id,
     }));
+    const instagram: Asset[] = igPosts.map((post) => ({
+      id: "ig:" + post.id,
+      title: post.caption?.trim().slice(0, 80) || "Publicação do Instagram",
+      url: post.preview_url,
+      source: "instagram" as const,
+      selectable: post.selectable,
+      permalink: post.permalink,
+      kind: post.media_type,
+    }));
     const unique = new Set<string>();
-    return [...saved, ...approved].filter((item) => {
-      if (!item.url || (!image(item.url) && !item.url.includes("/storage/"))) return false;
+    return [...saved, ...approved, ...instagram].filter((item) => {
+      if (!item.url || (item.source !== "instagram" && !image(item.url) && !item.url.includes("/storage/"))) return false;
       if (unique.has(item.url)) return false;
       unique.add(item.url);
       return (source === "all" || source === item.source) &&
         (!query.trim() || item.title.toLowerCase().includes(query.toLowerCase()));
     });
-  }, [library, calendar, source, query]);
+  }, [library, calendar, igPosts, source, query]);
 
   async function refresh() {
     if (!clientId) return;
@@ -74,6 +87,18 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       if (active && getActiveClientId() === clientId)
         setLibraryError(cause instanceof Error ? cause.message : "Não foi possível carregar imagens.");
     }).finally(() => { if (active && getActiveClientId() === clientId) setLibraryLoading(false); });
+    return () => { active = false; };
+  }, [clientId]);
+
+  useEffect(() => {
+    let active = true;
+    setIgPosts([]); setIgError(""); setIgLoading(true);
+    listInstagramCreativePosts().then((result) => {
+      if (active && getActiveClientId() === clientId) setIgPosts(result.posts || []);
+    }).catch((cause) => {
+      if (active && getActiveClientId() === clientId) setIgError(
+        cause instanceof Error ? cause.message : "Não foi possível consultar as publicações do Instagram.");
+    }).finally(() => { if (active) setIgLoading(false); });
     return () => { active = false; };
   }, [clientId]);
 
@@ -108,27 +133,30 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
         onChange={(event) => void upload(event.currentTarget.files?.[0])} />
     </div>
     {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
+    {igError && source === "instagram" ? <p className="studioError" role="alert">{igError}</p> : null}
+    {source === "instagram" ? <p className="ds-caption">Publicações sincronizadas da empresa ativa. Imagens e capas podem ser usadas como foto única; vídeos e carrosséis completos exigem suporte adicional do publicador.</p> : null}
     <div className="metaCreativeStudioColumns">
       <div className="metaCreativeAssets">
         <div className="metaCreativeFilters">
           <label className="metaCreativeSearch">Buscar imagem<input type="search" placeholder="Buscar na biblioteca…" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
           <label className="metaCreativeSearch">Origem<select value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
-            <option value="all">Todas</option><option value="library">Biblioteca</option><option value="calendar">Calendário {month}</option>
+            <option value="all">Todas</option><option value="library">Biblioteca</option><option value="calendar">Calendário {month}</option><option value="instagram">Publicações do Instagram</option>
           </select></label>
         </div>
         <div className="metaCreativeAssetToolbar"><b>{assets.length} imagens encontradas</b>
           <button type="button" className="ds-link" disabled={libraryLoading} onClick={() => void refresh()}>
             {libraryLoading ? "Atualizando…" : "Atualizar Biblioteca"}</button></div>
         <div className="metaCreativeAssetGrid">
-          {assets.map((asset) => <button type="button" key={asset.id} disabled={disabled}
+          {assets.map((asset) => <button type="button" key={asset.id} disabled={disabled || asset.selectable === false}
             className={`metaCreativeAsset${ad.image_url === asset.url ? " is-selected" : ""}`}
             aria-pressed={ad.image_url === asset.url} title={asset.title}
             onClick={() => onChoose({ image_url: asset.url, calendar_item_id: asset.itemId || null })}>
             <img src={asset.url} alt={asset.title} loading="lazy" />
-            <span>{asset.title}</span><small>{asset.source === "library" ? "Biblioteca" : "Calendário"}</small>
+            <span>{asset.title}</span><small>{asset.source === "library" ? "Biblioteca" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? "Vídeo · prévia apenas" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
+
           </button>)}
         </div>
-        {!assets.length ? <p className="metaCreativeEmpty">{libraryLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Adicione uma nova ou confira a Biblioteca desta empresa."}</p> : null}
+        {!assets.length ? <p className="metaCreativeEmpty">{libraryLoading || igLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Confira a sincronização do Instagram ou envie uma nova imagem."}</p> : null}
         <label className="ds-field">Ou cole um link HTTPS direto da imagem
           <input type="url" maxLength={1000} placeholder="https://…/imagem.jpg" value={ad.image_url}
             disabled={disabled} onChange={(e) => onChoose({ image_url: e.target.value, calendar_item_id: null })} />

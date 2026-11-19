@@ -42,3 +42,18 @@ export type MetaPublicationPreflight = {
 };
 export const metaPublicationPreflight = (objective: AdPayload["objective"]) =>
   http<MetaPublicationPreflight>(base(`/preflight?objective=${encodeURIComponent(objective)}`), {timeoutMs: 60_000});
+
+/** Instagram posts already synchronized for this selected client. */
+export type InstagramCreativePost = {
+  id: string;
+  media_type: string;
+  media_product_type: string;
+  caption: string;
+  permalink: string | null;
+  timestamp: string;
+  preview_url: string;
+  image_url: string | null;
+  selectable: boolean;
+};
+export const listInstagramCreativePosts = () =>
+  http<{ posts: InstagramCreativePost[]; source: string; count: number }>(base("/instagram-posts"), { timeoutMs: 45_000 });
