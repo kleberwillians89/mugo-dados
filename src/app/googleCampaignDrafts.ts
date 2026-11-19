@@ -27,3 +27,6 @@ export const deleteGoogleCampaignDraft = (id: string) =>
   http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const publishGoogleCampaignDraft = (id: string) =>
   http<{ draft: GoogleCampaignDraft }>(base(`/${encodeURIComponent(id)}/publish`), { method: "POST", timeoutMs: 180_000 });
+
+export const duplicateGoogleCampaignDraft = (id: string) =>
+  http<{ draft: GoogleCampaignDraft }>(base(`/${encodeURIComponent(id)}/duplicate`), {method:"POST"});
