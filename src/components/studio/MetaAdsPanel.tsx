@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, duplicateAdDraft, readMetaLiveDeliveryStatus, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaLiveDeliveryStatus, type MetaPublicationPreflight, type AdDraft, type AdPayload } from "../../app/metaAds";
+import { deleteAdDraft, duplicateAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload, type AdCreative, MAX_ADS, normalizeAdFormats } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
+import MetaLiveCampaign from "./MetaLiveCampaign";
 import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
@@ -39,9 +40,6 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [liveStatuses, setLiveStatuses] = useState<Record<string, MetaLiveDeliveryStatus>>({});
-  const [checkingStatus, setCheckingStatus] = useState<string | null>(null);
-  const [liveErrors, setLiveErrors] = useState<Record<string, string>>({});
 
   const [metaPreflight, setMetaPreflight] = useState<MetaPublicationPreflight | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
@@ -80,7 +78,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
 
   const open = (draft: AdDraft) => {
     const inside = Boolean(draft.joined || draft.meta_ids?.joined);
-    setEditing({ draft, payload: JSON.parse(JSON.stringify(draft.payload)) as AdPayload });
+    const copy = JSON.parse(JSON.stringify(draft.payload)) as AdPayload;
+    setEditing({ draft, payload: { ...copy, ad: normalizeAdFormats(copy.ad) } });
+    setActiveAd(0);
     setStep(inside && draft.status !== "publicada" ? 2 : 0);
     setAudienceApproved(inside);
     setStepIssue(null);
@@ -125,19 +125,6 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     }
   }
 
-  async function checkDelivery(d: AdDraft) {
-    setCheckingStatus(d.id);
-    setLiveErrors(old => ({...old,[d.id]:""}));
-    try {
-      const data = await readMetaLiveDeliveryStatus(d.id);
-      if (getActiveClientId() !== clientId) return;
-      setLiveStatuses(old => ({...old,[d.id]:data}));
-    } catch (cause) {
-      if (getActiveClientId() === clientId) setLiveErrors(old => ({...old,
-        [d.id]:message(cause, "Não foi possível consultar o status da Meta.")}));
-    } finally { setCheckingStatus(null); }
-  }
-
   async function remove(d: AdDraft) {
     if (!window.confirm(d.status === "publicada" ? `Tirar "${d.payload.name}" desta lista? A campanha continua no Meta Ads.` : `Excluir o rascunho "${d.payload.name}"?`)) return;
     const r = await run(`d:${d.id}`, () => deleteAdDraft(d.id), "Não foi possível excluir.");
@@ -148,6 +135,30 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const setAud = (patch: Partial<AdPayload["audience"]>) => {
     setAudienceApproved(false);
     setEditing((e) => (e ? { ...e, payload: { ...e.payload, audience: { ...e.payload.audience, ...patch } } } : e));
+  };
+  const [activeAd, setActiveAd] = useState(0);
+  const CREATIVE_KEYS = ["format", "image_url", "media_type", "video_url", "instagram_post_id", "calendar_item_id", "cards"] as const;
+  /** Muda a parte visual do anúncio da aba aberta (o 1 é o próprio `ad`; os outros ficam em extra_ads). */
+  const setCreative = (index: number, patch: Partial<AdPayload["ad"]>) => {
+    if (index === 0) { setAd(patch); return; }
+    setEditing((e) => {
+      if (!e) return e;
+      const extras = [...(e.payload.ad.extra_ads || [])];
+      const picked = Object.fromEntries(Object.entries(patch).filter(([k]) => (CREATIVE_KEYS as readonly string[]).includes(k)));
+      extras[index - 1] = { ...extras[index - 1], ...picked } as AdCreative;
+      return { ...e, payload: { ...e.payload, ad: { ...e.payload.ad, extra_ads: extras } } };
+    });
+  };
+  const addAd = () => {
+    if (!editing) return;
+    const extras = [...(editing.payload.ad.extra_ads || []), { format: "single" as const, image_url: "", media_type: "image" as const, cards: [] }];
+    setAd({ extra_ads: extras });
+    setActiveAd(extras.length);
+  };
+  const removeAd = (index: number) => {
+    if (!editing || index === 0) return;
+    setAd({ extra_ads: (editing.payload.ad.extra_ads || []).filter((_, i) => i !== index - 1) });
+    setActiveAd(Math.max(0, index - 1));
   };
   const setAd = (patch: Partial<AdPayload["ad"]>) => setEditing((e) => (e ? { ...e, payload: { ...e.payload, ad: { ...e.payload.ad, ...patch } } } : e));
   const locked = editing ? editing.draft.status === "publicada" || editing.draft.status === "publicando" : false;
@@ -186,18 +197,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           {d.status === "erro" && d.error ? <p className="studioError" role="alert">{d.error}</p> : null}
           {d.status === "rascunho" && d.missing.length ? <p className="ds-caption">Antes de publicar: {d.missing.join(" · ")}</p> : null}
-          {liveErrors[d.id] ? <p role="alert" className="studioError">{liveErrors[d.id]}</p> : null}
-          {liveStatuses[d.id] ? <div className="metaLiveDeliveryStatus" role="status">
-            <b>Status consultado na Meta</b>
-            {(["campaign_id","adset_id","ad_id"] as const).map(key => {
-              const item = liveStatuses[d.id].objects[key];
-              return item ? <div key={key}>
-                <span>{key === "campaign_id" ? "Campanha" : key === "adset_id" ? "Conjunto" : "Anúncio"}</span>
-                <strong>{item.effective_status || item.status || "Não informado"}</strong>
-              </div> : null;
-            })}
-            <small>Consulta somente leitura · {new Date(liveStatuses[d.id].checked_at).toLocaleString("pt-BR")}. O status não ativa ou pausa anúncios.</small>
-          </div> : null}
+          {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveCampaign draft={d}
+            adsCount={d.payload.ad.format === "multi" ? (d.payload.ad.cards || []).length : 1 + (d.payload.ad.extra_ads || []).length} /> : null}
 
           <div className="metaAdsActions">
             <button type="button" className="ds-button is-primary" onClick={() => open(d)}>
@@ -213,10 +214,6 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <button type="button" className="ds-button" disabled={Boolean(busy)}
               title="Cria outra campanha, com verba própria"
               onClick={() => void duplicate(d)}>{busy === `duplicate:${d.id}` ? "Duplicando…" : "Duplicar campanha"}</button>
-            {d.meta_ids?.campaign_id ? <button type="button" className="ds-button"
-              disabled={checkingStatus === d.id} onClick={() => void checkDelivery(d)}>
-              {checkingStatus === d.id ? "Consultando…" : "Ver status na Meta"}
-            </button> : null}
             {d.ads_manager_url ? <a className="ds-button" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
             <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>
               {d.status === "publicada" ? "Tirar da lista" : "Excluir"}
@@ -226,7 +223,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
       </div>}
 
     <Drawer open={Boolean(editing)} width="lg" title={editing ? editing.payload.name : ""} onClose={() => { if (!busy) setEditing(null); }}
-      description={locked ? "Já criada no Meta Ads (pausada). Ajustes daqui em diante, no Gerenciador de Anúncios." : "Revise tudo antes de criar. A campanha vai pausada: nada é gasto até alguém ativar no Meta."}>
+      description={locked ? "Já criada no Meta Ads. Ligue, pause e acompanhe os resultados no card da campanha; outros ajustes, no Gerenciador." : "Revise tudo antes de criar. A campanha vai pausada: nada é gasto até alguém ativar no Meta."}>
       {editing ? <form className="metaAdsForm" onSubmit={(e) => void save(e)}>
         <nav aria-label="Etapas para criar campanha" className="metaAdsStepper">
           {META_STEPS.map((label, index) => <button key={label} type="button" aria-current={step === index ? "step" : undefined}
@@ -295,8 +292,31 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           <CampaignTrackingFields platform="meta" campaignName={editing.payload.name}
             value={editing.payload.tracking || {}} disabled={locked || Boolean(busy)}
             onChange={tracking => set({tracking})} />
-          <MetaCreativeStudio key={clientId + ":" + editing.draft.id} clientId={clientId} month={month}
-            calendar={arts} ad={editing.payload.ad} disabled={locked || Boolean(busy)} onChoose={setAd} />
+          {(() => {
+            const ad = editing.payload.ad;
+            const all: AdCreative[] = [{ format: ad.format === "carousel" ? "carousel" : "single", image_url: ad.image_url, media_type: ad.media_type, video_url: ad.video_url, cards: ad.cards }, ...(ad.extra_ads || [])];
+            const current = Math.min(activeAd, all.length - 1);
+            const c = all[current];
+            const shown: AdPayload["ad"] = current === 0 ? ad : { ...ad, format: c.format, image_url: c.image_url || "", media_type: c.media_type || "image",
+              video_url: c.video_url || "", cards: c.cards || [], instagram_post_id: c.instagram_post_id ?? null, calendar_item_id: c.calendar_item_id ?? null, extra_ads: [] };
+            return <>
+              <div className="metaAdTabs" role="tablist" aria-label="Anúncios desta campanha">
+                <b>Anúncios no conjunto</b>
+                {all.map((item, i) => <button key={i} type="button" role="tab" aria-selected={i === current} className={`metaAdTab${i === current ? " is-active" : ""}`}
+                  onClick={() => setActiveAd(i)}>
+                  {(item.format === "carousel" ? item.cards?.[0]?.image_url : item.image_url) ? <img src={item.format === "carousel" ? item.cards?.[0]?.image_url : item.image_url} alt="" /> : <i />}
+                  <span>Anúncio {i + 1}<small>{item.format === "carousel" ? `Carrossel · ${item.cards?.length || 0}` : item.media_type === "video" ? "Vídeo" : "Imagem única"}</small></span>
+                </button>)}
+                {!locked && all.length < MAX_ADS ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={addAd}>+ Adicionar anúncio</button> : null}
+              </div>
+              <div className="metaAdTabNote">
+                <span>{all.length > 1 ? `${all.length} anúncios no mesmo conjunto: dividem a mesma verba e a Meta entrega mais para o melhor. Texto, título e link são os de cima.` : "Para testar outra arte com a mesma verba, adicione outro anúncio."}</span>
+                {!locked && current > 0 ? <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => removeAd(current)}>Remover anúncio {current + 1}</button> : null}
+              </div>
+              <MetaCreativeStudio key={clientId + ":" + editing.draft.id + ":" + current} clientId={clientId} month={month}
+                calendar={arts} ad={shown} disabled={locked || Boolean(busy)} onChoose={(patch) => setCreative(current, patch)} />
+            </>;
+          })()}
         </fieldset> : null}
         {step === 3 ? <section className="metaAdsReview" aria-label="Revisão da campanha">
           <div className="metaPublishPreflight" aria-label="Verificação de publicação na conta Meta">
@@ -337,12 +357,16 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
             <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
           </dl>
-          {(editing.payload.ad.format === "carousel" || editing.payload.ad.format === "multi") && editing.payload.ad.cards?.length ? <div className="metaAdsReviewCards">
-            <b>{editing.payload.ad.format === "carousel" ? `Carrossel com ${editing.payload.ad.cards.length} cartões` : `${editing.payload.ad.cards.length} anúncios no mesmo conjunto`}</b>
-            <ol>{editing.payload.ad.cards.map((c, i) => <li key={c.image_url}><img src={c.image_url} alt={`Imagem ${i + 1}`} loading="lazy" />
-              <small>{i + 1}. {c.headline || editing.payload.ad.headline}</small></li>)}</ol>
+          {editing.payload.ad.format === "carousel" || (editing.payload.ad.extra_ads || []).length ? <div className="metaAdsReviewCards">
+            {[{ format: editing.payload.ad.format === "carousel" ? "carousel" : "single", image_url: editing.payload.ad.image_url, cards: editing.payload.ad.cards, media_type: editing.payload.ad.media_type } as AdCreative,
+              ...(editing.payload.ad.extra_ads || [])].map((c, n) => <div key={n} className="metaAdsReviewAd">
+              <b>Anúncio {n + 1} · {c.format === "carousel" ? `Carrossel com ${c.cards?.length || 0} cartões` : c.media_type === "video" ? "Vídeo" : "Imagem única"}</b>
+              <ol>{(c.format === "carousel" ? c.cards || [] : [{ image_url: c.image_url, headline: "" }]).map((card, i) => <li key={card.image_url + i}>
+                <img src={card.image_url} alt={`Anúncio ${n + 1}, imagem ${i + 1}`} loading="lazy" />
+                {c.format === "carousel" ? <small>{i + 1}. {card.headline || editing.payload.ad.headline}</small> : null}</li>)}</ol>
+            </div>)}
           </div> : editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
-          <p className="ds-caption">A campanha, o conjunto e {editing.payload.ad.format === "multi" ? "os anúncios" : "o anúncio"} serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
+          <p className="ds-caption">A campanha, o conjunto e {(editing.payload.ad.extra_ads || []).length ? "os anúncios" : "o anúncio"} serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
           {!locked && metaStepIssues(editing.payload, 3).length ? <p role="alert" className="metaAdsMissing">{metaStepIssues(editing.payload, 3).join(" ")}</p> : null}
         </section> : null}
         {stepIssue ? <p className="ds-caption metaAdsMissing" role="alert">{stepIssue}</p> : null}

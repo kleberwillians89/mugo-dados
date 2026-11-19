@@ -22,8 +22,12 @@ export function metaStepIssues(payload: AdPayload, step: MetaStep): string[] {
   } else if (step === 2) {
     const ad = payload.ad;
     if (!ad.primary_text.trim()) issues.push("Escreva o texto principal.");
+    (ad.extra_ads || []).forEach((extra, i) => {
+      if (extra.format === "carousel" ? (extra.cards || []).length < 2 : extra.media_type === "video" ? !/^https:\/\/\S+/i.test(extra.video_url || "") : !/^https:\/\//i.test(extra.image_url || ""))
+        issues.push(extra.format === "carousel" ? `Anúncio ${i + 2}: escolha pelo menos 2 imagens para o carrossel.` : `Anúncio ${i + 2}: escolha a imagem ou o vídeo.`);
+    });
     if (ad.format === "carousel" || ad.format === "multi") {
-      if ((ad.cards || []).length < 2) issues.push(ad.format === "carousel" ? "Escolha pelo menos 2 imagens para o carrossel." : "Escolha pelo menos 2 imagens para os anúncios.");
+      if ((ad.cards || []).length < 2) issues.push(ad.format === "carousel" ? "Anúncio 1: escolha pelo menos 2 imagens para o carrossel." : "Escolha pelo menos 2 imagens para os anúncios.");
     } else if (ad.media_type === "video") {
       if (!/^https:\/\/\S+/i.test((ad.video_url || "").trim())) issues.push("Selecione um vídeo com URL HTTPS válida.");
     } else if (!/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.image_url.trim())) issues.push("Selecione uma imagem do Calendário, Instagram ou Biblioteca.");

@@ -73,7 +73,7 @@ body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
 @media(max-width:600px){.metaPlacementGrid{grid-template-columns:1fr}.metaPlacementMode{flex-direction:column;gap:10px}}
 
 /* Vários criativos: carrossel ou um anúncio por imagem */
-.metaCreativeModes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.metaCreativeModes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .metaCreativeModes label{display:flex;gap:9px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border,#d1dade);border-radius:10px;background:var(--surface,#fff);cursor:pointer}
 .metaCreativeModes label.is-active{border-color:#0b6073;background:#e5f2f2}
 .metaCreativeModes input{margin-top:3px;accent-color:#0b6073}
@@ -106,3 +106,40 @@ body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
 .metaAdsReviewCards li{flex:0 0 120px;display:grid;gap:4px}
 .metaAdsReviewCards img{width:120px;height:150px;object-fit:cover;border-radius:8px}
 .metaAdsReviewCards small{font-size:11px;color:var(--text-secondary,#62717c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Anúncios do conjunto: cada um com o seu formato (como no Gerenciador da Meta) */
+.metaAdTabs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px;border:1px solid var(--border,#dae2e5);border-radius:12px;background:color-mix(in srgb,var(--surface,#fff) 94%,#d9e3e6)}
+.metaAdTabs>b{font-size:13px;margin-right:6px}
+.metaAdTabs button.metaAdTab{display:flex;align-items:center;gap:6px;min-height:36px;padding:4px 10px 4px 4px;border:1px solid var(--border,#d1dade);border-radius:9px;background:var(--surface,#fff);cursor:pointer;font:inherit;font-size:12px;color:inherit}
+.metaAdTabs button.metaAdTab.is-active{border-color:#0b6073;background:#e5f2f2;font-weight:700}
+.metaAdTabs button.metaAdTab img,.metaAdTabs button.metaAdTab i{width:28px;height:28px;border-radius:6px;object-fit:cover;background:#e3e8eb;display:block}
+.metaAdTabs button.metaAdTab small{font-size:10px;color:var(--text-secondary,#62717c);font-weight:400}
+.metaAdTabs button.metaAdTab span{display:grid;text-align:left;line-height:1.2}
+.metaAdTabNote{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;font-size:12px;color:var(--text-secondary,#62717c)}
+.metaAdsReviewAd{display:grid;gap:6px}
+
+/* Campanha na Meta: estado, ligar/pausar e resultados */
+.metaLive{display:grid;gap:10px;margin:10px 0;padding:12px;border:1px solid var(--border,#d5e0e4);border-radius:12px;background:var(--surface,#fff)}
+.metaLiveHead{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.metaLiveHead>div{flex:1 1 220px;display:grid;gap:2px;min-width:0}
+.metaLiveHead b{font-size:15px}
+.metaLiveHead small{font-size:12px;color:var(--text-secondary,#62717c);line-height:1.4}
+.metaLiveDot{width:12px;height:12px;border-radius:50%;background:#9aa7ad;flex:none}
+.metaLiveHead.is-ok .metaLiveDot{background:#1d8a52;box-shadow:0 0 0 4px #d8efe2}
+.metaLiveHead.is-wait .metaLiveDot{background:#c98a12;box-shadow:0 0 0 4px #f6ead0}
+.metaLiveHead.is-bad .metaLiveDot{background:#b3333d;box-shadow:0 0 0 4px #f5dcde}
+.metaLiveActions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.metaLiveConfirm{display:grid;gap:8px;padding:12px;border:1px solid #e3c47c;border-radius:10px;background:#fff8e8;font-size:13px}
+.metaLiveConfirm ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.metaLiveConfirm p{margin:0}
+.metaLiveResults{display:grid;gap:8px}
+.metaLivePeriods{display:flex;flex-wrap:wrap;gap:4px}
+.metaLivePeriods button{min-height:32px;padding:0 10px;border:1px solid var(--border,#d1dade);border-radius:99px;background:var(--surface,#fff);font:inherit;font-size:12px;cursor:pointer;color:inherit}
+.metaLivePeriods button.is-active{border-color:#0b6073;background:#e5f2f2;font-weight:700}
+.metaLiveHeadline{margin:0;font-size:14px;font-weight:650}
+.metaLiveGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0}
+.metaLiveGrid div{padding:8px 10px;border-radius:8px;background:#f4f7f8}
+.metaLiveGrid dt{font-size:11px;color:var(--text-secondary,#62717c)}
+.metaLiveGrid dd{margin:2px 0 0;font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.metaLiveFoot{font-size:11px;color:var(--text-secondary,#62717c);line-height:1.4}
+@media(max-width:600px){.metaLiveGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}

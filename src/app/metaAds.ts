@@ -12,6 +12,17 @@ export type MetaPlacements = {
 export type AdFormat = "single" | "carousel" | "multi";
 export type AdCard = { image_url: string; headline?: string; description?: string; link?: string };
 export const MAX_AD_CARDS = 10;
+/** Até 10 anúncios no mesmo conjunto (mesma verba). O anúncio 1 é o próprio `ad`; os outros guardam só a parte visual. */
+export const MAX_ADS = 10;
+export type AdCreative = { format: "single" | "carousel"; image_url: string; media_type?: "image" | "video"; video_url?: string;
+  instagram_post_id?: string | null; calendar_item_id?: string | null; cards?: AdCard[] };
+/** Formato antigo "multi" (um anúncio por imagem) → anúncios de imagem única. */
+export function normalizeAdFormats(ad: AdPayload["ad"]): AdPayload["ad"] {
+  if (ad.format !== "multi") return ad;
+  const [first, ...rest] = ad.cards || [];
+  return { ...ad, format: "single", media_type: "image", image_url: first?.image_url || ad.image_url, cards: [],
+    extra_ads: [...rest.map((c) => ({ format: "single" as const, image_url: c.image_url })), ...(ad.extra_ads || [])] };
+}
 
 export type AdPayload = {
   tracking?: TrackingParams;
@@ -24,7 +35,7 @@ export type AdPayload = {
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
   };
-  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; format?: AdFormat; cards?: AdCard[] };
+  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; format?: AdFormat; cards?: AdCard[]; extra_ads?: AdCreative[] };
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
@@ -79,9 +90,24 @@ export const duplicateAdDraft = (id: string, into?: "campaign") =>
 
 export type MetaLiveDeliveryStatus = {
   draft_id: string; client_id: string; checked_at: string; source: "meta_graph"; read_only: true;
-  objects: Partial<Record<"campaign_id" | "adset_id" | "ad_id", {
+  objects: Partial<Record<string, {
     id: string; name: string; status: string; effective_status: string;
   }>>;
+  delivery?: { state: "ativa" | "pausada"; by: string; at: string } | null;
+  joined?: boolean;
 };
+export type MetaCampaignResults = {
+  draft_id: string; period: "today" | "yesterday" | "last_7d" | "maximum"; checked_at: string; currency: "BRL";
+  spend: number; impressions: number; reach: number; clicks: number; link_clicks: number; ctr: number; cpc: number | null;
+  results: number; result_label: string; cost_per_result: number | null; daily_budget: number;
+};
+/** Liga a entrega na Meta (começa a gastar). Exige repetir a verba diária como confirmação. */
+export const activateAdDraft = (id: string, confirmDailyBudget?: number) =>
+  http<MetaLiveDeliveryStatus>(base(`/${encodeURIComponent(id)}/activate`),
+    { method: "POST", body: JSON.stringify({ confirm_daily_budget: confirmDailyBudget ?? null }), timeoutMs: 60_000 });
+export const pauseAdDraft = (id: string) =>
+  http<MetaLiveDeliveryStatus>(base(`/${encodeURIComponent(id)}/pause`), { method: "POST", timeoutMs: 60_000 });
+export const readAdResults = (id: string, period: MetaCampaignResults["period"] = "maximum") =>
+  http<MetaCampaignResults>(base(`/${encodeURIComponent(id)}/results?period=${period}`), { timeoutMs: 45_000 });
 export const readMetaLiveDeliveryStatus = (id: string) =>
   http<MetaLiveDeliveryStatus>(base(`/${encodeURIComponent(id)}/delivery-status`), { timeoutMs: 45_000 });
