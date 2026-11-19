@@ -100,8 +100,8 @@ type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[
 const NAV_GROUPS: NavGroup[] = [
   { id: "visao-geral", label: "Visão Geral", icon: Home, routes: ["central"] },
   { id: "tarefas", label: "Tarefas", icon: ListChecks, routes: ["tasks"] },
-  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report", "library"] },
-  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["campaigns", "redacao", "production"] },
+  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report"] },
+  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["campaigns", "redacao", "production", "library"] },
   { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["capture", "whatsapp", "email_marketing", "engagement"] },
   { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
   { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "tiktok", "pinterest", "linkedin", "media", "benchmark"] },
