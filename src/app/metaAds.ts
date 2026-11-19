@@ -27,6 +27,8 @@ export function normalizeAdFormats(ad: AdPayload["ad"]): AdPayload["ad"] {
 export type AdPayload = {
   tracking?: TrackingParams;
   placements?: MetaPlacements;
+  /** Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos. */
+  pixel_id?: string | null;
   name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads"; daily_budget: number; start_date: string; end_date: string;
   audience: {
     age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean;

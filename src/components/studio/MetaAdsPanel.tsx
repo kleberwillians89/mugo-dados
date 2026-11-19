@@ -8,6 +8,7 @@ import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
 import MetaLiveCampaign from "./MetaLiveCampaign";
 import MetaPixelSwitch from "./MetaPixelSwitch";
+import MetaPixelPicker from "./MetaPixelPicker";
 import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
@@ -351,6 +352,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               </div>
             </> : null}
           </div>
+          {!locked && PIXEL_OBJECTIVES.includes(editing.payload.objective) ? <MetaPixelPicker draftId={editing.draft.id}
+            value={editing.payload.pixel_id} disabled={Boolean(busy)} onChange={(pixel_id) => set({ pixel_id })} /> : null}
           <h3>Revise antes de criar no Meta</h3>
           <dl>
             <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
