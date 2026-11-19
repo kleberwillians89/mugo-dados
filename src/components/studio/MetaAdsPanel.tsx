@@ -10,6 +10,7 @@ import MetaLiveCampaign from "./MetaLiveCampaign";
 import MetaPixelSwitch from "./MetaPixelSwitch";
 import MetaPixelPicker from "./MetaPixelPicker";
 import MetaWhatsappNumber from "./MetaWhatsappNumber";
+import MetaImportCampaign from "./MetaImportCampaign";
 import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
@@ -140,6 +141,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     setEditing((e) => (e ? { ...e, payload: { ...e.payload, audience: { ...e.payload.audience, ...patch } } } : e));
   };
   const [activeAd, setActiveAd] = useState(0);
+  const [importing, setImporting] = useState(false);
   const CREATIVE_KEYS = ["format", "image_url", "media_type", "video_url", "instagram_post_id", "calendar_item_id", "cards"] as const;
   /** Muda a parte visual do anúncio da aba aberta (o 1 é o próprio `ad`; os outros ficam em extra_ads). */
   const setCreative = (index: number, patch: Partial<AdPayload["ad"]>) => {
@@ -184,8 +186,12 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   return <section className="ds-section metaAds" aria-labelledby="media-meta-ads">
     <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-meta-ads" className="ds-sectionTitle">Campanhas no Meta Ads</h2>
       <p className="ds-caption">A IA monta a campanha completa a partir do plano. Você revisa, escolhe a arte do Calendário e cria no Meta, sempre pausada.</p></div>
-      <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void generate({ campaign: "Nova campanha", action: "testar" })}>
-        {busy === "generate" ? "Montando…" : "+ Nova campanha"}</button></div>
+      <span className="metaAdsHeadActions">
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => setImporting((v) => !v)}>Puxar campanha da Meta</button>
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void generate({ campaign: "Nova campanha", action: "testar" })}>
+          {busy === "generate" ? "Montando…" : "+ Nova campanha"}</button></span></div>
+    {importing ? <MetaImportCampaign onClose={() => setImporting(false)}
+      onImported={(d) => { upsert(d); setNotice(`"${d.payload.name}" agora está na Mídia On: status, Ativar/Pausar e resultados no card.`); }} /> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}</p></div> : null}
     {busy === "generate" ? <p className="ds-caption">A IA está montando público, texto e verba… até 1 minuto.</p> : null}
