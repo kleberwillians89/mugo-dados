@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { STAGES, STUDIO_FORMATS, getCentral, localParts, type CentralView } from "../app/studio";
-import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../app/routes";
+import { navigateToAppRoute, type AppRoute } from "../app/routes";
 import { formatCurrency, formatInteger } from "../app/dataFormat";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
