@@ -24,7 +24,7 @@ type Turn = { role: "cliente" | "marca"; text: string };
 export default function WhatsAppAiAttendant() {
   const clientId = getActiveClientId();
   const [settings, setSettings] = useState<WaAiSettings | null>(null);
-  const [form, setForm] = useState({ instructions: "", offers: "", buttons: "", featured: "", catalog: "", cards: true, pause: 240, groupLink: "", groupMessage: "" });
+  const [form, setForm] = useState({ instructions: "", offers: "", buttons: "", featured: "", catalog: "", cards: true, pause: 240, groupLink: "", groupMessage: "", style: "carrossel" as NonNullable<WaAiSettings["product_style"]>, button: "Garantir meu look" });
   const [claude, setClaude] = useState<{ key: string; model: WaClaudeModel; busy: boolean; note: { ok: boolean; text: string } | null }>({ key: "", model: "claude-sonnet-5-5", busy: false, note: null });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -40,6 +40,7 @@ export default function WhatsAppAiAttendant() {
       instructions: next.instructions, offers: next.offers, buttons: next.welcome_buttons.join("\n"),
       featured: next.featured_products.join("\n"), catalog: next.catalog_id || "", cards: next.product_cards, pause: next.human_pause_minutes,
       groupLink: next.ad_group_link || "", groupMessage: next.ad_group_message || "",
+      style: next.product_style || "carrossel", button: next.product_button || "Garantir meu look",
     });
     setClaude((c) => ({ ...c, model: next.claude_model || "claude-sonnet-5-5" }));
   }
@@ -73,6 +74,7 @@ export default function WhatsAppAiAttendant() {
       featured_products: lines(form.featured), catalog_id: form.catalog.trim() || null, product_cards: form.cards,
       human_pause_minutes: Math.max(0, Math.round(Number(form.pause) || 0)),
       ad_group_link: form.groupLink.trim() || null, ad_group_message: form.groupMessage.trim(),
+      product_style: form.style, product_button: form.button.trim().slice(0, 20) || "Garantir meu look",
     });
   }
 
@@ -185,8 +187,19 @@ export default function WhatsAppAiAttendant() {
             </label>
           </div>
         </fieldset>
-        <label className="waAiCheck"><input type="checkbox" checked={form.cards} onChange={(e) => setForm({ ...form, cards: e.target.checked })} />
-          Mostrar as peças como cartões do catálogo (foto, preço e carrinho no WhatsApp). Sem catálogo, vão como link da loja.</label>
+        <div className="waAiCols">
+          <label>Como as peças aparecem na conversa
+            <select value={form.style} onChange={(e) => setForm({ ...form, style: e.target.value as typeof form.style })}>
+              <option value="carrossel">Carrossel com foto, preço e botão (deslizando para o lado)</option>
+              <option value="catalogo">Cartões do catálogo da Meta (carrinho no WhatsApp)</option>
+              <option value="links">Lista com links da loja</option>
+            </select>
+          </label>
+          {form.style === "carrossel" ? <label>Texto do botão de cada peça (até 20 letras)
+            <input maxLength={20} value={form.button} onChange={(e) => setForm({ ...form, button: e.target.value })} />
+          </label> : null}
+        </div>
+        {form.style === "carrossel" ? <small className="waMuted waSmall">Cada peça vira um cartão com a foto da Shopify, o nome, o preço (com o "de" riscado quando tem desconto) e o botão que abre a peça na loja.</small> : null}
         <div className="waFormActions">
           <button type="submit" className="ds-button is-primary" disabled={saving}>{saving ? "Salvando…" : "Salvar"}</button>
           <button type="button" className="ds-button" onClick={() => void checkCatalog()} disabled={catalog.loading}>{catalog.loading ? "Conferindo…" : "Conferir Shopify e catálogo"}</button>
@@ -212,7 +225,7 @@ export default function WhatsAppAiAttendant() {
 
       <form className="waCard waAiForm" onSubmit={(e) => void saveClaude(e)} aria-labelledby="wa-ai-claude">
         <div className="waCardHead"><h2 id="wa-ai-claude">Claude da marca</h2>
-          <span className={`waTag${settings.has_claude_key ? " is-bought" : ""}`}>{settings.has_claude_key ? `Ativo · …${settings.claude_key_hint || ""}` : "Usando a IA da plataforma"}</span></div>
+          <span className={`waTag${settings.has_claude_key ? " is-bought" : ""}`}>{settings.has_claude_key ? `Ativo${settings.claude_key_source === "render" ? " pelo Render" : ""} · …${settings.claude_key_hint || ""}` : "Usando a IA da plataforma"}</span></div>
         <p className="waMuted waSmall">Com a chave de API do Claude da própria marca, o atendente responde com o Claude e o custo vai para a conta dela. Se o Claude ficar sem crédito ou fora do ar, a IA da plataforma responde no lugar, sem deixar a cliente sem resposta.
           A chave é criada em console.anthropic.com → API Keys (é diferente da assinatura do app Claude) e fica guardada criptografada: depois de salva, só aparece o final dela.</p>
         <div className="waAiCols">

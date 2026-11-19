@@ -248,5 +248,36 @@ class AdGroupAndClaudeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, "INVALID_KEY")
 
 
+class PozzeCarouselTests(unittest.IsolatedAsyncioTestCase):
+    def test_products_go_as_image_cards_with_link_button(self):
+        prods = [p for p in catalog()["products"] if p["available"]]
+        for i, p in enumerate(prods):
+            p["image"] = f"https://cdn.shopify.com/{i}.jpg"
+        prods[0]["compare_at"], prods[0]["price_min"] = 399.0, 279.0
+        decision = {"reply": "Olha estas:", "buttons": [], "products": prods[:3], "handoff": False}
+        out = ai.outgoing_payloads(decision, meta=None, match=None, style="carrossel", button="Garantir meu look")
+        carousel = out[1][0]["interactive"]
+        self.assertEqual(carousel["type"], "carousel")
+        cards = carousel["action"]["cards"]
+        self.assertEqual(len(cards), min(3, len(prods)))
+        self.assertIn("~R$", cards[0]["body"]["text"])
+        self.assertEqual(cards[0]["action"]["parameters"], {"display_text": "Garantir meu look", "url": prods[0]["url"]})
+        self.assertEqual(cards[0]["header"]["image"]["link"], "https://cdn.shopify.com/0.jpg")
+        single = ai.outgoing_payloads({**decision, "products": prods[:1]}, meta=None, match=None, style="carrossel", button="Ver peça")
+        self.assertEqual(single[1][0]["interactive"]["type"], "cta_url")
+
+    async def test_claude_key_from_render_env(self):
+        import os
+        with patch.dict(os.environ, {"CLAUDE_API_KEY_ROOVE": "sk-ant-envkey1234"}), \
+             patch.object(ai, "_settings_row", AsyncMock(return_value={"mode": "auto"})):
+            settings = await ai.get_settings("roove", with_secret=True)
+        self.assertEqual((settings["has_claude_key"], settings["claude_key_source"], settings["claude_key_hint"]), (True, "render", "1234"))
+        self.assertEqual(settings["_claude_raw"], "sk-ant-envkey1234")
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), \
+             patch.object(ai, "_claude", AsyncMock(return_value={"reply": "Oi", "buttons": [], "products": [], "handoff": False, "insight": {}})) as claude:
+            await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(claude.await_args.args[0], "sk-ant-envkey1234")
+
+
 if __name__ == "__main__":
     unittest.main()

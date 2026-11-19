@@ -100,19 +100,36 @@ def _clean_list(values: Any, *, limit: int, size: int) -> List[str]:
     return out[:limit]
 
 
-EXTRA_SETTINGS: Dict[str, Any] = {"ad_group_link": None, "ad_group_message": "", "claude_model": "claude-sonnet-5-5"}
+EXTRA_SETTINGS: Dict[str, Any] = {"ad_group_link": None, "ad_group_message": "", "claude_model": "claude-sonnet-5-5",
+                                  "product_style": "carrossel", "product_button": "Garantir meu look"}
+PRODUCT_STYLES = ("carrossel", "catalogo", "links")
+_COLUMN_SETS = (  # do mais novo para o mais antigo: migration ainda não aplicada não derruba o atendente
+    ",ad_group_link,ad_group_message,claude_model,claude_api_key_encrypted,claude_key_hint,product_style,product_button",
+    ",ad_group_link,ad_group_message,claude_model,claude_api_key_encrypted,claude_key_hint",
+    "",
+)
 CLAUDE_MODELS = ("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5")
 DEFAULT_GROUP_MESSAGE = "Que bom te ver por aqui! Entra no nosso grupo para receber as novidades e o acesso antecipado: {link}"
 
 
 async def _settings_row(client_id: str) -> Dict[str, Any]:
     base = ",".join(DEFAULT_SETTINGS) + ",updated_at"
-    try:
-        rows = await sb_select(SETTINGS, select=base + "," + ",".join(EXTRA_SETTINGS) + ",claude_api_key_encrypted,claude_key_hint",
-                               filters={"client_id": f"eq.{client_id}"}, limit=1)
-    except Exception:  # noqa: BLE001 — migration 000133 ainda não aplicada: segue sem os campos novos
-        rows = await sb_select(SETTINGS, select=base, filters={"client_id": f"eq.{client_id}"}, limit=1)
+    rows: List[Dict[str, Any]] = []
+    for extra in _COLUMN_SETS:
+        try:
+            rows = await sb_select(SETTINGS, select=base + extra, filters={"client_id": f"eq.{client_id}"}, limit=1)
+            break
+        except Exception:  # noqa: BLE001
+            if not extra:
+                raise
     return rows[0] if rows else {}
+
+
+def _env_claude_key(client_id: str) -> str:
+    """Chave do Claude pela variável do Render: CLAUDE_API_KEY_<EMPRESA> (ex.: CLAUDE_API_KEY_ROOVE)."""
+    import os
+    name = "CLAUDE_API_KEY_" + re.sub(r"[^A-Z0-9]", "_", str(client_id or "").upper())
+    return (os.getenv(name) or "").strip()
 
 
 async def get_settings(client_id: str, *, with_secret: bool = False) -> Dict[str, Any]:
@@ -124,12 +141,17 @@ async def get_settings(client_id: str, *, with_secret: bool = False) -> Dict[str
     out["mode"] = out["mode"] if out["mode"] in MODES else "off"
     out["welcome_buttons"] = list(out.get("welcome_buttons") or [])
     out["featured_products"] = list(out.get("featured_products") or [])
-    out["has_claude_key"] = bool(secret)
-    out["claude_key_hint"] = hint if secret else None
+    env_key = "" if secret else _env_claude_key(client_id)
+    out["has_claude_key"] = bool(secret or env_key)
+    out["claude_key_hint"] = hint if secret else (env_key[-4:] if env_key else None)
+    out["claude_key_source"] = "tela" if secret else ("render" if env_key else None)
+    if out.get("product_style") not in PRODUCT_STYLES:
+        out["product_style"] = "carrossel"
     if out.get("claude_model") not in CLAUDE_MODELS:
         out["claude_model"] = "claude-sonnet-5-5"
     if with_secret:
         out["_claude_secret"] = secret
+        out["_claude_raw"] = env_key or None
     return out
 
 
@@ -164,6 +186,15 @@ async def save_settings(client_id: str, *, user_id: str, **changes: Any) -> Dict
         extra["ad_group_link"] = link or None
     if changes.get("ad_group_message") is not None:
         extra["ad_group_message"] = str(changes["ad_group_message"]).strip()[:1000]
+    if changes.get("product_style") is not None:
+        if changes["product_style"] not in PRODUCT_STYLES:
+            raise WhatsAppAiError("INVALID_STYLE", "Jeito de mostrar as peças inválido.")
+        extra["product_style"] = changes["product_style"]
+        current["product_cards"] = changes["product_style"] == "catalogo"
+    if changes.get("product_button") is not None:
+        label = " ".join(str(changes["product_button"]).split())[:20]
+        if label:
+            extra["product_button"] = label
     if changes.get("claude_model") is not None:
         if changes["claude_model"] not in CLAUDE_MODELS:
             raise WhatsAppAiError("INVALID_MODEL", "Modelo do Claude inválido.")
@@ -575,11 +606,11 @@ async def decide(client_id: str, *, settings: Dict[str, Any], catalog: Optional[
     prompt = build_prompt(settings=settings, brand=await _brand(client_id), catalog=catalog, thread=thread,
                           messages=messages, first=first, cart=cart, order_note=order_note, origin_note=origin_note)
     raw = None
-    secret = settings.get("_claude_secret")
-    if secret:
+    secret, plain = settings.get("_claude_secret"), settings.get("_claude_raw")
+    if secret or plain:
         try:
             from .crypto import decrypt_secret
-            raw = await _claude(decrypt_secret(secret), model=settings.get("claude_model") or "claude-sonnet-5-5",
+            raw = await _claude(plain or decrypt_secret(secret), model=settings.get("claude_model") or "claude-sonnet-5-5",
                                 system=BASE_RULES, prompt=prompt, schema=_schema())
         except Exception as exc:  # noqa: BLE001 — Claude fora do ar ou sem crédito: a IA da plataforma responde
             print(f"[whatsapp_ai] claude_fallback client_id={client_id} {type(exc).__name__}:{getattr(exc, 'message', '')[:60]}")
@@ -599,8 +630,44 @@ def product_text(products: List[Dict[str, Any]]) -> str:
     return "\n\n".join(lines)
 
 
+def card_text(p: Dict[str, Any]) -> str:
+    """'Legging Capri de ~R$ 399,00~ por R$ 279,00' (o WhatsApp risca o que fica entre ~)."""
+    price = f"de ~{brl(p['compare_at'])}~ por {brl(p['price_min'])}" if p.get("compare_at") else brl(p["price_min"])
+    return f"{p['title']}\n{price}"[:160]
+
+
+def carousel_payloads(products: List[Dict[str, Any]], *, button: str) -> List[Tuple[Dict[str, Any], str, Dict[str, Any]]]:
+    """Peças como a Pozze: cartões com foto, nome e preço e um botão com o link da peça (deslizando para o lado).
+    Uma peça só vai como cartão único com botão. Sem foto, vai a lista com links."""
+    label = (button or "Garantir meu look").strip()[:20]
+    with_image = [p for p in products if str(p.get("image") or "").startswith("https://")][:10]
+    summary = {"products": [{"handle": p["handle"], "title": p["title"], "price": p["price_min"], "url": p["url"], "image": p.get("image")}
+                            for p in products], "carousel": True}
+    out: List[Tuple[Dict[str, Any], str, Dict[str, Any]]] = []
+    if len(with_image) >= 2:
+        body = {"type": "interactive", "interactive": {"type": "carousel", "body": {"text": "Separei estas peças para você:"},
+                "action": {"cards": [{"card_index": i, "type": "cta_url",
+                                      "header": {"type": "image", "image": {"link": p["image"]}},
+                                      "body": {"text": card_text(p)},
+                                      "action": {"name": "cta_url", "parameters": {"display_text": label, "url": p["url"]}}}
+                                     for i, p in enumerate(with_image)]}}}
+        out.append((body, "[carrossel] " + ", ".join(p["title"] for p in with_image),
+                    {**summary, "_card_handles": [p["handle"] for p in with_image]}))
+    elif len(with_image) == 1:
+        p = with_image[0]
+        body = {"type": "interactive", "interactive": {"type": "cta_url", "header": {"type": "image", "image": {"link": p["image"]}},
+                "body": {"text": card_text(p)}, "action": {"name": "cta_url", "parameters": {"display_text": label, "url": p["url"]}}}}
+        out.append((body, f"[peça] {p['title']}", {**summary, "_card_handles": [p["handle"]]}))
+    rest = [p for p in products if p not in with_image]
+    if rest:
+        text = product_text(rest)
+        out.append(({"type": "text", "text": {"body": text[:4096], "preview_url": True}}, text, {**summary, "cards": False}))
+    return out
+
+
 def outgoing_payloads(decision: Dict[str, Any], *, meta: Optional[Dict[str, Any]], match: Optional[Dict[str, Any]],
-                      header: str = "Peças para você") -> List[Tuple[Dict[str, Any], str, Dict[str, Any]]]:
+                      header: str = "Peças para você", style: str = "catalogo",
+                      button: str = "Garantir meu look") -> List[Tuple[Dict[str, Any], str, Dict[str, Any]]]:
     """Mensagens a enviar, em ordem: (corpo da Meta, texto para a conversa, payload para a tela)."""
     out: List[Tuple[Dict[str, Any], str, Dict[str, Any]]] = []
     reply, buttons, products = decision["reply"], decision["buttons"], decision["products"]
@@ -612,6 +679,10 @@ def outgoing_payloads(decision: Dict[str, Any], *, meta: Optional[Dict[str, Any]
         out.append(({"type": "text", "text": {"body": reply, "preview_url": False}}, reply, {}))
     if not products:
         return out
+    if style == "carrossel":
+        return out + carousel_payloads(products, button=button)
+    if style == "links":
+        meta = None
     cards = [(p, (match or {}).get("by_product", {}).get(p["id"])) for p in products] if meta else []
     with_card = [(p, rid) for p, rid in cards if rid]
     summary = {"products": [{"handle": p["handle"], "title": p["title"], "price": p["price_min"], "url": p["url"], "image": p.get("image")}
@@ -649,9 +720,10 @@ async def _record(client_id: str, thread: Dict[str, Any], number: Dict[str, Any]
 
 
 async def send_decision(client_id: str, thread: Dict[str, Any], number: Dict[str, Any], decision: Dict[str, Any], *,
-                        meta: Optional[Dict[str, Any]], match: Optional[Dict[str, Any]], by_ai: bool = True) -> int:
+                        meta: Optional[Dict[str, Any]], match: Optional[Dict[str, Any]], by_ai: bool = True,
+                        style: str = "catalogo", button: str = "Garantir meu look") -> int:
     sent = 0
-    for body, text, payload in outgoing_payloads(decision, meta=meta, match=match):
+    for body, text, payload in outgoing_payloads(decision, meta=meta, match=match, style=style, button=button):
         card_handles = set(payload.pop("_card_handles", []) or [])
         try:
             out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
@@ -799,7 +871,8 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
                                     "image": p.get("image")} for p in decision["products"]]}
         await _save_insight(client_id, thread["id"], decision, {"ai_suggestion": suggestion, "unread_count": 1})
         return "sugestao"
-    await send_decision(client_id, thread, number, decision, meta=meta, match=match)
+    await send_decision(client_id, thread, number, decision, meta=meta, match=match,
+                        style=settings.get("product_style") or "carrossel", button=settings.get("product_button") or "Garantir meu look")
     extra: Dict[str, Any] = {"ai_suggestion": None}
     if group:
         # Convite do grupo para quem veio de anúncio: mensagem própria, uma vez por conversa (mesmo se a IA passou para a equipe).
@@ -905,7 +978,8 @@ async def send_suggestion(client_id: str, thread_id: str, *, text: Optional[str]
         raise WhatsAppAiError("EMPTY", "Escreva a mensagem.")
     decision = {"reply": reply, "buttons": list(suggestion.get("buttons") or [])[:3],
                 "products": [by_handle[p["handle"]] for p in suggestion.get("products") or [] if p.get("handle") in by_handle]}
-    sent = await send_decision(client_id, thread, number, decision, meta=meta, match=match)
+    sent = await send_decision(client_id, thread, number, decision, meta=meta, match=match,
+                        style=settings.get("product_style") or "carrossel", button=settings.get("product_button") or "Garantir meu look")
     patch: Dict[str, Any] = {"ai_suggestion": None}
     if suggestion.get("handoff"):
         patch.update({"ai_paused_until": (_now() + timedelta(minutes=max(int(settings["human_pause_minutes"]), 60))).isoformat(),

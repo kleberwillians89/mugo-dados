@@ -29,7 +29,7 @@ export type AdPayload = {
   placements?: MetaPlacements;
   /** Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos. */
   pixel_id?: string | null;
-  name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads"; daily_budget: number; start_date: string; end_date: string;
+  name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads" | "whatsapp" | "retencao" | "remarketing"; daily_budget: number; start_date: string; end_date: string;
   audience: {
     age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean;
     /** Público salvo da conta: a segmentação dele (idade, locais, interesses) substitui a escrita acima. */
@@ -37,7 +37,7 @@ export type AdPayload = {
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
   };
-  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; format?: AdFormat; cards?: AdCard[]; extra_ads?: AdCreative[] };
+  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; whatsapp_number?: string | null; format?: AdFormat; cards?: AdCard[]; extra_ads?: AdCreative[] };
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
@@ -123,3 +123,7 @@ export const readAdPixels = (draftId?: string) =>
 export const changeAdPixel = (draftId: string, pixelId: string) =>
   http<AdPixels>(base(`/${encodeURIComponent(draftId)}/pixel`), { method: "POST", body: JSON.stringify({ pixel_id: pixelId }), timeoutMs: 60_000 });
 export const PIXEL_OBJECTIVES = ["leads", "vendas", "retencao", "remarketing"];
+
+/** Números de WhatsApp da marca para o anúncio que abre conversa. */
+export const readAdWhatsappNumbers = () =>
+  http<{ numbers: { number: string; label: string; name: string }[] }>(base("/whatsapp-numbers"));

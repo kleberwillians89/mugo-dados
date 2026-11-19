@@ -249,7 +249,9 @@ export type WaAiSettings = {
   /** Quem chega por anúncio (Click-to-WhatsApp) recebe este link uma vez. */
   ad_group_link?: string | null; ad_group_message?: string;
   /** Claude da própria marca: a chave nunca volta, só o final dela. */
-  claude_model?: WaClaudeModel; has_claude_key?: boolean; claude_key_hint?: string | null;
+  claude_model?: WaClaudeModel; has_claude_key?: boolean; claude_key_hint?: string | null; claude_key_source?: "tela" | "render" | null;
+  /** Como as peças aparecem: carrossel com foto e botão (padrão), catálogo da Meta ou links. */
+  product_style?: "carrossel" | "catalogo" | "links"; product_button?: string;
 };
 export type WaClaudeModel = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
 export const WA_CLAUDE_MODELS: { id: WaClaudeModel; label: string }[] = [
