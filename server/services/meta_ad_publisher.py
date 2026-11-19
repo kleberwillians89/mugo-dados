@@ -35,6 +35,8 @@ OBJECTIVES: Dict[str, Dict[str, Any]] = {
     "alcance": {"label": "Alcance", "objective": "OUTCOME_AWARENESS", "optimization": "REACH"},
     "engajamento": {"label": "Engajamento", "objective": "OUTCOME_ENGAGEMENT", "optimization": "POST_ENGAGEMENT"},
     "vendas": {"label": "Vendas no site (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS", "event": "PURCHASE", "destination": "WEBSITE"},
+    # Click-to-WhatsApp: o anúncio abre a conversa no WhatsApp da marca (a IA do MUGOVERSO responde e manda o grupo).
+    "whatsapp": {"label": "Conversas no WhatsApp", "objective": "OUTCOME_ENGAGEMENT", "optimization": "CONVERSATIONS", "destination": "WHATSAPP"},
     "leads": {"label": "Cadastros no site (pixel)", "objective": "OUTCOME_LEADS", "optimization": "OFFSITE_CONVERSIONS", "event": "LEAD", "destination": "WEBSITE"},
     # Públicos personalizados criados pelo pixel (ou reaproveitados se já existem com o mesmo nome).
     "retencao": {"label": "Retenção: compradores 180 dias (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS",
@@ -110,6 +112,7 @@ def clean_cards(value: Any) -> List[Dict[str, str]]:
 
 
 MAX_ADS = 10
+WHATSAPP_LINK = "https://api.whatsapp.com/send"
 
 
 def clean_creative(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -235,6 +238,8 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
                 # Vários criativos: "carousel" = um anúncio em carrossel; "multi" = um anúncio por imagem no mesmo conjunto.
                 "format": ad.get("format") if ad.get("format") in AD_FORMATS else "single",
                 "cards": clean_cards(ad.get("cards")),
+                # Número do WhatsApp do anúncio (Click-to-WhatsApp), só dígitos com DDI; vazio = o ligado à Página.
+                "whatsapp_number": re.sub(r"\D", "", str(ad.get("whatsapp_number") or ""))[:15] or None,
                 # Anúncios 2, 3… do mesmo conjunto (mesma verba), cada um com o seu formato. Texto e link são os do anúncio 1.
                 "extra_ads": [clean_creative(x) for x in (ad.get("extra_ads") if isinstance(ad.get("extra_ads"), list) else [])
                               if isinstance(x, dict)][:MAX_ADS - 1]},
@@ -581,6 +586,19 @@ async def set_pixel(client_id: str, draft_id: str, pixel_id: str, *, user_name: 
     await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, patch={"meta_ids": ids, "updated_at": _now()})
     print(f"[meta_ads_pixel] client_id={client_id} draft={draft_id} ads={len(_ads_of(ids))} skipped={skipped}")
     return {**(await list_pixels(client_id, draft_id)), "ads_not_updated": skipped}
+
+
+async def ad_whatsapp_numbers(client_id: str) -> List[Dict[str, str]]:
+    """Números de WhatsApp da marca ligados ao MUGOVERSO (para o anúncio que abre conversa)."""
+    rows = await sb_select("whatsapp_numbers", select="display_phone_number,verified_name,status",
+                           filters={"client_id": f"eq.{client_id}", "status": "eq.active"}, limit=10)
+    out = []
+    for row in rows:
+        digits = re.sub(r"\D", "", str(row.get("display_phone_number") or ""))
+        if 10 <= len(digits) <= 15:
+            out.append({"number": digits, "label": str(row.get("display_phone_number") or digits),
+                        "name": str(row.get("verified_name") or "")})
+    return out
 
 
 async def delete_draft(client_id: str, draft_id: str) -> None:
@@ -1031,6 +1049,9 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 adset["destination_type"] = cfg["destination"]
             if cfg.get("event"):
                 adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
+            elif cfg.get("destination") == "WHATSAPP":
+                adset["promoted_object"] = json.dumps({"page_id": ctx["page_id"],
+                                                       **({"whatsapp_phone_number": ad["whatsapp_number"]} if ad["whatsapp_number"] else {})})
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
             await checkpoint()
         elif cfg.get("event") and payload.get("pixel_id") and ids.get("pixel_id") != payload["pixel_id"]:
@@ -1040,7 +1061,14 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                          data={"promoted_object": json.dumps({"pixel_id": chosen, "custom_event_type": cfg["event"]})})
             ids["pixel_id"] = chosen
             await checkpoint()
-        link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
+        to_whatsapp = cfg.get("destination") == "WHATSAPP"
+        link = WHATSAPP_LINK if to_whatsapp else (ad["link"] or f"https://www.facebook.com/{ctx['page_id']}")
+
+        def cta(target: str) -> Dict[str, Any]:
+            # Click-to-WhatsApp: o botão é sempre "Enviar mensagem no WhatsApp" e abre a conversa.
+            if to_whatsapp:
+                return {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}}
+            return {"type": ad["cta"], "value": {"link": target}}
         tags = {"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {}
 
         async def make_creative(name: str, link_or_video: Dict[str, Any]) -> str:
@@ -1059,7 +1087,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
 
         def link_data_for(image_hash: str, headline: str, target: str) -> Dict[str, Any]:
             data: Dict[str, Any] = {"link": target, "message": ad["primary_text"], "image_hash": image_hash,
-                                    "call_to_action": {"type": ad["cta"], "value": {"link": target}}}
+                                    "call_to_action": cta(target)}
             if headline:
                 data["name"] = headline
             if ad["description"]:
@@ -1068,13 +1096,13 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
 
         async def body_for(unit: Dict[str, Any], index: int) -> Dict[str, Any]:
             headline = unit.get("headline") or ad["headline"]
-            target = unit.get("link") or link
+            target = link if to_whatsapp else (unit.get("link") or link)
             if unit["format"] == "carousel":
                 children = []
                 for card in unit["cards"]:
-                    card_link = card["link"] or link
+                    card_link = link if to_whatsapp else (card["link"] or link)
                     child: Dict[str, Any] = {"link": card_link, "image_hash": await _image_hash(act, card["image_url"], token),
-                                             "call_to_action": {"type": ad["cta"], "value": {"link": card_link}}}
+                                             "call_to_action": cta(card_link)}
                     if card["headline"] or ad["headline"]:
                         child["name"] = card["headline"] or ad["headline"]
                     if card["description"]:
@@ -1083,7 +1111,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 return {"link_data": {
                     "link": link, "message": ad["primary_text"], "child_attachments": children,
                     "multi_share_optimized": False, "multi_share_end_card": False,
-                    "call_to_action": {"type": ad["cta"], "value": {"link": link}}}}
+                    "call_to_action": cta(link)}}
             if unit["media_type"] == "video":
                 videos = dict(ids.get("video_ids") or ({"0": ids["video_id"]} if ids.get("video_id") else {}))
                 video_id = videos.get(str(index))
@@ -1095,7 +1123,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                         ids["video_id"] = video_id
                     await checkpoint()
                 video: Dict[str, Any] = {"video_id": video_id, "message": ad["primary_text"], "title": headline or payload["name"],
-                                         "call_to_action": {"type": ad["cta"], "value": {"link": target}}}
+                                         "call_to_action": cta(target)}
                 if unit.get("image_url"):
                     # A Meta exige capa no anúncio de vídeo.
                     try:

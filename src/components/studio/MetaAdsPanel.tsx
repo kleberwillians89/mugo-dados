@@ -9,6 +9,7 @@ import MetaCreativeStudio from "./MetaCreativeStudio";
 import MetaLiveCampaign from "./MetaLiveCampaign";
 import MetaPixelSwitch from "./MetaPixelSwitch";
 import MetaPixelPicker from "./MetaPixelPicker";
+import MetaWhatsappNumber from "./MetaWhatsappNumber";
 import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
@@ -295,7 +296,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               {Object.entries(ctas).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
           </div>
           <label className="ds-field">Descrição (opcional)<input maxLength={200} value={editing.payload.ad.description} onChange={(e) => setAd({ description: e.target.value })} /></label>
-          <label className="ds-field">Link de destino<input type="url" maxLength={500} value={editing.payload.ad.link} placeholder="https://loja.com.br/produto" onChange={(e) => setAd({ link: e.target.value })} /></label>
+          {editing.payload.objective === "whatsapp"
+            ? <MetaWhatsappNumber value={editing.payload.ad.whatsapp_number} disabled={locked || Boolean(busy)} onChange={(whatsapp_number) => setAd({ whatsapp_number })} />
+            : <label className="ds-field">Link de destino<input type="url" maxLength={500} value={editing.payload.ad.link} placeholder="https://loja.com.br/produto" onChange={(e) => setAd({ link: e.target.value })} /></label>}
           <CampaignTrackingFields platform="meta" campaignName={editing.payload.name}
             value={editing.payload.tracking || {}} disabled={locked || Boolean(busy)}
             onChange={tracking => set({tracking})} />

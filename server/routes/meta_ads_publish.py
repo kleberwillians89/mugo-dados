@@ -128,6 +128,12 @@ async def read_instagram_posts(client_id: str, authorization: Optional[str] = He
     return {"posts": posts, "source": "instagram_synced", "count": len(posts)}
 
 
+@router.get("/whatsapp-numbers")
+async def read_ad_whatsapp_numbers(client_id: str, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    return {"numbers": await pub.ad_whatsapp_numbers(cid)}
+
+
 @router.get("/pixels")
 async def read_ad_pixels(client_id: str, draft_id: Optional[str] = Query(default=None, max_length=40),
                          authorization: Optional[str] = Header(default=None)):

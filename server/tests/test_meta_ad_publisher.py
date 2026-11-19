@@ -396,3 +396,21 @@ class PixelChoiceTests(unittest.IsolatedAsyncioTestCase):
     def test_pixel_id_is_cleaned(self):
         self.assertIsNone(pub.clean_payload({**READY, "pixel_id": "abc"}, today=date(2026, 11, 10))["pixel_id"])
         self.assertEqual(pub.clean_payload({**READY, "pixel_id": "22222"}, today=date(2026, 11, 10))["pixel_id"], "22222")
+
+
+class ClickToWhatsAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_whatsapp_campaign_opens_conversation_with_chosen_number(self):
+        ad = {**READY["ad"], "link": "", "whatsapp_number": "+55 11 94470-6392", "format": "carousel", "cards": CARDS[:2], "image_url": ""}
+        row = {"id": "d9", "client_id": "roove", "status": "rascunho", "meta_ids": {},
+               "payload": {**READY, "objective": "whatsapp", "ad": ad}}
+        p = pub.clean_payload(row["payload"], today=date(2026, 11, 10))
+        self.assertEqual(pub.readiness(p), [])  # sem link de site
+        posts, _ = await MultiCreativeTests._publish(self, row)
+        camp = next(d for x, d in posts if x.endswith("/campaigns"))
+        adset = next(d for x, d in posts if x.endswith("/adsets"))
+        self.assertEqual(camp["objective"], "OUTCOME_ENGAGEMENT")
+        self.assertEqual((adset["destination_type"], adset["optimization_goal"]), ("WHATSAPP", "CONVERSATIONS"))
+        self.assertEqual(json.loads(adset["promoted_object"]), {"page_id": "999", "whatsapp_phone_number": "5511944706392"})
+        spec = json.loads(next(d for x, d in posts if x.endswith("/adcreatives"))["object_story_spec"])
+        self.assertEqual(spec["link_data"]["call_to_action"], {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}})
+        self.assertTrue(all(c["link"] == pub.WHATSAPP_LINK for c in spec["link_data"]["child_attachments"]))

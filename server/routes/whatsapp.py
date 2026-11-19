@@ -494,6 +494,8 @@ class AiSettingsIn(BaseModel):
     ad_group_link: Optional[str] = Field(default=None, max_length=500)
     ad_group_message: Optional[str] = Field(default=None, max_length=1000)
     claude_model: Optional[str] = Field(default=None, pattern=r"^claude-(haiku|sonnet|opus)-5-5$")
+    product_style: Optional[str] = Field(default=None, pattern=r"^(carrossel|catalogo|links)$")
+    product_button: Optional[str] = Field(default=None, max_length=20)
 
 
 class ClaudeKeyIn(BaseModel):
