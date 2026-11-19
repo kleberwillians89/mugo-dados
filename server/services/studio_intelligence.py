@@ -6,7 +6,9 @@ IA escreva a partir de fatos da conta e não de clichês:
 
 * perfil da marca e contexto do negócio (escritos pela equipe);
 * KPIs do período e campanhas que mais venderam (snapshot da Inteligência);
-* posts que mais e menos alcançaram em relação ao próprio formato;
+* posts que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários, salvamentos e
+  compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post;
+* anúncio por anúncio (não só a campanha): melhores e piores, com o texto e o título dos criados no Mídia On;
 * melhores dias e horários (posting_times);
 * metas do mês e a última análise salva;
 * aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar;
@@ -123,19 +125,144 @@ async def _snapshot(client_id: str, start: str, end: str) -> Dict[str, Any]:
             "qualidade": (snap.get("quality") or {}).get("status")}
 
 
+WEEKDAYS = ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo")
+BREAKDOWN = (("curtidas", "likes"), ("comentarios", "comments"), ("salvamentos", "saved"), ("compartilhamentos", "shares"))
+TOP_POSTS, WORST_POSTS = 10, 5
+
+
+def _int(value: Any) -> Optional[int]:
+    number = _num(value)
+    return int(number) if number is not None else None
+
+
+async def _pautas_by_media(client_id: str, media_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Pauta do Calendário que gerou cada post publicado pelo MUGOVERSO (pauta, gancho, pilar)."""
+    ids = [m for m in media_ids if re.fullmatch(r"\d{5,40}", str(m or ""))]
+    if not ids:
+        return {}
+    rows = await sb_select("studio_calendar_items", select="published_media_id,title,hook,pillar,format", limit=len(ids),
+                           filters={"client_id": f"eq.{client_id}", "published_media_id": f"in.({','.join(ids)})"})
+    return {str(r["published_media_id"]): {k: v for k, v in {
+        "pauta": clean_text(r.get("title"), 160), "gancho": clean_text(r.get("hook"), 160),
+        "pilar": clean_text(r.get("pillar"), 80)}.items() if v} for r in rows if r.get("published_media_id")}
+
+
 async def _posts(client_id: str, days: int) -> Dict[str, Any]:
+    """Posts do Instagram que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários,
+    salvamentos e compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post (quando gerou)."""
     from .posting_times import score_posts
     since = datetime.now(timezone.utc).date() - timedelta(days=days)
-    rows = await sb_select("ig_media", select="media_type,media_product_type,timestamp,insights_json,caption",
+    rows = await sb_select("ig_media", select="media_id,media_type,media_product_type,timestamp,insights_json,caption",
                            filters={"client_id": f"eq.{client_id}", "timestamp": f"gte.{since.isoformat()}"},
                            order="timestamp.desc", limit=300)
+    insights = {str(r.get("media_id")): (r.get("insights_json") or {}) for r in rows if r.get("media_id")}
     scored = sorted(score_posts(rows, start=since, end=date.max), key=lambda p: p["reach_index"], reverse=True)
+    best = scored[:TOP_POSTS]
+    worst = scored[max(TOP_POSTS, len(scored) - WORST_POSTS):]
+    try:
+        pautas = await _pautas_by_media(client_id, [str(p.get("media_id")) for p in best + worst])
+    except Exception:  # noqa: BLE001 - sem a ligação com a pauta, o resto segue
+        pautas = {}
+
+    def counts(p: Dict[str, Any]) -> Dict[str, int]:
+        data = insights.get(str(p.get("media_id"))) or {}
+        return {label: value for label, key in BREAKDOWN if (value := _int(data.get(key))) is not None}
 
     def view(p: Dict[str, Any]) -> Dict[str, Any]:
-        return {"formato": p["format"], "alcance_vs_media_do_formato": round(p["reach_index"], 2),
-                "interacoes": p.get("interactions"), "legenda": clean_text(p.get("caption"), 220)}
-    return {"analisados": len(scored), "melhores": [view(p) for p in scored[:6]],
-            "piores": [view(p) for p in scored[-3:]] if len(scored) >= 8 else []}
+        detail = counts(p)
+        out: Dict[str, Any] = {"formato": p["format"], "alcance": p["reach"], "alcance_vs_media_do_formato": round(p["reach_index"], 2),
+                               "interacoes": p.get("interactions"), **detail,
+                               "dia": WEEKDAYS[p["weekday"]], "hora": p["hour"], "legenda": clean_text(p.get("caption"), 220)}
+        if detail.get("salvamentos") is not None and p["reach"]:
+            out["salvamentos_por_mil_alcance"] = round(detail["salvamentos"] / p["reach"] * 1000, 1)
+        pauta = pautas.get(str(p.get("media_id")))
+        if pauta:
+            out["pauta_do_mugoverso"] = pauta
+        return out
+
+    averages: Dict[str, float] = {}
+    for label, key in BREAKDOWN:
+        values = [v for p in scored if (v := _int((insights.get(str(p.get("media_id"))) or {}).get(key))) is not None]
+        if values:
+            averages[label] = round(sum(values) / len(values), 1)
+    return {"analisados": len(scored), "media_por_post": averages, "melhores": [view(p) for p in best],
+            "piores": [view(p) for p in worst],
+            "ligados_a_pauta": len(pautas)}
+
+
+async def _paid_creatives(client_id: str, days: int = 60) -> Dict[str, Any]:
+    """Anúncio por anúncio (não só a campanha): o que performou melhor e pior nos últimos dias, com o texto e o
+    título quando o anúncio foi criado no Mídia On."""
+    since = (datetime.now(SAO_PAULO).date() - timedelta(days=days)).isoformat()
+    rows = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,spend,impressions,clicks,conversions,revenue",
+                           filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"}, limit=5000)
+    ads: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        ad_id = str(r.get("ad_id") or "")
+        if not ad_id:
+            continue
+        a = ads.setdefault(ad_id, {"anuncio": clean_text(r.get("ad_name"), 120), "campanha": clean_text(r.get("campaign_name"), 120),
+                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0})
+        for field, key in (("investimento", "spend"), ("impressoes", "impressions"), ("cliques", "clicks"),
+                           ("conversoes", "conversions"), ("receita", "revenue")):
+            a[field] += _num(r.get(key)) or 0.0
+    spent = [dict(a, ad_id=k) for k, a in ads.items() if a["investimento"] >= 20]
+    if not spent:
+        return {}
+    for a in spent:
+        a["ctr_pct"] = round(a["cliques"] / a["impressoes"] * 100, 2) if a["impressoes"] else None
+        a["custo_por_conversao"] = round(a["investimento"] / a["conversoes"], 2) if a["conversoes"] else None
+        a["roas"] = round(a["receita"] / a["investimento"], 2) if a["receita"] else None
+        for key in ("investimento", "receita"):
+            a[key] = round(a[key], 2)
+        for key in ("impressoes", "cliques", "conversoes"):
+            a[key] = int(a[key])
+    if any(a["roas"] for a in spent):
+        metric, rank = "roas", lambda a: a["roas"] or 0
+    elif any(a["conversoes"] for a in spent):
+        metric, rank = "custo_por_conversao", lambda a: -(a["custo_por_conversao"] or 1e12)
+    else:
+        metric, rank = "ctr_pct", lambda a: a["ctr_pct"] or 0
+    spent.sort(key=rank, reverse=True)
+    best, worst = spent[:6], spent[max(6, len(spent) - 3):]
+    try:
+        copies = await _mugo_ad_copies(client_id)
+    except Exception:  # noqa: BLE001
+        copies = {}
+
+    def view(a: Dict[str, Any]) -> Dict[str, Any]:
+        out = {k: v for k, v in a.items() if k != "ad_id" and v not in (None, "")}
+        if a["ad_id"] in copies:
+            out["criado_no_mugoverso"] = copies[a["ad_id"]]
+        return out
+    return {"dias": days, "comparado_por": metric, "anuncios_com_gasto": len(spent),
+            "melhores": [view(a) for a in best], "piores": [view(a) for a in worst]}
+
+
+async def _mugo_ad_copies(client_id: str) -> Dict[str, Dict[str, Any]]:
+    """Texto, título e formato de cada anúncio que o Mídia On criou (ID do anúncio na Meta → criativo)."""
+    from .meta_ad_publisher import ad_units, clean_payload
+    rows = await sb_select("studio_ad_drafts", select="payload,meta_ids", limit=100,
+                           filters={"client_id": f"eq.{client_id}", "meta_ids": "not.is.null"}, order="updated_at.desc")
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        ids = r.get("meta_ids") or {}
+        ad_ids = [str(x) for x in (ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))]
+        if not ad_ids:
+            continue
+        try:
+            payload = clean_payload(r.get("payload") or {})
+        except Exception:  # noqa: BLE001 - rascunho antigo fora do formato
+            continue
+        ad = payload["ad"]
+        units = ad_units(ad)
+        for i, ad_id in enumerate(ad_ids):
+            unit = units[i] if i < len(units) else {}
+            fmt = "carrossel" if unit.get("format") == "carousel" else "vídeo" if unit.get("media_type") == "video" else "imagem"
+            out[ad_id] = {k: v for k, v in {"objetivo": payload.get("objective"), "formato": fmt,
+                                            "texto": clean_text(ad.get("primary_text"), 300), "titulo": clean_text(ad.get("headline"), 80),
+                                            "botao": ad.get("cta")}.items() if v}
+    return out
 
 
 async def _timing(client_id: str) -> Dict[str, Any]:
@@ -202,7 +329,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products, briefs, plans, library, whatsapp) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -225,6 +352,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("planos_aprovados", gaps, lambda: _plans(client_id, today), {}),
         _safe("biblioteca", gaps, lambda: _library(client_id), {}),
         _safe("whatsapp", gaps, lambda: _whatsapp(client_id), {}),
+        _safe("criativos_pagos", gaps, lambda: _paid_creatives(client_id), {}),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -234,6 +362,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "negocio": business,
         "kpis": snap.get("metricas") or [],
         "campanhas_que_mais_venderam": snap.get("campanhas") or [],
+        "criativos_pagos": creatives,
         "funil_do_site": snap.get("funil_do_site") or {},
         "posts": posts,
         "horarios": timing,
@@ -559,6 +688,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
         "kpis": len(package.get("kpis") or []),
         "campanhas": len(package.get("campanhas_que_mais_venderam") or []),
         "posts_analisados": (package.get("posts") or {}).get("analisados", 0),
+        "anuncios_analisados": (package.get("criativos_pagos") or {}).get("anuncios_com_gasto", 0),
         "metas": len(package.get("metas_do_mes") or []),
         "aprovados": len((package.get("aprendizados") or {}).get("aprovados") or []),
         "ajustes": len((package.get("aprendizados") or {}).get("ajustes_pedidos") or []),
@@ -571,7 +701,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 
 
 PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
-                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis",
+                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "criativos_pagos", "kpis",
                 "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
                 "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
 
