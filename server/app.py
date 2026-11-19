@@ -392,6 +392,8 @@ app.include_router(content_ops_router)
 app.include_router(ai_settings_router)
 app.include_router(sales_origin_router)
 app.include_router(whatsapp_router)
+from routes.meta_live import router as meta_live_router  # noqa: E402
+app.include_router(meta_live_router)
 app.include_router(connections_router)
 app.include_router(integrations_router)
 app.include_router(platform_admin_router)

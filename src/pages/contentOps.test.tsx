@@ -46,14 +46,20 @@ const show = async (node: React.ReactNode) => { await act(async () => { root.ren
 const week = { current: { total: 5, marca: 4, concorrente: 1, positivo: 2, neutro: 1, negativo: 1 }, previous: { total: 2, marca: 2, concorrente: 0, positivo: 1, neutro: 1, negativo: 0 }, marca_variacao: 2 };
 
 describe("Clipping", () => {
-  it("abre no Radar cultural; Matérias e Alertas na mesma aba (Alertas só para a agência)", async () => {
+  it("abre em Hoje; Matérias, Radar cultural e Alertas continuam nas abas (Alertas só para a agência)", async () => {
     api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: true, last_run_at: null } });
     await show(<Clipping canManage />);
-    expect(host.textContent).toContain("Radar cultural do teste");
-    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Radar cultural", "Matérias", "Alertas"]);
+    expect(host.textContent).toContain("Nos últimos 7 dias");
+    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Hoje", "Todas as matérias", "Radar cultural", "Alertas"]);
     expect(host.textContent).not.toContain("Painel saúde da marca");  // Saúde da Marca tem a aba própria
     await show(<Clipping />);
-    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Radar cultural", "Matérias"]);
+    expect([...host.querySelectorAll(".clipTabs button")].map((b) => b.textContent)).toEqual(["Hoje", "Todas as matérias", "Radar cultural"]);
+  });
+
+  it("o Radar cultural continua na aba própria", async () => {
+    api.getClipping.mockResolvedValue({ items: [], week, settings: { saved: true, last_run_at: null } });
+    await show(<Clipping canManage initialTab="radar" />);
+    expect(host.textContent).toContain("Radar cultural do teste");
   });
 
   it("?aba=alertas abre direto nos alertas", async () => {

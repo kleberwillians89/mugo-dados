@@ -1,4 +1,5 @@
 import { useDataHealth } from "../app/DataHealthContext";
+import { siteHeadline } from "../app/plainHeadlines";
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
@@ -685,6 +686,7 @@ export default function GoogleAnalytics({
                   <DataNotice tone="warning" title="Dados anteriores mantidos">A última base carregada continua visível.</DataNotice>
                 ) : null}
 
+                <p className="plainHeadline" role="status">{siteHeadline(ga4Report.summary)}</p>
                 {/* AQUISIÇÃO → COMPORTAMENTO → CONVERSÃO, só com o que a fonte trouxe. */}
                 <section className="ds-summary" id="google-summary" aria-label="Resumo do site">
                   <HeroFigure
