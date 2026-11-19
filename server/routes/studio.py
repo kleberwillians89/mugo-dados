@@ -1778,6 +1778,51 @@ async def retry_knowledge_document(client_id: str, document_id: UUID, authorizat
         raise _http(exc) from None
 
 
+# ---- Importar do Google Drive e do Canva para o Conhecimento (cada arquivo segue o envio manual na tela).
+ERRORS.update({
+    "CLOUD_LINK_INVALID": (422, "Cole o link de uma pasta ou arquivo do Google Drive, ou o link de visualização de um design do Canva."),
+    "DRIVE_PRIVATE": (422, "Não consegui abrir. No Drive, compartilhe a pasta como \"Qualquer pessoa com o link pode ver\" e tente de novo."),
+    "DRIVE_UNAVAILABLE": (502, "O Google Drive não respondeu agora. Tente de novo em instantes."),
+    "DRIVE_NOT_CONFIGURED": (503, "Importar do Drive ainda não está ativado no servidor (falta a chave GOOGLE_DRIVE_API_KEY)."),
+    "DOC_TOO_LARGE": (422, "Arquivo maior que 10 MB. Divida em partes."),
+})
+
+
+class CloudLinkInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=10, max_length=600)
+
+
+class CloudFileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["drive", "canva"]
+    id: str = Field(min_length=10, max_length=600)
+    name: str = Field(default="arquivo", max_length=200)
+    mime: str = Field(default="", max_length=120)
+
+
+@router.post("/knowledge/import/list")
+async def list_cloud_import(client_id: str, body: CloudLinkInput, authorization: str | None = Header(default=None)):
+    """O que tem no link (pasta do Drive, arquivo ou design do Canva) e o que dá para ensinar a IA."""
+    from services.knowledge_cloud import list_link
+    await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await list_link(body.url)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/knowledge/import/file")
+async def fetch_cloud_import(client_id: str, body: CloudFileInput, authorization: str | None = Header(default=None)):
+    """Baixa UM arquivo escolhido. A tela manda para o envio de sempre (texto para a IA + original na Biblioteca)."""
+    from services.knowledge_cloud import fetch_file
+    await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await fetch_file(body.source, body.id, body.name, body.mime)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("/knowledge/facts", status_code=201)
 async def add_knowledge_facts(client_id: str, body: KnowledgeFactsInput, authorization: str | None = Header(default=None)):
     """Fatos confirmados na conversa com o agente entram na memória da marca."""

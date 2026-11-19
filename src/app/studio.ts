@@ -452,6 +452,16 @@ export async function teachFromFile(file: File, kind: KnowledgeKind, options: { 
     { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file), ...(options.ocr ? { ocr: true } : {}) }),
       timeoutMs: options.ocr ? 300_000 : 180_000 });
 }
+/** Importar do Google Drive (pasta/arquivo) ou do Canva (link público): listar o que tem e baixar um arquivo por vez. */
+export type CloudFile = { id: string; name: string; mime: string; size: number | null; path: string; supported: boolean; reason: string | null };
+export function listCloudImport(url: string) {
+  return http<{ source: "drive" | "canva"; files: CloudFile[]; truncated: boolean }>(base("/knowledge/import/list"),
+    { method: "POST", body: JSON.stringify({ url }), timeoutMs: 60_000 });
+}
+export function fetchCloudImport(source: "drive" | "canva", file: CloudFile) {
+  return http<{ file_name: string; mime: string; content_base64: string; needs_ocr: boolean }>(base("/knowledge/import/file"),
+    { method: "POST", body: JSON.stringify({ source, id: file.id, name: file.name, mime: file.mime }), timeoutMs: 120_000 });
+}
 export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto colado") {
   return http<TeachResult>(base("/knowledge/documents"),
     { method: "POST", body: JSON.stringify({ file_name: title, kind, text }), timeoutMs: 180_000 });
