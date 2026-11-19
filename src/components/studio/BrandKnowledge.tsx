@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { ExternalLink, FileText, MessageSquare, Pencil, RotateCw, ScanText, Sparkles, Type, UploadCloud } from "lucide-react";
+import { ExternalLink, FileText, FolderDown, MessageSquare, Pencil, RotateCw, ScanText, Sparkles, Type, UploadCloud } from "lucide-react";
+import KnowledgeCloudImport from "./KnowledgeCloudImport";
 import { needsOcr, originalsByDocument, teachAndKeepOriginal, type TeachWithOriginal } from "../../app/brandKnowledgeUpload";
 import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
 import { parseKnowledge } from "./brandKnowledge.helpers";
@@ -31,6 +32,7 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
   const [kind, setKind] = useState<KnowledgeKind>("institucional");
   const [text, setText] = useState("");
   const [pasting, setPasting] = useState(false);
+  const [cloud, setCloud] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +125,9 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
           {busy === "texto" ? "Aprendendo…" : "Ensinar"}</button>
           <button type="button" className="ds-button" onClick={() => setPasting(false)}>Cancelar</button></div>
       </div> : <button type="button" className="kbLink" onClick={() => setPasting(true)}><Type size={14} aria-hidden="true" /> ou colar um texto</button>}
+      {cloud ? <KnowledgeCloudImport kind={kind} knownNames={data.documents.map((d) => d.name)} onClose={() => setCloud(false)}
+        onLearned={(res) => void run(res.document.name, async () => res)} />
+        : <button type="button" className="kbLink" onClick={() => setCloud(true)}><FolderDown size={14} aria-hidden="true" /> ou importar do Google Drive ou do Canva</button>}
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       {warn ? <p role="status" className="studioWarn">{warn}</p> : null}
       {ocrFile ? <div className="kbRow">

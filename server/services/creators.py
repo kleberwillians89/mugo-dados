@@ -5,12 +5,15 @@ reaproveitado entre empresas. Shortlists são sempre filtradas por client_id.
 """
 import asyncio
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 from . import creators_providers as providers
 from .business_context import load_business_context
-from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upsert
+from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upload_public, sb_upsert
 from .integration_errors import IntegrationError
 from .meta_tokens import ensure_valid_meta_token, get_active_connection_for_client
 
@@ -126,11 +129,39 @@ async def get_by_handle(network: str, handle: str) -> Optional[Dict[str, Any]]:
     return await sb_get_one_by("creators", filters={"network": f"eq.{network}", "handle": f"eq.{handle}"})
 
 
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _stored(url: Optional[str]) -> bool:
+    return bool(url) and "/storage/v1/object/public/" in str(url)
+
+
+async def persist_avatar(network: str, handle: str, url: Optional[str]) -> Optional[str]:
+    """A foto do Instagram/TikTok vem com link assinado que expira em poucos dias: guarda uma cópia no storage do
+    MUGOVERSO e devolve o link permanente. Se não der (timeout, não é imagem, sem storage), fica o link original."""
+    if not url or _stored(url) or not str(url).startswith("https://"):
+        return url
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            response = await client.get(str(url))
+        kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if response.status_code >= 400 or not kind.startswith("image/") or len(response.content) > AVATAR_MAX_BYTES:
+            return url
+        ext = {"image/png": "png", "image/webp": "webp"}.get(kind, "jpg")
+        return await sb_upload_public(f"creators/{network}/{handle}.{ext}", response.content, kind)
+    except Exception as exc:  # noqa: BLE001 — a foto não pode impedir de salvar o criador
+        print(f"[creators] avatar_not_stored network={network} {type(exc).__name__}")
+        return url
+
+
 async def save_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     """Grava perfil + snapshot. Um resultado parcial nunca apaga dado completo já salvo."""
     metrics = providers.compute_engagement(profile)
     row = {**{k: profile.get(k) for k in CREATOR_FIELDS}, **metrics, "collected_at": _now().isoformat()}
     existing = await get_by_handle(row["network"], row["handle"])
+    if not row.get("avatar_url") and existing and existing.get("avatar_url"):
+        row["avatar_url"] = existing["avatar_url"]  # busca por hashtag não traz foto: não apaga a que já existe
+    row["avatar_url"] = await persist_avatar(row["network"], row["handle"], row.get("avatar_url"))
     if existing and row["followers"] is None and existing.get("followers") is not None:
         return existing
     await sb_upsert("creators", [row], on_conflict="network,handle")
@@ -422,3 +453,48 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
         "discarded": discarded,
         "context_available": context["available"],
     }
+
+
+
+# ---------------------------------------------------------------- achar o @ certo enquanto digita
+
+_PREVIEW_CACHE: Dict[str, tuple] = {}
+PREVIEW_TTL = 3600
+
+
+async def resolve(client_id: str, network: str, query: str, only_ids: Visible) -> Dict[str, Any]:
+    """Sugestões enquanto a pessoa digita: criadores já salvos (nome ou @, com foto) e, quando o texto já é um @
+    válido do Instagram, a prévia oficial da Meta (grátis). Nada é salvo aqui: salvar é o "Analisar"."""
+    text = str(query or "").strip()
+    if len(text.lstrip("@")) < 2:
+        return {"saved": [], "exact": None}
+    saved = await list_creators(network=network, q=text.lstrip("@"), min_followers=None, limit=6, offset=0, only_ids=only_ids)
+    exact = None
+    try:
+        handle = providers.normalize_handle(network, text)
+    except ValueError:
+        handle = None
+    if handle and network == "instagram" and not any(c.get("handle") == handle for c in saved) and " " not in text:
+        key = f"{client_id}:{handle}"
+        hit = _PREVIEW_CACHE.get(key)
+        if hit and time.monotonic() - hit[0] < PREVIEW_TTL:
+            exact = hit[1]
+        else:
+            try:
+                profile = await _meta_profile(client_id, handle)
+                exact = {k: profile.get(k) for k in ("network", "handle", "display_name", "avatar_url", "followers", "biography")}
+            except IntegrationError as exc:
+                exact = {"network": network, "handle": handle, "missing": True,
+                         "reason": "Não é conta profissional ou não existe." if exc.code == "CREATOR_NOT_FOUND" else "A Meta não respondeu agora."}
+            _PREVIEW_CACHE[key] = (time.monotonic(), exact)
+    return {"saved": [{k: c.get(k) for k in ("id", "network", "handle", "display_name", "avatar_url", "followers", "engagement_rate")} for c in saved],
+            "exact": exact}
+
+
+async def people_search(client_id: str, query: str, limit: int = 8) -> Dict[str, Any]:
+    """Busca por NOME no Instagram (a Meta só consulta pelo @ exato). Usa 1 execução da Apify, dentro do teto."""
+    text = " ".join(str(query or "").split())[:60]
+    if len(text) < 2:
+        raise ValueError("Digite pelo menos 2 letras do nome.")
+    items = await _apify(client_id, "instagram_people", {"search": text, "searchType": "user", "searchLimit": max(1, min(limit, 10))}, max(1, min(limit, 10)))
+    return {"query": text, "people": providers.instagram_people_items(items)[:limit]}

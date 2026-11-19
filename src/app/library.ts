@@ -68,3 +68,15 @@ export function formatBytes(n?: number | null): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
   return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0).replace(".", ",")} MB`;
 }
+
+
+/** Importar do Google Drive (pasta inteira) ou do Canva direto para a Biblioteca. */
+export type LibraryCloudFile = { id: string; name: string; mime: string; size: number | null; path: string; supported: boolean; reason: string | null; category: LibraryCategory };
+export function listLibraryCloud(url: string) {
+  return http<{ source: "drive" | "canva"; files: LibraryCloudFile[]; truncated: boolean }>(base("/import/list"),
+    { method: "POST", body: JSON.stringify({ url }), timeoutMs: 60_000 });
+}
+export function importLibraryCloud(source: "drive" | "canva", file: LibraryCloudFile, category: LibraryCategory) {
+  return http<{ item: LibraryItem }>(base("/import/file"),
+    { method: "POST", body: JSON.stringify({ source, id: file.id, name: file.name, mime: file.mime, category }), timeoutMs: 330_000 });
+}

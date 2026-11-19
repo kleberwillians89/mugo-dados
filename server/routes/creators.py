@@ -115,6 +115,29 @@ async def lookup_creator(client_id: str, body: LookupInput, authorization: Optio
         raise _invalid(exc) from None
 
 
+@router.get("/resolve")
+async def resolve_creator(client_id: str, q: str = Query(min_length=1, max_length=80), network: Network = "instagram",
+                          authorization: Optional[str] = Header(default=None)):
+    """Sugestões enquanto digita: criadores salvos com foto e, se for um @ válido, a prévia da Meta."""
+    cid, only = await actor(client_id, authorization)
+    return await creators.resolve(cid, network, q, only)
+
+
+class PeopleSearchInput(BaseModel):
+    query: str = Field(min_length=2, max_length=60)
+    limit: int = Field(default=8, ge=1, le=10)
+
+
+@router.post("/people-search")
+async def people_search(client_id: str, body: PeopleSearchInput, authorization: Optional[str] = Header(default=None)):
+    """Busca por nome no Instagram (Apify, teto mensal): só a equipe Mugô, porque usa crédito pago."""
+    cid = await agency(client_id, authorization)
+    try:
+        return await creators.people_search(cid, body.query, body.limit)
+    except ValueError as exc:
+        raise _invalid(exc) from None
+
+
 @router.post("/search")
 async def search_creators(client_id: str, body: SearchInput, authorization: Optional[str] = Header(default=None)):
     cid = await agency(client_id, authorization)
