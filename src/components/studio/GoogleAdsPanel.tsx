@@ -141,7 +141,7 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
       </article>)}
     </div> : <p className="ds-emptyLine">Nenhuma campanha Google preparada.</p>}
     <Drawer open={Boolean(editing)} width="lg" title={editing === "new" ? "Nova campanha Google Ads" : "Editar campanha Google Ads"}
-      description="Rascunho de campanha de Pesquisa. Não conecta nem publica anúncios na conta Google." onClose={() => { if (!busy) setEditing(null); }}>
+      description="Campanha de Pesquisa. Salve o rascunho, revise redes e anúncios e crie na conta Google somente após confirmação; a publicação começa PAUSADA." onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form className="googleCampaignForm" onSubmit={(event) => void save(event)}>
         <label>Nome da campanha<input required maxLength={120} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Ex.: Search — Linha Running" /></label>
         <div className="googleCampaignFormRow">
