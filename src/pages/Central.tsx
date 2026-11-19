@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { STAGES, STUDIO_FORMATS, getCentral, localParts, type CentralView } from "../app/studio";
-import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../app/routes";
+import { navigateToAppRoute, type AppRoute } from "../app/routes";
 import { formatCurrency, formatInteger } from "../app/dataFormat";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import AiUsageButton from "../components/studio/AiUsageButton";
-import KpiFigure from "../components/data/KpiFigure";
-import HealthIndexCard from "../components/clipping/HealthIndexCard";
+import ClientExecutivePanel from "../components/dashboard/ClientExecutivePanel";
+
 import HomeChannels from "../components/home/HomeChannels";
 import PageSkeleton from "../components/data/PageSkeleton";
 import "../styles/studio.css";
+import "../styles/clientExecutive.css";
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-const MODULE_ROUTE: Record<string, AppRoute> = { approval: "calendar", calendar: "calendar", media: "media", clipping: "clipping", campaigns: "campaigns", tasks: "tasks" };
 const SENT: Record<string, string> = { positivo: "Positiva", neutro: "Neutra", negativo: "Negativa" };
 
 type DashboardSummary = {
@@ -72,10 +72,8 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   }, [month, clientId]);
   useEffect(() => { void load(); }, [load]);
 
-  const n = view?.numbers;
   const cal = view?.calendar;
   const media = view?.media;
-  const clip = view?.clipping;
   const tasks = view?.tasks;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -93,28 +91,7 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
     {loading && !view ? <PageSkeleton label="Montando o Dashboard com os dados disponíveis…" /> : null}
 
     {view ? <>
-      <section className="homeHealth centralHealth" aria-label="Saúde da Marca">
-        <div className="homeHealthHead"><h2>Saúde da Marca</h2><a href={getPathForRoute("brand_health")}>Abrir análise completa</a></div>
-        {healthStart <= today ? <HealthIndexCard start={healthStart} end={healthEnd} compact /> : <p className="studioOk">Este mês ainda não começou.</p>}
-      </section>
-
-      {n ? <section aria-labelledby="central-results-title">
-        <div className="centralSectionHead"><h2 id="central-results-title">Resultados disponíveis</h2><p>Indicadores persistidos para o período selecionado.</p></div>
-        <div className="centralNumbers">
-          <KpiFigure hero label="Faturamento da loja" value={formatCurrency(n.faturamento)} rawValue={n.faturamento ?? undefined} delta={n.end ? `até ${n.end.slice(8, 10)}/${n.end.slice(5, 7)}` : "período sem fechamento"} />
-          <KpiFigure label="Investimento em mídia" value={formatCurrency(n.investimento)} rawValue={n.investimento ?? undefined} />
-          <KpiFigure label="Retorno por R$ 1 investido" value={n.retorno != null ? formatCurrency(n.retorno) : "—"} />
-          <KpiFigure label="Pedidos" value={formatInteger(n.pedidos)} />
-          {n.melhor_campanha ? <p className="centralBest">Campanha que mais vendeu: <b>{n.melhor_campanha.campanha}</b> · {n.melhor_campanha.pedidos} pedido(s) · {formatCurrency(n.melhor_campanha.vendas)}</p> : null}
-        </div>
-      </section> : <p className="centralUnavailable">Resultados comerciais não estão disponíveis para este período.</p>}
-
-      {view.alerts.length ? <section className="centralAlerts" aria-label="O que precisa de atenção">
-        <h2>O que precisa de atenção</h2>
-        <ul>{view.alerts.map((a) => <li key={`${a.module}:${a.text}`} className={`is-${a.level}`}>
-          <span>{a.text}</span>{MODULE_ROUTE[a.module] ? <button type="button" className="studioLink" onClick={() => navigateToAppRoute(MODULE_ROUTE[a.module])}>Ver</button> : null}
-        </li>)}</ul>
-      </section> : <p className="studioOk">Nada pedindo atenção agora.</p>}
+      <ClientExecutivePanel view={view} month={month} clientName={clientName} healthStart={healthStart} healthEnd={healthEnd} showHealth={healthStart <= today} />
 
       <details className="centralDetails">
         <summary>Ver detalhes operacionais</summary>
