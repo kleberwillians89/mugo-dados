@@ -80,8 +80,9 @@ async def team_members(client_id: Optional[str] = Query(default=None),
                        x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
                        authorization: Optional[str] = Header(default=None)):
     cid = await require_client_read(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
     try:
-        return await team_admin.list_members(cid)
+        return await team_admin.list_members(cid, include_internal=include_internal)
     except AccessError as exc:
         raise _fail(exc) from None
 

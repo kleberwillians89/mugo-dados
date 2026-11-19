@@ -20,7 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from . import team_access as ta
 from .client_access import (
-    GLOBAL_ROLES, AccessError, _admin_request, _auth_user_view, _create_auth_user, _delete_auth_user,
+    AccessError, _admin_request, _auth_user_view, _create_auth_user, _delete_auth_user,
     _holds_global_role, _membership, find_auth_user_by_email, normalize_email, validate_password,
 )
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update, sb_upsert
@@ -28,6 +28,9 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update, sb_upsert
 INTERNAL_LOGIN_DOMAIN = "acesso.mugo.ag"
 USERNAME_RE = re.compile(r"^[a-z0-9._-]{3,32}$")
 MEMBER_COLUMNS = "id,user_id,client_id,role,status,permission_preset,view_all,access_total,username,created_at"
+# Papéis internos que nunca são administrados no fluxo comum de um tenant.
+# ``owner`` e ``admin`` são papéis legados do CLIENTE e, portanto, não entram aqui.
+INTERNAL_TEAM_ROLES = frozenset({"agency_admin", "platform_admin", "account_manager"})
 
 
 def _text(value: Any) -> str:
@@ -108,7 +111,9 @@ async def _overrides(client_id: str) -> Dict[str, List[tuple]]:
     return out
 
 
-def _member_view(row: Dict[str, Any], detail: Dict[str, Any], overrides: List[tuple]) -> Dict[str, Any]:
+def _member_view(
+    row: Dict[str, Any], detail: Dict[str, Any], overrides: List[tuple], *, internal_team: bool,
+) -> Dict[str, Any]:
     role = _text(row.get("role")).lower()
     flags = ({"preset": row.get("permission_preset"), "view_all": bool(row.get("view_all")),
               "access_total": bool(row.get("access_total"))}
@@ -119,7 +124,7 @@ def _member_view(row: Dict[str, Any], detail: Dict[str, Any], overrides: List[tu
         "name": detail.get("name"),
         "login": display_login(detail.get("email"), row.get("username")),
         "role": role,
-        "is_global_role": role in GLOBAL_ROLES or role == "account_manager",
+        "is_global_role": internal_team,
         "preset": flags["preset"],
         "preset_label": ta.PRESETS.get(str(flags["preset"]), {}).get("label", flags["preset"]),
         "view_all": flags["view_all"],
@@ -133,8 +138,49 @@ def _member_view(row: Dict[str, Any], detail: Dict[str, Any], overrides: List[tu
     }
 
 
-async def list_members(client_id: str) -> Dict[str, Any]:
+async def _internal_team_user_ids(rows: List[Dict[str, Any]]) -> set[str]:
+    """Classifica equipe interna sem confiar só no papel desta empresa.
+
+    Um ``agency_admin`` em qualquer tenant e um ``platform_admin`` continuam
+    sendo equipe Mugô mesmo que tenham um vínculo legado diferente no tenant
+    consultado. Se a classificação falhar, a lista falha fechada para nunca
+    expor essas contas a um cliente.
+    """
+    member_ids = {_text(row.get("user_id")) for row in rows if _text(row.get("user_id"))}
+    internal = {
+        _text(row.get("user_id")) for row in rows
+        if _text(row.get("role")).lower() in INTERNAL_TEAM_ROLES
+    }
+    if not member_ids:
+        return internal
+    try:
+        platform_rows = await sb_select(
+            "platform_admins", select="user_id,role",
+            filters={"role": "eq.platform_admin"}, limit=500,
+        )
+        global_memberships = await sb_select(
+            "client_memberships", select="user_id,role",
+            filters={"role": "in.(agency_admin,platform_admin,account_manager)"}, limit=5000,
+        )
+    except Exception as exc:  # noqa: BLE001 — visibilidade incerta nunca expõe equipe interna
+        print(f"[team][visibility] status=failed error_type={type(exc).__name__}")
+        raise AccessError(
+            "TEAM_VISIBILITY_UNAVAILABLE",
+            "Não foi possível verificar a visibilidade dos usuários agora.",
+            status_code=503,
+        ) from None
+    for row in [*platform_rows, *global_memberships]:
+        user_id = _text(row.get("user_id"))
+        if user_id in member_ids:
+            internal.add(user_id)
+    return internal
+
+
+async def list_members(client_id: str, *, include_internal: bool = True) -> Dict[str, Any]:
     rows = await _members(client_id)
+    internal_ids = await _internal_team_user_ids(rows)
+    if not include_internal:
+        rows = [row for row in rows if _text(row.get("user_id")) not in internal_ids]
     overrides = await _overrides(client_id)
     users: Dict[str, Dict[str, Any]] = {}
     try:
@@ -145,7 +191,12 @@ async def list_members(client_id: str) -> Dict[str, Any]:
                 users[_text(user.get("id"))] = _auth_user_view(user)
     except AccessError as exc:
         print(f"[team][list] client_id={client_id} status=auth_unavailable code={exc.code}")
-    items = [_member_view(r, users.get(_text(r.get("user_id")), {}), overrides.get(_text(r.get("user_id")), []))
+    items = [_member_view(
+        r,
+        users.get(_text(r.get("user_id")), {}),
+        overrides.get(_text(r.get("user_id")), []),
+        internal_team=_text(r.get("user_id")) in internal_ids,
+    )
              for r in rows if _text(r.get("client_id")) == client_id]
     return {"ok": True, "client_id": client_id, "items": items}
 
@@ -216,7 +267,7 @@ async def _target(client_id: str, actor: Dict[str, Any], user_id: str) -> Dict[s
     if not rows:
         raise AccessError("ACCESS_NOT_FOUND", "Este usuário não tem acesso a esta empresa.", status_code=404)
     row = rows[0]
-    if _text(row.get("role")).lower() in (*GLOBAL_ROLES, "account_manager"):
+    if _text(user_id) in await _internal_team_user_ids([row]):
         raise AccessError("ACCESS_ROLE_NOT_ALLOWED", "Contas da equipe Mugô não são administradas nesta tela.",
                           status_code=403)
     if not actor["team"] and not actor["access_total"] and bool(row.get("access_total")):
