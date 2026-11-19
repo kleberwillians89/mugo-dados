@@ -15,6 +15,7 @@ const blank = (): GoogleCampaignPayload => ({
   platform: "google_ads", name: "", objective: "vendas", type: "SEARCH",
   daily_budget: 30, start_date: today(), end_date: later(), final_url: "",
   locations: [], keywords: [], headlines: [], descriptions: [], notes: "",
+  networks: {google_search: true,search_partners:false,display_network:false},
   contains_eu_political_advertising: null,
 });
 const splitLines = (text: string) => text.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -152,6 +153,20 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
           <label>Data inicial<input type="date" required value={form.start_date} onChange={(e) => set({ start_date: e.target.value })} /></label>
           <label>Data final<input type="date" required min={form.start_date} value={form.end_date} onChange={(e) => set({ end_date: e.target.value })} /></label>
         </div>
+        <fieldset className="googleCampaignNetworks">
+          <legend>Redes de veiculação — Pesquisa</legend>
+          <p>Escolha onde a campanha de Pesquisa poderá aparecer. Não cria campanhas Performance Max, Display nem YouTube separadas.</p>
+          <label><input type="checkbox" checked disabled /> Pesquisa Google <small>(obrigatória neste formato)</small></label>
+          <label><input type="checkbox" checked={Boolean(form.networks?.search_partners)}
+            onChange={e => set({networks:{google_search:true,search_partners:e.target.checked,display_network:Boolean(form.networks?.display_network)}})} />
+            Parceiros de pesquisa do Google</label>
+          <label><input type="checkbox" checked={Boolean(form.networks?.display_network)}
+            onChange={e => set({networks:{google_search:true,search_partners:Boolean(form.networks?.search_partners),display_network:e.target.checked}})} />
+            Rede de Display do Google <small>(expansão opcional desta campanha de Pesquisa)</small></label>
+          <div className="googleCampaignNetworkHint">Selecionado: Pesquisa Google
+            {form.networks?.search_partners ? " · Parceiros de pesquisa" : ""}
+            {form.networks?.display_network ? " · Rede de Display" : ""}</div>
+        </fieldset>
         <label>URL final (HTTPS)<input type="url" placeholder="https://exemplo.com.br" value={form.final_url} onChange={(e) => set({ final_url: e.target.value })} /></label>
         <label>Localizações (uma por linha)<textarea rows={2} value={form.locations.join("\n")} onChange={(e) => set({ locations: splitLines(e.target.value) })} /></label>
         <label>Palavras-chave (uma por linha)<textarea rows={4} value={form.keywords.join("\n")} onChange={(e) => set({ keywords: splitLines(e.target.value) })} placeholder={"tênis de corrida\ntênis para caminhada"} /></label>
