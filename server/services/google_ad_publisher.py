@@ -135,8 +135,13 @@ def _operations(customer_id: str, draft_id: str, payload: Dict[str, Any], geo_re
         "campaign": campaign, "location": {"geoTargetConstant": resource}, "negative": False,
     }}} for resource in geo_resources)
     operations.extend({"adGroupCriterionOperation": {"create": {
-        "adGroup": ad_group, "status": "PAUSED", "keyword": {"text": keyword, "matchType": "PHRASE"},
+        "adGroup": ad_group, "status": "PAUSED",
+        "keyword": {"text": keyword, "matchType": payload.get("keyword_match_type", "PHRASE")},
     }}} for keyword in payload["keywords"])
+    operations.extend({"campaignCriterionOperation": {"create": {
+        "campaign": campaign, "negative": True,
+        "keyword": {"text": keyword, "matchType": "PHRASE"},
+    }}} for keyword in payload.get("negative_keywords", []))
     operations.append({"adGroupAdOperation": {"create": {
         "adGroup": ad_group, "status": "PAUSED", "ad": {
             "finalUrls": [payload["final_url"]],
