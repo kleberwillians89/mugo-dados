@@ -406,6 +406,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "planos_aprovados": plans,
         "biblioteca": library,
         "lacunas":sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
+        "_client_id": client_id,  # só para o registro de tamanho do contexto; não vai para a IA
     }
     _CACHE[key] = (time.monotonic(), package)
     return package
@@ -725,10 +726,13 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
-                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "criativos_pagos", "kpis",
-                "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
-                "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+# Ordem de importância: quando o contexto passa do limite, o FIM da lista é resumido (e, se preciso, omitido) primeiro.
+# Resultado real (aprovações, posts, anúncios) vem logo depois da marca e do que a equipe decidiu; a lista de arquivos
+# da Biblioteca fica por último.
+PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "aprendizados", "posts", "criativos_pagos",
+                "referencias_do_cliente", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia",
+                "kpis", "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes",
+                "clipping", "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas", "biblioteca"]
 
 
 def _shrink(value: Any) -> Any:
@@ -751,6 +755,7 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     cada, de trás para frente) e só então omite; o prompt avisa a IA do que foi resumido ou omitido."""
     order = sections or PROMPT_ORDER
     data = {k: package.get(k) for k in order if package.get(k)}
+    full = len(_dump(data))
     budget = max(200, limit - 220)  # espaço para o aviso
     resumed: List[str] = []
     dropped: List[str] = []
@@ -781,4 +786,8 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     if resumed or dropped:
         data["_aviso"] = {"resumidas": [k for k in resumed if k not in dropped], "omitidas_por_tamanho": dropped}
         text = _dump(data)
+    # Registro para medir se o contexto está sendo cortado em cada marca (só nomes de seção e tamanhos, nada de dado).
+    print(f"[studio][intel][prompt] cliente={package.get('_client_id') or '?'} secoes={len(order)} "
+          f"tamanho_completo={full} enviado={min(len(text), limit)} limite={limit} "
+          f"resumidas={','.join(k for k in resumed if k not in dropped) or '-'} omitidas={','.join(dropped) or '-'}")
     return text[:limit]
