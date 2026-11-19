@@ -51,15 +51,7 @@ function Card({ title, route, children, empty }: { title: string; route: AppRout
   </section>;
 }
 
-function SummaryCard({ label, value, suffix, hint }: { label: string; value: number | null; suffix?: string; hint?: string }) {
-  return <article className="centralSummaryCard">
-    <span>{label}</span>
-    <strong>{value == null ? "—" : `${formatInteger(value)}${suffix || ""}`}</strong>
-    <small>{value == null ? "Dado não disponível nesta visão" : hint}</small>
-  </article>;
-}
-
-/** Dashboard gerencial: prioridades, andamento e resultados usando somente dados já autorizados da Central. */
+/** Dashboard do cliente: marca e resultados antes da operação, com dados da Central. */
 export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
@@ -85,7 +77,6 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const media = view?.media;
   const clip = view?.clipping;
   const tasks = view?.tasks;
-  const summary = buildDashboardSummary(view);
 
   const today = new Date().toISOString().slice(0, 10);
   const healthStart = `${month}-01`;
@@ -102,38 +93,10 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
     {loading && !view ? <PageSkeleton label="Montando o Dashboard com os dados disponíveis…" /> : null}
 
     {view ? <>
-      <section className="centralSummary" aria-label="Resumo gerencial">
-        <SummaryCard label="Trabalhos em andamento" value={summary.inProgress} hint="tarefas abertas" />
-        <SummaryCard label="Aguardando aprovação" value={summary.waitingApproval} hint="revisão interna ou com o cliente" />
-        <SummaryCard label="Tarefas atrasadas" value={summary.overdue} hint="prazos vencidos" />
-        <SummaryCard label="Trabalhos concluídos" value={summary.completed} />
-        <SummaryCard label="Entregas no prazo" value={summary.onTime} suffix="%" />
-      </section>
-
       <section className="homeHealth centralHealth" aria-label="Saúde da Marca">
         <div className="homeHealthHead"><h2>Saúde da Marca</h2><a href={getPathForRoute("brand_health")}>Abrir análise completa</a></div>
         {healthStart <= today ? <HealthIndexCard start={healthStart} end={healthEnd} compact /> : <p className="studioOk">Este mês ainda não começou.</p>}
       </section>
-
-      {view.alerts.length ? <section className="centralAlerts" aria-label="O que precisa de atenção">
-        <h2>O que precisa de atenção</h2>
-        <ul>{view.alerts.map((a) => <li key={`${a.module}:${a.text}`} className={`is-${a.level}`}>
-          <span>{a.text}</span>{MODULE_ROUTE[a.module] ? <button type="button" className="studioLink" onClick={() => navigateToAppRoute(MODULE_ROUTE[a.module])}>Ver</button> : null}
-        </li>)}</ul>
-      </section> : <p className="studioOk">Nada pedindo atenção agora.</p>}
-
-      <div className="centralManagementGrid">
-        <section className="centralCard" aria-label="Fluxo de trabalho">
-          <header><h2>Fluxo de trabalho</h2><button type="button" className="studioLink centralOpen" onClick={() => navigateToAppRoute("calendar")}>Abrir ›</button></header>
-          {cal ? <ul className="centralStages">{Object.entries(cal.counts).map(([stage, value]) => <li key={stage} className={`is-${stage}`}><b>{value}</b><span>{STAGES[stage as keyof typeof STAGES] || stage}</span></li>)}</ul> : <p className="libHint">Fluxo do calendário indisponível.</p>}
-        </section>
-
-        <section className="centralCard" aria-label="Próximas entregas">
-          <header><h2>Próximas entregas</h2><button type="button" className="studioLink centralOpen" onClick={() => navigateToAppRoute("calendar")}>Abrir ›</button></header>
-          {cal?.upcoming.length ? <ul className="centralList">{cal.upcoming.map((post) => { const when = localParts(post.scheduled_at); return <li key={post.id}><small>{when.label} · {when.time} · {STUDIO_FORMATS[post.format]}</small><span>{post.title}</span></li>; })}</ul> : <p className="libHint">Nenhuma postagem programada no período.</p>}
-          {tasks?.available && tasks.next?.length ? <><h3>Próximas tarefas</h3><ul className="centralList">{tasks.next.map((task) => <li key={`${task.title}:${task.due_date}`}><small>{task.due_date ? `${task.due_date.slice(8, 10)}/${task.due_date.slice(5, 7)}` : "Sem prazo"}</small><span>{task.title}</span></li>)}</ul></> : null}
-        </section>
-      </div>
 
       {n ? <section aria-labelledby="central-results-title">
         <div className="centralSectionHead"><h2 id="central-results-title">Resultados disponíveis</h2><p>Indicadores persistidos para o período selecionado.</p></div>
@@ -146,9 +109,30 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
         </div>
       </section> : <p className="centralUnavailable">Resultados comerciais não estão disponíveis para este período.</p>}
 
+      {view.alerts.length ? <section className="centralAlerts" aria-label="O que precisa de atenção">
+        <h2>O que precisa de atenção</h2>
+        <ul>{view.alerts.map((a) => <li key={`${a.module}:${a.text}`} className={`is-${a.level}`}>
+          <span>{a.text}</span>{MODULE_ROUTE[a.module] ? <button type="button" className="studioLink" onClick={() => navigateToAppRoute(MODULE_ROUTE[a.module])}>Ver</button> : null}
+        </li>)}</ul>
+      </section> : <p className="studioOk">Nada pedindo atenção agora.</p>}
+
       <details className="centralDetails">
         <summary>Ver detalhes operacionais</summary>
         <HomeChannels />
+        <div className="centralManagementGrid">
+          <section className="centralCard" aria-label="Fluxo de trabalho">
+            <header><h2>Fluxo de trabalho</h2><button type="button" className="studioLink centralOpen" onClick={() => navigateToAppRoute("calendar")}>Abrir ›</button></header>
+            {cal ? <ul className="centralStages">{Object.entries(cal.counts).map(([stage, value]) => <li key={stage} className={`is-${stage}`}><b>{value}</b><span>{STAGES[stage as keyof typeof STAGES] || stage}</span></li>)}</ul> : <p className="libHint">Fluxo do calendário indisponível.</p>}
+          </section>
+  
+          <section className="centralCard" aria-label="Próximas entregas">
+            <header><h2>Próximas entregas</h2><button type="button" className="studioLink centralOpen" onClick={() => navigateToAppRoute("calendar")}>Abrir ›</button></header>
+            {cal?.upcoming.length ? <ul className="centralList">{cal.upcoming.map((post) => { const when = localParts(post.scheduled_at); return <li key={post.id}><small>{when.label} · {when.time} · {STUDIO_FORMATS[post.format]}</small><span>{post.title}</span></li>; })}</ul> : <p className="libHint">Nenhuma postagem programada no período.</p>}
+            {tasks?.available && tasks.next?.length ? <><h3>Próximas tarefas</h3><ul className="centralList">{tasks.next.map((task) => <li key={`${task.title}:${task.due_date}`}><small>{task.due_date ? `${task.due_date.slice(8, 10)}/${task.due_date.slice(5, 7)}` : "Sem prazo"}</small><span>{task.title}</span></li>)}</ul></> : null}
+          </section>
+        </div>
+  
+  
         <div className="centralGrid">
           <Card title="Mídia On" route="media" empty={media ? null : "Sem plano de mídia salvo para este mês."}>
             {media ? <><p className="libHint">{media.objetivo ? `Objetivo: ${media.objetivo}. ` : ""}{media.verba ? `Verba do mês: ${formatCurrency(media.verba)}. ` : ""}Dia {media.elapsed_days} de {media.days_in_month}.</p>
