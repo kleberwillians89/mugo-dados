@@ -58,26 +58,30 @@ describe("Dashboard gerencial", () => {
     expect(buildDashboardSummary({ ...fixture, tasks: { available: false }, calendar: null })).toEqual({ inProgress: null, waitingApproval: null, overdue: null, completed: null, onTime: null });
   });
 
-  it("mostra resumo, fluxo, próximos itens e navega a partir dos alertas", async () => {
+  it("prioriza marca e resultados, mantém fluxos operacionais recolhidos", async () => {
     getCentral.mockResolvedValue(fixture);
     await act(async () => { root.render(<Central isAgency />); });
     expect(container.textContent).toContain("Dashboard");
-    expect(container.textContent).not.toContain("Trabalhos em andamento");
-    expect(container.textContent).not.toContain("Aguardando aprovação3");
+    expect(container.textContent).toContain("Maison Demo, em perspectiva.");
     expect(container.textContent).toContain("Saúde compacta: true");
-    expect(container.textContent).toContain("Faturamento da loja: R$");
-    expect(container.querySelector(".centralHealth")).not.toBeNull();
+    expect(container.textContent).toContain("Faturamento da loja");
+    expect(container.textContent).toContain("R$ 8.300,00");
+    expect(container.textContent).toContain("Ticket médio estimado");
+    expect(container.textContent).not.toContain("Trabalhos em andamento");
+    const hero = container.querySelector(".clientExecutiveWelcome");
+    const health = container.querySelector(".clientExecutiveHealth");
+    const results = container.querySelector(".clientExecutiveResults");
+    expect(hero).not.toBeNull();
+    expect(health).not.toBeNull();
+    expect(results).not.toBeNull();
+    expect(Boolean(hero && health && (hero.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    expect(Boolean(health && results && (health.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     expect(container.querySelector(".centralManagementGrid")?.closest("details")).not.toBeNull();
-    const health = container.querySelector(".centralHealth");
-    const results = container.querySelector('[aria-labelledby="central-results-title"]');
-    const alerts = container.querySelector(".centralAlerts");
-    expect(Boolean(health && results && alerts && (health.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
-    expect(Boolean(results && alerts && (results.compareDocumentPosition(alerts) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     expect(container.textContent).toContain("Revisão interna");
     expect(container.textContent).toContain("Editorial de verão");
-    const alertButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "Ver")!;
-    await act(async () => { alertButton.click(); });
-    expect(navigate).toHaveBeenCalledWith("tasks");
+    const ecommerce = [...container.querySelectorAll("button")].find(button => button.textContent?.includes("Faturamento da loja"))!;
+    await act(async () => { ecommerce.click(); });
+    expect(navigate).toHaveBeenCalledWith("ecommerce");
   });
 
   it("só aceita a resposta do tenant que iniciou a leitura", () => {
