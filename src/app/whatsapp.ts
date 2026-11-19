@@ -246,7 +246,17 @@ export type WaAiMode = "off" | "suggest" | "auto";
 export type WaAiSettings = {
   mode: WaAiMode; instructions: string; welcome_buttons: string[]; featured_products: string[]; offers: string;
   catalog_id: string | null; product_cards: boolean; human_pause_minutes: number; updated_at?: string | null;
+  /** Quem chega por anúncio (Click-to-WhatsApp) recebe este link uma vez. */
+  ad_group_link?: string | null; ad_group_message?: string;
+  /** Claude da própria marca: a chave nunca volta, só o final dela. */
+  claude_model?: WaClaudeModel; has_claude_key?: boolean; claude_key_hint?: string | null;
 };
+export type WaClaudeModel = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
+export const WA_CLAUDE_MODELS: { id: WaClaudeModel; label: string }[] = [
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 (recomendado)" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5 (mais rápido e barato)" },
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5 (mais caprichado, mais caro)" },
+];
 export type WaAiCatalogStatus = {
   shopify: { ok: boolean; domain?: string; products?: number; available?: number; error?: string };
   meta: { ok: boolean; catalog_id?: string; items?: number; matched_products?: number };
@@ -259,6 +269,10 @@ export type WaAiSimulation = {
 export const getWhatsAppAiSettings = () => http<{ settings: WaAiSettings }>(base("/ai-settings"));
 export const saveWhatsAppAiSettings = (changes: Partial<WaAiSettings>) =>
   http<{ settings: WaAiSettings }>(base("/ai-settings"), { method: "PUT", body: JSON.stringify(changes) });
+export const saveWhatsAppAiClaudeKey = (api_key: string, model: WaClaudeModel) =>
+  http<{ settings: WaAiSettings }>(base("/ai-settings/claude-key"), { method: "PUT", body: JSON.stringify({ api_key, model }), timeoutMs: 45_000 });
+export const removeWhatsAppAiClaudeKey = () =>
+  http<{ settings: WaAiSettings }>(base("/ai-settings/claude-key"), { method: "DELETE" });
 export const getWhatsAppAiCatalog = () => http<WaAiCatalogStatus>(base("/ai-settings/catalog"), { timeoutMs: 90_000 });
 export const simulateWhatsAppAi = (conversation: { role: "cliente" | "marca"; text: string }[]) =>
   http<WaAiSimulation>(base("/ai-settings/simulate"), { method: "POST", body: JSON.stringify({ conversation }), timeoutMs: 90_000 });
