@@ -6,6 +6,7 @@ import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
+import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
@@ -281,6 +282,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           <label className="ds-field">Descrição (opcional)<input maxLength={200} value={editing.payload.ad.description} onChange={(e) => setAd({ description: e.target.value })} /></label>
           <label className="ds-field">Link de destino<input type="url" maxLength={500} value={editing.payload.ad.link} placeholder="https://loja.com.br/produto" onChange={(e) => setAd({ link: e.target.value })} /></label>
+          <CampaignTrackingFields platform="meta" campaignName={editing.payload.name}
+            value={editing.payload.tracking || {}} disabled={locked || Boolean(busy)}
+            onChange={tracking => set({tracking})} />
           <MetaCreativeStudio key={clientId + ":" + editing.draft.id} clientId={clientId} month={month}
             calendar={arts} ad={editing.payload.ad} disabled={locked || Boolean(busy)} onChoose={setAd} />
         </fieldset> : null}
