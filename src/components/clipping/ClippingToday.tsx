@@ -3,10 +3,10 @@ import { createTask } from "../../app/crm";
 import { CRITICALITY_LABEL, KIND_LABEL, SENTIMENT_LABEL, type Clipping as Item, type ClippingInsights, type ClippingView } from "../../app/contentOps";
 import { getMetaPermissions, type MetaFeature } from "../../app/metaLive";
 import { clippingHeadline } from "../../app/clippingText";
+import NewsCard from "./NewsCard";
 import "../../styles/metaLive.css";
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "");
-const toneOf = (s: string | null | undefined) => (s === "positivo" ? "ok" : s === "negativo" ? "bad" : s === "misto" ? "warn" : "neu");
 
 type Props = {
   company: string; view: ClippingView; insights: ClippingInsights | null; canManage: boolean; busy: string | null;
@@ -106,20 +106,12 @@ export default function ClippingToday({ company, view, insights, canManage, busy
       <section className="mlBlock clipFeed" aria-labelledby="clip-new">
         <div className="mlRow mlSpread"><h3 id="clip-new">Novas para ler <span className="mlMuted">{fresh.length}</span></h3>
           <button type="button" className="ds-button" onClick={onOpenAll}>Ver todas as matérias</button></div>
-        {fresh.length ? fresh.map((i) => <article className="mlCard clipRow" key={i.id}>
-          <div className="mlChips"><span className={`mlChip is-${toneOf(i.sentiment)}`}>{i.sentiment ? SENTIMENT_LABEL[i.sentiment] : "Sem leitura"}</span>
-            <span className={`mlChip is-${i.kind === "concorrente" ? "warn" : "neu"}`}>{KIND_LABEL[i.kind] || i.kind} · {i.term}</span>
-            {i.relevance != null ? <span className="mlChip is-neu">Relevância {i.relevance}</span> : null}
-            <small className="mlMuted">{i.source || "Fonte"} · {when(i.published_at || i.created_at)}</small></div>
-          <h4><a href={i.url} target="_blank" rel="noreferrer noopener">{i.title}</a></h4>
-          {i.summary ? <p>{i.summary}</p> : null}
-          {canManage ? <div className="mlRow">
+        {fresh.length ? <div className="newsGrid">{fresh.map((i) => <NewsCard key={i.id} item={i} actions={canManage ? <>
             {i.status === "pauta" ? <span className="studioOk">Virou pauta</span> : <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => onCalendar(i)}>Virar pauta</button>}
             <button type="button" className="ds-button" disabled={taskBusy === i.id} onClick={() => void task(i)}>Criar tarefa</button>
             <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => onMark(i, "lido")}>Lida</button>
             <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => onMark(i, "arquivado")}>Arquivar</button>
-          </div> : null}
-        </article>) : <p className="mlMuted">Nada novo para ler. Tudo em dia.</p>}
+          </> : undefined} />)}</div> : <p className="mlMuted">Nada novo para ler. Tudo em dia.</p>}
       </section>
 
       <aside className="clipSide" aria-label="Leitura do período">

@@ -17,6 +17,7 @@ export type RadarCreator = {
   network: string;
   handle: string;
   display_name: string | null;
+  avatar_url?: string | null;
   followers: number | null;
   engagement_rate: number | null;
   sample_size: number | null;
