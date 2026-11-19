@@ -51,14 +51,6 @@ function Card({ title, route, children, empty }: { title: string; route: AppRout
   </section>;
 }
 
-function SummaryCard({ label, value, suffix, hint }: { label: string; value: number | null; suffix?: string; hint?: string }) {
-  return <article className="centralSummaryCard">
-    <span>{label}</span>
-    <strong>{value == null ? "—" : `${formatInteger(value)}${suffix || ""}`}</strong>
-    <small>{value == null ? "Dado não disponível nesta visão" : hint}</small>
-  </article>;
-}
-
 /** Dashboard do cliente: marca e resultados antes da operação, com dados da Central. */
 export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const clientId = getActiveClientId();
@@ -85,7 +77,6 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
   const media = view?.media;
   const clip = view?.clipping;
   const tasks = view?.tasks;
-  const summary = buildDashboardSummary(view);
 
   const today = new Date().toISOString().slice(0, 10);
   const healthStart = `${month}-01`;
