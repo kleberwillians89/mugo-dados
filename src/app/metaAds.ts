@@ -1,7 +1,14 @@
 import { clientClientPath, http } from "./api";
 
 /** Mídia On → Meta Ads: rascunhos de campanha e publicação PAUSADA (só equipe Mugô). */
+export type MetaPlacements = {
+  mode: "automatic" | "manual";
+  platforms: ("instagram" | "facebook")[];
+  instagram: ("stream" | "story" | "reels")[];
+  facebook: ("feed" | "story" | "facebook_reels")[];
+};
 export type AdPayload = {
+  placements?: MetaPlacements;
   name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads"; daily_budget: number; start_date: string; end_date: string;
   audience: {
     age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean;
@@ -10,7 +17,7 @@ export type AdPayload = {
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
   };
-  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null };
+  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null };
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
@@ -53,6 +60,7 @@ export type InstagramCreativePost = {
   timestamp: string;
   preview_url: string;
   image_url: string | null;
+  video_url?: string | null;
   selectable: boolean;
 };
 export const listInstagramCreativePosts = () =>
