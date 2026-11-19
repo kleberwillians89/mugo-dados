@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { http, publicApiUrl } from "../../app/api";
 import { getActiveClientId } from "../../app/activeClient";
+import "./groupInviteCampaigns.css";
 
 type GroupLink = {
   id: string; client_id: string; campaign_key: string; label: string;
