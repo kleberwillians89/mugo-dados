@@ -1,0 +1,130 @@
+{% comment %}
+  RUAH VIP — cadastro antes do convite. Requer app proxy da loja Shopify
+  configurado em /apps/mugo-first-access -> /api/shopify/lead-capture.
+  Credenciais jamais são colocadas no tema; o backend resolve o tenant pela loja assinada.
+{% endcomment %}
+<section class="ruah-vip" id="ruah-vip-{{ section.id }}">
+  <div class="ruah-vip__inner">
+    <div class="ruah-vip__kicker">RUAH PARFUMS · PRIVATE CIRCLE</div>
+    <h1>{{ section.settings.title | escape }}</h1>
+    <p class="ruah-vip__intro">{{ section.settings.subtitle | escape }}</p>
+
+    <form class="ruah-vip__form" id="ruah-vip-form-{{ section.id }}" novalidate
+          data-proxy="{{ section.settings.proxy_path | escape }}"
+          data-campaign="{{ section.settings.campaign_key | escape }}">
+      <input type="hidden" name="event_id" value="">
+      <input type="hidden" name="campaign" value="{{ section.settings.campaign_key | escape }}">
+      <input type="hidden" name="consent_version" value="ruah_vip_v1_2026-11">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label class="ruah-vip__honeypot" aria-hidden="true">Site<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+
+      <label>SEU NOME<input type="text" name="name" autocomplete="name" placeholder="Como podemos te chamar?" minlength="2" maxlength="100" required></label>
+      <label>SEU E-MAIL<input type="email" name="email" autocomplete="email" placeholder="voce@exemplo.com" required></label>
+      <label>SEU WHATSAPP<input type="tel" name="phone" autocomplete="tel" placeholder="(11) 99999-9999" inputmode="tel" minlength="10" required></label>
+
+      <div class="ruah-vip__consent">
+        <strong>COMO VOCÊ QUER RECEBER NOVIDADES?</strong>
+        <label><input type="checkbox" name="consent_email" value="sim"> Autorizo a Ruah a enviar novidades e ofertas por e-mail.</label>
+        <label><input type="checkbox" name="consent_whatsapp" value="sim"> Autorizo a Ruah a enviar mensagens individuais de novidades e ofertas pelo WhatsApp.</label>
+        <p>Os consentimentos são opcionais e independentes. O cadastro serve para receber o convite ao círculo privado; não autoriza mensagens comerciais sem seu aceite.</p>
+        <p>Consulte nossa <a href="{{ shop.url }}/policies/privacy-policy" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
+      </div>
+
+      <button type="submit" class="ruah-vip__button">CONFIRMAR CADASTRO <span aria-hidden="true">↗</span></button>
+      <p class="ruah-vip__error" role="alert" hidden></p>
+    </form>
+    <div class="ruah-vip__success" hidden aria-live="polite">
+      <span class="ruah-vip__kicker">CADASTRO CONFIRMADO</span>
+      <h2>Seu convite está pronto.</h2>
+      <p>Entre no círculo privado da Ruah para acompanhar as próximas novidades e seleções.</p>
+      {% if section.settings.group_tracking_url != blank %}
+        <a class="ruah-vip__button" href="{{ section.settings.group_tracking_url | escape }}" target="_blank" rel="noopener noreferrer">ENTRAR NO GRUPO VIP <span aria-hidden="true">↗</span></a>
+      {% else %}
+        <p>O convite será disponibilizado em breve. Sua inscrição já foi registrada.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<style>
+  #ruah-vip-{{ section.id }}{background:#f4f0e9;color:#2e2923;padding:clamp(40px,7vw,100px) 22px;font-family:inherit}
+  #ruah-vip-{{ section.id }} .ruah-vip__inner{max-width:700px;margin:auto}
+  #ruah-vip-{{ section.id }} .ruah-vip__kicker{font-size:11px;letter-spacing:.22em;font-weight:700;color:#967445}
+  #ruah-vip-{{ section.id }} h1{font-size:clamp(38px,6vw,70px);font-weight:400;letter-spacing:-.045em;line-height:1.08;margin:18px 0}
+  #ruah-vip-{{ section.id }} .ruah-vip__intro{font-size:clamp(15px,2vw,19px);line-height:1.6;max-width:55ch;margin-bottom:34px}
+  #ruah-vip-{{ section.id }} .ruah-vip__form{display:grid;gap:20px}
+  #ruah-vip-{{ section.id }} .ruah-vip__form>label{display:grid;gap:8px;font-size:11px;font-weight:700;letter-spacing:.1em}
+  #ruah-vip-{{ section.id }} .ruah-vip__form>label>input{padding:15px 3px;border:0;border-bottom:1px solid #8d8072;background:transparent;font-size:17px;color:#2e2923;width:100%;box-sizing:border-box}
+  #ruah-vip-{{ section.id }} input:focus-visible,#ruah-vip-{{ section.id }} button:focus-visible,#ruah-vip-{{ section.id }} a:focus-visible{outline:2px solid #b5945a;outline-offset:4px}
+  #ruah-vip-{{ section.id }} .ruah-vip__consent{display:grid;gap:13px;font-size:13px;line-height:1.5}
+  #ruah-vip-{{ section.id }} .ruah-vip__consent>strong{font-size:11px;letter-spacing:.1em}
+  #ruah-vip-{{ section.id }} .ruah-vip__consent label{display:flex;align-items:flex-start;gap:10px}
+  #ruah-vip-{{ section.id }} .ruah-vip__consent p{margin:0;color:#685d50}
+  #ruah-vip-{{ section.id }} .ruah-vip__button{display:flex;justify-content:space-between;align-items:center;text-decoration:none;background:#25201b;color:#e1c18a;border:0;padding:18px 22px;font-size:14px;font-weight:700;letter-spacing:.06em;cursor:pointer;width:100%;box-sizing:border-box}
+  #ruah-vip-{{ section.id }} .ruah-vip__error{color:#a43328;font-size:14px}
+  #ruah-vip-{{ section.id }} .ruah-vip__success{background:#25201b;color:#eee6d9;padding:clamp(24px,5vw,50px)}
+  #ruah-vip-{{ section.id }} .ruah-vip__success h2{font-size:clamp(28px,4vw,45px);font-weight:400}
+  #ruah-vip-{{ section.id }} .ruah-vip__success p{line-height:1.6}
+  #ruah-vip-{{ section.id }} .ruah-vip__honeypot{position:absolute!important;left:-10000px!important;overflow:hidden}
+  #ruah-vip-{{ section.id }} [hidden]{display:none!important}
+</style>
+
+<script>
+(function () {
+  const form = document.getElementById('ruah-vip-form-{{ section.id }}');
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
+  const root = document.getElementById('ruah-vip-{{ section.id }}');
+  const error = form.querySelector('.ruah-vip__error');
+  const button = form.querySelector('button[type="submit"]');
+  const params = new URLSearchParams(location.search);
+  ['utm_source', 'utm_medium', 'utm_campaign'].forEach((name) => {
+    const field = form.elements.namedItem(name);
+    if (field) field.value = (params.get(name) || '').slice(0,100);
+  });
+  const uuid = () => window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+  form.elements.namedItem('event_id').value = uuid();
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    error.hidden = true;
+    if (!form.reportValidity()) return;
+    const endpoint = form.dataset.proxy || '/apps/mugo-first-access';
+    if (!endpoint.startsWith('/apps/') || endpoint.includes('..')) {
+      error.textContent = 'O cadastro não está configurado. Tente novamente mais tarde.';
+      error.hidden = false;
+      return;
+    }
+    button.disabled = true;
+    try {
+      const fields = new URLSearchParams(new FormData(form));
+      if (!form.querySelector('[name="consent_email"]').checked) fields.set('consent_email','nao');
+      if (!form.querySelector('[name="consent_whatsapp"]').checked) fields.set('consent_whatsapp','nao');
+      const response = await fetch(endpoint, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fields.toString(),credentials:'same-origin'});
+      const content = response.headers.get('content-type') || '';
+      const data = content.includes('application/json') ? await response.json() : null;
+      if (!response.ok || !data || data.ok !== true || data.accepted === false) throw new Error('capture');
+      form.hidden = true;
+      root.querySelector('.ruah-vip__success').hidden = false;
+    } catch (_) {
+      error.textContent = 'Não foi possível concluir seu cadastro agora. Confira os dados e tente novamente.';
+      error.hidden = false;
+    } finally { button.disabled = false; }
+  });
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Ruah VIP · Cadastro",
+  "settings": [
+    {"type":"text","id":"title","label":"Título","default":"Entre para o círculo privado da Ruah."},
+    {"type":"textarea","id":"subtitle","label":"Descrição","default":"Receba acesso à nossa curadoria, novidades e oportunidades exclusivas. Cadastre-se para abrir seu convite ao grupo VIP."},
+    {"type":"text","id":"campaign_key","label":"Identificador de campanha","default":"ruah_grupo_vip_2026"},
+    {"type":"text","id":"proxy_path","label":"App Proxy Shopify","default":"/apps/mugo-first-access"},
+    {"type":"url","id":"group_tracking_url","label":"Link rastreável do grupo (jornada após cadastro)"}
+  ],
+  "presets":[{"name":"Ruah VIP · Cadastro"}]
+}
+{% endschema %}

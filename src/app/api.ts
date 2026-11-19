@@ -81,6 +81,8 @@ function resolveApiBase(): string {
 }
 
 const API_BASE = resolveApiBase();
+/** Public share links must target the same API origin as the authenticated workspace. */
+export const publicApiUrl = (path: string) => `${API_BASE || window.location.origin}${path}`;
 const inFlightRouteReads = new Map<string, Promise<unknown>>();
 
 function dedupeInFlight<T>(key: string, load: () => Promise<T>): Promise<T> {

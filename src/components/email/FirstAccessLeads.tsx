@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { http } from "../../app/api";
 import { getActiveClientId } from "../../app/activeClient";
+import GroupInviteCampaigns from "./GroupInviteCampaigns";
 
 type Summary = {
   total: number; unique: number; email_opt_in_claimed: number;
@@ -219,5 +220,6 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
         </> : null}
       </> : <p>Selecione uma campanha para consultar os resultados.</p>}
     </div>
+    <GroupInviteCampaigns campaign={safeCampaign} canEdit={canEdit} leads={summary?.total ?? null} />
   </section>;
 }
