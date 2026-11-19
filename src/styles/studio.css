@@ -1804,3 +1804,10 @@
 .metaPublishReady,.metaPublishBlocked{margin:9px 0 0;font-size:12px;font-weight:700}
 .metaPublishReady{color:#25704b}.metaPublishBlocked{color:#ab5d2b}
 @media(max-width:610px){.metaPublishChecklist{grid-template-columns:1fr}.metaPublishPreflightHead .ds-button{width:100%}}
+
+/* Provider status is read only; keep it visibly distinct from the stored draft state. */
+.metaLiveDeliveryStatus{border:1px solid var(--border,#d5e0e4);border-radius:9px;padding:12px;margin:10px 0;background:color-mix(in srgb,var(--surface,#fff) 92%,#e2eef2)}
+.metaLiveDeliveryStatus>b{display:block;color:#0c5366;font-size:12px;margin-bottom:8px}
+.metaLiveDeliveryStatus>div{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;border-top:1px solid var(--border,#e6ecee);font-size:12px}
+.metaLiveDeliveryStatus>div strong{font-size:11px}
+.metaLiveDeliveryStatus>small{font-size:10px;color:var(--text-secondary,#60717b);display:block;margin-top:8px}

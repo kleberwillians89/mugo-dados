@@ -288,6 +288,55 @@ async def save_draft(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dic
     return _view(rows[0] if rows else {**row, "payload": payload})
 
 
+async def duplicate_draft(client_id: str, draft_id: str, user_id: str) -> Dict[str, Any]:
+    """Duplicate planning only. Provider IDs, publication flags and errors never carry over."""
+    original = await _draft(client_id, draft_id)
+    new_payload = clean_payload(original.get("payload") or {})
+    name = _text(new_payload["name"] + " · cópia", LIMITS["name"])
+    new_payload["name"] = name
+    inserted = await sb_insert(TABLE, {
+        "client_id": client_id,
+        "month": original.get("month"),
+        "source_campaign": original.get("source_campaign"),
+        "payload": new_payload,
+        "status": "rascunho",
+        "created_by": user_id,
+    })
+    if not inserted:
+        raise StudioError("AD_SAVE_FAILED")
+    return _view(inserted)
+
+
+async def live_delivery_status(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Read provider campaign/adset/ad statuses for an owned draft. Never changes delivery."""
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    ad_ids = {key: str(ids.get(key) or "") for key in ("campaign_id", "adset_id", "ad_id")}
+    if not ad_ids["campaign_id"]:
+        raise StudioError("AD_NOT_READY", "Campanha ainda não foi criada na Meta.")
+    account = await _ad_account(client_id)
+    attached_account = str(ids.get("ad_account_id") or "")
+    if attached_account and attached_account.removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    parts: Dict[str, Dict[str, str]] = {}
+    for kind, object_id in ad_ids.items():
+        if not object_id:
+            continue
+        remote = await _graph("GET", f"/{object_id}", token=account["token"],
+                              params={"fields": "id,name,status,effective_status,account_id"})
+        returned_account = str(remote.get("account_id") or "")
+        if returned_account and returned_account.removeprefix("act_") != account["act"].removeprefix("act_"):
+            raise StudioError("AD_ACCOUNT_MISSING")
+        parts[kind] = {
+            "id": object_id,
+            "name": _text(remote.get("name"), 120),
+            "status": _text(remote.get("status"), 40),
+            "effective_status": _text(remote.get("effective_status"), 40),
+        }
+    return {"draft_id": draft_id, "client_id": client_id, "source": "meta_graph",
+            "checked_at": _now(), "objects": parts, "read_only": True}
+
+
 async def delete_draft(client_id: str, draft_id: str) -> None:
     row = await _draft(client_id, draft_id)
     if row.get("status") == "publicando":

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload } from "../../app/metaAds";
+import { deleteAdDraft, duplicateAdDraft, readMetaLiveDeliveryStatus, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaLiveDeliveryStatus, type MetaPublicationPreflight, type AdDraft, type AdPayload } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
@@ -38,6 +38,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, MetaLiveDeliveryStatus>>({});
+  const [checkingStatus, setCheckingStatus] = useState<string | null>(null);
+  const [liveErrors, setLiveErrors] = useState<Record<string, string>>({});
+
   const [metaPreflight, setMetaPreflight] = useState<MetaPublicationPreflight | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
@@ -108,6 +112,29 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     if (r) { setEditing(null); setNotice(`"${r.draft.payload.name}" foi criada no Meta Ads, pausada. Confira e ative no Gerenciador de Anúncios.`); }
   }
 
+  async function duplicate(d: AdDraft) {
+    const r = await run(`duplicate:${d.id}`, () => duplicateAdDraft(d.id),
+      "Não foi possível duplicar esta campanha.");
+    if (r) {
+      upsert(r.draft);
+      setNotice(`Cópia de "${d.payload.name}" criada como rascunho, sem publicar nem ativar anúncios.`);
+      open(r.draft);
+    }
+  }
+
+  async function checkDelivery(d: AdDraft) {
+    setCheckingStatus(d.id);
+    setLiveErrors(old => ({...old,[d.id]:""}));
+    try {
+      const data = await readMetaLiveDeliveryStatus(d.id);
+      if (getActiveClientId() !== clientId) return;
+      setLiveStatuses(old => ({...old,[d.id]:data}));
+    } catch (cause) {
+      if (getActiveClientId() === clientId) setLiveErrors(old => ({...old,
+        [d.id]:message(cause, "Não foi possível consultar o status da Meta.")}));
+    } finally { setCheckingStatus(null); }
+  }
+
   async function remove(d: AdDraft) {
     if (!window.confirm(d.status === "publicada" ? `Tirar "${d.payload.name}" desta lista? A campanha continua no Meta Ads.` : `Excluir o rascunho "${d.payload.name}"?`)) return;
     const r = await run(`d:${d.id}`, () => deleteAdDraft(d.id), "Não foi possível excluir.");
@@ -154,6 +181,19 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           {d.status === "erro" && d.error ? <p className="studioError" role="alert">{d.error}</p> : null}
           {d.status === "rascunho" && d.missing.length ? <p className="ds-caption">Antes de publicar: {d.missing.join(" · ")}</p> : null}
+          {liveErrors[d.id] ? <p role="alert" className="studioError">{liveErrors[d.id]}</p> : null}
+          {liveStatuses[d.id] ? <div className="metaLiveDeliveryStatus" role="status">
+            <b>Status consultado na Meta</b>
+            {(["campaign_id","adset_id","ad_id"] as const).map(key => {
+              const item = liveStatuses[d.id].objects[key];
+              return item ? <div key={key}>
+                <span>{key === "campaign_id" ? "Campanha" : key === "adset_id" ? "Conjunto" : "Anúncio"}</span>
+                <strong>{item.effective_status || item.status || "Não informado"}</strong>
+              </div> : null;
+            })}
+            <small>Consulta somente leitura · {new Date(liveStatuses[d.id].checked_at).toLocaleString("pt-BR")}. O status não ativa ou pausa anúncios.</small>
+          </div> : null}
+
           <div className="metaAdsActions">
             <button type="button" className="ds-button is-primary" onClick={() => open(d)}>
               {d.status === "publicada" ? "Ver campanha" : "Editar campanha"}
@@ -162,6 +202,12 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               <button type="button" className="ds-button" onClick={() => { open(d); setStep(2); }}>Criativos</button>
               <button type="button" className="ds-button" onClick={() => { open(d); setStep(3); }}>Revisar publicação</button>
             </> : null}
+            <button type="button" className="ds-button" disabled={Boolean(busy)}
+              onClick={() => void duplicate(d)}>{busy === `duplicate:${d.id}` ? "Duplicando…" : "Duplicar campanha"}</button>
+            {d.meta_ids?.campaign_id ? <button type="button" className="ds-button"
+              disabled={checkingStatus === d.id} onClick={() => void checkDelivery(d)}>
+              {checkingStatus === d.id ? "Consultando…" : "Ver status na Meta"}
+            </button> : null}
             {d.ads_manager_url ? <a className="ds-button" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
             <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>
               {d.status === "publicada" ? "Tirar da lista" : "Excluir"}

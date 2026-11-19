@@ -65,3 +65,16 @@ export type InstagramCreativePost = {
 };
 export const listInstagramCreativePosts = () =>
   http<{ posts: InstagramCreativePost[]; source: string; count: number }>(base("/instagram-posts"), { timeoutMs: 45_000 });
+
+/** Independent copy for experimentation. Never duplicates Meta provider resources or starts delivery. */
+export const duplicateAdDraft = (id: string) =>
+  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate`), { method: "POST" });
+
+export type MetaLiveDeliveryStatus = {
+  draft_id: string; client_id: string; checked_at: string; source: "meta_graph"; read_only: true;
+  objects: Partial<Record<"campaign_id" | "adset_id" | "ad_id", {
+    id: string; name: string; status: string; effective_status: string;
+  }>>;
+};
+export const readMetaLiveDeliveryStatus = (id: string) =>
+  http<MetaLiveDeliveryStatus>(base(`/${encodeURIComponent(id)}/delivery-status`), { timeoutMs: 45_000 });
