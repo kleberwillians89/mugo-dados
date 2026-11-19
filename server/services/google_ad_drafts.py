@@ -52,7 +52,17 @@ def clean_payload(value: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(raw, list):
             raise StudioError("AD_NOT_READY", f"Lista inválida: {key}")
         return list(dict.fromkeys(str(v).strip()[:length] for v in raw if str(v).strip()))[:limit]
+    networks = value.get("networks") or {}
+    if not isinstance(networks, dict):
+        raise StudioError("AD_NOT_READY", "Configuração de redes Google inválida.")
+    if networks.get("google_search", True) is not True:
+        raise StudioError("AD_NOT_READY", "Campanhas SEARCH exigem Pesquisa Google.")
+    if any(k in networks and not isinstance(networks[k], bool) for k in ("search_partners","display_network")):
+        raise StudioError("AD_NOT_READY", "Selecione redes válidas para a campanha.")
     return {
+        "networks": {"google_search": True,
+                     "search_partners": networks.get("search_partners", False),
+                     "display_network": networks.get("display_network", False)},
         "platform": PLATFORM,
         "name": name,
         "objective": objective,
