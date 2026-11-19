@@ -27,9 +27,10 @@ class InstagramCreativePickerTests(unittest.IsolatedAsyncioTestCase):
             data = await route.read_instagram_posts("roove")
         self.assertEqual(select.await_args.kwargs["filters"], {"client_id": "eq.roove"})
         self.assertEqual(select.await_args.args[0], "ig_media")
-        self.assertEqual([p["selectable"] for p in data["posts"]], [True, False, True])
+        self.assertEqual([p["selectable"] for p in data["posts"]], [True, True, True])
         self.assertEqual(data["posts"][0]["image_url"], records[0]["media_url"])
         self.assertIsNone(data["posts"][1]["image_url"])
+        self.assertEqual(data["posts"][1]["video_url"], records[1]["media_url"])
         self.assertEqual(data["posts"][2]["image_url"], records[2]["thumb_url"])
         self.assertEqual(data["count"], 3)
 

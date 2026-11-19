@@ -16,10 +16,15 @@ export function metaStepIssues(payload: AdPayload, step: MetaStep): string[] {
     if (!Number.isInteger(a.age_min) || !Number.isInteger(a.age_max)
       || a.age_min < 18 || a.age_max > 65 || a.age_min > a.age_max) issues.push("Defina uma faixa etária válida entre 18 e 65 anos.");
     if (!["todos", "mulheres", "homens"].includes(a.gender)) issues.push("Selecione o gênero.");
+    const p = payload.placements;
+    if (p?.mode === "manual" && (!p.platforms.length || p.platforms.some(platform => !(p[platform] || []).length)))
+      issues.push("Selecione pelo menos um canal e um posicionamento em cada canal escolhido.");
   } else if (step === 2) {
     const ad = payload.ad;
     if (!ad.primary_text.trim()) issues.push("Escreva o texto principal.");
-    if (!/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.image_url.trim())) issues.push("Selecione uma imagem do Calendário ou informe um link HTTPS direto de imagem.");
+    if (ad.media_type === "video") {
+      if (!/^https:\/\/\S+/i.test((ad.video_url || "").trim())) issues.push("Selecione um vídeo com URL HTTPS válida.");
+    } else if (!/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.image_url.trim())) issues.push("Selecione uma imagem do Calendário, Instagram ou Biblioteca.");
     if (["trafego", "vendas", "leads"].includes(payload.objective) && !/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.link.trim()))
       issues.push("Informe o link HTTPS do destino para este objetivo.");
   } else {

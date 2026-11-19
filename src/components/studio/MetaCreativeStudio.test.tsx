@@ -43,7 +43,7 @@ describe("Mídia On — Estúdio de criativos", () => {
     expect(host.textContent).toContain("Arte calendário");
     const gallery = [...host.querySelectorAll("button")].find((b) => b.title === "Arte da Roove");
     await act(async () => gallery?.click());
-    expect(choose).toHaveBeenCalledWith({image_url:"https://cdn.example.org/roove.jpg",calendar_item_id:null});
+    expect(choose).toHaveBeenCalledWith({image_url:"https://cdn.example.org/roove.jpg",calendar_item_id:null, media_type:"image", video_url:"",instagram_post_id:null});
     const story = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Stories / Reels"));
     await act(async () => story?.click());
     expect(story?.getAttribute("aria-pressed")).toBe("true");
@@ -65,7 +65,7 @@ describe("Mídia On — Estúdio de criativos", () => {
     Object.defineProperty(input, "files", { configurable:true, value:[file] });
     await act(async () => input.dispatchEvent(new Event("change",{bubbles:true})));
     expect(uploadLibraryFile).toHaveBeenCalled();
-    expect(choose).toHaveBeenCalledWith({image_url:"https://cdn.example.org/new.png",calendar_item_id:null});
+    expect(choose).toHaveBeenCalledWith({image_url:"https://cdn.example.org/new.png",calendar_item_id:null, media_type:"image", video_url:"",instagram_post_id:null});
     act(() => root.unmount());
   });
 });

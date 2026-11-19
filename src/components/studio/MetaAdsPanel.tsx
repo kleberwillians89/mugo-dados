@@ -6,6 +6,7 @@ import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
+import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -180,7 +181,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <span>{index + 1}</span>{label}
           </button>)}
         </nav>
-        <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha a imagem e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
+        <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha imagem ou vídeo e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
         {step === 0 ? <fieldset disabled={locked || Boolean(busy)}>
           <legend>1 · Campanha</legend>
           <label className="ds-field">Nome<input required maxLength={120} value={editing.payload.name} onChange={(e) => set({ name: e.target.value })} /></label>
@@ -218,6 +219,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             {!editing.payload.audience.saved_audience ? <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p> : null}
             {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}
           </div>
+          <MetaPlacementPicker value={editing.payload.placements || DEFAULT_META_PLACEMENTS}
+            onChange={placements => set({placements})} disabled={locked || Boolean(busy)} />
           {!locked ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
             onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
             Revisei e confirmo esse público, inclusive a possível ampliação pelo Advantage+.</label> : null}
@@ -265,6 +268,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           <h3>Revise antes de criar no Meta</h3>
           <dl>
             <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
+            <div><dt>Canais e posicionamentos</dt><dd>{editing.payload.placements?.mode === "manual"
+              ? [editing.payload.placements.platforms.includes("instagram") ? "Instagram: " + editing.payload.placements.instagram.join(", ") : "",
+                 editing.payload.placements.platforms.includes("facebook") ? "Facebook: " + editing.payload.placements.facebook.join(", ") : ""].filter(Boolean).join(" · ")
+              : "Automático (Advantage+)"}</dd></div>
             <div><dt>Orçamento e período</dt><dd>{brl(editing.payload.daily_budget)}/dia · {editing.payload.start_date.split("-").reverse().join("/")} até {editing.payload.end_date.split("-").reverse().join("/")}</dd></div>
             <div><dt>Público confirmado</dt><dd>{editing.payload.audience.saved_audience ? "" : <>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</>}
               {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
