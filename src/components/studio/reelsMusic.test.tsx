@@ -45,4 +45,31 @@ describe("Música do Reels", () => {
     await act(async () => {});
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("não liberou");
   });
+
+  it("buscar não envia o formulário do modal (não recarrega a página)", async () => {
+    api.searchReelsAudio.mockResolvedValue({ audio: [HIT] });
+    const onSubmit = vi.fn((e: Event) => e.preventDefault());
+    const form = document.createElement("form"); form.addEventListener("submit", onSubmit); host.appendChild(form);
+    const inner = createRoot(form);
+    await act(async () => { inner.render(<ReelsMusicPicker onChange={vi.fn()} />); });
+    await act(async () => { [...form.querySelectorAll("button")].find((b) => b.textContent?.includes("Escolher música"))!.click(); });
+    await act(async () => {});
+    expect(form.querySelector("form")).toBeNull();
+    const input = form.querySelector('input[aria-label="Buscar música"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "djavan");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { [...form.querySelectorAll("button")].find((b) => b.textContent?.includes("Buscar"))!.click(); });
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(api.searchReelsAudio).toHaveBeenCalledWith("djavan", "music");
+    act(() => inner.unmount());
+  });
+
+  it("em Stories avisa que a música vai à mão e esconde os volumes", async () => {
+    await act(async () => { root.render(<ReelsMusicPicker format="stories" value={{ audio_id: "587", title: "Hit do verão", audio_volume: 80, video_volume: 20 }} onChange={vi.fn()} />); });
+    expect(host.textContent).not.toContain("Volume da música");
+    expect(host.textContent).toContain("publicar à mão");
+  });
 });

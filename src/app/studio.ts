@@ -191,7 +191,9 @@ export type ProductTag = { product_id: string; name?: string | null; image_url?:
 export type ShopStatus = { ready: boolean; eligible: boolean | null; catalogs: { id: string; name: string | null; shop_name: string | null; product_count: number | null }[];
   missing_scopes: string[]; message: string | null };
 export type ShopProduct = { product_id: string; name: string; image_url: string | null; sku: string | null; review_status: string | null;
-  variants: { product_id: string; name: string | null }[] };
+  variants: { product_id: string; name: string | null }[];
+  /** Link e preço no catálogo (podem faltar se a conexão não lê o catálogo). Usados nos anúncios da Mídia On. */
+  url?: string | null; price?: string | null };
 export function getShop() { return http<ShopStatus>(base("/calendar/shop"), { timeoutMs: 30_000 }); }
 export function searchShopProducts(q: string, catalogId?: string) {
   const params = new URLSearchParams({ q, ...(catalogId ? { catalog_id: catalogId } : {}) });

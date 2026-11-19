@@ -69,6 +69,10 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
     """Plano de publicação ({"type", "fields", "children"}) ou o motivo para ficar manual.
     Colaboradores (até 3 @) vão no contêiner principal de imagem, Reels e carrossel; Stories não aceitam."""
     plan, problem = _media_plan(item)
+    if plan and plan["type"] != "reels":
+        music_problem = _music_outside_reels(item, plan["type"])
+        if music_problem:
+            return None, music_problem
     collaborators = clean_collaborators(item.get("collaborators"))
     if plan and collaborators and plan["type"] != "story":
         plan["fields"]["collaborators"] = json.dumps(collaborators)
@@ -80,6 +84,20 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
         if warning:
             plan["warning"] = warning
     return plan, problem
+
+
+def _music_outside_reels(item: Dict[str, Any], kind: str) -> Optional[str]:
+    """A API da Meta só aceita música no Reels. Em Stories, imagem ou carrossel com música escolhida, o post não sai
+    sozinho sem ela: fica para a equipe publicar à mão no app do Instagram, com a música anotada."""
+    from .ig_reels import clean_music
+    raw = item.get("reels_options")
+    music = clean_music(raw.get("music")) if isinstance(raw, dict) else None
+    if not music:
+        return None
+    label = {"story": "Stories", "image": "post de imagem", "carousel": "carrossel"}.get(kind, kind)
+    name = " · ".join(x for x in (music.get("title"), music.get("artist")) if x) or f"áudio {music['audio_id']}"
+    return (f"Música em {label} não vai pela API da Meta (só no Reels). Publique à mão no app do Instagram "
+            f"com a música “{name}” e marque como publicado.")
 
 
 def _apply_product_tags(plan: Dict[str, Any], raw: Any) -> None:
