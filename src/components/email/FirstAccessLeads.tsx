@@ -196,8 +196,6 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
       </div> : null}
     </div>
 
-    <GroupInviteCampaigns campaign={safeCampaign} canEdit={canEdit} />
-
     <div className="emCapturePanel emCaptureResults">
       <div className="emCapturePanelHead"><span className="emCaptureStep">03 / RESULTADOS</span><h3>Desempenho da captação</h3><p>{safeCampaign || "Selecione uma campanha para acompanhar os resultados."}</p></div>
       {summary ? <>
@@ -222,5 +220,6 @@ export default function FirstAccessLeads({canEdit = false}:{canEdit?: boolean}) 
         </> : null}
       </> : <p>Selecione uma campanha para consultar os resultados.</p>}
     </div>
+    <GroupInviteCampaigns campaign={safeCampaign} canEdit={canEdit} leads={summary?.total ?? null} />
   </section>;
 }
