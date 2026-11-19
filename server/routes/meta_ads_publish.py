@@ -145,6 +145,25 @@ async def update_draft(client_id: str, draft_id: UUID, body: DraftInput, authori
         raise _http(exc) from None
 
 
+@router.post("/{draft_id}/duplicate", status_code=201)
+async def duplicate_ad_draft(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/{draft_id}/delivery-status")
+async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.live_delivery_status(cid, str(draft_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("/{draft_id}/publish")
 async def publish_draft(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
