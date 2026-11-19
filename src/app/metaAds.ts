@@ -111,3 +111,13 @@ export const readAdResults = (id: string, period: MetaCampaignResults["period"] 
   http<MetaCampaignResults>(base(`/${encodeURIComponent(id)}/results?period=${period}`), { timeoutMs: 45_000 });
 export const readMetaLiveDeliveryStatus = (id: string) =>
   http<MetaLiveDeliveryStatus>(base(`/${encodeURIComponent(id)}/delivery-status`), { timeoutMs: 45_000 });
+
+
+/** Conjuntos de dados (pixels) da conta de anúncios. */
+export type AdPixels = { current: string | null; recommended: string | null; ads_not_updated?: number;
+  pixels: { id: string; name: string; last_fired_time: string | null; active: boolean; unavailable: boolean }[] };
+export const readAdPixels = (draftId?: string) =>
+  http<AdPixels>(base(`/pixels${draftId ? `?draft_id=${encodeURIComponent(draftId)}` : ""}`), { timeoutMs: 45_000 });
+export const changeAdPixel = (draftId: string, pixelId: string) =>
+  http<AdPixels>(base(`/${encodeURIComponent(draftId)}/pixel`), { method: "POST", body: JSON.stringify({ pixel_id: pixelId }), timeoutMs: 60_000 });
+export const PIXEL_OBJECTIVES = ["leads", "vendas", "retencao", "remarketing"];

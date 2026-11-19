@@ -99,6 +99,7 @@ export type CalendarItem = {
   publish_status?: "publicando" | "publicado" | "falhou" | "simulado" | "manual" | null;
   publish_error?: string | null;
   published_permalink?: string | null;
+  published_at?: string | null;
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
   client_edited_at?: string | null; client_edited_fields?: string[];

@@ -128,6 +128,35 @@ async def read_instagram_posts(client_id: str, authorization: Optional[str] = He
     return {"posts": posts, "source": "instagram_synced", "count": len(posts)}
 
 
+@router.get("/pixels")
+async def read_ad_pixels(client_id: str, draft_id: Optional[str] = Query(default=None, max_length=40),
+                         authorization: Optional[str] = Header(default=None)):
+    """Conjuntos de dados (pixels) da conta de anúncios, com o recomendado e o da campanha."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.list_pixels(cid, str(UUID(draft_id)) if draft_id else None)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Campanha inválida.") from None
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class PixelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pixel_id: str = Field(pattern=r"^\d{5,25}$")
+
+
+@router.post("/{draft_id}/pixel")
+async def change_ad_pixel(client_id: str, draft_id: UUID, body: PixelInput, authorization: Optional[str] = Header(default=None)):
+    """Troca o pixel de uma campanha já criada (conjunto e anúncios)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return await pub.set_pixel(cid, str(draft_id), body.pixel_id, user_name=_who(authorization, uid))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.post("", status_code=201)
 async def create_draft(client_id: str, body: GenerateInput, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
