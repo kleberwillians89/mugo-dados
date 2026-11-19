@@ -60,3 +60,14 @@
   .creatorToolbar select,.creatorToolbar form,.creatorToolbar form input{width:100%}
   .creatorListItems li{grid-template-columns:1fr 1fr}
 }
+
+/* Banco de criadores em cards (padrão Mídia On); a tabela continua em "Tabela". */
+.creatorBankHead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.creatorViewToggle{display:flex;gap:6px}
+.creatorCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.creatorBankCard{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface,#fff);min-width:0}
+.creatorBankTop{display:flex;gap:10px;align-items:center;min-width:0}
+.creatorTrio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0;font-size:13px}
+.creatorTrio dt{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.creatorTrio dd{margin:2px 0 0;font-weight:600}
+.creatorCardActions{border-top:1px solid var(--border-subtle);padding-top:10px;flex-wrap:wrap}

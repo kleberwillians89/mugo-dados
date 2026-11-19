@@ -18,6 +18,7 @@ from .google_oauth import _google_ads_error_details, get_google_access_token, go
 from .ig_supabase import sb_update
 from .integration_errors import IntegrationError
 from .studio_calendar import StudioError
+from .ads_tracking import tracking_suffix
 from . import google_ad_drafts as drafts
 
 
@@ -114,6 +115,12 @@ def _operations(customer_id: str, draft_id: str, payload: Dict[str, Any], geo_re
         {"campaignOperation": {"create": {
             "resourceName": campaign, "name": f"{payload['name']} · {suffix}", "status": "PAUSED",
             "advertisingChannelType": "SEARCH", "campaignBudget": budget, "manualCpc": {},
+            **({"finalUrlSuffix": tracking_suffix(payload["tracking"])} if payload.get("tracking") else {}),
+            "networkSettings": {
+                "targetGoogleSearch": True,
+                "targetSearchNetwork": payload.get("networks", {}).get("search_partners", False),
+                "targetContentNetwork": payload.get("networks", {}).get("display_network", False),
+            },
             "containsEuPoliticalAdvertising": (
                 "CONTAINS_EU_POLITICAL_ADVERTISING"
                 if payload["contains_eu_political_advertising"] else "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"
@@ -130,8 +137,13 @@ def _operations(customer_id: str, draft_id: str, payload: Dict[str, Any], geo_re
         "campaign": campaign, "location": {"geoTargetConstant": resource}, "negative": False,
     }}} for resource in geo_resources)
     operations.extend({"adGroupCriterionOperation": {"create": {
-        "adGroup": ad_group, "status": "PAUSED", "keyword": {"text": keyword, "matchType": "PHRASE"},
+        "adGroup": ad_group, "status": "PAUSED",
+        "keyword": {"text": keyword, "matchType": payload.get("keyword_match_type", "PHRASE")},
     }}} for keyword in payload["keywords"])
+    operations.extend({"campaignCriterionOperation": {"create": {
+        "campaign": campaign, "negative": True,
+        "keyword": {"text": keyword, "matchType": "PHRASE"},
+    }}} for keyword in payload.get("negative_keywords", []))
     operations.append({"adGroupAdOperation": {"create": {
         "adGroup": ad_group, "status": "PAUSED", "ad": {
             "finalUrls": [payload["final_url"]],

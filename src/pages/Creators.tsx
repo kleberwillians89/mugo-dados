@@ -61,6 +61,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const [query, setQuery] = useState("");
   const [creators, setCreators] = useState<Creator[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  const [bankView, setBankView] = useState<"cards" | "tabela">("cards");
   const [selected, setSelected] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Creator[] | null>(null);
   const [shortlists, setShortlists] = useState<Shortlist[]>([]);
@@ -262,9 +263,32 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </section> : null}
 
       <section className="creatorCard" aria-labelledby="creator-bank">
-        <header><h2 id="creator-bank">Criadores da {clientName || "marca"} · {creators.length}</h2></header>
+        <header className="creatorBankHead"><h2 id="creator-bank">Criadores da {clientName || "marca"} · {creators.length}</h2>
+          {creators.length ? <div role="group" aria-label="Ver como" className="creatorViewToggle">
+            <button type="button" className={`ds-button${bankView === "cards" ? " is-primary" : ""}`} aria-pressed={bankView === "cards"} onClick={() => setBankView("cards")}>Cards</button>
+            <button type="button" className={`ds-button${bankView === "tabela" ? " is-primary" : ""}`} aria-pressed={bankView === "tabela"} onClick={() => setBankView("tabela")}>Tabela</button>
+          </div> : null}</header>
         {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador pesquisado para esta marca ainda. Analise um @, descubra por hashtag ou peça sugestões à IA. O que cada marca pesquisa fica só nela."
           : canAct ? "Nenhum criador da sua empresa ainda. Analise um @ ou peça sugestões à IA." : "A Mugô ainda não selecionou criadores para a sua empresa."}</p> :
+          bankView === "cards" ? <div className="creatorCards">{creators.map((creator) => <article key={creator.id} className="creatorBankCard">
+            <div className="creatorBankTop">
+              <input type="checkbox" checked={selected.includes(creator.id)} onChange={() => toggle(creator.id)} aria-label={`Selecionar @${creator.handle}`} />
+              <Identity creator={creator} />
+            </div>
+            <dl className="creatorTrio">
+              <div><dt>Seguidores</dt><dd title={creatorNumber(creator.followers)}>{creatorCompact(creator.followers)}</dd></div>
+              <div><dt>Curtidas/post</dt><dd>{creatorCompact(creator.avg_likes)}</dd></div>
+              <div><dt>Engajamento</dt><dd title={creator.engagement_method || undefined}><Engagement value={creator.engagement_rate} /></dd></div>
+            </dl>
+            <small className="creatorMuted">{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
+            {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
+            {canAct ? <div className="creatorActions creatorCardActions">
+              <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
+                onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
+              <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
+              <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove([creator.id])}>Excluir</button>
+            </div> : null}
+          </article>)}</div> :
           <div className="creatorScroll"><table className="ds-table creatorTable">
             <thead><tr><th><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : creators.map((c) => c.id))} aria-label="Selecionar todos" /></th><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>
             <tbody>{creators.map((creator) => <tr key={creator.id}>

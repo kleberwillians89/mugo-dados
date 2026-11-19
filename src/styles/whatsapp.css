@@ -164,3 +164,34 @@
 .waMessages{scrollbar-gutter:stable}
 @media(max-width:1180px){.waInbox{grid-template-columns:minmax(230px,34%) minmax(0,1fr)}.waJourney{grid-column:1/-1;border-left:0;border-top:1px solid var(--wa-line);max-height:none}.waSteps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}}
 @media(max-width:760px){.waWorkspaceTabs{gap:2px}.waWorkspaceTabs button{font-size:13px;padding:10px 12px}.waInbox{display:flex;flex-direction:column;min-height:0}.waInboxList{max-height:360px;border-right:0;border-bottom:1px solid var(--wa-line)}.waThread{min-height:420px;max-height:650px}.waJourney{max-height:none}.waSteps{grid-template-columns:1fr}.waInboxIntro .ds-button{width:100%}.waBubble{max-width:90%}}
+
+/* Atendimento com IA */
+.waAi{display:flex;flex-direction:column;gap:16px}
+.waAiModes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.waAiModes button{display:flex;flex-direction:column;gap:4px;text-align:left;font:inherit;padding:12px 14px;border:1px solid var(--wa-line);border-radius:12px;background:var(--surface,#fff);cursor:pointer;min-height:44px}
+.waAiModes button small{color:var(--text-secondary,#4d565d);font-size:12px}
+.waAiModes button.is-active{border-color:var(--accent,#1e3f5a);box-shadow:inset 0 0 0 1px var(--accent,#1e3f5a);background:#eef4f7}
+.waAiForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-secondary,#4d565d)}
+.waAiForm textarea,.waAiForm input:not([type=checkbox]){font:inherit;font-size:14px;color:var(--text-primary,#15181b);border:1px solid var(--wa-line);border-radius:10px;padding:8px 10px;box-sizing:border-box;min-height:44px}
+.waAiForm textarea{resize:vertical}
+.waAiCols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+label.waAiCheck{flex-direction:row;align-items:flex-start;gap:8px}
+.waAiWarn{color:var(--negative,#a33038)}
+.waAiChecks{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.waAiChecks li{padding:6px 10px;border-radius:8px;background:#eef4f7}
+.waAiChecks li.is-ok{background:#e6f3ec;color:#1d5c34}
+.waAiChecks li.is-bad{background:#fbe3dc;color:#8a2a12}
+.waAiSim{max-height:360px;overflow:auto}
+.waAiExtras{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.waAiButtons{display:flex;flex-wrap:wrap;gap:6px}
+.waAiButtons>*{font:inherit;font-size:12px;padding:5px 10px;border-radius:99px;border:1px solid var(--accent,#1e3f5a);color:var(--accent,#1e3f5a);background:#fff}
+.waAiButtons button{cursor:pointer;min-height:32px}
+.waAiProducts{display:flex;gap:8px;overflow-x:auto;margin:0;padding:0;list-style:none}
+.waAiProducts li{flex:0 0 120px;display:flex;flex-direction:column;gap:2px;font-size:12px;background:#fff;border:1px solid var(--wa-line);border-radius:10px;padding:6px}
+.waAiProducts img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px}
+.waAiProducts a{color:var(--text-primary,#15181b);font-weight:600}
+.waBubble.is-ai{background:#e4ece6}
+.waAiSuggestion,.waAiHandoff{margin:0 16px 8px;padding:12px;border:1px dashed var(--accent,#1e3f5a);border-radius:12px;background:#f5f8fa;display:flex;flex-direction:column;gap:8px}
+.waAiHandoff{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;border-style:solid;border-color:#e7b9a9;background:#fdf3ef}
+.waAiHandoff p,.waAiSuggestionHead{margin:0;display:flex;gap:8px;align-items:center;font-size:13px}
+.waAiSuggestion textarea{font:inherit;font-size:14px;border:1px solid var(--wa-line);border-radius:10px;padding:8px 10px;resize:vertical}

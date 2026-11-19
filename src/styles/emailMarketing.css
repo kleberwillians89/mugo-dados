@@ -130,3 +130,44 @@
 .emInboundUrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
 .emInboundUrl code{flex:1;min-width:0;overflow-wrap:anywhere;background:#f6f4ef;border:1px solid #e3dfd7;border-radius:8px;padding:8px 10px;font-size:12px}
 .emInbound pre{white-space:pre-wrap;font-size:12px;background:#f6f4ef;border-radius:8px;padding:10px}
+
+
+/* Captacao — pagina editorial Mugô Verso (multiempresa). */
+.emCapture{display:grid;gap:22px;min-width:0;color:var(--text-primary,#15181b)}
+.emCaptureHero{display:flex;justify-content:space-between;align-items:flex-end;gap:22px;flex-wrap:wrap;padding:26px 28px 30px;border-radius:20px;background:linear-gradient(140deg,#102d3e,#164e63 65%,#20677a);color:#fff}
+.emCaptureEyebrow,.emCaptureStep{display:inline-block;font-size:10px;letter-spacing:.17em;font-weight:750}
+.emCaptureEyebrow{color:#b9d6dc}
+.emCaptureHero h2{font-family:var(--font-heading-family,inherit);font-size:clamp(29px,3vw,43px);font-weight:450;letter-spacing:-.045em;line-height:1.11;max-width:680px;margin:12px 0}
+.emCaptureHero p{font-size:14px;line-height:1.6;max-width:620px;color:#d8e6e9;margin:0}
+.emCaptureRefresh{background:#fff!important;color:#164258!important;border-color:#fff!important;white-space:nowrap}
+.emCapturePanel{background:var(--white,#fff);border:1px solid var(--stroke,#e3e0d9);border-radius:18px;padding:clamp(20px,3vw,30px);display:grid;gap:18px;min-width:0}
+.emCapturePanelHead{display:grid;gap:7px;padding-bottom:16px;border-bottom:1px solid var(--stroke,#e3e0d9)}
+.emCaptureStep{color:var(--text-secondary,#657078)}
+.emCapturePanelHead h3{font-family:var(--font-heading-family,inherit);font-weight:550;letter-spacing:-.035em;line-height:1.15;font-size:clamp(21px,2.5vw,28px);margin:0}
+.emCapturePanelHead p{margin:0;color:var(--text-secondary,#657078);font-size:13px;line-height:1.5}
+.emCapturePanel>p{font-size:13px;color:var(--text-secondary,#657078);line-height:1.6;margin:0}
+.emCapturePanel label{display:grid;gap:9px;font-size:12px;font-weight:700;letter-spacing:.025em}
+.emCapturePanel input,.emCapturePanel select{display:block;min-width:0;min-height:45px;width:100%;padding:11px 13px;border:1px solid var(--stroke,#d7dfe3);border-radius:9px;background:var(--white,#fff);font:inherit;font-size:14px;font-weight:400;color:var(--text-primary,#172b36)}
+.emCapturePanel input:focus-visible,.emCapturePanel select:focus-visible{outline:2px solid #287a91;outline-offset:2px}
+.emCapturePanel button:not(.ds-button){border-radius:8px;border:1px solid #174355;background:#174355;color:#fff;min-height:39px;padding:9px 15px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;justify-self:start}
+.emCapturePanel button:disabled{cursor:not-allowed;opacity:.55}
+.emCaptureLinkGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.emCaptureLink{background:var(--surface-muted,#f7f8f8);border:1px solid var(--stroke,#e3e0d9);padding:17px;border-radius:12px;display:grid;align-content:start;gap:9px;min-width:0}
+.emCaptureLink strong{font-size:13px}
+.emCaptureLink p{font-family:ui-monospace,SFMono-Regular,monospace;margin:0;color:var(--text-secondary,#52626b);font-size:11px;line-height:1.6;overflow-wrap:anywhere;max-height:95px;overflow:auto}
+.emCaptureLinkWide{grid-column:1/-1}
+.emCaptureLink button{margin-top:3px}
+.emCaptureConnect{border:1px solid var(--stroke,#e3e0d9);border-radius:12px;padding:18px;display:grid;gap:14px;background:var(--surface-muted,#f9faf9)}
+.emCaptureConnect h4{margin:0;font-size:15px}
+.emCaptureSecret{padding:15px;border:1px solid #bcd0d8;border-radius:10px;background:#f1f6f8;display:grid;gap:10px;max-width:100%;overflow-wrap:anywhere}
+.emCaptureSecret p{margin:0;font-size:12px}
+.emCaptureStat{padding:20px;border:1px solid var(--stroke,#e3e0d9);border-radius:13px;display:grid;gap:8px;min-width:0}
+.emCaptureStat strong{font-size:clamp(27px,3vw,38px);font-weight:550;letter-spacing:-.055em;line-height:1}
+.emCaptureStat span{font-size:12px;color:var(--text-secondary,#52626b);line-height:1.3}
+.emCaptureStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px}
+.emCaptureResults h4{font-size:13px;margin:5px 0 0}
+.emCaptureResults table{font-size:12px;width:100%;border-collapse:collapse}
+.emCaptureResults th,.emCaptureResults td{border-bottom:1px solid var(--stroke,#e3e0d9);padding:12px;text-align:left;overflow-wrap:anywhere}
+.emCaptureResults th{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-secondary,#657078)}
+.emCaptureSources table{width:100%}
+@media(max-width:760px){.emCaptureHero{padding:23px 19px;align-items:start}.emCapturePanel{padding:18px}.emCaptureLinkGrid{grid-template-columns:1fr}.emCaptureLinkWide{grid-column:auto}.emCaptureStats{grid-template-columns:repeat(2,minmax(0,1fr))}}

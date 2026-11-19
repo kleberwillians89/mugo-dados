@@ -4,10 +4,11 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from services import meta_ad_publisher as pub
+from services.ig_supabase import sb_select
 from services.studio_calendar import StudioError
 from services.tenant import require_client_role, require_user_id
 
@@ -61,6 +62,69 @@ async def read_drafts(client_id: str, authorization: Optional[str] = Header(defa
         raise _http(exc) from None
 
 
+@router.get("/audiences")
+async def read_audiences(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Públicos que já existem na conta de anúncios do cliente (salvos, personalizados e semelhantes)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.list_account_audiences(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/preflight")
+async def account_publication_preflight(client_id: str,
+                                         objective: str = Query(default="leads", max_length=20),
+                                         authorization: Optional[str] = Header(default=None)):
+    """Check the current tenant's Meta publishing prerequisites without creating an ad."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.publication_preflight(cid, objective)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/instagram-posts")
+async def read_instagram_posts(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Read synchronized Instagram media of the selected tenant (never global media)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    rows = await sb_select(
+        "ig_media",
+        select="media_id,media_type,media_product_type,caption,permalink,timestamp,thumb_url,media_url,thumbnail_url",
+        filters={"client_id": f"eq.{cid}"},
+        order="timestamp.desc",
+        limit=120,
+    )
+    posts = []
+    for row in rows:
+        kind = str(row.get("media_type") or "")
+        cover = str(row.get("thumb_url") or row.get("thumbnail_url") or "").strip()
+        original = str(row.get("media_url") or "").strip()
+        photo_url = original if kind == "IMAGE" else ""
+        if kind == "CAROUSEL_ALBUM":
+            # Selecting its cover does not publish an actual carousel ad.
+            photo_url = cover
+        if not cover:
+            cover = photo_url
+        if not cover.startswith("https://"):
+            continue
+        permalink = str(row.get("permalink") or "").strip()
+        posts.append({
+            "id": str(row.get("media_id") or ""),
+            "media_type": kind,
+            "media_product_type": str(row.get("media_product_type") or ""),
+            "caption": str(row.get("caption") or "")[:240],
+            "permalink": permalink if permalink.startswith("https://") else None,
+            "timestamp": str(row.get("timestamp") or ""),
+            "preview_url": cover,
+            "image_url": photo_url if photo_url.startswith("https://") else None,
+            "video_url": original if kind == "VIDEO" and original.startswith("https://") else None,
+            "selectable": (kind in ("IMAGE", "CAROUSEL_ALBUM") and photo_url.startswith("https://")) or
+                (kind == "VIDEO" and original.startswith("https://")),
+        })
+    return {"posts": posts, "source": "instagram_synced", "count": len(posts)}
+
+
 @router.post("", status_code=201)
 async def create_draft(client_id: str, body: GenerateInput, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
@@ -77,6 +141,25 @@ async def update_draft(client_id: str, draft_id: UUID, body: DraftInput, authori
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
         return {"draft": await pub.save_draft(cid, str(draft_id), body.payload)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/{draft_id}/duplicate", status_code=201)
+async def duplicate_ad_draft(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/{draft_id}/delivery-status")
+async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.live_delivery_status(cid, str(draft_id))
     except StudioError as exc:
         raise _http(exc) from None
 

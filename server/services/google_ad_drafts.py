@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .studio_calendar import StudioError
+from .ads_tracking import clean_tracking
 
 TABLE = "studio_ad_drafts"
 PLATFORM = "google_ads"
@@ -52,7 +53,27 @@ def clean_payload(value: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(raw, list):
             raise StudioError("AD_NOT_READY", f"Lista inválida: {key}")
         return list(dict.fromkeys(str(v).strip()[:length] for v in raw if str(v).strip()))[:limit]
+    networks = value.get("networks") or {}
+    if not isinstance(networks, dict):
+        raise StudioError("AD_NOT_READY", "Configuração de redes Google inválida.")
+    if networks.get("google_search", True) is not True:
+        raise StudioError("AD_NOT_READY", "Campanhas SEARCH exigem Pesquisa Google.")
+    if any(k in networks and not isinstance(networks[k], bool) for k in ("search_partners","display_network")):
+        raise StudioError("AD_NOT_READY", "Selecione redes válidas para a campanha.")
+    match_type = str(value.get("keyword_match_type") or "PHRASE").upper()
+    if match_type not in ("BROAD", "PHRASE", "EXACT"):
+        raise StudioError("AD_NOT_READY", "Selecione correspondência ampla, de frase ou exata.")
+    try:
+        tracking = clean_tracking(value.get("tracking"))
+    except ValueError as exc:
+        raise StudioError("AD_NOT_READY", str(exc)) from None
     return {
+        "tracking": tracking,
+        "keyword_match_type": match_type,
+        "negative_keywords": clean_list("negative_keywords", 100, 80),
+        "networks": {"google_search": True,
+                     "search_partners": networks.get("search_partners", False),
+                     "display_network": networks.get("display_network", False)},
         "platform": PLATFORM,
         "name": name,
         "objective": objective,
@@ -113,6 +134,20 @@ async def create(client_id: str, user_id: str, data: Dict[str, Any]) -> Dict[str
     payload = clean_payload(data)
     created = await sb_insert(TABLE, {"client_id": client_id, "payload": payload,
                                       "status": "rascunho", "created_by": user_id})
+    if not created:
+        raise StudioError("AD_SAVE_FAILED")
+    return view(created)
+
+
+async def duplicate(client_id: str, draft_id: str, user_id: str) -> Dict[str, Any]:
+    """Copy planning without reusing published campaign IDs or delivery state."""
+    previous = await owned(client_id, draft_id)
+    payload = clean_payload(previous.get("payload") or {})
+    payload["name"] = (payload["name"][:112] + " · cópia")[:120]
+    created = await sb_insert(TABLE, {
+        "client_id": client_id, "payload": payload,
+        "status": "rascunho", "created_by": user_id,
+    })
     if not created:
         raise StudioError("AD_SAVE_FAILED")
     return view(created)

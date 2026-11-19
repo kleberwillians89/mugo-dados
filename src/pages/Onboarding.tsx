@@ -1,4 +1,6 @@
 import { DataFreshness } from "../components/data/DataFreshness";
+import MetaPermissionsPanel from "../components/meta/MetaPermissionsPanel";
+import QuietBoundary from "../components/meta/QuietBoundary";
 import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1876,6 +1878,8 @@ export default function Onboarding({
               );
             })}
           </div>
+
+          <QuietBoundary name="meta-permissions"><MetaPermissionsPanel /></QuietBoundary>
 
           {INTEGRATION_REGISTRY.some((definition) => definition.availability !== "available") ? (
             <div className="onboardingComingSoon">

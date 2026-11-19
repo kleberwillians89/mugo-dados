@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, type AdDraft, type AdPayload } from "../../app/metaAds";
+import { deleteAdDraft, duplicateAdDraft, readMetaLiveDeliveryStatus, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaLiveDeliveryStatus, type MetaPublicationPreflight, type AdDraft, type AdPayload } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
-import { META_STEPS, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
+import MetaAudiencePicker from "./MetaAudiencePicker";
+import MetaCreativeStudio from "./MetaCreativeStudio";
+import CampaignTrackingFields from "./CampaignTrackingFields";
+import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
+import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const STATUS: Record<AdDraft["status"], { label: string; tone: "neutral" | "info" | "success" | "error" }> = {
@@ -23,6 +27,7 @@ export type PrepareRequest = { nonce: number; campaign: Record<string, unknown> 
  */
 export default function MetaAdsPanel({ month, objective, daysLeft, request }: { month: string; objective: string; daysLeft: number; request: PrepareRequest }) {
   const clientId = getActiveClientId();
+  const handledRequest = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<AdDraft[] | null>(null);
   const [objectives, setObjectives] = useState<Record<string, string>>({});
   const [ctas, setCtas] = useState<Record<string, string>>({});
@@ -34,6 +39,27 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, MetaLiveDeliveryStatus>>({});
+  const [checkingStatus, setCheckingStatus] = useState<string | null>(null);
+  const [liveErrors, setLiveErrors] = useState<Record<string, string>>({});
+
+  const [metaPreflight, setMetaPreflight] = useState<MetaPublicationPreflight | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [preflightVersion, setPreflightVersion] = useState(0);
+  useEffect(() => {
+    if (!editing || step !== 3 || editing.draft.status === "publicada") return;
+    const tenant = clientId;
+    let valid = true;
+    setMetaPreflight(null); setPreflightError(null); setPreflightBusy(true);
+    metaPublicationPreflight(editing.payload.objective)
+      .then((result) => { if (valid && getActiveClientId() === tenant) setMetaPreflight(result); })
+      .catch((cause) => { if (valid && getActiveClientId() === tenant)
+        setPreflightError(message(cause, "Não foi possível verificar a conta de anúncios.")); })
+      .finally(() => { if (valid && getActiveClientId() === tenant) setPreflightBusy(false); });
+    return () => { valid = false; };
+  }, [clientId, editing?.draft.id, editing?.payload.objective, step, preflightVersion]);
+
 
   const load = useCallback(async () => {
     try {
@@ -64,7 +90,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     const r = await run("generate", () => generateAdDraft({ month, objective, days_left: daysLeft, campaign }), "Não foi possível montar a campanha.");
     if (r) { upsert(r.draft); open(r.draft); }
   }, [month, objective, daysLeft]);
-  useEffect(() => { if (request) void generate(request.campaign); }, [request, generate]);
+  useEffect(() => { if (request && request.nonce !== handledRequest.current) { handledRequest.current = request.nonce; void generate(request.campaign); } }, [request, generate]);
 
   async function save(event?: FormEvent) {
     event?.preventDefault();
@@ -85,6 +111,29 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     const r = await run("publish", () => publishAdDraft(editing.draft.id), "Não foi possível criar no Meta Ads.");
     await load();
     if (r) { setEditing(null); setNotice(`"${r.draft.payload.name}" foi criada no Meta Ads, pausada. Confira e ative no Gerenciador de Anúncios.`); }
+  }
+
+  async function duplicate(d: AdDraft) {
+    const r = await run(`duplicate:${d.id}`, () => duplicateAdDraft(d.id),
+      "Não foi possível duplicar esta campanha.");
+    if (r) {
+      upsert(r.draft);
+      setNotice(`Cópia de "${d.payload.name}" criada como rascunho, sem publicar nem ativar anúncios.`);
+      open(r.draft);
+    }
+  }
+
+  async function checkDelivery(d: AdDraft) {
+    setCheckingStatus(d.id);
+    setLiveErrors(old => ({...old,[d.id]:""}));
+    try {
+      const data = await readMetaLiveDeliveryStatus(d.id);
+      if (getActiveClientId() !== clientId) return;
+      setLiveStatuses(old => ({...old,[d.id]:data}));
+    } catch (cause) {
+      if (getActiveClientId() === clientId) setLiveErrors(old => ({...old,
+        [d.id]:message(cause, "Não foi possível consultar o status da Meta.")}));
+    } finally { setCheckingStatus(null); }
   }
 
   async function remove(d: AdDraft) {
@@ -121,22 +170,52 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}</p></div> : null}
     {busy === "generate" ? <p className="ds-caption">A IA está montando público, texto e verba… até 1 minuto.</p> : null}
     {!drafts ? <p className="ds-caption">Carregando…</p> : !drafts.length ? <p className="ds-emptyLine">Nenhuma campanha preparada. Use “Preparar no Meta Ads” numa campanha do Meta acima ou “+ Nova campanha”.</p> :
-      <div className="ds-tableWrap"><table className="ds-table metaAdsTable">
-        <thead><tr><th>Campanha</th><th>Objetivo</th><th>Verba/dia</th><th>Período</th><th>Status</th><th aria-label="Ações" /></tr></thead>
-        <tbody>{drafts.map((d) => <tr key={d.id}>
-          <td><b>{d.payload.name}</b>{d.source_campaign && d.source_campaign !== d.payload.name ? <span className="ds-tableSub">do plano: {d.source_campaign}</span> : null}
-            {d.status === "erro" && d.error ? <span className="ds-tableSub metaAdsErr">{d.error}</span> : null}
-            {d.status === "rascunho" && d.missing.length ? <span className="ds-tableSub">Falta: {d.missing.join(" · ")}</span> : null}</td>
-          <td>{objectives[d.payload.objective] || d.payload.objective}</td>
-          <td>{brl(d.payload.daily_budget)}</td>
-          <td>{d.payload.start_date.slice(8, 10)}/{d.payload.start_date.slice(5, 7)} a {d.payload.end_date.slice(8, 10)}/{d.payload.end_date.slice(5, 7)}</td>
-          <td><StatusBadge label={STATUS[d.status].label} tone={STATUS[d.status].tone} /></td>
-          <td><div className="metaAdsActions">
-            {d.ads_manager_url ? <a className="ds-link" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
-            <button type="button" className="ds-button" onClick={() => open(d)}>{d.status === "publicada" ? "Ver" : "Revisar"}</button>
-            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>{d.status === "publicada" ? "Tirar da lista" : "Excluir"}</button>
-          </div></td>
-        </tr>)}</tbody></table></div>}
+      <div className="metaAdsCampaignCards" aria-label="Campanhas Meta Ads já preparadas">
+        {drafts.map((d) => <article className="metaAdsCampaignCard" key={d.id}>
+          <StatusBadge label={STATUS[d.status].label} tone={STATUS[d.status].tone} />
+          <h3>{d.payload.name}</h3>
+          {d.source_campaign && d.source_campaign !== d.payload.name ? <p className="ds-caption">Origem: {d.source_campaign}</p> : null}
+          <div className="metaAdsCampaignMeta">
+            <span>{objectives[d.payload.objective] || d.payload.objective}</span>
+            <span>{brl(d.payload.daily_budget)}/dia</span>
+            <span>{d.payload.start_date.slice(8, 10)}/{d.payload.start_date.slice(5, 7)} a {d.payload.end_date.slice(8, 10)}/{d.payload.end_date.slice(5, 7)}</span>
+          </div>
+          {d.status === "erro" && d.error ? <p className="studioError" role="alert">{d.error}</p> : null}
+          {d.status === "rascunho" && d.missing.length ? <p className="ds-caption">Antes de publicar: {d.missing.join(" · ")}</p> : null}
+          {liveErrors[d.id] ? <p role="alert" className="studioError">{liveErrors[d.id]}</p> : null}
+          {liveStatuses[d.id] ? <div className="metaLiveDeliveryStatus" role="status">
+            <b>Status consultado na Meta</b>
+            {(["campaign_id","adset_id","ad_id"] as const).map(key => {
+              const item = liveStatuses[d.id].objects[key];
+              return item ? <div key={key}>
+                <span>{key === "campaign_id" ? "Campanha" : key === "adset_id" ? "Conjunto" : "Anúncio"}</span>
+                <strong>{item.effective_status || item.status || "Não informado"}</strong>
+              </div> : null;
+            })}
+            <small>Consulta somente leitura · {new Date(liveStatuses[d.id].checked_at).toLocaleString("pt-BR")}. O status não ativa ou pausa anúncios.</small>
+          </div> : null}
+
+          <div className="metaAdsActions">
+            <button type="button" className="ds-button is-primary" onClick={() => open(d)}>
+              {d.status === "publicada" ? "Ver campanha" : "Editar campanha"}
+            </button>
+            {d.status !== "publicada" && d.status !== "publicando" ? <>
+              <button type="button" className="ds-button" onClick={() => { open(d); setStep(2); }}>Criativos</button>
+              <button type="button" className="ds-button" onClick={() => { open(d); setStep(3); }}>Revisar publicação</button>
+            </> : null}
+            <button type="button" className="ds-button" disabled={Boolean(busy)}
+              onClick={() => void duplicate(d)}>{busy === `duplicate:${d.id}` ? "Duplicando…" : "Duplicar campanha"}</button>
+            {d.meta_ids?.campaign_id ? <button type="button" className="ds-button"
+              disabled={checkingStatus === d.id} onClick={() => void checkDelivery(d)}>
+              {checkingStatus === d.id ? "Consultando…" : "Ver status na Meta"}
+            </button> : null}
+            {d.ads_manager_url ? <a className="ds-button" href={d.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Gerenciador</a> : null}
+            <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void remove(d)}>
+              {d.status === "publicada" ? "Tirar da lista" : "Excluir"}
+            </button>
+          </div>
+        </article>)}
+      </div>}
 
     <Drawer open={Boolean(editing)} width="lg" title={editing ? editing.payload.name : ""} onClose={() => { if (!busy) setEditing(null); }}
       description={locked ? "Já criada no Meta Ads (pausada). Ajustes daqui em diante, no Gerenciador de Anúncios." : "Revise tudo antes de criar. A campanha vai pausada: nada é gasto até alguém ativar no Meta."}>
@@ -149,7 +228,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <span>{index + 1}</span>{label}
           </button>)}
         </nav>
-        <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha a imagem e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
+        <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha imagem ou vídeo e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
         {step === 0 ? <fieldset disabled={locked || Boolean(busy)}>
           <legend>1 · Campanha</legend>
           <label className="ds-field">Nome<input required maxLength={120} value={editing.payload.name} onChange={(e) => set({ name: e.target.value })} /></label>
@@ -165,6 +244,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
         </fieldset> : null}
         {step === 1 ? <fieldset disabled={locked || Boolean(busy)}>
           <legend>2 · Público</legend>
+          <MetaAudiencePicker audience={editing.payload.audience} onChange={setAud} disabled={locked || Boolean(busy)} />
+          {editing.payload.audience.saved_audience ? <p className="ds-caption metaAudSavedNote">
+            Idade, gênero, locais e interesses vêm do público salvo “{editing.payload.audience.saved_audience.name}”. Os campos abaixo ficam de lado.</p> : null}
+          <fieldset className="metaAudManual" disabled={Boolean(editing.payload.audience.saved_audience)}>
           <div className="metaAdsRow">
             <label className="ds-field">Idade mínima<input type="number" min={18} max={65} value={editing.payload.audience.age_min} onChange={(e) => setAud({ age_min: Number(e.target.value) })} /></label>
             <label className="ds-field">Idade máxima<input type="number" min={18} max={65} value={editing.payload.audience.age_max} onChange={(e) => setAud({ age_max: Number(e.target.value) })} /></label>
@@ -177,10 +260,14 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             onChange={(e) => setAud({ interests: e.target.value.split(",").map((s) => s.trimStart()) })} /></label>
           <label className="metaAdsCheck"><input type="checkbox" checked={editing.payload.audience.advantage} onChange={(e) => setAud({ advantage: e.target.checked })} />
             Público Advantage+ (o Meta pode ampliar além dos interesses quando achar gente com mais chance)</label>
+          </fieldset>
           <div className="metaAdsAudienceSummary">
             <strong>Prévia do público</strong>
-            <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p>
+            {!editing.payload.audience.saved_audience ? <p>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil inteiro"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Sem interesses específicos (amplo)"}</p> : null}
+            {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}
           </div>
+          <MetaPlacementPicker value={editing.payload.placements || DEFAULT_META_PLACEMENTS}
+            onChange={placements => set({placements})} disabled={locked || Boolean(busy)} />
           {!locked ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
             onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
             Revisei e confirmo esse público, inclusive a possível ampliação pelo Advantage+.</label> : null}
@@ -195,23 +282,49 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           <label className="ds-field">Descrição (opcional)<input maxLength={200} value={editing.payload.ad.description} onChange={(e) => setAd({ description: e.target.value })} /></label>
           <label className="ds-field">Link de destino<input type="url" maxLength={500} value={editing.payload.ad.link} placeholder="https://loja.com.br/produto" onChange={(e) => setAd({ link: e.target.value })} /></label>
-          <div className="ds-field">Imagem do anúncio
-            {arts.length ? <div className="metaAdsArts">{arts.slice(0, 12).map((item) => {
-              const url = firstArt(item);
-              return <button key={item.id} type="button" className={`metaAdsArt${editing.payload.ad.image_url === url ? " is-selected" : ""}`} title={item.title}
-                onClick={() => setAd({ image_url: url, calendar_item_id: item.id })}><img src={url} alt="" loading="lazy" /><span>{item.title}</span></button>;
-            })}</div> : <small>Nenhum post com arte em imagem no Calendário deste mês.</small>}
-            {editing.payload.ad.image_url ? <div className="metaAdsCreativePreview"><img src={editing.payload.ad.image_url} alt="Prévia do criativo selecionado" loading="lazy" /><p>Imagem escolhida para o anúncio</p></div> : null}
-            <input type="url" maxLength={1000} value={editing.payload.ad.image_url} placeholder="ou cole o link direto da imagem (JPG/PNG)"
-              onChange={(e) => setAd({ image_url: e.target.value, calendar_item_id: null })} />
-          </div>
+          <CampaignTrackingFields platform="meta" campaignName={editing.payload.name}
+            value={editing.payload.tracking || {}} disabled={locked || Boolean(busy)}
+            onChange={tracking => set({tracking})} />
+          <MetaCreativeStudio key={clientId + ":" + editing.draft.id} clientId={clientId} month={month}
+            calendar={arts} ad={editing.payload.ad} disabled={locked || Boolean(busy)} onChoose={setAd} />
         </fieldset> : null}
         {step === 3 ? <section className="metaAdsReview" aria-label="Revisão da campanha">
+          <div className="metaPublishPreflight" aria-label="Verificação de publicação na conta Meta">
+            <div className="metaPublishPreflightHead"><div>
+              <h3>Conta Meta: pronta para publicar?</h3>
+              <p className="ds-caption">Checagem em tempo real da conta, permissões, página e pixel. Nenhum anúncio será enviado nesta verificação.</p>
+            </div>
+              <button type="button" className="ds-button" disabled={preflightBusy || Boolean(busy)}
+                onClick={() => setPreflightVersion((n) => n + 1)}>
+                {preflightBusy ? "Conferindo…" : "Verificar novamente"}
+              </button>
+            </div>
+            {preflightError ? <p className="studioError" role="alert">{preflightError}</p> : null}
+            {preflightBusy ? <p className="ds-caption">Conferindo as conexões desta empresa na Meta…</p> : null}
+            {metaPreflight ? <>
+              <p className={metaPreflight.ready ? "metaPublishReady" : "metaPublishBlocked"} role="status">
+                {metaPreflight.ready ? "Conta pronta para tentar criar a campanha PAUSADA." :
+                  "Há pendências na conexão Meta. Resolva antes de publicar."}
+              </p>
+              <div className="metaPublishChecklist">
+                {metaPreflight.checks.map((check) => <div key={check.key} className={check.ok ? "is-ok" : "is-missing"}>
+                  <span aria-hidden="true">{check.ok ? "✓" : "!"}</span>
+                  <div><b>{({account:"Conta de anúncios",page:"Página do Facebook",instagram:"Instagram",pixel:"Pixel de conversão"} as Record<string,string>)[check.key] || check.key}</b>
+                    <small>{check.label ? check.label + " · " : ""}{check.message}</small></div>
+                </div>)}
+              </div>
+            </> : null}
+          </div>
           <h3>Revise antes de criar no Meta</h3>
           <dl>
             <div><dt>Campanha</dt><dd>{editing.payload.name} · {objectives[editing.payload.objective] || editing.payload.objective}</dd></div>
+            <div><dt>Canais e posicionamentos</dt><dd>{editing.payload.placements?.mode === "manual"
+              ? [editing.payload.placements.platforms.includes("instagram") ? "Instagram: " + editing.payload.placements.instagram.join(", ") : "",
+                 editing.payload.placements.platforms.includes("facebook") ? "Facebook: " + editing.payload.placements.facebook.join(", ") : ""].filter(Boolean).join(" · ")
+              : "Automático (Advantage+)"}</dd></div>
             <div><dt>Orçamento e período</dt><dd>{brl(editing.payload.daily_budget)}/dia · {editing.payload.start_date.split("-").reverse().join("/")} até {editing.payload.end_date.split("-").reverse().join("/")}</dd></div>
-            <div><dt>Público confirmado</dt><dd>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</dd></div>
+            <div><dt>Público confirmado</dt><dd>{editing.payload.audience.saved_audience ? "" : <>{editing.payload.audience.age_min}–{editing.payload.audience.age_max} anos · {editing.payload.audience.gender} · {editing.payload.audience.regions.filter(Boolean).join(", ") || "Brasil"} · {editing.payload.audience.interests.filter(Boolean).join(", ") || "Amplo"} · Advantage+ {editing.payload.audience.advantage ? "ligado" : "desligado"}</>}
+              {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
             <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
           </dl>
           {editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
@@ -229,7 +342,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             {!locked && step < 3 ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)}
               onClick={advance}>{step === 0 ? "Escolher público" : step === 1 ? "Escolher criativo" : "Revisar campanha"}</button> : null}
             {!locked && step === 3 ? <button type="button" className="ds-button is-primary"
-              disabled={Boolean(busy) || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
+              disabled={Boolean(busy) || preflightBusy || !metaPreflight?.ready || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
               onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : "Criar no Meta Ads (pausada)"}</button> : null}
           </span>
         </div>

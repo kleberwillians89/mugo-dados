@@ -61,6 +61,17 @@ async def create_campaign(client_id: str, body: Input, authorization: Optional[s
     except StudioError as error:
         raise _http(error) from None
 
+@router.post("/{draft_id}/duplicate", status_code=201)
+async def duplicate_campaign(client_id: str, draft_id: UUID,
+                             authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        return {"draft": await drafts.duplicate(cid, str(draft_id), uid)}
+    except StudioError as error:
+        raise _http(error) from None
+
+
 @router.put("/{draft_id}")
 async def edit_campaign(client_id: str, draft_id: UUID, body: Input, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)

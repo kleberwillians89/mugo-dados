@@ -1,10 +1,13 @@
 import { clientClientPath, http } from "./api";
+import type { TrackingParams } from "./adTracking";
 
 export type GoogleCampaignPayload = {
   platform: "google_ads";
+  tracking?: TrackingParams;
+  networks?: { google_search: true; search_partners: boolean; display_network: boolean };
   name: string; objective: "vendas" | "leads" | "trafego"; type: "SEARCH";
   daily_budget: number; start_date: string; end_date: string; final_url: string;
-  locations: string[]; keywords: string[]; headlines: string[]; descriptions: string[]; notes: string;
+  locations: string[]; keywords: string[]; keyword_match_type?: "BROAD" | "PHRASE" | "EXACT"; negative_keywords?: string[]; headlines: string[]; descriptions: string[]; notes: string;
   contains_eu_political_advertising: boolean | null;
 };
 export type GoogleCampaignDraft = {
@@ -26,3 +29,6 @@ export const deleteGoogleCampaignDraft = (id: string) =>
   http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const publishGoogleCampaignDraft = (id: string) =>
   http<{ draft: GoogleCampaignDraft }>(base(`/${encodeURIComponent(id)}/publish`), { method: "POST", timeoutMs: 180_000 });
+
+export const duplicateGoogleCampaignDraft = (id: string) =>
+  http<{ draft: GoogleCampaignDraft }>(base(`/${encodeURIComponent(id)}/duplicate`), {method:"POST"});

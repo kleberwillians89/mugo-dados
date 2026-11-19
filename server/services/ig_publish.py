@@ -69,6 +69,11 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
         plan["fields"]["collaborators"] = json.dumps(collaborators)
     if plan and plan["type"] != "story" and item.get("product_tags"):
         _apply_product_tags(plan, item["product_tags"])
+    if plan and plan["type"] == "reels" and item.get("reels_options"):
+        from .ig_reels import apply_reels_options
+        warning = apply_reels_options(plan, item["reels_options"])
+        if warning:
+            plan["warning"] = warning
     return plan, problem
 
 
@@ -233,10 +238,14 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
             # A Meta recusou com as marcações (loja não aprovada, produto inválido…): o post sai sem elas.
             out = await publish(creds, strip_tags(container))
             untagged = f"a Meta recusou as marcações ({(str(exc) if str(exc) != exc.code else exc.code)[:120]})"
+        from .studio_history import record
         if untagged:
-            from .studio_history import record
             await record(item["client_id"], item["id"], f"publicou sem marcar os produtos da loja: {untagged}",
                          actor_name="Publicação automática", side="sistema")
+        if container.get("warning"):
+            await record(item["client_id"], item["id"], f"publicou o Reels, mas {container['warning']}",
+                         actor_name="Publicação automática", side="sistema")
+        await _first_comment(creds, item, out.get("media_id"))
         await _set(item, {"publish_status": "publicado", "status": "publicado", "published_at": datetime.now(timezone.utc).isoformat(),
                           "published_media_id": out["media_id"], "published_permalink": out.get("permalink")}, expect="publicando")
         return "publicado"
@@ -245,19 +254,38 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         return "falhou"
 
 
+async def _first_comment(creds: Dict[str, Any], item: Dict[str, Any], media_id: Optional[str]) -> None:
+    """Primeiro comentário do Reels, logo depois de publicar. Falhou? O post continua publicado e fica no histórico."""
+    from .ig_reels import first_comment
+    from .studio_history import record
+    message = first_comment(item)
+    if not message or not media_id:
+        return
+    try:
+        await _graph("POST", f"/{media_id}/comments", token=creds["token"], data={"message": message})
+        await record(item["client_id"], item["id"], "publicou o primeiro comentário", actor_name="Publicação automática", side="sistema")
+    except StudioError as exc:
+        reason = (str(exc) if str(exc) != exc.code else exc.code)[:120]
+        await record(item["client_id"], item["id"], f"não conseguiu publicar o primeiro comentário ({reason})",
+                     actor_name="Publicação automática", side="sistema")
+
+
 async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
     now = now or datetime.now(timezone.utc)
     base = "id,client_id,channel,format,art_url,caption_draft,scheduled_at,status,schedule_confirmed_at,publish_status"
     query = dict(order="scheduled_at.asc", limit=MAX_PER_RUN,
                  filters={"status": "eq.aprovado", "schedule_confirmed_at": "not.is.null", "publish_status": "is.null",
                           "scheduled_at": f"lte.{now.isoformat()}"})
-    try:
-        items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators,product_tags", **query)
-    except Exception:  # noqa: BLE001 — antes da migração 000098 (produtos) ou 000080 (colaboradores): publica igual
+    # Antes da migração 000131 (Reels), 000098 (produtos) ou 000080 (colaboradores): publica igual, sem a coluna nova.
+    items = None
+    for extra in (",collaborators,product_tags,reels_options", ",collaborators,product_tags", ",collaborators"):
         try:
-            items = await sb_select(ITEMS_TABLE, select=f"{base},collaborators", **query)
+            items = await sb_select(ITEMS_TABLE, select=f"{base}{extra}", **query)
+            break
         except Exception:  # noqa: BLE001
-            items = await sb_select(ITEMS_TABLE, select=base, **query)
+            continue
+    if items is None:
+        items = await sb_select(ITEMS_TABLE, select=base, **query)
     counts: Dict[str, int] = {"due": len(items)}
     cache: Dict[str, Any] = {}
     for item in items:

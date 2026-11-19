@@ -89,6 +89,8 @@ export type CalendarItem = {
   collaborators?: string[];
   /** Produtos da loja do Instagram marcados no post (publicados junto). */
   product_tags?: ProductTag[];
+  /** Reels: capa, onde aparece, teste, áudio e primeiro comentário (vão junto na publicação). */
+  reels_options?: ReelsOptions;
   /** Equipe: nova versão preparada pela IA para o ajuste que o cliente pediu (só sugestão; a equipe aplica). */
   ai_suggestion?: AiSuggestion | null;
   /** Equipe validou o agendamento depois da aprovação do cliente. */
@@ -105,7 +107,7 @@ export type CalendarItem = {
   boost?: { start: string; end: string; budget: number; why: string };
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags">>;
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">>;
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
@@ -161,6 +163,20 @@ export function dismissSuggestion(id: string) { return http<{ ok: boolean }>(ite
 
 // ---------------------------------------------------------------- produtos da loja (Instagram Shopping)
 /** Produto marcado: slide = arte do carrossel (0 = primeira); x/y de 0.01 a 1 a partir do canto de cima (só imagem). */
+/** Opções do Reels no Instagram. Vazio = como antes (primeiro frame, Feed conforme a conta, sem teste). */
+export type ReelsOptions = {
+  /** "frame" = um momento do vídeo (thumb_offset_ms); "image" = JPG feito pela equipe (cover_url). */
+  cover_mode?: "frame" | "image";
+  thumb_offset_ms?: number;
+  cover_url?: string;
+  /** true = aparece também no Feed e na grade do perfil; false = só na aba Reels. */
+  share_to_feed?: boolean;
+  /** Reels de teste: primeiro só para quem não segue. manual = a equipe decide; auto = vai se performar bem. */
+  trial?: "off" | "manual" | "auto";
+  audio_name?: string;
+  first_comment?: string;
+};
+
 export type ProductTag = { product_id: string; name?: string | null; image_url?: string | null; slide: number; x: number; y: number };
 export type ShopStatus = { ready: boolean; eligible: boolean | null; catalogs: { id: string; name: string | null; shop_name: string | null; product_count: number | null }[];
   missing_scopes: string[]; message: string | null };

@@ -657,7 +657,7 @@ SCRIPT_HINTS = {
 }
 
 
-EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options")
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -684,6 +684,9 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if "product_tags" in clean:
         from .ig_shop import clean_product_tags
         clean["product_tags"] = clean_product_tags(clean["product_tags"])
+    if "reels_options" in clean:
+        from .ig_reels import clean_reels_options
+        clean["reels_options"] = clean_reels_options(clean["reels_options"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -800,6 +803,11 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
     if data.get("product_tags"):
         from .ig_shop import clean_product_tags
         row["product_tags"] = clean_product_tags(data["product_tags"])
+    if data.get("reels_options"):
+        from .ig_reels import clean_reels_options
+        options = clean_reels_options(data["reels_options"])
+        if options:  # só manda a coluna (migração 000131) quando a tela escolheu algo
+            row["reels_options"] = options
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")
