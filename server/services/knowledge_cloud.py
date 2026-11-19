@@ -71,8 +71,46 @@ def parse_link(url: str) -> Tuple[str, str]:
     raise StudioError("CLOUD_LINK_INVALID")
 
 
-def classify(item: Dict[str, Any]) -> Dict[str, Any]:
+LIBRARY_MAX_BYTES = 200 * 1024 * 1024
+LIBRARY_EXPORT = "application/pdf"  # Google Docs/Apresentações/Planilhas entram na Biblioteca como PDF
+
+
+def library_category(name: str, mime: str, path: str = "") -> str:
+    """Categoria da Biblioteca pelo arquivo (a pessoa pode trocar antes de importar)."""
+    text = f"{path}/{name}".lower()
+    if "logo" in text:
+        return "logo"
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("image/"):
+        return "produto" if "produto" in text else "foto"
+    return "documento"
+
+
+def classify_library(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Arquivo do Drive → pode entrar na Biblioteca? (imagens, vídeos, PDF e Office; Google Docs viram PDF)."""
+    from .studio_library import TYPES
+    mime = str(item.get("mimeType") or "")
+    name = str(item.get("name") or "arquivo")
+    size = int(item.get("size") or 0) or None
+    supported, reason = True, None
+    if mime in EXPORT:
+        pass
+    elif mime.lower() in TYPES:
+        if size and size > LIBRARY_MAX_BYTES:
+            supported, reason = False, "Maior que 200 MB: envie pelo botão de arquivo."
+    elif name.lower().rsplit(".", 1)[-1] in ("ai", "psd", "indd", "fig", "sketch"):
+        supported, reason = False, "Arquivo de design (.ai, .psd…): exporte em PDF ou PNG."
+    else:
+        supported, reason = False, "Formato que a Biblioteca não guarda."
+    return {"id": str(item.get("id") or ""), "name": name, "mime": mime, "size": size, "path": item.get("_path") or "",
+            "supported": supported, "reason": reason, "category": library_category(name, mime, str(item.get("_path") or ""))}
+
+
+def classify(item: Dict[str, Any], mode: str = "knowledge") -> Dict[str, Any]:
     """Arquivo do Drive → o que a tela mostra (e se dá para ensinar a IA com ele)."""
+    if mode == "library":
+        return classify_library(item)
     mime = str(item.get("mimeType") or "")
     name = str(item.get("name") or "arquivo")
     size = int(item.get("size") or 0) or None
@@ -104,15 +142,15 @@ async def _drive_get(client: httpx.AsyncClient, path: str, params: Dict[str, Any
     return resp.json() or {}
 
 
-async def list_link(url: str) -> Dict[str, Any]:
+async def list_link(url: str, mode: str = "knowledge") -> Dict[str, Any]:
     kind, ref = parse_link(url)
     if kind == "canva":
         return {"source": "canva", "files": [{"id": ref, "name": "Design do Canva", "mime": "canva", "size": None, "path": "",
-                                              "supported": True, "reason": None}], "truncated": False}
+                                              "supported": True, "reason": None, "category": "referencia"}], "truncated": False}
     async with httpx.AsyncClient(timeout=20) as client:
         if kind == "drive_file":
             item = await _drive_get(client, f"/files/{ref}", {"fields": "id,name,mimeType,size"})
-            return {"source": "drive", "files": [classify(item)], "truncated": False}
+            return {"source": "drive", "files": [classify(item, mode)], "truncated": False}
         found: List[Dict[str, Any]] = []
         queue: List[Tuple[str, str, int]] = [(ref, "", 0)]
         truncated = False
@@ -135,7 +173,7 @@ async def list_link(url: str) -> Dict[str, Any]:
                     if len(found) >= MAX_FILES:
                         truncated = True
                         break
-                    found.append(classify({**item, "_path": prefix}))
+                    found.append(classify({**item, "_path": prefix}, mode))
                 token = body.get("nextPageToken")
                 if not token:
                     break
@@ -176,22 +214,7 @@ def image_to_pdf(raw: bytes) -> bytes:
 async def fetch_file(source: str, ref: str, name: str, mime: str) -> Dict[str, Any]:
     """Baixa um arquivo escolhido e devolve como o envio manual espera (nome com extensão + conteúdo)."""
     if source == "canva":
-        from .studio_art_import import _canva_image, _get, _host_ok
-        if parse_link(ref)[0] != "canva":
-            raise StudioError("CLOUD_LINK_INVALID")
-        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            image_url = await _canva_image(client, ref)
-            if not _host_ok(image_url):
-                raise StudioError("ART_LINK_UNREADABLE")
-            resp = await _get(client, image_url)
-            try:
-                data = bytearray()
-                async for chunk in resp.aiter_bytes(256 * 1024):
-                    data.extend(chunk)
-                    if len(data) > MAX_BYTES:
-                        raise StudioError("DOC_TOO_LARGE")
-            finally:
-                await resp.aclose()
+        data = (await _canva_bytes(ref))["bytes"]
         pdf = image_to_pdf(bytes(data))
         return {"file_name": _with_ext(name if name and name != "Design do Canva" else "Design do Canva", "pdf"),
                 "mime": "application/pdf", "content_base64": base64.b64encode(pdf).decode(), "needs_ocr": True}
@@ -209,3 +232,78 @@ async def fetch_file(source: str, ref: str, name: str, mime: str) -> Dict[str, A
                 raise StudioError("DOC_TYPE_INVALID")
             file_name, out_mime = _with_ext(name, ext), mime or "application/octet-stream"
     return {"file_name": file_name, "mime": out_mime, "content_base64": base64.b64encode(raw).decode(), "needs_ocr": False}
+
+
+async def copy_to_library(client_id: str, source: str, ref: str, name: str, mime: str, category: str, *,
+                          user_id: str, author: str, side: str) -> Dict[str, Any]:
+    """Copia um arquivo do Drive (ou a prévia do Canva) direto para a Biblioteca da empresa, sem passar pelo navegador:
+    vídeo grande vai do Google para o storage em partes, sem estourar a memória."""
+    from .studio_library import TYPES, add_item, upload_target
+    if source == "canva":
+        got = await _canva_bytes(ref)
+        content_type, body = got["mime"], got["bytes"]
+        target = await upload_target(client_id, content_type)
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.put(target["upload_url"], content=body, headers={"Content-Type": content_type, "x-upsert": "false"})
+        if resp.status_code >= 400:
+            raise StudioError("STORAGE_UPLOAD_FAILED")
+        size = len(body)
+        title = name if name and name != "Design do Canva" else "Design do Canva"
+    else:
+        if source != "drive" or not re.fullmatch(r"[\w-]{10,}", ref or ""):
+            raise StudioError("CLOUD_LINK_INVALID")
+        if mime in EXPORT:
+            content_type, url, params = LIBRARY_EXPORT, f"{DRIVE_API}/files/{ref}/export", {"mimeType": LIBRARY_EXPORT, "key": _key()}
+            title = _with_ext(name, "pdf")
+        else:
+            content_type = mime.lower()
+            if content_type not in TYPES:
+                raise StudioError("LIBRARY_TYPE_INVALID", "Formato que a Biblioteca não guarda.")
+            url, params, title = f"{DRIVE_API}/files/{ref}", {"alt": "media", "key": _key(), "supportsAllDrives": "true"}, name
+        target = await upload_target(client_id, content_type)
+        size = 0
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=20), follow_redirects=True) as client:
+            async with client.stream("GET", url, params=params) as src:
+                if src.status_code in (403, 404):
+                    raise StudioError("DRIVE_PRIVATE")
+                if src.status_code >= 400:
+                    raise StudioError("DRIVE_UNAVAILABLE")
+
+                async def chunks():
+                    nonlocal size
+                    async for chunk in src.aiter_bytes(1024 * 1024):
+                        size += len(chunk)
+                        if size > LIBRARY_MAX_BYTES:
+                            raise StudioError("DOC_TOO_LARGE")
+                        yield chunk
+                length = src.headers.get("content-length")
+                headers = {"Content-Type": content_type, "x-upsert": "false", **({"Content-Length": length} if length else {})}
+                resp = await client.put(target["upload_url"], content=chunks(), headers=headers)
+        if resp.status_code >= 400:
+            raise StudioError("STORAGE_UPLOAD_FAILED")
+    return await add_item(client_id, {"kind": "arquivo", "category": category, "url": target["public_url"], "title": title,
+                                      "mime_type": content_type, "size_bytes": size, "note": "Importado do Drive" if source == "drive" else "Importado do Canva"},
+                          user_id=user_id, author=author, side=side)
+
+
+async def _canva_bytes(link: str) -> Dict[str, Any]:
+    from .studio_art_import import _canva_image, _get, _host_ok, sniff
+    if parse_link(link)[0] != "canva":
+        raise StudioError("CLOUD_LINK_INVALID")
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+        image_url = await _canva_image(client, link)
+        if not _host_ok(image_url):
+            raise StudioError("ART_LINK_UNREADABLE")
+        resp = await _get(client, image_url)
+        try:
+            data = bytearray()
+            async for chunk in resp.aiter_bytes(256 * 1024):
+                data.extend(chunk)
+                if len(data) > MAX_BYTES:
+                    raise StudioError("DOC_TOO_LARGE")
+        finally:
+            await resp.aclose()
+    kind = sniff(bytes(data[:16])) or "image/jpeg"
+    if not kind.startswith("image/"):
+        raise StudioError("ART_LINK_UNREADABLE")
+    return {"mime": kind, "bytes": bytes(data)}

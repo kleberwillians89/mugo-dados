@@ -95,3 +95,30 @@ class CanvaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibraryTests(unittest.IsolatedAsyncioTestCase):
+    def test_library_categories(self):
+        self.assertEqual(kc.classify({"id": "1", "name": "ROOVE_LOGO.png", "mimeType": "image/png"}, "library")["category"], "logo")
+        self.assertEqual(kc.classify({"id": "2", "name": "a.mp4", "mimeType": "video/mp4", "_path": "Vídeos/"}, "library")["category"], "video")
+        self.assertEqual(kc.classify({"id": "3", "name": "a.jpg", "mimeType": "image/jpeg", "_path": "roove_produtos/"}, "library")["category"], "produto")
+        self.assertFalse(kc.classify({"id": "4", "name": "x.ai", "mimeType": "application/postscript"}, "library")["supported"])
+        self.assertTrue(kc.classify({"id": "5", "name": "ROOVE 1.mp4", "mimeType": "video/mp4"}, "library")["supported"])
+
+    async def test_streams_drive_file_into_library(self):
+        from unittest.mock import AsyncMock
+        put = {}
+        def handler(request: httpx.Request):
+            if request.method == "GET":
+                return httpx.Response(200, content=b"x" * 3000, headers={"content-length": "3000"})
+            put["type"] = request.headers.get("content-type"); put["len"] = len(request.read())
+            return httpx.Response(200)
+        real = httpx.AsyncClient
+        with patch.dict(os.environ, {"GOOGLE_DRIVE_API_KEY": "k"}), \
+             patch.object(kc.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler))), \
+             patch("services.studio_library.upload_target", AsyncMock(return_value={"upload_url": "https://s/up", "public_url": "https://s/pub.mp4"})), \
+             patch("services.studio_library.add_item", AsyncMock(side_effect=lambda cid, data, **kw: {"id": "i1", **data})) as add:
+            item = await kc.copy_to_library("roove", "drive", "VID000000001", "ROOVE 1.mp4", "video/mp4", "video", user_id="u", author="K", side="mugo")
+        self.assertEqual((put["type"], put["len"]), ("video/mp4", 3000))
+        self.assertEqual((item["url"], item["category"], item["size_bytes"]), ("https://s/pub.mp4", "video", 3000))
+        add.assert_awaited_once()

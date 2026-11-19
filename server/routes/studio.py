@@ -2140,6 +2140,36 @@ async def add_library_item(client_id: str, body: LibraryItemInput, authorization
     return {"item": {**item, "can_delete": True}}
 
 
+class LibraryCloudFileInput(CloudFileInput):
+    category: Literal["produto", "logo", "referencia", "foto", "video", "documento", "outro"] = "outro"
+
+
+@router.post("/library/import/list")
+async def list_library_cloud(client_id: str, body: CloudLinkInput, authorization: str | None = Header(default=None)):
+    """O que tem na pasta do Drive (ou no design do Canva) e o que pode entrar na Biblioteca, com a categoria sugerida."""
+    from services.knowledge_cloud import list_link
+    await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    try:
+        return await list_link(body.url, mode="library")
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/library/import/file", status_code=201)
+async def import_library_cloud(client_id: str, body: LibraryCloudFileInput, authorization: str | None = Header(default=None)):
+    """Copia UM arquivo do Drive (ou a prévia do Canva) direto para a Biblioteca da empresa."""
+    from services.knowledge_cloud import copy_to_library
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization, cid)
+    try:
+        item = await copy_to_library(cid, body.source, body.id, body.name, body.mime, body.category, user_id=uid,
+                                     author=_chat_author(authorization, uid) or "", side="mugo" if team else "cliente")
+    except StudioError as exc:
+        raise _known(exc) if exc.code.startswith("LIBRARY_") else _http(exc) from None
+    return {"item": {**item, "can_delete": True}}
+
+
 @router.delete("/library/{item_id}")
 async def remove_library_item(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
     from services.studio_library import delete_item

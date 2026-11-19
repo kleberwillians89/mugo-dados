@@ -5,6 +5,7 @@ import { LIBRARY_ACCEPT, LIBRARY_CATEGORIES, addLibraryLink, deleteLibraryItem, 
 import Shell from "../components/Shell";
 import { getPathForRoute } from "../app/routes";
 import PageHeader from "../components/data/PageHeader";
+import LibraryCloudImport from "../components/library/LibraryCloudImport";
 import "../styles/studio.css";
 
 type Section = "todos" | "materiais" | "aprovados";
@@ -28,7 +29,7 @@ export default function LibraryPage() {
   const [section, setSection] = useState<Section>("todos");
   const [category, setCategory] = useState<LibraryCategory | "todas">("todas");
   const [query, setQuery] = useState("");
-  const [adding, setAdding] = useState<"link" | null>(null);
+  const [adding, setAdding] = useState<"link" | "nuvem" | null>(null);
   const [uploadCategory, setUploadCategory] = useState<LibraryCategory>("produto");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [viewing, setViewing] = useState<LibraryItem | null>(null);
@@ -95,7 +96,8 @@ export default function LibraryPage() {
   return <Shell title="Biblioteca" variant="editorial"><div className="ds-page studioPage libPage">
     <PageHeader company={getActiveClientName() || "empresa"} title="Biblioteca"
       controls={<div className="libActions">
-        <button type="button" className="ds-button" onClick={() => setAdding(adding ? null : "link")}>Adicionar link</button>
+        <button type="button" className="ds-button" onClick={() => setAdding(adding === "nuvem" ? null : "nuvem")}>Importar do Drive ou Canva</button>
+        <button type="button" className="ds-button" onClick={() => setAdding(adding === "link" ? null : "link")}>Adicionar link</button>
         <button type="button" className="ds-button is-primary" onClick={() => fileInput.current?.click()}>Enviar arquivo</button>
       </div>} />
     <p className="libIntro">{team ? "Produto, logo, fotos, vídeos brutos e referências da marca. O cliente também envia daqui."
@@ -114,6 +116,8 @@ export default function LibraryPage() {
       <span>{u.name}</span>{u.error ? <b className="libErr">{u.error}</b> : <span className="briefBar"><i style={{ width: `${u.pct}%` }} /></span>}
       {u.error ? <button type="button" className="ds-link" onClick={() => setUploads((x) => x.filter((y) => y.name !== u.name))}>Fechar</button> : <small>{u.pct}%</small>}
     </li>)}</ul> : null}
+    {adding === "nuvem" ? <LibraryCloudImport knownTitles={items.map((i) => i.title)} onClose={() => setAdding(null)}
+      onAdded={(item) => setItems((l) => [item, ...l])} /> : null}
     {adding === "link" ? <LinkForm onCancel={() => setAdding(null)} onSaved={(item) => { setItems((l) => [item, ...l]); setAdding(null); }} onError={setError} /> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
 

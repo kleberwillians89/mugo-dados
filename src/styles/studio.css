@@ -1828,3 +1828,20 @@
 .kbCloudState{font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:#eef1f3;color:#3f474d}
 .kbCloudState.is-ok{background:#e3f1ea;color:#185f3b}.kbCloudState.is-aviso{background:#fbeedb;color:#7a4705}.kbCloudState.is-erro{background:#f8e3e4;color:#8a2830}
 .kbCloudNote{flex-basis:100%;padding-left:28px;font-size:12px;color:var(--text-muted)}
+/* Biblioteca · importar do Drive/Canva (mesmo desenho do Conhecimento) */
+.libCloud{display:flex;flex-direction:column;gap:10px;padding:12px;margin:0 0 12px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface,#fff)}
+.libCloudRow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 12px}
+.libCloudField{display:flex;flex-direction:column;gap:4px;flex:1 1 320px;font-size:13px;color:var(--text-muted)}
+.libCloudField input{min-height:44px;border:1px solid var(--border-subtle);border-radius:10px;padding:0 12px;font:inherit;font-size:14px;color:var(--text-primary)}
+.libCloudList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:460px;overflow:auto}
+.libCloudList li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;border-radius:8px;background:#f6f8f9}
+.libCloudList li.is-off{opacity:.65}
+.libCloudPick{display:flex;align-items:flex-start;gap:10px;flex:1 1 280px;min-width:0;cursor:pointer}
+.libCloudPick input{margin-top:3px;width:18px;height:18px}
+.libCloudName{display:flex;flex-direction:column;min-width:0}
+.libCloudName b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.libCloudName small{font-size:12px;color:var(--text-muted)}
+.libCloudCat select{min-height:36px;border:1px solid var(--border-subtle);border-radius:8px;padding:0 8px;font:inherit;font-size:13px;background:#fff}
+.libCloudState{font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:#eef1f3;color:#3f474d}
+.libCloudState.is-ok{background:#e3f1ea;color:#185f3b}.libCloudState.is-erro{background:#f8e3e4;color:#8a2830}
+.libCloudNote{flex-basis:100%;padding-left:28px;font-size:12px;color:var(--text-muted)}
