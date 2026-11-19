@@ -1,4 +1,5 @@
 import { clientClientPath, http } from "./api";
+import type { TrackingParams } from "./adTracking";
 
 /** Mídia On → Meta Ads: rascunhos de campanha e publicação PAUSADA (só equipe Mugô). */
 export type MetaPlacements = {
@@ -8,6 +9,7 @@ export type MetaPlacements = {
   facebook: ("feed" | "story" | "facebook_reels")[];
 };
 export type AdPayload = {
+  tracking?: TrackingParams;
   placements?: MetaPlacements;
   name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads"; daily_budget: number; start_date: string; end_date: string;
   audience: {
