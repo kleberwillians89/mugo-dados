@@ -128,6 +128,20 @@ async def create(client_id: str, user_id: str, data: Dict[str, Any]) -> Dict[str
     return view(created)
 
 
+async def duplicate(client_id: str, draft_id: str, user_id: str) -> Dict[str, Any]:
+    """Copy planning without reusing published campaign IDs or delivery state."""
+    previous = await owned(client_id, draft_id)
+    payload = clean_payload(previous.get("payload") or {})
+    payload["name"] = (payload["name"][:112] + " · cópia")[:120]
+    created = await sb_insert(TABLE, {
+        "client_id": client_id, "payload": payload,
+        "status": "rascunho", "created_by": user_id,
+    })
+    if not created:
+        raise StudioError("AD_SAVE_FAILED")
+    return view(created)
+
+
 async def update(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     row = await owned(client_id, draft_id)
     if row.get("status") in {"publicando", "publicada"}:
