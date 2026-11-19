@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type { Brief } from "../../app/briefs";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  createGoogleCampaignDraft, deleteGoogleCampaignDraft, listGoogleCampaignDrafts,
+  createGoogleCampaignDraft, deleteGoogleCampaignDraft, duplicateGoogleCampaignDraft, listGoogleCampaignDrafts,
   getGoogleCampaignPublicationContext, publishGoogleCampaignDraft, updateGoogleCampaignDraft,
   type GoogleCampaignDraft, type GoogleCampaignPayload,
 } from "../../app/googleCampaignDrafts";
@@ -92,6 +92,18 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
     } catch (cause) { setError(friendlyError(cause)); }
     finally { setBusy(false); }
   }
+  async function duplicate(draft: GoogleCampaignDraft) {
+    if (busy) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const response = await duplicateGoogleCampaignDraft(draft.id);
+      if (getActiveClientId() !== clientId) return;
+      setDrafts(list => [response.draft, ...list]);
+      open(response.draft);
+      setNotice("Campanha duplicada como rascunho. Nenhum anúncio enviado ou ativado.");
+    } catch (cause) { setError(friendlyError(cause)); }
+    finally { setBusy(false); }
+  }
   async function publish(draft: GoogleCampaignDraft) {
     if (busy || draft.status === "publicando" || draft.status === "publicada") return;
     setBusy(true); setError(null); setNotice(null);
@@ -118,7 +130,7 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
     <div className="ds-sectionHead">
       <div className="ds-sectionHeadText">
         <h2 className="ds-sectionTitle" id="google-ads-campaigns">Campanhas Google Ads</h2>
-        <p className="ds-caption">Prepare campanhas de pesquisa, palavras-chave, anúncios e orçamento. Publicação pela API ainda não habilitada.</p>
+        <p className="ds-caption">Prepare campanhas de pesquisa, palavras-chave, anúncios e orçamento. Criação na API Google Ads disponível para campanhas de Pesquisa, sempre pausadas após confirmação.</p>
       </div>
       <button type="button" className="ds-button is-primary" onClick={newDraft}>+ Nova campanha Google</button>
     </div>
@@ -133,6 +145,7 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
             ? <a className="ds-button" href={draft.ads_manager_url} target="_blank" rel="noreferrer">Abrir no Google Ads</a>
             : <button type="button" className="ds-button is-primary" disabled={busy || draft.status === "publicando"} onClick={() => void publish(draft)}>
               {draft.status === "publicando" ? "Publicando…" : "Criar pausada no Google"}</button>}
+          <button type="button" className="ds-button" disabled={busy} onClick={() => void duplicate(draft)}>Duplicar campanha</button>
           {draft.status !== "publicada" && draft.status !== "publicando" ? <>
             <button type="button" className="ds-button" disabled={busy} onClick={() => open(draft)}>Editar</button>
             <button type="button" className="ds-link" disabled={busy} onClick={() => void remove(draft)}>Excluir</button>
@@ -172,6 +185,26 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
         <label>Palavras-chave (uma por linha)<textarea rows={4} value={form.keywords.join("\n")} onChange={(e) => set({ keywords: splitLines(e.target.value) })} placeholder={"tênis de corrida\ntênis para caminhada"} /></label>
         <label>Títulos dos anúncios (até 15, 30 caracteres cada)<textarea rows={4} value={form.headlines.join("\n")} onChange={(e) => set({ headlines: splitLines(e.target.value) })} /></label>
         <label>Descrições (até 4, 90 caracteres cada)<textarea rows={3} value={form.descriptions.join("\n")} onChange={(e) => set({ descriptions: splitLines(e.target.value) })} /></label>
+        <div className="googleCampaignSearchPreview" aria-label="Prévia do anúncio de pesquisa" role="region">
+          <div className="googleCampaignSearchPreviewHeading">
+            <strong>Prévia do anúncio de Pesquisa</strong>
+            <small>O Google combina os títulos e descrições; esta prévia é ilustrativa.</small>
+          </div>
+          <div className="googleCampaignSearchPreviewBrand">
+            <span aria-hidden="true">Ad</span>
+            <span>{(() => { try { return new URL(form.final_url).hostname; } catch { return "site-da-marca.com.br"; } })()}</span>
+          </div>
+          <p className="googleCampaignSearchPreviewHeadline">
+            {(form.headlines.length ? form.headlines.slice(0,3) : ["Título 1", "Título 2", "Título 3"]).join(" | ")}
+          </p>
+          <p className="googleCampaignSearchPreviewText">
+            {(form.descriptions.length ? form.descriptions.slice(0,2) : ["Sua descrição principal aparecerá aqui."]).join(" ")}
+          </p>
+          <div className="googleCampaignSearchPreviewFoot">
+            <span>{form.keyword_match_type === "BROAD" ? "Correspondência ampla" : form.keyword_match_type === "EXACT" ? "Correspondência exata" : "Correspondência de frase"}</span>
+            <span>{(form.negative_keywords || []).length} termos negativos</span>
+          </div>
+        </div>
         <label>Publicidade política na União Europeia<select required value={form.contains_eu_political_advertising === null ? "" : String(form.contains_eu_political_advertising)}
           onChange={(e) => set({ contains_eu_political_advertising: e.target.value === "" ? null : e.target.value === "true" })}>
           <option value="">Selecione para confirmar</option><option value="false">Não contém</option><option value="true">Contém</option>
