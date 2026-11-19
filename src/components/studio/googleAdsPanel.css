@@ -1,1 +1,9 @@
 .googleCampaignPanel{margin-top:22px}.googleCampaignCards{display:grid;gap:10px}.googleCampaignCard{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border:1px solid var(--line,#d7dfe4);border-radius:12px}.googleCampaignCard strong,.googleCampaignCard small{display:block}.googleCampaignCard small{margin-top:5px;color:var(--text-muted,#657180)}.googleCampaignCardActions{display:flex;gap:12px;align-items:center}.googleCampaignForm{display:grid;gap:13px}.googleCampaignForm label{display:grid;gap:6px;font-size:.86rem}.googleCampaignForm input,.googleCampaignForm textarea,.googleCampaignForm select{box-sizing:border-box;max-width:100%;width:100%;border:1px solid var(--line,#d7dfe4);background:var(--surface,#fff);color:inherit;border-radius:8px;padding:10px;font:inherit}.googleCampaignFormRow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}@media(max-width:620px){.googleCampaignCard{align-items:stretch;flex-direction:column}.googleCampaignFormRow{grid-template-columns:1fr}.googleCampaignCardActions{justify-content:flex-start}}
+
+.googleCampaignNetworks{display:grid;gap:10px;border:1px solid var(--border,#d4e0e4);border-radius:10px;padding:15px;background:color-mix(in srgb,var(--surface,#fff) 93%,#d4e5e8);margin:10px 0}
+.googleCampaignNetworks legend{font-weight:750;padding:0 5px}
+.googleCampaignNetworks p{margin:0;font-size:12px;color:var(--text-secondary,#5c6e78);line-height:1.55}
+.googleCampaignNetworks label{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:13px;font-weight:600}
+.googleCampaignNetworks label input{width:auto;accent-color:#004f6e}
+.googleCampaignNetworks label small{font-size:11px;color:var(--text-secondary,#6c7b84);font-weight:400}
+.googleCampaignNetworkHint{background:var(--surface,#fff);border:1px solid var(--border,#d9e3e6);border-radius:8px;padding:10px;font-size:12px;color:#0c5365}
