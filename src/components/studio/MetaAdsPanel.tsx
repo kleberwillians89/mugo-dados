@@ -77,7 +77,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   }
 
   const open = (draft: AdDraft) => {
-    const inside = Boolean(draft.joined || draft.meta_ids?.joined);
+    const inside = Boolean(draft.joined || draft.meta_ids?.joined || (draft.status !== "publicada" && draft.meta_ids?.adset_id));
     const copy = JSON.parse(JSON.stringify(draft.payload)) as AdPayload;
     setEditing({ draft, payload: { ...copy, ad: normalizeAdFormats(copy.ad) } });
     setActiveAd(0);
@@ -164,6 +164,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const locked = editing ? editing.draft.status === "publicada" || editing.draft.status === "publicando" : false;
   // Anúncio dentro de campanha já criada: verba, datas e público são os da campanha original.
   const joined = Boolean(editing?.draft.joined || editing?.draft.meta_ids?.joined);
+  // Criação que parou no meio: campanha e conjunto já existem na Meta; só falta terminar os anúncios.
+  const halfway = !locked && !joined && Boolean(editing?.draft.meta_ids?.adset_id);
   function advance() {
     if (!editing || busy) return;
     const missing = metaStepIssues(editing.payload, step);
@@ -236,7 +238,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
         <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha imagem ou vídeo e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
         {joined && !locked ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Anúncio novo dentro de uma campanha já criada</p>
           <p>Verba, datas e público são os da campanha original e dividem o mesmo orçamento. Aqui você só escolhe o criativo e o texto.</p></div> : null}
-        {step === 0 ? <fieldset disabled={locked || joined || Boolean(busy)}>
+        {halfway ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Campanha já começou a ser criada na Meta</p>
+          <p>A campanha, o conjunto e os anúncios que deram certo já estão lá, pausados. Troque ou remova o anúncio que deu erro e clique em Criar de novo: o MUGOVERSO cria só o que falta. Verba e público ficam como já estão na Meta.</p></div> : null}
+        {step === 0 ? <fieldset disabled={locked || joined || halfway || Boolean(busy)}>
           <legend>1 · Campanha</legend>
           <label className="ds-field">Nome<input required maxLength={120} value={editing.payload.name} onChange={(e) => set({ name: e.target.value })} /></label>
           <div className="metaAdsRow">
@@ -249,7 +253,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <label className="ds-field">Fim<input type="date" value={editing.payload.end_date} onChange={(e) => set({ end_date: e.target.value })} /></label>
           </div>
         </fieldset> : null}
-        {step === 1 ? <fieldset disabled={locked || joined || Boolean(busy)}>
+        {step === 1 ? <fieldset disabled={locked || joined || halfway || Boolean(busy)}>
           <legend>2 · Público</legend>
           <MetaAudiencePicker audience={editing.payload.audience} onChange={setAud} disabled={locked || joined || Boolean(busy)} />
           {editing.payload.audience.saved_audience ? <p className="ds-caption metaAudSavedNote">
@@ -275,7 +279,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           <MetaPlacementPicker value={editing.payload.placements || DEFAULT_META_PLACEMENTS}
             onChange={placements => set({placements})} disabled={locked || joined || Boolean(busy)} />
-          {!locked && !joined ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
+          {!locked && !joined && !halfway ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
             onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
             Revisei e confirmo esse público, inclusive a possível ampliação pelo Advantage+.</label> : null}
         </fieldset> : null}
@@ -381,7 +385,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               onClick={advance}>{step === 0 ? "Escolher público" : step === 1 ? "Escolher criativo" : "Revisar campanha"}</button> : null}
             {!locked && step === 3 ? <button type="button" className="ds-button is-primary"
               disabled={Boolean(busy) || preflightBusy || !metaPreflight?.ready || !audienceApproved || metaStepIssues(editing.payload, 3).length > 0}
-              onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : "Criar no Meta Ads (pausada)"}</button> : null}
+              onClick={() => void publish()}>{busy === "publish" ? "Criando no Meta…" : halfway ? "Terminar de criar no Meta (pausada)" : "Criar no Meta Ads (pausada)"}</button> : null}
           </span>
         </div>
       </form> : null}
