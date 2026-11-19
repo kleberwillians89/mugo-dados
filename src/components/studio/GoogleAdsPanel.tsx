@@ -50,6 +50,8 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
   const [drafts, setDrafts] = useState<GoogleCampaignDraft[]>([]);
   const [editing, setEditing] = useState<GoogleCampaignDraft | "new" | null>(null);
   const [form, setForm] = useState<GoogleCampaignPayload>(blank);
+  // Optional advanced Search settings are defined in a separate additive PR.
+  const advancedSearch = form as GoogleCampaignPayload & { keyword_match_type?: "BROAD" | "PHRASE" | "EXACT"; negative_keywords?: string[] };
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,8 +203,8 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
             {(form.descriptions.length ? form.descriptions.slice(0,2) : ["Sua descrição principal aparecerá aqui."]).join(" ")}
           </p>
           <div className="googleCampaignSearchPreviewFoot">
-            <span>{form.keyword_match_type === "BROAD" ? "Correspondência ampla" : form.keyword_match_type === "EXACT" ? "Correspondência exata" : "Correspondência de frase"}</span>
-            <span>{(form.negative_keywords || []).length} termos negativos</span>
+            <span>{advancedSearch.keyword_match_type === "BROAD" ? "Correspondência ampla" : advancedSearch.keyword_match_type === "EXACT" ? "Correspondência exata" : "Correspondência de frase"}</span>
+            <span>{(advancedSearch.negative_keywords || []).length} termos negativos</span>
           </div>
         </div>
         <label>Publicidade política na União Europeia<select required value={form.contains_eu_political_advertising === null ? "" : String(form.contains_eu_political_advertising)}
