@@ -491,6 +491,14 @@ class AiSettingsIn(BaseModel):
     catalog_id: Optional[str] = Field(default=None, max_length=30)
     product_cards: Optional[bool] = None
     human_pause_minutes: Optional[int] = Field(default=None, ge=0, le=10080)
+    ad_group_link: Optional[str] = Field(default=None, max_length=500)
+    ad_group_message: Optional[str] = Field(default=None, max_length=1000)
+    claude_model: Optional[str] = Field(default=None, pattern=r"^claude-(haiku|sonnet|opus)-5-5$")
+
+
+class ClaudeKeyIn(BaseModel):
+    api_key: str = Field(min_length=20, max_length=300)
+    model: str = Field(default="claude-sonnet-5-5", pattern=r"^claude-(haiku|sonnet|opus)-5-5$")
 
 
 class SimTurn(BaseModel):
@@ -512,6 +520,31 @@ async def read_ai_settings(client_id: str, authorization: Optional[str] = Header
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     try:
         return {"settings": await get_settings(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.put("/ai-settings/claude-key")
+async def set_ai_claude_key(client_id: str, body: ClaudeKeyIn, authorization: Optional[str] = Header(None)):
+    """Chave do Claude da própria marca para o atendente (conferida e guardada criptografada; nunca volta para a tela)."""
+    from services.tenant import require_user_id
+    from services.whatsapp_ai import save_claude_key
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"settings": await save_claude_key(cid, api_key=body.api_key, model=body.model, user_id=user_id)}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.delete("/ai-settings/claude-key")
+async def delete_ai_claude_key(client_id: str, authorization: Optional[str] = Header(None)):
+    from services.tenant import require_user_id
+    from services.whatsapp_ai import remove_claude_key
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"settings": await remove_claude_key(cid, user_id=user_id)}
     except Exception as exc:  # noqa: BLE001
         raise _ai_http(exc) from None
 

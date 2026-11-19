@@ -100,14 +100,36 @@ def _clean_list(values: Any, *, limit: int, size: int) -> List[str]:
     return out[:limit]
 
 
-async def get_settings(client_id: str) -> Dict[str, Any]:
-    rows = await sb_select(SETTINGS, select=",".join(DEFAULT_SETTINGS) + ",updated_at",
-                           filters={"client_id": f"eq.{client_id}"}, limit=1)
-    row = rows[0] if rows else {}
+EXTRA_SETTINGS: Dict[str, Any] = {"ad_group_link": None, "ad_group_message": "", "claude_model": "claude-sonnet-5-5"}
+CLAUDE_MODELS = ("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5")
+DEFAULT_GROUP_MESSAGE = "Que bom te ver por aqui! Entra no nosso grupo para receber as novidades e o acesso antecipado: {link}"
+
+
+async def _settings_row(client_id: str) -> Dict[str, Any]:
+    base = ",".join(DEFAULT_SETTINGS) + ",updated_at"
+    try:
+        rows = await sb_select(SETTINGS, select=base + "," + ",".join(EXTRA_SETTINGS) + ",claude_api_key_encrypted,claude_key_hint",
+                               filters={"client_id": f"eq.{client_id}"}, limit=1)
+    except Exception:  # noqa: BLE001 — migration 000133 ainda não aplicada: segue sem os campos novos
+        rows = await sb_select(SETTINGS, select=base, filters={"client_id": f"eq.{client_id}"}, limit=1)
+    return rows[0] if rows else {}
+
+
+async def get_settings(client_id: str, *, with_secret: bool = False) -> Dict[str, Any]:
+    row = dict(await _settings_row(client_id))
+    secret = row.pop("claude_api_key_encrypted", None)
+    hint = row.pop("claude_key_hint", None)
+    row = {**{k: v for k, v in EXTRA_SETTINGS.items()}, **row}
     out = {**DEFAULT_SETTINGS, **{k: v for k, v in row.items() if v is not None}}
     out["mode"] = out["mode"] if out["mode"] in MODES else "off"
     out["welcome_buttons"] = list(out.get("welcome_buttons") or [])
     out["featured_products"] = list(out.get("featured_products") or [])
+    out["has_claude_key"] = bool(secret)
+    out["claude_key_hint"] = hint if secret else None
+    if out.get("claude_model") not in CLAUDE_MODELS:
+        out["claude_model"] = "claude-sonnet-5-5"
+    if with_secret:
+        out["_claude_secret"] = secret
     return out
 
 
@@ -134,11 +156,90 @@ async def save_settings(client_id: str, *, user_id: str, **changes: Any) -> Dict
         current["product_cards"] = bool(changes["product_cards"])
     if changes.get("human_pause_minutes") is not None:
         current["human_pause_minutes"] = max(0, min(int(changes["human_pause_minutes"]), 10080))
+    extra: Dict[str, Any] = {}
+    if "ad_group_link" in changes:
+        link = str(changes["ad_group_link"] or "").strip()
+        if link and (not link.startswith("https://") or len(link) > 500):
+            raise WhatsAppAiError("INVALID_LINK", "O link do grupo precisa começar com https://")
+        extra["ad_group_link"] = link or None
+    if changes.get("ad_group_message") is not None:
+        extra["ad_group_message"] = str(changes["ad_group_message"]).strip()[:1000]
+    if changes.get("claude_model") is not None:
+        if changes["claude_model"] not in CLAUDE_MODELS:
+            raise WhatsAppAiError("INVALID_MODEL", "Modelo do Claude inválido.")
+        extra["claude_model"] = changes["claude_model"]
     row = {k: current[k] for k in DEFAULT_SETTINGS}
-    await sb_upsert(SETTINGS, [{"client_id": client_id, **row, "updated_by": user_id, "updated_at": _now().isoformat()}],
+    await sb_upsert(SETTINGS, [{"client_id": client_id, **row, **extra, "updated_by": user_id, "updated_at": _now().isoformat()}],
                     on_conflict="client_id")
     _CATALOG_CACHE.pop(client_id, None)
     return await get_settings(client_id)
+
+
+# ------------------------------------------------------------------ Claude da própria marca (opcional)
+
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
+async def _claude(api_key: str, *, model: str, system: str, prompt: str, schema: Dict[str, Any],
+                  max_tokens: int = 900, temperature: float = 0.5, timeout: float = 45) -> Dict[str, Any]:
+    """Resposta estruturada do Claude (ferramenta obrigatória com o mesmo schema da resposta)."""
+    body = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "system": system,
+            "messages": [{"role": "user", "content": prompt}],
+            "tools": [{"name": "responder", "description": "Resposta da marca para a cliente no WhatsApp.", "input_schema": schema}],
+            "tool_choice": {"type": "tool", "name": "responder"}}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(ANTHROPIC_URL, json=body, headers={
+            "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+    if response.status_code >= 400:
+        try:
+            err = (response.json() or {}).get("error") or {}
+        except ValueError:
+            err = {}
+        raise WhatsAppAiError("CLAUDE_FAILED", f"Claude http_{response.status_code}:{str(err.get('type') or '')[:40]}")
+    for block in (response.json() or {}).get("content") or []:
+        if block.get("type") == "tool_use" and isinstance(block.get("input"), dict):
+            return block["input"]
+    raise WhatsAppAiError("CLAUDE_FAILED", "Claude sem resposta estruturada")
+
+
+async def save_claude_key(client_id: str, *, api_key: str, model: str, user_id: str) -> Dict[str, Any]:
+    """Confere a chave com uma chamada mínima e guarda criptografada (nunca volta para a tela)."""
+    from .crypto import encrypt_secret
+    key = str(api_key or "").strip()
+    if not key.startswith("sk-ant-") or len(key) > 300:
+        raise WhatsAppAiError("INVALID_KEY", "A chave do Claude começa com sk-ant- (crie em console.anthropic.com → API Keys).")
+    if model not in CLAUDE_MODELS:
+        raise WhatsAppAiError("INVALID_MODEL", "Modelo do Claude inválido.")
+    async with httpx.AsyncClient(timeout=20) as client:
+        probe = await client.post(ANTHROPIC_URL, json={"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "oi"}]},
+                                  headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+    if probe.status_code in (401, 403):
+        raise WhatsAppAiError("INVALID_KEY", "O Claude recusou essa chave. Confira se copiou inteira e se está ativa.")
+    if probe.status_code == 400 and "credit" in probe.text.lower():
+        raise WhatsAppAiError("NO_CREDIT", "A chave funciona, mas a conta do Claude está sem crédito. Adicione crédito em console.anthropic.com → Billing.")
+    if probe.status_code == 404:
+        raise WhatsAppAiError("INVALID_MODEL", "Essa conta do Claude não tem acesso a este modelo. Escolha outro.")
+    if probe.status_code >= 500:
+        raise WhatsAppAiError("CLAUDE_FAILED", "O Claude não respondeu agora. Tente de novo em instantes.")
+    await _ensure_row(client_id, user_id)
+    await sb_update(SETTINGS, filters={"client_id": f"eq.{client_id}"}, returning="minimal", patch={
+        "claude_api_key_encrypted": encrypt_secret(key), "claude_key_hint": key[-4:], "claude_model": model,
+        "updated_by": user_id, "updated_at": _now().isoformat()})
+    print(f"[whatsapp_ai] claude_key_saved client_id={client_id} model={model}")
+    return await get_settings(client_id)
+
+
+async def remove_claude_key(client_id: str, *, user_id: str) -> Dict[str, Any]:
+    await sb_update(SETTINGS, filters={"client_id": f"eq.{client_id}"}, returning="minimal", patch={
+        "claude_api_key_encrypted": None, "claude_key_hint": None, "updated_by": user_id, "updated_at": _now().isoformat()})
+    return await get_settings(client_id)
+
+
+async def _ensure_row(client_id: str, user_id: str) -> None:
+    current = await get_settings(client_id)
+    if not current.get("updated_at"):
+        await sb_upsert(SETTINGS, [{"client_id": client_id, **{k: current[k] for k in DEFAULT_SETTINGS},
+                                    "updated_by": user_id, "updated_at": _now().isoformat()}], on_conflict="client_id")
 
 
 # ------------------------------------------------------------------ Shopify (fonte de preço, estoque, tamanho e link)
@@ -409,7 +510,8 @@ def insight_block(thread: Dict[str, Any]) -> str:
 
 
 def build_prompt(*, settings: Dict[str, Any], brand: str, catalog: Optional[Dict[str, Any]], thread: Dict[str, Any],
-                 messages: List[Dict[str, Any]], first: bool, cart: Optional[str], order_note: str = "") -> str:
+                 messages: List[Dict[str, Any]], first: bool, cart: Optional[str], order_note: str = "",
+                 origin_note: str = "") -> str:
     parts = [
         brand.strip(),
         f"DIRETRIZES DA MARCA:\n{settings.get('instructions') or '(sem diretrizes cadastradas: tom cordial e objetivo)'}",
@@ -420,6 +522,8 @@ def build_prompt(*, settings: Dict[str, Any], brand: str, catalog: Optional[Dict
         + (" (esta é a primeira mensagem da conversa)" if first else " (conversa já começou: não repita a recepção)"),
         insight_block(thread),
     ]
+    if origin_note:
+        parts.append(origin_note)
     if order_note:
         parts.append(order_note + (f"\nLINK DO CARRINHO: {cart}" if cart else "\nLINK DO CARRINHO: indisponível"))
     parts.append(f"CONVERSA (mais antiga primeiro):\n<<<\n{transcript(messages)}\n>>>")
@@ -464,13 +568,24 @@ async def _brand(client_id: str) -> str:
 
 
 async def decide(client_id: str, *, settings: Dict[str, Any], catalog: Optional[Dict[str, Any]], thread: Dict[str, Any],
-                 messages: List[Dict[str, Any]], cart: Optional[str] = None, order_note: str = "") -> Dict[str, Any]:
+                 messages: List[Dict[str, Any]], cart: Optional[str] = None, order_note: str = "",
+                 origin_note: str = "") -> Dict[str, Any]:
     from .studio_llm import llm_json
     first = not any(m.get("direction") == "out" for m in messages)
     prompt = build_prompt(settings=settings, brand=await _brand(client_id), catalog=catalog, thread=thread,
-                          messages=messages, first=first, cart=cart, order_note=order_note)
-    raw = await llm_json(client_id=client_id, instructions=BASE_RULES, prompt=prompt, schema_name="whatsapp_ai_reply",
-                         schema=_schema(), temperature=0.5, timeout=45, guidance=False, max_output_tokens=900)
+                          messages=messages, first=first, cart=cart, order_note=order_note, origin_note=origin_note)
+    raw = None
+    secret = settings.get("_claude_secret")
+    if secret:
+        try:
+            from .crypto import decrypt_secret
+            raw = await _claude(decrypt_secret(secret), model=settings.get("claude_model") or "claude-sonnet-5-5",
+                                system=BASE_RULES, prompt=prompt, schema=_schema())
+        except Exception as exc:  # noqa: BLE001 — Claude fora do ar ou sem crédito: a IA da plataforma responde
+            print(f"[whatsapp_ai] claude_fallback client_id={client_id} {type(exc).__name__}:{getattr(exc, 'message', '')[:60]}")
+    if raw is None:
+        raw = await llm_json(client_id=client_id, instructions=BASE_RULES, prompt=prompt, schema_name="whatsapp_ai_reply",
+                             schema=_schema(), temperature=0.5, timeout=45, guidance=False, max_output_tokens=900)
     return clean_decision(raw, catalog)
 
 
@@ -620,6 +735,29 @@ async def _save_insight(client_id: str, thread_id: str, decision: Dict[str, Any]
                         returning="minimal")
 
 
+async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Conversa que começou por anúncio (Click-to-WhatsApp) e ainda não recebeu o link do grupo → texto do convite."""
+    link = str(settings.get("ad_group_link") or "").strip()
+    if not link:
+        return None
+    try:
+        sent = await sb_select("whatsapp_threads", select="ai_group_sent_at",
+                               filters={"id": f"eq.{thread['id']}", "client_id": f"eq.{client_id}"}, limit=1)
+        if sent and sent[0].get("ai_group_sent_at"):
+            return None
+        touches = await sb_select("whatsapp_origin_touches", select="headline,ad_id",
+                                  filters={"thread_id": f"eq.{thread['id']}", "client_id": f"eq.{client_id}",
+                                           "source": "eq.META_ADS_WHATSAPP"}, order="occurred_at.desc", limit=1)
+    except Exception as exc:  # noqa: BLE001 — migration 000133 pendente: sem convite automático
+        print(f"[whatsapp_ai] ad_group_unavailable client_id={client_id} {type(exc).__name__}")
+        return None
+    if not touches:
+        return None
+    template = str(settings.get("ad_group_message") or "").strip() or DEFAULT_GROUP_MESSAGE
+    text = template.replace("{link}", link) if "{link}" in template else f"{template}\n{link}"
+    return {"text": text[:1000], "headline": str(touches[0].get("headline") or "")[:120]}
+
+
 async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> str:
     now = _now()
     messages = await _thread_messages(client_id, thread["id"])
@@ -638,14 +776,22 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
         names = {p["id"]: p["title"] for p in (catalog or {}).get("products") or []}
         described = [f"{qty}× {names.get(((match or {}).get('by_retailer') or {}).get(rid, ('', None))[0], rid)}" for rid, qty in order]
         order_note = "PEDIDO PELO CARRINHO DO CATÁLOGO: " + "; ".join(described)
+    group = await ad_group_plan(client_id, thread, settings)
+    origin_note = ""
+    if group:
+        origin_note = (f"ORIGEM: a cliente chegou por um anúncio da marca{(' (' + group['headline'] + ')') if group['headline'] else ''}. "
+                       "O convite para o grupo, com o link, vai numa mensagem separada logo depois da sua: não escreva o link "
+                       "nem repita o convite; responda o que ela perguntou.")
     try:
         decision = await decide(client_id, settings=settings, catalog=catalog, thread=thread, messages=messages,
-                                cart=cart, order_note=order_note)
+                                cart=cart, order_note=order_note, origin_note=origin_note)
     except Exception as exc:  # noqa: BLE001 — IA fora do ar: passa para a equipe
         print(f"[whatsapp_ai] ai_failed client_id={client_id} {type(exc).__name__}")
         decision = {"reply": HANDOFF_FALLBACK, "buttons": [], "products": [], "handoff": True,
                     "handoff_reason": "A IA não respondeu agora: responder manualmente", "insight": None}
     pause = max(int(settings.get("human_pause_minutes") or 0), 60)
+    if group and not decision["handoff"] and settings["mode"] == "suggest":
+        decision = {**decision, "reply": f"{decision['reply']}\n\n{group['text']}"[:1000]}
     if settings["mode"] == "suggest":
         suggestion = {"reply": decision["reply"], "buttons": decision["buttons"], "handoff": decision["handoff"],
                       "handoff_reason": decision["handoff_reason"], "created_at": now.isoformat(),
@@ -655,6 +801,14 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
         return "sugestao"
     await send_decision(client_id, thread, number, decision, meta=meta, match=match)
     extra: Dict[str, Any] = {"ai_suggestion": None}
+    if group:
+        # Convite do grupo para quem veio de anúncio: mensagem própria, uma vez por conversa (mesmo se a IA passou para a equipe).
+        try:
+            await send_decision(client_id, thread, number, {"reply": group["text"], "buttons": [], "products": [], "handoff": False},
+                                meta=None, match=None)
+            extra["ai_group_sent_at"] = now.isoformat()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[whatsapp_ai] group_link_failed client_id={client_id} {type(exc).__name__}")
     if decision["handoff"]:
         extra.update({"ai_paused_until": (now + timedelta(minutes=pause)).isoformat(),
                       "ai_handoff_reason": (decision["handoff_reason"] or "A IA pediu ajuda")[:300], "unread_count": 1})
@@ -680,7 +834,7 @@ async def _release(client_id: str, thread_id: str) -> None:
 
 async def process_client(client_id: str) -> Dict[str, Any]:
     out: Dict[str, Any] = {"threads": 0}
-    settings = await get_settings(client_id)
+    settings = await get_settings(client_id, with_secret=True)
     if settings["mode"] == "off":
         await sb_update("whatsapp_threads", filters={"client_id": f"eq.{client_id}", "ai_pending_at": "not.is.null"},
                         patch={"ai_pending_at": None}, returning="minimal")
@@ -818,7 +972,7 @@ async def catalog_status(client_id: str) -> Dict[str, Any]:
 
 async def simulate(client_id: str, conversation: List[Dict[str, str]]) -> Dict[str, Any]:
     """Teste na tela: a IA responde uma conversa de mentira com as configurações e o catálogo de agora. Nada é enviado."""
-    settings = await get_settings(client_id)
+    settings = await get_settings(client_id, with_secret=True)
     turns = [{"direction": "in" if t.get("role") == "cliente" else "out", "by_ai": True, "type": "text",
               "text": str(t.get("text") or "")[:1000]} for t in conversation[-20:] if str(t.get("text") or "").strip()]
     if not turns or turns[-1]["direction"] != "in":

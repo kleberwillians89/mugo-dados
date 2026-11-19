@@ -181,5 +181,72 @@ class ProcessThreadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ai_paused_until", updates[-1][1])
 
 
+class AdGroupAndClaudeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_group_link_only_for_ad_and_only_once(self):
+        settings = {**SETTINGS, "ad_group_link": "https://chat.whatsapp.com/ABC", "ad_group_message": "Entra no grupo VIP: {link}"}
+        calls = []
+
+        async def select(table, **kw):
+            calls.append(table)
+            if table == "whatsapp_threads":
+                return [{"ai_group_sent_at": None}]
+            return [{"headline": "First Access Black Friday", "ad_id": "1"}]
+        with patch.object(ai, "sb_select", side_effect=select):
+            plan = await ai.ad_group_plan("roove", {"id": "t1"}, settings)
+        self.assertEqual(plan["text"], "Entra no grupo VIP: https://chat.whatsapp.com/ABC")
+        self.assertEqual(plan["headline"], "First Access Black Friday")
+
+        async def already(table, **kw):
+            return [{"ai_group_sent_at": "2026-11-19T10:00:00Z"}] if table == "whatsapp_threads" else [{"headline": ""}]
+        with patch.object(ai, "sb_select", side_effect=already):
+            self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, settings))
+
+        async def organic(table, **kw):
+            return [{"ai_group_sent_at": None}] if table == "whatsapp_threads" else []
+        with patch.object(ai, "sb_select", side_effect=organic):
+            self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, settings))
+        self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, SETTINGS))  # sem link configurado
+
+    async def test_auto_sends_reply_then_group_invite_and_marks(self):
+        decision = ai.clean_decision({"reply": "Oi! Que bom te ver.", "buttons": [], "products": [], "handoff": False, "insight": {}}, catalog())
+        updates = []
+
+        async def update(table, *, filters, patch, returning="representation"):
+            updates.append(patch)
+        with patch.object(ai, "_thread_messages", AsyncMock(return_value=ProcessThreadTests.messages)), \
+             patch.object(ai, "_number", AsyncMock(return_value={"id": "n1", "phone_number_id": "pn", "access_token": "tok"})), \
+             patch.object(ai, "_commerce", AsyncMock(return_value=(catalog(), None, None))), \
+             patch.object(ai, "ad_group_plan", AsyncMock(return_value={"text": "Grupo: https://chat.whatsapp.com/ABC", "headline": "BF"})), \
+             patch.object(ai, "decide", AsyncMock(return_value=decision)) as decide, \
+             patch.object(ai, "send_decision", AsyncMock(return_value=1)) as send, \
+             patch.object(ai, "sb_update", side_effect=update):
+            await ai.process_thread("roove", dict(ProcessThreadTests.thread), SETTINGS)
+        self.assertEqual(send.await_count, 2)
+        self.assertEqual(send.await_args_list[1].args[3]["reply"], "Grupo: https://chat.whatsapp.com/ABC")
+        self.assertIn("anúncio", decide.await_args.kwargs["origin_note"])
+        self.assertIn("ai_group_sent_at", updates[-1])
+
+    async def test_claude_answers_and_falls_back_to_platform(self):
+        raw = {"reply": "Oi do Claude", "buttons": [], "products": [], "handoff": False, "handoff_reason": "", "insight": {}}
+        settings = {**SETTINGS, "_claude_secret": "enc", "claude_model": "claude-sonnet-5-5"}
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), patch("services.crypto.decrypt_secret", return_value="sk-ant-x"), \
+             patch.object(ai, "_claude", AsyncMock(return_value=raw)) as claude, \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={**raw, "reply": "Oi da plataforma"})) as platform:
+            out = await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(out["reply"], "Oi do Claude")
+        platform.assert_not_awaited()
+        self.assertEqual(claude.await_args.kwargs["model"], "claude-sonnet-5-5")
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), patch("services.crypto.decrypt_secret", return_value="sk-ant-x"), \
+             patch.object(ai, "_claude", AsyncMock(side_effect=ai.WhatsAppAiError("CLAUDE_FAILED", "sem crédito"))), \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={**raw, "reply": "Oi da plataforma"})):
+            out = await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(out["reply"], "Oi da plataforma")
+
+    async def test_rejects_key_that_is_not_claude(self):
+        with self.assertRaises(ai.WhatsAppAiError) as caught:
+            await ai.save_claude_key("roove", api_key="sk-openai-123456789012345", model="claude-sonnet-5-5", user_id="u")
+        self.assertEqual(caught.exception.code, "INVALID_KEY")
+
+
 if __name__ == "__main__":
     unittest.main()
