@@ -33,3 +33,12 @@ export const publishAdDraft = (id: string) =>
   http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/publish`), { method: "POST", timeoutMs: 180_000 });
 export const deleteAdDraft = (id: string) => http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const listAdAudiences = () => http<AccountAudiences>(base("/audiences"), { timeoutMs: 60_000 });
+
+/** Read-only Meta readiness. No access tokens or account secrets are exposed. */
+export type MetaPublicationPreflight = {
+  ready: boolean;
+  objective: string;
+  checks: { key: string; ok: boolean; message: string; label: string }[];
+};
+export const metaPublicationPreflight = (objective: AdPayload["objective"]) =>
+  http<MetaPublicationPreflight>(base(`/preflight?objective=${encodeURIComponent(objective)}`), {timeoutMs: 60_000});

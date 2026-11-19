@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from services import meta_ad_publisher as pub
@@ -67,6 +67,18 @@ async def read_audiences(client_id: str, authorization: Optional[str] = Header(d
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
         return await pub.list_account_audiences(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/preflight")
+async def account_publication_preflight(client_id: str,
+                                         objective: str = Query(default="leads", max_length=20),
+                                         authorization: Optional[str] = Header(default=None)):
+    """Check the current tenant's Meta publishing prerequisites without creating an ad."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.publication_preflight(cid, objective)
     except StudioError as exc:
         raise _http(exc) from None
 
