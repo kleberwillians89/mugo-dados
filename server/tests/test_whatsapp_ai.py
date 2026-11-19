@@ -82,7 +82,7 @@ class DecisionTests(unittest.TestCase):
                            "summary": "Quer legging, ligar 11 99999-0000"}}
         out = ai.clean_decision(raw, catalog())
         self.assertEqual(out["reply"], "Separei duas opções, olha só.")
-        self.assertEqual(out["buttons"], ["Para treinar", "Dia a dia e treino"])
+        self.assertEqual(out["buttons"], ["Para treinar"])  # o de 25 letras sai inteiro, em vez de cortado
         self.assertEqual([p["handle"] for p in out["products"]], ["legging-twist", "capri"])
         self.assertEqual(out["insight"]["objections"], ["preco"])
         self.assertIn("[número]", out["insight"]["summary"])
@@ -277,6 +277,30 @@ class PozzeCarouselTests(unittest.IsolatedAsyncioTestCase):
              patch.object(ai, "_claude", AsyncMock(return_value={"reply": "Oi", "buttons": [], "products": [], "handoff": False, "insight": {}})) as claude:
             await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
         self.assertEqual(claude.await_args.args[0], "sk-ant-envkey1234")
+
+
+class HumanReplyTests(unittest.IsolatedAsyncioTestCase):
+    def test_long_reply_becomes_short_blocks_with_question_alone(self):
+        text = ("A tecnologia Roove Skinwear usa o fio inteligente Emana®, que oferece benefícios cosméticos para a pele. "
+                "Ela ajuda na elasticidade e na recuperação muscular enquanto você veste. Tudo pensado para unir conforto, "
+                "design e cuidado na sua rotina. Quer que eu te mostre algumas peças com essa tecnologia?")
+        out = ai.space_out(text)
+        blocks = out.split("\n\n")
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(blocks[-1], "Quer que eu te mostre algumas peças com essa tecnologia?")
+        self.assertEqual(ai.space_out("Oi! Tudo bem?"), "Oi! Tudo bem?")
+        self.assertEqual(ai.space_out("Bloco um.\n\nBloco dois?"), "Bloco um.\n\nBloco dois?")
+
+    def test_buttons_never_cut(self):
+        self.assertEqual(ai.whole_buttons(["Sim, mostre as peças", "Quero saber mais da tecnologia", "Outra dúvida"]),
+                         ["Sim, mostre as peças", "Outra dúvida"])
+
+    async def test_typing_indicator_marks_read(self):
+        with patch.object(ai, "_graph", AsyncMock(return_value={})) as graph:
+            await ai.typing({"phone_number_id": "pn", "access_token": "t"}, "wamid.ABC")
+            await ai.typing({"phone_number_id": "pn", "access_token": "t"}, None)
+        graph.assert_awaited_once()
+        self.assertEqual(graph.await_args.kwargs["json_body"]["typing_indicator"], {"type": "text"})
 
 
 if __name__ == "__main__":

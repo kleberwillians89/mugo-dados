@@ -16,6 +16,7 @@ envia) | ``auto`` (a IA responde sozinha). Nada é enviado com a IA em ``off`` o
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 import time
@@ -212,7 +213,7 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
 async def _claude(api_key: str, *, model: str, system: str, prompt: str, schema: Dict[str, Any],
-                  max_tokens: int = 900, temperature: float = 0.5, timeout: float = 45) -> Dict[str, Any]:
+                  max_tokens: int = 900, temperature: float = 0.5, timeout: float = 25) -> Dict[str, Any]:
     """Resposta estruturada do Claude (ferramenta obrigatória com o mesmo schema da resposta)."""
     body = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "system": system,
             "messages": [{"role": "user", "content": prompt}],
@@ -487,14 +488,21 @@ BASE_RULES = (
     "que evitar; siga-as acima de qualquer outra referência de estilo.\n"
     "Regras fixas:\n"
     "- Responda a ÚLTIMA mensagem da CLIENTE, curto (até 4 frases curtas, no máximo 600 caracteres). Uma pergunta por vez.\n"
+    "- Escreva como gente no WhatsApp: frases curtas, em 2 ou 3 blocos separados por uma linha em branco (\\n\\n); "
+    "nunca um parágrafo único comprido. A pergunta final fica sozinha no último bloco.\n"
+    "- Emojis: no máximo 1 ou 2 por mensagem, leves e no tom da marca (ex.: ✨ 🤍 🌿 💛 😊), no fim de uma frase; nunca "
+    "um por frase, nunca em transferência para a equipe, nunca em reclamação.\n"
     "- Preço, estoque, tamanho disponível e link: só o que está no CATÁLOGO SHOPIFY. Desconto, cupom, frete, prazo, "
     "campanha e benefício: só o que está em CONDIÇÕES VIGENTES. Nunca invente nada disso.\n"
     "- products: até 6 códigos [handle] do catálogo, só de peças disponíveis, quando fizer sentido mostrar peças. O "
     "sistema manda os cartões com foto, preço e link logo depois da sua mensagem: não escreva preço nem link dessas "
     "peças no texto. Lista vazia quando não for hora de mostrar peças.\n"
-    "- buttons: de 0 a 3 opções curtas (até 20 caracteres cada) que ajudem a cliente a responder com um toque (ex.: "
-    "\"Para treinar\", \"Dia a dia\"). Vazio quando a pergunta for aberta ou houver handoff. Na primeira mensagem da "
-    "conversa, use os BOTÕES DE BOAS-VINDAS se houver.\n"
+    "- buttons: de 0 a 3 opções curtas e COMPLETAS, de no máximo 20 caracteres contando espaços (ex.: \"Para treinar\", "
+    "\"Dia a dia\", \"Ver tecnologia\", \"Achar meu tamanho\"). Botão maior que 20 caracteres é descartado: prefira 2 ou 3 "
+    "palavras. Vazio quando a pergunta for aberta ou houver handoff. Na primeira mensagem da conversa, use os BOTÕES DE "
+    "BOAS-VINDAS se houver.\n"
+    "- Quando mostrar peças (products), não faça na mesma mensagem uma pergunta de triagem que as peças já respondem; os "
+    "botões, se houver, são próximos passos (ex.: \"Achar meu tamanho\", \"Ver outras cores\").\n"
     "- handoff = true (e reply = mensagem curta de transferência, sem prometer prazo) quando: reclamação, troca, "
     "devolução, problema com pedido ou entrega, pagamento, pedido para falar com uma pessoa, assunto sensível ou "
     "pergunta que o catálogo e as condições não respondem.\n"
@@ -561,12 +569,36 @@ def build_prompt(*, settings: Dict[str, Any], brand: str, catalog: Optional[Dict
     return "\n\n".join(p for p in parts if p)
 
 
+def whole_buttons(values: Any, limit: int = 3) -> List[str]:
+    """Botões que cabem inteiros (o WhatsApp corta em 20): o que passar disso sai, em vez de virar "Quero saber mais da"."""
+    out: List[str] = []
+    for raw in values or []:
+        label = " ".join(str(raw or "").split())
+        if 0 < len(label) <= 20 and label.lower() not in (b.lower() for b in out):
+            out.append(label)
+    return out[:limit]
+
+
+def space_out(text: str) -> str:
+    """Resposta em blocos curtos: texto longo sem linha em branco vira parágrafos de até 2 frases; a pergunta final fica sozinha."""
+    if "\n\n" in text or len(text) <= 180:
+        return text
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?…])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9\"“😀-🫶✨🤍🌿💛])", text) if x.strip()]
+    if len(sentences) < 3:
+        return text
+    question = sentences.pop() if sentences[-1].endswith("?") else None
+    blocks = [" ".join(sentences[i:i + 2]) for i in range(0, len(sentences), 2)]
+    if question:
+        blocks.append(question)
+    return "\n\n".join(blocks)
+
+
 def clean_decision(raw: Dict[str, Any], catalog: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Limpa o que a IA devolveu: botões curtos, só produtos que existem e estão disponíveis, ficha sem dados pessoais."""
     reply = re.sub(r"\s+[—–]\s+", ", ", str(raw.get("reply") or "")).strip()
-    reply = re.sub(r"\n{3,}", "\n\n", reply)[:1000]
+    reply = space_out(re.sub(r"\n{3,}", "\n\n", reply))[:1000]
     handoff = bool(raw.get("handoff")) or not reply
-    buttons = [] if handoff else _clean_list(raw.get("buttons"), limit=3, size=20)
+    buttons = [] if handoff else whole_buttons(raw.get("buttons"))
     known = {p["handle"].lower(): p for p in (catalog or {}).get("products") or [] if p["available"]}
     products = []
     for handle in raw.get("products") or []:
@@ -589,7 +621,19 @@ def clean_decision(raw: Dict[str, Any], catalog: Optional[Dict[str, Any]]) -> Di
             "insight": clean_insight}
 
 
+_BRAND_CACHE: Dict[str, Tuple[float, str]] = {}
+
+
 async def _brand(client_id: str) -> str:
+    cached = _BRAND_CACHE.get(client_id)
+    if cached and time.time() - cached[0] < 600:
+        return cached[1]
+    block = await _brand_fresh(client_id)
+    _BRAND_CACHE[client_id] = (time.time(), block)
+    return block
+
+
+async def _brand_fresh(client_id: str) -> str:
     try:
         from .ig_direct import _brand_block, _brand_context
         return _brand_block(await _brand_context(client_id))
@@ -645,7 +689,7 @@ def carousel_payloads(products: List[Dict[str, Any]], *, button: str) -> List[Tu
                             for p in products], "carousel": True}
     out: List[Tuple[Dict[str, Any], str, Dict[str, Any]]] = []
     if len(with_image) >= 2:
-        body = {"type": "interactive", "interactive": {"type": "carousel", "body": {"text": "Separei estas peças para você:"},
+        body = {"type": "interactive", "interactive": {"type": "carousel", "body": {"text": "Separei estas peças para você ✨"},
                 "action": {"cards": [{"card_index": i, "type": "cta_url",
                                       "header": {"type": "image", "image": {"link": p["image"]}},
                                       "body": {"text": card_text(p)},
@@ -778,7 +822,7 @@ THREAD_FIELDS = ("id,number_id,wa_id,last_inbound_at,ai_paused_until,ai_stage,ai
 
 
 async def _thread_messages(client_id: str, thread_id: str) -> List[Dict[str, Any]]:
-    rows = await sb_select("whatsapp_messages", select="direction,type,text,by_ai,sent_at",
+    rows = await sb_select("whatsapp_messages", select="direction,type,text,by_ai,sent_at,provider_message_id",
                            filters={"thread_id": f"eq.{thread_id}", "client_id": f"eq.{client_id}"}, order="sent_at.desc", limit=30)
     return list(reversed(rows))
 
@@ -805,6 +849,17 @@ async def _save_insight(client_id: str, thread_id: str, decision: Dict[str, Any]
     if patch:
         await sb_update("whatsapp_threads", filters={"id": f"eq.{thread_id}", "client_id": f"eq.{client_id}"}, patch=patch,
                         returning="minimal")
+
+
+async def typing(number: Dict[str, Any], message_id: Optional[str]) -> None:
+    """Marca como lida e mostra "digitando…" para a cliente enquanto a IA pensa (some sozinho quando a resposta chega)."""
+    if not message_id or str(message_id).startswith("mugoverso"):
+        return
+    try:
+        await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"], json_body={
+            "messaging_product": "whatsapp", "status": "read", "message_id": message_id, "typing_indicator": {"type": "text"}})
+    except Exception as exc:  # noqa: BLE001 — só cosmético
+        print(f"[whatsapp_ai] typing_failed {type(exc).__name__}")
 
 
 async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -839,7 +894,10 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
     number = await _number(client_id, thread["number_id"])
     if not number:
         return "numero_desligado"
-    catalog, meta, match = await _commerce(client_id, settings, number)
+    if settings["mode"] == "auto":
+        await typing(number, messages[-1].get("provider_message_id"))
+    (catalog, meta, match), group = await asyncio.gather(_commerce(client_id, settings, number),
+                                                         ad_group_plan(client_id, thread, settings))
     last = str(messages[-1].get("text") or "")
     order = parse_catalog_order(last)
     order_note, cart = "", None
@@ -848,7 +906,6 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
         names = {p["id"]: p["title"] for p in (catalog or {}).get("products") or []}
         described = [f"{qty}× {names.get(((match or {}).get('by_retailer') or {}).get(rid, ('', None))[0], rid)}" for rid, qty in order]
         order_note = "PEDIDO PELO CARRINHO DO CATÁLOGO: " + "; ".join(described)
-    group = await ad_group_plan(client_id, thread, settings)
     origin_note = ""
     if group:
         origin_note = (f"ORIGEM: a cliente chegou por um anúncio da marca{(' (' + group['headline'] + ')') if group['headline'] else ''}. "

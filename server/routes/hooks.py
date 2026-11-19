@@ -5,6 +5,7 @@ da Meta para mensagens da Central de Automações (message_status: sent/delivere
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 from typing import Any, Dict, Optional
@@ -71,6 +72,9 @@ async def instagram_dm_hook(body: InstagramDmHook, x_ig_dm_key: Optional[str] = 
     return await process_client(body.client_id)
 
 
+_AI_TASKS: set = set()  # referência para a tarefa não ser recolhida antes de terminar
+
+
 class WhatsAppAiHook(BaseModel):
     model_config = ConfigDict(extra="ignore")
     client_id: str = Field(min_length=1, max_length=120)
@@ -83,4 +87,8 @@ async def whatsapp_ai_hook(body: WhatsAppAiHook, x_whatsapp_ai_key: Optional[str
     if not expected or not hmac.compare_digest(expected, (x_whatsapp_ai_key or "").strip()):
         raise HTTPException(status_code=401, detail="Chave inválida.")
     from services.whatsapp_ai import process_client
-    return await process_client(body.client_id)
+    # Responde na hora para a Edge Function e processa em seguida: a cliente não espera o aviso voltar.
+    task = asyncio.create_task(process_client(body.client_id))
+    _AI_TASKS.add(task)
+    task.add_done_callback(_AI_TASKS.discard)
+    return {"queued": True}
