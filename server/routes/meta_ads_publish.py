@@ -118,7 +118,9 @@ async def read_instagram_posts(client_id: str, authorization: Optional[str] = He
             "timestamp": str(row.get("timestamp") or ""),
             "preview_url": cover,
             "image_url": photo_url if photo_url.startswith("https://") else None,
-            "selectable": kind in ("IMAGE", "CAROUSEL_ALBUM") and photo_url.startswith("https://"),
+            "video_url": original if kind == "VIDEO" and original.startswith("https://") else None,
+            "selectable": (kind in ("IMAGE", "CAROUSEL_ALBUM") and photo_url.startswith("https://")) or
+                (kind == "VIDEO" and original.startswith("https://")),
         })
     return {"posts": posts, "source": "instagram_synced", "count": len(posts)}
 
