@@ -14,3 +14,12 @@
 .globalTaskChatPanel footer{padding:11px 15px;border-top:1px solid var(--border-subtle,#dbe0e5);text-align:center;font-size:13px}.globalTaskChatPanel footer a{color:#004f6e;font-weight:700}
 .globalTaskChatEmpty,.globalTaskChatError{padding:12px;font-size:13px}.globalTaskChatError{color:#b42318}
 @media(max-width:600px){.globalTaskChat{right:14px;bottom:14px}.globalTaskChatPanel{bottom:55px}}
+/* Real task chat launcher (not the separate brand chat): viewport-safe drag. */
+.globalTaskChat{width:max-content;max-width:calc(100vw - 12px);touch-action:none}
+.globalTaskChatTrigger{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;max-width:calc(100vw - 12px)}
+.globalTaskChatTrigger:active{cursor:grabbing}
+.globalTaskChatPanel{right:auto;left:0;max-height:calc(100dvh - 24px);touch-action:auto;overscroll-behavior:contain}
+.globalTaskChatPanel header,.globalTaskChatPanel nav,.globalTaskChatPanel footer,.globalTaskChatList{touch-action:pan-y}
+/* A modal editor's footer always has priority over floating assistance. */
+body:has(.drawerBackdrop) .globalTaskChat{visibility:hidden;pointer-events:none}
+@media(max-width:600px){.globalTaskChat{right:auto;bottom:auto}.globalTaskChatPanel{bottom:auto}}
