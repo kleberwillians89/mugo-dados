@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from services import team_access as ta
+from routes import team as team_routes
 from services import team_admin, tenant
 from services.client_access import AccessError
 
@@ -185,10 +186,108 @@ class GrantRuleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AccessError) as raised:
             await team_admin.set_status(client_id="roove", actor=self.ACTOR, user_id="boss", status="inactive")
         self.assertEqual(raised.exception.code, "TEAM_SELF_EDIT")
-        with patch.object(team_admin, "_members", AsyncMock(return_value=[{"role": "agency_admin"}])):
+        with patch.object(team_admin, "_members", AsyncMock(return_value=[{"user_id": "mugo", "role": "agency_admin"}])), \
+             patch.object(team_admin, "_internal_team_user_ids", AsyncMock(return_value={"mugo"})):
             with self.assertRaises(AccessError) as raised:
                 await team_admin.set_status(client_id="roove", actor=self.ACTOR, user_id="mugo", status="inactive")
         self.assertEqual(raised.exception.code, "ACCESS_ROLE_NOT_ALLOWED")
+
+
+class TeamVisibilityTests(unittest.IsolatedAsyncioTestCase):
+    ROWS = [
+        {"user_id": "client-admin", "client_id": "roove", "role": "client_admin", "status": "active"},
+        {"user_id": "owner", "client_id": "roove", "role": "owner", "status": "active"},
+        {"user_id": "agency", "client_id": "roove", "role": "agency_admin", "status": "active"},
+        {"user_id": "platform", "client_id": "roove", "role": "viewer", "status": "active"},
+        {"user_id": "other", "client_id": "other-tenant", "role": "viewer", "status": "active"},
+    ]
+
+    async def _list(self, *, include_internal: bool):
+        auth_users = {
+            "users": [
+                {"id": row["user_id"], "email": f"{row['user_id']}@example.test"}
+                for row in self.ROWS
+            ]
+        }
+        with patch.object(team_admin, "_members", AsyncMock(return_value=self.ROWS)), \
+             patch.object(team_admin, "_internal_team_user_ids", AsyncMock(return_value={"agency", "platform"})), \
+             patch.object(team_admin, "_overrides", AsyncMock(return_value={})), \
+             patch.object(team_admin, "_admin_request", AsyncMock(return_value=auth_users)):
+            return await team_admin.list_members("roove", include_internal=include_internal)
+
+    async def test_client_admin_sees_only_own_tenant_without_mugo_team(self):
+        result = await self._list(include_internal=False)
+        self.assertEqual([item["user_id"] for item in result["items"]], ["client-admin", "owner"])
+        self.assertTrue(all(not item["is_global_role"] for item in result["items"]))
+
+    async def test_internal_classification_uses_global_roles_not_client_owner(self):
+        async def select(table, **_kwargs):
+            if table == "platform_admins":
+                return [{"user_id": "platform", "role": "platform_admin"}]
+            return [
+                {"user_id": "agency", "role": "agency_admin"},
+                {"user_id": "unrelated-agency", "role": "agency_admin"},
+            ]
+
+        with patch.object(team_admin, "sb_select", side_effect=select):
+            internal = await team_admin._internal_team_user_ids(self.ROWS)
+        self.assertEqual(internal, {"agency", "platform"})
+        self.assertNotIn("owner", internal)
+
+    async def test_mugo_team_sees_tenant_users_and_internal_team(self):
+        result = await self._list(include_internal=True)
+        by_id = {item["user_id"]: item for item in result["items"]}
+        self.assertEqual(set(by_id), {"client-admin", "owner", "agency", "platform"})
+        self.assertTrue(by_id["agency"]["is_global_role"])
+        self.assertTrue(by_id["platform"]["is_global_role"])
+        self.assertFalse(by_id["owner"]["is_global_role"])
+
+    async def test_route_selects_visibility_from_authenticated_actor(self):
+        profiles = {
+            "common_user": False,
+            "client_admin": False,
+            "owner": False,
+            "agency_admin": True,
+            "platform_admin": True,
+        }
+        for profile, actor_is_team in profiles.items():
+            listed = AsyncMock(return_value={"ok": True, "items": []})
+            with self.subTest(profile=profile):
+                with patch.object(team_routes, "require_client_read", AsyncMock(return_value="roove")), \
+                     patch.object(team_routes, "is_agency_user", AsyncMock(return_value=actor_is_team)), \
+                     patch.object(team_routes.team_admin, "list_members", listed):
+                    await team_routes.team_members(client_id="roove", authorization="Bearer token")
+                listed.assert_awaited_once_with("roove", include_internal=actor_is_team)
+
+    async def test_common_user_cannot_use_tenant_management_routes(self):
+        denied = HTTPException(status_code=403, detail="Perfil sem permissão")
+        with patch.object(team_routes, "require_client_role", AsyncMock(side_effect=denied)), \
+             patch.object(team_routes.team_admin, "create_member", AsyncMock()) as create:
+            with self.assertRaises(HTTPException) as raised:
+                await team_routes._manager("roove", "Bearer common")
+        self.assertEqual(raised.exception.status_code, 403)
+        create.assert_not_awaited()
+
+    async def test_visibility_failure_is_fail_closed(self):
+        with patch.object(team_admin, "_members", AsyncMock(return_value=self.ROWS)), \
+             patch.object(team_admin, "sb_select", AsyncMock(side_effect=RuntimeError("database unavailable"))):
+            with self.assertRaises(AccessError) as raised:
+                await team_admin.list_members("roove", include_internal=False)
+        self.assertEqual(raised.exception.code, "TEAM_VISIBILITY_UNAVAILABLE")
+        self.assertEqual(raised.exception.status_code, 503)
+
+    async def test_internal_accounts_cannot_be_mutated_but_owner_can(self):
+        actor = {"user_id": "client-admin", "team": False, "access_total": True, "codes": set()}
+        with patch.object(team_admin, "_members", AsyncMock(return_value=[self.ROWS[2]])), \
+             patch.object(team_admin, "_internal_team_user_ids", AsyncMock(return_value={"agency"})):
+            with self.assertRaises(AccessError) as raised:
+                await team_admin._target("roove", actor, "agency")
+        self.assertEqual(raised.exception.code, "ACCESS_ROLE_NOT_ALLOWED")
+
+        with patch.object(team_admin, "_members", AsyncMock(return_value=[self.ROWS[1]])), \
+             patch.object(team_admin, "_internal_team_user_ids", AsyncMock(return_value=set())):
+            target = await team_admin._target("roove", actor, "owner")
+        self.assertEqual(target["user_id"], "owner")
 
 
 if __name__ == "__main__":
