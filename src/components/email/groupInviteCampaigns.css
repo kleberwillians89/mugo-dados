@@ -17,3 +17,9 @@
 .emCaptureGroupActions button{padding:8px 10px;background:var(--surface,#fff);color:var(--text-primary,#29343a);border:1px solid var(--border,#cbd9df);border-radius:7px;cursor:pointer;font-weight:650}
 .emCaptureGroupActions button:focus-visible{outline:2px solid #c79830;outline-offset:2px}
 @media(max-width:650px){.emCaptureGroupWays,.emCaptureGroupForm{grid-template-columns:1fr}.emCaptureGroupForm label:nth-child(3){grid-column:1}.emCaptureGroupForm button{width:100%;justify-self:stretch}.emCaptureGroupList{grid-template-columns:1fr}}
+
+.emCaptureGroupStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:17px 0}
+.emCaptureGroupStats>div{padding:15px;border-radius:9px;border:1px solid var(--border,#dae2e5);background:var(--surface,#fff);display:grid;gap:8px}
+.emCaptureGroupStats span{font-size:11px;color:var(--text-secondary,#607783)}
+.emCaptureGroupStats strong{font-size:25px;line-height:1.1;letter-spacing:-.04em}
+@media(max-width:600px){.emCaptureGroupStats{grid-template-columns:1fr}}
