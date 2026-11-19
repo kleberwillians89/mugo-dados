@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listLibrary, previewKind, uploadLibraryFile, type LibraryItem } from "../../app/library";
+import { uploadArt } from "../../app/artUpload";
 import { videoCover } from "../../app/videoCover";
 import { getActiveClientId } from "../../app/activeClient";
 import { searchShopProducts, type CalendarItem, type ShopProduct } from "../../app/studio";
@@ -19,7 +19,7 @@ const MODES: { id: "single" | "carousel"; title: string; hint: string }[] = [
 ];
 const image = (value: string) => /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(value) || value.includes("/storage/v1/object/public/");
 const firstArt = (item: CalendarItem) => String(item.art_url || "").split("\n")[0].trim();
-type Asset = { id: string; title: string; url: string; source: "library" | "calendar" | "instagram" | "shop"; itemId?: string | null; selectable?: boolean; permalink?: string | null; kind?: string; videoUrl?: string | null; product?: ShopProduct };
+type Asset = { id: string; title: string; url: string; source: "upload" | "calendar" | "instagram" | "shop"; itemId?: string | null; selectable?: boolean; permalink?: string | null; kind?: string; videoUrl?: string | null; product?: ShopProduct };
 /** Produto da loja no anúncio: nome vira título (até 45), preço a descrição (até 20) e o link do produto o destino. */
 const fromProduct = (p: ShopProduct) => ({ headline: p.name.slice(0, 45), ...(p.price ? { description: p.price.slice(0, 20) } : {}), ...(p.url ? { link: p.url } : {}) });
 type Props = {
@@ -32,21 +32,20 @@ type Props = {
 };
 
 export default function MetaCreativeStudio({ clientId, month, calendar, ad, disabled, onChoose }: Props) {
-  const [library, setLibrary] = useState<LibraryItem[]>([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
+  // Arte enviada aqui fica só com o anúncio (não entra na Biblioteca, que é só material da marca).
+  const [uploaded, setUploaded] = useState<Asset[]>([]);
   const [igPosts, setIgPosts] = useState<InstagramCreativePost[]>([]);
   const [igLoading, setIgLoading] = useState(false);
   const [igError, setIgError] = useState("");
 
   const [libraryError, setLibraryError] = useState("");
   const [format, setFormat] = useState<CreativePreviewFormat>("portrait");
-  const [source, setSource] = useState<"all" | "library" | "calendar" | "instagram" | "shop">("all");
+  const [source, setSource] = useState<"all" | "upload" | "calendar" | "instagram" | "shop">("all");
   const [products, setProducts] = useState<ShopProduct[] | null>(null);
   const [shopLoading, setShopLoading] = useState(false);
   const [shopError, setShopError] = useState("");
   const [query, setQuery] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mode: AdFormat = ad.format === "carousel" ? "carousel" : "single";
   const cards: AdCard[] = ad.cards || [];
@@ -87,10 +86,6 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
   };
 
   const assets = useMemo<Asset[]>(() => {
-    const saved: Asset[] = [...library].map((item) =>
-      previewKind(item) === "video"
-        ? { id: "lib:" + item.id, title: item.title, url: item.url, source: "library" as const, kind: "VIDEO", videoUrl: item.url }
-        : { id: "lib:" + item.id, title: item.title, url: item.url, source: "library" as const });
     const approved: Asset[] = calendar.map((item) => ({
       id: "cal:" + item.id, title: item.title || "Post do calendário", url: firstArt(item),
       source: "calendar" as const, itemId: item.id,
@@ -109,39 +104,14 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       id: "shop:" + p.product_id, title: p.name || "Produto da loja", url: p.image_url!, source: "shop" as const, product: p,
     }));
     const unique = new Set<string>();
-    return [...saved, ...approved, ...instagram, ...shop].filter((item) => {
-      if (!item.url || (item.source !== "instagram" && item.source !== "shop" && !image(item.url) && !item.url.includes("/storage/"))) return false;
+    return [...uploaded, ...approved, ...instagram, ...shop].filter((item) => {
+      if (!item.url || (item.source === "calendar" && !image(item.url))) return false;
       if (unique.has(item.url)) return false;
       unique.add(item.url);
       return (source === "all" || source === item.source) &&
         (!query.trim() || item.title.toLowerCase().includes(query.toLowerCase()));
     });
-  }, [library, calendar, igPosts, products, source, query]);
-
-  async function refresh() {
-    if (!clientId) return;
-    setLibraryLoading(true); setLibraryError("");
-    try {
-      const result = await listLibrary();
-      if (getActiveClientId() !== clientId) return;
-      setLibrary([...result.items, ...result.approved].filter((item) => ["image", "video"].includes(previewKind(item))));
-    } catch (e) {
-      if (getActiveClientId() === clientId) setLibraryError(e instanceof Error ? e.message : "Não foi possível carregar a Biblioteca.");
-    } finally { if (getActiveClientId() === clientId) setLibraryLoading(false); }
-  }
-
-  useEffect(() => {
-    let active = true;
-    setLibraryLoading(true); setLibraryError("");
-    listLibrary().then((result) => {
-      if (!active || getActiveClientId() !== clientId) return;
-      setLibrary([...result.items, ...result.approved].filter((item) => ["image", "video"].includes(previewKind(item))));
-    }).catch((cause) => {
-      if (active && getActiveClientId() === clientId)
-        setLibraryError(cause instanceof Error ? cause.message : "Não foi possível carregar imagens.");
-    }).finally(() => { if (active && getActiveClientId() === clientId) setLibraryLoading(false); });
-    return () => { active = false; };
-  }, [clientId]);
+  }, [uploaded, calendar, igPosts, products, source, query]);
 
   useEffect(() => {
     let active = true;
@@ -166,33 +136,29 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       setLibraryError("Carrossel aceita só imagens. Para vídeo, escolha \"Imagem ou vídeo único\".");
       return;
     }
-    setUploading(true); setLibraryError(""); setUploadProgress(0);
+    setUploading(true); setLibraryError("");
     try {
+      const url = await uploadArt(null, file);
+      if (getActiveClientId() !== clientId) return;
       if (isVideo) {
-        const result = await uploadLibraryFile(file, "video", setUploadProgress, file.name, "Criativo de mídia paga");
         const blob = await videoCover(file);
         let cover = "";
         if (blob) {
-          const name = file.name.replace(/\.[^.]+$/, "") + " (capa).jpg";
-          try { cover = (await uploadLibraryFile(new File([blob], name, { type: "image/jpeg" }), "foto", undefined, name, "Capa do vídeo")).item.url; }
-          catch { cover = ""; }
+          try { cover = await uploadArt(null, new File([blob], "capa.jpg", { type: "image/jpeg" })); } catch { cover = ""; }
         }
         if (getActiveClientId() !== clientId) return;
-        setLibrary((old) => [result.item, ...old]);
-        onChoose({ media_type: "video", video_url: result.item.url, image_url: cover, instagram_post_id: null, calendar_item_id: null });
-        setSource("all");
-        return;
+        setUploaded((old) => [{ id: "up:" + url, title: file.name, url: cover || url, source: "upload", kind: "VIDEO", videoUrl: url }, ...old]);
+        onChoose({ media_type: "video", video_url: url, image_url: cover, instagram_post_id: null, calendar_item_id: null });
+      } else {
+        setUploaded((old) => [{ id: "up:" + url, title: file.name, url, source: "upload" }, ...old]);
+        if (many) { if (cards.length < MAX_AD_CARDS) setCards([...cards, { image_url: url }]); }
+        else onChoose({ image_url: url, media_type: "image", video_url: "", instagram_post_id: null, calendar_item_id: null });
       }
-      const result = await uploadLibraryFile(file, "foto", setUploadProgress, file.name, "Criativo de mídia paga");
-      if (getActiveClientId() !== clientId) return;
-      setLibrary((old) => [result.item, ...old]);
-      if (many) { if (cards.length < MAX_AD_CARDS) setCards([...cards, { image_url: result.item.url }]); }
-      else onChoose({ image_url: result.item.url, media_type: "image", video_url: "", instagram_post_id: null, calendar_item_id: null });
       setSource("all");
     } catch (cause) {
       if (getActiveClientId() === clientId) setLibraryError(cause instanceof Error ? cause.message : "Não foi possível enviar o arquivo.");
     } finally {
-      setUploading(false); setUploadProgress(null);
+      setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
@@ -200,9 +166,9 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
   const shape = FORMATS.find((x) => x.id === format)!;
   return <section className="metaCreativeStudio" aria-label="Estúdio de criativos">
     <div className="metaCreativeStudioTitle">
-      <div><h3>Estúdio de criativos</h3><p>{many ? `Clique nas imagens na ordem em que devem aparecer (até ${MAX_AD_CARDS}).` : "Selecione uma imagem ou vídeo da Biblioteca da empresa, ou envie um novo."}</p></div>
+      <div><h3>Estúdio de criativos</h3><p>{many ? `Clique nas imagens na ordem em que devem aparecer (até ${MAX_AD_CARDS}).` : "Envie a imagem ou o vídeo do anúncio, ou use uma arte do Calendário ou um post do Instagram."}</p></div>
       <button type="button" className="ds-button" disabled={disabled || uploading}
-        onClick={() => fileRef.current?.click()}>{uploading ? `Enviando ${uploadProgress ?? 0}%…` : "+ Adicionar imagem ou vídeo"}</button>
+        onClick={() => fileRef.current?.click()}>{uploading ? "Enviando…" : "+ Enviar imagem ou vídeo"}</button>
       <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.mov,.mp4"
         onChange={(event) => void upload(event.currentTarget.files?.[0])} />
     </div>
@@ -219,17 +185,15 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     <div className="metaCreativeStudioColumns">
       <div className="metaCreativeAssets">
         <div className="metaCreativeFilters">
-          <label className="metaCreativeSearch">{source === "shop" ? "Buscar produto" : "Buscar imagem"}<input type="search" placeholder={source === "shop" ? "Nome ou SKU do produto…" : "Buscar na biblioteca…"} value={query}
+          <label className="metaCreativeSearch">{source === "shop" ? "Buscar produto" : "Buscar imagem"}<input type="search" placeholder={source === "shop" ? "Nome ou SKU do produto…" : "Buscar pelo nome…"} value={query}
             onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (source === "shop") void loadProducts(); } }} /></label>
           <label className="metaCreativeSearch">Origem<select value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
-            <option value="all">Todas</option><option value="library">Biblioteca</option><option value="calendar">Calendário {month}</option><option value="instagram">Publicações do Instagram</option><option value="shop">Produtos da loja</option>
+            <option value="all">Todas</option><option value="upload">Enviadas agora</option><option value="calendar">Calendário {month}</option><option value="instagram">Publicações do Instagram</option><option value="shop">Produtos da loja</option>
           </select></label>
         </div>
         <div className="metaCreativeAssetToolbar"><b>{assets.length} {assets.length === 1 ? "arquivo encontrado" : "imagens e vídeos encontrados"}</b>
           {source === "shop" ? <button type="button" className="ds-link" disabled={shopLoading} onClick={() => void loadProducts()}>
-            {shopLoading ? "Buscando produtos…" : "Buscar produtos"}</button>
-          : <button type="button" className="ds-link" disabled={libraryLoading} onClick={() => void refresh()}>
-            {libraryLoading ? "Atualizando…" : "Atualizar Biblioteca"}</button>}</div>
+            {shopLoading ? "Buscando produtos…" : "Buscar produtos"}</button> : null}</div>
         <div className="metaCreativeAssetGrid">
           {assets.map((asset) => {
             const order = cards.findIndex((c) => c.image_url === asset.url);
@@ -243,19 +207,19 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
                     ...(asset.product.url && !ad.link ? { link: asset.product.url } : {}),
                     ...(asset.product.price && !ad.description ? { description: asset.product.price.slice(0, 20) } : {}) })
                 : asset.kind === "VIDEO" && asset.videoUrl
-                  ? onChoose(asset.source === "library"
-                    ? { media_type: "video", video_url: asset.videoUrl, image_url: "", instagram_post_id: null, calendar_item_id: null }
+                  ? onChoose(asset.source === "upload"
+                    ? { media_type: "video", video_url: asset.videoUrl, image_url: asset.url === asset.videoUrl ? "" : asset.url, instagram_post_id: null, calendar_item_id: null }
                     : { media_type: "video", video_url: asset.videoUrl, image_url: asset.url, instagram_post_id: asset.id.replace("ig:", ""), calendar_item_id: null })
                   : onChoose({ media_type: "image", video_url: "", instagram_post_id: null, image_url: asset.url, calendar_item_id: asset.itemId || null })}>
               {many && order >= 0 ? <i className="metaCreativeOrder" aria-label={`Posição ${order + 1}`}>{order + 1}</i> : null}
-              {asset.source === "library" && asset.kind === "VIDEO"
+              {asset.url === asset.videoUrl
                 ? <video src={`${asset.url}#t=1`} muted playsInline preload="metadata" aria-label={asset.title} />
                 : <img src={asset.url} alt={asset.title} loading="lazy" />}
-              <span>{asset.title}</span><small>{asset.source === "shop" ? ["Loja", asset.product?.price].filter(Boolean).join(" · ") : asset.source === "library" ? asset.kind === "VIDEO" ? "Vídeo · Biblioteca" : "Biblioteca" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? asset.videoUrl ? "Vídeo Instagram" : "Vídeo sem arquivo disponível" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
+              <span>{asset.title}</span><small>{asset.source === "shop" ? ["Loja", asset.product?.price].filter(Boolean).join(" · ") : asset.source === "upload" ? asset.kind === "VIDEO" ? "Vídeo enviado" : "Enviada agora" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? asset.videoUrl ? "Vídeo Instagram" : "Vídeo sem arquivo disponível" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
             </button>;
           })}
         </div>
-        {!assets.length ? <p className="metaCreativeEmpty">{source === "shop" ? shopLoading ? "Buscando produtos…" : "Nenhum produto com foto nesta busca." : libraryLoading || igLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Confira a sincronização do Instagram ou envie uma nova imagem."}</p> : null}
+        {!assets.length ? <p className="metaCreativeEmpty">{source === "shop" ? shopLoading ? "Buscando produtos…" : "Nenhum produto com foto nesta busca." : igLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Confira a sincronização do Instagram ou envie uma nova imagem."}</p> : null}
         {many ? <div className="metaCreativeCards" aria-label="Imagens escolhidas">
           <b>{cards.length} de {MAX_AD_CARDS} imagens{cards.length < 2 ? " · escolha pelo menos 2" : ""}</b>
           {cards.length ? <ol>{cards.map((card, i) => <li key={card.image_url}>

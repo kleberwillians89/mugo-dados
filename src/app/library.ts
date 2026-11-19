@@ -1,6 +1,6 @@
 import { clientClientPath, http } from "./api";
 
-/** Biblioteca da marca: arquivos e links por categoria + arte dos posts aprovados (lida do Calendário). */
+/** Biblioteca da marca: só material de marca, em arquivos e links por categoria. Arte de post não entra aqui. */
 export type LibraryCategory = "produto" | "logo" | "referencia" | "foto" | "video" | "documento" | "outro";
 export type LibraryItem = {
   id: string; kind: "arquivo" | "link" | "post"; category: LibraryCategory | "aprovado"; title: string; url: string;
@@ -9,7 +9,8 @@ export type LibraryItem = {
   item_id?: string; status?: string; permalink?: string | null; format?: string | null;
 };
 export const LIBRARY_CATEGORIES: Record<LibraryCategory, string> = {
-  produto: "Produto", logo: "Logo", referencia: "Referência", foto: "Foto", video: "Vídeo bruto", documento: "Documento", outro: "Outro",
+  logo: "Logo e identidade", produto: "Produto", foto: "Fotos da marca", video: "Vídeos da marca", referencia: "Referência",
+  documento: "Documento", outro: "Outro",
 };
 /** Mesma lista do servidor (studio_library.TYPES). */
 export const LIBRARY_ACCEPT = [

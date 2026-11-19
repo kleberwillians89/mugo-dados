@@ -3,30 +3,27 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { LIBRARY_ACCEPT, LIBRARY_CATEGORIES, addLibraryLink, deleteLibraryItem, formatBytes, listLibrary, previewKind, uploadLibraryFile,
   type LibraryCategory, type LibraryItem } from "../app/library";
 import Shell from "../components/Shell";
-import { getPathForRoute } from "../app/routes";
 import PageHeader from "../components/data/PageHeader";
 import LibraryCloudImport from "../components/library/LibraryCloudImport";
 import "../styles/studio.css";
 
-type Section = "todos" | "materiais" | "aprovados";
-const SECTIONS: { key: Section; label: string }[] = [
-  { key: "todos", label: "Todos" }, { key: "materiais", label: "Materiais da marca" }, { key: "aprovados", label: "Posts aprovados" },
-];
+/** Arte enviada para posts e anúncios antes da Biblioteca virar só marca: não é material de marca. */
+const POST_NOTES = new Set(["Criativo de mídia paga", "Capa do vídeo"]);
+const isPostFile = (item: LibraryItem) => POST_NOTES.has((item.note || "").trim());
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 type Upload = { name: string; pct: number; error?: string };
 
 /**
- * Biblioteca da marca: tudo o que a equipe e o cliente usam para criar, num lugar só. Arquivos (enviados direto
- * para o armazenamento) e links (Drive, Canva, Figma), por categoria. A arte dos posts aprovados entra sozinha.
+ * Biblioteca da marca: só material de marca (logo, identidade, fotos e vídeos da marca, produto, referências, documentos).
+ * Arte de post e de anúncio não entra aqui: é enviada no próprio post ou anúncio. A IA aprende com o que foi publicado
+ * e com o resultado, não com esta lista.
  */
 export default function LibraryPage() {
   const clientId = getActiveClientId();
   const [items, setItems] = useState<LibraryItem[]>([]);
-  const [approved, setApproved] = useState<LibraryItem[]>([]);
   const [team, setTeam] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("todos");
   const [category, setCategory] = useState<LibraryCategory | "todas">("todas");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<"link" | "nuvem" | null>(null);
@@ -34,7 +31,7 @@ export default function LibraryPage() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [viewing, setViewing] = useState<LibraryItem | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [cleaning, setCleaning] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
@@ -42,23 +39,38 @@ export default function LibraryPage() {
     try {
       const r = await listLibrary();
       if (getActiveClientId() !== clientId) return;
-      setItems(r.items); setApproved(r.approved); setTeam(r.team);
+      setItems(r.items); setTeam(r.team);
     } catch (cause) { setError(message(cause, "Não foi possível abrir a Biblioteca.")); }
     finally { setLoading(false); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
 
+  const brand = useMemo(() => items.filter((i) => !isPostFile(i)), [items]);
+  const postFiles = useMemo(() => items.filter(isPostFile), [items]);
   const shown = useMemo(() => {
-    const pool = section === "aprovados" ? approved : section === "materiais" ? items : [...items, ...approved];
     const q = query.trim().toLowerCase();
-    return pool.filter((i) => (section === "aprovados" || category === "todas" || i.category === category)
+    return brand.filter((i) => (category === "todas" || i.category === category)
       && (!q || `${i.title} ${i.note || ""}`.toLowerCase().includes(q)));
-  }, [items, approved, section, category, query]);
+  }, [brand, category, query]);
   const counts = useMemo(() => {
     const c: Partial<Record<LibraryCategory, number>> = {};
-    items.forEach((i) => { c[i.category as LibraryCategory] = (c[i.category as LibraryCategory] || 0) + 1; });
+    brand.forEach((i) => { c[i.category as LibraryCategory] = (c[i.category as LibraryCategory] || 0) + 1; });
     return c;
-  }, [items]);
+  }, [brand]);
+
+  async function clearPostFiles() {
+    const removable = postFiles.filter((i) => i.can_delete);
+    if (!removable.length || !window.confirm(`Tirar ${removable.length} ${removable.length === 1 ? "arte de post" : "artes de post"} da Biblioteca? `
+      + "Os posts e anúncios que já usam essas artes continuam funcionando.")) return;
+    setCleaning(true); setError(null);
+    const gone: string[] = [];
+    for (const item of removable) {
+      try { await deleteLibraryItem(item.id); gone.push(item.id); } catch { /* segue com as outras */ }
+    }
+    setItems((list) => list.filter((i) => !gone.includes(i.id)));
+    if (gone.length < removable.length) setError("Algumas artes não saíram. Tente de novo.");
+    setCleaning(false);
+  }
 
   async function sendFiles(files: FileList | File[]) {
     setError(null);
@@ -71,20 +83,6 @@ export default function LibraryPage() {
         setUploads((u) => u.filter((x) => x.name !== file.name));
       } catch (cause) { set({ error: message(cause, "O envio falhou.") }); }
     }
-  }
-
-  // The calendar resolves IDs against the currently authorized tenant again.
-  // Never pass arbitrary image URLs as trusted content through the address bar.
-  function sendToCalendar() {
-    if (!team || !selected.length) return;
-    const byId = new Map(items.map((item) => [item.id, item]));
-    const ids = selected.filter((id) => {
-      const item = byId.get(id);
-      return item && previewKind(item) === "image" && item.kind === "arquivo";
-    }).slice(0, 12);
-    if (!ids.length) return;
-    const params = new URLSearchParams({ library_ids: ids.join(",") });
-    window.location.assign(`${getPathForRoute("calendar")}?${params.toString()}`);
   }
 
   async function remove(item: LibraryItem) {
@@ -100,8 +98,8 @@ export default function LibraryPage() {
         <button type="button" className="ds-button" onClick={() => setAdding(adding === "link" ? null : "link")}>Adicionar link</button>
         <button type="button" className="ds-button is-primary" onClick={() => fileInput.current?.click()}>Enviar arquivo</button>
       </div>} />
-    <p className="libIntro">{team ? "Produto, logo, fotos, vídeos brutos e referências da marca. O cliente também envia daqui."
-      : "Mande aqui fotos de produto, logo, vídeos e referências. A equipe Mugô usa tudo para criar."}</p>
+    <p className="libIntro">{team ? "Só material da marca: logo, identidade, fotos e vídeos da marca, produto, referências e documentos. Arte de post e de anúncio não entra aqui: ela é enviada no próprio post."
+      : "Mande aqui o material da marca: logo, fotos de produto, ensaios, referências e documentos. Arte de post não precisa vir para cá."}</p>
 
     <input ref={fileInput} type="file" multiple hidden accept={LIBRARY_ACCEPT.join(",")}
       onChange={(e) => { if (e.target.files?.length) void sendFiles(e.target.files); e.target.value = ""; }} />
@@ -121,37 +119,24 @@ export default function LibraryPage() {
     {adding === "link" ? <LinkForm onCancel={() => setAdding(null)} onSaved={(item) => { setItems((l) => [item, ...l]); setAdding(null); }} onError={setError} /> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
 
-    {team ? <div className="libCalendarActions">
-      <span>Selecione até 12 imagens da Biblioteca para montar uma pauta ou carrossel no Calendário.</span>
-      <button type="button" className="ds-button is-primary" disabled={!selected.length}
-        onClick={sendToCalendar}>Enviar {selected.length || ""} {selected.length === 1 ? "imagem" : "imagens"} ao Calendário</button>
-      {selected.length ? <button type="button" className="ds-button" onClick={() => setSelected([])}>Limpar seleção</button> : null}
+    {team && postFiles.length ? <div className="ds-notice libCleanup" role="status">
+      <p>{postFiles.length} {postFiles.length === 1 ? "arte enviada para post ou anúncio está" : "artes enviadas para posts e anúncios estão"} na Biblioteca, mas não {postFiles.length === 1 ? "é" : "são"} material de marca.</p>
+      <button type="button" className="ds-button" disabled={cleaning} onClick={() => void clearPostFiles()}>{cleaning ? "Tirando…" : "Tirar da Biblioteca"}</button>
     </div> : null}
     <div className="libToolbar">
-      <div className="studioTabs" role="tablist" aria-label="Seções">{SECTIONS.map((s) => <button key={s.key} type="button" role="tab" aria-selected={section === s.key}
-        className={`studioTab${section === s.key ? " is-active" : ""}`} onClick={() => setSection(s.key)}>
-        {s.label} <small>{s.key === "aprovados" ? approved.length : s.key === "materiais" ? items.length : items.length + approved.length}</small></button>)}</div>
       <input className="libSearch" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar" aria-label="Buscar na Biblioteca" />
     </div>
-    {section !== "aprovados" ? <div className="libChips" aria-label="Categorias">
+    <div className="libChips" aria-label="Categorias">
       <button type="button" className={`libChip${category === "todas" ? " is-on" : ""}`} onClick={() => setCategory("todas")}>Todas</button>
       {(Object.keys(LIBRARY_CATEGORIES) as LibraryCategory[]).map((c) => <button key={c} type="button" className={`libChip${category === c ? " is-on" : ""}`}
         onClick={() => setCategory(c)}>{LIBRARY_CATEGORIES[c]}{counts[c] ? <small>{counts[c]}</small> : null}</button>)}
-    </div> : null}
+    </div>
 
-    {loading && !items.length && !approved.length ? <p className="libHint">Carregando…</p> : null}
+    {loading && !items.length ? <p className="libHint">Carregando…</p> : null}
     {!loading && !shown.length ? <div className="libEmpty">
-      {section === "aprovados" ? <p>Aprove posts no Calendário e a arte aparece aqui sozinha.</p>
-        : <p>Nada aqui ainda. Envie um arquivo ou cole um link do Drive, Canva ou Figma.</p>}
+      <p>Nada aqui ainda. Envie o material da marca ou cole um link do Drive, Canva ou Figma.</p>
     </div> : null}
     <ul className="libGrid" aria-label="Materiais">{shown.map((item) => <li key={item.id}>
-      {team && item.kind === "arquivo" && previewKind(item) === "image" ? <label className="libCalendarSelect">
-        <input type="checkbox" checked={selected.includes(item.id)} aria-label={`Selecionar ${item.title} para o Calendário`}
-          onChange={(e) => setSelected((current) => e.target.checked
-            ? current.includes(item.id) || current.length >= 12 ? current : [...current, item.id]
-            : current.filter((id) => id !== item.id))} />
-        <span>{selected.includes(item.id) ? `Selecionada · ${selected.indexOf(item.id) + 1}` : "Selecionar para o Calendário"}</span>
-      </label> : null}
       <button type="button" className="libCard" onClick={() => setViewing(item)} aria-label={`Abrir ${item.title}`}>
         <Thumb item={item} />
         <span className="libCardBody"><b>{item.title}</b>

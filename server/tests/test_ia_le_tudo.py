@@ -57,6 +57,13 @@ class SourcesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["produto"], ["Oud 10ml.jpg [image] (do cliente): fundo branco"])
         self.assertEqual(out["referencia"], ["Moodboard [link]"])
 
+    async def test_library_ignores_post_art(self):
+        rows = [{"kind": "arquivo", "category": "foto", "title": "criativo.png", "mime_type": "image/png", "side": "mugo", "note": "Criativo de mídia paga"},
+                {"kind": "arquivo", "category": "logo", "title": "Logo.svg", "mime_type": "image/svg+xml", "side": "mugo"}]
+        with patch.object(si, "sb_select", AsyncMock(return_value=rows)):
+            out = await si._library("ruah")
+        self.assertEqual(out, {"logo": ["Logo.svg [image]"]})
+
     async def test_briefs_bring_what_not_to_do(self):
         rows = [{"brief": {"title": "BF decant", "objective": "Vender", "avoid": ["falar de desconto"], "deliverables": ["4 Reels"]}}]
         with patch.object(si, "sb_select", AsyncMock(return_value=rows)) as sel:

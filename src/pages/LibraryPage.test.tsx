@@ -31,13 +31,26 @@ const type = async (el: HTMLInputElement, value: string) => act(async () => {
 });
 
 describe("Biblioteca", () => {
-  it("mostra materiais e posts aprovados, filtra por categoria e seção", async () => {
+  it("mostra só material da marca e filtra por categoria", async () => {
     await show();
-    expect(host.querySelectorAll(".libCard")).toHaveLength(3);
+    expect(host.querySelectorAll(".libCard")).toHaveLength(2);
+    expect(host.textContent).not.toContain("Post de Natal");
+    expect(host.textContent).not.toContain("Calendário");
     await act(async () => { btn("Logo").click(); });
     expect([...host.querySelectorAll(".libCard b")].map((b) => b.textContent)).toEqual(["Logo.png"]);
-    await act(async () => { btn("Posts aprovados").click(); });
-    expect([...host.querySelectorAll(".libCard b")].map((b) => b.textContent)).toEqual(["Post de Natal"]);
+  });
+
+  it("separa arte de post que caiu na Biblioteca e tira com um clique", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    api.deleteLibraryItem.mockResolvedValue({ ok: true });
+    const ART = { ...LOGO, id: "l9", title: "criativo.png", category: "foto", note: "Criativo de mídia paga" };
+    api.listLibrary.mockResolvedValue({ items: [LOGO, DOC, ART], approved: [], categories: {}, team: true });
+    await show();
+    expect(host.querySelectorAll(".libCard")).toHaveLength(2);
+    expect(host.textContent).toContain("1 arte enviada para post ou anúncio está na Biblioteca");
+    await act(async () => { btn("Tirar da Biblioteca").click(); });
+    expect(api.deleteLibraryItem).toHaveBeenCalledWith("l9");
+    expect(host.textContent).not.toContain("Tirar da Biblioteca");
   });
 
   it("cola um link e ele entra na lista", async () => {

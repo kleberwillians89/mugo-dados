@@ -19,8 +19,6 @@ import ReelsMusicPicker from "./ReelsMusicPicker";
 import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
-import { listLibrary, previewKind, type LibraryItem } from "../../app/library";
-import { getActiveClientId } from "../../app/activeClient";
 import ArtCarousel from "./ArtCarousel";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
@@ -68,13 +66,6 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const [artFailed, setArtFailed] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
-  const [librarySelection, setLibrarySelection] = useState<string[]>([]);
-  const [libraryReplace, setLibraryReplace] = useState(false);
-  const [libraryTenant, setLibraryTenant] = useState<string | null>(null);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
   // Reels: prévia como aparece na aba Reels ou na grade do perfil, com as áreas que o app cobre.
   const [reelsView, setReelsView] = useState<"reels" | "grade">("reels");
   const [showSafe, setShowSafe] = useState(false);
@@ -135,59 +126,6 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
       setDraft((d) => ({ ...d, art_url: [...artList(d.art_url), ...links].slice(0, 12).join("\n") }));
     } catch (cause) { setUploadError(cause instanceof Error ? cause.message : "Não foi possível enviar a arte."); }
     finally { setUploading(null); }
-  }
-
-  async function openLibrary() {
-    if (busy || Boolean(uploading)) return;
-    if (libraryOpen) { setLibraryOpen(false); return; }
-    const tenant = getActiveClientId();
-    setLibraryTenant(tenant);
-    setLibraryOpen(true); setLibraryLoading(true); setLibraryError(null);
-    try {
-      const result = await listLibrary();
-      if (getActiveClientId() !== tenant) {
-        setLibraryOpen(false); return;
-      }
-      setLibraryItems(result.items.filter((entry) =>
-        entry.kind === "arquivo" && previewKind(entry) === "image"));
-      setLibrarySelection([]);
-      setLibraryReplace(false);
-    } catch (cause) {
-      if (getActiveClientId() === tenant) setLibraryError(cause instanceof Error
-        ? cause.message : "Não foi possível carregar a Biblioteca.");
-    } finally { setLibraryLoading(false); }
-  }
-
-  function applyLibrarySelection() {
-    if (!libraryTenant || getActiveClientId() !== libraryTenant) {
-      setLibraryError("A empresa selecionada mudou. Feche a Biblioteca e abra novamente.");
-      return;
-    }
-    const selected = librarySelection.map((id) => libraryItems.find((entry) => entry.id === id))
-      .filter((entry): entry is LibraryItem => entry !== undefined && entry.kind === "arquivo" && previewKind(entry) === "image");
-    if (selected.length !== librarySelection.length || selected.length === 0) {
-      setLibraryError("Selecione imagens válidas desta Biblioteca.");
-      return;
-    }
-    const current = libraryReplace ? [] : artList(draft.art_url);
-    const combined = [...new Set([...current, ...selected.map((entry) => entry.url)])];
-    if (combined.length > 12) {
-      setLibraryError("Limite de 12 imagens por publicação. Selecione menos imagens ou marque Substituir.");
-      return;
-    }
-    const art_url = combined.join("\n");
-    if (art_url.length > 1000) {
-      setLibraryError("Os links excedem o limite do Calendário. Selecione menos imagens.");
-      return;
-    }
-    setDraft((value) => ({
-      ...value, art_url,
-      ...(combined.length > 1 && value.format === "imagem" ? { format: "carrossel" as StudioFormat } : {}),
-    }));
-    setArtFailed(null);
-    setLibraryOpen(false);
-    setLibraryError(null);
-    setUploadError(null);
   }
 
   async function submit(e: FormEvent) {
@@ -278,51 +216,6 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
             <button type="button" className="ds-button is-primary" disabled={!linkInput.trim() || importing !== null || Boolean(uploading) || busy}
               onClick={() => void bringFromLink(linkInput)}>{importing === -1 ? "Trazendo…" : "Trazer arte"}</button>
           </div>
-          <div className="postLibraryBar">
-            <button type="button" className="ds-button is-primary"
-              disabled={busy || Boolean(uploading)} aria-expanded={libraryOpen}
-              onClick={() => void openLibrary()}>
-              {libraryOpen ? "Fechar Biblioteca" : "Escolher da Biblioteca"}
-            </button>
-            <small>Use fotos já enviadas para esta marca. As alterações só valem depois de salvar a publicação.</small>
-          </div>
-          {libraryOpen ? <section className="postLibraryPicker" aria-label="Selecionar imagens da Biblioteca">
-            <div className="postLibraryPickerHead">
-              <strong>Imagens da Biblioteca</strong>
-              <button type="button" className="ds-button" onClick={() => void openLibrary()} disabled={libraryLoading}>
-                Fechar
-              </button>
-            </div>
-            {libraryLoading ? <p className="postArtHint" role="status">Carregando imagens…</p> : null}
-            {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
-            {!libraryLoading && !libraryItems.length && !libraryError
-              ? <p className="postArtHint">Nenhuma imagem disponível. Envie arquivos primeiro pela Biblioteca da marca.</p> : null}
-            {!libraryLoading && libraryItems.length ? <>
-              <div className="postLibraryGallery" role="group" aria-label="Fotos disponíveis">
-                {libraryItems.map((entry) => <label className={librarySelection.includes(entry.id) ? "is-selected" : ""} key={entry.id}>
-                  <input type="checkbox" checked={librarySelection.includes(entry.id)}
-                    disabled={busy || (!librarySelection.includes(entry.id) && librarySelection.length >= 12)}
-                    onChange={(event) => {
-                      setLibraryError(null);
-                      setLibrarySelection((current) => event.target.checked
-                        ? [...current, entry.id] : current.filter((id) => id !== entry.id));
-                    }} />
-                  <img src={entry.url} alt={entry.title} loading="lazy" />
-                  <span title={entry.title}>{entry.title}</span>
-                </label>)}
-              </div>
-              <label className="postLibraryReplace">
-                <input type="checkbox" checked={libraryReplace}
-                  onChange={(event) => { setLibraryReplace(event.target.checked); setLibraryError(null); }} />
-                Substituir as artes atuais (desmarcado: adicionar ao final)
-              </label>
-              <div className="postLibraryFooter">
-                <span>{librarySelection.length} selecionada(s) · máximo 12 imagens</span>
-                <button type="button" className="ds-button is-primary" disabled={!librarySelection.length || busy}
-                  onClick={applyLibrarySelection}>Usar nesta publicação</button>
-              </div>
-            </> : null}
-          </section> : null}
           {uploadError ? <small className="studioError">{uploadError}</small> : null}
           {importNote ? <small className="postArtHint">{importNote}</small> : null}
           <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy || importing !== null} onChange={(art_url) => set({ art_url })}
