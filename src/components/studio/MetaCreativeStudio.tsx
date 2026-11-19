@@ -57,7 +57,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     }));
     const unique = new Set<string>();
     return [...saved, ...approved, ...instagram].filter((item) => {
-      if (!item.url || (!image(item.url) && !item.url.includes("/storage/"))) return false;
+      if (!item.url || (item.source !== "instagram" && !image(item.url) && !item.url.includes("/storage/"))) return false;
       if (unique.has(item.url)) return false;
       unique.add(item.url);
       return (source === "all" || source === item.source) &&
@@ -153,7 +153,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
             onClick={() => onChoose({ image_url: asset.url, calendar_item_id: asset.itemId || null })}>
             <img src={asset.url} alt={asset.title} loading="lazy" />
             <span>{asset.title}</span><small>{asset.source === "library" ? "Biblioteca" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? "Vídeo · prévia apenas" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
-            {asset.permalink ? <span className="metaCreativeOriginal">Ver post original ↗</span> : null}
+
           </button>)}
         </div>
         {!assets.length ? <p className="metaCreativeEmpty">{libraryLoading || igLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Confira a sincronização do Instagram ou envie uma nova imagem."}</p> : null}
