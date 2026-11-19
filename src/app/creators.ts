@@ -37,6 +37,13 @@ export const listCreators = (network?: CreatorNetwork, q?: string) => {
 export const lookupCreator = (network: CreatorNetwork, handle: string, force = false) => http<Creator>(path("/lookup"), post({ network, handle, force }));
 export const searchCreators = (network: CreatorNetwork, query: string, limit = 10) =>
   http<{ creators: Creator[]; notes: string[] }>(path("/search"), post({ network, query, limit }, 240_000));
+/** Sugestões enquanto digita: criadores salvos e a prévia do @ exato (Meta, grátis). */
+export type CreatorPick = { id?: string; network: CreatorNetwork; handle: string; display_name: string | null; avatar_url: string | null;
+  followers: number | null; engagement_rate?: number | null; verified?: boolean; private?: boolean; missing?: boolean; reason?: string };
+export const resolveCreator = (network: CreatorNetwork, q: string) =>
+  http<{ saved: CreatorPick[]; exact: CreatorPick | null }>(path(`/resolve?${new URLSearchParams({ network, q })}`));
+/** Busca por NOME no Instagram (Apify, só a equipe Mugô). */
+export const searchPeople = (query: string) => http<{ query: string; people: CreatorPick[] }>(path("/people-search"), post({ query }, SLOW_MS));
 export type CreatorSuggestion = { creator: Creator; reason: string };
 export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 6) =>
   http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }, SLOW_MS));

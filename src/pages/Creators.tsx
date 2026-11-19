@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import CreatorFinder from "../components/creators/CreatorFinder";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
@@ -57,7 +58,6 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const clientId = getActiveClientId();
   const clientName = getActiveClientName();
   const [network, setNetwork] = useState<CreatorNetwork>("instagram");
-  const [handle, setHandle] = useState("");
   const [query, setQuery] = useState("");
   const [creators, setCreators] = useState<Creator[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
@@ -125,10 +125,9 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
     }, "Não foi possível excluir.");
   }
 
-  function onLookup(event: FormEvent) {
-    event.preventDefault();
-    if (!handle.trim()) return;
-    run("lookup", async () => { upsertLocal([await lookupCreator(network, handle)]); setNotes([]); setHandle(""); }, "Não foi possível consultar o perfil.");
+  function lookupHandle(value: string) {
+    if (!value.trim()) return;
+    run("lookup", async () => { upsertLocal([await lookupCreator(network, value)]); setNotes([]); }, "Não foi possível consultar o perfil.");
   }
 
   function onSearch(event: FormEvent) {
@@ -166,11 +165,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
         <section className="creatorCard" aria-labelledby="creator-find">
           <header><h2 id="creator-find">Encontrar criadores</h2>
             <SegmentedControl ariaLabel="Rede" options={isAgency ? NETWORK_OPTIONS : CLIENT_NETWORK_OPTIONS} value={network} onSelect={(id) => setNetwork(id as CreatorNetwork)} /></header>
-          <form onSubmit={onLookup} className="creatorRow">
-            <label className="ds-field">Analisar perfil
-              <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@criador ou link do perfil" /></label>
-            <button className="ds-button is-primary" disabled={Boolean(busy)}>Analisar</button>
-          </form>
+          <CreatorFinder network={network} isAgency={isAgency} busy={Boolean(busy)} onPick={lookupHandle} />
           {isAgency ? <form onSubmit={onSearch} className="creatorRow">
             <label className="ds-field">Descobrir por {network === "youtube" ? "palavra-chave" : "hashtag"}
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={network === "youtube" ? "vinhos, harmonização" : "#vinhonacional"} /></label>

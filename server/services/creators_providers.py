@@ -290,6 +290,7 @@ def apify_token() -> str:
 def apify_actor(kind: str) -> str:
     defaults = {
         "instagram_hashtag": ("APIFY_INSTAGRAM_HASHTAG_ACTOR", "apify~instagram-hashtag-scraper"),
+        "instagram_people": ("APIFY_INSTAGRAM_SEARCH_ACTOR", "apify~instagram-search-scraper"),
         "tiktok": ("APIFY_TIKTOK_ACTOR", "clockworks~tiktok-scraper"),
     }
     env, default = defaults[kind]
@@ -379,3 +380,28 @@ def group_tiktok_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "views": _int_or_none(item.get("playCount")),
         })
     return list(by_author.values())
+
+
+def instagram_people_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Resultado da busca de pessoas do Instagram por NOME (Apify) → candidatos para a pessoa escolher o @ certo.
+
+    O Actor muda nomes de campo entre versões; lê as variações conhecidas e descarta o que não tem @ válido."""
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        user = item.get("user") if isinstance(item.get("user"), dict) else item
+        handle = str(user.get("username") or user.get("userName") or user.get("ownerUsername") or "").lower().lstrip("@")
+        if not _HANDLE_PATTERNS["instagram"].fullmatch(handle) or handle in seen:
+            continue
+        seen.add(handle)
+        out.append({
+            "network": "instagram", "handle": handle,
+            "display_name": user.get("fullName") or user.get("full_name") or user.get("name"),
+            "avatar_url": user.get("profilePicUrlHD") or user.get("profilePicUrl") or user.get("profile_pic_url"),
+            "followers": _int_or_none(user.get("followersCount") or user.get("follower_count") or user.get("followers")),
+            "verified": bool(user.get("verified") or user.get("is_verified")),
+            "private": bool(user.get("private") or user.get("is_private")),
+        })
+    return out
