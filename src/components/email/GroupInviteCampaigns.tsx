@@ -8,13 +8,13 @@ type GroupLink = {
   variant: "direct" | "post_signup"; slug: string; invite_url: string;
   active: boolean; click_count: number; created_at: string;
 };
-type Props = { campaign: string; canEdit: boolean };
+type Props = { campaign: string; canEdit: boolean; leads?: number | null };
 const variants = [
   { value: "direct", title: "Campanha A · Direto para o grupo", hint: "O anúncio abre o convite sem cadastro." },
   { value: "post_signup", title: "Campanha B · Após cadastro", hint: "O convite aparece depois da confirmação do formulário." },
 ] as const;
 
-export default function GroupInviteCampaigns({ campaign, canEdit }: Props) {
+export default function GroupInviteCampaigns({ campaign, canEdit, leads = null }: Props) {
   const clientId = getActiveClientId();
   const [links, setLinks] = useState<GroupLink[]>([]);
   const [label, setLabel] = useState("");
@@ -83,7 +83,14 @@ export default function GroupInviteCampaigns({ campaign, canEdit }: Props) {
     <div className="emCaptureGroupWays">
       {variants.map(v=><div key={v.value}><strong>{v.title}</strong><p>{v.hint}</p></div>)}
     </div>
-    <p><b>Atenção:</b> clique no convite não comprova que a pessoa entrou no grupo. Esta página não identifica participantes.</p>
+    <div className="emCaptureGroupStats" aria-label="Resultados por jornada">
+      <div><span>Cliques — anúncio direto</span>
+        <strong>{filtered.filter(l=>l.variant==="direct").reduce((sum,l)=>sum+l.click_count,0)}</strong></div>
+      <div><span>Cadastros — campanha</span><strong>{leads === null ? "—" : leads}</strong></div>
+      <div><span>Cliques — após cadastro</span>
+        <strong>{filtered.filter(l=>l.variant==="post_signup").reduce((sum,l)=>sum+l.click_count,0)}</strong></div>
+    </div>
+    <p><b>Atenção:</b> clique no convite não comprova que a pessoa entrou no grupo. Esta página não identifica participantes. As contagens não são usuários únicos e podem incluir prévias automáticas.</p>
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {note ? <p role="status">{note}</p> : null}
     {canEdit ? <div className="emCaptureGroupForm">
