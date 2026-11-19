@@ -8,6 +8,11 @@ export type MetaPlacements = {
   instagram: ("stream" | "story" | "reels")[];
   facebook: ("feed" | "story" | "facebook_reels")[];
 };
+/** "single": uma imagem/vídeo · "carousel": um anúncio em carrossel · "multi": um anúncio por imagem no mesmo conjunto. */
+export type AdFormat = "single" | "carousel" | "multi";
+export type AdCard = { image_url: string; headline?: string; description?: string; link?: string };
+export const MAX_AD_CARDS = 10;
+
 export type AdPayload = {
   tracking?: TrackingParams;
   placements?: MetaPlacements;
@@ -19,11 +24,11 @@ export type AdPayload = {
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
   };
-  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null };
+  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; format?: AdFormat; cards?: AdCard[] };
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
-  payload: AdPayload; missing: string[]; meta_ids: Record<string, string>; ads_manager_url: string | null; error: string | null;
+  payload: AdPayload; missing: string[]; meta_ids: Record<string, string>; ads_manager_url: string | null; error: string | null; joined?: boolean;
   published_at: string | null; updated_at: string | null;
 };
 export type AudienceRef = { id: string; name: string };
@@ -69,8 +74,8 @@ export const listInstagramCreativePosts = () =>
   http<{ posts: InstagramCreativePost[]; source: string; count: number }>(base("/instagram-posts"), { timeoutMs: 45_000 });
 
 /** Independent copy for experimentation. Never duplicates Meta provider resources or starts delivery. */
-export const duplicateAdDraft = (id: string) =>
-  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate`), { method: "POST" });
+export const duplicateAdDraft = (id: string, into?: "campaign") =>
+  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate${into ? "?into=campaign" : ""}`), { method: "POST" });
 
 export type MetaLiveDeliveryStatus = {
   draft_id: string; client_id: string; checked_at: string; source: "meta_graph"; read_only: true;

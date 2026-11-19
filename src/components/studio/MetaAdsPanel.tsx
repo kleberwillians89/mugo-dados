@@ -79,9 +79,10 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   }
 
   const open = (draft: AdDraft) => {
+    const inside = Boolean(draft.joined || draft.meta_ids?.joined);
     setEditing({ draft, payload: JSON.parse(JSON.stringify(draft.payload)) as AdPayload });
-    setStep(0);
-    setAudienceApproved(false);
+    setStep(inside && draft.status !== "publicada" ? 2 : 0);
+    setAudienceApproved(inside);
     setStepIssue(null);
   };
   const upsert = (d: AdDraft) => setDrafts((list) => [d, ...(list || []).filter((x) => x.id !== d.id)]);
@@ -113,12 +114,13 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     if (r) { setEditing(null); setNotice(`"${r.draft.payload.name}" foi criada no Meta Ads, pausada. Confira e ative no Gerenciador de Anúncios.`); }
   }
 
-  async function duplicate(d: AdDraft) {
-    const r = await run(`duplicate:${d.id}`, () => duplicateAdDraft(d.id),
-      "Não foi possível duplicar esta campanha.");
+  async function duplicate(d: AdDraft, into?: "campaign") {
+    const r = await run(`duplicate${into ? "-ad" : ""}:${d.id}`, () => duplicateAdDraft(d.id, into),
+      into ? "Não foi possível criar o anúncio nesta campanha." : "Não foi possível duplicar esta campanha.");
     if (r) {
       upsert(r.draft);
-      setNotice(`Cópia de "${d.payload.name}" criada como rascunho, sem publicar nem ativar anúncios.`);
+      setNotice(into ? `Novo anúncio dentro de "${d.payload.name}": mesma verba e mesmo público. Troque o criativo e crie pausado.`
+        : `Cópia de "${d.payload.name}" criada como campanha nova, com verba própria. Nada foi publicado nem ativado.`);
       open(r.draft);
     }
   }
@@ -149,6 +151,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   };
   const setAd = (patch: Partial<AdPayload["ad"]>) => setEditing((e) => (e ? { ...e, payload: { ...e.payload, ad: { ...e.payload.ad, ...patch } } } : e));
   const locked = editing ? editing.draft.status === "publicada" || editing.draft.status === "publicando" : false;
+  // Anúncio dentro de campanha já criada: verba, datas e público são os da campanha original.
+  const joined = Boolean(editing?.draft.joined || editing?.draft.meta_ids?.joined);
   function advance() {
     if (!editing || busy) return;
     const missing = metaStepIssues(editing.payload, step);
@@ -203,7 +207,11 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               <button type="button" className="ds-button" onClick={() => { open(d); setStep(2); }}>Criativos</button>
               <button type="button" className="ds-button" onClick={() => { open(d); setStep(3); }}>Revisar publicação</button>
             </> : null}
+            {d.status === "publicada" && d.meta_ids?.adset_id ? <button type="button" className="ds-button" disabled={Boolean(busy)}
+              title="Cria só um anúncio novo dentro desta campanha: mesma verba, mesmo público"
+              onClick={() => void duplicate(d, "campaign")}>{busy === `duplicate-ad:${d.id}` ? "Criando…" : "Novo anúncio nesta campanha"}</button> : null}
             <button type="button" className="ds-button" disabled={Boolean(busy)}
+              title="Cria outra campanha, com verba própria"
               onClick={() => void duplicate(d)}>{busy === `duplicate:${d.id}` ? "Duplicando…" : "Duplicar campanha"}</button>
             {d.meta_ids?.campaign_id ? <button type="button" className="ds-button"
               disabled={checkingStatus === d.id} onClick={() => void checkDelivery(d)}>
@@ -229,7 +237,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </button>)}
         </nav>
         <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha imagem ou vídeo e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
-        {step === 0 ? <fieldset disabled={locked || Boolean(busy)}>
+        {joined && !locked ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Anúncio novo dentro de uma campanha já criada</p>
+          <p>Verba, datas e público são os da campanha original e dividem o mesmo orçamento. Aqui você só escolhe o criativo e o texto.</p></div> : null}
+        {step === 0 ? <fieldset disabled={locked || joined || Boolean(busy)}>
           <legend>1 · Campanha</legend>
           <label className="ds-field">Nome<input required maxLength={120} value={editing.payload.name} onChange={(e) => set({ name: e.target.value })} /></label>
           <div className="metaAdsRow">
@@ -242,9 +252,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             <label className="ds-field">Fim<input type="date" value={editing.payload.end_date} onChange={(e) => set({ end_date: e.target.value })} /></label>
           </div>
         </fieldset> : null}
-        {step === 1 ? <fieldset disabled={locked || Boolean(busy)}>
+        {step === 1 ? <fieldset disabled={locked || joined || Boolean(busy)}>
           <legend>2 · Público</legend>
-          <MetaAudiencePicker audience={editing.payload.audience} onChange={setAud} disabled={locked || Boolean(busy)} />
+          <MetaAudiencePicker audience={editing.payload.audience} onChange={setAud} disabled={locked || joined || Boolean(busy)} />
           {editing.payload.audience.saved_audience ? <p className="ds-caption metaAudSavedNote">
             Idade, gênero, locais e interesses vêm do público salvo “{editing.payload.audience.saved_audience.name}”. Os campos abaixo ficam de lado.</p> : null}
           <fieldset className="metaAudManual" disabled={Boolean(editing.payload.audience.saved_audience)}>
@@ -267,8 +277,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
             {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}
           </div>
           <MetaPlacementPicker value={editing.payload.placements || DEFAULT_META_PLACEMENTS}
-            onChange={placements => set({placements})} disabled={locked || Boolean(busy)} />
-          {!locked ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
+            onChange={placements => set({placements})} disabled={locked || joined || Boolean(busy)} />
+          {!locked && !joined ? <label className="metaAdsCheck"><input type="checkbox" checked={audienceApproved}
             onChange={(e) => { setAudienceApproved(e.target.checked); setStepIssue(null); }} />
             Revisei e confirmo esse público, inclusive a possível ampliação pelo Advantage+.</label> : null}
         </fieldset> : null}
@@ -327,8 +337,12 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
             <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
           </dl>
-          {editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
-          <p className="ds-caption">A campanha, o conjunto e o anúncio serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
+          {(editing.payload.ad.format === "carousel" || editing.payload.ad.format === "multi") && editing.payload.ad.cards?.length ? <div className="metaAdsReviewCards">
+            <b>{editing.payload.ad.format === "carousel" ? `Carrossel com ${editing.payload.ad.cards.length} cartões` : `${editing.payload.ad.cards.length} anúncios no mesmo conjunto`}</b>
+            <ol>{editing.payload.ad.cards.map((c, i) => <li key={c.image_url}><img src={c.image_url} alt={`Imagem ${i + 1}`} loading="lazy" />
+              <small>{i + 1}. {c.headline || editing.payload.ad.headline}</small></li>)}</ol>
+          </div> : editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
+          <p className="ds-caption">A campanha, o conjunto e {editing.payload.ad.format === "multi" ? "os anúncios" : "o anúncio"} serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
           {!locked && metaStepIssues(editing.payload, 3).length ? <p role="alert" className="metaAdsMissing">{metaStepIssues(editing.payload, 3).join(" ")}</p> : null}
         </section> : null}
         {stepIssue ? <p className="ds-caption metaAdsMissing" role="alert">{stepIssue}</p> : null}
