@@ -8,6 +8,8 @@ Ficam na coluna ``reels_options`` da pauta (migração 000131) e só valem para 
 - ``trial``: Reels de teste, mostrado primeiro só para quem não segue. "manual" = a equipe decide no app;
   "auto" = o Instagram leva aos seguidores se performar bem (``SS_PERFORMANCE``).
 - ``first_comment``: comentário da própria marca logo depois de publicar. Se falhar, o post continua publicado.
+- ``music``: música (ou áudio de Reels) da biblioteca do Instagram, escolhida pela Audio API. Vai como
+  ``audio_configuration`` com o volume da música e do som do vídeo. Com música, o nome do áudio original não vai.
 """
 from __future__ import annotations
 
@@ -55,6 +57,35 @@ def clean_reels_options(value: Any) -> Dict[str, Any]:
         text = _text(value.get(key), limit)
         if text:
             out[key] = text
+    music = clean_music(value.get("music"))
+    if music:
+        out["music"] = music
+    return out
+
+
+def _volume(value: Any) -> int:
+    try:
+        return max(1, min(100, int(float(value))))
+    except (TypeError, ValueError):
+        return 100
+
+
+def clean_music(value: Any) -> Optional[Dict[str, Any]]:
+    """Música escolhida: só o ID numérico da Meta é obrigatório; título, artista e capa servem para a tela."""
+    if not isinstance(value, dict):
+        return None
+    audio_id = str(value.get("audio_id") or "").strip()
+    if not re.fullmatch(r"\d{1,40}", audio_id):
+        return None
+    out: Dict[str, Any] = {"audio_id": audio_id, "audio_volume": _volume(value.get("audio_volume", 100)),
+                           "video_volume": _volume(value.get("video_volume", 100))}
+    for key, limit in (("title", 120), ("artist", 120)):
+        text = _text(value.get(key), limit)
+        if text:
+            out[key] = text
+    cover = _text(value.get("cover"), 1000)
+    if cover and cover.startswith("https://"):
+        out["cover"] = cover
     return out
 
 
@@ -90,7 +121,11 @@ def apply_reels_options(plan: Dict[str, Any], raw: Any) -> Optional[str]:
     strategy = TRIALS.get(opts.get("trial") or "off")
     if strategy:
         fields["trial_params"] = json.dumps({"graduation_strategy": strategy})
-    if opts.get("audio_name"):
+    music = opts.get("music")
+    if music:
+        fields["audio_configuration"] = json.dumps({"audio_id": music["audio_id"], "audio_volume": music["audio_volume"],
+                                                    "video_volume": music["video_volume"]})
+    elif opts.get("audio_name"):
         fields["audio_name"] = opts["audio_name"]
     return warning
 

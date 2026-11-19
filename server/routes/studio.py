@@ -160,6 +160,17 @@ class ItemPatch(BaseModel):
     reels_options: Optional["ReelsOptionsInput"] = None
 
 
+class ReelsMusicInput(BaseModel):
+    """Música da biblioteca do Instagram escolhida para o Reels."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    audio_id: str = Field(min_length=1, max_length=40, pattern=r"^\d+$")
+    title: Optional[str] = Field(default=None, max_length=120)
+    artist: Optional[str] = Field(default=None, max_length=120)
+    cover: Optional[str] = Field(default=None, max_length=1000)
+    audio_volume: int = Field(default=100, ge=1, le=100)
+    video_volume: int = Field(default=100, ge=1, le=100)
+
+
 class ReelsOptionsInput(BaseModel):
     """Capa e opções do Reels (só valem no formato Reels do Instagram)."""
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
@@ -170,6 +181,7 @@ class ReelsOptionsInput(BaseModel):
     trial: Optional[Literal["off", "manual", "auto"]] = None
     audio_name: Optional[str] = Field(default=None, max_length=100)
     first_comment: Optional[str] = Field(default=None, max_length=2200)
+    music: Optional[ReelsMusicInput] = None
 
 
 class ProductTagInput(BaseModel):
@@ -194,6 +206,23 @@ async def read_shop(client_id: str, authorization: str | None = Header(default=N
     if not await is_agency_user(authorization):
         raise HTTPException(status_code=403, detail="Só a equipe Mugô marca produtos nos posts.")
     return await shop_status(cid)
+
+
+@router.get("/calendar/audio")
+async def read_reels_audio(client_id: str, q: str = "", type: Literal["music", "original_sound"] = "music",
+                           authorization: str | None = Header(default=None)):
+    """Equipe: busca músicas (ou áudios de Reels) do Instagram para pôr no Reels. Sem busca, vêm as em alta."""
+    from services.ig_audio import search_audio
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô escolhe a música do Reels.")
+    try:
+        return {"audio": await search_audio(cid, q, type)}
+    except StudioError as exc:
+        if exc.code in ("IG_AUDIO_FAILED", "IG_NOT_CONNECTED"):
+            detail = str(exc) if str(exc) != exc.code else "Conecte o Instagram da marca em Integrações para escolher música."
+            raise HTTPException(status_code=409, detail=detail) from None
+        raise _http(exc) from None
 
 
 @router.get("/calendar/shop/products")

@@ -176,7 +176,16 @@ export type ReelsOptions = {
   trial?: "off" | "manual" | "auto";
   audio_name?: string;
   first_comment?: string;
+  /** Música da biblioteca do Instagram (Audio API). Volumes de 1 a 100. */
+  music?: ReelsMusic;
 };
+export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
+export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;
+  preview_url: string | null; type: "music" | "original_sound" };
+export function searchReelsAudio(q: string, type: "music" | "original_sound" = "music") {
+  const params = new URLSearchParams({ q, type });
+  return http<{ audio: ReelsAudio[] }>(base(`/calendar/audio?${params.toString()}`), { timeoutMs: 30_000 });
+}
 
 export type ProductTag = { product_id: string; name?: string | null; image_url?: string | null; slide: number; x: number; y: number };
 export type ShopStatus = { ready: boolean; eligible: boolean | null; catalogs: { id: string; name: string | null; shop_name: string | null; product_count: number | null }[];
