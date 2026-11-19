@@ -81,7 +81,7 @@ describe("Clipping", () => {
     await show(<Clipping canManage initialTab="materias" />);
     expect(host.textContent).toContain("menções da marca em 7 dias");
     expect(host.textContent).toContain("+2 vs. semana anterior");
-    expect(host.querySelector('a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
+    expect(host.querySelector('h4 a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
     expect(host.textContent).toContain("Positiva");
     expect(host.textContent).toContain("Virar pauta");
   });

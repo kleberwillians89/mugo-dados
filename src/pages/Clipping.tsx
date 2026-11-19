@@ -15,6 +15,8 @@ import ClippingToday from "../components/clipping/ClippingToday";
 import QuietBoundary from "../components/meta/QuietBoundary";
 import { SENTIMENT_COLOR, mugoColor } from "../app/mugoPalette";
 import "../styles/studio.css";
+import "../styles/metaLive.css";
+import NewsCard from "../components/clipping/NewsCard";
 import PageSkeleton from "../components/data/PageSkeleton";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
@@ -31,7 +33,6 @@ function Bars({ title, rows, label, offset = 0, sentiment = false }: { title: st
   </li>)}</ul> : <p className="libHint">Sem dados no período.</p>}</div>;
 }
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
-const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "");
 const toList = (text: string) => text.split(/[\n,]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
 
 /** Clipping da marca e dos concorrentes (Google Notícias), com a leitura da IA. O cliente só lê; a equipe Mugô configura e trata. */
@@ -213,32 +214,21 @@ export default function Clipping({ canManage = false, initialTab }: { canManage?
     {loading && !view ? <PageSkeleton label="Carregando o clipping…" /> : null}
     {view && settings?.saved && !view.items.length ? <div className="studioEmpty"><p>Nenhuma notícia com esse filtro ainda.{canManage ? <> Clique em <b>Atualizar agora</b> para buscar.</> : null}</p></div> : null}
 
-    <ul className="clipList">{(view?.items || []).map((item) => <li key={item.id} className={`clipItem is-${item.sentiment || "sem"}${item.relevant === false ? " is-irrelevant" : ""}${item.status === "lido" ? " is-read" : ""}`}>
-      <div className="clipMeta">
-        <span className="studioChip">{KIND_LABEL[item.kind] || item.kind} · {item.term}</span>
-        {item.relevance != null ? <span className="studioChip">Relevância {item.relevance}</span> : null}
-        {item.criticality && item.criticality !== "baixa" ? <span className={`studioChip clipCrit is-${item.criticality}`}>{CRITICALITY_LABEL[item.criticality]}</span> : null}
-        {item.main_theme ? <span className="studioChip">{item.main_theme}</span> : null}
-        {item.sentiment ? <span className={`studioChip clipSentiment is-${item.sentiment}`}>{SENTIMENT_LABEL[item.sentiment]}</span> : <span className="studioChip">Sem leitura da IA</span>}
-        <small>{item.source || "Fonte"} · {when(item.published_at || item.created_at)}</small>
-      </div>
-      <a className="clipTitle" href={item.url} target="_blank" rel="noreferrer noopener">{item.title} ↗</a>
-      {item.summary ? <p>{item.summary}</p> : null}
-      {item.opportunities?.length || item.risks?.length || item.justification ? <details className="clipAnalysis"><summary>Análise</summary>
+    <div className="newsGrid">{(view?.items || []).map((item) => <NewsCard key={item.id} item={item} actions={<>
+      {item.opportunities?.length || item.risks?.length || item.justification ? <details className="clipAnalysis newsAnalysis"><summary>Análise da IA</summary>
         {item.opportunities?.length ? <p><b>Oportunidades:</b> {item.opportunities.join(" · ")}</p> : null}
         {item.risks?.length ? <p><b>Riscos:</b> {item.risks.join(" · ")}</p> : null}
         {item.entities?.length ? <p><b>Entidades:</b> {item.entities.join(", ")}</p> : null}
         {item.justification ? <p><b>Por quê:</b> {item.justification}</p> : null}
         {item.evidence?.length ? <p><b>Evidências:</b> {item.evidence.map((e) => `"${e}"`).join(" · ")}</p> : null}
       </details> : null}
-      {item.relevant === false ? <p className="clipWarn">A IA acha que não é sobre a marca (homônimo ou citação de passagem).</p> : null}
-      {canManage ? <div className="studioActions">
+      {canManage ? <>
         {item.status === "pauta" ? <span className="studioOk">Virou pauta no Calendário</span>
           : <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void toCalendar(item)}>{busy === `c:${item.id}` ? "Criando…" : "Virar pauta"}</button>}
-        {item.status === "novo" ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "lido")}>Marcar como lida</button> : null}
+        {item.status === "novo" ? <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "lido")}>Lida</button> : null}
         <button type="button" className="studioLink" disabled={Boolean(busy)} onClick={() => void mark(item, "arquivado")}>Arquivar</button>
-      </div> : null}
-    </li>)}</ul>
+      </> : null}
+    </>} />)}</div>
 
     </> : null}
 

@@ -16,6 +16,8 @@ export type Clipping = {
   status: "novo" | "lido" | "arquivado" | "pauta"; calendar_item_id: string | null; created_at: string;
   relevance?: number | null; criticality?: Criticality | null; main_theme?: string | null; entities?: string[];
   opportunities?: string[]; risks?: string[]; justification?: string | null; evidence?: string[]; alert_status?: string;
+  /** Capa da matéria (og:image ou mídia do feed) e domínio do veículo (para o ícone quando não há capa). */
+  image_url?: string | null; source_domain?: string | null;
 };
 export type Count = { key: string; count: number };
 export type ClippingInsights = {
