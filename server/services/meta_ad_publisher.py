@@ -85,6 +85,27 @@ def _names(value: Any, limit: int = 12) -> List[str]:
 
 # ---------------------------------------------------------------- rascunho
 
+def clean_placements(value: Any) -> Dict[str, Any]:
+    """Validate explicit Meta placement filters without silently adding platforms."""
+    p = value if isinstance(value, dict) else {}
+    mode = str(p.get("mode") or "automatic")
+    if mode not in ("automatic", "manual"):
+        raise StudioError("AD_PLACEMENTS_INVALID")
+    allowed = {"platforms": ("instagram", "facebook"),
+               "instagram": ("stream", "story", "reels"),
+               "facebook": ("feed", "story", "facebook_reels")}
+    result: Dict[str, Any] = {"mode": mode}
+    for key, options in allowed.items():
+        items = p.get(key, list(options))
+        if not isinstance(items, list) or any(not isinstance(x, str) or x not in options for x in items):
+            raise StudioError("AD_PLACEMENTS_INVALID")
+        result[key] = list(dict.fromkeys(items))
+    if mode == "manual" and (not result["platforms"] or any(
+        not result[platform] for platform in result["platforms"])):
+        raise StudioError("AD_PLACEMENTS_INVALID")
+    return result
+
+
 def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict[str, Any]:
     """Confere e normaliza o rascunho (vale para o que a IA sugere e para o que a equipe edita)."""
     today = today or datetime.now(timezone.utc).date()
@@ -121,6 +142,7 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "name": _text(data.get("name"), LIMITS["name"]) or "Campanha Mídia On",
         "objective": objective,
         "daily_budget": budget,
+        "placements": clean_placements(data.get("placements")),
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "audience": {"age_min": age_min, "age_max": age_max, "gender": gender if gender in GENDERS else "todos",
                      "regions": _names(aud.get("regions")), "interests": _names(aud.get("interests")),
@@ -135,7 +157,10 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
                "cta": cta if cta in CTAS else "LEARN_MORE",
                "link": _text(ad.get("link"), LIMITS["link"]),
                "image_url": _text(ad.get("image_url"), LIMITS["image_url"]),
-               "calendar_item_id": _text(ad.get("calendar_item_id"), 60) or None},
+               "calendar_item_id": _text(ad.get("calendar_item_id"), 60) or None,
+                "media_type": "video" if ad.get("media_type") == "video" else "image",
+                "video_url": _text(ad.get("video_url"), LIMITS["image_url"]),
+                "instagram_post_id": _text(ad.get("instagram_post_id"), 70) or None},
     }
 
 
@@ -147,8 +172,11 @@ def readiness(payload: Dict[str, Any]) -> List[str]:
     ad = payload["ad"]
     if not ad["primary_text"]:
         missing.append("Texto principal do anúncio")
-    if not ad["image_url"]:
-        missing.append("Imagem do anúncio (post do Calendário com arte ou link da imagem)")
+    if ad["media_type"] == "video":
+        if not ad["video_url"].startswith("https://"):
+            missing.append("URL HTTPS do vídeo")
+    elif not ad["image_url"]:
+        missing.append("Imagem do anúncio")
     if OBJECTIVES[payload["objective"]].get("destination") == "WEBSITE" and not ad["link"].startswith(("http://", "https://")):
         missing.append("Link do site (começando com https://)")
     return missing
@@ -618,6 +646,17 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                     ids["audiences"][exclude] = await ensure_audience(act, token, exclude, pixel)
                     targeting["excluded_custom_audiences"] = [{"id": ids["audiences"][exclude]}]
             targeting = apply_account_audiences(targeting, payload["audience"])
+            placements = payload["placements"]
+            if placements["mode"] == "manual":
+                targeting["publisher_platforms"] = placements["platforms"]
+                if "instagram" in placements["platforms"]:
+                    if not ctx["ig_id"]:
+                        raise StudioError("AD_INSTAGRAM_MISSING")
+                    targeting["instagram_positions"] = placements["instagram"]
+                if "facebook" in placements["platforms"]:
+                    targeting["facebook_positions"] = placements["facebook"]
+                targeting.pop("messenger_positions", None)
+                targeting.pop("audience_network_positions", None)
             adset = {"name": f"{payload['name']} · público", "campaign_id": ids["campaign_id"], "status": "PAUSED",
                      "billing_event": "IMPRESSIONS", "optimization_goal": cfg["optimization"],
                      "targeting": json.dumps(targeting),
@@ -629,15 +668,33 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
             await checkpoint()
         if not ids.get("creative_id"):
-            image_hash = await _image_hash(act, ad["image_url"], token)
             link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
-            link_data: Dict[str, Any] = {"link": link, "message": ad["primary_text"], "image_hash": image_hash,
-                                         "call_to_action": {"type": ad["cta"], "value": {"link": link}}}
-            if ad["headline"]:
-                link_data["name"] = ad["headline"]
-            if ad["description"]:
-                link_data["description"] = ad["description"]
-            spec: Dict[str, Any] = {"page_id": ctx["page_id"], "link_data": link_data}
+            if ad["media_type"] == "video":
+                video_id = ids.get("video_id")
+                if not video_id:
+                    uploaded = await _graph("POST", f"/{act}/advideos", token=token,
+                                            data={"file_url": ad["video_url"], "name": f"{payload['name']} · vídeo"})
+                    video_id = str(uploaded.get("id") or "")
+                    if not video_id:
+                        raise MetaAdError("AD_META_REJECTED", "A Meta não devolveu o ID do vídeo.")
+                    ids["video_id"] = video_id
+                    await checkpoint()
+                video_data: Dict[str, Any] = {
+                    "video_id": video_id, "message": ad["primary_text"],
+                    "title": ad["headline"] or payload["name"],
+                    "call_to_action": {"type": ad["cta"], "value": {"link": link}},
+                }
+                spec: Dict[str, Any] = {"page_id": ctx["page_id"], "video_data": video_data}
+            else:
+                image_hash = await _image_hash(act, ad["image_url"], token)
+                link_data: Dict[str, Any] = {
+                    "link": link, "message": ad["primary_text"], "image_hash": image_hash,
+                    "call_to_action": {"type": ad["cta"], "value": {"link": link}}}
+                if ad["headline"]:
+                    link_data["name"] = ad["headline"]
+                if ad["description"]:
+                    link_data["description"] = ad["description"]
+                spec = {"page_id": ctx["page_id"], "link_data": link_data}
             if ctx["ig_id"]:
                 spec["instagram_user_id"] = ctx["ig_id"]
             creative = await _graph("POST", f"/{act}/adcreatives", token=token,
