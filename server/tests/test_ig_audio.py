@@ -48,3 +48,27 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
                                 "preview_url": "https://d/1.mp3", "type": "music"}])
         params = client.get.await_args.kwargs["params"]
         self.assertEqual((params["audio_type"], params["user_id"], params["search_query"]), ("music", "178", "hit"))
+
+
+class MusicaForaDoReelsTest(unittest.TestCase):
+    def _item(self, fmt, art="https://cdn.x/a.jpg", music=True):
+        opts = {"music": {"audio_id": "587", "title": "Hit", "artist": "Banda"}} if music else {}
+        return {"format": fmt, "art_url": art, "caption_draft": "oi", "reels_options": opts}
+
+    def test_stories_com_musica_fica_para_publicar_a_mao(self):
+        from services.ig_publish import media_for
+        plan, manual = media_for(self._item("stories"))
+        self.assertIsNone(plan)
+        self.assertIn("Hit · Banda", manual)
+
+    def test_imagem_sem_musica_continua_automatica(self):
+        from services.ig_publish import media_for
+        plan, manual = media_for(self._item("imagem", music=False))
+        self.assertIsNone(manual)
+        self.assertEqual(plan["type"], "image")
+
+    def test_reels_com_musica_continua_automatico(self):
+        from services.ig_publish import media_for
+        plan, manual = media_for(self._item("reels", art="https://cdn.x/v.mp4"))
+        self.assertIsNone(manual)
+        self.assertIn("audio_configuration", plan["fields"])

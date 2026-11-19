@@ -15,6 +15,7 @@ import ItemHistory from "./ItemHistory";
 import Collaborators from "./Collaborators";
 import ProductTags from "./ProductTags";
 import ReelsOptions from "./ReelsOptions";
+import ReelsMusicPicker from "./ReelsMusicPicker";
 import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
@@ -213,7 +214,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
 
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
-          <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
+          <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{reelsOpts.music && channel === "instagram" ? <small>♫ {[reelsOpts.music.title, reelsOpts.music.artist].filter(Boolean).join(" · ") || "Música escolhida"}</small> : draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
         {isReels && reelsView === "grade" ? <div className="reelsGrid" aria-label="Prévia na grade do perfil">
           <div className="is-new">{coverImage ? <img src={coverImage} alt="" />
             : reelsVideo ? <video src={frameSrc(reelsVideo, reelsOpts.thumb_offset_ms ?? 0)} preload="metadata" muted playsInline aria-hidden="true" />
@@ -258,6 +259,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {item?.origin === "matriz" ? <span className="studioChip">Da Matriz de conteúdo</span> : null}
           {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
+        <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
+            {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
@@ -333,25 +336,27 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {folderLink ? <p className="postArtWarn">Esse é o link de uma <b>pasta</b> do Drive: não aparece na prévia, o cliente não vê a arte e não publica sozinho. No Drive, clique com o botão direito no <b>arquivo</b> → Compartilhar → Copiar link (deixe como "qualquer pessoa com o link"). Ou baixe e envie o arquivo aqui em cima.</p> : null}
           {!item && artList(draft.art_url).length ? <small className="postArtHint">A arte já subiu. Ela fica salva na pauta quando você clicar em <b>Criar pauta</b>.</small> : null}
         </div> : null}
-        {canManage && !clientMode && isReels ? <ReelsOptions value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
+        {canManage && !clientMode && isReels ? <ReelsOptions part="capa" value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
           videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
         <div className="studioRow">
           <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
           <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
-          <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
-            {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
         </div>
         {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
           const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
           set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
         }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
         {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
+        {canManage && !clientMode && channel === "instagram" ? <ReelsMusicPicker value={reelsOpts.music} format={draft.format} disabled={busy}
+          onChange={(music) => set({ reels_options: { ...reelsOpts, music } })} /> : null}
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
         {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
           format={draft.format} slides={slides} disabled={busy} /> : null}
+        {canManage && !clientMode && isReels ? <ReelsOptions part="extras" value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
+          videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} itemId={item?.id} onApply={(patch) => set(patch)} /> : null}

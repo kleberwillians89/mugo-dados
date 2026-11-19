@@ -7,6 +7,8 @@ import type { CalendarItem } from "../../app/studio";
 import type { AdPayload } from "../../app/metaAds";
 import { listLibrary, uploadLibraryFile } from "../../app/library";
 
+const shopApi = vi.hoisted(() => ({ searchShopProducts: vi.fn() }));
+vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...shopApi }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "roove" }));
 vi.mock("../../app/library", () => ({
   listLibrary: vi.fn(),
@@ -91,6 +93,26 @@ describe("Mídia On — Estúdio de criativos", () => {
     expect(latest.image_url).toBe("https://cdn.example.org/roove.jpg");
     await act(async () => pick("Arte da Roove").click());
     expect(latest.cards?.length).toBe(1);
+    act(() => root.unmount());
+  });
+
+  it("puxa produtos da loja e preenche título, preço e link do anúncio", async () => {
+    shopApi.searchShopProducts.mockResolvedValue({ products: [{ product_id: "5", name: "Legging Preta", image_url: "https://cdn.example.org/legging.jpg",
+      sku: "SKU1", review_status: "approved", variants: [], url: "https://roove.com.br/legging", price: "R$ 199,00" }] });
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host), choose = vi.fn();
+    await act(async () => {
+      root.render(<MetaCreativeStudio clientId="roove" month="2026-11" calendar={calendar} ad={{ ...ad(), headline: "", link: "", description: "" }} onChoose={choose} />);
+    });
+    const origin = [...host.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === "shop"))!;
+    await act(async () => { origin.value = "shop"; origin.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => {});
+    expect(shopApi.searchShopProducts).toHaveBeenCalledWith("");
+    const product = [...host.querySelectorAll("button")].find((b) => b.title === "Legging Preta")!;
+    expect(product.textContent).toContain("R$ 199,00");
+    await act(async () => product.click());
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ image_url: "https://cdn.example.org/legging.jpg",
+      headline: "Legging Preta", link: "https://roove.com.br/legging", description: "R$ 199,00" }));
     act(() => root.unmount());
   });
 });
