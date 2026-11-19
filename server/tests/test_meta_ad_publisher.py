@@ -332,3 +332,27 @@ class PixelAndVideoFixTests(unittest.IsolatedAsyncioTestCase):
                 await pub.publish("roove", "d6")
         self.assertIn("Anúncio 2:", str(caught.exception))
         self.assertIn("link do Instagram", str(caught.exception))
+
+
+class PixelSwitchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_switch_pixel_updates_adset_and_ads(self):
+        row = {"id": "d1", "client_id": "roove", "status": "erro", "payload": {**READY, "objective": "leads"},
+               "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c", "adset_id": "s9", "ad_ids": ["a1", "a2"], "pixel_id": "111"}}
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path.endswith("/adspixels"):
+                return {"data": [{"id": "111", "name": "https://roove.com.br"}, {"id": "222", "name": "Roove Web Official", "last_fired_time": "2026-11-19T10:00:00+0000"}]}
+            return {"success": True}
+        update = AsyncMock(return_value=[row])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_123"})), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            out = await pub.set_pixel("roove", "d1", "222", user_name="Kleber")
+            with self.assertRaises(StudioError):
+                await pub.set_pixel("roove", "d1", "999", user_name="Kleber")
+        posts = [(p, d) for m, p, d in calls if m == "POST"]
+        self.assertEqual(posts[0], ("/s9", {"promoted_object": json.dumps({"pixel_id": "222", "custom_event_type": "LEAD"})}))
+        self.assertEqual([p for p, _ in posts[1:3]], ["/a1", "/a2"])
+        self.assertEqual(update.await_args.kwargs["patch"]["meta_ids"]["pixel_id"], "222")
+        self.assertEqual(out["recommended"], "222")

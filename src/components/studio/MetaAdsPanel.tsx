@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, duplicateAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload, type AdCreative, MAX_ADS, normalizeAdFormats } from "../../app/metaAds";
+import { deleteAdDraft, duplicateAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload, type AdCreative, MAX_ADS, normalizeAdFormats, PIXEL_OBJECTIVES } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
 import MetaLiveCampaign from "./MetaLiveCampaign";
+import MetaPixelSwitch from "./MetaPixelSwitch";
 import CampaignTrackingFields from "./CampaignTrackingFields";
 import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
@@ -199,6 +200,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </div>
           {d.status === "erro" && d.error ? <p className="studioError" role="alert">{d.error}</p> : null}
           {d.status === "rascunho" && d.missing.length ? <p className="ds-caption">Antes de publicar: {d.missing.join(" · ")}</p> : null}
+          {d.meta_ids?.adset_id && PIXEL_OBJECTIVES.includes(d.payload.objective) ? <MetaPixelSwitch draftId={d.id} /> : null}
           {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveCampaign draft={d}
             adsCount={d.payload.ad.format === "multi" ? (d.payload.ad.cards || []).length : 1 + (d.payload.ad.extra_ads || []).length} /> : null}
 

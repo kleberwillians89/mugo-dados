@@ -526,6 +526,61 @@ async def live_results(client_id: str, draft_id: str, period: str = "maximum") -
             "daily_budget": payload["daily_budget"], "read_only": True}
 
 
+async def list_pixels(client_id: str, draft_id: Optional[str] = None) -> Dict[str, Any]:
+    """Conjuntos de dados (pixels) da conta, com o recomendado (o que está recebendo eventos) e o que a campanha usa."""
+    account = await _ad_account(client_id)
+    pixels = await _pixels(account["act"], account["token"])
+    best = best_pixel(pixels)
+    current = None
+    if draft_id:
+        row = await _draft(client_id, draft_id)
+        ids = row.get("meta_ids") or {}
+        current = str(ids.get("pixel_id") or "") or None
+        if not current and ids.get("adset_id"):
+            try:
+                remote = await _graph("GET", f"/{ids['adset_id']}", token=account["token"], params={"fields": "promoted_object"})
+                current = str((remote.get("promoted_object") or {}).get("pixel_id") or "") or None
+            except StudioError:
+                current = None
+    return {"current": current, "recommended": str(best["id"]) if best else None,
+            "pixels": [{"id": str(p["id"]), "name": _text(p.get("name"), 120) or str(p["id"]),
+                        "last_fired_time": p.get("last_fired_time"), "active": bool(p.get("last_fired_time")),
+                        "unavailable": bool(p.get("is_unavailable"))} for p in pixels]}
+
+
+async def set_pixel(client_id: str, draft_id: str, pixel_id: str, *, user_name: str) -> Dict[str, Any]:
+    """Troca o conjunto de dados (pixel) de uma campanha já criada: no conjunto de anúncios (otimização) e no
+    rastreamento de cada anúncio. Não liga nada nem muda verba."""
+    row = await _draft(client_id, draft_id)
+    ids = dict(row.get("meta_ids") or {})
+    payload = clean_payload(row.get("payload") or {})
+    cfg = OBJECTIVES[payload["objective"]]
+    if not ids.get("adset_id"):
+        raise StudioError("AD_NOT_READY", "A campanha ainda não foi criada na Meta.")
+    if not cfg.get("event"):
+        raise StudioError("AD_NOT_READY", "Este objetivo não usa pixel.")
+    account = await _ad_account(client_id)
+    if str(ids.get("ad_account_id") or account["act"]).removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    pixels = {str(p["id"]): p for p in await _pixels(account["act"], account["token"])}
+    if str(pixel_id) not in pixels:
+        raise StudioError("AD_PIXEL_MISSING")
+    await _graph("POST", f"/{ids['adset_id']}", token=account["token"],
+                 data={"promoted_object": json.dumps({"pixel_id": str(pixel_id), "custom_event_type": cfg["event"]})})
+    skipped = 0
+    for ad_id in _ads_of(ids):
+        try:
+            await _graph("POST", f"/{ad_id}", token=account["token"], data={"tracking_specs": json.dumps(
+                [{"action.type": ["offsite_conversion"], "fb_pixel": [str(pixel_id)]}])})
+        except StudioError:
+            skipped += 1  # o conjunto já otimiza pelo pixel novo; o rastreamento do anúncio dá para ajustar no Gerenciador
+    ids["pixel_id"] = str(pixel_id)
+    ids["pixel_changed"] = {"by": (user_name or "")[:120], "at": _now(), "name": _text(pixels[str(pixel_id)].get("name"), 120)}
+    await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, patch={"meta_ids": ids, "updated_at": _now()})
+    print(f"[meta_ads_pixel] client_id={client_id} draft={draft_id} ads={len(_ads_of(ids))} skipped={skipped}")
+    return {**(await list_pixels(client_id, draft_id)), "ads_not_updated": skipped}
+
+
 async def delete_draft(client_id: str, draft_id: str) -> None:
     row = await _draft(client_id, draft_id)
     if row.get("status") == "publicando":
@@ -928,6 +983,8 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 regions = await _region_keys(payload["audience"]["regions"], token)
                 targeting = targeting_for(payload, interests, regions)
             pixel = await _pixel_id(act, token) if cfg.get("event") else ""
+            if pixel:
+                ids["pixel_id"] = pixel
             if cfg.get("audience"):
                 # Retenção/remarketing: o público é a lista (não amplia com Advantage+ nem interesses).
                 key = cfg["audience"]
