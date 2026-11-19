@@ -11,15 +11,18 @@ import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
 import Radar from "./Radar";
 import BrandHealthAlerts from "../components/clipping/BrandHealthAlerts";
+import ClippingToday from "../components/clipping/ClippingToday";
+import QuietBoundary from "../components/meta/QuietBoundary";
 import { SENTIMENT_COLOR, mugoColor } from "../app/mugoPalette";
 import "../styles/studio.css";
 import PageSkeleton from "../components/data/PageSkeleton";
 
 type Kind = "" | "marca" | "concorrente" | "pessoa" | "tema";
 type RadarDraft = Record<string, string>;
-export type ClipTab = "radar" | "materias" | "alertas";
+export type ClipTab = "hoje" | "radar" | "materias" | "alertas";
 // Radar cultural, Matérias e Alertas na mesma aba. A Saúde da Marca tem a sua própria (menu "Saúde da Marca").
-const CLIP_TABS: [ClipTab, string][] = [["radar", "Radar cultural"], ["materias", "Matérias"], ["alertas", "Alertas"]];
+// "Hoje" abre primeiro: o que pede ação e o que é novo. As outras abas continuam como sempre.
+const CLIP_TABS: [ClipTab, string][] = [["hoje", "Hoje"], ["materias", "Todas as matérias"], ["radar", "Radar cultural"], ["alertas", "Alertas"]];
 
 function Bars({ title, rows, label, offset = 0, sentiment = false }: { title: string; rows: Count[]; label?: (key: string) => string; offset?: number; sentiment?: boolean }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -39,7 +42,7 @@ const tabFromUrl = (): ClipTab | null => {
 export default function Clipping({ canManage = false, initialTab }: { canManage?: boolean; initialTab?: ClipTab }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "empresa";
-  const [tab, setTab] = useState<ClipTab>(() => initialTab || tabFromUrl() || "radar");
+  const [tab, setTab] = useState<ClipTab>(() => initialTab || tabFromUrl() || "hoje");
   const [view, setView] = useState<ClippingView | null>(null);
   const [kind, setKind] = useState<Kind>("");
   const [sentiment, setSentiment] = useState<"" | Sentiment>("");
@@ -137,6 +140,14 @@ export default function Clipping({ canManage = false, initialTab }: { canManage?
     {error && !editing ? <p role="alert" className="studioError">{error}</p> : null}
     {notice && !editing ? <p className="studioOk" role="status">{notice}</p> : null}
     {tab === "radar" ? <Radar embedded /> : null}
+    {tab === "hoje" && loading && !view ? <PageSkeleton label="Carregando o clipping…" /> : null}
+    {tab === "hoje" && view && !settings?.saved ? <div className="studioEmpty">
+      {canManage ? <><p>Configure os termos para começar: o nome da marca, produtos e os concorrentes.</p>
+        <button type="button" className="ds-button is-primary" onClick={openSettings}>Configurar termos</button></>
+        : <p>O clipping da sua marca ainda não foi ativado pela Mugô.</p>}
+    </div> : null}
+    {tab === "hoje" && view && settings?.saved ? <QuietBoundary name="clipping-hoje"><ClippingToday company={clientName} view={view} insights={insights} canManage={canManage} busy={busy}
+      onCalendar={(item) => void toCalendar(item)} onMark={(item, status) => void mark(item, status)} onOpenAll={() => setTab("materias")} /></QuietBoundary> : null}
     {tab === "alertas" && canManage ? <BrandHealthAlerts /> : null}
     {tab === "materias" ? <>
     {canManage ? <BrandContextPanel clientId={clientId} /> : null}

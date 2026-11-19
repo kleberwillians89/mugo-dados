@@ -722,3 +722,4 @@ html.is-scrolling ::-webkit-scrollbar-thumb{ background: rgba(21, 24, 27, .28); 
 /* Ícones de traço (lucide) no lugar de emoji: linha fina, cor do texto, alinhados ao texto. */
 svg.lucide{ stroke-width: 1.6; }
 .uiGlyph{ display: inline-block; vertical-align: -0.15em; flex: none; }
+.plainHeadline{margin:0 0 14px;font:600 18px/1.45 var(--font-body);color:var(--text-primary);max-width:820px}
