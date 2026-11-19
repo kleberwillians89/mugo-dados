@@ -1,0 +1,10 @@
+.mediaTrackingFields{border:1px solid var(--border,#d4e0e4);border-radius:11px;padding:15px;margin:14px 0;display:grid;gap:12px;min-width:0}
+.mediaTrackingFields legend{font-weight:750;font-size:14px;padding:0 7px}
+.mediaTrackingHeader{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px}
+.mediaTrackingHeader p{margin:0;font-size:12px;line-height:1.55;color:var(--text-secondary,#60717b);max-width:60ch}
+.mediaTrackingGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mediaTrackingGrid label{display:grid;gap:5px;font-size:12px;font-weight:650;min-width:0}
+.mediaTrackingGrid input{width:100%;min-width:0;padding:9px;border:1px solid var(--border,#cfdbe0);border-radius:7px;background:var(--surface,#fff);color:inherit;box-sizing:border-box;font:inherit}
+.mediaTrackingPreview{margin:0;padding:10px;border-radius:7px;background:var(--surface-subtle,#f2f5f6);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.mediaTrackingFields>small{font-size:11px;line-height:1.5;color:var(--text-secondary,#62717b)}
+@media(max-width:620px){.mediaTrackingGrid{grid-template-columns:1fr}.mediaTrackingHeader .ds-button{width:100%}}

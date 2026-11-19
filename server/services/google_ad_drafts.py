@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .studio_calendar import StudioError
+from .ads_tracking import clean_tracking
 
 TABLE = "studio_ad_drafts"
 PLATFORM = "google_ads"
@@ -62,7 +63,12 @@ def clean_payload(value: Dict[str, Any]) -> Dict[str, Any]:
     match_type = str(value.get("keyword_match_type") or "PHRASE").upper()
     if match_type not in ("BROAD", "PHRASE", "EXACT"):
         raise StudioError("AD_NOT_READY", "Selecione correspondência ampla, de frase ou exata.")
+    try:
+        tracking = clean_tracking(value.get("tracking"))
+    except ValueError as exc:
+        raise StudioError("AD_NOT_READY", str(exc)) from None
     return {
+        "tracking": tracking,
         "keyword_match_type": match_type,
         "negative_keywords": clean_list("negative_keywords", 100, 80),
         "networks": {"google_search": True,

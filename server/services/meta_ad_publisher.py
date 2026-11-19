@@ -23,6 +23,7 @@ import httpx
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_GRAPH_BASE_URL
 from .studio_calendar import StudioError
+from .ads_tracking import clean_tracking, tracking_suffix
 
 TABLE = "studio_ad_drafts"
 ADS_SCOPE = "ads_management"
@@ -138,7 +139,12 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
     skip = {a["id"] for a in excluded}  # o mesmo público nos dois lados: vale a exclusão
     ad = data.get("ad") if isinstance(data.get("ad"), dict) else {}
     cta = str(ad.get("cta") or "LEARN_MORE")
+    try:
+        tracking = clean_tracking(data.get("tracking"))
+    except ValueError as exc:
+        raise StudioError("AD_NOT_READY", str(exc)) from None
     return {
+        "tracking": tracking,
         "name": _text(data.get("name"), LIMITS["name"]) or "Campanha Mídia On",
         "objective": objective,
         "daily_budget": budget,
@@ -747,7 +753,8 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             if ctx["ig_id"]:
                 spec["instagram_user_id"] = ctx["ig_id"]
             creative = await _graph("POST", f"/{act}/adcreatives", token=token,
-                                    data={"name": f"{payload['name']} · criativo", "object_story_spec": json.dumps(spec)})
+                                    data={"name": f"{payload['name']} · criativo", "object_story_spec": json.dumps(spec),
+                                          **({"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {})})
             ids["creative_id"] = str(creative["id"])
             await checkpoint()
         if not ids.get("ad_id"):

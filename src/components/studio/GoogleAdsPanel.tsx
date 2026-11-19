@@ -7,6 +7,7 @@ import {
   type GoogleCampaignDraft, type GoogleCampaignPayload,
 } from "../../app/googleCampaignDrafts";
 import Drawer from "../Drawer";
+import CampaignTrackingFields from "./CampaignTrackingFields";
 import "./googleAdsPanel.css";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -219,6 +220,8 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
             <span>{(advancedSearch.negative_keywords || []).length} termos negativos</span>
           </div>
         </div>
+        <CampaignTrackingFields platform="google" campaignName={form.name}
+          value={form.tracking || {}} disabled={busy} onChange={tracking => set({tracking})} />
         <label>Publicidade política na União Europeia<select required value={form.contains_eu_political_advertising === null ? "" : String(form.contains_eu_political_advertising)}
           onChange={(e) => set({ contains_eu_political_advertising: e.target.value === "" ? null : e.target.value === "true" })}>
           <option value="">Selecione para confirmar</option><option value="false">Não contém</option><option value="true">Contém</option>
