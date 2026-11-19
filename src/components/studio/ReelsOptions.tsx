@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { uploadArt } from "../../app/artUpload";
 import type { ReelsOptions as Options } from "../../app/studio";
 import { formatOffset, frameSrc, isJpeg } from "./reelsOptions.helpers";
+import ReelsMusicPicker from "./ReelsMusicPicker";
 
 /** Momentos sugeridos na faixa de frames (o ajuste fino vai de 0,1 em 0,1 s). */
 const STRIP = 6;
@@ -103,6 +104,8 @@ export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabl
       {error ? <small className="studioError" role="alert">{error}</small> : null}
     </section>
 
+    <ReelsMusicPicker value={value.music} disabled={disabled} onChange={(music) => set({ music })} />
+
     <section className="reelsOptsBlock" aria-labelledby="reels-where-title">
       <span className="postArtTitle" id="reels-where-title">Onde aparece</span>
       <label className="reelsCheck">
@@ -119,14 +122,14 @@ export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabl
           <option value="manual">A equipe decide no Instagram se vai para os seguidores</option>
           <option value="auto">Vai sozinho para os seguidores se performar bem</option>
         </select></label> : null}
-      <label>Nome do áudio original
+      {value.music ? null : <label>Nome do áudio original
         <input maxLength={100} value={value.audio_name || ""} placeholder="Áudio original" disabled={disabled}
-          onChange={(e) => set({ audio_name: e.target.value || undefined })} /></label>
+          onChange={(e) => set({ audio_name: e.target.value || undefined })} /></label>}
       <label>Primeiro comentário
         <textarea rows={2} maxLength={2200} value={value.first_comment || ""} disabled={disabled}
           placeholder="Sai logo depois da publicação (link, cupom, hashtags extras)"
           onChange={(e) => set({ first_comment: e.target.value || undefined })} /></label>
-      <small className="libHint">Música da biblioteca do Instagram, texto, figurinha e filtro não vão pela API: precisam vir prontos no vídeo.</small>
+      <small className="libHint">Texto, figurinha e filtro não vão pela API: precisam vir prontos no vídeo.</small>
     </section>
   </div>;
 }
