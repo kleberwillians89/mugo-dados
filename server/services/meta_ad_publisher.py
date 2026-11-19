@@ -225,7 +225,7 @@ def _view(row: Dict[str, Any]) -> Dict[str, Any]:
             if act and ids.get("campaign_id") else None)
     return {"id": str(row["id"]), "month": row.get("month"), "source_campaign": row.get("source_campaign"), "status": row.get("status"),
             "payload": payload, "missing": readiness(payload), "meta_ids": ids, "ads_manager_url": link, "error": row.get("error"),
-            "published_at": row.get("published_at"), "updated_at": row.get("updated_at")}
+            "published_at": row.get("published_at"), "updated_at": row.get("updated_at"), "joined": bool(ids.get("joined"))}
 
 
 async def list_drafts(client_id: str) -> List[Dict[str, Any]]:
@@ -323,11 +323,23 @@ async def save_draft(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dic
     return _view(rows[0] if rows else {**row, "payload": payload})
 
 
-async def duplicate_draft(client_id: str, draft_id: str, user_id: str) -> Dict[str, Any]:
-    """Duplicate planning only. Provider IDs, publication flags and errors never carry over."""
+async def duplicate_draft(client_id: str, draft_id: str, user_id: str, *, into_campaign: bool = False) -> Dict[str, Any]:
+    """Cópia para testar.
+    - padrão: campanha NOVA (verba própria). IDs da Meta, status e erros não passam para a cópia.
+    - into_campaign: só um anúncio novo dentro do MESMO conjunto da campanha já criada — mesma verba, mesmo público."""
     original = await _draft(client_id, draft_id)
     new_payload = clean_payload(original.get("payload") or {})
-    name = _text(new_payload["name"] + " · cópia", LIMITS["name"])
+    meta_ids: Dict[str, Any] = {}
+    if into_campaign:
+        ids = original.get("meta_ids") or {}
+        if original.get("status") != "publicada" or not ids.get("adset_id"):
+            raise StudioError("AD_NOT_PUBLISHED_YET",
+                              "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios.")
+        meta_ids = {"ad_account_id": ids.get("ad_account_id"), "campaign_id": ids["campaign_id"], "adset_id": ids["adset_id"],
+                    "joined": True, "joined_from": str(original["id"])}
+        name = _text(new_payload["name"] + " · novo anúncio", LIMITS["name"])
+    else:
+        name = _text(new_payload["name"] + " · cópia", LIMITS["name"])
     new_payload["name"] = name
     inserted = await sb_insert(TABLE, {
         "client_id": client_id,
@@ -336,6 +348,7 @@ async def duplicate_draft(client_id: str, draft_id: str, user_id: str) -> Dict[s
         "payload": new_payload,
         "status": "rascunho",
         "created_by": user_id,
+        **({"meta_ids": meta_ids} if meta_ids else {}),
     })
     if not inserted:
         raise StudioError("AD_SAVE_FAILED")
@@ -691,6 +704,8 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         raise StudioError("AD_NOT_READY", "Falta: " + "; ".join(missing))
     ctx = await _context(client_id)
     ids: Dict[str, Any] = dict(row.get("meta_ids") or {})
+    if ids.get("joined") and ids.get("ad_account_id") and ids["ad_account_id"] != ctx["act"]:
+        raise StudioError("AD_ACCOUNT_CHANGED", "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha.")
     ids["ad_account_id"] = ctx["act"]
     cfg = OBJECTIVES[payload["objective"]]
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}

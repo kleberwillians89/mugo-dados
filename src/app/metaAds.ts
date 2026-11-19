@@ -28,7 +28,7 @@ export type AdPayload = {
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
-  payload: AdPayload; missing: string[]; meta_ids: Record<string, string>; ads_manager_url: string | null; error: string | null;
+  payload: AdPayload; missing: string[]; meta_ids: Record<string, string>; ads_manager_url: string | null; error: string | null; joined?: boolean;
   published_at: string | null; updated_at: string | null;
 };
 export type AudienceRef = { id: string; name: string };
@@ -74,8 +74,8 @@ export const listInstagramCreativePosts = () =>
   http<{ posts: InstagramCreativePost[]; source: string; count: number }>(base("/instagram-posts"), { timeoutMs: 45_000 });
 
 /** Independent copy for experimentation. Never duplicates Meta provider resources or starts delivery. */
-export const duplicateAdDraft = (id: string) =>
-  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate`), { method: "POST" });
+export const duplicateAdDraft = (id: string, into?: "campaign") =>
+  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate${into ? "?into=campaign" : ""}`), { method: "POST" });
 
 export type MetaLiveDeliveryStatus = {
   draft_id: string; client_id: string; checked_at: string; source: "meta_graph"; read_only: true;

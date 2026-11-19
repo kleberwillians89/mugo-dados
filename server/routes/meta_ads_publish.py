@@ -26,6 +26,8 @@ ERRORS = {
     "AD_PAGE_MISSING": (409, "Não achei a página do Facebook ligada a esta empresa. Reconecte o Instagram/Facebook em Integrações."),
     "AD_PIXEL_MISSING": (409, "A conta de anúncios não tem pixel. Use o objetivo Tráfego ou configure o pixel no Meta."),
     "AD_IMAGE_UNREACHABLE": (422, "Não consegui baixar a imagem do anúncio. Use um post do Calendário com arte ou um link direto da imagem."),
+    "AD_NOT_PUBLISHED_YET": (409, "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios no Estúdio de criativos."),
+    "AD_ACCOUNT_CHANGED": (409, "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
 }
@@ -146,11 +148,13 @@ async def update_draft(client_id: str, draft_id: UUID, body: DraftInput, authori
 
 
 @router.post("/{draft_id}/duplicate", status_code=201)
-async def duplicate_ad_draft(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+async def duplicate_ad_draft(client_id: str, draft_id: UUID, into: Optional[str] = None,
+                             authorization: Optional[str] = Header(default=None)):
+    """into=campaign: novo anúncio dentro da mesma campanha (mesma verba). Sem 'into': campanha nova."""
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     uid = await require_user_id(authorization)
     try:
-        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid)}
+        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid, into_campaign=into == "campaign")}
     except StudioError as exc:
         raise _http(exc) from None
 
