@@ -129,8 +129,16 @@ def ad_units(ad: Dict[str, Any]) -> List[Dict[str, Any]]:
         return [{"format": "single", "image_url": c["image_url"], "media_type": "image", "video_url": "", "cards": [],
                  "headline": c.get("headline") or "", "link": c.get("link") or ""} for c in ad.get("cards") or []]
     first = {"format": ad.get("format") if ad.get("format") == "carousel" else "single", "image_url": ad.get("image_url") or "",
-             "media_type": ad.get("media_type") or "image", "video_url": ad.get("video_url") or "", "cards": ad.get("cards") or []}
+             "media_type": ad.get("media_type") or "image", "video_url": ad.get("video_url") or "", "cards": ad.get("cards") or [],
+             "instagram_post_id": ad.get("instagram_post_id")}
     return [first, *(ad.get("extra_ads") or [])]
+
+
+def unit_key(unit: Dict[str, Any]) -> str:
+    """Identidade de um anúncio pela arte (para retomar certo mesmo se a ordem mudar ou um anúncio sair)."""
+    if unit["format"] == "carousel":
+        return "carousel:" + "|".join(c["image_url"] for c in unit["cards"])
+    return ("video:" + (unit.get("instagram_post_id") or unit["video_url"])) if unit["media_type"] == "video" else "image:" + unit["image_url"]
 
 
 def unit_missing(unit: Dict[str, Any]) -> Optional[str]:
@@ -628,12 +636,13 @@ async def publication_preflight(client_id: str, objective: str = "leads") -> Dic
 
     if OBJECTIVES[objective].get("event"):
         try:
-            pixel = await _graph("GET", f"/{act}/adspixels", token=token,
-                                 params={"fields": "id,name", "limit": 5})
-            found = pixel.get("data") or []
-            record("pixel", bool(found), "Pixel associado à conta de anúncios." if found
-                   else "Nenhum pixel associado. É necessário para otimizar esta campanha por evento.",
-                   _text(found[0].get("name"), 120) if found else "")
+            chosen = best_pixel(await _pixels(act, token))
+            active = bool(chosen and chosen.get("last_fired_time"))
+            record("pixel", bool(chosen),
+                   ("Vai usar este conjunto de dados, que está recebendo eventos do site." if active
+                    else "Este conjunto de dados ainda não recebeu eventos do site: a Meta vai pedir para configurar o evento.")
+                   if chosen else "Nenhum pixel associado. É necessário para otimizar esta campanha por evento.",
+                   _text(chosen.get("name"), 120) if chosen else "")
         except StudioError:
             record("pixel", False, "Não foi possível consultar os pixels da conta.")
     else:
@@ -698,12 +707,65 @@ async def _image_hash(act: str, url: str, token: str) -> str:
     return str(first["hash"])
 
 
+def best_pixel(pixels: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """O conjunto de dados que está recebendo eventos agora (o mais recente), não o primeiro da lista.
+    Pixel/conjunto sem nenhum evento faz a Meta pedir "Configurar evento de conversão" e o anúncio não otimiza."""
+    usable = [p for p in pixels if not p.get("is_unavailable")]
+    if not usable:
+        return None
+    fired = [p for p in usable if p.get("last_fired_time")]
+    return max(fired, key=lambda p: str(p["last_fired_time"])) if fired else usable[0]
+
+
+VIDEO_MAX_BYTES = 200 * 1024 * 1024
+
+
+async def _upload_video(act: str, unit: Dict[str, Any], token: str, name: str) -> str:
+    """Envia o vídeo para a conta de anúncios. Link de vídeo do Instagram expira: renova pelo post e, se a Meta
+    não conseguir baixar pelo link, o MUGOVERSO baixa e envia o arquivo."""
+    url = unit.get("video_url") or ""
+    if unit.get("instagram_post_id"):
+        try:
+            fresh = await _graph("GET", f"/{unit['instagram_post_id']}", token=token, params={"fields": "media_url,media_type"})
+            if str(fresh.get("media_url") or "").startswith("https://"):
+                url = fresh["media_url"]
+        except StudioError:
+            pass
+    if not url.startswith("https://"):
+        raise MetaAdError("AD_META_REJECTED", "o vídeo não tem um link válido. Escolha o vídeo de novo.")
+    try:
+        made = await _graph("POST", f"/{act}/advideos", token=token, data={"file_url": url, "name": name})
+    except MetaAdError:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=20), follow_redirects=True) as client:
+            got = await client.get(url)
+        if got.status_code >= 400 or not got.content:
+            raise MetaAdError("AD_META_REJECTED", "não consegui baixar o vídeo (o link do Instagram pode ter expirado). Escolha o vídeo de novo.")
+        if len(got.content) > VIDEO_MAX_BYTES:
+            raise MetaAdError("AD_META_REJECTED", "o vídeo passa de 200 MB. Envie uma versão menor.")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20)) as client:
+            response = await client.post(f"{META_GRAPH_BASE_URL}/{act}/advideos", params={"access_token": token},
+                                         data={"name": name}, files={"source": ("video.mp4", got.content, "video/mp4")})
+        made = response.json() if response.content else {}
+        if response.status_code >= 400:
+            err = (made or {}).get("error") or {}
+            raise MetaAdError("AD_META_REJECTED", str(err.get("error_user_msg") or err.get("message") or "a Meta recusou o vídeo.")[:300])
+    video_id = str((made or {}).get("id") or "")
+    if not video_id:
+        raise MetaAdError("AD_META_REJECTED", "a Meta não devolveu o ID do vídeo.")
+    return video_id
+
+
+async def _pixels(act: str, token: str) -> List[Dict[str, Any]]:
+    body = await _graph("GET", f"/{act}/adspixels", token=token,
+                        params={"fields": "id,name,last_fired_time,is_unavailable", "limit": 50})
+    return list(body.get("data") or [])
+
+
 async def _pixel_id(act: str, token: str) -> str:
-    body = await _graph("GET", f"/{act}/adspixels", token=token, params={"fields": "id,name", "limit": 5})
-    pixels = body.get("data") or []
-    if not pixels:
+    chosen = best_pixel(await _pixels(act, token))
+    if not chosen:
         raise StudioError("AD_PIXEL_MISSING")
-    return str(pixels[0]["id"])
+    return str(chosen["id"])
 
 
 def audience_rule(pixel_id: str, days: int, event: Optional[str]) -> Dict[str, Any]:
@@ -947,37 +1009,56 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 videos = dict(ids.get("video_ids") or ({"0": ids["video_id"]} if ids.get("video_id") else {}))
                 video_id = videos.get(str(index))
                 if not video_id:
-                    uploaded = await _graph("POST", f"/{act}/advideos", token=token,
-                                            data={"file_url": unit["video_url"], "name": f"{payload['name']} · vídeo {index + 1}"})
-                    video_id = str(uploaded.get("id") or "")
-                    if not video_id:
-                        raise MetaAdError("AD_META_REJECTED", "A Meta não devolveu o ID do vídeo.")
+                    video_id = await _upload_video(act, unit, token, f"{payload['name']} · vídeo {index + 1}")
                     videos[str(index)] = video_id
                     ids["video_ids"] = videos
                     if index == 0:
                         ids["video_id"] = video_id
                     await checkpoint()
-                return {"video_data": {"video_id": video_id, "message": ad["primary_text"], "title": headline or payload["name"],
-                                       "call_to_action": {"type": ad["cta"], "value": {"link": target}}}}
+                video: Dict[str, Any] = {"video_id": video_id, "message": ad["primary_text"], "title": headline or payload["name"],
+                                         "call_to_action": {"type": ad["cta"], "value": {"link": target}}}
+                if unit.get("image_url"):
+                    # A Meta exige capa no anúncio de vídeo.
+                    try:
+                        video["image_hash"] = await _image_hash(act, unit["image_url"], token)
+                    except StudioError:
+                        video["image_url"] = unit["image_url"]
+                return {"video_data": video}
             return link_data_for(await _image_hash(act, unit["image_url"], token), headline, target)
 
-        # Todos os anúncios do conjunto (1 ou vários; cada um imagem, vídeo ou carrossel). Retoma de onde parou.
+        # Todos os anúncios do conjunto (1 ou vários; cada um imagem, vídeo ou carrossel). Retoma de onde parou:
+        # o que já foi criado na Meta é reconhecido pela arte, então tirar um anúncio que falhou e mandar de novo funciona.
         units = ad_units(ad)
         single = len(units) == 1
-        creatives: List[str] = list(ids.get("creative_ids") or ([ids["creative_id"]] if ids.get("creative_id") else []))
-        ads_made: List[str] = list(ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))
+        made: Dict[str, Dict[str, str]] = dict(ids.get("made") or {})
+        if not made:
+            old_creatives = list(ids.get("creative_ids") or ([ids["creative_id"]] if ids.get("creative_id") else []))
+            old_ads = list(ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))
+            for i, unit in enumerate(units[:len(old_creatives)]):
+                made[unit_key(unit)] = {"creative_id": str(old_creatives[i]), **({"ad_id": str(old_ads[i])} if i < len(old_ads) else {})}
         for index, unit in enumerate(units):
-            suffix = "" if single else f" {index + 1}"
-            if index >= len(creatives):
-                creatives.append(await make_creative(f"{payload['name']} · criativo{suffix}", await body_for(unit, index)))
-                ids["creative_ids"] = creatives
-                ids["creative_id"] = creatives[0]
-                await checkpoint()
-            if index >= len(ads_made):
-                ads_made.append(await make_ad(f"{payload['name']} · anúncio{suffix}", creatives[index]))
-                ids["ad_ids"] = ads_made
-                ids["ad_id"] = ads_made[0]
-                await checkpoint()
+            key, suffix = unit_key(unit), ("" if single else f" {index + 1}")
+            entry = made.get(key) or {}
+            try:
+                if not entry.get("creative_id"):
+                    entry["creative_id"] = await make_creative(f"{payload['name']} · criativo{suffix}", await body_for(unit, index))
+                    made[key] = entry
+                    ids["made"] = made
+                    await checkpoint()
+                if not entry.get("ad_id"):
+                    entry["ad_id"] = await make_ad(f"{payload['name']} · anúncio{suffix}", entry["creative_id"])
+                    made[key] = entry
+                    ids["made"] = made
+                    await checkpoint()
+            except MetaAdError as exc:
+                if single:
+                    raise
+                raise MetaAdError(exc.code, f"Anúncio {index + 1}: {exc}. Os outros anúncios já criados ficam guardados; "
+                                            f"troque ou tire o anúncio {index + 1} e clique em Criar de novo.") from None
+        ids["creative_ids"] = [made[unit_key(u)]["creative_id"] for u in units]
+        ids["ad_ids"] = [made[unit_key(u)]["ad_id"] for u in units]
+        ids["creative_id"], ids["ad_id"] = ids["creative_ids"][0], ids["ad_ids"][0]
+        await checkpoint()
     except StudioError as exc:
         message = str(exc) if str(exc) != exc.code else exc.code
         await sb_update(TABLE, filters=filters, patch={"status": "erro", "meta_ids": ids, "error": str(message)[:600], "updated_at": _now()})

@@ -291,3 +291,44 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_results_count_leads_and_cost(self):
         r, _, _ = await self._run({**self.ROW, "payload": {**READY, "objective": "leads"}}, results=True)
         self.assertEqual((r["spend"], r["results"], r["result_label"], r["cost_per_result"], r["ctr"]), (42.5, 5, "Cadastros", 8.5, 5.0))
+
+
+class PixelAndVideoFixTests(unittest.IsolatedAsyncioTestCase):
+    def test_uses_dataset_receiving_events_not_the_first(self):
+        pixels = [{"id": "1", "name": "https://roove.com.br"}, {"id": "2", "name": "Roove Web Official", "last_fired_time": "2026-11-19T12:00:00+0000"},
+                  {"id": "3", "name": "Antigo", "last_fired_time": "2025-01-01T00:00:00+0000"}, {"id": "4", "is_unavailable": True, "last_fired_time": "2026-12-01"}]
+        self.assertEqual(pub.best_pixel(pixels)["id"], "2")
+        self.assertEqual(pub.best_pixel([{"id": "9"}])["id"], "9")
+        self.assertIsNone(pub.best_pixel([]))
+
+    async def test_removing_failed_ad_finishes_and_keeps_created_ones(self):
+        ad = {**READY["ad"], "image_url": "https://cdn/1.jpg", "extra_ads": [{"format": "single", "image_url": "https://cdn/2.jpg"}]}
+        # já criados pelo código anterior (por posição): anúncios 1 e 2; o 3 (vídeo) falhou e foi tirado
+        ids = {"campaign_id": "c", "adset_id": "s", "creative_ids": ["k1", "k2"], "ad_ids": ["a1", "a2"], "creative_id": "k1", "ad_id": "a1"}
+        row = {"id": "d5", "client_id": "roove", "status": "erro", "meta_ids": ids, "payload": {**READY, "ad": ad}}
+        posts, final = await MultiCreativeTests._publish(self, row)
+        self.assertEqual(posts, [])
+        self.assertEqual((final["status"], final["meta_ids"]["ad_ids"]), ("publicada", ["a1", "a2"]))
+
+    async def test_video_error_names_the_ad(self):
+        ad = {**READY["ad"], "image_url": "https://cdn/1.jpg",
+              "extra_ads": [{"format": "single", "media_type": "video", "video_url": "https://ig/v.mp4", "image_url": "https://ig/capa.jpg"}]}
+        row = {"id": "d6", "client_id": "roove", "status": "rascunho", "meta_ids": {"campaign_id": "c", "adset_id": "s"}, "payload": {**READY, "ad": ad}}
+
+        async def graph(method, path, *, token, data=None, params=None):
+            if path.endswith("/advideos"):
+                raise pub.MetaAdError("AD_META_REJECTED", "Não foi possível buscar o arquivo de vídeo da URL.")
+            return {"id": "x"}
+
+        class Down:
+            def __init__(self, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url): return type("R", (), {"status_code": 403, "content": b""})()
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub.httpx, "AsyncClient", Down), patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            with self.assertRaises(StudioError) as caught:
+                await pub.publish("roove", "d6")
+        self.assertIn("Anúncio 2:", str(caught.exception))
+        self.assertIn("link do Instagram", str(caught.exception))
