@@ -228,3 +228,66 @@ class SameCampaignTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(pub, "_draft", AsyncMock(return_value=moved)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)):
             with self.assertRaises(StudioError):
                 await pub.publish("roove", "d3")
+
+
+class AdsWithOwnFormatTests(unittest.IsolatedAsyncioTestCase):
+    async def test_carousel_plus_single_image_ad_in_same_adset(self):
+        ad = {**READY["ad"], "image_url": "", "format": "carousel", "cards": CARDS[:3],
+              "extra_ads": [{"format": "single", "image_url": "https://cdn/solo.jpg"}, {"format": "carousel", "cards": CARDS[:1]}]}
+        p = pub.clean_payload({**READY, "ad": ad}, today=date(2026, 11, 10))
+        self.assertEqual(pub.readiness(p), ["Anúncio 3: pelo menos 2 imagens no carrossel"])
+        ad["extra_ads"] = ad["extra_ads"][:1]
+        row = {"id": "d4", "client_id": "roove", "status": "rascunho", "meta_ids": {}, "payload": {**READY, "ad": ad}}
+        posts, final = await MultiCreativeTests._publish(self, row)
+        creatives = [json.loads(d["object_story_spec"]) for p_, d in posts if p_.endswith("/adcreatives")]
+        self.assertEqual(len(creatives[0]["link_data"]["child_attachments"]), 3)
+        self.assertEqual(creatives[1]["link_data"]["image_hash"], "h-solo.jpg")
+        ads = [d for p_, d in posts if p_.endswith("/ads")]
+        self.assertEqual([d["name"] for d in ads], ["Black Friday · anúncio 1", "Black Friday · anúncio 2"])
+        self.assertEqual(len(final["meta_ids"]["ad_ids"]), 2)
+
+
+class DeliveryTests(unittest.IsolatedAsyncioTestCase):
+    ROW = {"id": "d1", "client_id": "roove", "status": "publicada", "payload": READY,
+           "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c9", "adset_id": "s9", "ad_id": "a1", "ad_ids": ["a1", "a2"]}}
+    ACCOUNT = {"token": "t", "act": "act_123"}
+
+    async def _run(self, row, **kw):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or params or {}))
+            if method == "GET" and path.endswith("/insights"):
+                return {"data": [{"spend": "42.5", "impressions": "1000", "reach": "800", "clicks": "50", "inline_link_clicks": "30",
+                                  "actions": [{"action_type": "link_click", "value": "30"}, {"action_type": "offsite_conversion.fb_pixel_lead", "value": "5"}]}]}
+            return {"id": path.strip("/"), "status": "ACTIVE", "effective_status": "ACTIVE", "account_id": "123"}
+        update = AsyncMock(return_value=[row])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_ad_account", AsyncMock(return_value=self.ACCOUNT)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            out = await (pub.live_results("roove", "d1") if kw.pop("results", False) else pub.set_delivery("roove", "d1", **kw))
+        return out, [(m, p, d) for m, p, d in calls if m == "POST"], update
+
+    async def test_activate_needs_budget_confirmation(self):
+        with self.assertRaises(StudioError) as caught:
+            await self._run(self.ROW, active=True, user_name="K", confirm_daily_budget=500)
+        self.assertEqual(caught.exception.code, "AD_CONFIRM_BUDGET")
+
+    async def test_activate_turns_on_ads_then_adset_then_campaign(self):
+        out, posts, update = await self._run(self.ROW, active=True, user_name="Kleber", confirm_daily_budget=50)
+        self.assertEqual([p for _, p, _ in posts], ["/a1", "/a2", "/s9", "/c9"])
+        self.assertTrue(all(d == {"status": "ACTIVE"} for _, _, d in posts))
+        self.assertEqual(update.await_args.kwargs["patch"]["meta_ids"]["delivery"]["state"], "ativa")
+        self.assertIn("ad_2", out["objects"])
+
+    async def test_pause_stops_campaign_only(self):
+        _, posts, _ = await self._run(self.ROW, active=False, user_name="K")
+        self.assertEqual(posts, [("POST", "/c9", {"status": "PAUSED"})])
+
+    async def test_joined_ad_toggles_only_its_ads(self):
+        row = {**self.ROW, "meta_ids": {**self.ROW["meta_ids"], "joined": True, "ad_ids": ["a7"], "ad_id": "a7"}}
+        _, posts, _ = await self._run(row, active=True, user_name="K")
+        self.assertEqual([p for _, p, _ in posts], ["/a7"])
+
+    async def test_results_count_leads_and_cost(self):
+        r, _, _ = await self._run({**self.ROW, "payload": {**READY, "objective": "leads"}}, results=True)
+        self.assertEqual((r["spend"], r["results"], r["result_label"], r["cost_per_result"], r["ctr"]), (42.5, 5, "Cadastros", 8.5, 5.0))

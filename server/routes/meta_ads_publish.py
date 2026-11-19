@@ -28,6 +28,7 @@ ERRORS = {
     "AD_IMAGE_UNREACHABLE": (422, "Não consegui baixar a imagem do anúncio. Use um post do Calendário com arte ou um link direto da imagem."),
     "AD_NOT_PUBLISHED_YET": (409, "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios no Estúdio de criativos."),
     "AD_ACCOUNT_CHANGED": (409, "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha."),
+    "AD_CONFIRM_BUDGET": (409, "Confirme a verba diária para ativar a campanha."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
 }
@@ -164,6 +165,49 @@ async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization:
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
         return await pub.live_delivery_status(cid, str(draft_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+def _who(authorization: Optional[str], uid: str) -> str:
+    """Nome de quem ligou/pausou (fica registrado na campanha)."""
+    from routes.studio import _chat_author
+    return _chat_author(authorization, uid) or uid
+
+
+class ActivateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_daily_budget: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+
+
+@router.post("/{draft_id}/activate")
+async def activate_ad_draft(client_id: str, draft_id: UUID, body: ActivateInput, authorization: Optional[str] = Header(default=None)):
+    """Liga a entrega na Meta (começa a gastar). Exige confirmar a verba diária."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return await pub.set_delivery(cid, str(draft_id), active=True, user_name=_who(authorization, uid),
+                                      confirm_daily_budget=body.confirm_daily_budget)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/{draft_id}/pause")
+async def pause_ad_draft(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
+    """Pausa a entrega na Meta na hora."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return await pub.set_delivery(cid, str(draft_id), active=False, user_name=_who(authorization, uid))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/{draft_id}/results")
+async def read_ad_results(client_id: str, draft_id: UUID, period: str = "maximum", authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.live_results(cid, str(draft_id), period)
     except StudioError as exc:
         raise _http(exc) from None
 

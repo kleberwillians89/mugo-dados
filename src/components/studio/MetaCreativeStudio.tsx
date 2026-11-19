@@ -12,10 +12,9 @@ const FORMATS: { id: CreativePreviewFormat; title: string; ratio: string; hint: 
   { id: "portrait", title: "Feed vertical", ratio: "4:5", hint: "1080 × 1350" },
   { id: "story", title: "Stories / Reels", ratio: "9:16", hint: "1080 × 1920" },
 ];
-const MODES: { id: AdFormat; title: string; hint: string }[] = [
-  { id: "single", title: "Imagem ou vídeo único", hint: "Um anúncio com uma imagem ou um vídeo" },
-  { id: "carousel", title: "Carrossel", hint: "2 a 10 imagens no mesmo anúncio, que a pessoa desliza no feed e nos stories" },
-  { id: "multi", title: "Vários anúncios", hint: "Um anúncio por imagem no mesmo conjunto: a Meta testa e entrega mais para o melhor" },
+const MODES: { id: "single" | "carousel"; title: string; hint: string }[] = [
+  { id: "single", title: "Imagem ou vídeo único", hint: "Uma imagem ou um vídeo neste anúncio" },
+  { id: "carousel", title: "Carrossel", hint: "2 a 10 imagens neste anúncio, que a pessoa desliza no feed e nos stories" },
 ];
 const image = (value: string) => /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(value) || value.includes("/storage/v1/object/public/");
 const firstArt = (item: CalendarItem) => String(item.art_url || "").split("\n")[0].trim();
@@ -43,7 +42,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const mode: AdFormat = ad.format || "single";
+  const mode: AdFormat = ad.format === "carousel" ? "carousel" : "single";
   const cards: AdCard[] = ad.cards || [];
   const many = mode !== "single";
   const [slide, setSlide] = useState(0);
@@ -165,7 +164,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
     {igError && source === "instagram" ? <p className="studioError" role="alert">{igError}</p> : null}
     {source === "instagram" ? <p className="ds-caption">Publicações sincronizadas da empresa ativa. Imagens e capas entram como foto única; vídeos com arquivo disponível podem ser enviados como anúncio de vídeo. Carrossel completo exige integração adicional.</p> : null}
-    <div className="metaCreativeModes" role="radiogroup" aria-label="Quantas imagens">
+    <div className="metaCreativeModes" role="radiogroup" aria-label="Formato do anúncio">
       {MODES.map((m) => <label key={m.id} className={mode === m.id ? "is-active" : ""}>
         <input type="radio" name="metaCreativeMode" checked={mode === m.id} disabled={disabled} onChange={() => changeMode(m.id)} />
         <span><b>{m.title}</b><small>{m.hint}</small></span></label>)}
@@ -215,7 +214,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
                 <input type="url" maxLength={500} placeholder={ad.link ? `Link: ${ad.link}` : "https://… (opcional)"} value={card.link || ""} disabled={disabled}
                   onChange={(e) => editCard(i, { link: e.target.value })} /></label>
             </span>
-              : <span className="metaCreativeCardTitle">Anúncio {i + 1}</span>}
+              : <span className="metaCreativeCardTitle">Imagem {i + 1}</span>}
             <span className="metaCreativeCardMove">
               <button type="button" className="ds-link" disabled={disabled || i === 0} aria-label={`Mover imagem ${i + 1} para antes`} onClick={() => moveCard(i, i - 1)}>↑</button>
               <button type="button" className="ds-link" disabled={disabled || i === cards.length - 1} aria-label={`Mover imagem ${i + 1} para depois`} onClick={() => moveCard(i, i + 1)}>↓</button>
