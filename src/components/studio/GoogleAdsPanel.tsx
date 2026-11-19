@@ -14,7 +14,7 @@ const later = () => { const d = new Date(); d.setDate(d.getDate() + 14); return 
 const blank = (): GoogleCampaignPayload => ({
   platform: "google_ads", name: "", objective: "vendas", type: "SEARCH",
   daily_budget: 30, start_date: today(), end_date: later(), final_url: "",
-  locations: [], keywords: [], headlines: [], descriptions: [], notes: "",
+  locations: [], keywords: [], keyword_match_type: "PHRASE", negative_keywords: [], headlines: [], descriptions: [], notes: "",
   networks: {google_search: true,search_partners:false,display_network:false},
   contains_eu_political_advertising: null,
 });
@@ -169,6 +169,18 @@ export default function GoogleAdsPanel({ request = null }: { request?: GooglePre
         </fieldset>
         <label>URL final (HTTPS)<input type="url" placeholder="https://exemplo.com.br" value={form.final_url} onChange={(e) => set({ final_url: e.target.value })} /></label>
         <label>Localizações (uma por linha)<textarea rows={2} value={form.locations.join("\n")} onChange={(e) => set({ locations: splitLines(e.target.value) })} /></label>
+        <label>Correspondência das palavras-chave<select value={form.keyword_match_type || "PHRASE"}
+          onChange={e => set({keyword_match_type:e.target.value as "BROAD" | "PHRASE" | "EXACT"})}>
+          <option value="BROAD">Ampla — maior alcance</option>
+          <option value="PHRASE">De frase — intenção relacionada</option>
+          <option value="EXACT">Exata — buscas mais específicas</option>
+        </select></label>
+        <label>Palavras-chave negativas (uma por linha)<textarea rows={3}
+          placeholder={"grátis\nusado\nemprego"}
+          value={(form.negative_keywords || []).join("\n")}
+          onChange={e => set({negative_keywords:splitLines(e.target.value)})} />
+          <small>Não exibir em pesquisas que correspondam às palavras negativas. Aplicadas à campanha no Google Ads.</small>
+        </label>
         <label>Palavras-chave (uma por linha)<textarea rows={4} value={form.keywords.join("\n")} onChange={(e) => set({ keywords: splitLines(e.target.value) })} placeholder={"tênis de corrida\ntênis para caminhada"} /></label>
         <label>Títulos dos anúncios (até 15, 30 caracteres cada)<textarea rows={4} value={form.headlines.join("\n")} onChange={(e) => set({ headlines: splitLines(e.target.value) })} /></label>
         <label>Descrições (até 4, 90 caracteres cada)<textarea rows={3} value={form.descriptions.join("\n")} onChange={(e) => set({ descriptions: splitLines(e.target.value) })} /></label>

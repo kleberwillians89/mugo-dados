@@ -5,7 +5,7 @@ export type GoogleCampaignPayload = {
   networks?: { google_search: true; search_partners: boolean; display_network: boolean };
   name: string; objective: "vendas" | "leads" | "trafego"; type: "SEARCH";
   daily_budget: number; start_date: string; end_date: string; final_url: string;
-  locations: string[]; keywords: string[]; headlines: string[]; descriptions: string[]; notes: string;
+  locations: string[]; keywords: string[]; keyword_match_type?: "BROAD" | "PHRASE" | "EXACT"; negative_keywords?: string[]; headlines: string[]; descriptions: string[]; notes: string;
   contains_eu_political_advertising: boolean | null;
 };
 export type GoogleCampaignDraft = {
