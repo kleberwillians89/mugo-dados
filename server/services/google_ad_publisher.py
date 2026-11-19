@@ -114,6 +114,11 @@ def _operations(customer_id: str, draft_id: str, payload: Dict[str, Any], geo_re
         {"campaignOperation": {"create": {
             "resourceName": campaign, "name": f"{payload['name']} · {suffix}", "status": "PAUSED",
             "advertisingChannelType": "SEARCH", "campaignBudget": budget, "manualCpc": {},
+            "networkSettings": {
+                "targetGoogleSearch": True,
+                "targetSearchNetwork": payload.get("networks", {}).get("search_partners", False),
+                "targetContentNetwork": payload.get("networks", {}).get("display_network", False),
+            },
             "containsEuPoliticalAdvertising": (
                 "CONTAINS_EU_POLITICAL_ADVERTISING"
                 if payload["contains_eu_political_advertising"] else "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"
