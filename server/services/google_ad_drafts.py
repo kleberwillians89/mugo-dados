@@ -59,7 +59,12 @@ def clean_payload(value: Dict[str, Any]) -> Dict[str, Any]:
         raise StudioError("AD_NOT_READY", "Campanhas SEARCH exigem Pesquisa Google.")
     if any(k in networks and not isinstance(networks[k], bool) for k in ("search_partners","display_network")):
         raise StudioError("AD_NOT_READY", "Selecione redes válidas para a campanha.")
+    match_type = str(value.get("keyword_match_type") or "PHRASE").upper()
+    if match_type not in ("BROAD", "PHRASE", "EXACT"):
+        raise StudioError("AD_NOT_READY", "Selecione correspondência ampla, de frase ou exata.")
     return {
+        "keyword_match_type": match_type,
+        "negative_keywords": clean_list("negative_keywords", 100, 80),
         "networks": {"google_search": True,
                      "search_partners": networks.get("search_partners", False),
                      "display_network": networks.get("display_network", False)},
