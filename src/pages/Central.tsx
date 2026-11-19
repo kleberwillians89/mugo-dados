@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { STAGES, STUDIO_FORMATS, getCentral, localParts, type CentralView } from "../app/studio";
 import { navigateToAppRoute, type AppRoute } from "../app/routes";
-import { formatCurrency, formatInteger } from "../app/dataFormat";
+import { formatCurrency } from "../app/dataFormat";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import AiUsageButton from "../components/studio/AiUsageButton";
@@ -74,6 +74,7 @@ export default function Central({ isAgency = false }: { isAgency?: boolean }) {
 
   const cal = view?.calendar;
   const media = view?.media;
+  const clip = view?.clipping;
   const tasks = view?.tasks;
 
   const today = new Date().toISOString().slice(0, 10);
