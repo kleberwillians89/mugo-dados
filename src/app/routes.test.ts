@@ -78,6 +78,7 @@ describe("platform routes", () => {
     expect(getPathForRoute("origins")).toBe("/crm");
     expect(getAppRouteFromPath("/saude-integracoes")).toBe("integration_health");
     expect(getPathForRoute("integration_health")).toBe("/saude-integracoes");
+    expect(getAppRouteFromPath("/captacao")).toBe("capture");
     expect(getAppRouteFromPath("/email-marketing")).toBe("email_marketing");
     expect(getAppRouteFromPath("/crm/ltv")).toBe("customer_value");
     expect(getAppRouteFromPath("/acoes-ia")).toBe("ai_actions");
@@ -85,6 +86,7 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/admin/planos")).toBe("plans_admin");
     expect(getPathForRoute("ai_actions")).toBe("/acoes-ia");
     expect(getPathForRoute("customer_value")).toBe("/crm/ltv");
+    expect(getPathForRoute("capture")).toBe("/captacao");
     expect(getPathForRoute("email_marketing")).toBe("/email-marketing");
     expect(getAppRouteFromPath("/crm")).toBe("origins");
     expect(getAppRouteFromPath("/crm/clientes")).toBe("customers");

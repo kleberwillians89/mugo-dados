@@ -87,7 +87,7 @@ describe("AppNavigation — sidebar global", () => {
     expect(groupLinks("midia")).toEqual(["Meta", "Google", "TikTok", "Pinterest", "LinkedIn", "Mídia On", "Benchmarking"]);
     expect(groupLinks("estrategia")).toEqual(["Clipping e Radar", "Saúde da Marca", "Planejamento", "Briefing", "Criadores", "Relatório", "Biblioteca"]);
     expect(groupLinks("conteudo")).toEqual(["Social Media", "Redação", "Evento"]);
-    expect(groupLinks("relacionamento")).toEqual(["WhatsApp", "E-mail marketing", "Comentários"]);
+    expect(groupLinks("relacionamento")).toEqual(["Captação", "WhatsApp", "E-mail marketing", "Comentários"]);
     expect(groupLinks("config")).toEqual([
       "Contexto da Marca", "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
     ]);
