@@ -22,7 +22,9 @@ export function metaStepIssues(payload: AdPayload, step: MetaStep): string[] {
   } else if (step === 2) {
     const ad = payload.ad;
     if (!ad.primary_text.trim()) issues.push("Escreva o texto principal.");
-    if (ad.media_type === "video") {
+    if (ad.format === "carousel" || ad.format === "multi") {
+      if ((ad.cards || []).length < 2) issues.push(ad.format === "carousel" ? "Escolha pelo menos 2 imagens para o carrossel." : "Escolha pelo menos 2 imagens para os anúncios.");
+    } else if (ad.media_type === "video") {
       if (!/^https:\/\/\S+/i.test((ad.video_url || "").trim())) issues.push("Selecione um vídeo com URL HTTPS válida.");
     } else if (!/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.image_url.trim())) issues.push("Selecione uma imagem do Calendário, Instagram ou Biblioteca.");
     if (["trafego", "vendas", "leads"].includes(payload.objective) && !/^https:\/\/[^\s.]+(?:\.[^\s]+|\/)/i.test(ad.link.trim()))

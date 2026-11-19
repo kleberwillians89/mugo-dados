@@ -71,3 +71,38 @@ body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
 .metaPlacementPositions label b{font-size:12px}
 .metaPlacementPositions label small{font-size:11px;color:var(--text-secondary,#6b7c86)}
 @media(max-width:600px){.metaPlacementGrid{grid-template-columns:1fr}.metaPlacementMode{flex-direction:column;gap:10px}}
+
+/* Vários criativos: carrossel ou um anúncio por imagem */
+.metaCreativeModes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.metaCreativeModes label{display:flex;gap:9px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border,#d1dade);border-radius:10px;background:var(--surface,#fff);cursor:pointer}
+.metaCreativeModes label.is-active{border-color:#0b6073;background:#e5f2f2}
+.metaCreativeModes input{margin-top:3px;accent-color:#0b6073}
+.metaCreativeModes span{display:grid;gap:3px}
+.metaCreativeModes b{font-size:13px}
+.metaCreativeModes small{font-size:11px;line-height:1.4;color:var(--text-secondary,#62717c)}
+.metaCreativeAsset{position:relative}
+.metaCreativeOrder{position:absolute;top:8px;left:8px;z-index:1;width:24px;height:24px;border-radius:50%;background:#0b6073;color:#fff;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:750;box-shadow:0 0 0 2px #fff}
+.metaCreativeCards{display:grid;gap:8px;font-size:12px}
+.metaCreativeCards ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.metaCreativeCards li{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--border,#dfe5e8);border-radius:8px;background:var(--surface,#fff)}
+.metaCreativeCards li img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none}
+.metaCreativeCardTitle{flex:1;min-width:0;font-size:12px;font-weight:650}
+.metaCreativeCardTitle input{width:100%;box-sizing:border-box;border:1px solid var(--border,#d0d9df);border-radius:7px;padding:8px;font:inherit;font-weight:400}
+.metaCreativeCardMove{display:flex;gap:4px;flex:none}
+.metaCreativeCardMove .ds-link{min-width:28px;min-height:32px}
+.metaCreativeSlides{position:relative;width:100%;height:100%}
+.metaCreativeSlides img{width:100%;height:100%;object-fit:cover}
+.metaCreativeSlideCount{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 7px;border-radius:99px}
+.metaCreativeSlides button{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border:0;border-radius:50%;background:rgba(255,255,255,.9);font-size:18px;cursor:pointer;color:#222}
+.metaCreativeSlides button:disabled{opacity:.35;cursor:default}
+.metaCreativeSlidePrev{left:6px}.metaCreativeSlideNext{right:6px}
+@media(max-width:700px){.metaCreativeModes{grid-template-columns:1fr}}
+.metaCreativeCards li{align-items:flex-start}
+.metaCreativeCardFields{flex:1;min-width:0;display:grid;gap:5px}
+.metaCreativeCardFields b{font-size:12px}
+.metaCreativeCardFields input{width:100%;box-sizing:border-box;border:1px solid var(--border,#d0d9df);border-radius:7px;padding:8px;font:inherit;font-size:12px}
+.metaAdsReviewCards{display:grid;gap:8px;font-size:13px}
+.metaAdsReviewCards ol{list-style:none;margin:0;padding:0;display:flex;gap:8px;overflow-x:auto}
+.metaAdsReviewCards li{flex:0 0 120px;display:grid;gap:4px}
+.metaAdsReviewCards img{width:120px;height:150px;object-fit:cover;border-radius:8px}
+.metaAdsReviewCards small{font-size:11px;color:var(--text-secondary,#62717c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

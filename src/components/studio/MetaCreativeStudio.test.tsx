@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MetaCreativeStudio from "./MetaCreativeStudio";
@@ -66,6 +66,31 @@ describe("Mídia On — Estúdio de criativos", () => {
     await act(async () => input.dispatchEvent(new Event("change",{bubbles:true})));
     expect(uploadLibraryFile).toHaveBeenCalled();
     expect(choose).toHaveBeenCalledWith({image_url:"https://cdn.example.org/new.png",calendar_item_id:null, media_type:"image", video_url:"",instagram_post_id:null});
+    act(() => root.unmount());
+  });
+  it("carrossel: marca várias imagens em ordem, cada cartão com título, e mostra 1/2 na prévia", async () => {
+    let latest = ad();
+    function Host() {
+      const [value, setValue] = useState<AdPayload["ad"]>({ ...ad(), format: "carousel", cards: [] });
+      latest = value;
+      return <MetaCreativeStudio clientId="roove" month="2026-11" calendar={calendar} ad={value} onChoose={(p) => setValue((v) => ({ ...v, ...p }))} />;
+    }
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<Host />));
+    await act(async () => {});
+    const pick = (title: string) => [...host.querySelectorAll("button")].find((b) => b.title === title) as HTMLButtonElement;
+    await act(async () => pick("Arte calendário").click());
+    await act(async () => pick("Arte da Roove").click());
+    expect(latest.cards?.map((c) => c.image_url)).toEqual(["https://cdn.example.org/calendar.jpg", "https://cdn.example.org/roove.jpg"]);
+    expect(pick("Arte da Roove").querySelector(".metaCreativeOrder")?.textContent).toBe("2");
+    expect(host.querySelector(".metaCreativeSlideCount")?.textContent).toBe("1/2");
+    const up = host.querySelector('[aria-label="Mover imagem 2 para antes"]') as HTMLButtonElement;
+    await act(async () => up.click());
+    expect(latest.cards?.[0].image_url).toBe("https://cdn.example.org/roove.jpg");
+    expect(latest.image_url).toBe("https://cdn.example.org/roove.jpg");
+    await act(async () => pick("Arte da Roove").click());
+    expect(latest.cards?.length).toBe(1);
     act(() => root.unmount());
   });
 });

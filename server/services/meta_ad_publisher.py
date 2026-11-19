@@ -86,6 +86,29 @@ def _names(value: Any, limit: int = 12) -> List[str]:
 
 # ---------------------------------------------------------------- rascunho
 
+AD_FORMATS = ("single", "carousel", "multi")
+MAX_CARDS = 10
+
+
+def clean_cards(value: Any) -> List[Dict[str, str]]:
+    """Imagens do carrossel (ou dos anúncios separados), na ordem escolhida. Só HTTPS, sem repetir, até 10."""
+    cards: List[Dict[str, str]] = []
+    seen = set()
+    for raw in value if isinstance(value, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        url = _text(raw.get("image_url"), LIMITS["image_url"])
+        if not url.startswith("https://") or url in seen:
+            continue
+        seen.add(url)
+        link = _text(raw.get("link"), LIMITS["link"])
+        cards.append({"image_url": url, "headline": _text(raw.get("headline"), 45), "description": _text(raw.get("description"), 20),
+                      "link": link if link.startswith(("http://", "https://")) else ""})
+        if len(cards) >= MAX_CARDS:
+            break
+    return cards
+
+
 def clean_placements(value: Any) -> Dict[str, Any]:
     """Validate explicit Meta placement filters without silently adding platforms."""
     p = value if isinstance(value, dict) else {}
@@ -166,7 +189,10 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
                "calendar_item_id": _text(ad.get("calendar_item_id"), 60) or None,
                 "media_type": "video" if ad.get("media_type") == "video" else "image",
                 "video_url": _text(ad.get("video_url"), LIMITS["image_url"]),
-                "instagram_post_id": _text(ad.get("instagram_post_id"), 70) or None},
+                "instagram_post_id": _text(ad.get("instagram_post_id"), 70) or None,
+                # Vários criativos: "carousel" = um anúncio em carrossel; "multi" = um anúncio por imagem no mesmo conjunto.
+                "format": ad.get("format") if ad.get("format") in AD_FORMATS else "single",
+                "cards": clean_cards(ad.get("cards"))},
     }
 
 
@@ -178,7 +204,10 @@ def readiness(payload: Dict[str, Any]) -> List[str]:
     ad = payload["ad"]
     if not ad["primary_text"]:
         missing.append("Texto principal do anúncio")
-    if ad["media_type"] == "video":
+    if ad["format"] in ("carousel", "multi"):
+        if len(ad["cards"]) < 2:
+            missing.append("Pelo menos 2 imagens " + ("no carrossel" if ad["format"] == "carousel" else "para os anúncios"))
+    elif ad["media_type"] == "video":
         if not ad["video_url"].startswith("https://"):
             missing.append("URL HTTPS do vídeo")
     elif not ad["image_url"]:
@@ -722,47 +751,89 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
             await checkpoint()
-        if not ids.get("creative_id"):
-            link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
-            if ad["media_type"] == "video":
-                video_id = ids.get("video_id")
-                if not video_id:
-                    uploaded = await _graph("POST", f"/{act}/advideos", token=token,
-                                            data={"file_url": ad["video_url"], "name": f"{payload['name']} · vídeo"})
-                    video_id = str(uploaded.get("id") or "")
-                    if not video_id:
-                        raise MetaAdError("AD_META_REJECTED", "A Meta não devolveu o ID do vídeo.")
-                    ids["video_id"] = video_id
-                    await checkpoint()
-                video_data: Dict[str, Any] = {
-                    "video_id": video_id, "message": ad["primary_text"],
-                    "title": ad["headline"] or payload["name"],
-                    "call_to_action": {"type": ad["cta"], "value": {"link": link}},
-                }
-                spec: Dict[str, Any] = {"page_id": ctx["page_id"], "video_data": video_data}
-            else:
-                image_hash = await _image_hash(act, ad["image_url"], token)
-                link_data: Dict[str, Any] = {
-                    "link": link, "message": ad["primary_text"], "image_hash": image_hash,
-                    "call_to_action": {"type": ad["cta"], "value": {"link": link}}}
-                if ad["headline"]:
-                    link_data["name"] = ad["headline"]
-                if ad["description"]:
-                    link_data["description"] = ad["description"]
-                spec = {"page_id": ctx["page_id"], "link_data": link_data}
+        link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
+        tags = {"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {}
+
+        async def make_creative(name: str, link_or_video: Dict[str, Any]) -> str:
+            spec = {"page_id": ctx["page_id"], **link_or_video}
             if ctx["ig_id"]:
                 spec["instagram_user_id"] = ctx["ig_id"]
-            creative = await _graph("POST", f"/{act}/adcreatives", token=token,
-                                    data={"name": f"{payload['name']} · criativo", "object_story_spec": json.dumps(spec),
-                                          **({"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {})})
-            ids["creative_id"] = str(creative["id"])
-            await checkpoint()
-        if not ids.get("ad_id"):
+            made = await _graph("POST", f"/{act}/adcreatives", token=token,
+                                data={"name": name, "object_story_spec": json.dumps(spec), **tags})
+            return str(made["id"])
+
+        async def make_ad(name: str, creative_id: str) -> str:
             made = await _graph("POST", f"/{act}/ads", token=token, data={
-                "name": f"{payload['name']} · anúncio", "adset_id": ids["adset_id"], "status": "PAUSED",
-                "creative": json.dumps({"creative_id": ids["creative_id"]})})
-            ids["ad_id"] = str(made["id"])
+                "name": name, "adset_id": ids["adset_id"], "status": "PAUSED",
+                "creative": json.dumps({"creative_id": creative_id})})
+            return str(made["id"])
+
+        def link_data_for(image_hash: str, headline: str, target: str) -> Dict[str, Any]:
+            data: Dict[str, Any] = {"link": target, "message": ad["primary_text"], "image_hash": image_hash,
+                                    "call_to_action": {"type": ad["cta"], "value": {"link": target}}}
+            if headline:
+                data["name"] = headline
+            if ad["description"]:
+                data["description"] = ad["description"]
+            return {"link_data": data}
+
+        if ad["format"] == "multi":
+            # Um anúncio por imagem, todos no mesmo conjunto: a Meta entrega mais para o que performa melhor.
+            creatives: List[str] = list(ids.get("creative_ids") or [])
+            ads_made: List[str] = list(ids.get("ad_ids") or [])
+            for index, card in enumerate(ad["cards"]):
+                label = f"{payload['name']} · criativo {index + 1}"
+                if index >= len(creatives):
+                    image_hash = await _image_hash(act, card["image_url"], token)
+                    creatives.append(await make_creative(label, link_data_for(
+                        image_hash, card["headline"] or ad["headline"], card["link"] or link)))
+                    ids["creative_ids"] = creatives
+                    await checkpoint()
+                if index >= len(ads_made):
+                    ads_made.append(await make_ad(f"{payload['name']} · anúncio {index + 1}", creatives[index]))
+                    ids["ad_ids"] = ads_made
+                    await checkpoint()
+            ids["creative_id"], ids["ad_id"] = creatives[0], ads_made[0]
             await checkpoint()
+        else:
+            if not ids.get("creative_id"):
+                if ad["format"] == "carousel":
+                    children = []
+                    for card in ad["cards"]:
+                        target = card["link"] or link
+                        child: Dict[str, Any] = {"link": target, "image_hash": await _image_hash(act, card["image_url"], token),
+                                                 "call_to_action": {"type": ad["cta"], "value": {"link": target}}}
+                        if card["headline"] or ad["headline"]:
+                            child["name"] = card["headline"] or ad["headline"]
+                        if card["description"]:
+                            child["description"] = card["description"]
+                        children.append(child)
+                    body: Dict[str, Any] = {"link_data": {
+                        "link": link, "message": ad["primary_text"], "child_attachments": children,
+                        "multi_share_optimized": False, "multi_share_end_card": False,
+                        "call_to_action": {"type": ad["cta"], "value": {"link": link}}}}
+                elif ad["media_type"] == "video":
+                    video_id = ids.get("video_id")
+                    if not video_id:
+                        uploaded = await _graph("POST", f"/{act}/advideos", token=token,
+                                                data={"file_url": ad["video_url"], "name": f"{payload['name']} · vídeo"})
+                        video_id = str(uploaded.get("id") or "")
+                        if not video_id:
+                            raise MetaAdError("AD_META_REJECTED", "A Meta não devolveu o ID do vídeo.")
+                        ids["video_id"] = video_id
+                        await checkpoint()
+                    body = {"video_data": {
+                        "video_id": video_id, "message": ad["primary_text"],
+                        "title": ad["headline"] or payload["name"],
+                        "call_to_action": {"type": ad["cta"], "value": {"link": link}},
+                    }}
+                else:
+                    body = link_data_for(await _image_hash(act, ad["image_url"], token), ad["headline"], link)
+                ids["creative_id"] = await make_creative(f"{payload['name']} · criativo", body)
+                await checkpoint()
+            if not ids.get("ad_id"):
+                ids["ad_id"] = await make_ad(f"{payload['name']} · anúncio", ids["creative_id"])
+                await checkpoint()
     except StudioError as exc:
         message = str(exc) if str(exc) != exc.code else exc.code
         await sb_update(TABLE, filters=filters, patch={"status": "erro", "meta_ids": ids, "error": str(message)[:600], "updated_at": _now()})

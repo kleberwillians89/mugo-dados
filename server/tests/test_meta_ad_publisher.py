@@ -136,3 +136,55 @@ class AudienceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CARDS = [{"image_url": f"https://cdn/{n}.jpg", "headline": f"Peça {n}"} for n in range(1, 5)]
+
+
+class MultiCreativeTests(unittest.IsolatedAsyncioTestCase):
+    def _row(self, fmt, ids=None):
+        return {"id": "d2", "client_id": "roove", "status": "rascunho", "meta_ids": ids or {},
+                "payload": {**READY, "ad": {**READY["ad"], "image_url": "", "format": fmt, "cards": CARDS}}}
+
+    def test_cards_are_cleaned_and_required(self):
+        p = pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "carousel",
+                                               "cards": [{"image_url": "http://x"}, CARDS[0], CARDS[0]] + CARDS * 4}}, today=date(2026, 11, 10))
+        self.assertEqual(len(p["ad"]["cards"]), 4)  # sem http, sem repetidos
+        one = pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "multi", "cards": CARDS[:1]}}, today=date(2026, 11, 10))
+        self.assertIn("Pelo menos 2 imagens", " ".join(pub.readiness(one)))
+        self.assertEqual(pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "x"}}, today=date(2026, 11, 10))["ad"]["format"], "single")
+
+    async def _publish(self, row):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path == "/search":
+                return {"data": [{"id": "6003", "name": "Perfume"}]}
+            return {"id": f"id{len(calls)}"}
+        hashes = AsyncMock(side_effect=lambda act, url, token: "h-" + url.rsplit("/", 1)[-1])
+        update = AsyncMock(return_value=[{**row, "status": "publicada"}])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", hashes), \
+             patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", "d2")
+        return [(p, d) for m, p, d in calls if m == "POST"], update.await_args_list[-1].kwargs["patch"]
+
+    async def test_carousel_is_one_ad_with_cards_in_order(self):
+        posts, final = await self._publish(self._row("carousel"))
+        self.assertEqual([p for p, _ in posts][-2:], ["/act_123/adcreatives", "/act_123/ads"])
+        children = json.loads(posts[-2][1]["object_story_spec"])["link_data"]["child_attachments"]
+        self.assertEqual([c["image_hash"] for c in children], ["h-1.jpg", "h-2.jpg", "h-3.jpg", "h-4.jpg"])
+        self.assertEqual(children[1]["name"], "Peça 2")
+        self.assertEqual(final["status"], "publicada")
+
+    async def test_multi_makes_one_paused_ad_per_image_and_resumes(self):
+        posts, final = await self._publish(self._row("multi"))
+        self.assertEqual(sum(p.endswith("/ads") for p, _ in posts), 4)
+        self.assertTrue(all(d["status"] == "PAUSED" for p, d in posts if p.endswith("/ads")))
+        self.assertEqual(len(final["meta_ids"]["ad_ids"]), 4)
+        # retomada: 2 já criados → só cria os outros 2
+        done = {"campaign_id": "c", "adset_id": "s", "creative_ids": ["k1", "k2"], "ad_ids": ["a1", "a2"]}
+        posts, final = await self._publish(self._row("multi", done))
+        self.assertEqual(sum(p.endswith("/ads") for p, _ in posts), 2)
+        self.assertEqual(final["meta_ids"]["ad_ids"][:2], ["a1", "a2"])

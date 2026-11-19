@@ -327,8 +327,12 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               {accountAudienceText(editing.payload.audience) ? <p>{accountAudienceText(editing.payload.audience)}</p> : null}</dd></div>
             <div><dt>Anúncio</dt><dd><strong>{editing.payload.ad.headline}</strong><p>{editing.payload.ad.primary_text}</p><p>{editing.payload.ad.link}</p></dd></div>
           </dl>
-          {editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
-          <p className="ds-caption">A campanha, o conjunto e o anúncio serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
+          {(editing.payload.ad.format === "carousel" || editing.payload.ad.format === "multi") && editing.payload.ad.cards?.length ? <div className="metaAdsReviewCards">
+            <b>{editing.payload.ad.format === "carousel" ? `Carrossel com ${editing.payload.ad.cards.length} cartões` : `${editing.payload.ad.cards.length} anúncios no mesmo conjunto`}</b>
+            <ol>{editing.payload.ad.cards.map((c, i) => <li key={c.image_url}><img src={c.image_url} alt={`Imagem ${i + 1}`} loading="lazy" />
+              <small>{i + 1}. {c.headline || editing.payload.ad.headline}</small></li>)}</ol>
+          </div> : editing.payload.ad.image_url ? <img className="metaAdsReviewImage" src={editing.payload.ad.image_url} alt="Criativo selecionado para publicação" loading="lazy" /> : null}
+          <p className="ds-caption">A campanha, o conjunto e {editing.payload.ad.format === "multi" ? "os anúncios" : "o anúncio"} serão criados PAUSADOS no Meta. A ativação posterior é feita no Gerenciador.</p>
           {!locked && metaStepIssues(editing.payload, 3).length ? <p role="alert" className="metaAdsMissing">{metaStepIssues(editing.payload, 3).join(" ")}</p> : null}
         </section> : null}
         {stepIssue ? <p className="ds-caption metaAdsMissing" role="alert">{stepIssue}</p> : null}

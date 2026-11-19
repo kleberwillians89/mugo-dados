@@ -8,6 +8,11 @@ export type MetaPlacements = {
   instagram: ("stream" | "story" | "reels")[];
   facebook: ("feed" | "story" | "facebook_reels")[];
 };
+/** "single": uma imagem/vídeo · "carousel": um anúncio em carrossel · "multi": um anúncio por imagem no mesmo conjunto. */
+export type AdFormat = "single" | "carousel" | "multi";
+export type AdCard = { image_url: string; headline?: string; description?: string; link?: string };
+export const MAX_AD_CARDS = 10;
+
 export type AdPayload = {
   tracking?: TrackingParams;
   placements?: MetaPlacements;
@@ -19,7 +24,7 @@ export type AdPayload = {
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
   };
-  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null };
+  ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; format?: AdFormat; cards?: AdCard[] };
 };
 export type AdDraft = {
   id: string; month: string | null; source_campaign: string | null; status: "rascunho" | "publicando" | "publicada" | "erro";
