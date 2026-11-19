@@ -14,7 +14,7 @@ const FORMATS: { id: CreativePreviewFormat; title: string; ratio: string; hint: 
 ];
 const image = (value: string) => /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(value) || value.includes("/storage/v1/object/public/");
 const firstArt = (item: CalendarItem) => String(item.art_url || "").split("\n")[0].trim();
-type Asset = { id: string; title: string; url: string; source: "library" | "calendar" | "instagram"; itemId?: string | null; selectable?: boolean; permalink?: string | null; kind?: string };
+type Asset = { id: string; title: string; url: string; source: "library" | "calendar" | "instagram"; itemId?: string | null; selectable?: boolean; permalink?: string | null; kind?: string; videoUrl?: string | null };
 type Props = {
   clientId: string;
   month: string;
@@ -54,6 +54,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       selectable: post.selectable,
       permalink: post.permalink,
       kind: post.media_type,
+      videoUrl: post.video_url,
     }));
     const unique = new Set<string>();
     return [...saved, ...approved, ...instagram].filter((item) => {
@@ -113,7 +114,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
       const result = await uploadLibraryFile(file, "foto", setUploadProgress, file.name, "Criativo de mídia paga");
       if (getActiveClientId() !== clientId) return;
       setLibrary((old) => [result.item, ...old]);
-      onChoose({ image_url: result.item.url, calendar_item_id: null });
+      onChoose({ image_url: result.item.url, media_type: "image", video_url: "", instagram_post_id: null, calendar_item_id: null });
       setSource("all");
     } catch (cause) {
       if (getActiveClientId() === clientId) setLibraryError(cause instanceof Error ? cause.message : "Não foi possível enviar a imagem.");
@@ -134,7 +135,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     </div>
     {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
     {igError && source === "instagram" ? <p className="studioError" role="alert">{igError}</p> : null}
-    {source === "instagram" ? <p className="ds-caption">Publicações sincronizadas da empresa ativa. Imagens e capas podem ser usadas como foto única; vídeos e carrosséis completos exigem suporte adicional do publicador.</p> : null}
+    {source === "instagram" ? <p className="ds-caption">Publicações sincronizadas da empresa ativa. Imagens e capas entram como foto única; vídeos com arquivo disponível podem ser enviados como anúncio de vídeo. Carrossel completo exige integração adicional.</p> : null}
     <div className="metaCreativeStudioColumns">
       <div className="metaCreativeAssets">
         <div className="metaCreativeFilters">
@@ -148,18 +149,21 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
             {libraryLoading ? "Atualizando…" : "Atualizar Biblioteca"}</button></div>
         <div className="metaCreativeAssetGrid">
           {assets.map((asset) => <button type="button" key={asset.id} disabled={disabled || asset.selectable === false}
-            className={`metaCreativeAsset${ad.image_url === asset.url ? " is-selected" : ""}`}
-            aria-pressed={ad.image_url === asset.url} title={asset.title}
-            onClick={() => onChoose({ image_url: asset.url, calendar_item_id: asset.itemId || null })}>
+            className={`metaCreativeAsset${ad.media_type === "video" ? ad.video_url === asset.videoUrl && Boolean(asset.videoUrl) ? " is-selected" : "" : ad.image_url === asset.url ? " is-selected" : ""}`}
+            aria-pressed={ad.media_type === "video" ? ad.video_url === asset.videoUrl && Boolean(asset.videoUrl) : ad.image_url === asset.url} title={asset.title}
+            onClick={() => asset.kind === "VIDEO" && asset.videoUrl
+              ? onChoose({ media_type: "video", video_url: asset.videoUrl, image_url: asset.url, instagram_post_id: asset.id.replace("ig:", ""), calendar_item_id: null })
+              : onChoose({ media_type: "image", video_url: "", instagram_post_id: null,
+                  image_url: asset.url, calendar_item_id: asset.itemId || null })}>
             <img src={asset.url} alt={asset.title} loading="lazy" />
-            <span>{asset.title}</span><small>{asset.source === "library" ? "Biblioteca" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? "Vídeo · prévia apenas" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
+            <span>{asset.title}</span><small>{asset.source === "library" ? "Biblioteca" : asset.source === "calendar" ? "Calendário" : asset.kind === "VIDEO" ? asset.videoUrl ? "Vídeo Instagram" : "Vídeo sem arquivo disponível" : asset.kind === "CAROUSEL_ALBUM" ? "Capa de carrossel" : "Instagram · imagem"}</small>
 
           </button>)}
         </div>
         {!assets.length ? <p className="metaCreativeEmpty">{libraryLoading || igLoading ? "Buscando imagens…" : "Nenhuma imagem nesta seleção. Confira a sincronização do Instagram ou envie uma nova imagem."}</p> : null}
         <label className="ds-field">Ou cole um link HTTPS direto da imagem
           <input type="url" maxLength={1000} placeholder="https://…/imagem.jpg" value={ad.image_url}
-            disabled={disabled} onChange={(e) => onChoose({ image_url: e.target.value, calendar_item_id: null })} />
+            disabled={disabled} onChange={(e) => onChoose({ image_url: e.target.value, media_type: "image", video_url: "", instagram_post_id: null, calendar_item_id: null })} />
         </label>
       </div>
       <div className="metaCreativePreview">
@@ -172,14 +176,14 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
           <div className="metaCreativeDeviceTop"><span className="metaCreativeAvatar">R</span><div><strong>Anúncio da marca</strong><small>Patrocinado · Prévia</small></div><span>•••</span></div>
           <div className="metaCreativeDeviceText">{ad.primary_text || "O texto principal aparecerá aqui."}</div>
           <div className="metaCreativeDevicePhoto">
-            {ad.image_url ? <img src={ad.image_url} alt={`Prévia em ${shape.ratio}`} /> :
+            {ad.media_type === "video" && ad.video_url ? <video src={ad.video_url} poster={ad.image_url} controls playsInline preload="metadata" aria-label={`Prévia em vídeo ${shape.ratio}`} /> : ad.image_url ? <img src={ad.image_url} alt={`Prévia em ${shape.ratio}`} /> :
               <div className="metaCreativeNoImage">Selecione uma imagem para pré-visualizar</div>}
           </div>
           <div className="metaCreativeDeviceCaption"><div><small>{ad.link ? (() => { try { return new URL(ad.link).hostname; } catch { return "Site da marca"; } })() : "Site da marca"}</small>
             <b>{ad.headline || "Título do anúncio"}</b><span>{ad.description || "Descrição do anúncio"}</span></div>
             <span className="metaCreativeFakeCta">{ad.cta ? ad.cta.replaceAll("_", " ") : "Saiba mais"}</span></div>
         </div>
-        <p className="metaCreativeDisclaimer">Prévia ilustrativa de recorte {shape.ratio} ({shape.hint}). A API atual publica uma única imagem; a escolha da proporção aqui não cria versões adicionais nem muda posicionamentos no Meta.</p>
+        <p className="metaCreativeDisclaimer">Prévia ilustrativa de recorte {shape.ratio} ({shape.hint}). A seleção de posicionamentos é feita na etapa Público. O recorte exibido é ilustrativo: a Meta pode recusar vídeos ou imagens incompatíveis e não são geradas versões diferentes automaticamente.</p>
       </div>
     </div>
   </section>;
