@@ -212,6 +212,8 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "objective": objective,
         "daily_budget": budget,
         "placements": clean_placements(data.get("placements")),
+        # Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos.
+        "pixel_id": str(data.get("pixel_id") or "") if re.fullmatch(r"\d{5,25}", str(data.get("pixel_id") or "")) else None,
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "audience": {"age_min": age_min, "age_max": age_max, "gender": gender if gender in GENDERS else "todos",
                      "regions": _names(aud.get("regions")), "interests": _names(aud.get("interests")),
@@ -816,6 +818,19 @@ async def _pixels(act: str, token: str) -> List[Dict[str, Any]]:
     return list(body.get("data") or [])
 
 
+async def _chosen_pixel(act: str, token: str, wanted: Optional[str]) -> str:
+    """O pixel escolhido na revisão (se for desta conta) ou, sem escolha, o que está recebendo eventos."""
+    pixels = await _pixels(act, token)
+    if wanted:
+        if any(str(p["id"]) == str(wanted) and not p.get("is_unavailable") for p in pixels):
+            return str(wanted)
+        raise StudioError("AD_PIXEL_MISSING", "O pixel escolhido não está nesta conta de anúncios. Escolha outro na revisão.")
+    chosen = best_pixel(pixels)
+    if not chosen:
+        raise StudioError("AD_PIXEL_MISSING")
+    return str(chosen["id"])
+
+
 async def _pixel_id(act: str, token: str) -> str:
     chosen = best_pixel(await _pixels(act, token))
     if not chosen:
@@ -982,7 +997,7 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                 interests = await _interest_ids(payload["audience"]["interests"], token)
                 regions = await _region_keys(payload["audience"]["regions"], token)
                 targeting = targeting_for(payload, interests, regions)
-            pixel = await _pixel_id(act, token) if cfg.get("event") else ""
+            pixel = await _chosen_pixel(act, token, payload.get("pixel_id")) if cfg.get("event") else ""
             if pixel:
                 ids["pixel_id"] = pixel
             if cfg.get("audience"):
@@ -1017,6 +1032,13 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             if cfg.get("event"):
                 adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
+            await checkpoint()
+        elif cfg.get("event") and payload.get("pixel_id") and ids.get("pixel_id") != payload["pixel_id"]:
+            # Criação que parou no meio e o pixel foi trocado na revisão: o conjunto passa a otimizar pelo escolhido.
+            chosen = await _chosen_pixel(act, token, payload["pixel_id"])
+            await _graph("POST", f"/{ids['adset_id']}", token=token,
+                         data={"promoted_object": json.dumps({"pixel_id": chosen, "custom_event_type": cfg["event"]})})
+            ids["pixel_id"] = chosen
             await checkpoint()
         link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
         tags = {"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {}

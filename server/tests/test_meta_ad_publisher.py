@@ -356,3 +356,43 @@ class PixelSwitchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([p for p, _ in posts[1:3]], ["/a1", "/a2"])
         self.assertEqual(update.await_args.kwargs["patch"]["meta_ids"]["pixel_id"], "222")
         self.assertEqual(out["recommended"], "222")
+
+
+class PixelChoiceTests(unittest.IsolatedAsyncioTestCase):
+    PIXELS = {"data": [{"id": "11111", "name": "https://roove.com.br"},
+                       {"id": "22222", "name": "Roove Web Official", "last_fired_time": "2026-11-19T10:00:00+0000"}]}
+
+    async def _publish(self, row):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path.endswith("/adspixels"):
+                return self.PIXELS
+            if path == "/search":
+                return {"data": []}
+            return {"id": f"id{len(calls)}"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", row["id"])
+        return [(p, d) for m, p, d in calls if m == "POST"]
+
+    async def test_uses_pixel_chosen_in_review(self):
+        row = {"id": "d7", "client_id": "roove", "status": "rascunho", "meta_ids": {},
+               "payload": {**READY, "objective": "leads", "pixel_id": "11111"}}
+        posts = await self._publish(row)
+        adset = next(d for p, d in posts if p.endswith("/adsets"))
+        self.assertEqual(json.loads(adset["promoted_object"])["pixel_id"], "11111")
+
+    async def test_halfway_campaign_switches_adset_to_chosen_pixel(self):
+        row = {"id": "d8", "client_id": "roove", "status": "erro",
+               "meta_ids": {"campaign_id": "c", "adset_id": "s9", "pixel_id": "11111"},
+               "payload": {**READY, "objective": "leads", "pixel_id": "22222"}}
+        posts = await self._publish(row)
+        self.assertEqual(posts[0][0], "/s9")
+        self.assertEqual(json.loads(posts[0][1]["promoted_object"])["pixel_id"], "22222")
+
+    def test_pixel_id_is_cleaned(self):
+        self.assertIsNone(pub.clean_payload({**READY, "pixel_id": "abc"}, today=date(2026, 11, 10))["pixel_id"])
+        self.assertEqual(pub.clean_payload({**READY, "pixel_id": "22222"}, today=date(2026, 11, 10))["pixel_id"], "22222")
