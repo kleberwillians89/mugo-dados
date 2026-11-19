@@ -12,6 +12,7 @@ Exige a permissão ads_management na conexão do Meta (o cliente reconecta uma v
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
@@ -912,6 +913,21 @@ async def _upload_video(act: str, unit: Dict[str, Any], token: str, name: str) -
     return video_id
 
 
+async def _video_thumbnail(video_id: str, token: str, tries: int = 6) -> str:
+    """Capa gerada pela Meta para um vídeo enviado sem capa. A Meta leva alguns segundos para processar o vídeo."""
+    for attempt in range(tries):
+        try:
+            body = await _graph("GET", f"/{video_id}/thumbnails", token=token, params={"fields": "uri,is_preferred"})
+        except (MetaAdError, StudioError):
+            body = {}
+        thumbs = [t for t in (body.get("data") or []) if str(t.get("uri") or "").startswith("https://")]
+        if thumbs:
+            return str(next((t for t in thumbs if t.get("is_preferred")), thumbs[0])["uri"])
+        if attempt < tries - 1:
+            await asyncio.sleep(5)
+    return ""
+
+
 async def _pixels(act: str, token: str) -> List[Dict[str, Any]]:
     body = await _graph("GET", f"/{act}/adspixels", token=token,
                         params={"fields": "id,name,last_fired_time,is_unavailable", "limit": 50})
@@ -1212,6 +1228,10 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                         video["image_hash"] = await _image_hash(act, unit["image_url"], token)
                     except StudioError:
                         video["image_url"] = unit["image_url"]
+                else:
+                    cover = await _video_thumbnail(video_id, token)
+                    if cover:
+                        video["image_url"] = cover
                 return {"video_data": video}
             return link_data_for(await _image_hash(act, unit["image_url"], token), headline, target)
 

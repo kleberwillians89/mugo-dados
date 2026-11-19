@@ -453,3 +453,16 @@ class ImportCampaignTests(unittest.IsolatedAsyncioTestCase):
         row = {**DeliveryTests.ROW, "meta_ids": {**DeliveryTests.ROW["meta_ids"], "adset_ids": ["s9", "s10"], "imported": True}}
         _, posts, _ = await DeliveryTests._run(DeliveryTests(), row, active=True, user_name="K", confirm_daily_budget=50)
         self.assertEqual([p for _, p, _ in posts], ["/a1", "/a2", "/s9", "/s10", "/c9"])
+
+
+class VideoThumbnailTests(unittest.IsolatedAsyncioTestCase):
+    async def test_espera_a_meta_gerar_a_capa_e_usa_a_preferida(self):
+        graph = AsyncMock(side_effect=[{"data": []}, {"data": [
+            {"uri": "https://scontent/a.jpg", "is_preferred": False}, {"uri": "https://scontent/b.jpg", "is_preferred": True}]}])
+        with patch.object(pub, "_graph", graph), patch.object(pub.asyncio, "sleep", AsyncMock()):
+            self.assertEqual(await pub._video_thumbnail("v1", "tok"), "https://scontent/b.jpg")
+        self.assertEqual(graph.await_count, 2)
+
+    async def test_sem_capa_devolve_vazio(self):
+        with patch.object(pub, "_graph", AsyncMock(return_value={"data": []})), patch.object(pub.asyncio, "sleep", AsyncMock()):
+            self.assertEqual(await pub._video_thumbnail("v1", "tok", tries=2), "")
