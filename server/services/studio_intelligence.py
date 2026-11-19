@@ -8,7 +8,8 @@ IA escreva a partir de fatos da conta e não de clichês:
 * KPIs do período e campanhas que mais venderam (snapshot da Inteligência);
 * posts que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários, salvamentos e
   compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post;
-* anúncio por anúncio (não só a campanha): melhores e piores, com o texto e o título dos criados no Mídia On;
+* anúncio por anúncio nos últimos 12 meses (não só a campanha): melhores e piores, até quando rodaram, e o texto
+  e o título dos criados no Mídia On;
 * melhores dias e horários (posting_times);
 * metas do mês e a última análise salva;
 * aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar;
@@ -191,22 +192,42 @@ async def _posts(client_id: str, days: int) -> Dict[str, Any]:
             "ligados_a_pauta": len(pautas)}
 
 
-async def _paid_creatives(client_id: str, days: int = 60) -> Dict[str, Any]:
-    """Anúncio por anúncio (não só a campanha): o que performou melhor e pior nos últimos dias, com o texto e o
-    título quando o anúncio foi criado no Mídia On."""
+PAID_DAYS = 365
+PAGE = 1000          # o Supabase devolve no máximo 1000 linhas por vez
+MAX_PAGES = 30
+PAID_SECONDS = 8.0     # abaixo do limite de 12 s por fonte
+
+
+async def _paid_creatives(client_id: str, days: int = PAID_DAYS) -> Dict[str, Any]:
+    """Anúncio por anúncio (não só a campanha), nos últimos 12 meses: o que performou melhor e pior, até quando rodou,
+    e o texto e o título quando o anúncio foi criado no Mídia On."""
     since = (datetime.now(SAO_PAULO).date() - timedelta(days=days)).isoformat()
-    rows = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,spend,impressions,clicks,conversions,revenue",
-                           filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"}, limit=5000)
+    rows: List[Dict[str, Any]] = []
+    started = time.monotonic()
+    for page in range(MAX_PAGES):  # mais recentes primeiro: se a conta for enorme, o que fica de fora é o mais antigo
+        if page and time.monotonic() - started > PAID_SECONDS:
+            break  # fica com o que leu (o mais recente) em vez de perder a seção inteira no limite de tempo
+        chunk = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,stat_date,spend,impressions,clicks,conversions,revenue",
+                                filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"},
+                                order="stat_date.desc", limit=PAGE, offset=page * PAGE)
+        rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
     ads: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         ad_id = str(r.get("ad_id") or "")
         if not ad_id:
             continue
         a = ads.setdefault(ad_id, {"anuncio": clean_text(r.get("ad_name"), 120), "campanha": clean_text(r.get("campaign_name"), 120),
-                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0})
+                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0,
+                                   "rodou_de": None, "rodou_ate": None})
         for field, key in (("investimento", "spend"), ("impressoes", "impressions"), ("cliques", "clicks"),
                            ("conversoes", "conversions"), ("receita", "revenue")):
             a[field] += _num(r.get(key)) or 0.0
+        day = str(r.get("stat_date") or "")[:10]
+        if day and (_num(r.get("spend")) or 0) > 0:
+            a["rodou_de"] = min(a["rodou_de"] or day, day)
+            a["rodou_ate"] = max(a["rodou_ate"] or day, day)
     spent = [dict(a, ad_id=k) for k, a in ads.items() if a["investimento"] >= 20]
     if not spent:
         return {}
@@ -236,7 +257,7 @@ async def _paid_creatives(client_id: str, days: int = 60) -> Dict[str, Any]:
         if a["ad_id"] in copies:
             out["criado_no_mugoverso"] = copies[a["ad_id"]]
         return out
-    return {"dias": days, "comparado_por": metric, "anuncios_com_gasto": len(spent),
+    return {"periodo": f"últimos {days} dias", "comparado_por": metric, "anuncios_com_gasto": len(spent),
             "melhores": [view(a) for a in best], "piores": [view(a) for a in worst]}
 
 
