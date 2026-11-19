@@ -32,6 +32,8 @@ VIDEO_FORMATS = {"reels", "video"}
 CAROUSEL_FORMATS = {"carrossel", "carousel"}
 STORY_FORMATS = {"stories", "story"}
 VIDEO_EXT = (".mp4", ".mov")
+CONVERT_EXT = (".png", ".webp", ".gif", ".heic", ".heif")
+JPEG_MAX_BYTES = 30 * 1024 * 1024
 _DRIVE = re.compile(r"^https://drive\.google\.com/(?:file/d/([\w-]{10,})|open\?id=([\w-]{10,})|uc\?(?:.*&)?id=([\w-]{10,}))")
 
 
@@ -52,7 +54,10 @@ def _asset(url: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
         return {"kind": "video", "url": url}, None
     if path.endswith((".jpg", ".jpeg")):
         return {"kind": "image", "url": url}, None
-    return None, "Arte precisa ser JPG (imagem) ou MP4/MOV (vídeo): envie pelo modal ou cole o link do Drive."
+    if path.endswith(CONVERT_EXT):
+        # O Instagram só aceita JPG: PNG/WebP/HEIC viram JPG na hora de publicar (ensure_jpeg).
+        return {"kind": "image", "url": url, "convert": "1"}, None
+    return None, "Arte precisa ser imagem (JPG, PNG, WebP) ou vídeo (MP4/MOV): envie pelo modal ou cole o link do Drive."
 
 
 def _media_fields(asset: Dict[str, str], fmt_is_video: bool) -> Dict[str, str]:
@@ -194,6 +199,56 @@ async def publish(creds: Dict[str, Any], plan: Dict[str, Any], *, wait_seconds: 
     return {"media_id": media_id, "permalink": permalink}
 
 
+def _to_jpeg(data: bytes) -> bytes:
+    """Imagem → JPG que o Instagram aceita (RGB, fundo branco na transparência, até 1440 px de largura)."""
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    try:
+        import pillow_heif  # type: ignore
+        pillow_heif.register_heif_opener()
+    except Exception:  # noqa: BLE001 - HEIC é opcional
+        pass
+    try:
+        image = ImageOps.exif_transpose(Image.open(BytesIO(data)))
+    except Exception as exc:  # noqa: BLE001
+        raise StudioError("IG_PUBLISH_FAILED", "Não consegui abrir a imagem para converter em JPG. Envie a arte de novo.") from exc
+    if image.mode in ("RGBA", "LA", "P"):
+        image = image.convert("RGBA")
+        flat = Image.new("RGB", image.size, (255, 255, 255))
+        flat.paste(image, mask=image.split()[-1])
+        image = flat
+    else:
+        image = image.convert("RGB")
+    if image.width > 1440:
+        image = image.resize((1440, round(image.height * 1440 / image.width)), Image.LANCZOS)
+    out = BytesIO()
+    image.save(out, "JPEG", quality=92, optimize=True)
+    return out.getvalue()
+
+
+async def ensure_jpeg(plan: Dict[str, Any], client_id: str) -> int:
+    """Troca no plano as imagens que não são JPG por uma cópia JPG pública (Storage do MUGOVERSO). Devolve quantas trocou."""
+    import hashlib
+    from .ig_supabase import sb_upload_public
+    targets = [plan["fields"], *plan.get("children", [])]
+    changed = 0
+    for target in targets:
+        url = target.get("image_url")
+        if not url or url.split("?", 1)[0].lower().endswith((".jpg", ".jpeg")):
+            continue
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            got = await client.get(url)
+        if got.status_code >= 400 or not got.content:
+            raise StudioError("IG_PUBLISH_FAILED", "Não consegui baixar a arte para converter em JPG. Confira se o link está público.")
+        if len(got.content) > JPEG_MAX_BYTES:
+            raise StudioError("IG_PUBLISH_FAILED", "Imagem maior que 30 MB: envie uma versão menor.")
+        jpeg = _to_jpeg(got.content)
+        safe = re.sub(r"[^a-zA-Z0-9_-]", "", client_id)[:80]
+        target["image_url"] = await sb_upload_public(f"ig-publish/{safe}/{hashlib.sha1(url.encode()).hexdigest()[:20]}.jpg", jpeg, "image/jpeg")
+        changed += 1
+    return changed
+
+
 async def _set(item: Dict[str, Any], patch: Dict[str, Any], *, expect: Optional[str] = None) -> bool:
     filters = {"id": f"eq.{item['id']}", "client_id": f"eq.{item['client_id']}"}
     filters["publish_status"] = f"eq.{expect}" if expect else "is.null"
@@ -226,6 +281,7 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         creds = creds_cache[client_id]
         if creds["scopes"] and PUBLISH_SCOPE not in creds["scopes"]:
             raise StudioError("IG_PUBLISH_FAILED", "A conexão do Instagram desta marca não tem a permissão de publicar. Reconecte em Integrações.")
+        converted = await ensure_jpeg(container, client_id)
         from .ig_shop import TAG_SCOPE, has_tags, strip_tags
         untagged = None
         if has_tags(container) and creds["scopes"] and TAG_SCOPE not in creds["scopes"]:
@@ -241,6 +297,9 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         from .studio_history import record
         if untagged:
             await record(item["client_id"], item["id"], f"publicou sem marcar os produtos da loja: {untagged}",
+                         actor_name="Publicação automática", side="sistema")
+        if converted:
+            await record(item["client_id"], item["id"], f"converteu {converted} imagem(ns) para JPG (o Instagram só aceita JPG)",
                          actor_name="Publicação automática", side="sistema")
         if container.get("warning"):
             await record(item["client_id"], item["id"], f"publicou o Reels, mas {container['warning']}",

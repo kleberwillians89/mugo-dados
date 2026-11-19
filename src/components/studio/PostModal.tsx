@@ -53,7 +53,7 @@ type Props = {
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl, onItemChange }: Props) {
+export default function PostModal({ item, initial, handle, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl, onItemChange }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
@@ -191,11 +191,14 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (await onSave(draft) && !item) onClose();
+    // Sem campo "Pauta": o nome interno vem da 1ª linha da legenda (ou formato + data).
+    const firstLine = (draft.caption_draft || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+    const title = draft.title?.trim() || (firstLine ? firstLine.slice(0, 80) : `${STUDIO_FORMATS[draft.format]} de ${draft.date.split("-").reverse().slice(0, 2).join("/")}`);
+    if (await onSave({ ...draft, title }) && !item) onClose();
   }
 
   async function copyCaption() {
-    try { await navigator.clipboard.writeText([draft.hook, draft.caption_draft].filter(Boolean).join("\n\n") || draft.title); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
+    try { await navigator.clipboard.writeText(draft.caption_draft || draft.title); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
     catch { /* o texto continua visível para copiar à mão */ }
   }
 
@@ -214,7 +217,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         {isReels && reelsView === "grade" ? <div className="reelsGrid" aria-label="Prévia na grade do perfil">
           <div className="is-new">{coverImage ? <img src={coverImage} alt="" />
             : reelsVideo ? <video src={frameSrc(reelsVideo, reelsOpts.thumb_offset_ms ?? 0)} preload="metadata" muted playsInline aria-hidden="true" />
-            : <span>{draft.hook || draft.title || "Capa"}</span>}</div>
+            : <span>Capa</span>}</div>
           {Array.from({ length: 5 }, (_, i) => <div key={i} />)}
           <small>{reelsOpts.share_to_feed === false ? "“Mostrar também no Feed” está desligado: este Reels não entra na grade."
             : "Na grade do perfil o Instagram mostra o centro da capa."}</small>
@@ -223,7 +226,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
           {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} onRatio={setRatio} />
             : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
-            : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
+            : <p className="igCover">{isReels ? "Envie o vídeo do Reels" : "Envie a arte do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
           {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
           {isReels && showSafe ? <div className="reelsSafe" aria-hidden="true"><span>área da grade</span></div> : null}
@@ -255,29 +258,23 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           {item?.origin === "matriz" ? <span className="studioChip">Da Matriz de conteúdo</span> : null}
           {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
-        <label>Pauta<input required maxLength={200} value={draft.title} disabled={!canManage} onChange={(e) => set({ title: e.target.value })} /></label>
-        <div className="studioRow">
-          <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
-          <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
-          <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
-            {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
-        </div>
-        {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
-          const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
-          set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
-        }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
-        {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
-        <label>Pilar<input list="studio-pillars" maxLength={120} value={draft.pillar} disabled={!canManage || clientMode} onChange={(e) => set({ pillar: e.target.value })} />
-          <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
-        <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
-        <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
-        {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
-          disabled={busy} isStory={draft.format === "stories"} /> : null}
-        {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
-          format={draft.format} slides={slides} disabled={busy} /> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
+          <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragArt(true); }} onDragLeave={() => setDragArt(false)}
+            onDrop={(e) => { e.preventDefault(); setDragArt(false); void sendArt(Array.from(e.dataTransfer.files || [])); }}>
+            <b>{uploading ? uploading : "Arraste a arte aqui ou clique para escolher"}</b>
+            <small>Imagem (JPG/PNG) ou vídeo (MP4/MOV) · no carrossel, envie os slides na ordem · é o formato que publica sozinho no Instagram</small>
+            <input type="file" multiple accept="image/*,video/mp4,video/quicktime" disabled={Boolean(uploading) || busy} onChange={(e) => {
+              const files = Array.from(e.target.files || []); e.target.value = ""; void sendArt(files);
+            }} />
+          </label>
+          <div className="postArtFromLink">
+            <input type="url" value={linkInput} placeholder="ou cole o link do Google Drive (arquivo) ou do Canva" aria-label="Link da arte no Drive ou Canva"
+              onChange={(e) => setLinkInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void bringFromLink(linkInput); } }} />
+            <button type="button" className="ds-button is-primary" disabled={!linkInput.trim() || importing !== null || Boolean(uploading) || busy}
+              onClick={() => void bringFromLink(linkInput)}>{importing === -1 ? "Trazendo…" : "Trazer arte"}</button>
+          </div>
           <div className="postLibraryBar">
             <button type="button" className="ds-button is-primary"
               disabled={busy || Boolean(uploading)} aria-expanded={libraryOpen}
@@ -323,21 +320,6 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
               </div>
             </> : null}
           </section> : null}
-          <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDragArt(true); }} onDragLeave={() => setDragArt(false)}
-            onDrop={(e) => { e.preventDefault(); setDragArt(false); void sendArt(Array.from(e.dataTransfer.files || [])); }}>
-            <b>{uploading ? uploading : "Arraste a arte aqui ou clique para escolher"}</b>
-            <small>Imagem (JPG/PNG) ou vídeo (MP4/MOV) · no carrossel, envie os slides na ordem · é o formato que publica sozinho no Instagram</small>
-            <input type="file" multiple accept="image/*,video/mp4,video/quicktime" disabled={Boolean(uploading) || busy} onChange={(e) => {
-              const files = Array.from(e.target.files || []); e.target.value = ""; void sendArt(files);
-            }} />
-          </label>
-          <div className="postArtFromLink">
-            <input type="url" value={linkInput} placeholder="ou cole o link do Google Drive (arquivo) ou do Canva" aria-label="Link da arte no Drive ou Canva"
-              onChange={(e) => setLinkInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void bringFromLink(linkInput); } }} />
-            <button type="button" className="ds-button is-primary" disabled={!linkInput.trim() || importing !== null || Boolean(uploading) || busy}
-              onClick={() => void bringFromLink(linkInput)}>{importing === -1 ? "Trazendo…" : "Trazer arte"}</button>
-          </div>
           {uploadError ? <small className="studioError">{uploadError}</small> : null}
           {importNote ? <small className="postArtHint">{importNote}</small> : null}
           <ArtFiles value={draft.art_url} disabled={Boolean(uploading) || busy || importing !== null} onChange={(art_url) => set({ art_url })}
@@ -353,6 +335,23 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         </div> : null}
         {canManage && !clientMode && isReels ? <ReelsOptions value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
           videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
+        <div className="studioRow">
+          <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
+          <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
+          <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
+            {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
+        </div>
+        {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
+          const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
+          set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
+        }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
+        {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
+        <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
+        {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
+          disabled={busy} isStory={draft.format === "stories"} /> : null}
+        {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
+          format={draft.format} slides={slides} disabled={busy} /> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
         {canManage && !clientMode ? <AiAssist draft={draft} disabled={busy} itemId={item?.id} onApply={(patch) => set(patch)} /> : null}
@@ -411,7 +410,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {onConfirmSchedule && autoPublish && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
               onClick={() => { if (window.confirm("Publicar agora no Instagram? O post sai em até 5 minutos.")) void onConfirmSchedule(true); }}>Publicar agora</button> : null}
             {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: {autoPublish ? "publica sozinho no Instagram" : `na hora fica marcado para publicar à mão no ${channelLabel}`}</span> : null}
-            {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
+            {item.publish_status === "publicado" ? <a className="studioOk" href={item.published_permalink || undefined} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram{item.published_at ? ` em ${new Date(item.published_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}{item.published_permalink ? " ↗" : ""}</a> : null}
             {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
             {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
             {onRetryPublish && autoPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}

@@ -83,12 +83,15 @@ export default function Campaigns({
     {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
       <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
-      {isAgency && canManage && canManageCalendar ? <AgentPipeline clientId={clientId} onDone={onAgentsDone} onOpenCalendar={() => openSection("calendario")} /> : null}
+      {isAgency && canManage && canManageCalendar ? <details className="agentPipelineWrap">
+        <summary>Esteira de agentes <small>· só a equipe Mugô vê</small></summary>
+        <AgentPipeline clientId={clientId} onDone={onAgentsDone} onOpenCalendar={() => openSection("calendario")} />
+      </details> : null}
       <ContentMatrix key={`matrix:${clientId}:${agentsRound}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />
     </section> : null}
     {canViewCalendar ? <section id="social-calendario" className="socialWorkspaceSection" aria-labelledby="social-calendario-title">
-      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>Edição, programação, aprovações e publicação no calendário existente.</p></div></header>
+      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>O que vai ser publicado e o que já foi, no dia e na hora. Os pilares da Matriz aparecem em cada post.</p></div></header>
       <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}:${agentsRound}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
     </section> : null}
   </div></Shell>;

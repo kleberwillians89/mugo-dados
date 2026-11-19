@@ -1845,3 +1845,18 @@
 .libCloudState{font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:#eef1f3;color:#3f474d}
 .libCloudState.is-ok{background:#e3f1ea;color:#185f3b}.libCloudState.is-erro{background:#f8e3e4;color:#8a2830}
 .libCloudNote{flex-basis:100%;padding-left:28px;font-size:12px;color:var(--text-muted)}
+/* O que aconteceu com a publicação, no próprio dia do calendário */
+.calChipPublish{display:inline-block;margin-top:2px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:700;line-height:1.5;background:#eef1f3;color:#3f474d}
+.calChipPublish.is-ok{background:#e3f1ea;color:#185f3b}.calChipPublish.is-wait{background:#fbeedb;color:#7a4705}
+.calChipPublish.is-bad{background:#f8e3e4;color:#8a2830}.calChipPublish.is-info{background:#e8eef7;color:#2b4d7a}
+/* Pilares da Matriz no Calendário */
+.calPillars{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 10px;font-size:12px}
+.calPillars>span{font-weight:700;color:var(--text-secondary,#62717c);margin-right:4px}
+.calPillars button:not(.ds-link){min-height:30px;padding:0 10px;border:1px solid #e3d3b5;border-radius:99px;background:#fbf6ec;color:#7a5d2e;font:inherit;font-size:12px;cursor:pointer}
+.calPillars button.is-active{background:#7a5d2e;color:#fff;border-color:#7a5d2e}
+.calPillars button b{font-weight:700;margin-left:2px}
+/* Esteira de agentes recolhida (só a equipe vê) */
+.agentPipelineWrap{border:1px solid var(--border-subtle,#e1e6e9);border-radius:12px;padding:8px 12px;margin:0 0 12px;background:var(--surface,#fff)}
+.agentPipelineWrap>summary{cursor:pointer;font-weight:700;font-size:14px;padding:4px 0}
+.agentPipelineWrap>summary small{font-weight:400;color:var(--text-secondary,#62717c)}
+.agentPipelineWrap[open]>summary{margin-bottom:8px}

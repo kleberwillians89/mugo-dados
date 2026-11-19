@@ -31,7 +31,7 @@ class MediaTests(unittest.TestCase):
 
     def test_manual_cases(self):
         for item in ({**ITEM, "art_url": "https://www.canva.com/design/abc/view"}, {**ITEM, "art_url": ""},
-                     {**ITEM, "art_url": "https://cdn.x/arte.png"}, {**ITEM, "format": "carrossel"},
+                     {**ITEM, "art_url": "https://cdn.x/arte.pdf"}, {**ITEM, "format": "carrossel"},
                      {**ITEM, "format": "reels"}):
             plan, manual = ip.media_for(item)
             self.assertIsNone(plan)
@@ -125,3 +125,33 @@ class GraphFlowTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JpegConversionTests(unittest.IsolatedAsyncioTestCase):
+    def test_png_is_accepted_and_marked(self):
+        plan, manual = ip.media_for({**ITEM, "format": "carrossel", "art_url": "https://s/carousel1.png\nhttps://s/carousel2.png"})
+        self.assertIsNone(manual)
+        self.assertEqual(plan["type"], "carousel")
+
+    async def test_png_becomes_public_jpeg(self):
+        from io import BytesIO
+        from unittest.mock import AsyncMock, patch
+        from PIL import Image
+        buf = BytesIO(); Image.new("RGBA", (2000, 2500), (10, 20, 30, 0)).save(buf, "PNG")
+        png = buf.getvalue()
+
+        class Client:
+            def __init__(self, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url): return type("R", (), {"status_code": 200, "content": png})()
+        upload = AsyncMock(return_value="https://s/public/x.jpg")
+        plan = {"type": "carousel", "fields": {"media_type": "CAROUSEL"},
+                "children": [{"image_url": "https://s/1.png"}, {"image_url": "https://s/2.jpg"}]}
+        with patch.object(ip.httpx, "AsyncClient", Client), patch("services.ig_supabase.sb_upload_public", upload):
+            changed = await ip.ensure_jpeg(plan, "roove")
+        self.assertEqual(changed, 1)
+        self.assertEqual([c["image_url"] for c in plan["children"]], ["https://s/public/x.jpg", "https://s/2.jpg"])
+        data = upload.await_args.args[1]
+        self.assertEqual(Image.open(BytesIO(data)).format, "JPEG")
+        self.assertEqual(Image.open(BytesIO(data)).size, (1440, 1800))

@@ -75,6 +75,8 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [team, clientId]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
+  // Pilares da Matriz aparecem no Calendário: legenda com quantos posts de cada pilar no mês, e filtro.
+  const [pillarFilter, setPillarFilter] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean; notify_team?: boolean } | null>(null);
   const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: WhatsappChannel }>({ list: [], channel: "nao_configurado" });
@@ -188,8 +190,13 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     return () => { alive = false; };
   }, [months, clientId]);
   const withBoost = useCallback((i: CalendarItem): CalendarItem => (boosts[i.id] ? { ...i, boost: { start: boosts[i.id].start, end: boosts[i.id].end, budget: boosts[i.id].budget, why: boosts[i.id].why } } : i), [boosts]);
-  const visible = useMemo(() => items.filter((i) => filter === "todos" || i.status === filter).map(withBoost), [items, filter, withBoost]);
+  const visible = useMemo(() => items.filter((i) => (filter === "todos" || i.status === filter) && (!pillarFilter || (i.pillar || "") === pillarFilter)).map(withBoost), [items, filter, pillarFilter, withBoost]);
   const monthItems = useMemo(() => items.filter((i) => i.month.startsWith(month)), [items, month]);
+  const pillarCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of monthItems) if (i.pillar?.trim() && (isAgency || i.status !== "rascunho")) counts.set(i.pillar.trim(), (counts.get(i.pillar.trim()) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [monthItems, isAgency]);
   const counts = useMemo(() => {
     const c: Record<string, number> = { todos: monthItems.length };
     for (const item of monthItems) c[item.status] = (c[item.status] || 0) + 1;
@@ -220,7 +227,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   function openNew(at: string) {
     setError(null);
     const [date, time] = at.includes("T") ? at.split("T") : [at, "19:00"];
-    setModal({ item: null, draft: { date, time, channel: "instagram", format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
+    setModal({ item: null, draft: { date, time, channel: "instagram", format: "imagem", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
   }
 
   async function saveDraft(draft: PostDraft) {
@@ -379,6 +386,12 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
           {key === "todos" ? "Todos" : STUDIO_STATUS[key]} <span>{counts[key] || 0}</span>
         </button>
       ))}
+    </div> : null}
+    {view !== "fluxo" && pillarCounts.length ? <div className="calPillars" role="group" aria-label="Pilares da Matriz neste mês">
+      <span>Pilares da Matriz</span>
+      {pillarCounts.map(([name, n]) => <button key={name} type="button" aria-pressed={pillarFilter === name} className={pillarFilter === name ? "is-active" : ""}
+        onClick={() => setPillarFilter(pillarFilter === name ? null : name)}>{name} <b>{n}</b></button>)}
+      {pillarFilter ? <button type="button" className="ds-link" onClick={() => setPillarFilter(null)}>Ver todos</button> : null}
     </div> : null}
     {error && !modal ? <p role="alert" className="studioError">{error}</p> : null}
     {notes.length ? <ul className="studioNotes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
