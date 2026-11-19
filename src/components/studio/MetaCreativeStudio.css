@@ -152,3 +152,16 @@ body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
 .metaPixelRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .metaPixelRow label{flex:1 1 260px}
 .metaPixelRow select{width:100%;min-height:38px;border:1px solid var(--border,#d0d9df);border-radius:8px;padding:0 8px;font:inherit;font-size:13px;background:#fff}
+/* Puxar campanha da Meta */
+.metaAdsHeadActions{display:flex;flex-wrap:wrap;gap:8px}
+.metaImport{display:grid;gap:8px;margin:0 0 14px;padding:12px;border:1px solid var(--border,#d5e0e4);border-radius:12px;background:var(--surface,#fff)}
+.metaImportHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.metaImportHead>div{display:grid;gap:2px}
+.metaImportHead small{font-size:12px;color:var(--text-secondary,#62717c)}
+.metaImportSearch{min-height:38px;border:1px solid var(--border,#d0d9df);border-radius:8px;padding:0 10px;font:inherit;font-size:13px}
+.metaImportList{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:380px;overflow:auto}
+.metaImportList li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:#f6f8f9}
+.metaImportList li>div{display:grid;min-width:0}
+.metaImportList b{font-size:13px;overflow-wrap:anywhere}
+.metaImportList small{font-size:11px;color:var(--text-secondary,#62717c)}
+.metaImportDone{font-size:12px;font-weight:600;color:#185f3b;white-space:nowrap}

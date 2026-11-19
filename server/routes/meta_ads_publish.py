@@ -28,6 +28,7 @@ ERRORS = {
     "AD_IMAGE_UNREACHABLE": (422, "Não consegui baixar a imagem do anúncio. Use um post do Calendário com arte ou um link direto da imagem."),
     "AD_NOT_PUBLISHED_YET": (409, "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios no Estúdio de criativos."),
     "AD_ACCOUNT_CHANGED": (409, "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha."),
+    "AD_ALREADY_IMPORTED": (409, "Esta campanha já está na Mídia On."),
     "AD_CONFIRM_BUDGET": (409, "Confirme a verba diária para ativar a campanha."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
@@ -126,6 +127,32 @@ async def read_instagram_posts(client_id: str, authorization: Optional[str] = He
                 (kind == "VIDEO" and original.startswith("https://")),
         })
     return {"posts": posts, "source": "instagram_synced", "count": len(posts)}
+
+
+@router.get("/meta-campaigns")
+async def read_meta_campaigns(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Campanhas que já existem na conta de anúncios (para puxar para a Mídia On)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return {"campaigns": await pub.list_meta_campaigns(cid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class ImportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    campaign_id: str = Field(pattern=r"^\d{5,30}$")
+
+
+@router.post("/import", status_code=201)
+async def import_meta_campaign(client_id: str, body: ImportInput, authorization: Optional[str] = Header(default=None)):
+    """Traz uma campanha da Meta para a Mídia On (nada muda na Meta)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    uid = await require_user_id(authorization)
+    try:
+        return {"draft": await pub.import_meta_campaign(cid, body.campaign_id, user_id=uid)}
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 @router.get("/whatsapp-numbers")

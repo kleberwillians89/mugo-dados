@@ -414,3 +414,42 @@ class ClickToWhatsAppTests(unittest.IsolatedAsyncioTestCase):
         spec = json.loads(next(d for x, d in posts if x.endswith("/adcreatives"))["object_story_spec"])
         self.assertEqual(spec["link_data"]["call_to_action"], {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}})
         self.assertTrue(all(c["link"] == pub.WHATSAPP_LINK for c in spec["link_data"]["child_attachments"]))
+
+
+class ImportCampaignTests(unittest.IsolatedAsyncioTestCase):
+    async def test_imports_campaign_with_adsets_ads_and_pixel(self):
+        async def graph(method, path, *, token, data=None, params=None):
+            if path == "/120234":
+                return {"id": "120234", "name": "BlackFriday_Roove_Leads · Criada pelo Gerenciador", "objective": "OUTCOME_LEADS",
+                        "daily_budget": "2000", "account_id": "123"}
+            if path == "/120234/adsets":
+                return {"data": [{"id": "s1", "start_time": "2026-11-19T13:30:00-0300", "end_time": "2026-11-26T23:59:00-0300",
+                                  "promoted_object": {"pixel_id": "1644209869983881", "custom_event_type": "LEAD"},
+                                  "targeting": {"age_min": 22, "age_max": 50, "genders": [2]}}]}
+            if path == "/120234/ads":
+                return {"data": [{"id": "a1", "creative": {"body": "Você já escolhe…", "title": "FIRST ACCESS", "call_to_action_type": "SIGN_UP",
+                                                           "object_story_spec": {"link_data": {"link": "https://www.roove.com.br/pages/x"}}}},
+                                 {"id": "a2", "creative": {}}]}
+            raise AssertionError(path)
+        insert = AsyncMock(side_effect=lambda table, row: {**row, "id": "d10"})
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_123"})), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(pub, "sb_insert", insert), redirect_stdout(io.StringIO()):
+            view = await pub.import_meta_campaign("roove", "120234", user_id="u")
+        row = insert.await_args.args[1]
+        self.assertEqual(row["status"], "publicada")
+        self.assertEqual((row["meta_ids"]["campaign_id"], row["meta_ids"]["ad_ids"], row["meta_ids"]["pixel_id"]),
+                         ("120234", ["a1", "a2"], "1644209869983881"))
+        self.assertEqual((view["payload"]["objective"], view["payload"]["daily_budget"], view["payload"]["audience"]["gender"]), ("leads", 20.0, "mulheres"))
+        self.assertEqual(view["payload"]["ad"]["cta"], "SIGN_UP")
+
+    async def test_refuses_campaign_already_in_midia_on(self):
+        with patch.object(pub, "sb_select", AsyncMock(return_value=[{"meta_ids": {"campaign_id": "120234"}}])):
+            with self.assertRaises(StudioError) as caught:
+                await pub.import_meta_campaign("roove", "120234", user_id="u")
+        self.assertEqual(caught.exception.code, "AD_ALREADY_IMPORTED")
+
+    async def test_activate_imported_turns_on_every_adset(self):
+        row = {**DeliveryTests.ROW, "meta_ids": {**DeliveryTests.ROW["meta_ids"], "adset_ids": ["s9", "s10"], "imported": True}}
+        _, posts, _ = await DeliveryTests._run(DeliveryTests(), row, active=True, user_name="K", confirm_daily_budget=50)
+        self.assertEqual([p for _, p, _ in posts], ["/a1", "/a2", "/s9", "/s10", "/c9"])

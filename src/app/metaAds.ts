@@ -127,3 +127,9 @@ export const PIXEL_OBJECTIVES = ["leads", "vendas", "retencao", "remarketing"];
 /** Números de WhatsApp da marca para o anúncio que abre conversa. */
 export const readAdWhatsappNumbers = () =>
   http<{ numbers: { number: string; label: string; name: string }[] }>(base("/whatsapp-numbers"));
+
+/** Campanhas que já existem na conta da Meta, para puxar para a Mídia On. */
+export type MetaAccountCampaign = { id: string; name: string; objective: string; status: string; daily_budget: number | null; created_time: string | null; imported: boolean };
+export const readMetaCampaigns = () => http<{ campaigns: MetaAccountCampaign[] }>(base("/meta-campaigns"), { timeoutMs: 45_000 });
+export const importMetaCampaign = (campaignId: string) =>
+  http<{ draft: AdDraft }>(base("/import"), { method: "POST", body: JSON.stringify({ campaign_id: campaignId }), timeoutMs: 60_000 });

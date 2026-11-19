@@ -482,7 +482,8 @@ async def set_delivery(client_id: str, draft_id: str, *, active: bool, user_name
     ads = _ads_of(ids)
     if active:
         # De baixo para cima: anúncios, conjunto e campanha — quando a campanha liga, tudo já está pronto.
-        targets = ads if joined else [*ads, str(ids["adset_id"]), str(ids["campaign_id"])]
+        adsets = [str(x) for x in (ids.get("adset_ids") or [ids["adset_id"]])]
+        targets = ads if joined else [*ads, *adsets, str(ids["campaign_id"])]
     else:
         targets = ads if joined else [str(ids["campaign_id"])]
     for object_id in targets:
@@ -599,6 +600,87 @@ async def ad_whatsapp_numbers(client_id: str) -> List[Dict[str, str]]:
             out.append({"number": digits, "label": str(row.get("display_phone_number") or digits),
                         "name": str(row.get("verified_name") or "")})
     return out
+
+
+# ---------------------------------------------------------------- puxar campanha que já existe na Meta
+
+def objective_from_meta(objective: str, adset: Dict[str, Any]) -> str:
+    """Objetivo da Meta (+ o conjunto) → objetivo da Mídia On."""
+    promoted = adset.get("promoted_object") or {}
+    event = str(promoted.get("custom_event_type") or "").upper()
+    if str(adset.get("destination_type") or "").upper() == "WHATSAPP":
+        return "whatsapp"
+    return {"OUTCOME_LEADS": "leads", "OUTCOME_SALES": "vendas", "OUTCOME_TRAFFIC": "trafego",
+            "OUTCOME_AWARENESS": "alcance", "OUTCOME_ENGAGEMENT": "engajamento"}.get(
+        str(objective or "").upper(), "vendas" if event == "PURCHASE" else "leads" if event == "LEAD" else "trafego")
+
+
+async def _imported_ids(client_id: str) -> set:
+    rows = await sb_select(TABLE, select="meta_ids", filters={"client_id": f"eq.{client_id}"}, limit=200)
+    return {str((r.get("meta_ids") or {}).get("campaign_id") or "") for r in rows} - {""}
+
+
+async def list_meta_campaigns(client_id: str) -> List[Dict[str, Any]]:
+    """Campanhas da conta de anúncios (sem as apagadas), marcando as que já estão na Mídia On."""
+    account = await _ad_account(client_id)
+    body = await _graph("GET", f"/{account['act']}/campaigns", token=account["token"], params={
+        "fields": "id,name,objective,effective_status,daily_budget,lifetime_budget,created_time", "limit": 50,
+        "effective_status": json.dumps(["ACTIVE", "PAUSED", "IN_PROCESS", "WITH_ISSUES", "CAMPAIGN_PAUSED", "PENDING_REVIEW", "DISAPPROVED"])})
+    known = await _imported_ids(client_id)
+    out = []
+    for c in body.get("data") or []:
+        budget = _num(c.get("daily_budget")) / 100
+        out.append({"id": str(c["id"]), "name": _text(c.get("name"), 120), "objective": str(c.get("objective") or ""),
+                    "status": str(c.get("effective_status") or ""), "daily_budget": budget or None,
+                    "created_time": c.get("created_time"), "imported": str(c["id"]) in known})
+    return out
+
+
+async def import_meta_campaign(client_id: str, campaign_id: str, *, user_id: str) -> Dict[str, Any]:
+    """Traz uma campanha que já existe na Meta para a Mídia On: status, ligar/pausar, pixel e resultados no painel.
+    Nada muda na Meta."""
+    if not re.fullmatch(r"\d{5,30}", str(campaign_id or "")):
+        raise StudioError("AD_DRAFT_NOT_FOUND")
+    if campaign_id in await _imported_ids(client_id):
+        raise StudioError("AD_ALREADY_IMPORTED", "Esta campanha já está na Mídia On.")
+    account = await _ad_account(client_id)
+    token, act = account["token"], account["act"]
+    camp = await _graph("GET", f"/{campaign_id}", token=token, params={"fields": "id,name,objective,daily_budget,account_id"})
+    if str(camp.get("account_id") or "").removeprefix("act_") != act.removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    adsets = (await _graph("GET", f"/{campaign_id}/adsets", token=token, params={
+        "fields": "id,daily_budget,start_time,end_time,promoted_object,destination_type,targeting", "limit": 25})).get("data") or []
+    ads = (await _graph("GET", f"/{campaign_id}/ads", token=token, params={
+        "fields": "id,adset_id,creative{body,title,thumbnail_url,image_url,call_to_action_type,object_story_spec}", "limit": 50})).get("data") or []
+    first = adsets[0] if adsets else {}
+    budget = _num(camp.get("daily_budget")) / 100 or sum(_num(a.get("daily_budget")) for a in adsets) / 100
+    creative = (ads[0].get("creative") if ads else None) or {}
+    story = creative.get("object_story_spec") or {}
+    link_data = story.get("link_data") or {}
+    targeting = first.get("targeting") or {}
+    genders = targeting.get("genders") or []
+    cta = str(creative.get("call_to_action_type") or "LEARN_MORE")
+    payload = clean_payload({
+        "name": camp.get("name"), "objective": objective_from_meta(str(camp.get("objective") or ""), first),
+        "daily_budget": round(budget, 2), "start_date": str(first.get("start_time") or "")[:10], "end_date": str(first.get("end_time") or "")[:10],
+        "audience": {"age_min": targeting.get("age_min") or 18, "age_max": targeting.get("age_max") or 65,
+                     "gender": "mulheres" if genders == [2] else "homens" if genders == [1] else "todos", "advantage": True},
+        "ad": {"primary_text": creative.get("body") or link_data.get("message") or "", "headline": creative.get("title") or link_data.get("name") or "",
+               "link": link_data.get("link") or "", "image_url": creative.get("image_url") or creative.get("thumbnail_url") or "",
+               "cta": cta if cta in CTAS else "LEARN_MORE"},
+    })
+    ad_ids = [str(a["id"]) for a in ads]
+    pixel = str(((first.get("promoted_object") or {}).get("pixel_id")) or "") or None
+    ids = {"ad_account_id": act, "campaign_id": str(camp["id"]), "adset_id": str(first["id"]) if first else None,
+           "adset_ids": [str(a["id"]) for a in adsets], "ad_ids": ad_ids, "ad_id": ad_ids[0] if ad_ids else None,
+           "pixel_id": pixel, "imported": True}
+    row = await sb_insert(TABLE, {"client_id": client_id, "source_campaign": "Importada da Meta", "payload": payload,
+                                  "status": "publicada", "meta_ids": {k: v for k, v in ids.items() if v is not None},
+                                  "published_at": _now(), "created_by": user_id})
+    if not row:
+        raise StudioError("AD_SAVE_FAILED")
+    print(f"[meta_ads_import] client_id={client_id} campaign={campaign_id} adsets={len(adsets)} ads={len(ad_ids)}")
+    return _view(row)
 
 
 async def delete_draft(client_id: str, draft_id: str) -> None:
