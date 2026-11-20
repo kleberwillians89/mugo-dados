@@ -140,6 +140,14 @@ export const readAdWhatsappNumbers = () =>
 /** Campanhas que já existem na conta da Meta, para puxar para a Mídia On. */
 export type MetaAccountCampaign = { id: string; name: string; objective: string; status: string; daily_budget: number | null; created_time: string | null; imported: boolean };
 export const readMetaCampaigns = () => http<{ campaigns: MetaAccountCampaign[] }>(base("/meta-campaigns"), { timeoutMs: 45_000 });
+/** Leitura por empresa autorizada para o painel geral da agência. Não altera a seleção ativa. */
+export type MetaOverviewCampaign = MetaAccountCampaign & { stop_time?: string | null };
+export const readMetaCampaignOverview = (clientId: string) =>
+  http<{ campaigns: MetaOverviewCampaign[] }>(
+    `/api/clients/${encodeURIComponent(clientId)}/studio/ads/meta-campaigns/overview`,
+    { timeoutMs: 60_000 }
+  );
+
 export const importMetaCampaign = (campaignId: string) =>
   http<{ draft: AdDraft }>(base("/import"), { method: "POST", body: JSON.stringify({ campaign_id: campaignId }), timeoutMs: 60_000 });
 
