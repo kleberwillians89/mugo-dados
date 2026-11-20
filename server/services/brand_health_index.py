@@ -7,13 +7,19 @@ redistribuído entre os outros — a tela mostra isso, nunca inventa número.
 
 Pilares:
 - ``conversa``  — sentimento líquido das menções (notícias, comentários, Direct): (líquido + 100) / 2.
+  Comentário no próprio perfil pesa metade (quem comenta costuma ser fã). Precisa de pelo menos
+  ``MIN_MENTIONS`` menções analisadas, e o líquido é "encolhido" para o neutro com ``PRIOR_MENTIONS``
+  menções neutras imaginárias: amostra pequena não vira nota extrema (ajuste de confiança).
 - ``reputacao`` — alertas abertos de termos sensíveis/queda: 100 − 25 por alerta alto − 10 por médio.
-- ``atencao``   — alcance + interações do Instagram vs período anterior (nota de crescimento).
-- ``presenca``  — share de voz nas notícias: marca ÷ (marca + concorrentes); 50% ou mais = 100.
+  Só entra na conta com ``MIN_MENTIONS`` menções monitoradas no período ("sem alerta" sem monitorar nada não é 100).
+- ``atencao``   — alcance + interações do Instagram vs período anterior (nota de crescimento). O período
+  anterior precisa ter dado em pelo menos metade dos dias; parcial compara pela média por dia.
+- ``presenca``  — share de voz contra a FATIA JUSTA: com N concorrentes a fatia justa é 1/(N+1).
+  Na fatia justa = 50; o dobro dela = 100; metade = 25.
 - ``conversao`` — pedidos + receita da loja (Shopify/Fbits) vs período anterior (nota de crescimento).
 
-Nota de crescimento: estável = 60; cada 1% de alta soma 0,8 ponto (+50% = 100) e cada 1% de queda
-tira 0,8 (−75% = 0). Saiu do zero = 80.
+Nota de crescimento: estável = 50 (o meio da régua); cada 1% de variação vale 0,8 ponto, igual para alta
+e queda (+62,5% = 100, −62,5% = 0). Saiu do zero = 60 (base pequena não é prova de crescimento).
 
 Pesos: padrão abaixo; cada empresa ajusta em ``brand_health_settings.index_weights`` (equipe Mugô ou
 admin do cliente). Peso 0 desliga o pilar.
@@ -31,7 +37,12 @@ from .ig_supabase import sb_rpc, sb_select, sb_upsert
 from .studio_calendar import StudioError
 
 PILLARS = ("conversa", "conversao", "atencao", "presenca", "reputacao")
-MIN_PREV_DAYS = 7  # menos que isso no período anterior não dá comparação honesta
+MIN_PREV_DAYS = 7  # piso; o período anterior precisa de dado em pelo menos metade dos dias
+MIN_MENTIONS = 30  # abaixo disso a amostra de menções é pequena demais para dar nota
+PRIOR_MENTIONS = bh.PRIOR_MENTIONS
+SOURCE_WEIGHT = bh.SOURCE_WEIGHT
+STABLE_SCORE = 50
+FROM_ZERO_SCORE = 60
 DEFAULT_WEIGHTS: Dict[str, int] = {"conversa": 30, "conversao": 25, "atencao": 20, "presenca": 15, "reputacao": 10}
 PILLAR_NAME = {
     "conversa": "Conversa", "conversao": "Conversão em vendas", "atencao": "Atenção no Instagram",
@@ -65,12 +76,12 @@ def change_pct(cur: Optional[float], prev: Optional[float]) -> Optional[float]:
 
 
 def growth_score(cur: Optional[float], prev: Optional[float]) -> Optional[int]:
-    """Estável = 60; ±0,8 ponto por 1% de variação. Saiu do zero = 80; sem movimento nos dois = sem nota."""
+    """Estável = 50; ±0,8 ponto por 1% de variação (simétrico). Saiu do zero = 60; sem movimento = sem nota."""
     if cur is None or prev is None:
         return None
     if not prev:
-        return 80 if cur > 0 else None
-    return _clamp(60 + 0.8 * change_pct(cur, prev))
+        return FROM_ZERO_SCORE if cur > 0 else None
+    return _clamp(STABLE_SCORE + 0.8 * change_pct(cur, prev))
 
 
 def blend(scores: List[Optional[int]]) -> Optional[int]:
@@ -78,13 +89,24 @@ def blend(scores: List[Optional[int]]) -> Optional[int]:
     return _round(sum(valid) / len(valid)) if valid else None
 
 
-def share_score(brand: int, competitors: int) -> tuple[Optional[int], Optional[float]]:
+def fair_share_score(share: Optional[float], rivals: int) -> Optional[int]:
+    """Nota do share (%) contra a fatia justa 1/(N+1): na fatia justa = 50, o dobro = 100."""
+    if share is None or rivals < 1:
+        return None
+    fair = 100 / (rivals + 1)
+    return _clamp(50 * share / fair)
+
+
+def share_score(brand: int, competitors: int, rivals: int = 1) -> tuple[Optional[int], Optional[float]]:
     """Share de voz (%) e nota: sem concorrente no radar ou sem notícia nenhuma = sem nota."""
     total = brand + competitors
     if not competitors or not total:
         return None, None
     share = brand / total * 100
-    return _clamp(share * 2), round(share, 1)
+    return fair_share_score(share, max(1, rivals)), round(share, 1)
+
+
+weighted_net = bh.weighted_net
 
 
 def clean_weights(raw: Any) -> Dict[str, int]:
@@ -147,16 +169,19 @@ async def _sales_totals(client_id: str, start: date, end: date) -> Optional[Dict
 
 
 async def _news_share(client_id: str, start: date, end: date) -> Dict[str, int]:
+    from .studio_clipping import get_settings as clipping_settings
     lo, hi = bh._bounds(start, end)
-    rows = await sb_rpc("brand_health_share", {"p_client": client_id, "p_start": lo, "p_end": hi})
-    out = {"marca": 0, "concorrente": 0}
+    rows, settings = await asyncio.gather(
+        sb_rpc("brand_health_share", {"p_client": client_id, "p_start": lo, "p_end": hi}),
+        clipping_settings(client_id))
+    out = {"marca": 0, "concorrente": 0, "rivais": len((settings or {}).get("competitor_terms") or [])}
     for row in rows if isinstance(rows, list) else []:
         key = "concorrente" if row.get("kind") == "concorrente" else "marca"
         out[key] += int(row.get("n") or 0)
     return out
 
 
-async def _instagram_share(client_id: str, days: int) -> Optional[float]:
+async def _instagram_share(client_id: str, days: int) -> Optional[Dict[str, float]]:
     """Share de atenção no Instagram contra os concorrentes do Benchmarking (None sem coleta ou sem concorrente)."""
     from .benchmark import instagram_block
     competitors = await sb_select("benchmark_competitors", select="name,instagram_handle,active",
@@ -166,12 +191,14 @@ async def _instagram_share(client_id: str, days: int) -> Optional[float]:
     brand = next((r for r in rows if r.get("is_brand")), None)
     if not brand or len(rows) < 2 or brand.get("share") is None:
         return None
-    return float(brand["share"])
+    return {"share": float(brand["share"]), "rivals": len(rows) - 1}
 
 
 async def _conversation(client_id: str, start: date, end: date) -> Dict[str, Any]:
-    split = bh._split(await bh._buckets(client_id, start, end, "year", list(bh.SOURCES)))
-    return {"net": bh.net_sentiment(split), "analyzed": sum(split[s] for s in bh.SENTIMENTS)}
+    splits = bh.splits_by_source(await bh._buckets(client_id, start, end, "year", list(bh.SOURCES)))
+    analyzed = sum(split[s] for split in splits.values() for s in bh.SENTIMENTS)
+    mentions = sum(sum(split.values()) for split in splits.values())
+    return {"net": weighted_net(splits), "analyzed": analyzed, "mentions": mentions}
 
 
 # ------------------------------------------------------------------ pesos
@@ -235,13 +262,20 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
 
     net = (conv or {}).get("net")
     analyzed = int((conv or {}).get("analyzed") or 0)
+    mentions = int((conv or {}).get("mentions") or analyzed)
+    enough = net is not None and analyzed >= MIN_MENTIONS
     pillars.append(_pillar(
-        "conversa", None if net is None else _clamp((net + 100) / 2),
-        f"Sentimento líquido {net:+d} em {_fmt_int(analyzed)} menções analisadas" if net is not None else "",
-        value=net, reason="Ainda sem menções analisadas pela IA no período."))
+        "conversa", _clamp((net + 100) / 2) if enough else None,
+        f"Sentimento líquido {net:+d} em {_fmt_int(analyzed)} menções analisadas (ajustado pelo tamanho da amostra)" if enough else "",
+        value=net if enough else None,
+        reason=("Ainda sem menções analisadas pela IA no período." if not analyzed else
+                f"Fora da conta: só {analyzed} menções analisadas no período; precisa de {MIN_MENTIONS} para uma nota justa.")))
 
     if alerts is None:
         pillars.append(_pillar("reputacao", None, "", reason="Não foi possível ler os alertas agora."))
+    elif not alerts and mentions < MIN_MENTIONS:
+        pillars.append(_pillar("reputacao", None, "", reason=(
+            f"Fora da conta: só {mentions} menções monitoradas no período; sem alerta com tão pouco monitorado não prova reputação boa.")))
     else:
         high = sum(1 for a in alerts if a.get("severity") == "alto")
         detail = ("Nenhum alerta aberto" if not alerts else
@@ -250,7 +284,8 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
         pillars.append(_pillar("reputacao", bh.alert_score(alerts), detail, value=len(alerts)))
 
     prev_days = int(ig_prev.get("days", length)) if ig_prev else 0  # sem a contagem de dias: período completo
-    if ig_cur and ig_prev is not None and prev_days >= MIN_PREV_DAYS:
+    need_days = max(MIN_PREV_DAYS, (length + 1) // 2)
+    if ig_cur and ig_prev is not None and prev_days >= need_days:
         # Período anterior incompleto (histórico do Instagram começa depois): compara pela MÉDIA POR DIA.
         partial = prev_days < length
         cur_days = max(1, int(ig_cur.get("days") or length))
@@ -268,8 +303,8 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
     else:
         prev_label = f"{prev_start.strftime('%d/%m')} a {prev_end.strftime('%d/%m')}"
         pillars.append(_pillar("atencao", None, "", reason=(
-            f"Fora da conta: sem dados do Instagram de {prev_label} para comparar. Escolha um período menor "
-            "(ex.: últimos 30 dias) ou aguarde a busca do histórico." if ig_cur
+            f"Fora da conta: só {prev_days} de {length} dias com dados do Instagram de {prev_label} "
+            f"(precisa de {need_days}) para comparar. Escolha um período menor ou aguarde a busca do histórico." if ig_cur
             else "Instagram não conectado ou sem dados no período.")))
 
     if sales_cur and sales_prev is not None:
@@ -284,16 +319,21 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
         pillars.append(_pillar("conversao", None, "", reason="Loja (Shopify ou Fbits) não conectada."))
 
     brand_news, rival_news = int((share or {}).get("marca") or 0), int((share or {}).get("concorrente") or 0)
-    news_score, news_share = share_score(brand_news, rival_news)
-    ig_score = None if ig_share is None else _clamp(ig_share * 2)
+    news_rivals = int((share or {}).get("rivais") or 1)
+    news_score, news_share = share_score(brand_news, rival_news, news_rivals)
+    ig_pct = None if not ig_share else ig_share.get("share")
+    ig_rivals = int((ig_share or {}).get("rivals") or 0)
+    ig_score = fair_share_score(ig_pct, ig_rivals)
     parts = []
     if news_share is not None:
-        parts.append(f"{news_share:.0f}% das notícias do radar ({brand_news} de {brand_news + rival_news})")
-    if ig_share is not None:
-        parts.append(f"{ig_share:.0f}% das interações no Instagram contra os concorrentes")
+        parts.append(f"{news_share:.0f}% das notícias do radar ({brand_news} de {brand_news + rival_news}; "
+                     f"fatia justa {100 / (max(1, news_rivals) + 1):.0f}%)")
+    if ig_score is not None:
+        parts.append(f"{ig_pct:.0f}% das interações no Instagram contra {ig_rivals} "
+                     f"{'concorrente' if ig_rivals == 1 else 'concorrentes'} (fatia justa {100 / (ig_rivals + 1):.0f}%)")
     pillars.append(_pillar(
         "presenca", blend([news_score, ig_score]), " · ".join(parts),
-        value={"noticias": news_share, "instagram": ig_share},
+        value={"noticias": news_share, "instagram": ig_pct},
         reason=("Cadastre concorrentes no radar do Clipping ou no Benchmarking (com o @ do Instagram) para medir a fatia de atenção."
                 if not rival_news else "Sem notícias no período.")))
 

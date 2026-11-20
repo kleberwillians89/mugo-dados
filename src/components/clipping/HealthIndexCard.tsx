@@ -133,13 +133,13 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
     {editing ? <WeightsEditor data={d} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); setNonce((n) => n + 1); }} /> : null}
     <HowToRead title="Como ler a nota" intro="Vai de 0 a 100 e junta cinco sinais da marca."
       items={[
-        { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações." },
+        { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações. Comentário no próprio perfil pesa metade e amostra pequena puxa para o neutro." },
         { term: "Conversão", text: "Pedidos e faturamento comparados ao período anterior." },
         { term: "Atenção", text: "Quantas pessoas viram e interagiram no Instagram." },
-        { term: "Presença", text: "Quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram." },
-        { term: "Reputação", text: "Se existe algum alerta aberto." },
+        { term: "Presença", text: "Quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram. Ter a fatia justa (ex.: 25% com 3 concorrentes) vale 50; o dobro vale 100." },
+        { term: "Reputação", text: "Se existe algum alerta aberto, desde que haja menções suficientes monitoradas." },
       ]}
-      note={<>Repetir os números do período anterior vale 60 pontos; cada 1% de crescimento soma quase 1 ponto.
+      note={<>Repetir os números do período anterior vale 50, o meio da régua; cada 1% de alta ou de queda move 0,8 ponto. 70 ou mais é saudável: exige crescer de verdade.
         {off.length ? ` Ainda sem dado para calcular: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}</>} />
   </section>;
 }

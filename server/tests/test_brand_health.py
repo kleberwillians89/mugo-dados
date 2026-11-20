@@ -72,7 +72,8 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         k = out["kpis"]
         self.assertEqual(out["sources"], ["news", "comments"])
         self.assertEqual((k["mentions"], k["mentions_previous"], k["mentions_change"], k["net"], k["unanalyzed"]), (13, 5, 160.0, 60, 3))
-        self.assertEqual(k["index"], round(0.8 * 80 + 0.2 * 75))
+        # Nota usa o líquido ajustado: 10 comentários do próprio perfil pesam 5; (4 − 1) / (5 + 20) = +12 → 56.
+        self.assertEqual(k["index"], round(0.8 * 56 + 0.2 * 75))
         self.assertEqual([b["bucket"] for b in out["series"]], ["2026-11-02", "2026-11-09"])
         self.assertIsNone(out["series"][1]["net"])
         self.assertEqual(out["themes"][0], {"theme": "prazo de entrega", "mentions": 2, "previous": 0, "change": None, "tone": "negativo"})
