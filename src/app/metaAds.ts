@@ -67,6 +67,27 @@ export const saveAdDraft = (id: string, payload: AdPayload) =>
   http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify({ payload }) });
 export const publishAdDraft = (id: string) =>
   http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/publish`), { method: "POST", timeoutMs: 180_000 });
+/** Atualiza verba na Meta e só confirma após read-back do provedor. */
+export const updateLiveMetaBudget = (id: string, dailyBudget: number) =>
+  http<{ draft: AdDraft; meta_confirmed: true; budget_level: string }>(
+    base(`/${encodeURIComponent(id)}/edit-budget`),
+    { method: "POST", body: JSON.stringify({ daily_budget: dailyBudget, confirm: true }), timeoutMs: 60_000 }
+  );
+
+/** Edição de um único anúncio de imagem: cria novo criativo e substitui referência na Meta. */
+export const updateLiveMetaCreative = (id: string, ad: Pick<AdPayload["ad"], "primary_text" | "headline" | "description" | "cta" | "link" | "image_url">) =>
+  http<{ draft: AdDraft; meta_confirmed: true; review_may_be_required: true }>(
+    base(`/${encodeURIComponent(id)}/edit-creative`),
+    { method: "POST", body: JSON.stringify({ ad, confirm: true }), timeoutMs: 120_000 }
+  );
+
+/** Descontos oficiais da Shopify vinculada à empresa ativa; exige read_discounts. */
+export type ShopPromotionCode = { code: string; title: string; status: string; starts_at: string | null; ends_at: string | null };
+export const listShopPromotionCodes = () =>
+  http<{ source: "shopify"; codes: ShopPromotionCode[]; read_only: true; partial: boolean }>(
+    base("/promotion-codes"), { timeoutMs: 45_000 }
+  );
+
 export const deleteAdDraft = (id: string) => http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" });
 export const listAdAudiences = () => http<AccountAudiences>(base("/audiences"), { timeoutMs: 60_000 });
 
