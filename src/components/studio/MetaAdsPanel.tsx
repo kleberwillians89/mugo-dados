@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId } from "../../app/activeClient";
-import { deleteAdDraft, duplicateAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, type MetaPublicationPreflight, type AdDraft, type AdPayload, type AdCreative, MAX_ADS, normalizeAdFormats, PIXEL_OBJECTIVES } from "../../app/metaAds";
+import { deleteAdDraft, duplicateAdDraft, generateAdDraft, listAdDrafts, publishAdDraft, saveAdDraft, metaPublicationPreflight, readMetaCampaignOverview, type MetaOverviewCampaign, type MetaPublicationPreflight, type AdDraft, type AdPayload, type AdCreative, MAX_ADS, normalizeAdFormats, PIXEL_OBJECTIVES } from "../../app/metaAds";
 import { getCalendar, type CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
 import MetaLiveCampaign from "./MetaLiveCampaign";
+import { campaignCategory, type CampaignFilter } from "./MediaClientCampaigns";
 import MetaPixelSwitch from "./MetaPixelSwitch";
 import MetaPixelPicker from "./MetaPixelPicker";
 import MetaWhatsappNumber from "./MetaWhatsappNumber";
@@ -35,6 +36,9 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
   const clientId = getActiveClientId();
   const handledRequest = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<AdDraft[] | null>(null);
+  const [cardFilter, setCardFilter] = useState<CampaignFilter | "drafts">("active");
+  const [liveList, setLiveList] = useState<MetaOverviewCampaign[] | null>(null);
+  const [liveError, setLiveError] = useState(false);
   const [objectives, setObjectives] = useState<Record<string, string>>({});
   const [ctas, setCtas] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<{ draft: AdDraft; payload: AdPayload } | null>(null);
@@ -72,6 +76,14 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     } catch (cause) { setError(message(cause, "Não foi possível carregar as campanhas do Meta Ads.")); setDrafts([]); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    setLiveList(null); setLiveError(false); setCardFilter("active");
+    readMetaCampaignOverview(clientId)
+      .then((r) => { if (active && getActiveClientId() === clientId) setLiveList(r.campaigns); })
+      .catch(() => { if (active && getActiveClientId() === clientId) setLiveError(true); });
+    return () => { active = false; };
+  }, [clientId]);
   useEffect(() => {
     getCalendar(month).then((r) => setArts(r.items.filter((i) => firstArt(i) && isImage(firstArt(i))))).catch(() => setArts([]));
   }, [month, clientId]);
@@ -184,6 +196,15 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     if (step < 3) setStep((step + 1) as MetaStep);
   }
 
+
+  const cardStatuses = new Map((liveList || []).map((c) => [c.id, campaignCategory(c)]));
+  const visibleDrafts = (drafts || []).filter((d) => {
+    if (cardFilter === "all") return true;
+    if (cardFilter === "drafts") return d.status !== "publicada";
+    if (d.status !== "publicada" || !d.meta_ids?.campaign_id) return false;
+    return cardStatuses.get(d.meta_ids.campaign_id) === cardFilter;
+  });
+
   return <section className="ds-section metaAds" aria-labelledby="media-meta-ads">
     <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-meta-ads" className="ds-sectionTitle">Campanhas no Meta Ads</h2>
       <p className="ds-caption">A IA monta a campanha completa a partir do plano. Você revisa, escolhe a arte do Calendário e cria no Meta, sempre pausada.</p></div>
@@ -196,9 +217,26 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}</p></div> : null}
     {busy === "generate" ? <p className="ds-caption">A IA está montando público, texto e verba… até 1 minuto.</p> : null}
-    {!drafts ? <p className="ds-caption">Carregando…</p> : !drafts.length ? <p className="ds-emptyLine">Nenhuma campanha preparada. Use “Preparar no Meta Ads” numa campanha do Meta acima ou “+ Nova campanha”.</p> :
+    <div className="mediaAllClientsFilters" style={{ marginTop: 16, marginBottom: 16 }}>
+      <label>Status das campanhas
+        <select aria-label="Filtrar cards por status" value={cardFilter} onChange={(e) => setCardFilter(e.target.value as CampaignFilter | "drafts")}>
+          <option value="active">Ativas (padrão)</option>
+          <option value="paused">Pausadas / desativadas</option>
+          <option value="finished">Encerradas / arquivadas</option>
+          <option value="review">Em análise</option>
+          <option value="issues">Com problemas</option>
+          <option value="other">Status não confirmado</option>
+          <option value="drafts">Rascunhos e erros de publicação</option>
+          <option value="all">Todas as campanhas</option>
+        </select>
+      </label>
+    </div>
+    {liveError && cardFilter !== "all" && cardFilter !== "drafts" ? <p className="studioError" role="alert">Não foi possível confirmar os status na Meta. Atualize a página ou escolha “Todas as campanhas” para consultar os registros.</p> : null}
+    {!drafts || (liveList === null && !liveError && cardFilter !== "all" && cardFilter !== "drafts") ? <p className="ds-caption">Consultando as campanhas da empresa na Meta…</p>
+      : !drafts.length ? <p className="ds-emptyLine">Nenhuma campanha preparada. Use “Preparar no Meta Ads” numa campanha do Meta acima ou “+ Nova campanha”.</p>
+      : !visibleDrafts.length ? <p className="ds-emptyLine">Nenhuma campanha neste status. Use o filtro para visualizar campanhas pausadas, encerradas ou rascunhos.</p> :
       <div className="metaAdsCampaignCards" aria-label="Campanhas Meta Ads já preparadas">
-        {drafts.map((d) => <article className="metaAdsCampaignCard" key={d.id}>
+        {visibleDrafts.map((d) => <article className="metaAdsCampaignCard" key={d.id}>
           <StatusBadge label={STATUS[d.status].label} tone={STATUS[d.status].tone} />
           <h3>{d.payload.name}</h3>
           {d.source_campaign && d.source_campaign !== d.payload.name ? <p className="ds-caption">Origem: {d.source_campaign}</p> : null}
