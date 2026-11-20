@@ -199,3 +199,48 @@ class FairnessTests(unittest.TestCase):
     def test_alerta_conta_mesmo_com_pouca_mencao(self):
         p = self._compute({"net": 0, "analyzed": 5, "mentions": 5}, [{"severity": "alto"}])
         self.assertEqual(p["reputacao"]["score"], 75)
+
+
+class CompareWithAvailableTests(unittest.IsolatedAsyncioTestCase):
+    """Período anterior sem histórico: compara com o que existe, mesmo número de dias dos dois lados."""
+
+    def _series(self, first: date, n: int, reach_from: int = 100, step: int = 0):
+        from datetime import timedelta
+        return [((first + timedelta(days=i)).isoformat(), reach_from + step * i, 10) for i in range(n)]
+
+    def test_available_split_uses_equal_halves(self):
+        series = self._series(date(2026, 7, 22), 40)
+        out = bhi.available_split(series, 92)
+        self.assertEqual(out["days"], 20)
+        self.assertEqual((out["previous"]["from"], out["previous"]["to"]), ("2026-07-22", "2026-08-10"))
+        self.assertEqual((out["current"]["from"], out["current"]["to"]), ("2026-08-11", "2026-08-30"))
+        self.assertIsNone(bhi.available_split(series[:12], 92))  # 6 de cada lado: pouco para comparar
+
+    async def test_compute_falls_back_to_available_history(self):
+        cur_series = self._series(date(2026, 8, 21), 92, reach_from=100)
+        prev_series = self._series(date(2026, 7, 22), 30, reach_from=100)
+
+        async def ig(cid, start, end):
+            series = cur_series if start.month == 8 and start.day == 21 else prev_series
+            return {"reach": sum(x[1] for x in series), "interactions": sum(x[2] for x in series),
+                    "days": len(series), "series": series}
+        with patch.object(bhi, "_conversation", AsyncMock(return_value=None)), \
+             patch.object(bhi.bh, "open_alerts", AsyncMock(return_value=[])), \
+             patch.object(bhi, "get_weights", AsyncMock(return_value={"weights": dict(bhi.DEFAULT_WEIGHTS), "custom": False})), \
+             patch.object(bhi, "_instagram_totals", side_effect=ig), \
+             patch.object(bhi, "_sales_totals", AsyncMock(return_value=None)), \
+             patch.object(bhi, "_news_share", AsyncMock(return_value={})), \
+             patch.object(bhi, "_instagram_share", AsyncMock(return_value=None)):
+            out = await bhi.compute("ruah", start=date(2026, 8, 21), end=date(2026, 11, 20))
+        pillar = next(p for p in out["pillars"] if p["key"] == "atencao")
+        self.assertEqual(pillar["score"], 50)  # mesmo alcance por dia nas duas metades = estável
+        self.assertIn("comparado com o que existe: últimos 61 dias", pillar["detail"])
+        self.assertNotIn("series", pillar["value"])
+
+
+class MeasuredShareTests(unittest.TestCase):
+    def test_concorrente_sem_dado_nao_vira_100_da_marca(self):
+        rows = [{"is_brand": True, "interactions_in_period": 500}, {"is_brand": False, "interactions_in_period": 0}]
+        self.assertEqual(bhi.share_against_measured(rows), {"share": None, "rivals": 0, "unmeasured": 1})
+        rows.append({"is_brand": False, "interactions_in_period": 1500})
+        self.assertEqual(bhi.share_against_measured(rows), {"share": 25.0, "rivals": 1})
