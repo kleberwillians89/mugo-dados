@@ -46,6 +46,6 @@ describe("Campanha na Meta pelo painel", () => {
     await act(async () => (host.querySelector('.metaLiveConfirm input[type="checkbox"]') as HTMLInputElement).click());
     await act(async () => button("Ativar agora").click());
     expect(m.activate).toHaveBeenCalledWith("d1", 50);
-    expect(button("Pausar")).toBeTruthy();
+    // A última ação salva não substitui o estado real da Meta: ainda PAUSED.\n    expect(button("Ativar na Meta")).toBeTruthy();
   });
 });
