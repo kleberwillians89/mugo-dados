@@ -31,6 +31,7 @@ from .ig_supabase import sb_rpc, sb_select, sb_upsert
 from .studio_calendar import StudioError
 
 PILLARS = ("conversa", "conversao", "atencao", "presenca", "reputacao")
+MIN_PREV_DAYS = 7  # menos que isso no período anterior não dá comparação honesta
 DEFAULT_WEIGHTS: Dict[str, int] = {"conversa": 30, "conversao": 25, "atencao": 20, "presenca": 15, "reputacao": 10}
 PILLAR_NAME = {
     "conversa": "Conversa", "conversao": "Conversão em vendas", "atencao": "Atenção no Instagram",
@@ -129,8 +130,11 @@ async def _instagram_totals(client_id: str, start: date, end: date) -> Optional[
     daily = report.get("daily") or []
     if not report.get("connection_id") or not daily:
         return None
+    # Só conta como "com dado" o dia que a Meta devolveu algum número (dia sem snapshot não vira zero).
+    days = sum(1 for r in daily if any(r.get(k) is not None for k in ("reach", "total_interactions", "interactions")))
     return {"reach": sum(int(r.get("reach") or 0) for r in daily),
-            "interactions": sum(int(r.get("total_interactions") or r.get("interactions") or 0) for r in daily)}
+            "interactions": sum(int(r.get("total_interactions") or r.get("interactions") or 0) for r in daily),
+            "days": days}
 
 
 async def _sales_totals(client_id: str, start: date, end: date) -> Optional[Dict[str, float]]:
@@ -245,17 +249,28 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
                    f"{f', {high} alto' + ('s' if high > 1 else '') if high else ''}") if with_alert_detail else "Há pontos em acompanhamento pela equipe")
         pillars.append(_pillar("reputacao", bh.alert_score(alerts), detail, value=len(alerts)))
 
-    if ig_cur and ig_prev is not None:
-        prev = ig_prev
-        score = blend([growth_score(ig_cur["reach"], prev["reach"]), growth_score(ig_cur["interactions"], prev["interactions"])])
-        ch = change_pct(ig_cur["reach"], prev["reach"])
-        pillars.append(_pillar(
-            "atencao", score,
-            f"Alcance {_fmt_int(ig_cur['reach'])} e {_fmt_int(ig_cur['interactions'])} interações no período",
-            value=ig_cur, previous=prev, change=ch, reason="Sem alcance nem interações nos dois períodos."))
+    prev_days = int(ig_prev.get("days", length)) if ig_prev else 0  # sem a contagem de dias: período completo
+    if ig_cur and ig_prev is not None and prev_days >= MIN_PREV_DAYS:
+        # Período anterior incompleto (histórico do Instagram começa depois): compara pela MÉDIA POR DIA.
+        partial = prev_days < length
+        cur_days = max(1, int(ig_cur.get("days") or length))
+
+        def rate(block: Dict[str, Any], key: str, days: int) -> float:
+            return block[key] / days if partial else block[key]
+        score = blend([growth_score(rate(ig_cur, "reach", cur_days), rate(ig_prev, "reach", prev_days)),
+                       growth_score(rate(ig_cur, "interactions", cur_days), rate(ig_prev, "interactions", prev_days))])
+        ch = change_pct(rate(ig_cur, "reach", cur_days), rate(ig_prev, "reach", prev_days))
+        detail = f"Alcance {_fmt_int(ig_cur['reach'])} e {_fmt_int(ig_cur['interactions'])} interações no período"
+        if partial:
+            detail += f" · comparado pela média por dia ({prev_days} de {length} dias do período anterior têm dado)"
+        pillars.append(_pillar("atencao", score, detail, value=ig_cur, previous=ig_prev, change=ch,
+                               reason="Sem alcance nem interações nos dois períodos."))
     else:
+        prev_label = f"{prev_start.strftime('%d/%m')} a {prev_end.strftime('%d/%m')}"
         pillars.append(_pillar("atencao", None, "", reason=(
-            "Sem dados do período anterior para comparar." if ig_cur else "Instagram não conectado ou sem dados no período.")))
+            f"Fora da conta: sem dados do Instagram de {prev_label} para comparar. Escolha um período menor "
+            "(ex.: últimos 30 dias) ou aguarde a busca do histórico." if ig_cur
+            else "Instagram não conectado ou sem dados no período.")))
 
     if sales_cur and sales_prev is not None:
         prev = sales_prev or {"orders": 0, "revenue": 0}

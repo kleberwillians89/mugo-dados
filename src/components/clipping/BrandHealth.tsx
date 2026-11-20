@@ -132,8 +132,9 @@ const ALERT_KIND: Record<string, string> = { termo: "Termo", queda_indice: "Qued
 /** Painel "Saúde da marca": filtros em uma linha, números do período, evolução, canais, assuntos e alertas. */
 export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: boolean; onOpenAlerts?: () => void }) {
   const clientId = getActiveClientId();
-  const [grain, setGrain] = useState<Grain>("week");
-  const [range, setRange] = useState<{ start: string; end: string; preset: Preset }>(() => ({ ...presetRange("3m"), preset: "3m" }));
+  // Abre nos últimos 30 dias (contra os 30 anteriores): período com histórico completo do Instagram.
+  const [grain, setGrain] = useState<Grain>("day");
+  const [range, setRange] = useState<{ start: string; end: string; preset: Preset }>(() => ({ ...presetRange("30d"), preset: "30d" }));
   const [sources, setSources] = useState<Source[]>(SOURCES);
   const [result, setResult] = useState<{ key: string; data: Health | null; error: string | null }>({ key: "", data: null, error: null });
 

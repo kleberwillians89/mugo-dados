@@ -83,6 +83,7 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
     </section>;
   }
   const off = d.pillars.filter((p) => p.score == null && p.weight > 0);
+  const configured = weightShares(d.weights);
 
   if (compact) {
     return <section className={`bhCard hiCard is-compact${loading ? " is-loading" : ""}`} aria-labelledby="hi-title-compact" aria-busy={loading}>
@@ -120,7 +121,7 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
         {d.pillars.map((p) => <li key={p.key} className={p.weight === 0 ? "is-off" : ""}>
           <div className="hiPillarTop">
             <span className="hiPillarName" title={p.hint}>{p.name}</span>
-            <span className="hiPillarWeight">{p.weight === 0 ? "desligado" : p.score == null ? "fora da conta" : `peso ${nf.format(p.effective_weight)}%`}</span>
+            <span className="hiPillarWeight">{p.weight === 0 ? "desligado" : p.score == null ? `peso ${nf.format(configured[p.key])}% · fora da conta` : `peso ${nf.format(p.effective_weight)}%`}</span>
             <b className="hiPillarScore">{p.score ?? "—"}</b>
           </div>
           <span className="hiBar"><i className={`is-${healthTone(p.score)}`} style={{ width: `${p.score ?? 0}%` }} /></span>
