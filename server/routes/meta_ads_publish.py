@@ -161,6 +161,16 @@ async def read_meta_campaigns(client_id: str, authorization: Optional[str] = Hea
         raise _http(exc) from None
 
 
+@router.get("/meta-campaigns/overview")
+async def read_meta_campaign_overview(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Visão somente leitura da empresa autorizada, incluindo campanhas encerradas."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return {"campaigns": await pub.list_meta_campaigns(cid, include_finished=True)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 class ImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     campaign_id: str = Field(pattern=r"^\d{5,30}$")
