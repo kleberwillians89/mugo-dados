@@ -65,7 +65,7 @@ describe("Dashboard gerencial", () => {
     expect(container.textContent).toContain("Maison Demo, em perspectiva.");
     expect(container.textContent).toContain("Saúde compacta: true");
     expect(container.textContent).toContain("Faturamento da loja");
-    expect(container.textContent).toContain("R$ 8.300,00");
+    expect(container.textContent?.replace(/\u00a0/g, " ")).toContain("R$ 8.300,00");
     expect(container.textContent).toContain("Ticket médio estimado");
     expect(container.textContent).not.toContain("Trabalhos em andamento");
     const hero = container.querySelector(".clientExecutiveWelcome");
