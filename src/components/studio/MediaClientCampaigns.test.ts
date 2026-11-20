@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campaignCategory } from "./MediaAllClientsCampaigns";
+import { campaignCategory } from "./MediaClientCampaigns";
 
 describe("classificação de campanhas no Mídia On", () => {
   it("distingue ativas, pausadas, arquivadas, análise e problemas", () => {
