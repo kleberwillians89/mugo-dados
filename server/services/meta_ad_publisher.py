@@ -819,6 +819,114 @@ async def delete_draft(client_id: str, draft_id: str) -> None:
     await sb_delete(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, returning="minimal")
 
 
+async def edit_live_budget(client_id: str, draft_id: str, daily_budget: float) -> Dict[str, Any]:
+    """Update the provider's actual budget level then persist verified value; never activate delivery."""
+    import math
+    if not isinstance(daily_budget, (int, float)) or not math.isfinite(daily_budget) or daily_budget < MIN_DAILY_BRL:
+        raise StudioError("AD_NOT_READY", f"Orçamento mínimo: R$ {MIN_DAILY_BRL:.2f} por dia.")
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    account = await _ad_account(client_id)
+    if ids.get("ad_account_id") and str(ids["ad_account_id"]).removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    campaign = await _graph("GET", f"/{ids['campaign_id']}", token=account["token"],
+                            params={"fields": "id,account_id,daily_budget,status"})
+    if str(campaign.get("account_id") or "").removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    target = str(ids["campaign_id"])
+    if not _num(campaign.get("daily_budget")):
+        # Imported campaigns can have budget at ad-set level; never change a different ad set.
+        adset_ids = list(ids.get("adset_ids") or ([ids["adset_id"]] if ids.get("adset_id") else []))
+        if len(adset_ids) != 1:
+            raise StudioError("AD_NOT_READY", "Campanha com múltiplos conjuntos: ajuste de verba exige selecionar o conjunto específico.")
+        target = str(adset_ids[0])
+        adset = await _graph("GET", f"/{target}", token=account["token"],
+                             params={"fields": "id,campaign_id,daily_budget"})
+        if str(adset.get("campaign_id")) != str(ids["campaign_id"]):
+            raise StudioError("AD_ACCOUNT_CHANGED")
+        if not _num(adset.get("daily_budget")):
+            raise StudioError("AD_NOT_READY", "Não foi possível localizar o orçamento diário desta campanha.")
+    cents = int(round(float(daily_budget) * 100))
+    await _graph("POST", f"/{target}", token=account["token"], data={"daily_budget": str(cents)})
+    confirmed = await _graph("GET", f"/{target}", token=account["token"], params={"fields": "id,daily_budget"})
+    if abs(_num(confirmed.get("daily_budget")) - cents) > 1:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou o novo orçamento. Confira a conta antes de tentar novamente.")
+    payload = dict(row.get("payload") or {})
+    payload["daily_budget"] = cents / 100
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                           patch={"payload": payload, "updated_at": _now()})
+    return {"draft": _view(rows[0] if rows else {**row, "payload": payload}),
+            "meta_confirmed": True, "budget_level": "campaign" if target == str(ids["campaign_id"]) else "adset"}
+
+
+async def edit_live_single_image(client_id: str, draft_id: str, updated_ad: Dict[str, Any]) -> Dict[str, Any]:
+    """Make a new Meta creative and replace the owned ad's creative. Existing creative is immutable."""
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("ad_id") or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    if len(_ads_of(ids)) != 1:
+        raise StudioError("AD_NOT_READY", "Campanha com vários anúncios: edite os anúncios individualmente no Gerenciador até termos a seleção de anúncio.")
+    payload = dict(row.get("payload") or {})
+    old_ad = dict(payload.get("ad") or {})
+    if old_ad.get("format") not in (None, "single", "multi") or old_ad.get("media_type") == "video":
+        raise StudioError("AD_NOT_READY", "Edição direta disponível por enquanto para anúncio de imagem única.")
+    candidate = {**old_ad, **{k: v for k, v in updated_ad.items() if k in
+                              {"primary_text", "headline", "description", "cta", "link", "image_url"}}}
+    candidate["format"] = "single"
+    candidate["media_type"] = "image"
+    candidate["instagram_post_id"] = None
+    normalized = clean_payload({**payload, "ad": candidate})["ad"]
+    if not normalized.get("image_url") or not normalized.get("primary_text") or not normalized.get("link"):
+        raise StudioError("AD_NOT_READY", "Informe imagem, texto principal e link de destino.")
+    if normalized.get("cta") not in CTAS:
+        raise StudioError("AD_NOT_READY", "Botão inválido para anúncios da Meta.")
+    ctx = await _context(client_id)
+    if ids.get("ad_account_id") and str(ids["ad_account_id"]).removeprefix("act_") != ctx["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    original = await _graph("GET", f"/{ids['ad_id']}", token=ctx["token"],
+                            params={"fields": "id,account_id,campaign_id,creative{id}"})
+    if str(original.get("account_id") or "").removeprefix("act_") != ctx["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    # Validate that the requested ad belongs to the selected campaign.
+    if original.get("campaign_id") and str(original["campaign_id"]) != str(ids["campaign_id"]):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    image_hash = await _image_hash(ctx["act"], normalized["image_url"], ctx["token"])
+    link_data: Dict[str, Any] = {
+        "link": normalized["link"], "message": normalized["primary_text"],
+        "image_hash": image_hash,
+        "call_to_action": {"type": normalized["cta"], "value": {"link": normalized["link"]}},
+    }
+    if normalized.get("headline"):
+        link_data["name"] = normalized["headline"]
+    if normalized.get("description"):
+        link_data["description"] = normalized["description"]
+    story = {"page_id": ctx["page_id"], "link_data": link_data}
+    if ctx.get("ig_id"):
+        story["instagram_user_id"] = ctx["ig_id"]
+    new_creative = await _graph("POST", f"/{ctx['act']}/adcreatives", token=ctx["token"],
+                                data={"name": f"{payload.get('name', 'Campanha')} · edição Mugô Verso",
+                                      "object_story_spec": json.dumps(story),
+                                      **({"url_tags": tracking_suffix(payload["tracking"])} if payload.get("tracking") else {})})
+    creative_id = str(new_creative.get("id") or "")
+    if not creative_id:
+        raise StudioError("AD_NOT_READY", "A Meta não retornou o identificador do novo criativo.")
+    await _graph("POST", f"/{ids['ad_id']}", token=ctx["token"],
+                 data={"creative": json.dumps({"creative_id": creative_id})})
+    verified = await _graph("GET", f"/{ids['ad_id']}", token=ctx["token"],
+                            params={"fields": "id,creative{id}"})
+    if str((verified.get("creative") or {}).get("id") or "") != creative_id:
+        raise StudioError("AD_NOT_READY", "A Meta ainda não confirmou o novo criativo. Confira antes de tentar novamente.")
+    payload["ad"] = normalized
+    next_ids = {**ids, "creative_id": creative_id, "creative_ids": [creative_id]}
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                           patch={"payload": payload, "meta_ids": next_ids, "updated_at": _now()})
+    return {"draft": _view(rows[0] if rows else {**row, "payload": payload, "meta_ids": next_ids}),
+            "meta_confirmed": True, "review_may_be_required": True}
+
+
 # ---------------------------------------------------------------- Graph API
 
 class MetaAdError(StudioError):

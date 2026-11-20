@@ -7,6 +7,7 @@ import StatusBadge from "../StatusBadge";
 import MetaAudiencePicker from "./MetaAudiencePicker";
 import MetaCreativeStudio from "./MetaCreativeStudio";
 import MetaLiveCampaign from "./MetaLiveCampaign";
+import MetaLiveEditor from "./MetaLiveEditor";
 import { campaignCategory, type CampaignFilter } from "./MediaClientCampaigns";
 import MetaPixelSwitch from "./MetaPixelSwitch";
 import MetaPixelPicker from "./MetaPixelPicker";
@@ -250,6 +251,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           {d.meta_ids?.adset_id && PIXEL_OBJECTIVES.includes(d.payload.objective) ? <MetaPixelSwitch draftId={d.id} /> : null}
           {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveCampaign draft={d}
             adsCount={d.payload.ad.format === "multi" ? (d.payload.ad.cards || []).length : 1 + (d.payload.ad.extra_ads || []).length} /> : null}
+
+          {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveEditor key={clientId + ":" + d.id} draft={d} month={month} calendar={arts} onUpdated={upsert} /> : null}
 
           <div className="metaAdsActions">
             <button type="button" className="ds-button is-primary" onClick={() => open(d)}>

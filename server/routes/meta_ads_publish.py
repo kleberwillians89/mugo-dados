@@ -171,6 +171,18 @@ async def read_meta_campaign_overview(client_id: str, authorization: Optional[st
         raise _http(exc) from None
 
 
+@router.get("/promotion-codes")
+async def read_media_promotion_codes(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Read-only Shopify discount codes belonging to the authorized tenant."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    from services.integration_errors import IntegrationError
+    from services.shopify_discount_codes import list_shopify_promo_codes
+    try:
+        return await list_shopify_promo_codes(cid)
+    except IntegrationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
 class ImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     campaign_id: str = Field(pattern=r"^\d{5,30}$")
@@ -260,6 +272,42 @@ async def read_live_overview(client_id: str, authorization: Optional[str] = Head
     cid = await require_client_read(client_id, authorization)
     try:
         return await pub.client_overview(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class UpdateLiveBudgetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    daily_budget: float = Field(gt=0, le=1_000_000)
+    confirm: bool
+
+
+class UpdateLiveCreativeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ad: Dict[str, Any]
+    confirm: bool
+
+
+@router.post("/{draft_id}/edit-budget")
+async def edit_published_meta_budget(client_id: str, draft_id: UUID, body: UpdateLiveBudgetInput,
+                                     authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirme a alteração de orçamento na Meta.")
+    try:
+        return await pub.edit_live_budget(cid, str(draft_id), body.daily_budget)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/{draft_id}/edit-creative")
+async def edit_published_meta_creative(client_id: str, draft_id: UUID, body: UpdateLiveCreativeInput,
+                                       authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirme a troca do criativo na Meta.")
+    try:
+        return await pub.edit_live_single_image(cid, str(draft_id), body.ad)
     except StudioError as exc:
         raise _http(exc) from None
 
