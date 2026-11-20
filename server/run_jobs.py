@@ -49,10 +49,10 @@ async def _run(args: argparse.Namespace) -> Any:
         result = await run_daily_instagram_sync(
             limit=args.limit, process_thumbnails=not args.skip_thumbnails,
         )
-        # Autocorreção: preenche os KPIs do perfil dos últimos 30 dias que faltarem (só os ausentes).
+        # Autocorreção: preenche os KPIs do perfil dos últimos 120 dias que faltarem (só os ausentes).
         try:
             from services.instagram_profile_history import backfill_all
-            history = await backfill_all(days=30)
+            history = await backfill_all(days=120)  # 120 dias: dá base para comparar períodos de até ~2 meses
             if isinstance(result, dict):
                 result = {**result, "profile_history": history}
         except Exception as exc:  # noqa: BLE001 — o sync do dia já foi gravado

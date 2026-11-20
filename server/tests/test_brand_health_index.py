@@ -136,3 +136,31 @@ class WeightsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class AttentionPartialTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, prev):
+        cur = {"reach": 3000, "interactions": 600, "days": 30}
+
+        async def ig(cid, start, end):
+            return cur if start.month == 11 or (start.month == 10 and start.day > 20) else prev
+        with patch.object(bhi, "_conversation", AsyncMock(return_value=None)), \
+             patch.object(bhi.bh, "open_alerts", AsyncMock(return_value=[])), \
+             patch.object(bhi, "get_weights", AsyncMock(return_value={"weights": dict(bhi.DEFAULT_WEIGHTS), "custom": False})), \
+             patch.object(bhi, "_instagram_totals", side_effect=ig), \
+             patch.object(bhi, "_sales_totals", AsyncMock(return_value=None)), \
+             patch.object(bhi, "_news_share", AsyncMock(return_value={})), \
+             patch.object(bhi, "_instagram_share", AsyncMock(return_value=None)):
+            out = await bhi.compute("roove", start=date(2026, 10, 21), end=date(2026, 11, 19))
+        return next(p for p in out["pillars"] if p["key"] == "atencao")
+
+    async def test_periodo_anterior_parcial_compara_pela_media_por_dia(self):
+        pillar = await self._run({"reach": 1000, "interactions": 200, "days": 10})  # mesma média por dia
+        self.assertEqual(pillar["score"], 60)
+        self.assertIn("média por dia (10 de 30 dias", pillar["detail"])
+
+    async def test_sem_historico_suficiente_explica_as_datas(self):
+        pillar = await self._run({"reach": 100, "interactions": 20, "days": 3})
+        self.assertIsNone(pillar["score"])
+        self.assertIn("21/09 a 20/10", pillar["reason"])
