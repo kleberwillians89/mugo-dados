@@ -19,7 +19,7 @@ import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsP
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
 import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
-import MediaAllClientsCampaigns from "../components/studio/MediaAllClientsCampaigns";
+import MediaClientCampaigns from "../components/studio/MediaClientCampaigns";
 import { listBriefs, type Brief } from "../app/briefs";
 import "../styles/studio.css";
 import "../styles/mediaCampaignHub.css";
@@ -262,7 +262,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
     {!canManage ? <MediaLiveCampaigns /> : null}
-    {canManage ? <MediaAllClientsCampaigns /> : null}
+    {canManage ? <MediaClientCampaigns /> : null}
     {canManageCampaigns ? <MediaCampaignHub
       briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
       canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
