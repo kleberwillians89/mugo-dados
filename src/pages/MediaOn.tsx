@@ -27,7 +27,8 @@ const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 const PHASE = { base: "Base", aquecimento: "Aquecimento", pico: "Pico" } as const;
 const CHANNEL_COLOR: Record<Channel, string> = { meta: "#1e3f5a", google_ads: "#c98a00" };
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
-const nextMonth = () => { const d = new Date(); const n = new Date(d.getFullYear(), d.getMonth() + 1, 1); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
+/** Abre sempre no mês de hoje (a equipe avança para o próximo pela seta quando for planejar). */
+const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const changePct = (now: number | null | undefined, before: number | null | undefined) => (now == null || !before ? null : ((now - before) / Math.abs(before)) * 100);
 const emptyObjectiveParameters = (): Record<Objective, ObjectiveParameters> => ({ vendas: {}, leads: {}, trafego: {}, alcance: {}, retencao: {}, remarketing: {} });
@@ -40,7 +41,7 @@ const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-d
 export default function MediaOn({ canManage, canManageCampaigns = canManage }: { canManage: boolean; canManageCampaigns?: boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
-  const [month, setMonth] = useState(nextMonth);
+  const [month, setMonth] = useState(thisMonth);
   const [objective, setObjective] = useState<Objective>("vendas");
   const [prepare, setPrepare] = useState<PrepareRequest>(null);
   const [googlePrepare, setGooglePrepare] = useState<GooglePrepareRequest>(null);

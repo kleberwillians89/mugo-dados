@@ -71,17 +71,22 @@ function fixedMonthPeriod(year: number, month: number): Period {
   };
 }
 
+/**
+ * Toda vez que o app abre, o período é o mês de hoje (do dia 1º até hoje). A escolha vale só enquanto a aba está
+ * aberta (sessionStorage): fechar e abrir de novo volta para o mês atual, em vez de ficar preso num período antigo.
+ */
 function readStoredPeriod(): Period {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultPeriod();
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* período antigo que ficava salvo para sempre */ }
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return currentMonthPeriod();
     const parsed = JSON.parse(raw) as Partial<Period>;
     const start = String(parsed.start || "").trim();
     const end = String(parsed.end || "").trim();
-    if (!safeDate(start) || !safeDate(end)) return defaultPeriod();
+    if (!safeDate(start) || !safeDate(end)) return currentMonthPeriod();
     return { start, end };
   } catch {
-    return defaultPeriod();
+    return currentMonthPeriod();
   }
 }
 
@@ -106,7 +111,7 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
     };
     setPeriodState(normalized);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     } catch {
       // no-op
     }

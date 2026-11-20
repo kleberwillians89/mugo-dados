@@ -149,6 +149,18 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-clipping":
         from services.studio_clipping import refresh_all
         return await refresh_all()
+    if args.command == "whatsapp-bulk-due":
+        from services.whatsapp_campaign_send import process_due
+        return await process_due()
+    if args.command == "brand-learnings":
+        from services.brand_learnings import run_all as learnings_run
+        return await learnings_run()
+    if args.command == "media-alerts":
+        from services.media_alerts import run_all as alerts_run
+        return await alerts_run()
+    if args.command == "monthly-reports":
+        from services.monthly_report import close_all
+        return await close_all()
     if args.command == "media-strategies-monthly":
         from services.media_monthly import run_monthly as media_monthly
         return await media_monthly(args.client_id, args.month)
@@ -344,6 +356,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("customer-journey", help="Jornada do cliente: une pedidos e conversas por pessoa (cadastro, e-mail, telefone).")
     sub.add_parser("brand-health", help="Saúde da marca: sentimento de comentários/Direct pela IA e alertas de termos sensíveis.")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
+    sub.add_parser("whatsapp-bulk-due", help="Disparo em massa: envia as campanhas da fila (agora ou agendadas) e retoma as que pararam.")
+    sub.add_parser("brand-learnings", help="Ciclo fechado da IA: o que cada post e anúncio rendeu contra a média vira aprendizado.")
+    sub.add_parser("media-alerts", help="Alertas da Mídia On: reprovada, sem entrega, custo alto, fim próximo (vira tarefa).")
+    sub.add_parser("monthly-reports", help="Relatório mensal: fecha o mês anterior como rascunho para a equipe liberar.")
     media_monthly = sub.add_parser(
         "media-strategies-monthly",
         help="Mídia On: gera, no começo do mês, uma estratégia por objetivo para cada empresa (não duplica).",

@@ -560,20 +560,31 @@ async def client_overview(client_id: str, limit: int = 12) -> Dict[str, Any]:
             "primary_text": ad.get("primary_text"), "headline": ad.get("headline"), "link": ad.get("link") or None,
             "creatives": creatives, "state": "desconhecido", "results": None,
         }
+        if account is None:
+            return item
+        # Uma chamada só por campanha: status e números desde o início juntos (rápido para o cliente).
         try:
-            status = await live_delivery_status(client_id, row["id"])
-            effective = str(((status.get("objects") or {}).get("campaign") or {}).get("effective_status") or "").upper()
-            item["state"] = STATE_LABEL.get(effective, "desconhecido")
-        except Exception:  # noqa: BLE001 - sem status, a campanha aparece mesmo assim
-            pass
-        try:
-            r = await live_results(client_id, row["id"], "maximum")
-            item["results"] = {k: r.get(k) for k in ("spend", "reach", "impressions", "link_clicks", "ctr", "results",
-                                                     "result_label", "cost_per_result", "checked_at")}
-        except Exception:  # noqa: BLE001
-            pass
+            body = await _graph("GET", f"/{row['meta_ids']['campaign_id']}", token=account["token"], params={
+                "fields": "effective_status,insights.date_preset(maximum){spend,impressions,reach,clicks,inline_link_clicks,actions}"})
+        except Exception:  # noqa: BLE001 - sem a Meta, a campanha aparece com o criativo e sem números
+            return item
+        item["state"] = STATE_LABEL.get(str(body.get("effective_status") or "").upper(), "desconhecido")
+        line = ((body.get("insights") or {}).get("data") or [{}])[0] or {}
+        spend, impressions = _num(line.get("spend")), _num(line.get("impressions"))
+        actions = {a.get("action_type"): _num(a.get("value")) for a in line.get("actions") or []}
+        wanted = RESULT_ACTIONS.get(payload.get("objective"), ())
+        results = _num(line.get("reach")) if payload.get("objective") == "alcance" else next((actions[k] for k in wanted if k in actions), 0.0)
+        item["results"] = {"spend": round(spend, 2), "reach": int(_num(line.get("reach"))), "impressions": int(impressions),
+                           "link_clicks": int(_num(line.get("inline_link_clicks"))),
+                           "ctr": round(_num(line.get("clicks")) / impressions * 100, 2) if impressions else 0.0,
+                           "results": int(results), "result_label": RESULT_LABEL.get(payload.get("objective"), "Resultados"),
+                           "cost_per_result": round(spend / results, 2) if results else None, "checked_at": _now()}
         return item
 
+    try:
+        account: Optional[Dict[str, str]] = await _ad_account(client_id) if rows else None
+    except StudioError:
+        account = None
     items = await asyncio.gather(*(one(r) for r in rows))
     order = {"no_ar": 0, "em_analise": 1, "com_problema": 2, "pausada": 3}
     items = sorted(items, key=lambda i: order.get(i["state"], 4))

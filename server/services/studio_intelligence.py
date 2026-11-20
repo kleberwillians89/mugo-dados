@@ -8,7 +8,8 @@ IA escreva a partir de fatos da conta e não de clichês:
 * KPIs do período e campanhas que mais venderam (snapshot da Inteligência);
 * posts que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários, salvamentos e
   compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post;
-* anúncio por anúncio (não só a campanha): melhores e piores, com o texto e o título dos criados no Mídia On;
+* anúncio por anúncio nos últimos 12 meses (não só a campanha): melhores e piores, até quando rodaram, e o texto
+  e o título dos criados no Mídia On;
 * melhores dias e horários (posting_times);
 * metas do mês e a última análise salva;
 * aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar;
@@ -191,22 +192,42 @@ async def _posts(client_id: str, days: int) -> Dict[str, Any]:
             "ligados_a_pauta": len(pautas)}
 
 
-async def _paid_creatives(client_id: str, days: int = 60) -> Dict[str, Any]:
-    """Anúncio por anúncio (não só a campanha): o que performou melhor e pior nos últimos dias, com o texto e o
-    título quando o anúncio foi criado no Mídia On."""
+PAID_DAYS = 365
+PAGE = 1000          # o Supabase devolve no máximo 1000 linhas por vez
+MAX_PAGES = 30
+PAID_SECONDS = 8.0     # abaixo do limite de 12 s por fonte
+
+
+async def _paid_creatives(client_id: str, days: int = PAID_DAYS) -> Dict[str, Any]:
+    """Anúncio por anúncio (não só a campanha), nos últimos 12 meses: o que performou melhor e pior, até quando rodou,
+    e o texto e o título quando o anúncio foi criado no Mídia On."""
     since = (datetime.now(SAO_PAULO).date() - timedelta(days=days)).isoformat()
-    rows = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,spend,impressions,clicks,conversions,revenue",
-                           filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"}, limit=5000)
+    rows: List[Dict[str, Any]] = []
+    started = time.monotonic()
+    for page in range(MAX_PAGES):  # mais recentes primeiro: se a conta for enorme, o que fica de fora é o mais antigo
+        if page and time.monotonic() - started > PAID_SECONDS:
+            break  # fica com o que leu (o mais recente) em vez de perder a seção inteira no limite de tempo
+        chunk = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,stat_date,spend,impressions,clicks,conversions,revenue",
+                                filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"},
+                                order="stat_date.desc", limit=PAGE, offset=page * PAGE)
+        rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
     ads: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         ad_id = str(r.get("ad_id") or "")
         if not ad_id:
             continue
         a = ads.setdefault(ad_id, {"anuncio": clean_text(r.get("ad_name"), 120), "campanha": clean_text(r.get("campaign_name"), 120),
-                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0})
+                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0,
+                                   "rodou_de": None, "rodou_ate": None})
         for field, key in (("investimento", "spend"), ("impressoes", "impressions"), ("cliques", "clicks"),
                            ("conversoes", "conversions"), ("receita", "revenue")):
             a[field] += _num(r.get(key)) or 0.0
+        day = str(r.get("stat_date") or "")[:10]
+        if day and (_num(r.get("spend")) or 0) > 0:
+            a["rodou_de"] = min(a["rodou_de"] or day, day)
+            a["rodou_ate"] = max(a["rodou_ate"] or day, day)
     spent = [dict(a, ad_id=k) for k, a in ads.items() if a["investimento"] >= 20]
     if not spent:
         return {}
@@ -236,8 +257,14 @@ async def _paid_creatives(client_id: str, days: int = 60) -> Dict[str, Any]:
         if a["ad_id"] in copies:
             out["criado_no_mugoverso"] = copies[a["ad_id"]]
         return out
-    return {"dias": days, "comparado_por": metric, "anuncios_com_gasto": len(spent),
+    return {"periodo": f"últimos {days} dias", "comparado_por": metric, "anuncios_com_gasto": len(spent),
             "melhores": [view(a) for a in best], "piores": [view(a) for a in worst]}
+
+
+async def _brand_lessons(client_id: str) -> List[Dict[str, Any]]:
+    """Conclusões guardadas pelo ciclo fechado (brand_learnings): o que cada post e anúncio rendeu contra a média."""
+    from .brand_learnings import recent
+    return await recent(client_id)
 
 
 async def _mugo_ad_copies(client_id: str) -> Dict[str, Dict[str, Any]]:
@@ -330,7 +357,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives, brand_lessons) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -354,6 +381,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("biblioteca", gaps, lambda: _library(client_id), {}),
         _safe("whatsapp", gaps, lambda: _whatsapp(client_id), {}),
         _safe("criativos_pagos", gaps, lambda: _paid_creatives(client_id), {}),
+        _safe("aprendizados_da_marca", gaps, lambda: _brand_lessons(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -364,6 +392,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "kpis": snap.get("metricas") or [],
         "campanhas_que_mais_venderam": snap.get("campanhas") or [],
         "criativos_pagos": creatives,
+        "aprendizados_da_marca": brand_lessons,
         "funil_do_site": snap.get("funil_do_site") or {},
         "posts": posts,
         "horarios": timing,
@@ -385,6 +414,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "planos_aprovados": plans,
         "biblioteca": library,
         "lacunas":sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
+        "_client_id": client_id,  # só para o registro de tamanho do contexto; não vai para a IA
     }
     _CACHE[key] = (time.monotonic(), package)
     return package
@@ -675,7 +705,10 @@ async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
 LIBRARY_RULE = ("A BIBLIOTECA dos DADOS é só material da marca (logo, identidade, produto, fotos e vídeos da marca, referências). "
                 "Se tiver o arquivo certo, cite-o pelo nome exato na ideia de imagem para a equipe achar; não invente arquivo "
                 "que não está lá. O que funcionou vem dos posts, anúncios e aprovações, não da Biblioteca.")
-PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
+PLANS_RULE = ("Use os aprendizados_da_marca (o que já funcionou ou não nesta marca) antes de qualquer ideia nova. No 'por que' de "
+              "cada post, pauta ou anúncio, comece com 'Baseado em:' e cite o aprendizado, post ou anúncio dos DADOS que sustenta "
+              "a ideia (ex.: 'Baseado em: Reels de 12/11 com 2,1× o alcance médio'); se for teste sem histórico, diga 'Teste: ...'. "
+              "Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
               "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois. As perguntas reais dos clientes "
               "(seção whatsapp e voz_do_publico) são ponto de partida para pauta, FAQ e objeção a quebrar. Ao usar um trecho de "
               "documento da marca, cite o nome do documento (entre colchetes nos trechos) na justificativa.")
@@ -704,10 +737,13 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
-                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "criativos_pagos", "kpis",
-                "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
-                "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+# Ordem de importância: quando o contexto passa do limite, o FIM da lista é resumido (e, se preciso, omitido) primeiro.
+# Resultado real (aprovações, posts, anúncios) vem logo depois da marca e do que a equipe decidiu; a lista de arquivos
+# da Biblioteca fica por último.
+PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "aprendizados", "aprendizados_da_marca", "posts", "criativos_pagos",
+                "referencias_do_cliente", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia",
+                "kpis", "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes",
+                "clipping", "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas", "biblioteca"]
 
 
 def _shrink(value: Any) -> Any:
@@ -730,6 +766,7 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     cada, de trás para frente) e só então omite; o prompt avisa a IA do que foi resumido ou omitido."""
     order = sections or PROMPT_ORDER
     data = {k: package.get(k) for k in order if package.get(k)}
+    full = len(_dump(data))
     budget = max(200, limit - 220)  # espaço para o aviso
     resumed: List[str] = []
     dropped: List[str] = []
@@ -760,4 +797,8 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     if resumed or dropped:
         data["_aviso"] = {"resumidas": [k for k in resumed if k not in dropped], "omitidas_por_tamanho": dropped}
         text = _dump(data)
+    # Registro para medir se o contexto está sendo cortado em cada marca (só nomes de seção e tamanhos, nada de dado).
+    print(f"[studio][intel][prompt] cliente={package.get('_client_id') or '?'} secoes={len(order)} "
+          f"tamanho_completo={full} enviado={min(len(text), limit)} limite={limit} "
+          f"resumidas={','.join(k for k in resumed if k not in dropped) or '-'} omitidas={','.join(dropped) or '-'}")
     return text[:limit]

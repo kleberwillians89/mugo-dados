@@ -379,6 +379,11 @@ class BulkCampaignDraftIn(BaseModel):
     template_name: str = Field(min_length=3, max_length=81)
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
     provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture)$")
+    header_media_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+class BulkSendIn(BaseModel):
+    scheduled_at: Optional[str] = Field(default=None, max_length=40)
 
 
 @router.get("/campaigns/drafts")
@@ -416,14 +421,40 @@ async def whatsapp_campaign_create_draft(client_id: str, payload: BulkCampaignDr
 
 
 @router.post("/campaigns/drafts/{draft_id}/send")
-async def whatsapp_campaign_send(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
-    """Envia (ou retoma) a campanha para todos os contatos com telefone da origem, menos quem pediu para sair."""
+async def whatsapp_campaign_send(client_id: str, draft_id: str, payload: Optional[BulkSendIn] = None,
+                                 authorization: Optional[str] = Header(None)):
+    """Põe a campanha na fila: agora ou na data agendada. O Relógio dos jobs envia (de 5 em 5 minutos)."""
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
         raise HTTPException(status_code=404, detail="Campanha não encontrada.")
     from services.whatsapp_campaign_send import BulkSendError, start
     try:
-        return {"ok": True, **await start(cid, draft_id)}
+        return {"ok": True, **await start(cid, draft_id, (payload.scheduled_at if payload else None))}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+
+
+@router.post("/campaigns/drafts/{draft_id}/cancel")
+async def whatsapp_campaign_cancel(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, cancel
+    try:
+        return {"ok": True, **await cancel(cid, draft_id)}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+
+
+@router.get("/campaigns/drafts/{draft_id}/report")
+async def whatsapp_campaign_report(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
+    """Depois do envio: responderam e compraram (em até 7 dias), cruzando pelo telefone."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, report
+    try:
+        return {"ok": True, **await report(cid, draft_id)}
     except BulkSendError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from None
 

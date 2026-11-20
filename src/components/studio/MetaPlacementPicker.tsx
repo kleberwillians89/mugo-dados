@@ -1,4 +1,5 @@
 import type { MetaPlacements } from "../../app/metaAds";
+import { DEFAULT_META_PLACEMENTS } from "./metaPlacements";
 
 type Props = { value: MetaPlacements; onChange: (value: MetaPlacements) => void; disabled?: boolean };
 const INSTAGRAM = [
@@ -11,10 +12,6 @@ const FACEBOOK = [
   { key: "story", name: "Stories do Facebook", description: "Tela cheia" },
   { key: "facebook_reels", name: "Reels do Facebook", description: "Vídeos verticais" },
 ] as const;
-export const DEFAULT_META_PLACEMENTS: MetaPlacements = {
-  mode: "automatic", platforms: ["instagram", "facebook"],
-  instagram: ["stream", "story", "reels"], facebook: ["feed", "story", "facebook_reels"],
-};
 export default function MetaPlacementPicker({ value, onChange, disabled }: Props) {
   const p = value || DEFAULT_META_PLACEMENTS;
   const patch = (changes: Partial<MetaPlacements>) => onChange({...p, ...changes});

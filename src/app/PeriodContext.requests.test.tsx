@@ -17,7 +17,7 @@ vi.mock("./goals",()=>({getGoals:vi.fn(async()=>({client_id:"atomic-period-fixtu
 test("PeriodContext real: Dia→7→30→90 em StrictMode faz somente um período final por ação; metas base/full legítimos",async()=>{
   const values=new Map<string,string>();
   vi.stubGlobal("localStorage",{getItem:(key:string)=>values.get(key)||null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)});
-  localStorage.setItem("mugo.period",JSON.stringify({start:"2026-10-06",end:"2026-10-06"}));
+  sessionStorage.setItem("mugo.period",JSON.stringify({start:"2026-10-06",end:"2026-10-06"}));
   const snapshot={daily:[],sources:[],campaigns:[],products:[],fetchedAt:"fixture",queryCount:0} as DashboardSnapshot;
   function ReadComposition(){
     const {period}=usePeriod();
@@ -39,5 +39,5 @@ test("PeriodContext real: Dia→7→30→90 em StrictMode faz somente um períod
   for(const period of periods){
     expect(vi.mocked(getGoals).mock.calls.filter(call=>call[0]===period.start&&call[1]===period.end)).toHaveLength(2);
   }
-  act(()=>root.unmount()); localStorage.removeItem("mugo.period"); vi.unstubAllGlobals();
+  act(()=>root.unmount()); sessionStorage.removeItem("mugo.period"); vi.unstubAllGlobals();
 });

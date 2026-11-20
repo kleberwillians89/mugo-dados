@@ -4,8 +4,10 @@ Decisão da agência (20/11/2026): vai para TODOS os contatos com telefone da or
 registrado. A tela avisa o risco ao número (qualidade/bloqueio pela Meta) antes de enviar. Mesmo assim:
 - quem respondeu SAIR/PARAR/STOP no WhatsApp da marca nunca recebe;
 - o mesmo telefone recebe uma vez por campanha (retomar continua de onde parou, sem reenviar);
-- só templates com até 1 variável ({{1}} = primeiro nome, ou "cliente").
-Telefone nunca aparece na tela nem no log: só o hash fica registrado por destinatário.
+- só templates com até 1 variável ({{1}} = primeiro nome, ou "cliente"); modelo com imagem/vídeo no topo usa o
+  arquivo enviado na campanha.
+O envio NÃO roda no Render: "Enviar" e "Agendar" põem a campanha na fila e o Relógio dos jobs (GitHub Actions, de 5
+em 5 minutos) envia até o fim, mesmo com o Render dormindo. Telefone nunca aparece na tela nem no log: só hashes.
 """
 from __future__ import annotations
 
@@ -26,7 +28,7 @@ CONCURRENCY = 4
 SAVE_EVERY = 25
 STALE_AFTER = timedelta(minutes=20)  # "enviando" sem progresso há mais que isso pode ser retomado
 OPT_OUT = ("sair", "parar", "pare", "stop", "cancelar", "descadastrar", "remover")
-_RUNNING: Set[str] = set()
+HEADER_KINDS = {"IMAGE": "image", "VIDEO": "video", "DOCUMENT": "document"}
 
 
 class BulkSendError(Exception):
@@ -134,39 +136,110 @@ async def _template_variables(client_id: str, name: str, language: str) -> int:
     return int(match.get("variables") or 0)
 
 
-async def start(client_id: str, draft_id: str) -> Dict[str, Any]:
-    """Começa (ou retoma) o envio. Devolve na hora; o envio segue em segundo plano."""
+async def _template(client_id: str, name: str, language: str) -> Dict[str, Any]:
+    from .whatsapp_native import list_templates
+    templates = await list_templates(client_id)
+    match = next((t for t in templates if t.get("name") == name and t.get("language") == language), None)
+    if not match or str(match.get("status") or "").upper() != "APPROVED":
+        raise BulkSendError("O modelo desta campanha não está aprovado na Meta. Escolha outro modelo.")
+    return match
+
+
+def _check_template(template: Dict[str, Any], header_media_url: Optional[str]) -> None:
+    if int(template.get("variables") or 0) > 1:
+        raise BulkSendError("O disparo em massa aceita modelos com até 1 variável ({{1}} vira o primeiro nome). "
+                            "Crie um modelo mais simples na aba Modelos.")
+    if int(template.get("header_variables") or 0) > 0:
+        raise BulkSendError("Este modelo tem variável no título. Use um modelo com título fixo.")
+    if template.get("header") in HEADER_KINDS and not header_media_url:
+        raise BulkSendError("Este modelo tem imagem (ou vídeo) no topo. Envie o arquivo na campanha antes de disparar.")
+
+
+def _iso(value: Any) -> Optional[datetime]:
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+async def start(client_id: str, draft_id: str, scheduled_at: Optional[str] = None) -> Dict[str, Any]:
+    """Põe a campanha na fila (agora ou na data agendada). Quem envia é o job ``whatsapp-bulk-due``."""
     from .whatsapp_native import _active_number, WhatsAppNativeError
     draft = await _draft(client_id, draft_id)
     status = draft.get("status") or "draft"
     if status == "sent":
         raise BulkSendError("Esta campanha já foi enviada para todos.")
-    if draft_id in _RUNNING:
-        raise BulkSendError("Esta campanha já está sendo enviada.", 409)
-    if status == "sending" and draft.get("started_at"):
-        started = datetime.fromisoformat(str(draft["started_at"]).replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) - started < STALE_AFTER:
+    if status == "sending":
+        started = _iso(draft.get("started_at"))
+        if started and datetime.now(timezone.utc) - started < STALE_AFTER:
             raise BulkSendError("Esta campanha já está sendo enviada. Aguarde.", 409)
+    when = _iso(scheduled_at) if scheduled_at else None
+    if scheduled_at and not when:
+        raise BulkSendError("Data de agendamento inválida.")
+    if when and when < datetime.now(timezone.utc) - timedelta(minutes=5):
+        raise BulkSendError("Escolha uma data no futuro para agendar.")
+    if when and when > datetime.now(timezone.utc) + timedelta(days=60):
+        raise BulkSendError("Agende no máximo 60 dias à frente.")
     try:
         await _active_number(client_id, None)
     except WhatsAppNativeError:
         raise BulkSendError("Esta empresa não tem número de WhatsApp ativo no MUGOVERSO para disparar.", 409) from None
-    variables = await _template_variables(client_id, draft["template_name"], draft["language"])
-    if variables > 1:
-        raise BulkSendError("O disparo em massa aceita modelos com até 1 variável ({{1}} vira o primeiro nome). "
-                            "Crie um modelo mais simples na aba Modelos.")
+    _check_template(await _template(client_id, draft["template_name"], draft["language"]), draft.get("header_media_url"))
     people = await recipients(client_id, draft.get("audience_provider") or "all")
     if not people:
         raise BulkSendError("Nenhum contato com telefone nesta origem. Importe os contatos antes.")
     await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, returning="minimal",
-                    patch={"status": "sending", "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None,
+                    patch={"status": "queued", "scheduled_at": when.isoformat() if when else None, "finished_at": None,
                            "recipients_count": len(people), "last_error": None})
-    _RUNNING.add(draft_id)
-    asyncio.create_task(run(client_id, draft, people, variables))
-    return {"status": "sending", "recipients_count": len(people)}
+    return {"status": "queued", "scheduled_at": when.isoformat() if when else None, "recipients_count": len(people)}
 
 
-async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]], variables: int) -> Dict[str, int]:
+async def cancel(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Tira da fila uma campanha agendada que ainda não começou."""
+    rows = await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}", "status": "eq.queued"},
+                           patch={"status": "draft", "scheduled_at": None})
+    if not rows:
+        raise BulkSendError("Só dá para cancelar campanha que ainda está na fila.", 409)
+    return {"status": "draft"}
+
+
+async def process_due(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Job (Relógio dos jobs, de 5 em 5 min): envia as campanhas da fila cujo horário chegou e retoma as que pararam.
+    Cada campanha é "pega" com uma troca de status condicionada (duas execuções não enviam a mesma)."""
+    now = now or datetime.now(timezone.utc)
+    queued = await sb_select(DRAFTS, select="*", limit=20, order="created_at.asc",
+                             filters={"status": "eq.queued", "or": f"(scheduled_at.is.null,scheduled_at.lte.{now.isoformat()})"})
+    stale = await sb_select(DRAFTS, select="*", limit=20, order="started_at.asc",
+                            filters={"status": "eq.sending", "started_at": f"lt.{(now - STALE_AFTER).isoformat()}"})
+    done: List[Dict[str, Any]] = []
+    for draft in queued + stale:
+        claim = {"id": f"eq.{draft['id']}", "status": f"eq.{draft['status']}"}
+        if draft["status"] == "sending":
+            claim["started_at"] = f"eq.{draft['started_at']}"
+        claimed = await sb_update(DRAFTS, filters=claim, patch={"status": "sending", "started_at": now.isoformat()})
+        if not claimed:
+            continue  # outra execução pegou antes
+        client_id = draft["client_id"]
+        try:
+            template = await _template(client_id, draft["template_name"], draft["language"])
+            _check_template(template, draft.get("header_media_url"))
+            people = await recipients(client_id, draft.get("audience_provider") or "all")
+            header = ({"type": HEADER_KINDS[template["header"]], "link": draft["header_media_url"]}
+                      if template.get("header") in HEADER_KINDS else None)
+            counts = await run(client_id, {**draft, "started_at": now.isoformat()}, people, int(template.get("variables") or 0), header)
+            done.append({"draft_id": draft["id"], **counts})
+        except Exception as exc:  # noqa: BLE001 - uma campanha com problema não para as outras
+            await sb_update(DRAFTS, filters={"id": f"eq.{draft['id']}"}, returning="minimal",
+                            patch={"status": "failed" if not isinstance(exc, BulkSendError) else "draft",
+                                   "last_error": (exc.message if isinstance(exc, BulkSendError) else f"Envio parou: {str(exc)[:200]}")[:300],
+                                   "finished_at": datetime.now(timezone.utc).isoformat()})
+            done.append({"draft_id": draft["id"], "error": type(exc).__name__})
+    return {"campaigns": len(done), "results": done}
+
+
+async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]], variables: int,
+              header: Optional[Dict[str, str]] = None) -> Dict[str, int]:
     from .whatsapp_native import WhatsAppNativeError, send_template
     draft_id = str(draft["id"])
     try:
@@ -195,14 +268,16 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
             key = phone_hash(client_id, person["phone"])
             if done.get(key) in ("sent", "skipped"):
                 return
-            row: Dict[str, Any] = {"client_id": client_id, "draft_id": draft_id, "phone_hash": key}
+            from .whatsapp_insights import phone_key
+            row: Dict[str, Any] = {"client_id": client_id, "draft_id": draft_id, "phone_hash": key,
+                                   "phone_key": phone_key("+" + person["phone"], international=True)}
             if person["phone"] in blocked:
                 row["status"] = "skipped"; row["error"] = "Pediu para sair"
             else:
                 try:
                     row["provider_message_id"] = await send_template(
                         client_id, number_id=None, to=person["phone"], template=draft["template_name"],
-                        language=draft["language"], params=[person["name"]] if variables == 1 else [])
+                        language=draft["language"], params=[person["name"]] if variables == 1 else [], header_media=header)
                     row["status"] = "sent"
                 except WhatsAppNativeError as exc:
                     row["status"] = "failed"; row["error"] = str(exc.message)[:300]
@@ -212,7 +287,7 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                     last_error = row["error"]
             if done.get(key) == "failed":
                 await sb_update(SENDS, filters={"draft_id": f"eq.{draft_id}", "phone_hash": f"eq.{key}"},
-                                patch={k: v for k, v in row.items() if k in ("status", "error", "provider_message_id")}, returning="minimal")
+                                patch={k: v for k, v in row.items() if k in ("status", "error", "provider_message_id", "phone_key")}, returning="minimal")
                 counts["failed"] -= 1
             else:
                 await sb_insert(SENDS, row, returning="minimal")
@@ -230,5 +305,36 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                         patch={"status": "partial", "last_error": f"Envio interrompido: {str(exc)[:200]}",
                                "finished_at": datetime.now(timezone.utc).isoformat()})
         raise
-    finally:
-        _RUNNING.discard(draft_id)
+
+
+async def report(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Depois do envio: quantos responderam no WhatsApp e quantos compraram na loja em até 7 dias (pelo telefone)."""
+    draft = await _draft(client_id, draft_id)
+    started = _iso(draft.get("started_at"))
+    if not started or draft.get("status") in ("draft", "queued"):
+        raise BulkSendError("A campanha ainda não foi enviada.", 409)
+    sends = await _pages(SENDS, "phone_key,status", {"draft_id": f"eq.{draft_id}", "status": "eq.sent"}, "created_at.asc")
+    keys = {r["phone_key"] for r in sends if r.get("phone_key")}
+    replied = 0
+    if keys:
+        threads = await _pages("whatsapp_threads", "phone_key,last_inbound_at",
+                               {"client_id": f"eq.{client_id}", "last_inbound_at": f"gte.{started.isoformat()}"}, "last_inbound_at.asc")
+        replied = len({t["phone_key"] for t in threads if t.get("phone_key") in keys})
+    buyers, revenue, orders_count, available = set(), 0.0, 0, True
+    end = min(datetime.now(timezone.utc), started + timedelta(days=7))
+    try:
+        from .whatsapp_insights import _shopify_orders, order_phone_keys
+        orders, _ = await _shopify_orders(client_id, started.isoformat(), end.isoformat())
+        for order in orders:
+            hit = keys.intersection(order_phone_keys(order))
+            if hit:
+                buyers.update(hit)
+                orders_count += 1
+                revenue += float(order.get("value") or 0)
+    except Exception:  # noqa: BLE001 - marca sem Shopify: mostra só envios e respostas
+        available = False
+    sent = int(draft.get("sent_count") or len(sends))
+    return {"sent": sent, "failed": int(draft.get("failed_count") or 0), "skipped": int(draft.get("skipped_count") or 0),
+            "replied": replied, "reply_rate": round(replied / sent * 100, 1) if sent else 0.0,
+            "buyers": len(buyers), "orders": orders_count, "revenue": round(revenue, 2), "sales_available": available,
+            "window": f"{started.date().isoformat()} a {end.date().isoformat()}", "matched_by": "telefone"}

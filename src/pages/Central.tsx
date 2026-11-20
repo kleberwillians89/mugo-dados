@@ -3,6 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { STAGES, STUDIO_FORMATS, getCentral, localParts, type CentralView } from "../app/studio";
 import { navigateToAppRoute, type AppRoute } from "../app/routes";
 import { formatCurrency } from "../app/dataFormat";
+import { isCurrentClientRequest } from "../app/centralSummary";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import AiUsageButton from "../components/studio/AiUsageButton";
@@ -18,31 +19,6 @@ const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const SENT: Record<string, string> = { positivo: "Positiva", neutro: "Neutra", negativo: "Negativa" };
 
-type DashboardSummary = {
-  inProgress: number | null;
-  waitingApproval: number | null;
-  overdue: number | null;
-  completed: number | null;
-  onTime: number | null;
-};
-
-/** Só transforma contagens já existentes; ausência de dado nunca vira zero. */
-export function buildDashboardSummary(view: CentralView | null): DashboardSummary {
-  const tasksAvailable = Boolean(view?.tasks?.available);
-  const counts = view?.calendar?.counts;
-  return {
-    inProgress: tasksAvailable && typeof view?.tasks?.open === "number" ? view.tasks.open : null,
-    waitingApproval: counts ? (counts.revisao_interna ?? 0) + (counts.com_cliente ?? 0) : null,
-    overdue: tasksAvailable && typeof view?.tasks?.late === "number" ? view.tasks.late : null,
-    // O contrato atual da Central não fornece concluídas nem cumprimento de prazo.
-    completed: null,
-    onTime: null,
-  };
-}
-
-export function isCurrentClientRequest(requestClientId: string | null, currentClientId: string | null) {
-  return Boolean(requestClientId && requestClientId === currentClientId);
-}
 
 function Card({ title, route, children, empty }: { title: string; route: AppRoute; children: React.ReactNode; empty?: string | null }) {
   return <section className="centralCard" aria-label={title}>

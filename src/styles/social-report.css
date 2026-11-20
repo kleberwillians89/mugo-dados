@@ -134,3 +134,29 @@
   .srSlide { transform: none !important; }
   .srSlide, .srPhoto, .srCard, .srBarTrack i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Relatório mensal: mídia paga, WhatsApp, vendas e resumo (mesmo formato dos slides de social) */
+.srDeck + .srDeck { margin-top: 20px; }
+.srBizHero { position: absolute; left: 80px; top: 300px; width: 760px; }
+.srBizHero strong { display: block; font-size: 96px; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+.srBizHero strong.is-gold { color: var(--sr-gold); }
+.srBizHero p { margin-top: 10px; font-size: 24px; }
+.srBizCards { position: absolute; left: 80px; top: 470px; width: 760px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.srBizCards .srCard { height: 88px; }
+.srBizList { position: absolute; left: 900px; top: 140px; width: 470px; }
+.srBizList h3 { font-size: 20px; margin-bottom: 12px; color: var(--sr-red); }
+.srBizTable { width: 100%; border-collapse: collapse; font-size: 15px; }
+.srBizTable th { text-align: left; font-size: 12px; color: #555; padding: 6px 4px; border-bottom: 2px solid var(--sr-meta); }
+.srBizTable td { padding: 9px 4px; border-bottom: 1px solid var(--sr-meta); }
+.srBizTable td:first-child { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.srBizHead { margin-top: 10px !important; color: var(--sr-red); font-weight: 700; }
+.srRelease { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; padding: 12px 16px; border-radius: 12px; border: 1px solid #f0d9a8; background: #fff8e8; }
+.srRelease.is-liberado { border-color: #b9dfc6; background: #eef8f1; }
+.srRelease > div { display: grid; gap: 2px; flex: 1 1 260px; }
+.srRelease small { color: #5b6670; }
+@media print { .srRelease { display: none; } }
+.publicReport { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+.publicReportHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.publicReportHead h1 { margin: 2px 0 0; font-size: 26px; }
+.publicReportHead small { color: #5b6670; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; }
+@media print { .publicReportHead { display: none; } .publicReport { padding: 0; max-width: none; } }

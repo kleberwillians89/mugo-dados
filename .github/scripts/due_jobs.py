@@ -51,6 +51,10 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("25 11 * * *", "brand-knowledge-retry"),  # 08:25 em São Paulo: material que a IA não leu volta a ser lido
     ("20 12 1 * *", "brand-profile-monthly"),
     ("40 12 1 * *", "media-strategies-monthly"),  # dia 1, 09:40 em São Paulo: estratégias prontas do mês
+    ("0-59/5 * * * *", "whatsapp-bulk-due"),  # disparo em massa: fila e agendadas (envia até o fim, fora do Render)
+    ("5 11 * * *", "brand-learnings"),  # 08:05 em São Paulo: o que os posts e anúncios renderam vira aprendizado da IA
+    ("33 * * * *", "media-alerts"),  # alertas da Mídia On viram tarefa no Chat de tarefas
+    ("10 13 1 * *", "monthly-reports"),  # dia 1, 10:10 em São Paulo: relatório do mês anterior em rascunho
 ]
 SLOT_MINUTES = 5
 

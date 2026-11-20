@@ -10,7 +10,7 @@ vi.mock("../components/studio/MeetingsStrip", () => ({ default: () => null }));
 vi.mock("../app/media", async (o) => ({ ...(await o<object>()), getPlan: () => Promise.resolve(null) }));
 vi.mock("../app/studio", async (o) => {
   const real = await o<typeof import("../app/studio")>();
-  const now = new Date(); const next = new Date(now.getFullYear(), now.getMonth() + 1, 5, 12);
+  const now = new Date(); const next = new Date(now.getFullYear(), now.getMonth(), 15, 12); // o Calendário abre no mês de hoje
   const month = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
   const item = { id: "i1", client_id: "c1", month, scheduled_at: next.toISOString(), format: "reels", title: "Bastidores", caption: "", status: "rascunho", origin: "manual" };
   return { ...real,
