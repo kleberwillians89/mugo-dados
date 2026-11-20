@@ -677,19 +677,38 @@ async def _imported_ids(client_id: str) -> set:
     return {str((r.get("meta_ids") or {}).get("campaign_id") or "") for r in rows} - {""}
 
 
-async def list_meta_campaigns(client_id: str) -> List[Dict[str, Any]]:
-    """Campanhas da conta de anúncios (sem as apagadas), marcando as que já estão na Mídia On."""
+async def list_meta_campaigns(client_id: str, *, include_finished: bool = False) -> List[Dict[str, Any]]:
+    """Campanhas da conta de anúncios; a visão geral inclui arquivadas e datas de encerramento."""
     account = await _ad_account(client_id)
-    body = await _graph("GET", f"/{account['act']}/campaigns", token=account["token"], params={
-        "fields": "id,name,objective,effective_status,daily_budget,lifetime_budget,created_time", "limit": 50,
-        "effective_status": json.dumps(["ACTIVE", "PAUSED", "IN_PROCESS", "WITH_ISSUES", "CAMPAIGN_PAUSED", "PENDING_REVIEW", "DISAPPROVED"])})
+    statuses = ["ACTIVE", "PAUSED", "IN_PROCESS", "WITH_ISSUES", "CAMPAIGN_PAUSED",
+                "PENDING_REVIEW", "DISAPPROVED"]
+    if include_finished:
+        statuses.append("ARCHIVED")
+    params = {
+        "fields": "id,name,objective,effective_status,daily_budget,lifetime_budget,created_time,stop_time",
+        "limit": 100 if include_finished else 50,
+        "effective_status": json.dumps(statuses),
+    }
     known = await _imported_ids(client_id)
-    out = []
-    for c in body.get("data") or []:
-        budget = _num(c.get("daily_budget")) / 100
-        out.append({"id": str(c["id"]), "name": _text(c.get("name"), 120), "objective": str(c.get("objective") or ""),
-                    "status": str(c.get("effective_status") or ""), "daily_budget": budget or None,
-                    "created_time": c.get("created_time"), "imported": str(c["id"]) in known})
+    out: List[Dict[str, Any]] = []
+    seen_cursors: set[str] = set()
+    # Páginas limitadas evitam consultas infinitas em contas grandes.
+    for _ in range(5 if include_finished else 1):
+        body = await _graph("GET", f"/{account['act']}/campaigns", token=account["token"], params=params)
+        for c in body.get("data") or []:
+            budget = _num(c.get("daily_budget")) / 100
+            out.append({"id": str(c["id"]), "name": _text(c.get("name"), 120),
+                        "objective": str(c.get("objective") or ""),
+                        "status": str(c.get("effective_status") or ""), "daily_budget": budget or None,
+                        "created_time": c.get("created_time"), "stop_time": c.get("stop_time"),
+                        "imported": str(c["id"]) in known})
+        if not include_finished:
+            break
+        cursor = str(((body.get("paging") or {}).get("cursors") or {}).get("after") or "")
+        if not cursor or cursor in seen_cursors or not (body.get("paging") or {}).get("next"):
+            break
+        seen_cursors.add(cursor)
+        params["after"] = cursor
     return out
 
 
